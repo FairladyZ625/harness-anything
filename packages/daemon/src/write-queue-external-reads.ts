@@ -135,6 +135,7 @@ export function readBeforeWriteQueue(
             canonicalRoot: context.rootDir,
             taskId,
             personId: executionBinding.actor.principal.personId,
+            ...(submission?.commitSha ? { submittedCommitSha: submission.commitSha } : {}),
             ...(gitEnvironment ? { env: gitEnvironment } : {}),
             ...(hosting && submission?.commitSha
               ? {

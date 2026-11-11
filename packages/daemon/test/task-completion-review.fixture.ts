@@ -132,6 +132,8 @@ export async function fixture(
   hybridDelivery = false,
   options: {
     readonly autoSubmit?: boolean;
+    /** Keep external hosting mocks in the writer's process when testing publication ordering. */
+    readonly openCell?: typeof openRepoCell;
     readonly commandInterceptions?: import("@harness-anything/kernel").SettingsV1["runtime"]["commandInterceptions"];
     /** Observable cancellation barrier/error injection, without wall-clock sleeps. */
     readonly beforeRuntimeStop?: (launchIndex: number) => Promise<void>;
@@ -212,7 +214,7 @@ export async function fixture(
     failProviderResume = options.failProviderResume === true,
     providerSessionStarted = false;
   const open = () =>
-    openRepoCell({
+    (options.openCell ?? openRepoCell)({
       repoId,
       rootDir: canonicalRoot(root),
       ownerId: "completion-review",

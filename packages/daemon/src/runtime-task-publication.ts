@@ -31,7 +31,7 @@ export async function publishTaskWorkerBranch(
   input: Parameters<typeof pushTaskWorkerBranch>[0] & { readonly pullRequest?: PullRequestInput },
 ): Promise<{
   readonly push: Awaited<ReturnType<typeof pushTaskWorkerBranch>>;
-  readonly pullRequest?: { readonly url: string };
+  readonly pullRequest?: { readonly url: string; readonly headSha: string | null };
 }> {
   const push = await pushTaskWorkerBranch(input);
   if (!push.attempted || !push.ok || !input.pullRequest) return { push };
@@ -40,9 +40,8 @@ export async function publishTaskWorkerBranch(
       throw new Error(
         `The pushed commit differs from the frozen submission; run ha task submit ${input.taskId} --amend first.`,
       );
-    const url = await upsertPullRequest(push.branch, input.pullRequest, input.env);
-    if (url === null) throw new Error(`Hosting has no open pull request for task branch ${push.branch}.`);
-    return { push, pullRequest: { url } };
+    const pullRequest = await publishTaskPullRequest(push.branch, input.pullRequest, input.env);
+    return { push, pullRequest };
   } catch (error) {
     const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
     throw Object.assign(
@@ -54,12 +53,12 @@ export async function publishTaskWorkerBranch(
   }
 }
 
-async function upsertPullRequest(
+/** Publish the hosted read surface after the owning node has pushed its fenced task branch. */
+export async function publishTaskPullRequest(
   branch: string,
   input: PullRequestInput,
   env?: NodeJS.ProcessEnv,
-  create = true,
-): Promise<string | null> {
+): Promise<{ readonly url: string; readonly headSha: string | null }> {
   const github = input.hosting.kind === "github",
     token = github
       ? (env?.GH_TOKEN ?? env?.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN)
@@ -124,7 +123,6 @@ async function upsertPullRequest(
   let existing = await find(),
     result: unknown;
   if (existing) result = await update(existing);
-  else if (!create) return null;
   else {
     const created = await request(collection, "POST", {
       title: input.title ?? input.taskTitle,
@@ -141,17 +139,14 @@ async function upsertPullRequest(
   }
   const url = isJsonObject(result) ? result[github ? "html_url" : "web_url"] : undefined;
   if (typeof url !== "string") throw new Error("Hosting pull request response has no URL.");
-  return url;
-}
-
-/**
- * Refresh an existing open PR body from the frozen submission without pushing or creating a PR.
- * Submit uses this after it freezes a cut; the push path keeps `create = true` for first publication.
- */
-export async function updateTaskPullRequestBody(
-  input: PullRequestInput & { readonly branch: string; readonly env?: NodeJS.ProcessEnv },
-): Promise<string | null> {
-  return upsertPullRequest(input.branch, input, input.env, false);
+  const head = isJsonObject(result)
+    ? github
+      ? isJsonObject(result.head)
+        ? result.head.sha
+        : null
+      : result.sha
+    : null;
+  return { url, headSha: typeof head === "string" ? head : null };
 }
 
 /** Refresh only the marked machine facts; an edited or marker-less body keeps its authored text. */

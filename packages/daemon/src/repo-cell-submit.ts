@@ -41,10 +41,11 @@ import { isReviewerDispatch, readTaskLineageDispatches } from "./dispatch-read.t
 import { assessTaskRiskTier, type TaskRiskTierScriptInput } from "./task-risk-tier.ts";
 import { assertNoIgnoredLedgerDelivery } from "./ignored-ledger-delivery.ts";
 import { assertOldDataCopyReceipt, oldDataCopyReceiptPath } from "./submit-old-data-copy.ts";
-import { detectHostingProvider, publishesPublicPullRequest } from "./hosting-provider.ts";
-import { updateTaskPullRequestBody } from "./runtime-task-publication.ts";
-import { taskPrBodyRenderer } from "./task-pr-body-render.ts";
+import { publishesPublicPullRequest } from "./hosting-provider.ts";
+import { publishSubmittedCut } from "./submitted-cut-publication.ts";
 import { scrubProviderValue } from "./dispatch-stream.ts";
+import { taskExecutionPlacement } from "./task-execution-placement.ts";
+import { taskPrBodyRenderer } from "./task-pr-body-render.ts";
 
 /** Git resolves the empty-tree object id virtually; it exists in every repository. */
 const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
@@ -753,6 +754,47 @@ async function submittedCutReview(
   binding: RepoCellBinding,
   receipt: WriteReceiptDraft,
 ): Promise<{ readonly steps: readonly WriteReceiptDraft[]; readonly warnings: readonly string[] }> {
+  const { snapshot } = await cell.service.read(taskId),
+    execution = snapshot.executions.find(
+      (value) => value.iteration === snapshot.task?.iteration && value.state === "submitted",
+    );
+  if (
+    snapshot.task?.status === "in_review" &&
+    execution?.submission &&
+    taskExecutionPlacement(cell, taskId, execution.executionId).kind === "local"
+  ) {
+    try {
+      const worktree = taskWorktreeBinding(snapshot.task, presetSnapshotReader(cell.projection)),
+        instanceId = binding.executionPrincipal
+          ? cell.projection.readRuntimeDispatch(binding.executionPrincipal.runtimeSessionId)?.payload.instanceId
+          : undefined,
+        renderBody = taskPrBodyRenderer({
+          rootDir: cell.rootDir,
+          projection: cell.projection,
+          taskId,
+          submission: execution.submission,
+        });
+      await publishSubmittedCut({
+        rootDir: cell.rootDir,
+        repoId: cell.input.repoId,
+        taskId,
+        taskTitle: snapshot.task.title,
+        submission: execution.submission,
+        workerRoot: worktree ? path.join(cell.rootDir, worktree.path) : null,
+        personId: binding.actor.principal.personId,
+        ...(typeof instanceId === "string" ? { instanceId } : {}),
+        prepareDaemonGitEnvironment: cell.input.prepareDaemonGitEnvironment,
+        ...(renderBody ? { renderBody } : {}),
+      });
+    } catch (error) {
+      const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512),
+        warning = `The cut is frozen, but publication failed before review: ${detail} Retry: ha task submit ${taskId} --amend.`;
+      return {
+        steps: [cell.failed(receipt.opId, error)],
+        warnings: [warning],
+      };
+    }
+  }
   // The review is a new repository dispatch, not a write by the implementation execution that
   // just submitted. A returned worker's execution credential can be at its terminal boundary by
   // the time this post-write hook runs; carrying it into reviewer admission makes a durable submit
@@ -767,50 +809,6 @@ async function submittedCutReview(
       receipt,
     );
   return dispatched ? { steps: [dispatched.step], warnings: dispatched.warnings } : { steps: [], warnings: [] };
-}
-
-/**
- * Post-freeze, best-effort PR-body refresh. The cut is already recorded when this runs, and it
- * reuses the one update-only publication path: no push, create, or other hosting mutation. No
- * open PR, no hosting provider, or no daemon-held credential is a complete no-op. A real hosting
- * failure becomes a receipt warning with the `ha task push` recovery lane; it never changes the
- * submit outcome.
- */
-export async function refreshSubmittedPullRequest(
-  cell: RepoCellOperationalContext,
-  taskId: string,
-  submission: SubmissionV1,
-  binding: RepoCellBinding,
-): Promise<string | null> {
-  if (submission.commitSha === null) return null;
-  try {
-    const hosting = await detectHostingProvider(cell.rootDir, undefined, true);
-    if (!hosting) return null;
-    const instanceId = binding.executionPrincipal
-      ? cell.projection.readRuntimeDispatch(binding.executionPrincipal.runtimeSessionId)?.payload.instanceId
-      : undefined;
-    if (typeof instanceId !== "string") return null;
-    const env = await cell.input.prepareDaemonGitEnvironment?.(instanceId, hosting.kind, cell.input.repoId);
-    if (!env) return null;
-    const renderBody = taskPrBodyRenderer({
-      rootDir: cell.rootDir,
-      projection: cell.projection,
-      taskId,
-      submission,
-    });
-    await updateTaskPullRequestBody({
-      hosting,
-      branch: taskId,
-      taskTitle: cell.projection.read(taskId).snapshot.task?.title ?? taskId,
-      submission,
-      env,
-      ...(renderBody ? { renderBody } : {}),
-    });
-    return null;
-  } catch (error) {
-    const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
-    return `PR body refresh failed: ${detail} Retry: ha task push ${taskId}.`;
-  }
 }
 
 export async function submitTask(
@@ -920,16 +918,9 @@ export async function submitTask(
       binding,
     );
     if (receipt.outcome !== "applied") return receipt;
-    const submitted = (await cell.service.read(taskId)).snapshot.executions.find(
-        (execution) => execution.executionId === executionId,
-      )?.submission,
-      executor = await autoDeclareSubmittedExecutor(cell, taskId, executionId, binding);
+    const executor = await autoDeclareSubmittedExecutor(cell, taskId, executionId, binding);
     const review = await submittedCutReview(cell, taskId, action, binding, receipt);
-    // The cut is already frozen. Refresh is a best-effort follow-up: no open PR, no hosting, or a
-    // failed call leaves the submit receipt's outcome and steps untouched; only a named warning
-    // and the `ha task push` recovery lane remain.
-    const refreshWarning = submitted ? await refreshSubmittedPullRequest(cell, taskId, submitted, binding) : null;
-    const warnings = [...(receipt.warnings ?? []), ...review.warnings, ...(refreshWarning ? [refreshWarning] : [])];
+    const warnings = [...(receipt.warnings ?? []), ...review.warnings];
     return {
       ...receipt,
       ...(warnings.length ? { warnings } : {}),
@@ -1046,9 +1037,7 @@ export async function submitTask(
   if (receipt.outcome !== "applied") return receipt;
   const executor = await autoDeclareSubmittedExecutor(cell, taskId, executionId, binding),
     review = await submittedCutReview(cell, taskId, action, binding, receipt);
-  // Same post-freeze, best-effort refresh as the carried-document path.
-  const refreshWarning = await refreshSubmittedPullRequest(cell, taskId, submission, binding),
-    warnings = [...anchorDriftWarnings, ...review.warnings, ...(refreshWarning ? [refreshWarning] : [])];
+  const warnings = [...anchorDriftWarnings, ...review.warnings];
   return {
     ...receipt,
     ...(submission.riskTierAssessment ? { riskTierAssessment: submission.riskTierAssessment } : {}),

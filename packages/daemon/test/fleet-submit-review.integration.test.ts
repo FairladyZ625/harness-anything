@@ -1,7 +1,8 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -10,12 +11,13 @@ import { readFleetOperationalClient } from "../src/fleet/peer.ts";
 import { openNodeAutoDispatchLoop, parseNodeAutoDispatchSnapshot } from "../src/node-auto-dispatch.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
-import { fleetFixture, initRepo, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
+import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 import { definition, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
+import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 
 test(
   "an edge worker credential submits its cut and automatically dispatches its reviewer",
@@ -449,5 +451,265 @@ test(
     });
     assert.ok(review, "the production replica confirmation callback must dispatch a reviewer");
     assert.deepEqual(review?.source, { kind: "node", nodeId: "node-one" });
+  },
+);
+
+test(
+  "hosted edge automatic review publishes and confirms its frozen PR head before launch",
+  { timeout: 90_000 },
+  async (t) => {
+    const installation = {
+      installationId: definition.installationId,
+      kindId: definition.kindId,
+      executablePath: "/fixture/reviewer",
+      version: "1.0.0",
+      observedAt: "2026-11-07T00:00:00.000Z",
+    };
+    const f = await fleetFixture(t, ["tasks", "agents"], [installation], "local", undefined, undefined, false);
+    const { repoId, nodeId } = f.subject,
+      taskId = "task-hosted-edge-review",
+      remote = path.join(f.root, "origin.git"),
+      edgeRoot = path.join(f.root, "hosted-edge"),
+      viewRoot = path.join(f.root, "hosted-view");
+    git(f.repo, "branch", "-M", "main");
+    git(f.repo, "init", "--bare", "-q", "--initial-branch=main", remote);
+    git(f.repo, "remote", "add", "origin", pathToFileURL(remote).href);
+    git(f.repo, "push", "-qu", "origin", "main");
+    git(f.repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
+    git(f.root, "clone", "-q", pathToFileURL(remote).href, edgeRoot);
+    git(edgeRoot, "config", "user.name", "Fleet Test");
+    git(edgeRoot, "config", "user.email", "fleet@example.invalid");
+    const previous = git(edgeRoot, "rev-parse", "HEAD");
+    await registerFixtureRuntimeInstance(f.host, repoId, localAuthFixture(), {
+      instanceId: definition.instanceId,
+      name: "Hosted edge review",
+      kindId: definition.kindId,
+      installationId: definition.installationId,
+      providerId: definition.providerId,
+      models: [definition.model],
+      authMode: definition.authMode,
+    });
+    assert.equal(
+      (
+        await f.host.run(
+          repoId,
+          {
+            kind: "agent-install",
+            declaration: {
+              schema: "agent-declaration/v1",
+              id: "closeout-reviewer",
+              name: "Edge reviewer",
+              instructions: "Review the frozen delivery.",
+              role: "reviewer",
+              runtimes: [{ type: "codex", model: definition.model }],
+              instance: definition.instanceId,
+            },
+          },
+          localAuthFixture(),
+        )
+      ).outcome,
+      "applied",
+    );
+    const created = await f.host.run(
+      repoId,
+      { kind: "task-create", taskId, title: "Hosted edge review", presetId: "standard-task" },
+      f.auth,
+    );
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFleetPublication(f.host, repoId, created.opId, f.auth);
+    const packagePath = String(created.packagePath);
+    await realizeTaskPlanFixture(f.repo, packagePath, (planPath) =>
+      f.host.run(repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
+    );
+    assert.equal((await f.host.run(repoId, { kind: "task-start", taskId }, f.auth)).outcome, "applied");
+    const center = await f.center(),
+      channel = {
+        host: "127.0.0.1",
+        port: center.port,
+        caPath: f.certFile,
+        nodeId,
+        credential: "machine-secret",
+        principalId: "person-owner",
+        repoId,
+        viewRoot,
+        quotaBytes: 64 * 1024 * 1024,
+        workspaceRoot: edgeRoot,
+      },
+      readAccessToken = f.owners.readAccessToken(nodeId),
+      replica = {
+        readAccessToken,
+        port: center.port,
+        ca: f.cert,
+        nodeId,
+        credential: "machine-secret",
+        principalId: "person-owner",
+        repoId,
+        viewRoot,
+        diskQuotaBytes: channel.quotaBytes,
+      };
+    await catchUpReplica(replica);
+    assert.equal(applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull").outcome, "applied");
+    const sync = startResidentReplicaSync(replica);
+    t.after(() => sync.close());
+    let credential: string | undefined,
+      frozen = "",
+      visibleHead = previous,
+      prExists = false,
+      reviewerStarts = 0;
+    const order: string[] = [],
+      observed: { frozen: string; branchHead: string; prHead: string }[] = [];
+    const realFetch = globalThis.fetch;
+    t.mock.method(globalThis, "fetch", async (url: string | URL, options: RequestInit = {}) => {
+      if (!String(url).startsWith("https://api.github.com/")) return realFetch(url, options);
+      const method = options.method ?? "GET";
+      if (!String(url).includes("/pulls")) return Response.json({ default_branch: "main" });
+      order.push(`hosting:${method}:${visibleHead}`);
+      const pr = { number: 42, html_url: "https://github.com/acme/repo/pull/42", head: { sha: visibleHead } };
+      if (method === "GET" && !String(url).endsWith("/42")) return Response.json(prExists ? [pr] : []);
+      prExists = true;
+      return Response.json(pr);
+    });
+    const runtime = openFleetEdgeRuntime({
+      readBinding: () => f.owners.binding(nodeId),
+      readAccessToken: f.owners.readAccessToken(nodeId),
+      controlBinding: () => f.owners.binding(nodeId),
+      request: { ...channel, method: "repo.agentRuntime.spawn", action: {} },
+      daemonGeneration: 1,
+      daemonRoute: {
+        userRoot: path.join(f.root, "edge-user"),
+        daemonId: "hosted-edge",
+        endpoint: path.join(f.root, "edge.sock"),
+      },
+      ports: {
+        ...scheduleRuntimePorts(),
+        prepareDaemonGitEnvironment: async () => ({ GH_TOKEN: "fixture-hosting-token" }),
+      },
+      launch: (prepared) => {
+        if (credential === undefined) credential = prepared.env.HARNESS_EXECUTION_CREDENTIAL;
+        else {
+          reviewerStarts++;
+          const heads = { frozen, branchHead: git(remote, "rev-parse", `refs/heads/${taskId}`), prHead: visibleHead };
+          observed.push(heads);
+          order.push(`review:${visibleHead}`);
+          console.log("[edge-review-launch-head]", JSON.stringify(heads));
+        }
+        return {
+          pid: process.pid,
+          onOutput: () => undefined,
+          onErrorOutput: () => undefined,
+          onExit: () => undefined,
+          terminate: () => undefined,
+        };
+      },
+    });
+    t.after(() => runtime.close());
+    const worker = await runtime.run("repo.agentRuntime.spawn", {
+      taskId,
+      runtimeInstanceId: definition.instanceId,
+      prompt: "Implement the delivery.",
+      dispatchKey: "hosted-edge-worker",
+    });
+    assert.equal(worker.outcome, "applied", JSON.stringify(worker));
+    assert.ok(credential);
+    const workerRoot = path.join(edgeRoot, ".worktrees", taskId);
+    writeFileSync(path.join(workerRoot, "delivery.txt"), "edge frozen delivery\n");
+    git(workerRoot, "add", "delivery.txt");
+    git(workerRoot, "commit", "-qm", "feat: edge delivery");
+    frozen = git(workerRoot, "rev-parse", "HEAD");
+    writeFileSync(
+      path.join(edgeRoot, "harness", packagePath, "closeout.md"),
+      "## Summary\nHosted edge delivery.\n## Verification\nFrozen head verified.\n## 摘要\n边缘交付。\n## 验证\n冻结head。\n",
+    );
+    // Hosting is a local fixture declaration; all Git traffic stays on the private file remote.
+    for (const root of [f.repo, edgeRoot]) {
+      const config = path.join(root, "harness", "harness.yaml");
+      writeFileSync(
+        config,
+        readFileSync(config, "utf8").replace(
+          "settings:\n",
+          "settings:\n  hosting:\n    provider: github\n    host: github.com\n",
+        ),
+      );
+    }
+    const submitted = await runFleetEdgeTask(
+      { payload: { ...channel, executionCredential: credential, action: { kind: "task-submit", taskId } } },
+      readAccessToken,
+    );
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    assert.equal(
+      git(remote, "rev-parse", `refs/heads/${taskId}`),
+      frozen,
+      "the holder/CAS path already published the exact Git ref",
+    );
+    assert.equal(prExists, false, "the node still needs to create its hosted PR before review");
+    const persistFailure = async (failure: Record<string, string> | null) => {
+      const receipt = await runFleetEdgeTask(
+        {
+          payload: {
+            ...channel,
+            action: {
+              kind: "task-amend",
+              taskId,
+              patches: [{ field: "reviewDispatchFailure", value: JSON.stringify(failure) }],
+            },
+          },
+        },
+        readAccessToken,
+        "domain",
+      );
+      assert.ok(["applied", "no_changes"].includes(String(receipt.outcome)), JSON.stringify(receipt));
+    };
+    const loop = openNodeAutoDispatchLoop({
+      read: async (signal) =>
+        parseNodeAutoDispatchSnapshot(
+          await readFleetOperationalClient({
+            hostname: channel.host,
+            port: center.port,
+            ca: f.cert,
+            nodeId,
+            credential: channel.credential,
+            repoId,
+            readAccessToken,
+            method: "repo.tasks.autoDispatchCandidates",
+            payload: {},
+            connectionSignal: signal,
+          }),
+        ).candidates,
+      spawn: async (candidate, signal) => {
+        assert.equal(candidate.requiredNodeId, nodeId);
+        const receipt = await runtime.run("repo.agentRuntime.spawn", candidate.payload, signal);
+        assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      },
+      onFailure: async (candidate, error) => {
+        assert.equal((error as { readonly code?: string }).code, "delivery_publish_failed");
+        order.push("publication:failed");
+        await persistFailure({
+          executionId: candidate.executionId,
+          dispatchKey: candidate.dispatchKey,
+          code: "delivery_publish_failed",
+          message: "The hosted head does not match the frozen cut; the owner must explicitly retry.",
+          failedAt: new Date().toISOString(),
+        });
+      },
+      onSuccess: () => persistFailure(null),
+    });
+    t.after(() => loop.close());
+    await assert.rejects(loop.trigger("edge-submit-stale-head"), /PR head.*does not match the frozen delivery/u);
+    assert.equal(reviewerStarts, 0, "a stale hosted head must not launch any reviewer");
+    assert.equal(prExists, true, "the first node review creates its PR before validating its head");
+    visibleHead = frozen;
+    const staleOrder = [...order];
+    await loop.trigger("replica-changed");
+    assert.deepEqual(order, staleOrder, "durable failure prevents automatic hosting retries even after head changes");
+    assert.equal(reviewerStarts, 0);
+    const retry = await f.host.run(repoId, { kind: "task-dispatch-review", taskIds: [taskId] }, f.auth);
+    assert.equal(retry.outcome, "pending", JSON.stringify(retry));
+    await loop.trigger("explicit-owner-retry");
+    assert.equal(reviewerStarts, 1);
+    assert.deepEqual(observed, [{ frozen, branchHead: frozen, prHead: frozen }]);
+    assert.equal(order.at(-1), `review:${frozen}`);
+    await loop.trigger("duplicate-confirmation");
+    assert.equal(reviewerStarts, 1, "the same frozen cut launches only once");
+    console.log("[edge-publication-order]", JSON.stringify(order));
   },
 );

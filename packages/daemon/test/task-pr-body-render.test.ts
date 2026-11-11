@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import type { SubmissionV1, TaskProjectionQueries } from "@harness-anything/kernel";
 import { checkPrGovernance } from "../../../tools/check-pr-governance.mjs";
-import { publishTaskWorkerBranch, updateTaskPullRequestBody } from "../src/runtime-task-publication.ts";
+import { publishTaskWorkerBranch } from "../src/runtime-task-publication.ts";
 import { taskPrBodyRenderer } from "../src/task-pr-body-render.ts";
 import {
   git,
@@ -226,14 +226,12 @@ test("an update re-renders the existing body instead of replacing authored prose
   });
 
   assert.equal(
-    await updateTaskPullRequestBody({
-      hosting: { kind: "github", host: "github.com", repository: "acme/repo" },
-      branch: taskId,
-      taskTitle: "Delivered task",
-      submission: updated,
-      env: { GH_TOKEN: "daemon-only-fixture" },
-      renderBody: renderUpdatedBody,
-    }),
+    (
+      await publishTaskWorkerBranch({
+        ...hostingInput(fixture, updated),
+        pullRequest: { ...hostingInput(fixture, updated).pullRequest, renderBody: renderUpdatedBody },
+      })
+    ).pullRequest?.url,
     "https://github.com/acme/repo/pull/42",
   );
   assert.equal(patches.length, 1, "the update path patches rather than recreates");
@@ -272,13 +270,9 @@ test("a marker-less template-shaped existing body gains governance while preserv
     return Response.json(existing);
   });
 
-  await updateTaskPullRequestBody({
-    hosting: { kind: "github", host: "github.com", repository: "acme/repo" },
-    branch: taskId,
-    taskTitle: "Delivered task",
-    submission: frozen,
-    env: { GH_TOKEN: "daemon-only-fixture" },
-    renderBody,
+  await publishTaskWorkerBranch({
+    ...hostingInput(fixture, frozen),
+    pullRequest: { ...hostingInput(fixture, frozen).pullRequest, renderBody },
   });
   assert.equal(patches.length, 1, "the marker-less body is patched, not recreated");
   assert.match(patches[0]!.body, /Legacy summary stays\./u, "the authored prose survives");
@@ -329,14 +323,10 @@ test("a marked custom existing body is migrated before rendering and remains saf
   });
 
   const input = {
-    hosting: { kind: "github" as const, host: "github.com", repository: "acme/repo" },
-    branch: taskId,
-    taskTitle: "Delivered task",
-    submission: frozen,
-    env: { GH_TOKEN: "daemon-only-fixture" },
-    renderBody,
+    ...hostingInput(fixture, frozen),
+    pullRequest: { ...hostingInput(fixture, frozen).pullRequest, renderBody },
   };
-  await updateTaskPullRequestBody(input);
+  await publishTaskWorkerBranch(input);
   assert.equal(patches.length, 1, "the custom marked body is migrated with one update");
   const migrated = patches[0]!.body;
   assert.match(migrated, /Authored summary stays\./u, "authored prose survives migration");
@@ -356,7 +346,7 @@ test("a marked custom existing body is migrated before rendering and remains saf
     "the migrated protected cut passes governance lint",
   );
 
-  await updateTaskPullRequestBody(input);
+  await publishTaskWorkerBranch(input);
   assert.equal(patches.length, 2, "a second refresh remains a successful update after migration");
   const refreshed = patches[1]!.body;
   assert.equal(
@@ -392,13 +382,9 @@ test("an arbitrary marker-less existing body is preserved verbatim in the render
     return Response.json(existing);
   });
 
-  await updateTaskPullRequestBody({
-    hosting: { kind: "github", host: "github.com", repository: "acme/repo" },
-    branch: taskId,
-    taskTitle: "Delivered task",
-    submission: frozen,
-    env: { GH_TOKEN: "daemon-only-fixture" },
-    renderBody,
+  await publishTaskWorkerBranch({
+    ...hostingInput(fixture, frozen),
+    pullRequest: { ...hostingInput(fixture, frozen).pullRequest, renderBody },
   });
   assert.equal(patches.length, 1);
   assert.match(patches[0]!.body, /^## Legacy Authored Body \(preserved\)$/mu);
