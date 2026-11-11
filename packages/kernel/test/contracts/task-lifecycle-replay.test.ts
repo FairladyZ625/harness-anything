@@ -16,6 +16,10 @@ import {
   type TaskLifecycleSnapshot,
 } from "../../src/index.ts";
 import { lifecycleFixture, implementer, reviewer, twoRoundLifecycleEvents } from "../store/task-lifecycle-fixture.ts";
+import {
+  reviewResponseSubmissionIssues,
+  submitExecutionStateIssues,
+} from "../../src/domain/task-lifecycle-command-transitions.ts";
 import { submissionDigest } from "../../src/domain/execution.ts";
 import { completionEvidenceBasis } from "../../src/domain/completion-evidence.ts";
 import { closeoutReadiness } from "../../src/domain/closeout-readiness.ts";
@@ -805,6 +809,13 @@ test("blocking task findings require one response before the next submit", () =>
       },
     );
 
+  assert.deepEqual(submitExecutionStateIssues(started.snapshot, { executionId: thirdExecutionId }), []);
+  assert.deepEqual(reviewResponseSubmissionIssues(started.snapshot, started.snapshot.reviewResponses), [
+    {
+      code: "invalid_submission",
+      message: "submission must include exactly one response for blocking finding review-blocking-finding/F-1",
+    },
+  ]);
   assert.throws(
     () =>
       applyTransition(

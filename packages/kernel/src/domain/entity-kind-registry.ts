@@ -946,7 +946,33 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     relations: relationsFor("task"),
     canonicalProjection: null,
     stateStores: stateStoresForKind("task"),
+    judgments: [{
+      id: "submit-validation",
+      symbol: "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#validateSubmitExecution",
+      inputs: ["TaskLifecycleSnapshot", "SubmitExecutionCommand", "SubmitExecutionProof"],
+      output: "ContractValidationIssue[]",
+      failureCodes: ["invalid_transition", "invalid_proof", "invalid_submission"],
+      explain: "Submission admission belongs to the task aggregate; the daemon evaluates its snapshot-only checks before delivery preparation.",
+      consumers: ["packages/kernel/src/domain/task-lifecycle-command-transitions.ts"],
+      sources: [{
+        candidateId: "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-command-transitions.ts#validateSubmitExecution:10b201310af5449294f8c4687cbf7b35",
+        route: "submitTask → shared snapshot checks; applyTransition → submit.validate → validateSubmitExecution",
+      }],
+    }],
     policies: [{
+      id: "submit-lease-proof", ownerRef: "task", unit: "SubmitExecution proof",
+      bounds: "A normal submit owns the held execution lease and source; an amendment binds the unleased submitted execution. Session disposition is complete, partial or unavailable.",
+      defaultValue: null, version: 1, scope: "task submission and amendment authority",
+      reason: "The existing aggregate proof checks stay authoritative when snapshot admission runs before delivery preparation.",
+      fixtures: ["packages/kernel/test/contracts/task-lifecycle-replay.test.ts", "packages/daemon/test/closeout-submit-holder.integration.test.ts"],
+      sources: [{
+        candidateId: "policy:packages/kernel:packages/kernel/src/domain/task-lifecycle-command-transitions.ts#validateSubmitExecution:25667664434e5d90dece2184f84e0396",
+        route: "submit.validate → validateSubmitExecution amendment proof",
+      }, {
+        candidateId: "policy:packages/kernel:packages/kernel/src/domain/task-lifecycle-command-transitions.ts#validateSubmitExecution:580d7b6b06944f3f6414ed1fd48d0e8d",
+        route: "submit.validate → validateSubmitExecution active lease proof",
+      }],
+    }, {
       id: "mutation-event-vocabulary", ownerRef: "task", unit: "task-event/v1 discriminator",
       bounds: "Only audit commands release/amend/archive/supersede/delete/reopen/contract-migrate select their matching declared event type.",
       defaultValue: null, version: 1, scope: "task aggregate mutation drafts",
