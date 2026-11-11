@@ -153,9 +153,17 @@ test("edge repository and GUI write RPCs reach the same center command port", { 
   const beforeUnconfigured = f.eventCount();
   const unconfiguredWrite = () =>
     unconfigured.host.run("lease-repo", { kind: "agent-install", declaration }, localAuthFixture());
-  assert.equal((await unconfiguredWrite()).code, "repo_mode_read_only", "registration alone never enables forwarding");
+  assert.equal(
+    (await unconfiguredWrite()).code,
+    "fleet_edge_config_invalid",
+    "a registered edge requires its configuration",
+  );
   writeFleetEdgeConfig(unconfigured.edgeRoot, { ...unconfigured.config, repoId: "different-repository" });
-  assert.equal((await unconfiguredWrite()).code, "repo_mode_read_only", "config cannot forward another namespace");
+  assert.equal(
+    (await unconfiguredWrite()).code,
+    "fleet_edge_config_invalid",
+    "config cannot forward another namespace",
+  );
   assert.equal(f.eventCount(), beforeUnconfigured);
 });
 

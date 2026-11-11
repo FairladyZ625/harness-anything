@@ -920,7 +920,7 @@ test("repository modes close local, center-assignment, and edge command families
     assert.equal((await host.run("edge", { kind: "task-list" }, auth)).code, "replica_unavailable");
     assert.equal(
       (await host.run("edge", { kind: "task-create", taskId: "task-edge", title: "Edge" }, auth)).code,
-      "repo_mode_read_only",
+      "fleet_edge_config_invalid",
     );
     assert.equal((await host.run("edge", { kind: "projection-rebuild" }, auth)).code, "repo_mode_read_only");
   } finally {
@@ -959,7 +959,7 @@ test("registry mode is authoritative before refresh and refresh replaces a drift
       auth,
     );
     assert.equal(denied.outcome, "op_rejected");
-    assert.equal(denied.code, "repo_mode_read_only");
+    assert.equal(denied.code, "fleet_edge_config_invalid");
     const refresh = await host.requestControl({ kind: "refresh", authorityRepoId: "mode-refresh" }, auth);
     assert.equal(refresh.outcome, "pending");
     const settled = await waitControl(host, refresh.operationId);
