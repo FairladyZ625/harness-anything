@@ -138,7 +138,13 @@ async function upsertPullRequest(
   }
   const url = isJsonObject(result) ? result[github ? "html_url" : "web_url"] : undefined;
   if (typeof url !== "string") throw new Error("Hosting pull request response has no URL.");
-  const head = isJsonObject(result) ? (github && isJsonObject(result.head) ? result.head.sha : result.sha) : null;
+  const head = isJsonObject(result)
+    ? github
+      ? isJsonObject(result.head)
+        ? result.head.sha
+        : null
+      : result.sha
+    : null;
   return { url, headSha: typeof head === "string" ? head : null };
 }
 

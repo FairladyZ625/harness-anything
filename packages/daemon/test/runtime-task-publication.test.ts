@@ -124,6 +124,20 @@ function publicationFixture(context: Parameters<typeof workerGitFixture>[0], slu
   };
 }
 
+test("GitHub publication requires head.sha rather than a top-level sha", async (context) => {
+  const { input } = publicationFixture(context, "publication-head-schema");
+  context.mock.method(globalThis, "fetch", async (url: string | URL, options: RequestInit = {}) => {
+    if (!String(url).includes("/pulls")) return Response.json({ default_branch: "main" });
+    if (options.method === "GET") return Response.json([]);
+    return Response.json({
+      number: 42,
+      html_url: "https://github.com/acme/repo/pull/42",
+      sha: input.submittedCommitSha,
+    });
+  });
+  assert.equal((await publishTaskWorkerBranch(input)).pullRequest?.headSha, null);
+});
+
 test("a reworked push refreshes the machine delivery facts and keeps authored prose", async (context) => {
   const fixture = workerGitFixture(context, "publication-facts", { reachableRemote: true }),
     first = git(fixture.worker, "rev-parse", "HEAD").trim(),

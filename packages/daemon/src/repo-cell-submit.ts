@@ -761,7 +761,7 @@ async function submittedCutReview(
       await publishSubmittedCut(cell, taskId, snapshot, execution.submission, binding);
     } catch (error) {
       const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512),
-        warning = `The cut is frozen, but publication failed before review: ${detail} Retry: ha task submit ${taskId}.`;
+        warning = `The cut is frozen, but publication failed before review: ${detail} Retry: ha task submit ${taskId} --amend.`;
       return {
         steps: [cell.failed(receipt.opId, error)],
         warnings: [warning],

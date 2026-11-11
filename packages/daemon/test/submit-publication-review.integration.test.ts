@@ -55,6 +55,7 @@ async function publicationFixture(context: test.TestContext) {
   const previous = git(remote, "rev-parse", `refs/heads/${taskId}`),
     order: string[] = [];
   let prHead = previous,
+    prExists = false,
     failHosting = false,
     stalePrHead = false,
     cuts = 0;
@@ -73,7 +74,9 @@ async function publicationFixture(context: test.TestContext) {
     prHead = stalePrHead ? previous : git(remote, "rev-parse", `refs/heads/${taskId}`);
     order.push(`hosting:${method}:${prHead}`);
     const pr = { number: 42, html_url: "https://github.com/acme/repo/pull/42", head: { sha: prHead } };
-    return Response.json(method === "GET" && !String(_url).endsWith("/42") ? [pr] : pr);
+    if (method === "GET" && !String(_url).endsWith("/42")) return Response.json(prExists ? [pr] : []);
+    prExists = true;
+    return Response.json(pr);
   });
   f.launches.push = (...launches: (typeof f.launches)[number][]) => {
     const submitted = f.events().findLast((event) => event.type === "execution_submitted");
@@ -98,7 +101,7 @@ async function publicationFixture(context: test.TestContext) {
     git(worktree, "commit", "-qm", "fix: frozen delivery");
     return git(worktree, "rev-parse", "HEAD");
   };
-  const submit = (amend = false, commitSha?: string) => {
+  const submit = (amend = false) => {
     writeFileSync(
       path.join(f.root, "harness", f.packagePath, "closeout.md"),
       "# Closeout\n\n## Summary\n\nPublish before review.\n\n## Verification\n\nDirected tests.\n\n" +
@@ -109,7 +112,6 @@ async function publicationFixture(context: test.TestContext) {
       taskId,
       executionId,
       ...(amend ? { amend: true } : {}),
-      ...(commitSha ? { commitSha } : {}),
     });
   };
   return {
@@ -124,6 +126,7 @@ async function publicationFixture(context: test.TestContext) {
     stalePrHead: () => {
       stalePrHead = true;
     },
+    failPush: () => git(f.root, "config", "remote.origin.pushurl", `file://${f.root}/missing.git`),
   };
 }
 
@@ -164,8 +167,9 @@ test(
     assert.ok(submitted?.type === "execution_submitted");
     assert.equal(submitted.payload.execution.submission!.commitSha, frozen);
     assert.match(JSON.stringify(receipt), /publication|publish/iu);
+    assert.match(JSON.stringify(receipt.warnings), /ha task submit task-completion-review --amend/u);
     failHosting(false);
-    const resumed = await submit();
+    const resumed = await submit(true);
     assert.equal(resumed.outcome, "applied", JSON.stringify(resumed));
     assert.equal(f.launches.length, 1, "explicit resumption publishes the same cut and dispatches once");
     console.log("[publication-recovery-order]", JSON.stringify(frozen));
@@ -178,8 +182,8 @@ test(
   async (context) => {
     const { f, cut, submit, order } = await publicationFixture(context),
       frozen = cut(),
-      later = cut(),
-      submitted = await submit(false, frozen);
+      submitted = await submit(),
+      later = cut();
     assert.notEqual(frozen, later);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     assert.equal(f.launches.length, 1, JSON.stringify(submitted));
@@ -188,6 +192,20 @@ test(
     assert.equal(pushed.outcome, "applied", JSON.stringify(pushed));
     assert.match(pushed.evidence, new RegExp(frozen, "u"));
     assert.doesNotMatch(pushed.evidence, new RegExp(later, "u"));
+  },
+);
+
+test(
+  "a rejected branch push keeps the frozen cut and does not dispatch a reviewer",
+  { timeout: 20_000 },
+  async (context) => {
+    const { f, cut, submit, failPush } = await publicationFixture(context);
+    cut();
+    failPush();
+    const receipt = await submit();
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    assert.equal(f.launches.length, 0);
+    assert.match(JSON.stringify(receipt), /delivery_publish_failed/u);
   },
 );
 
