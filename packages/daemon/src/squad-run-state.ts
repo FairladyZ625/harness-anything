@@ -7,7 +7,8 @@ import {
   type TaskV2,
 } from "@harness-anything/kernel";
 import { normalizeHistoricalSquadRunIdentity } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events";
-import { readDispatchStreamSummary } from "./dispatch-stream.ts";
+import { dispatchStreamPath, parseRecord, readDispatchStreamHeader } from "./dispatch-stream.ts";
+import { visitDispatchStreamLines } from "./dispatch-stream-lines.ts";
 import type { TrustedScheduleRuntime } from "./runtime-spawn-types.ts";
 import type { RepoTaskAction } from "./repo-cell-types.ts";
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
@@ -131,25 +132,10 @@ export function readSquadRecoveryState(
     recoveryRows = squadRecoveryRows(projection),
     protectedDispatchIds = new Set<string>();
   for (const { row, ownerDispatchId } of recoveryRows) {
-    const stream = readDispatchStreamSummary(rootDir, ownerDispatchId);
-    // The canonical projection is shared across fleet edges; only the owner edge has the local
-    // control stream needed to recover this run.
-    if (!stream) continue;
-    let localState: SquadState | null = null,
-      ackRevision = -1;
-    for (const record of stream.records) {
-      if (record.kind === "squad_run_state") {
-        const candidate = squadState(normalizeHistoricalSquadRunIdentity(record.state));
-        if (candidate && (!localState || localState.revision < candidate.revision)) localState = candidate;
-      } else if (record.kind === "squad_run_cancelled") {
-        localState = applySquadCancellation(localState, record.revision);
-      } else if (
-        record.kind === "squad_run_publication_ack" &&
-        record.squadRunId === row.squadRunId &&
-        Number.isSafeInteger(record.revision)
-      )
-        ackRevision = Math.max(ackRevision, Number(record.revision));
-    }
+    const control = readSquadControlState(rootDir, ownerDispatchId, row.squadRunId);
+    // Only the owning node has the local control stream; the projection is shared.
+    if (!control) continue;
+    const { state: localState, ackRevision } = control;
     if (!localState) continue;
     if (localState.squadRunId !== row.squadRunId)
       throw new Error(`Squad owner stream ${ownerDispatchId} points to an unexpected run.`);
@@ -174,21 +160,46 @@ export function readSquadRecoveryState(
   return { states, publicationAcks, protectedDispatchIds };
 }
 
+/** Recovery folds every control record, including records outside diagnostic head/tail windows.
+ * Only projection-owned streams are visited. Memory holds one line and the latest control cut;
+ * provider records are skipped before decoding, regardless of transcript or ledger size. */
+function readSquadControlState(rootDir: string, ownerDispatchId: string, squadRunId: string) {
+  if (!readDispatchStreamHeader(rootDir, ownerDispatchId)) return null;
+  const control: { state: SquadState | null; ackRevision: number } = { state: null, ackRevision: -1 };
+  visitDispatchStreamLines(
+    dispatchStreamPath(rootDir, ownerDispatchId),
+    (line) => {
+      const record = parseRecord(line);
+      if (record?.kind === "squad_run_state") {
+        const candidate = squadState(normalizeHistoricalSquadRunIdentity(record.state));
+        if (candidate && (!control.state || control.state.revision < candidate.revision)) control.state = candidate;
+      } else if (record?.kind === "squad_run_cancelled") {
+        control.state = applySquadCancellation(control.state, record.revision);
+      } else if (
+        record?.kind === "squad_run_publication_ack" &&
+        record.squadRunId === squadRunId &&
+        Number.isSafeInteger(record.revision)
+      )
+        control.ackRevision = Math.max(control.ackRevision, Number(record.revision));
+      return true;
+    },
+    (prefix) => {
+      const kind = /"kind"\s*:\s*"([^"\\]+)"/u.exec(prefix)?.[1];
+      if (kind)
+        return kind === "squad_run_state" || kind === "squad_run_cancelled" || kind === "squad_run_publication_ack";
+      // Non-object data cannot be a control record (e.g. a sparse/truncated transcript line).
+      return /^\s*[^\s{]/u.test(prefix) ? false : undefined;
+    },
+  );
+  return control;
+}
+
 function squadRecoveryRows(
   projection: Pick<TaskProjection, "readSquadRuns" | "getEntity" | "read">,
 ): readonly { readonly row: SquadRunProjectionRow; readonly ownerDispatchId: string }[] {
   const rows: { readonly row: SquadRunProjectionRow; readonly ownerDispatchId: string }[] = [];
   for (const row of projection.readSquadRuns()) {
-    const state = row.state as {
-        readonly ownerDispatchId?: unknown;
-        readonly phase?: unknown;
-        readonly subject?: { readonly kind?: unknown; readonly scheduleId?: unknown; readonly claimFence?: unknown };
-        readonly workerAttempts?: readonly {
-          readonly taskId?: unknown;
-          readonly runtimeSessionId?: unknown;
-          readonly rejection?: unknown;
-        }[];
-      },
+    const state = row.state as { readonly ownerDispatchId?: unknown },
       ownerDispatchId = state.ownerDispatchId;
     if (typeof ownerDispatchId !== "string" || !/^dispatch_[a-f0-9]{24}$/u.test(ownerDispatchId)) continue;
     // Projection rows identify the bounded set of Squad owner streams. Keep terminal rows in this

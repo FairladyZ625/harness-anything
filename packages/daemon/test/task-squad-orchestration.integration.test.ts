@@ -17,7 +17,11 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import type { RuntimeLauncher } from "../src/runtime-spawn-types.ts";
 import type { SquadRunReadResult } from "../src/squad-run-contract.ts";
 type WorkerAttempt = SquadRunReadResult["run"]["workerAttempts"][number];
-import { appendRuntimeWorkerRecord, readDispatchStreamHeader } from "../src/dispatch-stream.ts";
+import {
+  appendRuntimeWorkerRecord,
+  readDispatchStreamHeader,
+  readDispatchStreamSummary,
+} from "../src/dispatch-stream.ts";
 import {
   type openBootstrappedRepoCell,
   fixtureFence,
@@ -107,6 +111,55 @@ async function stopFixtureProcess(child: ReturnType<typeof spawn>): Promise<void
   }
   await closed;
 }
+
+test("a leader batch outside summary windows fans out after writer restart", { timeout: 90_000 }, async (t) => {
+  // A complete mission exceeds the 16 KiB summary head; provider output moves its
+  // recovery snapshot outside the 128 KiB tail before the writer is replaced.
+  const fixture = await openFixture(t, "large-control-recovery", false, undefined, "Mission context.\n".repeat(2_000)),
+    initial = await fixture.status(),
+    leader = initial.leaderTurns[0]!;
+  for (let index = 0; index < 48; index += 1)
+    appendRuntimeWorkerRecord(fixture.root, leader.dispatchId, {
+      kind: "provider_event",
+      event: { type: "item.started", item: { type: "reasoning", text: "x".repeat(4_096) } },
+    });
+  assert.equal(
+    readDispatchStreamSummary(fixture.root, leader.dispatchId)?.records.some((row) => row.kind === "squad_run_state"),
+    false,
+    "the fixture must put the complete control snapshots outside the diagnostic summary",
+  );
+  await fixture.finish(
+    leader.dispatchId,
+    JSON.stringify({
+      schema: "runtime-batch/v1",
+      dispatches: [{ to: "one", prompt: realizedTaskPlan("Recovered worker mission"), ownedPaths: ["a.txt"] }],
+    }),
+    0,
+    true,
+  );
+  await fixture.reopen();
+  await fixture.until(async () => {
+    const rows = (await fixture.cell.read("repo.task.dispatches", { taskId: fixture.taskId })).dispatches;
+    return rows.some((row) => row.dispatchId === leader.dispatchId && row.outcome === "succeeded") ? true : null;
+  }, "the adopted leader publishes its batch outcome");
+  await fixture.cell.settlePendingMaterialization("leader outcome fans out");
+  const running = await fixture.status();
+  assert.equal(running.workerAttempts.length, 1, JSON.stringify(running));
+  const worker = running.workerAttempts[0]!;
+  assert.ok(worker.dispatchId && worker.runtimeSessionId && worker.taskId, JSON.stringify(worker));
+  assert.equal(worker.rejection, null);
+  const childRows = (await fixture.cell.read("repo.task.dispatches", { taskId: worker.taskId })).dispatches;
+  assert.ok(childRows.some((row) => row.dispatchId === worker.dispatchId));
+  await fixture.finish(worker.dispatchId, "Recovered worker completed");
+  const callback = await fixture.waitStatus((state) => state.leaderTurns.length === 2);
+  await fixture.finish(
+    callback.leaderTurns[1]!.dispatchId,
+    JSON.stringify({ schema: "squad-decision/v1", action: "converged", report: "# Recovered squad\nWorker verified." }),
+  );
+  const settled = await fixture.waitStatus((state) => state.status === "converged");
+  assertChildrenClosed(fixture, settled.workerAttempts);
+  t.diagnostic(JSON.stringify({ squadRunId: settled.squadRunId, leader, worker, status: settled.status }));
+});
 
 test("canonical squad dispatch rows expose the run owner for leaders and children", { timeout: 90_000 }, async (t) => {
   const fixture = await openFixture(t, "canonical-run-owner");
@@ -761,6 +814,7 @@ async function openFixture(
   slug: string,
   runtimeCaller = false,
   wipLimit?: number,
+  prompt?: string,
 ) {
   const parent = mkdtempSync(path.join(tmpdir(), `ha-squad-e2e-${slug}-`)),
     root = path.join(parent, "repo"),
@@ -977,7 +1031,14 @@ async function openFixture(
     };
   }
   const started = await cell.run(
-    { kind: "squad-run", squadId: "squad", taskId, runtimeInstanceId: "stub", cwd: { scope: "repo-root" } },
+    {
+      kind: "squad-run",
+      squadId: "squad",
+      taskId,
+      runtimeInstanceId: "stub",
+      cwd: { scope: "repo-root" },
+      ...(prompt ? { prompt } : {}),
+    },
     squadBinding,
   );
   assert.equal(started.outcome, "completed", JSON.stringify(started));

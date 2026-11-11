@@ -27,6 +27,63 @@ const actor = { principal: { personId: "person-scale" }, executor: null } as con
   ownerDispatchId = "dispatch_000000000000000000000001",
   runtimeSessionId = "runtime-scale-owner";
 
+test("recovery folds the latest control cut and ACK between transcript windows", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-squad-control-windows-"));
+  try {
+    openDispatchStream(rootDir, {
+      dispatchId: ownerDispatchId,
+      taskId: null,
+      executionId: null,
+      runtimeSessionId,
+      instanceId: "instance-scale",
+      startedAt: "2026-11-11T00:00:00.000Z",
+    });
+    const writeState = (revision: number, phase: "leader_running" | "converged") =>
+      appendRuntimeWorkerRecord(rootDir, ownerDispatchId, {
+        kind: "squad_run_state",
+        state: { ...localSquadState(rootDir, phase), revision, mission: "多字节上下文".repeat(8_000) },
+      });
+    const pad = () => {
+      for (let index = 0; index < 48; index += 1)
+        appendRuntimeWorkerRecord(rootDir, ownerDispatchId, {
+          kind: "provider_event",
+          event: { text: "x".repeat(4_096) },
+        });
+    };
+    writeState(1, "leader_running");
+    pad();
+    writeState(2, "leader_running");
+    pad();
+    const projection = {
+      readSquadRuns: () => [{ squadRunId: runId, state: { ownerDispatchId } }],
+    } as unknown as Parameters<typeof readSquadRecoveryState>[1];
+    assert.equal(readSquadRecoveryState(rootDir, projection).states.get(runId)?.revision, 2);
+    appendRuntimeWorkerRecord(rootDir, ownerDispatchId, { kind: "squad_run_cancelled", revision: 3 });
+    pad();
+    assert.equal(readSquadRecoveryState(rootDir, projection).states.get(runId)?.phase, "cancelled");
+    appendRuntimeWorkerRecord(rootDir, ownerDispatchId, {
+      kind: "squad_run_publication_ack",
+      squadRunId: runId,
+      revision: 3,
+    });
+    pad();
+    assert.equal(
+      readSquadRecoveryState(rootDir, projection).states.size,
+      0,
+      "ACK in the gap releases the cancelled control stream",
+    );
+    writeState(4, "converged");
+    pad();
+    assert.equal(
+      readSquadRecoveryState(rootDir, projection).states.get(runId)?.revision,
+      4,
+      "a newer unacknowledged terminal state remains recoverable",
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("active Squad recovery hydration stays flat when a valid ledger event count doubles", async (t) => {
   const samples: {
     readonly events: number;
