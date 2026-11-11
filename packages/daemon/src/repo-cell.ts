@@ -142,8 +142,10 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
   try {
     // Historical shape upgrades are accepted through the same fenced writer as every other
     // canonical event. Projection opening is deliberately after this step so a cold rebuild
-    // never observes an unregistered retired field.
-    if (context.mode !== "remote-edge")
+    // never observes an unregistered retired field. A warm projection would only index the new
+    // migration marker and keep its retired rows, so a migration applied now forces a cold replay.
+    const migrated =
+      context.mode !== "remote-edge" &&
       applyAttachMigrations({
         store,
         now: context.now,
@@ -156,11 +158,12 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
             watermark: null,
           });
         },
-      });
+      }).applied.length > 0;
     let recovery: RepoCellCore["recovery"] = { status: "none", elapsedMs: 0 };
     projection = makeTaskProjection({
       storage: context.input.storage,
       rootDir: context.rootDir,
+      discardExisting: migrated,
       eventStore: store,
       now: context.now,
       catchUpLimit: coldAttachCatchUpLimit,

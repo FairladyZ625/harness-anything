@@ -109,6 +109,8 @@ interface CommonTaskProjectionFactoryOptions {
   readonly now?: () => string;
   readonly onValidationProgress?: (progress: { readonly applied: number; readonly total: number }) => void;
   readonly onProgress?: (progress: TaskProjectionCatchUpProgress) => void;
+  /** Rows reduced before an event-shape migration still carry the retired shape; replay them from zero. */
+  readonly discardExisting?: boolean;
 }
 export interface SqliteTaskProjectionFactoryOptions extends CommonTaskProjectionFactoryOptions {
   readonly storage?: SqliteStorageBackendConfig;
@@ -157,6 +159,8 @@ export function makeTaskProjection(
     now = options.now ?? (() => new Date().toISOString()),
     onProgress = options.onProgress ?? (() => undefined),
     readHead = options.eventStore.readHead;
+  if (options.discardExisting && localRuntimeStateFileSystem.exists(projectionPath))
+    discardDatabase(projectionPath, options.eventStore, "explicit_rebuild", options.onValidationProgress);
   if (localRuntimeStateFileSystem.exists(projectionPath)) {
     try {
       withDatabase(projectionPath, readHead, () => undefined, options.onValidationProgress);
