@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -314,6 +315,26 @@ function makeRecoveryFixture(
     getEntity: () => null,
     readLeaseIntervals: () => [],
     readTaskRelationsBySources: () => ({ status: "ready", rows: [], watermark: 1, sourceRevision: 1 }),
+    readDispatchLifecycle: (query) =>
+      dispatchLifecycleReadOf(() =>
+        sessions.flatMap((session) => {
+          const options = {
+              source: "local" as const,
+              instanceId: INSTANCE_ID,
+              dispatchId: dispatchBySession.get(session.runtimeSessionId),
+            },
+            events = [
+              lifecycleEvent("R", session.runtimeSessionId, options),
+              lifecycleEvent("S", session.runtimeSessionId, options),
+            ];
+          if (session.liveness === "exited") events.push(lifecycleEvent("X", session.runtimeSessionId, options));
+          if (session.outcome !== null) {
+            const event = lifecycleEvent("O", session.runtimeSessionId, options);
+            events.push({ ...event, payload: { ...event.payload, outcome: session.outcome } } as never);
+          }
+          return events;
+        }),
+      )(query),
     readRuntimeSession: (runtimeSessionId: string) =>
       sessions.find((session) => session.runtimeSessionId === runtimeSessionId) ?? null,
   } as unknown as TaskProjection;

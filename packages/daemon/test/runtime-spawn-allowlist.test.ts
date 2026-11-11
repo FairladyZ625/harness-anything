@@ -16,5 +16,5 @@ test("remote dispatch resources do not require a local task projection", async (
     } as NonNullable<RuntimeSpawnerInput["remote"]>,
     null,
   );
-  assert.deepEqual(resources, [[], [], ["remote-instance"], []]);
+  assert.deepEqual(resources, [[], [], ["remote-instance"], [], []]);
 });
