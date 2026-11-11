@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, watch } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -175,7 +175,8 @@ test("timeout forcibly reaps a child that ignores SIGTERM before publishing term
     });
   let pid: number | undefined;
   try {
-    const started = await service.start({
+    const startedAt = performance.now(),
+      started = await service.start({
         presetId: "user-canary",
         entrypoint: "check",
         inputs: { title: "Canary" },
@@ -183,24 +184,30 @@ test("timeout forcibly reaps a child that ignores SIGTERM before publishing term
       }),
       staging = path.join(fixture.rootDir, ".harness/preset-runs/staging", started.runId),
       pidPath = path.join(staging, "child.pid"),
-      termPath = path.join(staging, "term.seen"),
-      termSeen = process.platform === "win32" ? null : observeFileAppearance(termPath);
+      termPath = path.join(staging, "term.seen");
     pid = await waitFor(
       "child pid write for timeout fixture",
       () => readChildPid(pidPath),
       (value) => value !== undefined,
     );
-    if (termSeen) await termSeen;
-    // On Windows kill(SIGTERM) terminates unconditionally, so the handler phase cannot be witnessed;
-    // the reaped end state is asserted instead.
-    assert.doesNotThrow(() => process.kill(pid!, 0));
-    assert.equal(terminalOutcome(service.status(started.runId).outcome), false);
+    // On Windows kill(SIGTERM) terminates unconditionally, so the handler phase cannot be
+    // witnessed; only the reaped end state is observable there. On POSIX the handler writes
+    // term.seen and returns without exiting, so the child can only disappear through the
+    // service's SIGKILL escalation. Poll the file with a bound: fs.watch delivery is best-effort,
+    // and a dropped event used to leave this test waiting until the CI file watchdog killed it.
+    if (process.platform !== "win32") {
+      await waitFor("SIGTERM handled by timeout fixture", () => existsSync(termPath), Boolean);
+      assert.equal(readFileSync(termPath, "utf8"), "yes");
+    }
     const terminal = await waitFor(
       "timeout terminal receipt",
       () => service.status(started.runId),
       ({ outcome }) => outcome === "failed",
     );
     assert.equal(terminal.code, "timeout");
+    // The deadline is a lower bound: a timer may fire late under load but never early.
+    assert.equal(performance.now() - startedAt >= 2_000, true);
+    assert.deepEqual(terminal.phases, ["admitted", "spawned", "running", "failed"]);
     await assertReaped(pid!);
   } finally {
     if (pid)
@@ -236,8 +243,7 @@ test("close forcibly reaps a child that ignores SIGTERM within a fixed bound", a
       }),
       staging = path.join(fixture.rootDir, ".harness/preset-runs/staging", started.runId),
       pidPath = path.join(staging, "child.pid"),
-      termPath = path.join(staging, "term.seen"),
-      termSeen = process.platform === "win32" ? null : observeFileAppearance(termPath);
+      termPath = path.join(staging, "term.seen");
     pid = await waitFor(
       "child pid write for close fixture",
       () => readChildPid(pidPath),
@@ -245,12 +251,12 @@ test("close forcibly reaps a child that ignores SIGTERM within a fixed bound", a
     );
     const before = performance.now(),
       closing = service.close();
-    if (process.platform === "win32") assert.equal(terminalOutcome(service.status(started.runId).outcome), false);
-    // Windows terminates unconditionally once close() runs, so only the pre-reap state is observable in flight.
-    else {
-      await termSeen;
-      assert.doesNotThrow(() => process.kill(pid!, 0));
-      assert.equal(terminalOutcome(service.status(started.runId).outcome), false);
+    // Windows terminates unconditionally once close() runs, so only the reaped end state is
+    // observable in flight. On POSIX the handler writes term.seen and returns without exiting;
+    // poll it with a bound instead of trusting an fs.watch event that may be dropped.
+    if (process.platform !== "win32") {
+      await waitFor("SIGTERM handled by close fixture", () => existsSync(termPath), Boolean);
+      assert.equal(readFileSync(termPath, "utf8"), "yes");
     }
     await closing;
     assert.equal(performance.now() - before < 1_000, true);
@@ -449,9 +455,6 @@ function scriptedPackage(script: string, entrypoint: Record<string, unknown> = {
     cleanup: () => rmSync(rootDir, { recursive: true, force: true }),
   };
 }
-function terminalOutcome(outcome: string): boolean {
-  return ["applied", "op_rejected", "failed", "outcome_unknown"].includes(outcome);
-}
 // child.pid is visible (open) before its content lands (write); a read racing the
 // write parses "" as pid 0, and signaling pid 0 targets this test's own process
 // group, so ESRCH never arrives. Require the child's own observable write instead.
@@ -480,32 +483,4 @@ async function assertReaped(pid: number): Promise<void> {
     },
     Boolean,
   );
-}
-function observeFileAppearance(target: string): Promise<void> {
-  const root = path.dirname(path.dirname(target)),
-    relativeTarget = path.normalize(path.relative(root, target));
-  return new Promise<void>((resolve, reject) => {
-    let settled = false;
-    const watcher = watch(root, { recursive: true }, (_event, filename) => {
-      if (
-        !settled &&
-        ((filename !== null && path.normalize(String(filename)) === relativeTarget) || existsSync(target))
-      ) {
-        settled = true;
-        watcher.close();
-        resolve();
-      }
-    });
-    watcher.once("error", (error) => {
-      if (settled) return;
-      settled = true;
-      watcher.close();
-      reject(error);
-    });
-    if (existsSync(target)) {
-      settled = true;
-      watcher.close();
-      resolve();
-    }
-  });
 }
