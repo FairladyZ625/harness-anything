@@ -4361,6 +4361,87 @@
       }
     },
     {
+      "id": "ontology-closure",
+      "command": "node tools/gates/ontology-closure.mjs --mode ratchet",
+      "category": "boundary",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "dec_7E44897ECDCAEF2B92EC66A260/CH1"
+      ],
+      "consumerScope": [
+        "All production JS/TS under packages/ and tools/: action ingress/effects, domain judgments and Policy values/branches",
+        "Exact source bindings in ActionDeclaration/entityKindContracts and a shrink-only classified baseline"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "quick-gates"
+        ],
+        "workflowJobs": [
+          "quick-gates"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/gate-allowlists/ontology-closure.json",
+        "adrOrDecisionRequired": true,
+        "notes": "Initial classified debt under CH1; exact identities may only leave. Technical exemptions expire and cannot be extended. New sources bind to the shared registry."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/gates/ontology-closure*.mjs",
+          "tools/gate-allowlists/ontology-closure.json",
+          "tools/gates/test/ontology-closure.test.mjs",
+          "tools/gates/test/fixtures/ontology-closure/**",
+          "packages/kernel/src/domain/ontology-source.ts",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": false,
+          "checkPr": false,
+          "script": null
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "quick-gates"
+          ],
+          "nonPullRequestJobs": [
+            "quick-gates"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "quick-gates"
+          ]
+        },
+        "classes": [
+          "pr"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/gates/test/ontology-closure.test.mjs",
+          "tools/gates/test/fixtures/ontology-closure/positive.ts",
+          "tools/gates/test/fixtures/ontology-closure/negative.ts"
+        ]
+      },
+      "localPathGlobs": [
+        "packages/**",
+        "tools/**"
+      ]
+    },
+    {
       "id": "ontology-kind-authority",
       "command": "node tools/gates/ontology-kind-authority.mjs --mode ratchet",
       "category": "boundary",

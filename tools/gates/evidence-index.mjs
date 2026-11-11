@@ -68,6 +68,8 @@ export const EVIDENCE_INDEX = Object.freeze({
     "task_f9a37aaa70e746826eb3aa11f8",
   ]),
   decisions: Object.freeze([
+    // Verified in_effect at S0 dispatch, 2026-11-11.
+    "dec_7E44897ECDCAEF2B92EC66A260",
     "dec_01KZVA9GQFJ0T6H05RHCSTV4CE",
     "dec_13FF6AEF3598AF34DC8F4A0558",
     "dec_25B3C380F6FB9D4D4A1E27921E",

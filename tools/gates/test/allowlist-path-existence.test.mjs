@@ -10,6 +10,14 @@ import { captureGate, writeRepoFile } from "./helpers.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 
+test("ontology closure candidates are live source paths with the accepted CH1 citation", () => {
+  assert.deepEqual(allowlistJsonPolicies["ontology-closure.json"], {
+    pathSections: { candidates: "path" },
+    nonPathSections: [],
+  });
+  assert.ok(EVIDENCE_INDEX.decisions.includes("dec_7E44897ECDCAEF2B92EC66A260"));
+});
+
 test("B13 ratchet accepts live paths and rejects an allowlist row for a missing file", (t) => {
   const repository = captureGate(() => main(["--root", repoRoot, "--mode", "ratchet"]));
   assert.equal(repository.code, 0, repository.stderr || repository.stdout);
