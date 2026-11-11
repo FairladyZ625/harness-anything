@@ -1,4 +1,4 @@
-import { createFactRecordedEvent } from "@harness-anything/kernel";
+import { createFactEvent } from "@harness-anything/kernel";
 import {
   cpSync,
   existsSync,
@@ -471,7 +471,7 @@ function normalizeKnownLegacyEvent(
           : undefined;
     try {
       const compiled = compileFactWrite({
-        event: createFactRecordedEvent({
+        event: createFactEvent({
           eventId: raw.eventId,
           workspaceRevision: raw.workspaceRevision as number,
           opId: raw.opId,

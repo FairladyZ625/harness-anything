@@ -136,15 +136,13 @@ test("task event types must be declared and owner-prefixed types cannot hide out
   }
 });
 
-test("the runtime aggregate constructor remains visible to schema-and-type discovery", () => {
-  assert.ok(
-    sitesForRepo().some(
-      (site) =>
-        site.schema === "agent-runtime-event/v1" &&
-        site.path === "packages/kernel/src/domain/agent-runtime-event.ts" &&
-        site.form === "dynamic-event",
-    ),
-  );
+test("active aggregate constructors remain visible to schema-and-type discovery", () => {
+  for (const schema of ["agent-runtime-event/v1", "fact-event/v1", "decision-event/v1", "entity-event/v1"]) {
+    assert.ok(
+      sitesForRepo().some((site) => site.schema === schema && site.form === "dynamic-event"),
+      schema,
+    );
+  }
 });
 
 // dec_499E4E98A3D4754132B3BCA1E6 CH1: clearing the debt removes the

@@ -559,6 +559,9 @@ function safeId(value: unknown): value is string {
 }
 
 /** The aggregate's only constructor; validation remains at canonical acceptance. */
-export function createFactRecordedEvent(input: Omit<FactEventDraftV1, "schema" | "type">): FactEventDraftV1 {
-  return { schema: "fact-event/v1", type: "fact_recorded", ...input };
+export function createFactEvent(
+  input: Omit<FactEventDraftV1, "schema" | "type">,
+  type: FactEventDraftV1["type"] = "fact_recorded",
+): FactEventDraftV1 {
+  return { ...input, schema: "fact-event/v1", type };
 }

@@ -1,3 +1,5 @@
+import { factEventTypes } from "./fact-event.ts";
+import { decisionEventTypes } from "./decision-event-types.ts";
 import type { EntityKind } from "./base-entity.ts";
 import { scheduleEventTypes } from "./schedule.ts";
 import { taskEventTypes as canonicalTaskEventTypes } from "./task-lifecycle-event.ts";
@@ -555,18 +557,30 @@ const storesByKind: Readonly<Record<string, readonly StateStoreDeclaration[]>> =
     canonical("task.progress-events", "task-progress-event/v1", "packages/kernel/src/domain/task-progress-event.ts"),
     canonical("task.preset-snapshot-events", "preset-snapshot-upgrade-event/v1", "packages/preset/src"),
   ],
-  fact: [canonical("fact.events", "fact-event/v1", "packages/kernel/src/domain/fact-event.ts", ["fact.state"])],
+  fact: [
+    canonical(
+      "fact.events",
+      "fact-event/v1",
+      "packages/kernel/src/domain/fact-event.ts",
+      ["fact.state"],
+      factEventTypes,
+    ),
+  ],
   decision: [
-    canonical("decision.events", "decision-event/v1", "packages/kernel/src/domain/decision-event.ts", [
-      "decision.state",
-    ]),
+    canonical(
+      "decision.events",
+      "decision-event/v1",
+      "packages/kernel/src/domain/decision-event.ts",
+      ["decision.state"],
+      decisionEventTypes,
+    ),
   ],
   relation: [
     canonical("relation.events", "relation-event/v1", "packages/kernel/src/domain/relation-event.ts", [
       "relation.state",
     ]),
   ],
-  todo: [canonical("todo.entity-events", "entity-event/v1", "packages/kernel/src/domain/entity-event.ts")],
+  todo: [canonical("todo.entity-events", "entity-event/v1", "packages/kernel/src/domain/entity-event-compile.ts")],
   agent: [
     canonical("agent.entity-events", "agent-entity-event/v1", "packages/kernel/src/domain/entity-event.ts"),
     canonical("agent.people-events", "people-event/v1", "packages/kernel/src/domain/people-event.ts"),

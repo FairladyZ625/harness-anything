@@ -341,7 +341,7 @@ export { compileRelationCreatedEvent } from "./domain/relation-event.ts";
 
 export { normalizeHistoricalVerticalDocument } from "./domain/historical-event-normalization.ts";
 
-export { createFactRecordedEvent } from "./domain/fact-event.ts";
+export { createFactEvent } from "./domain/fact-event.ts";
 export { createMigrationImportEvent } from "./domain/migration-import-event.ts";
 export { createExecutionDelegationEvent } from "./domain/execution-delegation-event.ts";
 export { createEventShapeMigrationEvent } from "./domain/event-shape-migration-event.ts";

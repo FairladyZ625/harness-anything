@@ -6,7 +6,9 @@
     "schema": "agent-runtime-event/v1",
     "owner": "runtime-session",
     "storeId": "runtime-session.agent-runtime-events",
-    "writers": ["packages/kernel/src/domain/agent-runtime-event.ts"]
+    "writers": [
+      "packages/kernel/src/domain/agent-runtime-event.ts"
+    ]
   },
   "cases": [
     {
@@ -20,6 +22,18 @@
       "path": "packages/kernel/src/domain/agent-runtime-event.ts",
       "eventType": "runtime_dispatch_requested",
       "finding": null
+    }
+  ],
+  "spreadCases": [
+    {
+      "schema": "fact-event/v1",
+      "owner": "fact",
+      "eventType": "fact_reclassified"
+    },
+    {
+      "schema": "decision-event/v1",
+      "owner": "decision",
+      "eventType": "decision_accepted"
     }
   ]
 }
