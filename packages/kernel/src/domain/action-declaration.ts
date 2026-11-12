@@ -465,19 +465,7 @@ export const actionDeclarations = Object.freeze([
   // stays local (dec_2446BC2F8C68630F71AE3E3BD7/CH4 "no write path of its own"). Receipt settlement
   // is unchanged: these receipts still accept the canonical outcome produced by that writer.
   declare("runtime-batch", "repo-write", hostResidency, { receiptSettlement: "canonical-acceptance" }),
-  {
-    ...declare("runtime-cancel", "repo-write", runtimeResidency, { receiptSettlement: "canonical-acceptance" }),
-    ontology: {
-      owner: "runtime-session",
-      sources: [
-        {
-          candidateId:
-            "action:packages/daemon:packages/daemon/src/runtime-spawn-control.ts#cancelRuntime.stopOwnedRuntime:a48ffbebb821cbbf655b0d95183d27dd",
-          route: "runtime.cancel",
-        },
-      ],
-    },
-  },
+  declare("runtime-cancel", "repo-write", runtimeResidency, { receiptSettlement: "canonical-acceptance" }),
   // The steer's only durable effect is a dispatch-stream record; it appends no ledger event
   // (runtime-spawn-control.ts, settled_no_write receipt). Its receipt still settles through the
   // declared no-write path, so the GUI command keeps canonical-acceptance.
@@ -548,7 +536,19 @@ export const actionDeclarations = Object.freeze([
   canonical("task-declare-executor", "task/declare-executor", "repo-write"),
   canonical("task-delete", "task/delete", "repo-write"),
   canonical("task-dispatch-review", "task/dispatch-review", "repo-write", "none"),
-  canonical("task-escalate", "task/escalate", "repo-write"),
+  {
+    ...canonical("task-escalate", "task/escalate", "repo-write"),
+    ontology: {
+      owner: "task",
+      sources: [
+        {
+          candidateId:
+            "action:packages/daemon:packages/daemon/src/runtime-spawn-control.ts#cancelRuntime.stopOwnedRuntime:a48ffbebb821cbbf655b0d95183d27dd",
+          route: "task-escalate",
+        },
+      ],
+    },
+  },
   closure("task-escalation-resolve", "task/escalation-resolve"),
   canonical("task-rematerialize", "task/rematerialize", "repo-write"),
   canonical("task-progress-append", "task/progress-append", "repo-write"),

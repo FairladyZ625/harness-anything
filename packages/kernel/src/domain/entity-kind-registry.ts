@@ -995,7 +995,6 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
         candidateId: "policy:packages/kernel:packages/kernel/src/domain/task-lifecycle-command-transitions.ts#validateSubmitExecution:580d7b6b06944f3f6414ed1fd48d0e8d",
         route: "submit.validate → validateSubmitExecution active lease proof",
       }],
-
     }, {
       id: "mutation-event-vocabulary", ownerRef: "task", unit: "task-event/v1 discriminator",
       bounds: "Only audit commands release/amend/archive/supersede/delete/reopen/contract-migrate select their matching declared event type.",
