@@ -192,6 +192,39 @@
             "route": "packages/storage/src/projection/decision-projection-admission.ts#assertDecisionAdmission"
           }
         ]
+      },
+      {
+        "id": "gui/src/renderer/api-client-decisions.ts#isDecisionSummaryRow",
+        "symbol": "packages/gui/src/renderer/api-client-decisions.ts#isDecisionSummaryRow",
+        "explain": "Renderer IPC wire-response shape guard for repo.decisions.list summary rows; does not evaluate Decision state transitions or acceptance.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/gui:packages/gui/src/renderer/api-client-decisions.ts#isDecisionSummaryRow:7655258a36069fa2f45ca728ab84960e",
+            "route": "packages/gui/src/renderer/api-client-decisions.ts#isDecisionSummaryRow"
+          }
+        ]
+      },
+      {
+        "id": "gui/src/renderer/api-client-decisions.ts#isDecisionShowRow",
+        "symbol": "packages/gui/src/renderer/api-client-decisions.ts#isDecisionShowRow",
+        "explain": "Renderer IPC wire-response shape guard for repo.decision.show rows carrying daemon-projected review readiness; decisionAcceptReviewReadiness remains kernel-owned.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/gui:packages/gui/src/renderer/api-client-decisions.ts#isDecisionShowRow:14f8d8f0534a97dab3f67d78e8b748a7",
+            "route": "packages/gui/src/renderer/api-client-decisions.ts#isDecisionShowRow"
+          }
+        ]
+      },
+      {
+        "id": "gui/src/renderer/model/readiness-signals.ts#coverageSignal",
+        "symbol": "packages/gui/src/renderer/model/readiness-signals.ts#coverageSignal",
+        "explain": "Renderer UI badge formatter mapping projected RelationCoverageRow.covered and basisRevision to SignalColor and summary text without recomputing kernel coverageOf.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/gui:packages/gui/src/renderer/model/readiness-signals.ts#coverageSignal:4cac1b7b5f1f95219917613449fae25c",
+            "route": "packages/gui/src/renderer/model/readiness-signals.ts#coverageSignal"
+          }
+        ]
       }
     ]
   },
@@ -773,6 +806,39 @@
           {
             "candidateId": "judgment:packages/storage:packages/storage/src/pg/pg-task-parent-index.ts#assertPgTaskParentIndexReady:cde6d7c3ba89e9e51543e4493a028e39",
             "route": "packages/storage/src/pg/pg-task-parent-index.ts#assertPgTaskParentIndexReady"
+          }
+        ]
+      },
+      {
+        "id": "gui/src/renderer/api-client.ts#isRegionWeights",
+        "symbol": "packages/gui/src/renderer/api-client.ts#isRegionWeights",
+        "explain": "Renderer IPC wire-response shape guard verifying finite numeric AgendaRegionWeights across the seven agenda layout regions; attention scoring remains in daemon agenda-attention.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/gui:packages/gui/src/renderer/api-client.ts#isRegionWeights:dd2902920435a2a10f9a32545c2da059",
+            "route": "packages/gui/src/renderer/api-client.ts#isRegionWeights"
+          }
+        ]
+      },
+      {
+        "id": "gui/src/renderer/api-client.ts#isTaskSnapshotProjectionRow",
+        "symbol": "packages/gui/src/renderer/api-client.ts#isTaskSnapshotProjectionRow",
+        "explain": "Renderer IPC wire-response shape guard for repo.tasks.list task/v2 projection rows with attach-only compatibility when completedAt is omitted; Task schema validation stays in kernel validateTaskV2.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/gui:packages/gui/src/renderer/api-client.ts#isTaskSnapshotProjectionRow:ea5f7db6cece361c9ce1dbe253235408",
+            "route": "packages/gui/src/renderer/api-client.ts#isTaskSnapshotProjectionRow"
+          }
+        ]
+      },
+      {
+        "id": "gui/src/renderer/model/taskFilters.ts#isTaskGraphFocusSeed",
+        "symbol": "packages/gui/src/renderer/model/taskFilters.ts#isTaskGraphFocusSeed",
+        "explain": "Renderer graph focus-mode and Kanban cold-terminal UI folding predicate over projected pinned, kernel taskVisibility noise, terminal board bucket and 14-day view recency.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/gui:packages/gui/src/renderer/model/taskFilters.ts#isTaskGraphFocusSeed:ec063c8d49de8c2628a65af2fc40d33a",
+            "route": "packages/gui/src/renderer/model/taskFilters.ts#isTaskGraphFocusSeed"
           }
         ]
       }
@@ -1923,6 +1989,138 @@
             "route": "packages/daemon/src/repo-cell-open.ts#openRepoWriterCell.apiContext.canHibernate"
           }
         ]
+      },
+      {
+        "id": "gui/src/main/darwin-applications-folder.ts#ensureApplicationsFolder",
+        "symbol": "packages/gui/src/main/darwin-applications-folder.ts#ensureApplicationsFolder",
+        "explain": "macOS packaged desktop startup adapter prompting to relocate the app bundle out of AppTranslocation into /Applications; desktop OS lifecycle only, no domain entity verdict.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/gui:packages/gui/src/main/darwin-applications-folder.ts#ensureApplicationsFolder:832cac661a66a17665be293fe9de30fc",
+            "route": "packages/gui/src/main/darwin-applications-folder.ts#ensureApplicationsFolder"
+          }
+        ]
+      },
+      {
+        "id": "gui/src/main/first-run-ipc.ts#validateFirstRunBootstrapInput",
+        "symbol": "packages/gui/src/main/first-run-ipc.ts#validateFirstRunBootstrapInput",
+        "explain": "Electron main-process IPC payload and local directory witness for desktop first-run repository bootstrap before invoking the bootstrap service.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/gui:packages/gui/src/main/first-run-ipc.ts#validateFirstRunBootstrapInput:1fc27420f6cb7ce9de0380c1faf7ecc2",
+            "route": "packages/gui/src/main/first-run-ipc.ts#validateFirstRunBootstrapInput"
+          }
+        ]
+      },
+      {
+        "id": "gui/src/main/ipc-handlers.ts#assertUniqueHarnessIpcChannels",
+        "symbol": "packages/gui/src/main/ipc-handlers.ts#assertUniqueHarnessIpcChannels",
+        "explain": "Electron main-process IPC channel registration guard rejecting duplicate harness:<method> handlers at startup.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/gui:packages/gui/src/main/ipc-handlers.ts#assertUniqueHarnessIpcChannels:85560ad3e428ebeff0316c70b2387b1f",
+            "route": "packages/gui/src/main/ipc-handlers.ts#assertUniqueHarnessIpcChannels"
+          }
+        ]
+      },
+      {
+        "id": "gui/src/main/ipc-trust.ts#assertTrustedIpcSender",
+        "symbol": "packages/gui/src/main/ipc-trust.ts#assertTrustedIpcSender",
+        "explain": "Electron main-process IPC sender WebContents trust boundary delegating per-message origin and frame checks to evaluateIpcSender.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/gui:packages/gui/src/main/ipc-trust.ts#assertTrustedIpcSender:6bb3fedd335a6f9bd2699bade9bd7399",
+            "route": "packages/gui/src/main/ipc-trust.ts#assertTrustedIpcSender"
+          }
+        ]
+      },
+      {
+        "id": "gui/src/main/login-webview-boundary.ts#validateProxyTarget",
+        "symbol": "packages/gui/src/main/login-webview-boundary.ts#validateProxyTarget",
+        "explain": "Electron embedded sign-in boundary requiring a loopback HTTPS URL for an optional SSH reverse-proxy listener target.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/gui:packages/gui/src/main/login-webview-boundary.ts#validateProxyTarget:c1f830c8f063d70722888cbb9712553d",
+            "route": "packages/gui/src/main/login-webview-boundary.ts#validateProxyTarget"
+          }
+        ]
+      },
+      {
+        "id": "gui/src/main/login-webview-boundary.ts#createLoginWebviewGrants.decideCertificateError",
+        "symbol": "packages/gui/src/main/login-webview-boundary.ts#createLoginWebviewGrants.decideCertificateError",
+        "explain": "Ephemeral Electron sign-in webview TLS certificate-pinning check matching bound guest webContentsId, configured listener origin and leaf SHA-256 fingerprint.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/gui:packages/gui/src/main/login-webview-boundary.ts#createLoginWebviewGrants.decideCertificateError:9b9a9a0be6e3697eaea5af45cb888906",
+            "route": "packages/gui/src/main/login-webview-boundary.ts#createLoginWebviewGrants.decideCertificateError"
+          }
+        ]
+      },
+      {
+        "id": "gui/src/main/window-config.ts#assertDevRendererUrl",
+        "symbol": "packages/gui/src/main/window-config.ts#assertDevRendererUrl",
+        "explain": "Electron BrowserWindow dev-mode URL guard admitting only the loopback devRendererOrigin.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/gui:packages/gui/src/main/window-config.ts#assertDevRendererUrl:6830103b7f9a73628109ac50e726fb4d",
+            "route": "packages/gui/src/main/window-config.ts#assertDevRendererUrl"
+          }
+        ]
+      },
+      {
+        "id": "gui/src/main/window-config.ts#isTrustedRendererUrl",
+        "symbol": "packages/gui/src/main/window-config.ts#isTrustedRendererUrl",
+        "explain": "Electron renderer URL trust predicate admitting only the packaged bundle index file URL or an explicitly enabled local dev renderer origin.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/gui:packages/gui/src/main/window-config.ts#isTrustedRendererUrl:ccc4dcb136fc759327f900dec68cc891",
+            "route": "packages/gui/src/main/window-config.ts#isTrustedRendererUrl"
+          }
+        ]
+      },
+      {
+        "id": "gui/src/main/window-config.ts#isNavigableAppDocumentUrl",
+        "symbol": "packages/gui/src/main/window-config.ts#isNavigableAppDocumentUrl",
+        "explain": "Electron single-document shell navigation guard preventing BrowserWindow navigation away from the entry document URL.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/gui:packages/gui/src/main/window-config.ts#isNavigableAppDocumentUrl:da2fb47bc9462a7e6ced13feb9df9123",
+            "route": "packages/gui/src/main/window-config.ts#isNavigableAppDocumentUrl"
+          }
+        ]
+      },
+      {
+        "id": "gui/src/preload/allowlist.ts#assertPreloadPayload",
+        "symbol": "packages/gui/src/preload/allowlist.ts#assertPreloadPayload",
+        "explain": "Preload contextBridge method allowlist, secret-key hygiene and IPC transport envelope guard; query and projection selectors delegate to daemon protocol validators and kernel vocabularies.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/gui:packages/gui/src/preload/allowlist.ts#assertPreloadPayload:5c01cfd2e7b0f7cdbb65aa9b9892df5a",
+            "route": "packages/gui/src/preload/allowlist.ts#assertPreloadPayload"
+          }
+        ]
+      },
+      {
+        "id": "gui/src/renderer/components/EdgeJoinWizard.tsx#EdgeJoinWizard.validateOrigin",
+        "symbol": "packages/gui/src/renderer/components/EdgeJoinWizard.tsx#EdgeJoinWizard.validateOrigin",
+        "explain": "Edge-join modal form guard requiring non-blank originUrls inputs for needsOrigin rows before re-invoking daemon beginEdgeJoin, which owns invitation and origin admission.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/gui:packages/gui/src/renderer/components/EdgeJoinWizard.tsx#EdgeJoinWizard.validateOrigin:8ab79e6d3120e69e25ba61addb658664",
+            "route": "packages/gui/src/renderer/components/EdgeJoinWizard.tsx#EdgeJoinWizard.validateOrigin"
+          }
+        ]
+      },
+      {
+        "id": "gui/src/renderer/components/agent-ui/ApprovalCard.tsx#ApprovalCard.decide",
+        "symbol": "packages/gui/src/renderer/components/agent-ui/ApprovalCard.tsx#ApprovalCard.decide",
+        "explain": "Controlled React approval-card callback emitting a single user or countdown-timeout ApprovalDecision while pending; countdown expiry eligibility delegates to kernel shouldExpireApproval.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/gui:packages/gui/src/renderer/components/agent-ui/ApprovalCard.tsx#ApprovalCard.decide:8dd367562d197bc288d85f89ac0bd0c5",
+            "route": "packages/gui/src/renderer/components/agent-ui/ApprovalCard.tsx#ApprovalCard.decide"
+          }
+        ]
       }
     ]
   },
@@ -2003,6 +2201,17 @@
           {
             "candidateId": "judgment:packages/storage:packages/storage/src/store/attach-migrations.ts#hasFlatSquadRunIdentity:676dba2da4e228de184c8de2344b0979",
             "route": "packages/storage/src/store/attach-migrations.ts#hasFlatSquadRunIdentity"
+          }
+        ]
+      },
+      {
+        "id": "gui/src/renderer/overview-data.ts#activeAgentIdsOf.isAwaitingOrBlocked",
+        "symbol": "packages/gui/src/renderer/overview-data.ts#activeAgentIdsOf.isAwaitingOrBlocked",
+        "explain": "Overview agent-swimlane UI prioritization predicate reading projected AgentRuntimeSessionGroupDto blocked status and hasAwaits membership to keep blocked or awaiting agent lanes visible.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/gui:packages/gui/src/renderer/overview-data.ts#activeAgentIdsOf.isAwaitingOrBlocked:8f2206d19750d8979dca37b57f359b71",
+            "route": "packages/gui/src/renderer/overview-data.ts#activeAgentIdsOf.isAwaitingOrBlocked"
           }
         ]
       }
@@ -2209,6 +2418,39 @@
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-owned-content.ts#validateRetirement:a4595a3e5d1fc0f0bce8384de9d198f1",
             "route": "packages/kernel/src/domain/entity-owned-content.ts#validateRetirement"
+          }
+        ]
+      },
+      {
+        "id": "gui/src/main/artifact-open-ipc.ts#validateArtifactOpenExternalInput",
+        "symbol": "packages/gui/src/main/artifact-open-ipc.ts#validateArtifactOpenExternalInput",
+        "explain": "Electron main-process IPC payload and openable-extension allowlist boundary for opening a task artifact in the OS viewer; repository layout resolution delegates to kernel resolveHarnessLayout.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/gui:packages/gui/src/main/artifact-open-ipc.ts#validateArtifactOpenExternalInput:55a5a79e72b41e9394a7e002fb748690",
+            "route": "packages/gui/src/main/artifact-open-ipc.ts#validateArtifactOpenExternalInput"
+          }
+        ]
+      },
+      {
+        "id": "gui/src/main/local-doc-ipc.ts#validateLocalDocReadInput",
+        "symbol": "packages/gui/src/main/local-doc-ipc.ts#validateLocalDocReadInput",
+        "explain": "Electron main-process IPC payload shape and path-character validator for in-app local file preview; non-ledger operator file read boundary.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/gui:packages/gui/src/main/local-doc-ipc.ts#validateLocalDocReadInput:1a4f8b13fa474e4f156dc0bc74154f03",
+            "route": "packages/gui/src/main/local-doc-ipc.ts#validateLocalDocReadInput"
+          }
+        ]
+      },
+      {
+        "id": "gui/src/main/local-doc-ipc.ts#validateLocalDocWriteInput",
+        "symbol": "packages/gui/src/main/local-doc-ipc.ts#validateLocalDocWriteInput",
+        "explain": "Electron main-process IPC payload shape and path-character validator for in-app local file write-back; non-ledger operator file write boundary.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/gui:packages/gui/src/main/local-doc-ipc.ts#validateLocalDocWriteInput:cb93e81a575a4dcc1aef64568b2c5e70",
+            "route": "packages/gui/src/main/local-doc-ipc.ts#validateLocalDocWriteInput"
           }
         ]
       }
@@ -2854,6 +3096,28 @@
             "route": "packages/storage/src/projection/fact-event-projection.ts#livenessRelations"
           }
         ]
+      },
+      {
+        "id": "gui/src/renderer/api-client.ts#isRelationFactSummaryRow",
+        "symbol": "packages/gui/src/renderer/api-client.ts#isRelationFactSummaryRow",
+        "explain": "Renderer IPC wire-response shape guard for repo.triadic.relationGraph fact-facet summary rows; Fact validity and liveness remain kernel-owned.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/gui:packages/gui/src/renderer/api-client.ts#isRelationFactSummaryRow:60d7bab15d9c679c0d409c2bbd6a371d",
+            "route": "packages/gui/src/renderer/api-client.ts#isRelationFactSummaryRow"
+          }
+        ]
+      },
+      {
+        "id": "gui/src/renderer/graph/territory.ts#isFactVisibleWithHost",
+        "symbol": "packages/gui/src/renderer/graph/territory.ts#isFactVisibleWithHost",
+        "explain": "Territory graph UI visibility filter hiding a Fact chip when its produces host Task is present in allTaskIds and filtered out of visibleTaskIds, while keeping standalone Facts visible.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/gui:packages/gui/src/renderer/graph/territory.ts#isFactVisibleWithHost:0cdd4e95c15fac87705c99638f6a716f",
+            "route": "packages/gui/src/renderer/graph/territory.ts#isFactVisibleWithHost"
+          }
+        ]
       }
     ]
   },
@@ -2997,6 +3261,17 @@
           {
             "candidateId": "judgment:packages/storage:packages/storage/src/store/attach-migrations.ts#hasRetiredSettingsCi:d636a0e95bc1d0d93986d1cb9e5be774",
             "route": "packages/storage/src/store/attach-migrations.ts#hasRetiredSettingsCi"
+          }
+        ]
+      },
+      {
+        "id": "gui/src/renderer/settings-payload.ts#isSettingsSuccess",
+        "symbol": "packages/gui/src/renderer/settings-payload.ts#isSettingsSuccess",
+        "explain": "Renderer IPC wire-response shape guard for daemon.settings-read/v1 envelopes and optimistic-concurrency revision tokens; repository settings validation stays in kernel SettingsV1.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/gui:packages/gui/src/renderer/settings-payload.ts#isSettingsSuccess:236017a7fd49de208523a00d9bb42f76",
+            "route": "packages/gui/src/renderer/settings-payload.ts#isSettingsSuccess"
           }
         ]
       }
