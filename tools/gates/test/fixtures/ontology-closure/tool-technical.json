@@ -42,7 +42,7 @@
   {
     "label": "receipt schema",
     "target": "tools/gates/audit.mjs",
-    "text": "const schema = { properties: { limit: { type: 'integer' } } }; if (!Number.isInteger(receipt.limit) || receipt.limit < 0) errors.push('schema');"
+    "text": "const MIN_RECEIPT_LIMIT = 0; const schema = { properties: { limit: { type: 'integer' } } }; if (!Number.isInteger(receipt.limit) || receipt.limit < MIN_RECEIPT_LIMIT) errors.push('schema');"
   },
   {
     "label": "tool subprocess options",
