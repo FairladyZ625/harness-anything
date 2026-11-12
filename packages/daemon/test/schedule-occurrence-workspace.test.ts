@@ -7,6 +7,7 @@ import {
   mkdirSync,
   lstatSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -21,10 +22,96 @@ import { dispatchClaimedSchedule } from "../src/schedule-action-runtime.ts";
 import { launchArgs } from "../src/agent-runtime-launch-config.ts";
 import {
   prepareScheduleOccurrenceWorkspace,
+  reclaimManagedWorktree,
   settleScheduleOccurrenceWorkspace,
 } from "../src/schedule-occurrence-workspace.ts";
 import { nodeModulesSetupAdapter } from "../src/worktree-setup-node-modules.ts";
 import { noWorktreeSetup } from "../src/worktree-setup.ts";
+
+for (const contents of ["empty", "managed links", "user file"] as const) {
+  for (const dirty of [false, true]) {
+    test(`reclaim without .git preserves a ${dirty ? "dirty" : "clean"} outer repository with unmerged commits: ${contents}`, async (t) => {
+      const fixture = repositoryFixture({}, t),
+        worktree = { cwd: path.join(fixture.root, ".worktrees", "broken"), branch: "broken", baseRef: "origin/main" };
+      // Leave registration behind, as an interrupted checkout can, but no repository marker or tracked files.
+      git(fixture.root, "worktree", "add", "--no-checkout", "-b", worktree.branch, worktree.cwd, worktree.baseRef);
+      rmSync(path.join(worktree.cwd, ".git"));
+      writeFileSync(path.join(fixture.root, ".git", "info", "exclude"), ".harness/\n");
+      writeFileSync(path.join(fixture.root, "README.md"), "outer commit\n");
+      git(fixture.root, "add", "README.md");
+      git(fixture.root, "commit", "-qm", "outer unmerged commit");
+      if (dirty) writeFileSync(path.join(fixture.root, "README.md"), "outer dirty bytes\n");
+      const store = path.join(fixture.root, "node_modules"),
+        local = path.join(fixture.root, ".harness");
+      if (contents !== "empty") {
+        mkdirSync(store);
+        mkdirSync(local);
+        writeFileSync(path.join(store, "sentinel"), "store bytes\n");
+        writeFileSync(path.join(local, "sentinel"), "ledger bytes\n");
+        symlinkSync(store, path.join(worktree.cwd, "node_modules"), "junction");
+        symlinkSync(local, path.join(worktree.cwd, ".harness"), "junction");
+      }
+      if (contents === "user file") writeFileSync(path.join(worktree.cwd, "note.txt"), "keep me\n");
+      const before = {
+          status: git(fixture.root, "status", "--porcelain"),
+          head: git(fixture.root, "rev-parse", "HEAD"),
+          tags: git(fixture.root, "tag", "--list"),
+          bytes: readFileSync(path.join(fixture.root, "README.md"), "utf8"),
+        },
+        trace = path.join(fixture.base, "git-trace.jsonl"),
+        previousTrace = process.env.GIT_TRACE2_EVENT;
+      process.env.GIT_TRACE2_EVENT = trace;
+      let result;
+      try {
+        result = await reclaimManagedWorktree(fixture.root, worktree);
+      } finally {
+        if (previousTrace === undefined) delete process.env.GIT_TRACE2_EVENT;
+        else process.env.GIT_TRACE2_EVENT = previousTrace;
+      }
+      const commands = (existsSync(trace) ? readFileSync(trace, "utf8") : "")
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as { event: string; argv?: string[] })
+        .filter((event) => event.event === "start")
+        .map((event) => event.argv!);
+      t.diagnostic(JSON.stringify({ result, commands, tags: git(fixture.root, "tag", "--list") }));
+      assert.deepEqual(
+        {
+          status: git(fixture.root, "status", "--porcelain"),
+          head: git(fixture.root, "rev-parse", "HEAD"),
+          tags: git(fixture.root, "tag", "--list"),
+          bytes: readFileSync(path.join(fixture.root, "README.md"), "utf8"),
+        },
+        before,
+        "reclaim must leave the outer worktree, HEAD and tags untouched",
+      );
+      assert.equal(
+        commands.some((argv) => argv.includes(worktree.cwd)),
+        false,
+        "no Git command may discover the outer repository from the broken checkout",
+      );
+      if (contents === "user file") {
+        assert.deepEqual(result, { outcome: "retained", reason: "missing .git marker; directory contains user files" });
+        assert.equal(readFileSync(path.join(worktree.cwd, "note.txt"), "utf8"), "keep me\n");
+      } else {
+        assert.deepEqual(result, { outcome: "removed", archiveTag: null, unmergedCommits: 0 });
+        assert.equal(existsSync(worktree.cwd), false);
+        assert.equal(git(fixture.root, "worktree", "list", "--porcelain").includes(worktree.cwd), false);
+      }
+      assert.equal(existsSync(path.join(worktree.cwd, "node_modules")), false);
+      assert.equal(existsSync(path.join(worktree.cwd, ".harness")), false);
+      if (contents !== "empty") {
+        assert.equal(readFileSync(path.join(store, "sentinel"), "utf8"), "store bytes\n");
+        assert.equal(readFileSync(path.join(local, "sentinel"), "utf8"), "ledger bytes\n");
+      }
+      assert.equal(
+        git(fixture.root, "rev-parse", worktree.branch),
+        git(fixture.root, "rev-parse", worktree.baseRef),
+        "without a checkout HEAD, retain the branch rather than infer its commits from the outer repository",
+      );
+    });
+  }
+}
 
 test("detect occurrences use the canonical root without creating a worktree", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-schedule-detect-"));

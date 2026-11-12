@@ -18,7 +18,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { addManagedWorktree, reclaimManagedWorktree } from "../src/schedule-occurrence-workspace.ts";
-import { runWorktreeSetup, taskWorktreeDocumentBase, workerLedgerPath } from "../src/worktree-setup.ts";
+import {
+  removeEmptyWorktreeDirectory,
+  runWorktreeSetup,
+  taskWorktreeDocumentBase,
+  workerLedgerPath,
+} from "../src/worktree-setup.ts";
 import { taskWorktreeCandidateInventory } from "../src/task-worktree-candidates.ts";
 
 const taskId = "task-x",
@@ -230,6 +235,67 @@ test("a worktree kept for uncommitted work keeps its work and loses only the lin
   assert.deepEqual(readdirSync(path.join(worktree.cwd, "harness")), []);
   assert.equal(existsSync(taskWorktreeDocumentBase(worktree.cwd, "")), false, "reclamation removes local bases too");
   assert.equal(readFileSync(path.join(root, plan), "utf8"), "# Plan\n");
+});
+
+for (const legacy of [false, true]) {
+  test(`reclaim without .git ${legacy ? "clears legacy ledger links" : "retains real ledger copies and user additions"} before judging remaining contents`, async (t) => {
+    const root = repositoryFixture(t),
+      worktree = { cwd: path.join(root, ".worktrees", taskId), branch: taskId, baseRef: "origin/main" };
+    await addManagedWorktree(root, worktree);
+    if (legacy) symlinkDirectory(path.join(root, "harness", "tasks"), path.join(worktree.cwd, "harness", "tasks"));
+    else {
+      await runWorktreeSetup({ rootDir: root, cwd: worktree.cwd, taskId, steps: [] });
+      workerLedgerPath(root, worktree.cwd, path.join(root, skill));
+      writeFileSync(path.join(worktree.cwd, "harness", "note.txt"), "user addition\n");
+    }
+    for (const name of [".git", "README.md", ".gitignore"]) rmSync(path.join(worktree.cwd, name));
+    const result = await reclaimManagedWorktree(root, worktree);
+    if (legacy) {
+      assert.deepEqual(result, { outcome: "removed", archiveTag: null, unmergedCommits: 0 });
+      assert.equal(existsSync(worktree.cwd), false);
+    } else {
+      assert.deepEqual(result, { outcome: "retained", reason: "missing .git marker; directory contains user files" });
+      assert.equal(readFileSync(path.join(worktree.cwd, "harness", "note.txt"), "utf8"), "user addition\n");
+      assert.equal(readFileSync(path.join(worktree.cwd, plan), "utf8"), "# Plan\n");
+    }
+    assert.equal(readFileSync(path.join(root, plan), "utf8"), "# Plan\n");
+    assert.equal(readFileSync(path.join(root, skill), "utf8"), "# Review\n");
+  });
+}
+
+for (const links of [false, true]) {
+  test(`reclaim without .git retains user ${links ? "links to unrelated directories" : "directories with setup names"}`, async (t) => {
+    const root = repositoryFixture(t),
+      cwd = path.join(root, ".worktrees", "user-content"),
+      external = path.join(root, "external");
+    mkdirSync(cwd, { recursive: true });
+    mkdirSync(external);
+    writeFileSync(path.join(external, "note.txt"), "outside bytes\n");
+    for (const name of ["node_modules", ".harness", "harness"]) {
+      if (links) symlinkDirectory(external, path.join(cwd, name));
+      else {
+        mkdirSync(path.join(cwd, name));
+        writeFileSync(path.join(cwd, name, "note.txt"), "user bytes\n");
+      }
+    }
+    assert.deepEqual(await reclaimManagedWorktree(root, { cwd, branch: "user-content", baseRef: "origin/main" }), {
+      outcome: "retained",
+      reason: "missing .git marker; directory contains user files",
+    });
+    for (const name of ["node_modules", ".harness", "harness"])
+      assert.equal(readFileSync(path.join(cwd, name, "note.txt"), "utf8"), links ? "outside bytes\n" : "user bytes\n");
+    assert.equal(readFileSync(path.join(external, "note.txt"), "utf8"), "outside bytes\n");
+  });
+}
+
+test("empty directory removal refuses user files even if they arrive after the emptiness check", (t) => {
+  const root = repositoryFixture(t),
+    cwd = path.join(root, "residue");
+  mkdirSync(cwd);
+  assert.deepEqual(readdirSync(cwd), []);
+  writeFileSync(path.join(cwd, "late-note.txt"), "keep\n");
+  assert.throws(() => removeEmptyWorktreeDirectory(cwd), { code: "ENOTEMPTY" });
+  assert.equal(readFileSync(path.join(cwd, "late-note.txt"), "utf8"), "keep\n");
 });
 
 /** One directory junction, the way the ledger links are made on every platform the daemon runs on. */

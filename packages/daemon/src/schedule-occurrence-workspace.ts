@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { readSettingsFacet, resolveHarnessLayout, type ScheduleV1 } from "@harness-anything/kernel";
 import { makeGitReadinessSource, runProcessExitAsync, runProcessTextAsync } from "./process-port.ts";
@@ -6,6 +6,7 @@ import type { TrustedScheduleRuntime } from "./runtime-spawn-types.ts";
 import {
   cleanupWorktreeSetup,
   isLinkedWorktree,
+  removeEmptyWorktreeDirectory,
   runWorktreeSetup,
   type WorktreeSetupSettings,
   unlinkWorktreeLedger,
@@ -280,8 +281,17 @@ export async function reclaimManagedWorktree(rootDir: string, worktree: ManagedW
   if (!existsSync(worktree.cwd)) return { outcome: "absent" };
   try {
     // What the setup adapters made is theirs to remove, not the work in the worktree.
-    await cleanupWorktreeSetup(worktree.cwd);
+    await cleanupWorktreeSetup(worktree.cwd, rootDir);
     unlinkWorktreeLedger(rootDir, worktree.cwd);
+    // Git would discover the enclosing repository here; it has no authority over this directory's contents.
+    if (!isLinkedWorktree(worktree.cwd)) {
+      if (readdirSync(worktree.cwd).length > 0)
+        return { outcome: "retained", reason: "missing .git marker; directory contains user files" };
+      removeEmptyWorktreeDirectory(worktree.cwd);
+      await git(rootDir, "worktree", "prune", "--expire=now");
+      // There is no checkout HEAD to archive; leave the branch reachable rather than guess its history.
+      return { outcome: "removed", archiveTag: null, unmergedCommits: 0 };
+    }
     // `--ignore-submodules=none` makes a dirty submodule visible here whatever the repository config prefers.
     if ((await git(worktree.cwd, "status", "--porcelain", "--ignore-submodules=none")).length > 0)
       return { outcome: "retained", reason: "uncommitted changes" };

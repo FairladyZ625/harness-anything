@@ -6,6 +6,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  readlinkSync,
   realpathSync,
   renameSync,
   rmdirSync,
@@ -34,7 +35,7 @@ const adapters: Readonly<
     string,
     {
       readonly prepare: (input: { readonly rootDir: string; readonly cwd: string }) => void | Promise<void>;
-      readonly cleanup: (cwd: string) => Promise<void>;
+      readonly cleanup: (cwd: string, rootDir: string) => Promise<void>;
     }
   >
 > = { "node-modules": nodeModulesSetupAdapter };
@@ -119,13 +120,17 @@ export function worktreeSetupFailure(
 }
 
 /** Before a worktree is reclaimed, each built-in adapter that prepared it removes what it made. */
-export async function cleanupWorktreeSetup(cwd: string): Promise<void> {
+export async function cleanupWorktreeSetup(cwd: string, rootDir: string): Promise<void> {
+  if (!isLinkedWorktree(cwd)) {
+    await nodeModulesSetupAdapter.cleanup(cwd, rootDir);
+    return;
+  }
   const directory = await setupDirectory(cwd),
     succeeded = readSucceeded(directory),
     kept = [];
   for (const step of succeeded) {
     const adapter = adapters[step];
-    if (adapter) await adapter.cleanup(cwd);
+    if (adapter) await adapter.cleanup(cwd, rootDir);
     else kept.push(step);
   }
   if (kept.length !== succeeded.length)
@@ -315,13 +320,18 @@ function clearWorktreeLedgerMirror(mirror: string, keepPackage: string | null): 
   }
 }
 
-function removeMirrorEntry(target: string): void {
+/** Uses the setup adapter's existing removal site, with rmdir refusing any remaining user content. */
+export function removeEmptyWorktreeDirectory(target: string): void {
+  removeMirrorEntry(target, false);
+}
+
+function removeMirrorEntry(target: string, recursive = true): void {
   const entry = lstatSync(target);
-  if (!entry.isDirectory() || entry.isSymbolicLink()) {
+  if (recursive && (!entry.isDirectory() || entry.isSymbolicLink())) {
     /* @gate-identity non-state/environment-io.5d1712f8bfbde7e1 */ unlinkSync(target);
     return;
   }
-  for (const child of readdirSync(target)) removeMirrorEntry(path.join(target, child));
+  if (recursive) for (const child of readdirSync(target)) removeMirrorEntry(path.join(target, child));
   /* @gate-identity non-state/environment-io.59efa489be0f2990 */ rmdirSync(target);
 }
 
@@ -511,12 +521,17 @@ function legacyWorktreeLedgerMarkerPath(cwd: string): string | null {
 export function unlinkWorktreeLedger(rootDir: string, cwd: string): void {
   const { authoredRoot, mirror } = ledgerMirror(rootDir, cwd);
   if (mirror === authoredRoot) return;
-  const marker = worktreeLedgerMarkerPath(cwd),
+  const linked = isLinkedWorktree(cwd),
+    layout = resolveHarnessLayout(rootDir),
+    local = path.join(cwd, path.relative(layout.rootDir, layout.localRoot)),
+    localEntry = lstatSync(local, { throwIfNoEntry: false }),
+    // Without .git, real mirror directories may hold edits whose base is no longer readable; keep them.
+    marker = worktreeLedgerMarkerPath(cwd),
     legacyMarker = legacyWorktreeLedgerMarkerPath(cwd),
     ownershipMarker = marker !== null && lstatSync(marker, { throwIfNoEntry: false }) ? marker : legacyMarker,
     ownership = mirrorOwnership(mirror, ownershipMarker);
-  const base = taskWorktreeDocumentBase(cwd, "");
-  if (existsSync(base)) removeMirrorEntry(base);
+  const base = linked ? taskWorktreeDocumentBase(cwd, "") : null;
+  if (base !== null && existsSync(base)) removeMirrorEntry(base);
   if (ownership === "legacy") {
     for (const entry of readdirSync(mirror)) {
       /* @gate-identity non-state/environment-io.28f0d0f15b149005 */
@@ -531,6 +546,13 @@ export function unlinkWorktreeLedger(rootDir: string, cwd: string): void {
   if (legacyMarker !== null && legacyMarker !== marker && lstatSync(legacyMarker, { throwIfNoEntry: false })) {
     clearWorktreeLedgerCopies(legacyMarker);
     /* @gate-identity non-state/environment-io.d52ac26bd8aaf8af */ unlinkSync(legacyMarker);
+  }
+  if (!linked) {
+    if (ownership === "legacy" && readdirSync(mirror).length === 0) removeEmptyWorktreeDirectory(mirror);
+    if (localEntry?.isSymbolicLink() && path.resolve(cwd, readlinkSync(local)) === layout.localRoot)
+      removeMirrorEntry(local);
+    else if (localEntry?.isDirectory() && !localEntry.isSymbolicLink() && readdirSync(local).length === 0)
+      removeEmptyWorktreeDirectory(local);
   }
 }
 
