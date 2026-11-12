@@ -13,6 +13,8 @@ import type { RepoCellBinding, RepoTaskAction, RuntimeIngressAction } from "./re
 
 export function runtimeSessionActionPreparer(projection: () => TaskProjection): EntityActionCatalogPreparer {
   return (contract, action, binding) => {
+    if (action.reasonCode === "ruling_resolved" && binding.executionPrincipal)
+      invalidRuntimeSessionAction("execution_credential_rejected", "A runtime cannot answer its own owner ruling.");
     const runtimeSessionId = requiredRuntimeActionText(action.runtimeSessionId, "runtimeSessionId"),
       dispatch = projection().readRuntimeDispatch(runtimeSessionId),
       dispatchSource = dispatch?.source,

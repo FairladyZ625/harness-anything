@@ -888,7 +888,28 @@ export async function openRepoWriterCell(
         ),
         started.diagnostic ? { diagnostic: started.diagnostic } : {},
       );
-    return startBinding;
+    return {
+      binding: startBinding,
+      releaseUnadmittedLease: async () => {
+        const releaseAction = {
+            kind: "task-release",
+            taskId,
+            claimOpId: started.opId,
+            reason: `Runtime dispatch ${runtimeSessionId} was not admitted.`,
+          },
+          releaseBinding = await authorizeRuntimeAction(
+            releaseAction,
+            startBinding,
+            `runtime-rejected-${runtimeSessionId}`,
+          ),
+          released = await operationalContext.taskSurfaceWrite(releaseAction, releaseBinding);
+        if (released.outcome !== "applied")
+          throw cellCodedError(
+            released.code ?? "runtime_lease_release_failed",
+            "The unused dispatch lease could not be released.",
+          );
+      },
+    };
   };
   if (input.bootstrap && !input.bootstrap.configureOnly) {
     const appended = await initializeBootstrapLedger(extracted, settings, input.bootstrap);

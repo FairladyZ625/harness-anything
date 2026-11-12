@@ -62,13 +62,6 @@
       },
       {
         "path": "packages/daemon/src/dispatch-read.ts",
-        "symbol": "readRuntimeSessionActivityEvidence",
-        "kind": "runtimePidIsAlive",
-        "fingerprint": "d78200e6d27391a87cd2a98a25307624ea5cb7719cede503e0f087953b8ac38b",
-        "slice": "6"
-      },
-      {
-        "path": "packages/daemon/src/dispatch-read.ts",
         "symbol": "shallowSessionGroupRow",
         "kind": "liveness-comparison",
         "fingerprint": "90e9d9b67512598852d9eed9c48f2e8b21e211f71ea0a5dc21dcef3bf9af32b9",

@@ -831,6 +831,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       protocolFamily = runtimeKind.protocolFamily;
     let activeBinding: RuntimeBinding,
       taskLeaseHandoff: RuntimeSpawnerInput["handoffTaskLease"],
+      releaseUnadmittedLease: (() => Promise<void>) | undefined,
       taskBinding: ActiveRuntime["task"] = null;
     // prepareLaunch already minted this run's temp scope. Every refusal in this admission window
     // happens before a stream or process exists, so the scope is the only resource to hand back.
@@ -850,7 +851,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       // attach takes none: it never asks for the handoff, so the frozen round's lease state stays untouched.
       taskLeaseHandoff =
         taskId && !input.remote && !reviewerBinding && !readOnlyAttach ? input.handoffTaskLease : undefined;
-      activeBinding = taskLeaseHandoff
+      const handoff = taskLeaseHandoff
         ? await taskLeaseHandoff({
             taskId: taskId!,
             runtimeSessionId,
@@ -858,7 +859,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             ...(arrangementId ? { arrangementId } : {}),
             binding,
           })
-        : binding;
+        : null;
+      activeBinding = handoff?.binding ?? binding;
+      releaseUnadmittedLease = handoff?.releaseUnadmittedLease;
       const lease = taskId && !input.remote ? projection!.currentLease(taskId) : null;
       if (
         taskId &&
@@ -965,7 +968,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           : {}),
       }));
     let requested: Awaited<ReturnType<typeof publishRuntimeEvent>> | undefined;
-    const requestDispatch = (resumeAccepted: boolean) =>
+    const requestDispatch = () =>
       publishRuntimeEvent(
         "runtime_dispatch_requested",
         runtimeDispatchRequestedPayload(
@@ -985,7 +988,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             ...(handoff ? { handoffCheckpointId: handoff.dispatchId, acceptedCommit: handoff.commit } : {}),
           },
           {
-            ...(resumeAccepted && (handoff?.dispatchId ?? requestedDispatchId)
+            ...((handoff?.dispatchId ?? requestedDispatchId)
               ? { resumedFromDispatchId: handoff?.dispatchId ?? requestedDispatchId }
               : {}),
             ...(taskBinding ? { taskBinding } : {}),
@@ -1008,6 +1011,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           role: dispatchRole ?? null,
           taskId: taskBinding?.taskId ?? null,
           executionId: taskBinding?.executionId ?? null,
+          launchGeneration: input.daemonGeneration,
         },
       );
     const cleanupCallbackRelay = (): void => {
@@ -1026,12 +1030,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         if (reviewCleanupFailure)
           console.error(`[review-worktree] ${newDispatchId} could not be reclaimed: ${reviewCleanupFailure.message}`);
       }
-      if (!requested && !taskLeaseHandoff) {
+      if (process && !(await runtimeProcessTreeStopped(input.rootDir, newDispatchId, process))) return;
+      if (!requested) {
+        await releaseUnadmittedLease?.();
         if (stream) removeDispatchStream(input.rootDir, newDispatchId);
         return;
       }
-      requested ??= await requestDispatch(false);
-      if (process && !(await runtimeProcessTreeStopped(input.rootDir, newDispatchId, process))) return;
       await publishRuntimeEvent("runtime_session_exited", { runtimeSessionId }, randomUUID(), activeBinding);
       const body = `Runtime dispatch failed before provider registration: ${runtimeErrorMessage(error)}`,
         sha256 = sha256Text(body),
@@ -1177,7 +1181,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     try {
       openStream();
       onPrepared?.(newDispatchId, runtimeSessionId);
-      requested = await requestDispatch(true);
+      requested = await requestDispatch();
     } catch (error) {
       await cleanupFailedLaunch(error);
       throw error;
@@ -1192,26 +1196,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         dispatchId: newDispatchId,
         authorizationDecision: authorizationDecision as unknown as JsonObject | null,
       };
-    }
-    try {
-      await publishRuntimeEvent(
-        "runtime_session_started",
-        {
-          runtimeSessionId,
-          instanceId: definition.instanceId,
-          installationId: definition.installationId,
-          kindId: definition.kindId,
-          definitionSnapshotRef,
-          launchGeneration: input.daemonGeneration,
-          attachable: true,
-          ...(taskBinding ? { taskBinding: { taskId: taskBinding.taskId, executionId: taskBinding.executionId } } : {}),
-        },
-        randomUUID(),
-        binding,
-      );
-    } catch (error) {
-      await cleanupFailedLaunch(error);
-      throw error;
     }
     if (!process)
       try {

@@ -280,7 +280,7 @@ export function taskShowFromProjection(
     },
     receipt = {
       opId: `read:${taskId}`,
-      revision: read.sourceRevision,
+      revision: read.snapshot.revision,
       // The revision optimistic-concurrency task commands (assign/unassign/transition …) must
       // resend as --expected-version. The ledger cut above it is a different number; stating both
       // keeps the mutation input reachable without decoding the evidence snapshot.

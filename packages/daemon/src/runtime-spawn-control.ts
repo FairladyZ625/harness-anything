@@ -112,9 +112,7 @@ export async function cancelRuntime(
       // The worker may be synchronously waiting for this command's response. Returning only
       // after terminateTree would wait for that CLI child, which waits for us: stop the provider
       // now, let the response flush, and finish the full tree cleanup in the next check phase.
-      void context
-        .publishExit(active, null)
-        .catch((error: unknown) => console.error("[runtime-escalation] settlement failed", error));
+      context.input.schedule(() => context.publishExit(active, null), active.binding);
       return context.controlReceipt(opId, runtimeSessionId, "requested");
     }
     await context.publishExit(active, null);
@@ -149,7 +147,7 @@ export async function cancelRuntime(
             schema: "runtime-ruling-resolution/v1",
             runtimeSessionId,
             dispatchId: ownerEvidence?.payload.dispatchId ?? null,
-            from: "awaiting_ruling",
+            from: attempt.groupPhase,
             to: "closed",
             event: "ruling_resolved",
             disposition: "abandoned_unproven",

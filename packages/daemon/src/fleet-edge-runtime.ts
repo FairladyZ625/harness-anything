@@ -884,7 +884,8 @@ export function openFleetEdgeRuntime(input: {
           }
           throw error;
         }
-        if (draft.type === "runtime_session_started") await pullRuntimeReplica();
+        if (draft.type === "runtime_session_started" || draft.type === "runtime_dispatch_requested")
+          await pullRuntimeReplica();
         const {
           event: _event,
           executionCredential,

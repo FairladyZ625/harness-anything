@@ -521,7 +521,7 @@ export interface RuntimeSpawnerInput {
     readonly runtimeSessionId: string;
     readonly fromRuntimeSessionId: string | null;
     readonly binding: RuntimeBinding;
-  }) => Promise<RuntimeBinding>;
+  }) => Promise<{ readonly binding: RuntimeBinding; readonly releaseUnadmittedLease: () => Promise<void> }>;
   /** Re-authorizes a persisted provider continuation before admitting its next attempt. */
   readonly authorizeRuntimeContinuation?: (
     payload: JsonObject,

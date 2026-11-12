@@ -17,6 +17,7 @@ import {
   executionExecutorDeclarationCandidates,
   getExecutableEntityAction,
   lifecycleDocumentPaths,
+  sha256Text,
   requireEntityTypeContract,
   type ExecutionAnnotationKind,
   type WriteReceiptDraft as WriteReceipt,
@@ -54,6 +55,8 @@ import { runAssignmentMigrationAction } from "./assignment-migration-action.ts";
 import { readVerticalKindAction } from "./vertical-kind-read.ts";
 import { parseRulingArtifact, runtimeRulingPath, runtimeRulingResolutionPath } from "./runtime-ruling.ts";
 import { squadRulingResumeNext } from "./squad-ruling-resume.ts";
+import { dispatchLifecyclePendingError } from "./runtime-dispatch-admission.ts";
+import { commitRuntimeSessionAction } from "./runtime-session-action-runtime.ts";
 
 export async function executeAction(
   cell: RepoCellOperationalContext,
@@ -584,7 +587,10 @@ async function resolveTaskEscalation(
       "invalid_escalation_resolution",
       `Dispatch ${dispatchId} does not belong to Task ${taskId}.`,
     );
-  if (task.snapshot.task?.status !== "blocked" || task.snapshot.lease !== null)
+  const lifecycle = cell.projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatchId] });
+  if (lifecycle.status !== "ready") throw dispatchLifecyclePendingError(lifecycle, cell.cellCodedError);
+  const attempt = lifecycle.rows[0];
+  if (!attempt?.policy.canResolveRuling)
     throw cell.cellCodedError("invalid_escalation_resolution", `Task ${taskId} is not waiting for an owner ruling.`);
   const path = `${packagePath}/${runtimeRulingPath(dispatchId)}`,
     rulingDocument = cell.projection.readDocument(path).document,
@@ -648,6 +654,28 @@ async function resolveTaskEscalation(
       killpoint: cell.input.killpoint,
     });
   }
+  const resultBody = JSON.stringify({ dispatchId, taskId, answer }),
+    sha256 = sha256Text(resultBody),
+    resolved = await commitRuntimeSessionAction(
+      cell,
+      {
+        kind: "event",
+        type: "runtime_session_outcome_observed",
+        opId: `escalation-resolved-${dispatchId}`,
+        payload: {
+          runtimeSessionId: dispatch.payload.runtimeSessionId,
+          dispatchId,
+          outcome: attempt.attempt.outcome!,
+          exitCode: null,
+          reasonCode: "ruling_resolved",
+          resultRef: `artifact:runtime-result/sha256/${sha256}`,
+          result: { sha256, size: Buffer.byteLength(resultBody), mediaType: "text/plain; charset=utf-8" },
+        },
+        resultBody,
+      },
+      { ...binding, source: dispatch.source },
+    );
+  if (resolved.outcome !== "applied") return resolved;
   const transitioned = await cell.lifecycleAction(
       { kind: "task-transition", taskId, status: "planned", reason: `Owner answered escalation ${dispatchId}.` },
       binding,

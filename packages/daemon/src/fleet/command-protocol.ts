@@ -72,6 +72,8 @@ export interface FleetRuntimeDispatchContext {
   readonly role: string | null;
   readonly taskId: string | null;
   readonly executionId: string | null;
+  /** New owners admit the dispatch and its RuntimeSession in one canonical transaction. */
+  readonly launchGeneration?: number;
 }
 type Msg<S extends string, P extends object = object> = S extends string
   ? Readonly<{ schema: S; messageId: string; accessToken?: string }> & Readonly<P>
@@ -754,7 +756,10 @@ const runtimeEventType = one(
   "runtime_session_outcome_observed",
   "runtime_dispatch_outcome_unknown",
 );
-const runtimeDispatchContext = shape({ role: nullable(text), taskId: nullable(id), executionId: nullable(id) });
+const runtimeDispatchContext = optionalShape(
+  { role: nullable(text), taskId: nullable(id), executionId: nullable(id), launchGeneration: uint },
+  ["role", "taskId", "executionId"],
+);
 const docChange = shape({ path: logicalPath, baseBlobSha256: nullable(sha64), policyId: text, candidate: descriptor });
 const common = { schema: text, messageId: id } as const,
   reply = { ...common, inReplyTo: id } as const;

@@ -93,6 +93,58 @@ test("an unproven self PID rejects settlement without releasing its recovery han
   assert.equal(released, false);
 });
 
+test("self escalation queues terminal settlement after its response instead of escaping the writer", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-escalation-writer-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const dispatchId = "dispatch_666666666666666666666666",
+    runtimeSessionId = "runtime-escalation-writer",
+    binding = { actor: { principal: { personId: "operator" }, executor: null }, source: "local" as const },
+    worker = fixtureRuntimeProcess(t),
+    scheduled: Array<() => void | Promise<void>> = [];
+  openDispatchStream(rootDir, {
+    dispatchId,
+    runtimeSessionId,
+    taskId: null,
+    executionId: null,
+    instanceId: "instance-1",
+    startedAt: "2026-11-12T00:00:00.000Z",
+    binding,
+  });
+  const runtime = active({
+    dispatchId,
+    runtimeSessionId,
+    binding,
+    process: {
+      ...worker,
+      onOutput: () => undefined,
+      onErrorOutput: () => undefined,
+      onExit: () => undefined,
+    },
+  });
+  let published = 0;
+  const context = {
+    input: {
+      rootDir,
+      schedule: (work: () => void | Promise<void>) => scheduled.push(work),
+      remote: {
+        readDispatchLifecycle: lifecycleReadFor([{ runtimeSessionId, dispatchId, process: "alive" }]),
+      },
+    },
+    processes: new Map([[runtimeSessionId, runtime]]),
+    exiting: new Set<string>(),
+    publishExit: async () => {
+      published += 1;
+    },
+    controlReceipt: () => ({ detail: "requested" }),
+  } as unknown as RuntimeSpawnerContext;
+  const receipt = await cancelRuntime(context, { runtimeSessionId, escalation: true }, binding);
+  assert.equal(receipt.detail, "requested");
+  assert.equal(published, 0, "deferred writes must not outlive the RPC's writer turn unqueued");
+  assert.equal(scheduled.length, 1);
+  await scheduled[0]!();
+  assert.equal(published, 1);
+});
+
 for (const stopProofCode of ["runtime_process_group_unproven", "runtime_lease_release_failed"] as const)
   test(`escalation settlement retries ${stopProofCode} after full tree cleanup`, async (context) => {
     const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-escalation-tree-stop-")),

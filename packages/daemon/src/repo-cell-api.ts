@@ -920,10 +920,18 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
           now: context.now(),
         });
       }
-      if (action.kind === "event" && runtimeSessionActionIds.includes(action.type as never)) {
-        const receipt = await commitRuntimeSessionAction(context.extracted, action, authorizedBinding);
+      if (
+        action.kind === "event" &&
+        (runtimeSessionActionIds.includes(action.type as never) ||
+          (action.type === "runtime_dispatch_requested" && action.dispatchContext?.launchGeneration !== undefined))
+      ) {
+        const receipt =
+          action.type === "runtime_dispatch_requested"
+            ? context.appendAuxiliaryRuntimeIngress(action, authorizedBinding)
+            : await commitRuntimeSessionAction(context.extracted, action, authorizedBinding);
         const dispatch =
-            action.type === "runtime_session_started" && typeof action.payload.runtimeSessionId === "string"
+            (action.type === "runtime_session_started" || action.type === "runtime_dispatch_requested") &&
+            typeof action.payload.runtimeSessionId === "string"
               ? context.projection.readRuntimeDispatch(action.payload.runtimeSessionId)
               : null,
           executionRole = !dispatch

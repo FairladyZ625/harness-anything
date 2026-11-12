@@ -158,7 +158,7 @@ test("owner ruling closes a live session with no local owner, dispatch stream or
     schema: "runtime-ruling-resolution/v1",
     runtimeSessionId,
     dispatchId,
-    from: "awaiting_ruling",
+    from: "settling",
     to: "closed",
     event: "ruling_resolved",
     disposition: "abandoned_unproven",

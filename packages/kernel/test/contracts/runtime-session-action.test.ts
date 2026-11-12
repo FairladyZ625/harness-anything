@@ -153,6 +153,45 @@ test("RuntimeSession outcome compilation closes its content claim", () => {
   );
 });
 
+test("a dispatch ruling answer is observed without replacing the session's terminal result", () => {
+  const current: RuntimeSession = {
+      runtimeSessionId: "runtime-ruling-answer",
+      instanceId: "instance-a",
+      installationId: "installation-a",
+      kindId: "codex",
+      definitionSnapshotRef: "artifact:runtime-definition/action-a",
+      providerSessionId: "provider-a",
+      transcriptRef: null,
+      launchGeneration: 1,
+      liveness: "exited",
+      attachable: false,
+      taskBindings: [],
+      outcome: "stopped",
+      exitCode: 2,
+      resultRef: "artifact:runtime-result/original",
+      lastObservedAt: "2026-09-01T00:00:00.000Z",
+    },
+    body = "Owner answered the dispatch ruling.",
+    compile = getExecutableEntityAction("runtime_session_outcome_observed")!.execution!.compile!,
+    draft = compile({
+      ...compileInput,
+      currentEntity: current,
+      action: {
+        kind: "runtime_session_outcome_observed",
+        runtimeSessionId: current.runtimeSessionId,
+        outcome: "stopped",
+        reasonCode: "ruling_resolved",
+        resultBody: body,
+        resultRef: `artifact:runtime-result/sha256/${sha256Text(body)}`,
+        result: { sha256: sha256Text(body), size: Buffer.byteLength(body), mediaType: "text/plain; charset=utf-8" },
+      },
+    });
+  assert.equal(draft.kind, "runtime-session");
+  if (draft.kind !== "runtime-session") return;
+  assert.notEqual(draft.noChanges, true, "the lifecycle reducer must receive the ruling answer observation");
+  assert.deepEqual(reduceRuntimeSession(current, draft.event), current, "the historical exit and result stay intact");
+});
+
 test("RuntimeSession stop proof compiles after dispatch admission before session start", () => {
   const action = getExecutableEntityAction("runtime_session_exited");
   assert.ok(action?.execution?.compile);

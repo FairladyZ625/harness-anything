@@ -254,5 +254,23 @@ test(
       options: ["Keep the boundary", "Ask the owner to change it"],
       path: `tasks/task-fleet-fleet/artifacts/rulings/${String(spawned.dispatchId)}.md`,
     });
+    const resolved = await fixture.host.run(
+      fixture.subject.repoId,
+      {
+        kind: "task-escalation-resolve",
+        taskId: fixture.subject.taskId,
+        dispatchId: String(spawned.dispatchId),
+        answer: "Keep the boundary.",
+      },
+      fixture.auth,
+    );
+    assert.equal(resolved.outcome, "applied", JSON.stringify(resolved));
+    const after = await fixture.host.read(
+      fixture.subject.repoId,
+      "repo.task.dispatches",
+      { taskIds: [fixture.subject.taskId] },
+      fixture.auth,
+    );
+    assert.equal(after.dispatches.length, 1, "answering must not create an ownerless dispatch");
   },
 );
