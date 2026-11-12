@@ -8,7 +8,6 @@ export {
   runtimeEventContentClaims,
   runtimeSessionInActivityWindow,
   runtimeSessionMissingOutcomeEvidence,
-  runtimeSessionOutcomeFromEvidence,
   sessionProvenance,
   unavailableSessionIdentity,
 } from "./domain/agent-runtime.ts";

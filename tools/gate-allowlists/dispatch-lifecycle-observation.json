@@ -1,7 +1,7 @@
 {
   "schema": "harness-anything/gate-allowlist/v1",
   "authority": "decision/dec_AEB05951C69E47FCE53E53C341#CH4",
-  "policy": "entries may only be removed; each site is keyed by path, symbol, kind, and source fingerprint",
+  "policy": "closed boundary: zero exemptions; observationSites must remain empty",
   "entries": {
     "observationSites": []
   }

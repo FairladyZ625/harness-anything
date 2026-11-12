@@ -266,7 +266,7 @@ async function restoreRuntime(
     );
   const streamSummary = readDispatchStreamSummary(context.input.rootDir, header.dispatchId);
   if (header.fallbackAttempt) await context.reconcileFallback(header.dispatchId);
-  if (lifecycle.policy.attemptSettled || session?.outcome) {
+  if (lifecycle.policy.attemptSettled) {
     if (streamSummary && lifecycle.policy.groupSettled && !lifecycle.policy.successorAdmissible)
       archiveDispatchStream(context.input.rootDir, header.dispatchId);
     removeRuntimeCallbackRelay(header.dispatchId);

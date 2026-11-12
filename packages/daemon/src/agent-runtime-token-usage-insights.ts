@@ -30,10 +30,8 @@ export const tokenUsageSessionBinCeilings: readonly (number | null)[] = Object.f
   100_000_000,
   null,
 ]);
-/** Session business outcomes reuse the kernel's domain words (succeeded / failed / cancelled /
- * unknown, decided by `runtimeSessionOutcomeFromEvidence` over the accepted terminal outcome);
- * `running` is the one addition — a process-liveness fact for dispatches that have not exited,
- * not an outcome judgment. There is no second vocabulary. */
+/** Previous-version analytics vocabulary (remove narrowing 2026-12-07). The display outcome
+ * is projected from readDispatchLifecycle; streams supply usage observations only. */
 export const tokenUsageOutcomeWords = Object.freeze([
   "succeeded",
   "failed",

@@ -315,7 +315,11 @@ test("a replayed terminal behind a scheduled fallback keeps settlement for the c
       } as unknown as RuntimeSpawnerContext;
     await publishExit(context, runtime, 1);
     assert.equal(terminals.length, 0, "the pending continuation owns this occurrence's settlement");
-    assert.equal(readDispatchStream(rootDir, replayDispatchId)?.fallbackState, "scheduled");
+    assert.equal(
+      readDispatchStream(rootDir, replayDispatchId)?.records.find((record) => record.kind === "fallback_state")?.state,
+      "scheduled",
+      "the transcript retains the raw observation for replay",
+    );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -611,4 +615,72 @@ test("interrupted reviewer exhaustion replays the frozen terminal, releases its 
   assert.equal(notifications[0]?.endedAt, terminal.payload.endedAt);
   await adoptRuntimes(openContext());
   assert.equal(notifications.length, 1, "the matching Schedule claim is notified once");
+});
+
+// A spool is replay evidence, never a replacement for a missing center schedule.
+test("fallback refuses a local stream plan when the canonical schedule is missing", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-fallback-no-local-plan-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const stream = openDispatchStream(rootDir, {
+    dispatchId: replayDispatchId,
+    runtimeSessionId: replayRuntimeSessionId,
+    taskId: null,
+    executionId: null,
+    instanceId: "provider-a",
+    startedAt: "2026-11-11T00:00:00.000Z",
+    cwd: rootDir,
+    binding: { ...binding, actor: { ...binding.actor, principal: { personId: "operator" } } },
+    fallbackAttempt: {
+      attemptGroupId: replayDispatchId,
+      attemptIndex: 0,
+      rootDispatchKey: "local-plan",
+      originalMission: "mission",
+      candidates: [{ instance: "provider-a" }, { instance: "provider-b" }],
+    },
+  });
+  stream.appendAttemptOutcome(
+    {
+      attemptGroupId: replayDispatchId,
+      attemptIndex: 0,
+      classification: "provider_quota",
+      reason: "quota",
+      provider: { instance: "provider-a", model: "model-a", kind: "codex" },
+    },
+    "2026-11-11T00:00:00.000Z",
+  );
+  stream.appendFallbackState(
+    {
+      state: "scheduled",
+      delayMs: 1000,
+      notBeforeAt: "2099-01-01T00:00:00.000Z",
+      nextProvider: { instance: "provider-b" },
+    },
+    "2026-11-11T00:00:00.000Z",
+  );
+  const accepted = acceptedReplay("scheduled"),
+    context = {
+      input: {
+        rootDir,
+        now: () => "2026-11-11T00:00:00.000Z",
+        remote: {
+          readDispatchLifecycle: async (query) => {
+            const read = await accepted.readDispatchLifecycle(query);
+            return {
+              ...read,
+              rows: read.rows.map((row) => ({ ...row, successor: { ...row.successor, schedule: null } })),
+            };
+          },
+        },
+        schedule: () => assert.fail("local plan cannot schedule a successor"),
+      },
+    } as unknown as RuntimeSpawnerContext;
+  await assert.rejects(
+    scheduleFallbackContinuation({
+      context,
+      dispatchId: replayDispatchId,
+      launch: async () => assert.fail("local plan cannot launch"),
+    }),
+    { code: "runtime_event_missing" },
+  );
 });

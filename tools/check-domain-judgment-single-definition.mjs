@@ -14,7 +14,7 @@ import ts from "typescript";
 import { loadOntologyClosureSnapshot } from "./gates/ontology-gate-lib.mjs";
 import { judgmentImportResolver } from "./domain-judgment-consumers.mjs";
 import { authoredReadinessFindings } from "./domain-judgment-authored-readiness.mjs";
-import { git, listWorktreeFiles, pathExistsAt, pullRequestBase } from "./gates/git.mjs";
+import { listWorktreeFiles } from "./gates/git.mjs";
 
 const DISPATCH_OBSERVATION_BASELINE = "tools/gate-allowlists/dispatch-lifecycle-observation.json",
   OBSERVATION_BASELINE_SCHEMA = "harness-anything/gate-allowlist/v1";
@@ -194,11 +194,12 @@ export function checkDomainJudgmentSingleDefinition(
       "packages/daemon/src/protocol/daemon-protocol-commands-task-surface.ts: projects cancellation eligibility into the CLI",
     );
   findings.push(...authoredReadinessFindings(root));
-  const baseline = readDispatchObservationBaseline(root),
-    dispatchSites = scanDispatchLifecycleObservationSites(root),
-    // Without a baseline at this cut there is nothing to ratchet: every site is a finding.
-    priorBaseline = baseline === null ? null : readPreviousDispatchObservationEntries(root);
-  findings.push(...checkDispatchLifecycleObservationSites(dispatchSites, baseline, priorBaseline));
+  findings.push(
+    ...checkDispatchLifecycleObservationSites(
+      scanDispatchLifecycleObservationSites(root),
+      readDispatchObservationBaseline(root),
+    ),
+  );
   return findings;
 }
 
@@ -216,20 +217,24 @@ export function scanDispatchLifecycleObservationSites(root = process.cwd()) {
   for (const rel of files) {
     const body = readFileSync(path.join(root, rel), "utf8"),
       source = ts.createSourceFile(rel, body, ts.ScriptTarget.Latest, true, scriptKind(rel));
+    const pidProbes = new Set(["runtimePidIsAlive"]);
+    for (const statement of source.statements) {
+      const bindings = ts.isImportDeclaration(statement) ? statement.importClause?.namedBindings : undefined;
+      if (bindings && ts.isNamedImports(bindings))
+        for (const binding of bindings.elements)
+          if ((binding.propertyName ?? binding.name).text === "runtimePidIsAlive") pidProbes.add(binding.name.text);
+    }
+    const reported = new Set();
     const add = (node, symbol, kind) => {
       const fingerprint = createHash("sha256")
         .update(`${rel}\0${symbol}\0${kind}\0${node.getText(source).replace(/\s+/gu, " ").trim()}`)
         .digest("hex");
+      if (reported.has(fingerprint)) return;
+      reported.add(fingerprint);
       sites.push({ path: rel, symbol, kind, fingerprint });
     };
+    scanLocalObservationJudgments(source, pidProbes, add);
     const visit = (node) => {
-      if (
-        ts.isCallExpression(node) &&
-        ts.isIdentifier(node.expression) &&
-        node.expression.text === "runtimePidIsAlive" &&
-        !insideDispatchObservationPayload(node)
-      )
-        add(judgmentContextNode(node), enclosingSymbol(node), "runtimePidIsAlive");
       if (
         ts.isCallExpression(node) &&
         ts.isPropertyAccessExpression(node.expression) &&
@@ -239,10 +244,6 @@ export function scanDispatchLifecycleObservationSites(root = process.cwd()) {
         add(judgmentContextNode(node), enclosingSymbol(node), "process-table-probe");
       if (ts.isBinaryExpression(node) && equalityOperators.has(node.operatorToken.kind)) {
         const names = [trailingName(node.left), trailingName(node.right)];
-        if (names.includes("liveness") && !insideDispatchObservationPayload(node))
-          add(judgmentContextNode(node), enclosingSymbol(node), "liveness-comparison");
-        if (names.includes("fallbackState") && !insideDispatchObservationPayload(node))
-          add(judgmentContextNode(node), enclosingSymbol(node), "fallback-state-branch");
         if (
           names.some((name) => name === "groupPhase" || name === "phase") &&
           [node.left, node.right].some((value) => ts.isStringLiteralLike(value) && value.text === "awaiting_ruling")
@@ -262,47 +263,596 @@ export function scanDispatchLifecycleObservationSites(root = process.cwd()) {
   return sites.sort(compareObservationSite);
 }
 
-export function checkDispatchLifecycleObservationSites(sites, baseline, priorBaseline = null) {
-  const findings = [],
-    baselineEntries = observationEntries(baseline) ?? [],
-    allowed = countEntries(baselineEntries);
-  if (observationEntries(baseline) === null)
-    findings.push(`${DISPATCH_OBSERVATION_BASELINE}: invalid or missing dispatch observation baseline`);
-  for (const site of sites) {
-    const key = observationKey(site),
-      remaining = allowed.get(key) ?? 0;
-    if (remaining === 0)
-      findings.push(
-        `${site.path}#${site.symbol}: new ${site.kind} judgment (${site.fingerprint}); remove the business judgment or obtain a governance decision`,
+/** Resolve local values by TS binding identity, including callbacks, destructuring and `x = value`.
+ * Only local boolean predicates and callback bodies are followed; imports and object producers are not.
+ * Cycles (survivor resampling) terminate. This is a local dependency scan, not lifecycle logic.
+ */
+function localObservationDependencies(source) {
+  const options = { noLib: true, noResolve: true },
+    host = ts.createCompilerHost(options);
+  host.getSourceFile = (file) => (file === source.fileName ? source : undefined);
+  const checker = ts.createProgram([source.fileName], options, host).getTypeChecker(),
+    assignments = new Map(),
+    symbolOf = (node) =>
+      ts.isShorthandPropertyAssignment(node.parent)
+        ? checker.getShorthandAssignmentValueSymbol(node.parent)
+        : checker.getSymbolAtLocation(node);
+  const collect = (node) => {
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isIdentifier(node.left)
+    ) {
+      const symbol = symbolOf(node.left);
+      if (symbol) assignments.set(symbol, [...(assignments.get(symbol) ?? []), node.right]);
+    }
+    ts.forEachChild(node, collect);
+  };
+  collect(source);
+  const dependencies = (expression) => {
+    const nodes = new Set();
+    const visit = (node) => {
+      if (!node || nodes.has(node) || ts.isTypeNode(node) || ts.isFunctionLike(node)) return;
+      nodes.add(node);
+      // Accepted observation shape is an output boundary. A sibling business use of its
+      // original local value is still scanned independently, never exempted by this object.
+      if (ts.isObjectLiteralExpression(node) && isDispatchObservationObject(node)) return;
+      // Shape validation accepts every old wire state; it cannot discriminate lifecycle state.
+      if (ts.isTypeOfExpression(node)) return;
+      if (
+        ts.isCallExpression(node) &&
+        trailingName(node.expression) === "statusWord" &&
+        trailingName(node.arguments[0]) === "factLivenessWords"
+      )
+        return;
+      if (
+        ["dispatched,exhausted,null,scheduled", "exited,live,stale,unknown"].includes(
+          observationShapeWords(node, symbolOf).join(","),
+        )
+      )
+        return;
+      if (ts.isIdentifier(node) && isValueReference(node)) {
+        const symbol = symbolOf(node);
+        for (const declaration of symbol?.declarations ?? []) {
+          if (
+            ts.isVariableDeclaration(declaration) &&
+            declaration.initializer &&
+            !ts.isFunctionLike(declaration.initializer)
+          )
+            visit(declaration.initializer);
+          if (ts.isBindingElement(declaration)) {
+            nodes.add(declaration);
+            visit(declaration.initializer);
+            visit(declaration.parent.parent.initializer);
+          }
+        }
+        for (const value of assignments.get(symbol) ?? []) visit(value);
+      }
+      if (ts.isCallExpression(node)) {
+        visit(node.expression);
+        for (const argument of node.arguments) {
+          if (!ts.isFunctionLike(argument)) {
+            visit(argument);
+            if (["filter", "some", "every"].includes(trailingName(node.expression)) && ts.isIdentifier(argument)) {
+              const callback = symbolOf(argument);
+              for (const declaration of callback?.declarations ?? []) {
+                const fn = ts.isFunctionDeclaration(declaration)
+                  ? declaration
+                  : ts.isVariableDeclaration(declaration) && ts.isFunctionLike(declaration.initializer)
+                    ? declaration.initializer
+                    : null;
+                if (fn?.body) visit(fn.body);
+              }
+            }
+          } else if (argument.body && !ts.isBlock(argument.body)) visit(argument.body);
+          else if (argument.body) {
+            const returns = (child) => {
+              if (ts.isReturnStatement(child)) visit(child.expression);
+              else if (!ts.isFunctionLike(child)) ts.forEachChild(child, returns);
+            };
+            returns(argument.body);
+          }
+        }
+        const resultType = checker.getTypeAtLocation(node),
+          returnsBoolean = (resultType.flags & ts.TypeFlags.BooleanLike) !== 0,
+          called = returnsBoolean ? symbolOf(unwrappedExpression(node.expression)) : undefined;
+        for (const declaration of called?.declarations ?? []) {
+          const fn = ts.isFunctionDeclaration(declaration)
+            ? declaration
+            : ts.isVariableDeclaration(declaration) && ts.isFunctionLike(declaration.initializer)
+              ? declaration.initializer
+              : null;
+          if (!fn?.body || ts.isObjectLiteralExpression(fn.body)) continue;
+          const returned = [];
+          const collectReturns = (child) => {
+            if (ts.isReturnStatement(child) && child.expression) returned.push(child.expression);
+            else if (!ts.isFunctionLike(child)) ts.forEachChild(child, collectReturns);
+          };
+          if (ts.isBlock(fn.body)) collectReturns(fn.body);
+          if (returned.length > 0 && returned.every(ts.isObjectLiteralExpression)) continue;
+          visit(fn.body);
+        }
+      } else ts.forEachChild(node, visit);
+    };
+    visit(expression);
+    return [...nodes];
+  };
+  return { dependencies, symbolOf };
+}
+
+function scanLocalObservationJudgments(source, pidProbes, add) {
+  if (!/runtimePidIsAlive|fallbackState|fallbackSchedule|fallback_state|\bliveness\b|\bprocess\b/u.test(source.text))
+    return;
+  const { dependencies, symbolOf } = localObservationDependencies(source),
+    samplingConditions = new Set();
+  const kindsOf = (expression) => {
+    const kinds = new Set();
+    for (const node of dependencies(expression)) {
+      if (insideDispatchObservationPayload(node)) continue;
+      const name = ts.isBindingElement(node)
+        ? propertyName(node.propertyName ?? node.name)
+        : ts.isIdentifier(node) && !isValueReference(node)
+          ? null
+          : trailingName(node);
+      if (pidProbes.has(name)) kinds.add("runtimePidIsAlive");
+      if (["fallbackState", "fallbackSchedule", "fallback_state"].includes(name)) kinds.add("fallback-state-branch");
+      if (name === "liveness") kinds.add("liveness-comparison");
+      if (
+        name === "exited" &&
+        (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node) || ts.isBindingElement(node)) &&
+        dependencies(ts.isBindingElement(node) ? node.parent.parent.initializer : node.expression).some(
+          (part) => trailingName(part) === "process",
+        )
+      )
+        kinds.add("stream-process-terminal-return");
+    }
+    return kinds;
+  };
+  const report = (node, expression, returnSinkOnly = false) => {
+    if (insideDispatchObservationPayload(node) || directLegacyFallbackProjection(node)) return;
+    for (let current = node; current && !ts.isFunctionLike(current); current = current.parent)
+      if (
+        ts.isIfStatement(current) &&
+        isObservationEmission(current.thenStatement) &&
+        (!current.elseStatement || isObservationEmission(current.elseStatement))
+      )
+        return;
+    for (const kind of kindsOf(expression))
+      if (
+        (!returnSinkOnly ||
+          kind === "fallback-state-branch" ||
+          (kind !== "liveness-comparison" && returnStatementAncestor(node) !== null)) &&
+        (kind !== "stream-process-terminal-return" ||
+          !ts.isConditionalExpression(node) ||
+          dependencies(node.whenTrue)
+            .concat(dependencies(node.whenFalse))
+            .some(
+              (value) =>
+                value.kind === ts.SyntaxKind.TrueKeyword ||
+                value.kind === ts.SyntaxKind.FalseKeyword ||
+                (ts.isStringLiteralLike(value) &&
+                  ["running", "unknown", "succeeded", "failed", "cancelled"].includes(value.text)),
+            ))
+      )
+        add(judgmentContextNode(node), enclosingSymbol(node), kind);
+  };
+  const visit = (node) => {
+    const loopTest = ts.isForStatement(node) ? node.condition : ts.isWhileStatement(node) ? node.expression : null;
+    if (loopTest) {
+      const statements = ts.isBlock(node.statement) ? node.statement.statements : [node.statement];
+      // Only the stop-proof shape may use survivor count for bounded resampling: fixed
+      // attempt loop, positive survivor length, delay, then refresh that survivor set.
+      const test = unwrappedExpression(loopTest),
+        left =
+          ts.isBinaryExpression(test) && test.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+            ? test.left
+            : null,
+        right =
+          ts.isBinaryExpression(test) && test.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+            ? test.right
+            : null,
+        survivorCount =
+          left &&
+          ts.isBinaryExpression(left) &&
+          left.operatorToken.kind === ts.SyntaxKind.GreaterThanToken &&
+          ts.isNumericLiteral(left.right) &&
+          Number(left.right.text) === 0 &&
+          ts.isPropertyAccessExpression(left.left) &&
+          left.left.name.text === "length" &&
+          ts.isIdentifier(left.left.expression)
+            ? left.left.expression.text
+            : null,
+        counter =
+          right &&
+          ts.isBinaryExpression(right) &&
+          right.operatorToken.kind === ts.SyntaxKind.LessThanToken &&
+          ts.isIdentifier(right.left) &&
+          !dependencies(right.right).some(
+            (part) =>
+              pidProbes.has(trailingName(part)) ||
+              ["liveness", "fallbackState", "fallbackSchedule", "exited"].includes(trailingName(part)),
+          )
+            ? right.left.text
+            : null,
+        boundedCounter =
+          ts.isForStatement(node) &&
+          counter !== null &&
+          node.initializer &&
+          ts.isVariableDeclarationList(node.initializer) &&
+          node.initializer.declarations.some(
+            (declaration) => ts.isIdentifier(declaration.name) && declaration.name.text === counter,
+          ) &&
+          node.incrementor &&
+          ((ts.isPostfixUnaryExpression(node.incrementor) &&
+            node.incrementor.operator === ts.SyntaxKind.PlusPlusToken &&
+            ts.isIdentifier(node.incrementor.operand) &&
+            node.incrementor.operand.text === counter) ||
+            (ts.isBinaryExpression(node.incrementor) &&
+              ts.isIdentifier(node.incrementor.left) &&
+              node.incrementor.left.text === counter &&
+              node.incrementor.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken &&
+              ts.isNumericLiteral(node.incrementor.right) &&
+              Number(node.incrementor.right.text) === 1));
+      const delay =
+          statements[0] &&
+          ts.isExpressionStatement(statements[0]) &&
+          ts.isAwaitExpression(statements[0].expression) &&
+          ts.isCallExpression(statements[0].expression.expression) &&
+          trailingName(statements[0].expression.expression.expression) === "delay",
+        refresh =
+          statements[1] &&
+          ts.isExpressionStatement(statements[1]) &&
+          ts.isBinaryExpression(statements[1].expression) &&
+          statements[1].expression.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+          ts.isIdentifier(statements[1].expression.left) &&
+          statements[1].expression.left.text === survivorCount &&
+          ts.isCallExpression(statements[1].expression.right) &&
+          trailingName(statements[1].expression.right.expression) === "filter" &&
+          dependencies(statements[1].expression.right).some((part) => pidProbes.has(trailingName(part)));
+      if (survivorCount !== null && boundedCounter && delay && refresh && statements.length === 2)
+        samplingConditions.add(loopTest);
+    }
+    if (
+      ts.isConditionalExpression(node) ||
+      (ts.isIfStatement(node) &&
+        !(
+          isObservationEmission(node.thenStatement) &&
+          (!node.elseStatement || isObservationEmission(node.elseStatement))
+        ))
+    )
+      report(node, node.expression ?? node.condition);
+    if (ts.isBinaryExpression(node) && !samplingConditions.has(enclosingLoopCondition(node))) {
+      const operator = node.operatorToken.kind;
+      if (
+        equalityOperators.has(operator) ||
+        [
+          ts.SyntaxKind.LessThanToken,
+          ts.SyntaxKind.LessThanEqualsToken,
+          ts.SyntaxKind.GreaterThanToken,
+          ts.SyntaxKind.GreaterThanEqualsToken,
+        ].includes(operator)
+      )
+        report(node, node);
+      if (
+        [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.AmpersandAmpersandToken].includes(operator) ||
+        // Null normalization preserves the raw observation; its later use is still traced.
+        (operator === ts.SyntaxKind.QuestionQuestionToken &&
+          (node.right.kind !== ts.SyntaxKind.NullKeyword || !directLegacyFallbackProjection(node)))
+      )
+        report(node, node, true);
+    }
+    if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.ExclamationToken)
+      report(node, node.operand);
+    if (ts.isCallExpression(node) && ["Boolean", "some", "every", "includes"].includes(trailingName(node.expression)))
+      report(node, node);
+    if (loopTest && !samplingConditions.has(loopTest)) report(node, loopTest);
+    if (
+      ts.isSwitchStatement(node) &&
+      spoolObservationSwitch(node, dependencies, symbolOf) === null &&
+      !node.caseBlock.clauses.every((clause) =>
+        clause.statements.every((statement) => ts.isBreakStatement(statement) || isObservationEmission(statement)),
+      )
+    )
+      report(node, node.expression);
+    // A directly returned PID boolean (including a local alias) is itself a business verdict;
+    // raw filtered PID arrays/counts and DTO fields have no such boolean transformation.
+    const fn = enclosingFunction(node),
+      callback = fn?.parent;
+    if ((ts.isReturnStatement(node) && node.expression) || (ts.isArrowFunction(node) && !ts.isBlock(node.body))) {
+      const result = ts.isArrowFunction(node) ? node.body : node.expression;
+      const owner = ts.isArrowFunction(node) ? node : fn,
+        parent = ts.isArrowFunction(node) ? node.parent : callback;
+      // A filter predicate returns an observation to its caller. Judge the array result's use.
+      if (
+        !(
+          parent &&
+          ts.isCallExpression(parent) &&
+          ["filter", "some", "every"].includes(trailingName(parent.expression))
+        )
+      )
+        for (const value of dependencies(result))
+          if (
+            ts.isCallExpression(value) &&
+            enclosingFunction(value) === owner &&
+            (ts.isIdentifier(unwrappedExpression(value.expression)) || pidProbes.has(trailingName(value.expression))) &&
+            kindsOf(value.expression).has("runtimePidIsAlive")
+          )
+            report(node, value);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+}
+
+function isValueReference(node) {
+  const parent = node.parent;
+  return (
+    !(ts.isPropertyAccessExpression(parent) && parent.name === node) &&
+    !(
+      (ts.isPropertyAssignment(parent) ||
+        ts.isVariableDeclaration(parent) ||
+        ts.isParameter(parent) ||
+        ts.isBindingElement(parent) ||
+        ts.isFunctionDeclaration(parent)) &&
+      parent.name === node
+    ) &&
+    !ts.isImportSpecifier(parent)
+  );
+}
+
+/** Extract literal words for a shape decoder; this function makes no lifecycle decision. */
+function observationShapeWords(node, symbolOf) {
+  if (
+    !ts.isCallExpression(node) ||
+    !ts.isPropertyAccessExpression(node.expression) ||
+    node.expression.name.text !== "includes"
+  )
+    return [];
+  let list = node.expression.expression;
+  const seen = new Set();
+  while (ts.isIdentifier(list) && !seen.has(list)) {
+    seen.add(list);
+    const declaration = symbolOf(list)?.valueDeclaration;
+    if (!declaration || !ts.isVariableDeclaration(declaration) || !declaration.initializer) return [];
+    list = declaration.initializer;
+  }
+  if (!ts.isArrayLiteralExpression(list)) return [];
+  const words = list.elements.map((element) =>
+    ts.isStringLiteralLike(element) ? element.text : element.kind === ts.SyntaxKind.NullKeyword ? "null" : "<other>",
+  );
+  return [...new Set(words)].sort();
+}
+
+function returnStatementAncestor(node) {
+  for (let parent = node.parent; parent && !ts.isFunctionLike(parent); parent = parent.parent)
+    if (ts.isReturnStatement(parent)) return parent;
+  return null;
+}
+
+/** The previous-version DTO may return only the nullable raw fallback value.
+ * This exception covers the exact output field, never an intermediate/business object.
+ */
+function directLegacyFallbackProjection(node) {
+  const value = unwrappedExpression(node),
+    source = ts.isBinaryExpression(value) ? unwrappedExpression(value.left) : null,
+    property = value.parent,
+    object = property?.parent;
+  return (
+    ts.isBinaryExpression(value) &&
+    value.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken &&
+    value.right.kind === ts.SyntaxKind.NullKeyword &&
+    source &&
+    (ts.isPropertyAccessExpression(source) || ts.isElementAccessExpression(source)) &&
+    trailingName(source) === "fallbackState" &&
+    property &&
+    ts.isPropertyAssignment(property) &&
+    propertyName(property.name) === "fallbackState" &&
+    property.initializer === value &&
+    object &&
+    ts.isObjectLiteralExpression(object) &&
+    object.parent &&
+    ts.isReturnStatement(object.parent) &&
+    object.parent.expression === object &&
+    /Previous-version protocol output; remove 2026-12-07\./u.test(object.parent.getFullText())
+  );
+}
+
+/** The raw spool observer may reread an empty chunk and emit process-loss evidence.
+ * Every statement is checked: adding a resource call/assignment or a value return ends
+ * this boundary. It does not exempt another use of the same observation elsewhere.
+ */
+function spoolObservationSwitch(node, dependencies, symbolOf) {
+  // Closed expression grammar: template spans and call arguments are evaluated too.
+  // Only raw reads, literal records and the producer's unshadowed built-ins are allowed.
+  const valueOnly = (expression) => {
+    const value = unwrappedExpression(expression);
+    if (ts.isIdentifier(value) || ts.isLiteralExpression(value)) return true;
+    if ([ts.SyntaxKind.NullKeyword, ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword].includes(value.kind))
+      return true;
+    if (ts.isPropertyAccessExpression(value)) return valueOnly(value.expression);
+    if (ts.isElementAccessExpression(value)) return valueOnly(value.expression) && valueOnly(value.argumentExpression);
+    if (ts.isTemplateExpression(value)) return value.templateSpans.every((span) => valueOnly(span.expression));
+    if (ts.isObjectLiteralExpression(value))
+      return value.properties.every((property) =>
+        ts.isShorthandPropertyAssignment(property)
+          ? !property.objectAssignmentInitializer
+          : ts.isPropertyAssignment(property) &&
+            !ts.isComputedPropertyName(property.name) &&
+            valueOnly(property.initializer),
       );
-    else allowed.set(key, remaining - 1);
+    if (!ts.isCallExpression(value)) return false;
+    const callee = value.expression;
+    if (ts.isIdentifier(callee) && callee.text === "String" && !symbolOf(callee))
+      return value.arguments.length === 1 && value.arguments.every(valueOnly);
+    return (
+      ts.isPropertyAccessExpression(callee) &&
+      callee.name.text === "toISOString" &&
+      value.arguments.length === 0 &&
+      ts.isNewExpression(callee.expression) &&
+      ts.isIdentifier(callee.expression.expression) &&
+      callee.expression.expression.text === "Date" &&
+      !symbolOf(callee.expression.expression) &&
+      callee.expression.arguments?.length === 0
+    );
+  };
+  const switched = unwrappedExpression(node.expression),
+    liveValue =
+      ts.isConditionalExpression(switched) && ts.isPropertyAccessExpression(unwrappedExpression(switched.whenTrue))
+        ? unwrappedExpression(switched.whenTrue)
+        : null;
+  if (
+    !ts.isConditionalExpression(switched) ||
+    trailingName(switched.condition) !== "runtimeSessionId" ||
+    !valueOnly(switched.condition) ||
+    trailingName(switched.whenFalse) !== "undefined" ||
+    !liveValue ||
+    liveValue.name.text !== "liveness" ||
+    !ts.isPropertyAccessExpression(liveValue.expression) ||
+    liveValue.expression.name.text !== "payload" ||
+    trailingName(liveValue.expression.expression) !== "livenessEvent" ||
+    !dependencies(switched.whenTrue).some((value) => trailingName(value) === "livenessEvent")
+  )
+    return null;
+  const buffers = new Set(),
+    lossRecords = [],
+    observations = [];
+  const statementOnly = (statement) => {
+    if (ts.isBlock(statement)) return statement.statements.every(statementOnly);
+    if (ts.isBreakStatement(statement)) return true;
+    if (ts.isReturnStatement(statement)) return !statement.expression;
+    if (ts.isVariableStatement(statement))
+      return statement.declarationList.declarations.every(
+        (declaration) =>
+          ts.isIdentifier(declaration.name) &&
+          declaration.initializer &&
+          ts.isTemplateExpression(declaration.initializer) &&
+          valueOnly(declaration.initializer),
+      );
+    if (ts.isIfStatement(statement))
+      return (
+        ts.isBinaryExpression(statement.expression) &&
+        statement.expression.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken &&
+        ts.isPropertyAccessExpression(statement.expression.left) &&
+        statement.expression.left.name.text === "length" &&
+        buffers.has(statement.expression.left.expression.getText()) &&
+        statement.expression.right.getText() === "0" &&
+        statementOnly(statement.thenStatement) &&
+        (!statement.elseStatement || statementOnly(statement.elseStatement))
+      );
+    if (!ts.isExpressionStatement(statement)) return false;
+    const expression = statement.expression;
+    if (
+      ts.isBinaryExpression(expression) &&
+      expression.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isIdentifier(expression.left) &&
+      ts.isCallExpression(expression.right) &&
+      ts.isIdentifier(expression.right.expression) &&
+      expression.right.expression.text === "readRuntimeWorkerChunk" &&
+      expression.right.arguments.every(valueOnly)
+    ) {
+      buffers.add(expression.left.text);
+      return true;
+    }
+    if (
+      isObservationEmission(statement) &&
+      ts.isCallExpression(expression) &&
+      valueOnly(expression.expression) &&
+      expression.arguments.every(valueOnly)
+    ) {
+      lossRecords.push(statement);
+      return true;
+    }
+    if (
+      ts.isCallExpression(expression) &&
+      ts.isIdentifier(expression.expression) &&
+      expression.expression.text === "emitExit" &&
+      expression.arguments.length === 3 &&
+      trailingName(expression.arguments[2]) === "payload" &&
+      expression.arguments.every(valueOnly)
+    ) {
+      observations.push(statement);
+      return true;
+    }
+    return false;
+  };
+  return node.caseBlock.clauses.every(
+    (clause) => (!ts.isCaseClause(clause) || valueOnly(clause.expression)) && clause.statements.every(statementOnly),
+  ) &&
+    buffers.size > 0 &&
+    lossRecords.length > 0 &&
+    observations.length > 0
+    ? node
+    : null;
+}
+
+function isObservationEmission(node) {
+  if (ts.isBlock(node)) return node.statements.length > 0 && node.statements.every(isObservationEmission);
+  if (
+    ts.isExpressionStatement(node) &&
+    ts.isCallExpression(node.expression) &&
+    trailingName(node.expression.expression) === "appendRuntimeWorkerRecord"
+  ) {
+    const record = node.expression.arguments.at(-1);
+    return (
+      record &&
+      ts.isObjectLiteralExpression(record) &&
+      record.properties.some(
+        (property) =>
+          ts.isPropertyAssignment(property) &&
+          propertyName(property.name) === "kind" &&
+          ts.isStringLiteralLike(property.initializer) &&
+          ["process_lost", "process_exit"].includes(property.initializer.text),
+      )
+    );
   }
-  for (const [key, count] of allowed)
-    if (count > 0) findings.push(`${DISPATCH_OBSERVATION_BASELINE}: stale baseline entry should be removed: ${key}`);
-  if (priorBaseline !== null) {
-    const prior = countEntries(priorBaseline),
-      current = countEntries(baselineEntries);
-    for (const [key, count] of current)
-      if (count > (prior.get(key) ?? 0))
-        findings.push(`${DISPATCH_OBSERVATION_BASELINE}: baseline may only shrink; added ${key}`);
+  return (
+    ts.isExpressionStatement(node) &&
+    ts.isCallExpression(node.expression) &&
+    trailingName(node.expression.expression) === "push" &&
+    node.expression.arguments.length > 0 &&
+    node.expression.arguments.every(
+      (argument) => ts.isObjectLiteralExpression(argument) && isDispatchObservationObject(argument),
+    )
+  );
+}
+
+function enclosingLoopCondition(node) {
+  let current = node;
+  while (current.parent && !ts.isFunctionLike(current.parent)) {
+    const parent = current.parent;
+    const loopTest = ts.isForStatement(parent)
+      ? parent.condition
+      : ts.isWhileStatement(parent)
+        ? parent.expression
+        : null;
+    if (loopTest === current) {
+      return current;
+    }
+    current = parent;
   }
+  return null;
+}
+
+/** dec_AEB05951 CH4/CH6 slice 7: the retired debt inventory can never authorize a judgment. */
+export function checkDispatchLifecycleObservationSites(sites, baseline) {
+  const findings = [],
+    entries = observationEntries(baseline);
+  if (entries === null)
+    findings.push(`${DISPATCH_OBSERVATION_BASELINE}: invalid or missing dispatch observation baseline`);
+  else if (entries.length !== 0)
+    findings.push(`${DISPATCH_OBSERVATION_BASELINE}: zero exemptions required; remove every baseline entry`);
+  for (const site of sites)
+    findings.push(
+      `${site.path}#${site.symbol}: forbidden ${site.kind} judgment (${site.fingerprint}); consume readDispatchLifecycle`,
+    );
   return findings;
 }
 
-/** The baseline is a B13-classified gate allowlist; its one section lists the remaining sites. */
+/** Keep the B13-classified inventory present and permanently empty. */
 function observationEntries(baseline) {
   return baseline?.schema === OBSERVATION_BASELINE_SCHEMA && Array.isArray(baseline.entries?.observationSites)
     ? baseline.entries.observationSites
     : null;
-}
-
-function countEntries(entries) {
-  const counts = new Map();
-  for (const entry of entries) {
-    const key = observationKey(entry);
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  return counts;
 }
 
 function readDispatchObservationBaseline(root) {
@@ -310,29 +860,25 @@ function readDispatchObservationBaseline(root) {
   return existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null;
 }
 
-/** The base cut's entries bound this cut's baseline; null before the baseline existed at base. */
-function readPreviousDispatchObservationEntries(root) {
-  const base = process.env.PR_BASE_SHA || pullRequestBase(root);
-  if (!pathExistsAt(root, base, DISPATCH_OBSERVATION_BASELINE)) return null;
-  const previous = JSON.parse(git(root, ["show", `${base}:${DISPATCH_OBSERVATION_BASELINE}`]));
-  return observationEntries(previous) ?? [];
-}
-
 function insideDispatchObservationPayload(node) {
   for (let parent = node.parent; parent; parent = parent.parent) {
-    if (ts.isObjectLiteralExpression(parent)) {
-      const type = parent.properties.find(
-        (property) =>
-          ts.isPropertyAssignment(property) &&
-          propertyName(property.name) === "type" &&
-          ts.isStringLiteralLike(property.initializer),
-      );
-      if (type && ts.isPropertyAssignment(type) && ts.isStringLiteralLike(type.initializer))
-        return type.initializer.text === "runtime_session_liveness_changed";
-    }
+    if (ts.isObjectLiteralExpression(parent) && isDispatchObservationObject(parent)) return true;
     if (ts.isFunctionLike(parent)) return false;
   }
   return false;
+}
+
+function isDispatchObservationObject(node) {
+  const observationType = (value) =>
+    ts.isStringLiteralLike(value)
+      ? ["runtime_session_liveness_changed", "runtime_session_exited"].includes(value.text)
+      : ts.isConditionalExpression(value) && observationType(value.whenTrue) && observationType(value.whenFalse);
+  return node.properties.some(
+    (property) =>
+      ts.isPropertyAssignment(property) &&
+      propertyName(property.name) === "type" &&
+      observationType(property.initializer),
+  );
 }
 
 const equalityOperators = new Set([
@@ -344,13 +890,26 @@ const equalityOperators = new Set([
 
 /** `a.b.liveness`, `a?.liveness`, and a bare `liveness` all end in the name `liveness`. */
 function trailingName(node) {
-  let current = node;
-  while (ts.isParenthesizedExpression(current) || ts.isNonNullExpression(current)) current = current.expression;
+  if (!node) return null;
+  const current = unwrappedExpression(node);
   if (ts.isIdentifier(current)) return current.text;
   if (ts.isPropertyAccessExpression(current)) return current.name.text;
   if (ts.isElementAccessExpression(current) && ts.isStringLiteralLike(current.argumentExpression))
     return current.argumentExpression.text;
   return null;
+}
+
+function unwrappedExpression(node) {
+  let current = node;
+  while (
+    ts.isParenthesizedExpression(current) ||
+    ts.isNonNullExpression(current) ||
+    ts.isAsExpression(current) ||
+    ts.isTypeAssertionExpression(current) ||
+    ts.isSatisfiesExpression(current)
+  )
+    current = current.expression;
+  return current;
 }
 
 function enclosingFunction(node) {
@@ -418,33 +977,6 @@ function read(root, rel) {
   }
 }
 async function main() {
-  if (process.argv.includes("--print-dispatch-observation-baseline")) {
-    const sliceOf = new Map(
-      (observationEntries(readDispatchObservationBaseline(process.cwd())) ?? []).map((entry) => [
-        observationKey(entry),
-        entry.slice,
-      ]),
-    );
-    console.log(
-      JSON.stringify(
-        {
-          schema: OBSERVATION_BASELINE_SCHEMA,
-          authority: "decision/dec_AEB05951C69E47FCE53E53C341#CH4",
-          policy: "entries may only be removed; each site is keyed by path, symbol, kind, and source fingerprint",
-          // Regeneration keeps each surviving entry's reviewed migration slice; new sites stay unassigned.
-          entries: {
-            observationSites: scanDispatchLifecycleObservationSites().map((site) => ({
-              ...site,
-              slice: sliceOf.get(observationKey(site)) ?? "unassigned",
-            })),
-          },
-        },
-        null,
-        2,
-      ),
-    );
-    return;
-  }
   const findings = checkDomainJudgmentSingleDefinition();
   if (findings.length) {
     console.error("Domain judgment single-definition check failed:");
@@ -452,7 +984,7 @@ async function main() {
     process.exit(1);
   }
   console.log(
-    "Domain judgment single-definition check passed (legacy and registry judgments resolve to their canonical domain services; authored-document reads use the projection port; dispatch observation ratchet is active).",
+    "Domain judgment single-definition check passed (legacy and registry judgments resolve to their canonical domain services; authored-document reads use the projection port; dispatch observation boundary requires zero exemptions).",
   );
 }
 const invokedDirectly =

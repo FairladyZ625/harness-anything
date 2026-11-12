@@ -1,11 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { tokenUsageProjection } from "./token-usage-lifecycle.fixtures.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { TaskProjection } from "@harness-anything/kernel";
-import { runtimeSessionOutcomeFromEvidence } from "@harness-anything/kernel";
+import { runtimeSessionOutcomeFromEvidence } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import { appendRuntimeWorkerRecord, archiveDispatchStream, openDispatchStream } from "../src/dispatch-stream.ts";
 import {
   agentRuntimeTokenUsageRanges,
@@ -22,8 +23,7 @@ import { daemonGuiReadMethods, validateDaemonRpcCall } from "../src/protocol/dae
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 
 const NOW = "2026-09-14T12:00:00.000Z",
-  CUT = { status: "ready" as const, watermark: 7, sourceRevision: 7 },
-  EMPTY_PROJECTION = { readRuntimeDispatchPage: () => ({ rows: [], nextCursor: null, done: true }) };
+  CUT = { status: "ready" as const, watermark: 7, sourceRevision: 7 };
 
 /** 任务索引夹具:task-a/task-b 属于声明的工作 work-root,task-solo 自成一个工作,task-tokens 不在索引里。 */
 const TASKS = new Map(
@@ -135,7 +135,7 @@ function read(rootDir: string, now = NOW, range: (typeof agentRuntimeTokenUsageR
     entityLabel: (squadId) => (squadId === "core-squad" ? "Core" : null),
     taskOf: (taskId) => TASKS.get(taskId),
     cut: CUT,
-    projection: EMPTY_PROJECTION,
+    projection: tokenUsageProjection(rootDir),
   });
 }
 
@@ -184,7 +184,10 @@ test("archived settlements retain usage without a projected outcome", () => {
       endedAt: null,
       outcome: null,
     }));
-    const projection = { readRuntimeDispatchPage: () => ({ rows, done: true, nextCursor: null }) };
+    const projection = {
+      ...tokenUsageProjection(rootDir),
+      readRuntimeDispatchPage: () => ({ rows, done: true, nextCursor: null }),
+    };
     const input = {
       rootDir,
       now: NOW,
@@ -230,7 +233,7 @@ test("settled dispatches without metrics are unavailable while live dispatches r
       now: NOW,
       range: "today" as const,
       entityLabel: () => null,
-      projection: EMPTY_PROJECTION,
+      projection: tokenUsageProjection(rootDir),
       cut: CUT,
     };
     const member = { kind: "agent" as const, agentId: "sol" };
@@ -428,6 +431,7 @@ test("token history pagination stops on reader done, not cursor presence", () =>
       taskOf: () => undefined,
       cut: CUT,
       projection: {
+        ...tokenUsageProjection(rootDir),
         readRuntimeDispatchPage: () => {
           reads += 1;
           return reads === 1
@@ -488,7 +492,7 @@ test("readAgentRuntimeTokenUsageDetail scopes sessions, trend and totals to one 
       member: { kind: "agent", agentId: "terra" },
       entityLabel: () => null,
       cut: CUT,
-      projection: EMPTY_PROJECTION,
+      projection: tokenUsageProjection(rootDir),
     });
     assert.deepEqual(detail.member, { kind: "agent", agentId: "terra", agentName: "Terra" });
     assert.equal(detail.totals.sessionCount, 1);
@@ -512,7 +516,7 @@ test("readAgentRuntimeTokenUsageDetail scopes sessions, trend and totals to one 
       member: { kind: "agent", agentId: "sol" },
       entityLabel: () => null,
       cut: CUT,
-      projection: EMPTY_PROJECTION,
+      projection: tokenUsageProjection(rootDir),
     });
     assert.equal(sol.sessions[0]!.usage, "unavailable");
     assert.equal(sol.totals.usageUnavailableDispatches, 1);
@@ -525,7 +529,7 @@ test("readAgentRuntimeTokenUsageDetail scopes sessions, trend and totals to one 
       member: { kind: "squad", squadId: "core-squad" },
       entityLabel: (squadId) => (squadId === "core-squad" ? "Core" : null),
       cut: CUT,
-      projection: EMPTY_PROJECTION,
+      projection: tokenUsageProjection(rootDir),
     });
     assert.deepEqual(squad.member, { kind: "squad", squadId: "core-squad", squadName: "Core" });
     assert.equal(squad.totals.sessionCount, 2);
@@ -562,7 +566,7 @@ test("validateAgentRuntimeTokenUsage accepts the aggregate and rejects corrupted
       member: { kind: "agent", agentId: "terra" },
       entityLabel: () => null,
       cut: CUT,
-      projection: EMPTY_PROJECTION,
+      projection: tokenUsageProjection(rootDir),
     });
     assert.deepEqual(validateAgentRuntimeTokenUsageDetail(detail), []);
     assert.equal(serializeAgentRuntimeTokenUsageDetail(detail), `${JSON.stringify(detail)}\n`);
@@ -648,7 +652,7 @@ test("repo.agentRuntime.tokenUsage and tokenUsageDetail are registered through t
         member: { kind: "agent", agentId: "terra" },
         entityLabel: () => null,
         cut: CUT,
-        projection: EMPTY_PROJECTION,
+        projection: tokenUsageProjection(rootDir),
       }),
     );
     assert.equal(parsedDetail.ok, true);
@@ -1008,7 +1012,7 @@ test("every analysis group is capped and the trend folds the tail into one serie
       // 每个任务自成一个工作:工作行也超过上限。
       taskOf: (taskId) => ({ taskId, title: `T ${taskId}`, taskClass: "task", parentTaskId: null }),
       cut: CUT,
-      projection: EMPTY_PROJECTION,
+      projection: tokenUsageProjection(rootDir),
     });
     assert.deepEqual(validateAgentRuntimeTokenUsage(result), []);
     assert.equal(result.agents.length, count, "member rows stay complete: the ranking pages them itself");
@@ -1141,7 +1145,7 @@ test("an externally cancelled dispatch keeps the domain word in the member detai
       member: { kind: "agent", agentId: "sol" },
       entityLabel: () => null,
       cut: CUT,
-      projection: EMPTY_PROJECTION,
+      projection: tokenUsageProjection(rootDir),
     });
 
     test("session outcomes keep the kernel verdict of the accepted terminal outcome (DDD-01 regression)", () => {
@@ -1185,7 +1189,7 @@ test("an externally cancelled dispatch keeps the domain word in the member detai
           range: "today" as const,
           entityLabel: () => null,
           cut: CUT,
-          projection: EMPTY_PROJECTION,
+          projection: tokenUsageProjection(rootDir),
         };
         const detail = readAgentRuntimeTokenUsageDetail({ ...input, member: { kind: "agent", agentId: "witness" } });
         const bySession = new Map(detail.sessions.map((row) => [row.runtimeSessionId, row.outcome]));
@@ -1293,7 +1297,7 @@ test("an externally cancelled dispatch keeps the domain word in the member detai
           entityLabel: () => null,
           taskOf: () => undefined,
           cut: CUT,
-          projection: EMPTY_PROJECTION,
+          projection: tokenUsageProjection(rootDir),
         });
         assert.deepEqual(validateAgentRuntimeTokenUsage(result), []);
         assert.deepEqual(
@@ -1336,7 +1340,7 @@ test("an externally cancelled dispatch keeps the domain word in the member detai
           member: { kind: "agent", agentId: "cw" },
           entityLabel: () => null,
           cut: CUT,
-          projection: EMPTY_PROJECTION,
+          projection: tokenUsageProjection(rootDir),
         });
         assert.deepEqual(
           [detail.totals.cacheWriteUnreportedDispatches, detail.totals.cacheWriteUnitemizedDispatches],

@@ -648,7 +648,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       return rows.length === 1 &&
         rows[0]?.lifecycle?.groupPhase === "waiting_backoff" &&
         rows[0]?.resetAt === "2099-01-01T00:00:00.000Z"
-        ? { row: rows[0], stream: readDispatchStream(root, rows[0].dispatchId) }
+        ? { row: rows[0] }
         : null;
     }).catch((error: Error) => {
       throw new Error(`${error.message}: ${JSON.stringify(resetObserved)}`);
@@ -656,7 +656,6 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     assert.equal(resetScheduled.row.outcome, "failed");
     assert.equal(resetScheduled.row.classification, "provider_quota");
     assert.equal(resetScheduled.row.resetAt, "2099-01-01T00:00:00.000Z");
-    assert.equal(resetScheduled.stream?.fallbackSchedule?.notBeforeAt, "2099-01-01T00:00:00.000Z");
     const future = await cell.readDispatchLifecycle({ by: "dispatch", dispatchIds: [resetScheduled.row.dispatchId] });
     assert.ok(future.status === "ready");
     assert.equal(future.rows[0]?.policy.groupSettled, false, "future fallback keeps its group open");
@@ -1029,8 +1028,10 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
       binding,
     );
     const first = await eventually(async () => {
-      const stream = readDispatchStream(root, spawned.dispatchId);
-      return stream?.fallbackState === "scheduled" ? stream : null;
+      const lifecycle = await remote.readDispatchLifecycle({ by: "dispatch", dispatchIds: [spawned.dispatchId] });
+      return lifecycle.status === "ready" && lifecycle.rows[0]?.groupPhase === "waiting_backoff"
+        ? readDispatchStream(root, spawned.dispatchId)
+        : null;
     });
     const canonical = await eventually(
       async () =>
@@ -1075,8 +1076,12 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
         values = [first.header.dispatchId, ...continuationIds]
           .map((dispatchId) => readDispatchStream(root, dispatchId))
           .filter((value): value is NonNullable<typeof value> => value !== null),
-        original = values.find((stream) => stream.header.dispatchId === first.header.dispatchId);
-      return values.length === 2 && original?.fallbackState === "dispatched" ? values : null;
+        lifecycle = await remote.readDispatchLifecycle({ by: "dispatch", dispatchIds: [first.header.dispatchId] });
+      return values.length === 2 &&
+        lifecycle.status === "ready" &&
+        lifecycle.rows[0]?.controlLeafDispatchId === continuationIds[0]
+        ? values
+        : null;
     });
     await scheduled;
     const original = streams.find((stream) => stream.header.dispatchId === first.header.dispatchId),
@@ -1090,7 +1095,9 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
     assert.equal(continuation?.header.publicationOwner, original?.header.publicationOwner);
     assert.equal(nextLaunches, 1);
     assert.equal(continuations.length, 1);
-    assert.equal(original?.nextDispatchId, continuation?.header.dispatchId);
+    const lifecycle = await remote.readDispatchLifecycle({ by: "dispatch", dispatchIds: [first.header.dispatchId] });
+    assert.ok(lifecycle.status === "ready");
+    assert.equal(lifecycle.rows[0]?.controlLeafDispatchId, continuation?.header.dispatchId);
   } finally {
     spawner.close();
     rmSync(root, { recursive: true, force: true });

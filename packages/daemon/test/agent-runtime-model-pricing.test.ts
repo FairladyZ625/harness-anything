@@ -1,5 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { tokenUsageProjection } from "./token-usage-lifecycle.fixtures.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -17,8 +18,7 @@ import { modelPriceOf, modelPricingVersion, usageCostUsd } from "../src/agent-ru
  * 0 计、缓存写缺字段的历史记录按 0 计、金额出现在每个聚合维度、校验器接受新形状。 */
 
 const NOW = "2026-10-09T12:00:00.000Z",
-  CUT = { status: "ready" as const, watermark: 3, sourceRevision: 3 },
-  EMPTY_PROJECTION = { readRuntimeDispatchPage: () => ({ rows: [], nextCursor: null, done: true }) };
+  CUT = { status: "ready" as const, watermark: 3, sourceRevision: 3 };
 
 test("the price table resolves exact, case-folded and missing ids", () => {
   const glm = modelPriceOf("GLM-5.3");
@@ -122,7 +122,7 @@ function read(rootDir: string, now = NOW) {
     entityLabel: () => null,
     taskOf: (taskId) => ({ taskId, title: taskId, taskClass: "task", parentTaskId: null }),
     cut: CUT,
-    projection: EMPTY_PROJECTION,
+    projection: tokenUsageProjection(rootDir),
   });
 }
 
@@ -176,7 +176,7 @@ test("the member detail carries cost totals computed from each session's model",
       member: { kind: "agent", agentId: "terra" },
       entityLabel: () => null,
       cut: CUT,
-      projection: EMPTY_PROJECTION,
+      projection: tokenUsageProjection(rootDir),
     });
     assert.deepEqual(validateAgentRuntimeTokenUsageDetail(detail), []);
     assert.equal(detail.pricing.version, modelPricingVersion);

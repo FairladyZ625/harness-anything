@@ -43,7 +43,13 @@ import type { DaemonHost } from "../src/daemon-host.ts";
 import { parseProviderFrame } from "../src/runtime-spawn-provider-frames.ts";
 import { consumeProviderLine } from "../src/runtime-spawn-provider-stream.ts";
 import { validateAgentRuntimeSession } from "../src/agent-runtime-contract.ts";
-import { appendRuntimeWorkerRecord, openDispatchStream, readDispatchStreamSummary } from "../src/dispatch-stream.ts";
+import {
+  archiveDispatchStream,
+  dispatchStreamPath,
+  appendRuntimeWorkerRecord,
+  openDispatchStream,
+  readDispatchStreamSummary,
+} from "../src/dispatch-stream.ts";
 
 const actor = { principal: { personId: "person-runtime" }, executor: null } as const;
 test("runtime read facets expose safe overview/session/events through the shared contract registry", () =>
@@ -192,6 +198,21 @@ test("runtime lifecycle ignores local process evidence for local and remote owne
     );
     assert.equal(localReads.overview({}).sessions[0]?.liveness, "live");
     assert.deepEqual(localReads.overview({}).sessions[0]?.lifecycle, lifecycle);
+    const canonical = projection.readDispatchLifecycle({ by: "session", runtimeSessionId: "runtime-session" });
+    archiveDispatchStream(rootDir, dispatchId);
+    assert.match(dispatchStreamPath(rootDir, dispatchId), /archive/u);
+    assert.deepEqual(
+      projection.readDispatchLifecycle({ by: "session", runtimeSessionId: "runtime-session" }),
+      canonical,
+    );
+    assert.deepEqual(localReads.overview({}).sessions[0]?.lifecycle, lifecycle);
+    fs.unlinkSync(dispatchStreamPath(rootDir, dispatchId));
+    assert.deepEqual(
+      projection.readDispatchLifecycle({ by: "session", runtimeSessionId: "runtime-session" }),
+      canonical,
+    );
+    assert.deepEqual(localReads.overview({}).sessions[0]?.lifecycle, lifecycle);
+    assert.deepEqual(remoteReads.session({ runtimeSessionId: "runtime-session" }).session.lifecycle, lifecycle);
   }));
 
 test("unscoped overview includes lifecycle settling while short session ids remain bounded", () =>

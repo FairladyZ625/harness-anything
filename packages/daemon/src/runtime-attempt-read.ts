@@ -26,6 +26,7 @@ export function readRuntimeAttemptChain(
         ...(row.resetAt ? { resetAt: row.resetAt } : {}),
         ...(row.resume ? { resume: row.resume } : {}),
         ...(row.nextAction ? { nextAction: row.nextAction } : {}),
+        // Previous-version wire output only; remove 2026-12-07.
         fallbackState: row.fallbackState,
         lifecycle: row.lifecycle,
         nextDispatchId: row.nextDispatchId,
