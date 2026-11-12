@@ -7,7 +7,7 @@ import {
 } from "./keycloak-execution-credential.ts";
 import { sessionLifetimeBounds, readSessionLifetime, writeSessionLifetime } from "./keycloak-session-lifetime.ts";
 import {
-  actionDeclarations,
+  policyActionDeclarations,
   assertAcyclicPolicyGroups,
   baseEntityPolicyActions,
   decodeAuthorizationResource,
@@ -194,7 +194,7 @@ export class KeycloakPolicyAdapter
   /** Declared scopes plus the <kind>/<action> scopes compiled Artifact kinds projected at runtime. */
   get #knownScopes(): ReadonlySet<string> {
     return new Set([
-      ...actionDeclarations.map((item) => item.policyAction),
+      ...policyActionDeclarations().map((item) => item.policyAction),
       ...baseEntityPolicyActions,
       ...registeredArtifactActionPolicyActions(),
       ...this.#artifactScopes(),

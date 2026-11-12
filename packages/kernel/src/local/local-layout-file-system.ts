@@ -60,9 +60,6 @@ export const localEventFileSystem = {
   readText: (inputPath: string) => readFileSync(inputPath, "utf8"),
   readNames: (inputPath: string) => readdirSync(inputPath),
   realpath: (inputPath: string) => realpathSync.native(inputPath),
-  remove: (inputPath: string) =>
-    /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
-    rmSync(inputPath, { force: true }),
 };
 
 export const localRuntimeStateFileSystem = {
@@ -145,9 +142,6 @@ export const localRuntimeStateFileSystem = {
       closeSync(descriptor);
     }
   },
-  writeText: (inputPath: string, value: string) =>
-    /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
-    writeFileSync(inputPath, value, "utf8"),
 };
 
 // Required content objects and their directory links are durable before SQLite accepts a command.

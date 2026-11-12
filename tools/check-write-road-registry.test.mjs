@@ -240,6 +240,12 @@ function withFixture(run) {
       "packages/kernel/src/domain/action-declaration.ts",
       readFileSync(new URL("../packages/kernel/src/domain/action-declaration.ts", import.meta.url), "utf8"),
     );
+    write(root, "packages/kernel/src/domain/entity-kind-registry.ts", "export const entityKindContracts = [];\n");
+    write(
+      root,
+      "packages/kernel/src/domain/action-source-facets.json",
+      readFileSync(new URL("../packages/kernel/src/domain/action-source-facets.json", import.meta.url), "utf8"),
+    );
     write(
       root,
       "packages/cli/src/cli/thin-command.ts",

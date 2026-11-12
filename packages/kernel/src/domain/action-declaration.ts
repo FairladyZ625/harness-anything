@@ -1,5 +1,27 @@
+import actionSourceFacets from "./action-source-facets.json" with { type: "json" };
+
 /** Presentation is declared beside the action; policy evaluation does not consume it. */
 export const actionPresentation = {
+  "daemon-local-state": {
+    domain: "daemon",
+    name: "维护节点本地状态",
+    description: "节点进程维护本机登记、preset 运行日志和关闭清理。",
+  },
+  "preset-convert-local": {
+    domain: "preset",
+    name: "转换本地旧版包",
+    description: "离线命令将旧版声明转换为待审的新文件或目录。",
+  },
+  "cli-local-effects": {
+    domain: "cli",
+    name: "执行本地 CLI 技术效果",
+    description: "在操作者自己的 CLI 进程中处理输出、临时描述符和本地命令。",
+  },
+  "package-assets-build": {
+    domain: "distribution",
+    name: "构建包资产",
+    description: "由包声明的构建脚本更新本包 dist 资产。",
+  },
   "todo-add": { domain: "todo", name: "添加待办", description: "记录一句话待办。" },
   "todo-done": { domain: "todo", name: "完成待办", description: "勾选完成并收起。" },
   "todo-archive": { domain: "todo", name: "归档待办", description: "将待办收纳到归档。" },
@@ -244,7 +266,7 @@ export type ActionPolicyTier = "viewer" | "contributor" | "maintainer" | "admin"
 export type ActionResidency =
   | { readonly scope: "canonical"; readonly writer: "center-repo-cell" }
   | { readonly scope: "runtime-local"; readonly writer: "runtime-host" }
-  | { readonly scope: "host-local"; readonly writer: "daemon-host" };
+  | { readonly scope: "host-local"; readonly writer: "daemon-host" | "caller-process" };
 export type ReceiptSettlementClass = "canonical-acceptance" | "none";
 
 /** The authoritative facets shared by policy, protocol, receipt settlement, and entity catalogs. */
@@ -275,6 +297,28 @@ const policyTierFor = (executionClass: ActionExecutionClass): ActionPolicyTier =
         ? "maintainer"
         : "admin";
 
+const sourceFacets = actionSourceFacets as Readonly<
+  Record<string, import("./ontology-source.ts").OntologyActionSources>
+>;
+
+const declare = (
+  kind: keyof typeof actionPresentation,
+  executionClass: ActionExecutionClass,
+  residency: ActionResidency,
+  overrides: Partial<Omit<ActionDeclaration, "kind" | "executionClass" | "residency">> = {},
+): ActionDeclaration =>
+  Object.freeze({
+    kind,
+    catalogId: null,
+    executionClass,
+    residency,
+    policyAction: kind,
+    policyTier: policyTierFor(executionClass),
+    receiptSettlement: "none",
+    ...overrides,
+    ...(sourceFacets[kind] ? { ontology: sourceFacets[kind] } : {}),
+  });
+
 const canonical = (
   kind: keyof typeof actionPresentation,
   catalogId: string | null,
@@ -284,82 +328,43 @@ const canonical = (
   writeRoad?: ActionDeclaration["writeRoad"],
   policyAction: string = kind,
 ): ActionDeclaration =>
-  Object.freeze({
-    kind,
+  declare(kind, executionClass, canonicalResidency, {
     catalogId,
-    executionClass,
-    policyAction,
-    policyTier,
-    residency: canonicalResidency,
     receiptSettlement,
+    policyTier,
+    policyAction,
     ...(writeRoad === undefined ? {} : { writeRoad }),
   });
 
-const canonicalWithPolicyAction = (
-  kind: keyof typeof actionPresentation,
-  catalogId: string,
-  executionClass: ActionExecutionClass,
-  policyAction: string,
-): ActionDeclaration => canonical(kind, catalogId, executionClass, undefined, undefined, undefined, policyAction);
-
-/** Commanding a submitted cut and closing a task are lifecycle closure: the maintainer tier, never the creator. */
+/** Lifecycle closure requires the maintainer tier. */
 const closure = (
   kind: keyof typeof actionPresentation,
   catalogId: string,
   writeRoad?: ActionDeclaration["writeRoad"],
 ): ActionDeclaration => canonical(kind, catalogId, "repo-write", "canonical-acceptance", "maintainer", writeRoad);
 
-const local = (
-  kind: keyof typeof actionPresentation,
-  executionClass: ActionExecutionClass,
-  residency: Exclude<ActionResidency, { readonly scope: "canonical" }>,
-  overrides: { readonly policyTier?: ActionPolicyTier; readonly receiptSettlement?: ReceiptSettlementClass } = {},
-): ActionDeclaration =>
-  Object.freeze({
-    kind,
-    catalogId: null,
-    executionClass,
-    policyAction: kind,
-    policyTier: overrides.policyTier ?? policyTierFor(executionClass),
-    residency,
-    // A local writer has no canonical command outcome unless it says otherwise; the one caller that
-    // settles a declared no-write keeps canonical-acceptance so the receipt reads settled_no_write.
-    receiptSettlement: overrides.receiptSettlement ?? "none",
-  });
-
 const hostAdmin = (
   kind: keyof typeof actionPresentation,
   writeRoad?: ActionDeclaration["writeRoad"],
   socketOwnerAuthority = true,
 ): ActionDeclaration =>
-  Object.freeze({
-    kind,
-    catalogId: null,
-    executionClass: "admin",
-    policyAction: kind,
-    policyTier: "admin",
-    residency: hostResidency,
-    receiptSettlement: "none",
+  declare(kind, "admin", hostResidency, {
     ...(writeRoad === undefined ? {} : { writeRoad }),
     ...(socketOwnerAuthority ? {} : { socketOwnerAuthority: false }),
   });
 
 const runtimeAdmin = (kind: keyof typeof actionPresentation, catalogId: string | null = null): ActionDeclaration =>
-  Object.freeze({
-    kind,
-    catalogId,
-    executionClass: "admin",
-    policyAction: kind,
-    policyTier: "admin",
-    residency: runtimeResidency,
-    receiptSettlement: "none",
-  });
+  declare(kind, "admin", runtimeResidency, { catalogId });
 
 /**
  * The built-in permission action inventory. Protocol descriptors are checked against these rows;
  * policy, entity-catalog bindings, and receipt settlement are projections of the declarations.
  */
 export const actionDeclarations = Object.freeze([
+  declare("daemon-local-state", "admin", hostResidency),
+  declare("preset-convert-local", "admin", { scope: "host-local", writer: "caller-process" }),
+  declare("cli-local-effects", "admin", { scope: "host-local", writer: "caller-process" }),
+  declare("package-assets-build", "admin", { scope: "host-local", writer: "caller-process" }),
   canonical("repository-read", null, "repo-read", "none"),
   canonical("fleet-overview-read", null, "repo-read", "none"),
   canonical("agent-assign", "agent/assign", "repo-write"),
@@ -368,7 +373,7 @@ export const actionDeclarations = Object.freeze([
   canonical("assignment-migrate", "relation/migrate-assignment", "repo-write"),
   canonical("agent-retire", "agent/retire", "repo-write"),
   canonical("agent-install", "agent/install", "repo-write"),
-  local("agent-run", "repo-write", runtimeResidency),
+  declare("agent-run", "repo-write", runtimeResidency),
   hostAdmin("daemon-connection-add"),
   hostAdmin("daemon-connection-probe"),
   hostAdmin("daemon-connection-remove"),
@@ -411,19 +416,19 @@ export const actionDeclarations = Object.freeze([
   canonical("decision-override-review", "decision/override-review", "arbiter"),
   canonical("decision-retire", "decision/retire", "repo-write"),
   canonical("decision-transition", "decision/transition", "repo-write"),
-  local("distill-candidate", "repo-write", hostResidency),
+  declare("distill-candidate", "repo-write", hostResidency),
   canonical("distill-promote", "fact/promote", "repo-write"),
-  local("doc-conflict-discard-local", "repo-write", hostResidency),
+  declare("doc-conflict-discard-local", "repo-write", hostResidency),
   canonical("doc-conflict-overwrite-center", "document/conflict-overwrite-center", "repo-write"),
   canonical("doc-conflict-resolve", "document/conflict-resolve", "repo-write"),
-  local("doc-materialize", "repo-write", hostResidency),
+  declare("doc-materialize", "repo-write", hostResidency),
   canonical("doc-retire", "document/retire", "repo-write"),
   canonical("doc-submit", "document/submit", "repo-write"),
   // entity-import/update/archive/delete have no static declaration: each compiled Artifact kind
   // projects its own <kind>/<action> declaration into the runtime registry
   // (artifact-action-declarations.ts) under dec_2446BC2F8C68630F71AE3E3BD7/CH4.
-  canonicalWithPolicyAction("entity-pin", "task/pin", "repo-write", "task/pin"),
-  canonicalWithPolicyAction("entity-unpin", "task/unpin", "repo-write", "task/unpin"),
+  canonical("entity-pin", "task/pin", "repo-write", undefined, undefined, undefined, "task/pin"),
+  canonical("entity-unpin", "task/unpin", "repo-write", undefined, undefined, undefined, "task/unpin"),
   canonical("fact-archive", "fact/archive", "repo-write"),
   canonical("fact-assign", "fact/assign", "repo-write"),
   canonical("fact-unassign", "fact/unassign", "repo-write"),
@@ -432,16 +437,16 @@ export const actionDeclarations = Object.freeze([
   canonical("fact-record", "fact/record", "repo-write"),
   canonical("fact-rematerialize", "fact/rematerialize", "repo-write"),
   canonical("fact-type-register", "fact/type-register", "repo-write"),
-  local("migrate-storage", "admin", hostResidency),
+  declare("migrate-storage", "admin", hostResidency),
   canonical("migrate-import", "migration/import", "repo-write"),
   canonical("people-delegate", "person/delegate", "admin"),
   canonical("people-revoke-delegation", "person/revoke-delegation", "admin"),
-  local("preset-install", "repo-write", hostResidency),
-  local("preset-run-start", "repo-write", runtimeResidency),
-  local("preset-seed", "repo-write", hostResidency),
-  local("preset-uninstall", "repo-write", hostResidency),
+  declare("preset-install", "repo-write", hostResidency),
+  declare("preset-run-start", "repo-write", runtimeResidency),
+  declare("preset-seed", "repo-write", hostResidency),
+  declare("preset-uninstall", "repo-write", hostResidency),
   canonical("preset-upgrade", "task/preset-upgrade", "repo-write"),
-  local("projection-rebuild", "repo-write", hostResidency),
+  declare("projection-rebuild", "repo-write", hostResidency),
   hostAdmin("provider-create"),
   hostAdmin("provider-delete"),
   hostAdmin("provider-list"),
@@ -459,34 +464,34 @@ export const actionDeclarations = Object.freeze([
   // command's own state is the process/checkpoint state on the host that owns the runtime, so it
   // stays local (dec_2446BC2F8C68630F71AE3E3BD7/CH4 "no write path of its own"). Receipt settlement
   // is unchanged: these receipts still accept the canonical outcome produced by that writer.
-  local("runtime-batch", "repo-write", hostResidency, { receiptSettlement: "canonical-acceptance" }),
-  local("runtime-cancel", "repo-write", runtimeResidency, { receiptSettlement: "canonical-acceptance" }),
+  declare("runtime-batch", "repo-write", hostResidency, { receiptSettlement: "canonical-acceptance" }),
+  declare("runtime-cancel", "repo-write", runtimeResidency, { receiptSettlement: "canonical-acceptance" }),
   // The steer's only durable effect is a dispatch-stream record; it appends no ledger event
   // (runtime-spawn-control.ts, settled_no_write receipt). Its receipt still settles through the
   // declared no-write path, so the GUI command keeps canonical-acceptance.
-  local("runtime-steer", "repo-write", runtimeResidency, { receiptSettlement: "canonical-acceptance" }),
-  local("runtime-handoff-export", "repo-write", hostResidency, {
+  declare("runtime-steer", "repo-write", runtimeResidency, { receiptSettlement: "canonical-acceptance" }),
+  declare("runtime-handoff-export", "repo-write", hostResidency, {
     receiptSettlement: "canonical-acceptance",
   }),
-  local("runtime-handoff-claim", "repo-write", hostResidency, { receiptSettlement: "canonical-acceptance" }),
-  local("runtime-handoff-revoke", "repo-write", hostResidency, { receiptSettlement: "canonical-acceptance" }),
+  declare("runtime-handoff-claim", "repo-write", hostResidency, { receiptSettlement: "canonical-acceptance" }),
+  declare("runtime-handoff-revoke", "repo-write", hostResidency, { receiptSettlement: "canonical-acceptance" }),
   // Owner adjudication of an escalated incident receipt: the dismiss appends one decision_action
   // record to the dispatch's own stream and settles no canonical event, so its state stays on the
   // daemon host. The maintainer tier is preserved: reclassification must not widen who may dismiss.
-  local("runtime-incident-dismiss", "repo-write", hostResidency, { policyTier: "maintainer" }),
+  declare("runtime-incident-dismiss", "repo-write", hostResidency, { policyTier: "maintainer" }),
   runtimeAdmin("runtime-instance-create", "runtime-instance/create"),
   runtimeAdmin("runtime-instance-delete", "runtime-instance/delete"),
   runtimeAdmin("runtime-instance-hosting-credential-set"),
   runtimeAdmin("runtime-instance-hosting-credential-unset"),
   runtimeAdmin("runtime-instance-list"),
-  local("runtime-instance-login", "repo-write", runtimeResidency),
-  local("runtime-instance-logout", "repo-write", runtimeResidency),
+  declare("runtime-instance-login", "repo-write", runtimeResidency),
+  declare("runtime-instance-logout", "repo-write", runtimeResidency),
   runtimeAdmin("runtime-instance-show"),
   runtimeAdmin("runtime-instance-update", "runtime-instance/update"),
   // dec_6C9E3399972A2F06C046BA89DC/CH3: ha runtime run and ha agent run share the canonical
   // runtime-session/run target; Policy action stays runtime-run and the command behavior is unchanged.
-  canonicalWithPolicyAction("runtime-run", "runtime-session/run", "repo-write", "runtime-run"),
-  local("runtime-spawn", "repo-write", runtimeResidency, { receiptSettlement: "canonical-acceptance" }),
+  canonical("runtime-run", "runtime-session/run", "repo-write", undefined, undefined, undefined, "runtime-run"),
+  declare("runtime-spawn", "repo-write", runtimeResidency, { receiptSettlement: "canonical-acceptance" }),
   canonical("todo-add", "todo/add", "repo-write"),
   canonical("todo-done", "todo/done", "repo-write"),
   canonical("todo-archive", "todo/archive", "repo-write"),
@@ -554,10 +559,10 @@ export const actionDeclarations = Object.freeze([
   canonical("task-submit", "task/submit", "repo-write", undefined, undefined, "lifecycle.event-publication"),
   canonical("task-supersede", "task/supersede", "repo-write"),
   canonical("task-transition", "task/transition", "repo-write"),
-  local("terminal-input", "repo-write", runtimeResidency),
-  local("terminal-resize", "repo-write", runtimeResidency),
-  local("terminal-spawn", "repo-write", runtimeResidency),
-  local("terminal-terminate", "repo-write", runtimeResidency),
+  declare("terminal-input", "repo-write", runtimeResidency),
+  declare("terminal-resize", "repo-write", runtimeResidency),
+  declare("terminal-spawn", "repo-write", runtimeResidency),
+  declare("terminal-terminate", "repo-write", runtimeResidency),
   canonical("vertical-declaration-migrate", "vertical-declaration/migrate", "repo-write"),
   canonical("vertical-kind-publish-schema", "vertical-declaration/publish-kind-schema", "repo-write"),
   canonical("vertical-kind-retire", "vertical-declaration/retire-kind", "repo-write"),
@@ -579,16 +584,23 @@ export function getActionDeclarationByCatalogId(catalogId: string): ActionDeclar
   return actionDeclarationByCatalogId.get(catalogId);
 }
 
+/** Technical effects belong to their process and never project permissions in an authority. */
+export function policyActionDeclarations(
+  declarations: readonly ActionDeclaration[] = actionDeclarations,
+): readonly ActionDeclaration[] {
+  return declarations.filter((declaration) => !declaration.ontology?.technical);
+}
+
 /** Non-read policy scopes derive solely from ActionDeclaration. */
 export const durablePolicyActions = Object.freeze(
-  actionDeclarations.flatMap(({ policyAction, executionClass }) =>
+  policyActionDeclarations().flatMap(({ policyAction, executionClass }) =>
     executionClass === "repo-read" ? [] : [policyAction],
   ),
 );
 
 /** Durable command kinds derive from the same declarations as policy scopes, but remain distinct from them. */
 export const durableActionKinds = Object.freeze([
-  ...actionDeclarations.flatMap(({ kind, executionClass }) => (executionClass === "repo-read" ? [] : [kind])),
+  ...policyActionDeclarations().flatMap(({ kind, executionClass }) => (executionClass === "repo-read" ? [] : [kind])),
   // The four artifact CRUD ingress kinds are durable routes; their declarations are the runtime
   // projections, so the kind itself has no static declaration row.
   ...artifactActionIngressKinds,

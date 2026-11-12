@@ -1,4 +1,9 @@
-import { actionDeclarations, type ActionDeclaration, type ActionPolicyTier } from "./action-declaration.ts";
+import {
+  actionDeclarations,
+  policyActionDeclarations,
+  type ActionDeclaration,
+  type ActionPolicyTier,
+} from "./action-declaration.ts";
 import { parseEntityRef, type EntityRef } from "./entity-ref.ts";
 import { baseEntityPolicyActions } from "./entity-kind-registry.ts";
 import { registeredArtifactActionDeclarations } from "./artifact-action-declarations.ts";
@@ -30,6 +35,7 @@ export function deriveBasePolicyGroups(
     if (!Object.hasOwn(tierRank, declaration.policyTier))
       throw new Error(`Action ${declaration.kind} has unknown policy tier ${String(declaration.policyTier)}.`);
   }
+  declarations = policyActionDeclarations(declarations);
   const exactScopes = (tier: ActionPolicyTier) =>
     Object.freeze(
       [

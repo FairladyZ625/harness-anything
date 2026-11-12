@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import ts from "typescript";
-import { runInNewContext } from "node:vm";
 import { fileURLToPath } from "node:url";
 import { findW3WriteAuthorityViolations } from "./check-write-coordinator-boundary.mjs";
 import { listWorktreeFiles } from "./gates/git.mjs";
+import { loadOntologyClosureSnapshot } from "./gates/ontology-gate-lib.mjs";
 
 const declarationPath = "packages/kernel/src/domain/action-declaration.ts";
 
@@ -39,12 +38,7 @@ function declaredWriteRoads(rootDir, violations) {
   };
   let declarations;
   try {
-    const context = { exports: {} };
-    const compiled = ts.transpileModule(read(path.join(rootDir, declarationPath)), {
-      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-    });
-    runInNewContext(compiled.outputText, context, { timeout: 1000, filename: declarationPath });
-    declarations = context.exports.actionDeclarations;
+    declarations = loadOntologyClosureSnapshot(rootDir).actions;
     if (!Array.isArray(declarations)) throw new Error("actionDeclarations must be exported as an array");
   } catch (error) {
     violations.push(`${declarationPath}: ${error instanceof Error ? error.message : String(error)}`);

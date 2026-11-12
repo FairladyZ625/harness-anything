@@ -9,11 +9,23 @@
 // only while its source decision and owner task are in the public evidence index and it has not expired.
 import { availableParallelism } from "node:os";
 import path from "node:path";
+import fs from "node:fs";
 import { pathToFileURL } from "node:url";
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
 import ts from "typescript";
-import { buildFlowGraph, isFunctionNode } from "./authorization-flow-graph.mjs";
+import { authorizationPolicyGraph, buildFlowGraph, isFunctionNode } from "./authorization-flow-graph.mjs";
 import { makeAuthorizationTracer } from "./authorization-flow-trace.mjs";
+import {
+  sourceFileOf,
+  sourceSite,
+  sourceWitnesses,
+  intrinsicSupport,
+  processOwnedOutput,
+  processEntry,
+  moduleEntry,
+  processSourceSites,
+  buildOutputWithinPackage,
+} from "./authorization-source-proof.mjs";
 import { EVIDENCE_INDEX } from "./evidence-index.mjs";
 import { exitCodeFor, lineNumber, parseCommonArgs, parseTypeScript } from "./ontology-gate-lib.mjs";
 
@@ -40,8 +52,21 @@ export async function loadAuthorizationInputs(rootDir) {
     functions = {};
   for (const [name, value] of Object.entries(kernel))
     (typeof value === "function" ? functions : constants)[name] = value;
+  const descriptors = [...contract.daemonProtocolCommands, ...contract.daemonGuiActionMethods].map((row) => ({
+    ...row,
+  }));
+  for (const action of kernel.actionDeclarations) {
+    if (action.ontology?.authority || action.executionClass === "repo-read") continue;
+    for (const source of action.ontology?.sources ?? []) {
+      const descriptor = descriptors.find((row) => row.id === source.route);
+      if (!descriptor || (descriptor.actionKind ?? descriptor.id) !== action.kind)
+        throw new Error(
+          `${action.kind}: ontology source route ${source.route} does not resolve to its owning authorization descriptor`,
+        );
+    }
+  }
   return {
-    descriptors: [...contract.daemonProtocolCommands, ...contract.daemonGuiActionMethods],
+    descriptors,
     methods: commands.daemonProtocolMethods,
     constants,
     functions,
@@ -89,8 +114,41 @@ export function kindRewriteViolations(rewrite, today, index = EVIDENCE_INDEX) {
 export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
   const today = options.today ?? new Date().toISOString().slice(0, 10);
   const sourceRoot = options.sourceRoot ?? rootDir,
-    graph = buildFlowGraph(sourceRoot, { anchorRoot: rootDir }),
-    tracer = makeAuthorizationTracer(graph, {
+    actions = (inputs.constants.actionDeclarations ?? []).filter(
+      (action) => action.ontology?.sources?.length && (!options.only || options.only.includes(action.kind)),
+    ),
+    declaredSources = actions.flatMap((action) => action.ontology.sources),
+    graph = buildFlowGraph(sourceRoot, {
+      anchorRoot: rootDir,
+      sourceFiles: [
+        ...new Set([
+          ...declaredSources.map(sourceFileOf),
+          ...actions.flatMap((action) =>
+            Object.values(action.ontology.entries ?? {}).flatMap((entry) => [
+              entry.file,
+              ...(entry.builder ? [entry.builder] : []),
+            ]),
+          ),
+        ]),
+      ],
+    }),
+    witnesses = sourceWitnesses(graph, declaredSources),
+    sourceTargets = (action, route) =>
+      (action?.ontology?.sources ?? [])
+        .filter(
+          (source) =>
+            source.role !== "support" &&
+            (!route || (source.role !== "script" && source.route === route)) &&
+            witnesses.has(source.candidateId),
+        )
+        .map((source) => ({
+          id: source.candidateId,
+          route: source.route,
+          site: sourceSite(graph, witnesses.get(source.candidateId)),
+        })),
+    sourceResults = new Map(),
+    tracer = makeAuthorizationTracer(authorizationPolicyGraph(graph), {
+      sourceGraph: graph,
       ports: portAnchors,
       authorityModule: "@harness-anything/kernel",
       decision: decisionAnchor,
@@ -116,6 +174,10 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
           (!options.only || options.only.includes(descriptor.id)) &&
           (!options.shard || index % options.shard.count === options.shard.index),
       );
+  const sourceActions = actions.filter((action, index) => {
+    const owner = durable.findIndex((descriptor) => (descriptor.actionKind ?? descriptor.id) === action.kind);
+    return !options.shard || (owner < 0 ? durable.length + index : owner) % options.shard.count === options.shard.index;
+  });
   const rows = selected.map(({ descriptor, index }) => {
     const rewrite = descriptor.kindRewrite,
       kind = rewrite?.authorizedKind ?? descriptor.actionKind ?? descriptor.id,
@@ -142,7 +204,12 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       localTransport: authority === "local-transport",
       ownSession: authority === "own-session",
       canonicalCut: !nonCanonical.has(kind),
+      sources: sourceTargets(
+        actions.find((action) => action.kind === kind),
+        descriptor.id,
+      ),
     });
+    for (const source of trace.sources.values()) sourceResults.set(source.id, source);
     const evidence =
         authority === "local-transport" ? trace.local : authority === "own-session" ? trace.session : trace.authorized,
       violations = [...declarationViolations, ...trace.violations];
@@ -157,11 +224,89 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       violations,
     };
   });
+  const nativeSites = new Map();
+  for (const action of sourceActions.filter((action) => action.ontology.authority)) {
+    const { authority, entries = {} } = action.ontology;
+    const targets = sourceTargets(action);
+    for (const [route, entry] of Object.entries(entries)) {
+      const root = processEntry(graph, entry, authority);
+      if (!root || action.residency.scope === "canonical" || action.receiptSettlement !== "none") continue;
+      if (!nativeSites.has(entry.file)) nativeSites.set(entry.file, processSourceSites(graph, root));
+      const sites = nativeSites.get(entry.file);
+      for (const source of targets.filter((source) => source.route === route))
+        sourceResults.set(source.id, {
+          id: source.id,
+          seen: sites.has(source.site),
+          ok: sites.has(source.site),
+          evidence: sites.has(source.site) ? [`${entry.file}: package-owned operator entry reaches this source`] : [],
+        });
+    }
+  }
+  for (const action of sourceActions.filter((action) => action.ontology.scriptManifest)) {
+    const { scriptManifest } = action.ontology;
+    const parent = rows.find((row) => row.kind === action.kind && row.ok);
+    if (!parent || action.catalogId !== "script-execution/run") continue;
+    const manifest = JSON.parse(fs.readFileSync(path.join(sourceRoot, scriptManifest), "utf8"));
+    const sites = new Set();
+    for (const script of manifest.scripts ?? []) {
+      const file = path.posix.normalize(path.posix.join(path.posix.dirname(scriptManifest), script.command));
+      const root = moduleEntry(graph, file);
+      if (root) for (const site of processSourceSites(graph, root)) sites.add(site);
+    }
+    for (const source of sourceTargets(action).filter(
+      (source) => action.ontology.sources.find((binding) => binding.candidateId === source.id)?.role === "script",
+    ))
+      sourceResults.set(source.id, {
+        id: source.id,
+        seen: sites.has(source.site),
+        ok: sites.has(source.site),
+        evidence: [`${scriptManifest}: registered command reached from ${parent.id}'s authorized script boundary`],
+      });
+  }
+  const sourceRows = sourceActions.flatMap((action) =>
+    action.ontology.sources.map((source) => {
+      const node = witnesses.get(source.candidateId);
+      const proof = source.role === "support" && node && intrinsicSupport(graph, node);
+      const trace = sourceResults.get(source.candidateId);
+      const output =
+        node &&
+        action.ontology.authority === "local-process" &&
+        action.residency.scope === "host-local" &&
+        action.residency.writer === "caller-process" &&
+        processOwnedOutput(graph, node);
+      const within = action.ontology.authority !== "package-script" || (node && buildOutputWithinPackage(graph, node));
+      const ok = Boolean(node && within && (proof || output || (trace?.seen && trace.ok)));
+      return {
+        id: source.candidateId,
+        kind: action.kind,
+        authority:
+          source.role === "support"
+            ? "intrinsic-support"
+            : output
+              ? "process-stdio"
+              : (action.ontology.authority ?? "authorization-port"),
+        ok,
+        evidence: proof
+          ? ["typed process-local intrinsic; no external effect"]
+          : output
+            ? ["Node process-owned stdout/stderr; caller-process residency"]
+            : (trace?.evidence ?? []),
+        violations: ok
+          ? []
+          : [!within ? "build output escapes package dist" : "source has no verified owner/authority chain"],
+      };
+    }),
+  );
   const receipt = receiptAuthorizationContract(rootDir);
-  return { rows, receipt, findings: findingsFor(rows, receipt) };
+  return {
+    rows,
+    sourceRows,
+    receipt,
+    findings: findingsFor(rows, receipt, sourceRows),
+  };
 }
 
-function findingsFor(rows, receipt) {
+function findingsFor(rows, receipt, sourceRows) {
   return [
     ...rows
       .filter((row) => !row.ok)
@@ -173,6 +318,7 @@ function findingsFor(rows, receipt) {
     ...(receipt.nonNullable
       ? []
       : [`${receipt.file}:${receipt.line} receipt.authorizationDecision is optional or nullable`]),
+    ...sourceRows.filter((source) => !source.ok).map((source) => `${source.id}: ${source.violations.join("; ")}`),
   ];
 }
 
@@ -196,8 +342,14 @@ async function shardedAudit(rootDir) {
       ),
     ),
     rows = shards.flatMap((shard) => shard.rows).sort((left, right) => left.index - right.index),
-    receipt = shards[0].receipt;
-  return { rows, receipt, findings: findingsFor(rows, receipt) };
+    receipt = shards[0].receipt,
+    sourceRows = shards.flatMap((shard) => shard.sourceRows);
+  return {
+    rows,
+    sourceRows,
+    receipt,
+    findings: findingsFor(rows, receipt, sourceRows),
+  };
 }
 
 function receiptAuthorizationContract(rootDir) {
@@ -248,6 +400,9 @@ export async function main(argv = process.argv.slice(2)) {
     console.log(
       `receipt contract: ${result.receipt.file}:${result.receipt.line} ${result.receipt.nonNullable ? "non-null" : "optional/null"}`,
     );
+    console.log(`source authority: ${result.sourceRows.filter((row) => row.ok).length}/${result.sourceRows.length}`);
+    for (const source of result.sourceRows)
+      console.log(`${source.id} | ${source.authority} | ${source.ok ? source.evidence[0] : "MISSING"}`);
     for (const finding of result.findings) console.log(`- ${finding}`);
     return exitCodeFor(mode, result.findings.length);
   } catch (error) {
@@ -260,9 +415,13 @@ export async function main(argv = process.argv.slice(2)) {
 
 if (!isMainThread && workerData?.durableAuthorizationShard) {
   const { rootDir, shard } = workerData.durableAuthorizationShard;
-  const { rows, receipt } = auditDurableActionAuthorization(rootDir, await loadAuthorizationInputs(rootDir), {
-    shard,
-  });
-  parentPort.postMessage({ rows, receipt });
+  const { rows, sourceRows, receipt } = auditDurableActionAuthorization(
+    rootDir,
+    await loadAuthorizationInputs(rootDir),
+    {
+      shard,
+    },
+  );
+  parentPort.postMessage({ rows, sourceRows, receipt });
 } else if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href)
   process.exitCode = await main();

@@ -1,5 +1,5 @@
 import {
-  actionDeclarations,
+  policyActionDeclarations,
   baseEntityPolicyActions,
   executionCredentialRejected,
   type RuntimeExecutionPrincipal,
@@ -57,7 +57,10 @@ export class BuiltinPolicyAdapter
   readonly deniedReasonCode = "builtin_denied";
   readonly sessionLifetimeBounds = builtinSessionLifetimeBounds;
   readonly #root: string;
-  readonly #knownScopes = new Set([...actionDeclarations.map((item) => item.policyAction), ...baseEntityPolicyActions]);
+  readonly #knownScopes = new Set([
+    ...policyActionDeclarations().map((item) => item.policyAction),
+    ...baseEntityPolicyActions,
+  ]);
   readonly #readArtifactActionScopes: () => Promise<readonly string[]>;
   #centerToken: string | undefined;
   constructor(config: BuiltinPolicyAdapterConfig) {
@@ -113,7 +116,7 @@ export class BuiltinPolicyAdapter
   async syncBasePolicy(token: string): Promise<{ readonly scopeCount: number; readonly groupCount: number }> {
     this.#assertCenter(token);
     const artifactScopes = await this.#readArtifactActionScopes(),
-      base = deriveBasePolicyGroups(actionDeclarations, artifactScopes);
+      base = deriveBasePolicyGroups(undefined, artifactScopes);
     assertAcyclicPolicyGroups(base);
     await this.materializeGrants(token);
     return Object.freeze({ scopeCount: this.#knownScopes.size + artifactScopes.length, groupCount: base.length });
@@ -136,7 +139,7 @@ export class BuiltinPolicyAdapter
     this.#assertCenter(token);
     const scopes = await this.#readArtifactActionScopes();
     return [
-      ...deriveBasePolicyGroups(actionDeclarations, scopes).map((group) => ({ ...group, displayName: group.id })),
+      ...deriveBasePolicyGroups(undefined, scopes).map((group) => ({ ...group, displayName: group.id })),
       ...(readState(this.#root).policyGroups ?? []),
     ];
   }
@@ -462,7 +465,7 @@ export class BuiltinPolicyAdapter
   #grants(state: BuiltinState, artifactScopes: readonly string[] = registeredArtifactActionPolicyActions()) {
     if (state.grants) return state.grants;
     if (!state.owner) return [];
-    const scopes = effectivePolicyGroupScopes(deriveBasePolicyGroups(actionDeclarations, artifactScopes), "admin");
+    const scopes = effectivePolicyGroupScopes(deriveBasePolicyGroups(undefined, artifactScopes), "admin");
     return ["@fleet", ...Object.keys(state.repositoryOwners)].map((resource) => ({
       groupId: "admin",
       resource,

@@ -2,9 +2,23 @@
 export interface OntologySourceBinding {
   readonly candidateId: string;
   readonly route: string;
+  readonly role?: "effect" | "support" | "script";
 }
 
 export interface OntologyActionSources {
+  /** Own-process technical effects do not project remote permission scopes or command kinds. */
+  readonly technical?: true;
+  readonly scriptManifest?: string;
+  readonly authority?: "local-process" | "package-script";
+  readonly entries?: Readonly<
+    Record<
+      string,
+      { readonly file: string; readonly builder?: string; readonly script?: string; readonly bin?: string }
+    >
+  >;
+  /** Non-protocol source rows use the owning action's execution and concurrency contract. */
+  readonly execution?: { readonly ingress: string; readonly read: boolean } | null;
+  readonly concurrency?: import("./entity-kind-registry.ts").EntityActionContract["concurrency"];
   readonly owner: string;
   readonly sources: readonly OntologySourceBinding[];
   readonly exemptions?: readonly OntologySourceExemption[];

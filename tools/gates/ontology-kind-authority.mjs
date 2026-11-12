@@ -7,7 +7,6 @@ import {
   exitCodeFor,
   findVariable,
   lineNumber,
-  loadActionCoverageSnapshot,
   loadStateAuthoritySnapshot,
   parseCommonArgs,
   parseTypeScript,
@@ -18,10 +17,10 @@ const declarationPath = "packages/kernel/src/domain/action-declaration.ts";
 
 export function auditKindAuthority(rootDir = process.cwd()) {
   // The registry is evaluated, not parsed: a factory-made contract is as real as a literal row.
-  const snapshot = loadActionCoverageSnapshot(rootDir);
+  const snapshot = loadStateAuthoritySnapshot(rootDir);
   const canonicalKinds = [...new Set(snapshot.kinds)].sort();
   const coverage = actionCoverage(snapshot);
-  const authority = stateAuthorityCoverage(rootDir);
+  const authority = stateAuthorityCoverage(snapshot);
   const tables = [];
 
   const refSource = parseTypeScript(rootDir, entityRefPath);
@@ -93,8 +92,7 @@ const INVALIDATIONS = new Set(["event-push", "fence-on-read", "rebuild-on-start"
 
 const nonEmptyString = (value) => typeof value === "string" && value.length > 0;
 
-function stateAuthorityCoverage(rootDir) {
-  const snapshot = loadStateAuthoritySnapshot(rootDir);
+function stateAuthorityCoverage(snapshot) {
   const kinds = new Set(snapshot.kinds);
   const findings = [];
   for (const contract of snapshot.stateStores ?? [])

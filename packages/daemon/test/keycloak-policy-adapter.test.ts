@@ -4,7 +4,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
-  actionDeclarations,
+  policyActionDeclarations,
   baseEntityPolicyActions,
   deriveBasePolicyGroups,
   effectivePolicyGroupScopes,
@@ -24,7 +24,7 @@ import { fakeKeycloak } from "./keycloak.fixtures.ts";
 
 const config = { url: "http://127.0.0.1:8080", realm: "harness", resourceServerClientId: "harness-center" };
 const basePolicyScopeCount = new Set([
-    ...actionDeclarations.map(({ policyAction }) => policyAction),
+    ...policyActionDeclarations().map(({ policyAction }) => policyAction),
     ...baseEntityPolicyActions,
   ]).size,
   policyScopeCount = (): number => basePolicyScopeCount + registeredArtifactActionPolicyActions().length;
