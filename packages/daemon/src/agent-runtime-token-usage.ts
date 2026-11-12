@@ -255,8 +255,8 @@ function planWindow(
   };
 }
 
-/** One dispatch inside the window with the summary fields both reads need. Reading the summary
- * (bounded head/tail windows, cached by mtime+size) is the whole read cost — no full-file scan. */
+/** Each window dispatch uses bounded transcript head/tail windows (cached by mtime+size)
+ * and one canonical lifecycle point read. Neither read scans its full history. */
 function windowDispatches(
   rootDir: string,
   projection: Pick<TaskProjection, "readRuntimeDispatchPage" | "readDispatchLifecycle">,
