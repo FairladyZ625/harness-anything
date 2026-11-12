@@ -1,3 +1,4 @@
+import { pgEventShapeReplayInput } from "./pg-event-shape-replay.ts";
 import { decideRawTaskLease } from "@harness-anything/kernel/internal/domain/task-lease-policy.ts";
 import { relationCreatedEventForReplay } from "@harness-anything/kernel";
 import { initializePgDecisionReadStatus } from "./pg-decision-read-status.ts";
@@ -97,14 +98,22 @@ export interface PgProjectionRebuildInput {
   readonly readEventReaders?: (event: PersistedCanonicalEventV1) => readonly string[];
 }
 
-/** Materialize one canonical event in the caller's existing transaction; schema setup is a migration concern. */
+/** Materialize one newly accepted canonical event in the caller's transaction.
+ * Canonical admission owns idempotency; historical replay uses rebuildPgProjection. */
 export async function materializePgProjectionEvent(
   client: PoolClient,
   scope: PgProjectionScope,
   input: PgProjectionEventInput,
 ): Promise<PgProjectionMaterializationReceipt> {
   await admitProjectionGeneration(client, scope);
-  return materializeProjectionEvent(client, scope, input);
+  const replay = await pgEventShapeReplayInput(
+    client,
+    scope,
+    [input.event],
+    input.sourceHeadRevision ?? input.sourceRevision ?? input.event.workspaceRevision,
+    input.readContentBlob,
+  );
+  return replay ? rebuildPgProjection(client, scope, replay) : materializeProjectionEvent(client, scope, input);
 }
 
 async function admitProjectionGeneration(client: PoolClient, scope: PgProjectionScope): Promise<void> {
@@ -171,7 +180,8 @@ async function materializeProjectionEvent(
   return { revision, taskId, snapshot, tables: [...tables].sort() };
 }
 
-/** A2's append hook calls this with the committed batch while still inside the ledger transaction. */
+/** A2 calls this only for a newly accepted batch, inside the ledger transaction.
+ * Replayed commands return at canonical op-id admission before invoking this hook. */
 export async function materializePgProjectionEvents(
   client: PoolClient,
   scope: PgProjectionScope,
@@ -192,6 +202,11 @@ export async function materializePgProjectionEvents(
     return body === undefined ? null : Uint8Array.from(body);
   };
   await admitProjectionGeneration(client, scope);
+  const replay = await pgEventShapeReplayInput(client, scope, input.events, input.revision, readContentBlob);
+  if (replay) {
+    await rebuildPgProjection(client, scope, replay);
+    return;
+  }
   const artifacts = new Map<string, import("./pg-artifact-timeline.ts").PgArtifactTimelineEntry | null>();
   for (const event of input.events)
     await materializeProjectionEvent(client, scope, {

@@ -30,7 +30,7 @@ import {
 import type { TaskProjection } from "@harness-anything/kernel";
 import type { ProjectionContext } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
 import { withDatabase } from "./rebuildable-task-projection-database.ts";
-import { catchUpRound } from "./rebuildable-task-projection-event-application.ts";
+import { catchUpProjectionRound } from "./rebuildable-task-projection-reads.ts";
 import {
   readDocument,
   readForTaskContractMigration,
@@ -324,16 +324,17 @@ export function taskQueryApi(
         const row = queryRows(db, TASK_SUBMISSION_OPERATION_SQL, taskId, executionId)[0];
         return row ? String(row.op_id) : null;
       }),
-    readTaskCompletion: (taskId, executionId) =>
-      withDatabase(projectionPath, readHead, (db) => {
+    readTaskCompletion: (taskId, executionId) => {
+      catchUpProjectionRound(projectionPath, eventStore, limit);
+      return withDatabase(projectionPath, readHead, (db) => {
         // Completion lookup is write-recovery admission, not a serving read: it must observe a
         // published completion before a retry can append a duplicate.
-        catchUpRound(db, eventStore, limit);
         const row = queryRows(db, TASK_COMPLETION_SQL, taskId, executionId)[0];
         if (!row) return null;
         const event = JSON.parse(String(row.event_json));
         return isTaskEvent(event) ? event : null;
-      }),
+      });
+    },
     readCanonicalEvents: (afterRevision, pageLimit) =>
       withDatabase(projectionPath, readHead, (db) => {
         if (!validateStorageReadWindow(pageLimit, storageReadPolicy.defaultValue.pageSizes.standard, afterRevision))

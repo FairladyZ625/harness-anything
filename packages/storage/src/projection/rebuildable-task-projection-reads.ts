@@ -291,6 +291,27 @@ export function presentSnapshot(
     : snapshot;
 }
 
+/** Every incremental SQLite consumer leaves its connection before a migration discards the cache. */
+export function catchUpProjectionRound(
+  projectionPath: string,
+  eventStore: EventStreamPort,
+  limit: number,
+  onValidationProgress?: Parameters<typeof discardDatabase>[3],
+) {
+  const round = withDatabase(
+    projectionPath,
+    eventStore.readHead,
+    (db) => catchUpRound(db, eventStore, limit),
+    onValidationProgress,
+  );
+  if (!round.replayRequired) return { ...round, restarted: false };
+  discardDatabase(projectionPath, eventStore, "event_shape_migration", onValidationProgress);
+  return {
+    ...withDatabase(projectionPath, eventStore.readHead, (db) => catchUpRound(db, eventStore, limit)),
+    restarted: true,
+  };
+}
+
 export function rebuildProjection(
   projectionPath: string,
   readHead: EventStreamPort["readHead"],

@@ -78,8 +78,14 @@ import {
   withQueryOnlyDatabaseSession,
 } from "./rebuildable-task-projection-database.ts";
 import { taskProjectionSchemaVersion } from "./projection-schema.ts";
-import { catchUpRound, reduceBatch } from "./rebuildable-task-projection-event-application.ts";
-import { listProjection, readProjection, rebuildProjection } from "./rebuildable-task-projection-reads.ts";
+import { reduceBatch } from "./rebuildable-task-projection-event-application.ts";
+import { requiresEventShapeReplay } from "./event-shape-replay.ts";
+import {
+  catchUpProjectionRound,
+  listProjection,
+  readProjection,
+  rebuildProjection,
+} from "./rebuildable-task-projection-reads.ts";
 import { knowledgeQueryApi } from "./rebuildable-task-projection-knowledge-queries.ts";
 import { entityQueryApi } from "./rebuildable-task-projection-entity-api.ts";
 import { runtimeLeaseApi } from "./rebuildable-task-projection-runtime-api.ts";
@@ -210,6 +216,12 @@ export function makeTaskProjection(
       if (isMigrationImportEvent(event)) assertMigrationImportWritePlan(event, plan);
       if (isLedgerLayoutMigrationEvent(event)) assertLedgerLayoutMigrationWritePlan(event, plan);
       if (isEventShapeMigrationEvent(event)) assertEventShapeMigrationWritePlan(event, plan);
+      if (
+        isEventShapeMigrationEvent(event) &&
+        withDatabase(projectionPath, readHead, (db) => requiresEventShapeReplay([event], watermark(db)))
+      )
+        rebuildProjection(projectionPath, readHead, options.eventStore, limit, onProgress);
+      // As with schema repair at open, prerequisite replay is separate from this apply receipt.
       return withDatabase(projectionPath, readHead, (db) =>
         reduceBatch(db, [event], limit, options.eventStore.readContentBlob, options.eventStore.readHead()),
       );
@@ -219,18 +231,14 @@ export function makeTaskProjection(
       return rebuildProjection(projectionPath, readHead, options.eventStore, limit, onProgress);
     },
     catchUp: () => {
-      const initialWatermark = withDatabase(projectionPath, readHead, watermark, options.onValidationProgress);
+      let initialWatermark = withDatabase(projectionPath, readHead, watermark, options.onValidationProgress);
       let storeTransactions = 0,
         reducedItems = 0,
         maxBatchItems = 0,
         reportedWatermark = initialWatermark;
       for (;;) {
-        const round = withDatabase(
-          projectionPath,
-          readHead,
-          (db) => catchUpRound(db, options.eventStore, limit),
-          options.onValidationProgress,
-        );
+        const round = catchUpProjectionRound(projectionPath, options.eventStore, limit, options.onValidationProgress);
+        if (round.restarted) initialWatermark = reportedWatermark = 0;
         storeTransactions += round.storeTransactions;
         reducedItems += round.reducedItems;
         maxBatchItems = Math.max(maxBatchItems, round.accessedItems);
@@ -248,18 +256,14 @@ export function makeTaskProjection(
       }
     },
     catchUpAsync: async () => {
-      const initialWatermark = withDatabase(projectionPath, readHead, watermark, options.onValidationProgress);
+      let initialWatermark = withDatabase(projectionPath, readHead, watermark, options.onValidationProgress);
       let storeTransactions = 0,
         reducedItems = 0,
         maxBatchItems = 0,
         reportedWatermark = initialWatermark;
       for (;;) {
-        const round = withDatabase(
-          projectionPath,
-          readHead,
-          (db) => catchUpRound(db, options.eventStore, limit),
-          options.onValidationProgress,
-        );
+        const round = catchUpProjectionRound(projectionPath, options.eventStore, limit, options.onValidationProgress);
+        if (round.restarted) initialWatermark = reportedWatermark = 0;
         storeTransactions += round.storeTransactions;
         reducedItems += round.reducedItems;
         maxBatchItems = Math.max(maxBatchItems, round.accessedItems);
