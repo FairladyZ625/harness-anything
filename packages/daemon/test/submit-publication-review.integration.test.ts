@@ -10,9 +10,9 @@ import { openRepoWriterCell } from "../src/repo-cell-open.ts";
 import { acquireWorkspaceLock } from "../src/repo-cell-lock.ts";
 import { fixtureFence, settleSettingsEvent } from "./repo-settings.fixture.ts";
 import {
-  grantTestPolicyGroups,
   policyTestCenter,
   provisionPolicyTestRepository,
+  refreshPolicyTestRepository,
   revokeTestPolicyActions,
 } from "./keycloak-policy.fixtures.ts";
 
@@ -243,7 +243,7 @@ test("queued reviewer authorization preserves the failed step and warning", { ti
   const { f, cut, submit } = await publicationFixture(context);
   cut();
   revokeTestPolicyActions(owner.actor.principal.personId, "completion-review", ["runtime-spawn"]);
-  context.after(() => grantTestPolicyGroups([owner.actor.principal.personId], "maintainer"));
+  context.after(() => refreshPolicyTestRepository("completion-review"));
   const receipt = await submit();
   assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
   assert.equal(f.launches.length, 0);
