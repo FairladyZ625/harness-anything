@@ -10,6 +10,7 @@ import {
   type ScheduleMissedReason,
   type ScheduleTriggerV1,
 } from "@harness-anything/kernel";
+import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import {
   validateScheduleRuns,
   type ScheduleRunOutputsDto,
@@ -29,7 +30,7 @@ export interface ScheduleRunsReadContext {
   readonly projection: {
     readonly getEntity: (entityKind: string, entityId: string) => unknown;
     readonly readScheduleEvents: (scheduleId: string) => {
-      readonly status: "ready" | "pending";
+      readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
       readonly events: readonly CanonicalEventV1[];
       readonly watermark: number;
       readonly sourceRevision: number;

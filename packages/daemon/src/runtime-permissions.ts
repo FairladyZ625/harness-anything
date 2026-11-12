@@ -2,9 +2,11 @@
 // instance (default open) mapped onto each provider's own verified flags:
 // Claude Code 2.1.234 `--permission-mode`; Codex CLI 0.147.0 uses `--sandbox`
 // for a new exec, but its resume parser requires config overrides (or bypass).
-export type RuntimePermissionMode = "bypass" | "workspace-write" | "read-only";
-export type RuntimeIsolationState = "enforced" | "operator-environment";
+import type { RuntimeIsolationState } from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { runtimeKindForId, type RuntimeKindId } from "./runtime-inventory.ts";
+
+export type RuntimePermissionMode = "bypass" | "workspace-write" | "read-only";
+export type { RuntimeIsolationState };
 
 export type RuntimePermissionKind = RuntimeKindId;
 

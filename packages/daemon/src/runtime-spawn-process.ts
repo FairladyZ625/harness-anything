@@ -3,6 +3,7 @@ import { StringDecoder } from "node:string_decoder";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import type { CanonicalEventStore, TaskProjection } from "@harness-anything/kernel";
+import type { DispatchAttemptOutcome } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 import { cmdShellInvocation } from "@harness-anything/storage";
 import { consumeKnownError } from "@harness-anything/kernel";
 import type { PreparedRuntimeLaunch, RuntimeInstanceKind } from "./agent-runtime-instances.ts";
@@ -376,7 +377,7 @@ export function launchExitNotification(input: {
   readonly payload: {
     readonly schema: "runtime-session-exited/v1";
     readonly runtimeSessionId: string;
-    readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped";
+    readonly outcome: DispatchAttemptOutcome;
     readonly exitCode: number | null;
   };
   readonly now: () => string;

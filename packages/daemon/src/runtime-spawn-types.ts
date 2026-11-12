@@ -1,5 +1,6 @@
 import type { SquadDispatchSelection } from "./agent-entities.ts";
 import type { DispatchLifecycleQuery, DispatchLifecycleRead } from "@harness-anything/kernel";
+import type { DispatchAttemptOutcome } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import type { FleetRuntimeDispatchContext } from "./fleet/command-protocol.ts";
 import type {
@@ -298,7 +299,7 @@ export type ProviderFrame = {
   readonly signals?: readonly AgentRuntimeNativeSignal[];
   readonly finalText?: string;
   readonly failureText?: string;
-  readonly outcome?: "succeeded" | "failed" | "unknown";
+  readonly outcome?: Extract<DispatchAttemptOutcome, "succeeded" | "failed" | "unknown">;
   readonly writeItemObserved?: boolean;
   /** Absolute paths carried by a completed file-write item, before any boundary judgement. */
   readonly writePaths?: readonly string[];

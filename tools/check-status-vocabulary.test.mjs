@@ -186,6 +186,18 @@ test("bypass fixture: a kernel vocabulary gaining an unregistered word is refuse
 });
 
 test("bypass fixture: a daemon vocabulary drifting from its registered words is refused", () => {
+  const daemonProtocol = (sources.get(DAEMON_PROTOCOL) ?? "").replace(
+    'export const dispatchAttemptPhaseWords = ["starting", "running", "settling", "closed"] as const;',
+    'export const dispatchAttemptPhaseWords = ["starting", "running", "settling", "closed", "paused"] as const;',
+  );
+  const findings = coverageFor(sitesWithModules([[DAEMON_PROTOCOL, daemonProtocol]]));
+  assert.ok(
+    findings.some((finding) => finding.includes("dispatchAttemptPhaseWords") && finding.includes("drift")),
+    findings.join("\n"),
+  );
+});
+
+test("bypass fixture: re-introducing an inline literal union in a retired daemon module is refused", () => {
   const findings = coverageFor(
     sitesWithModules([
       [
@@ -196,7 +208,7 @@ test("bypass fixture: a daemon vocabulary drifting from its registered words is 
   );
   assert.ok(
     findings.some(
-      (finding) => finding.includes("dispatch-activity.ts#DispatchActivityStatus") && finding.includes("drift"),
+      (finding) => finding.includes("dispatch-activity.ts#DispatchActivityStatus") && finding.includes("unregistered"),
     ),
     findings.join("\n"),
   );
@@ -859,4 +871,11 @@ test("daemon protocol/gui/home modules have no status vocabulary debt", () => {
     statusVocabularyBaseline.filter(({ key }) => retiredModules.has(key.split("#")[0])),
     [],
   );
+});
+
+// dec_499E4E98A3D4754132B3BCA1E6/CH1: slice 10 retires the remaining daemon batch 1 baseline;
+// both historical allowlists remain permanently empty across the repository.
+test("status vocabulary baseline and unowned register are permanently empty", () => {
+  assert.deepEqual(statusVocabularyBaseline, []);
+  assert.deepEqual(statusVocabularyUnownedRegister, []);
 });

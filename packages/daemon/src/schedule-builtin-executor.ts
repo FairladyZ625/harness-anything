@@ -10,6 +10,7 @@ import {
 } from "@harness-anything/storage";
 import {
   type ScheduleBuiltinParamsV1,
+  type ScheduleRunOutcome,
   type ScheduleV1,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
@@ -45,7 +46,7 @@ type BuiltinExecutor = (input: {
 }) => Promise<BuiltinExecutionResult>;
 
 export interface BuiltinExecutionResult {
-  readonly outcome: "succeeded" | "failed";
+  readonly outcome: Extract<ScheduleRunOutcome, "succeeded" | "failed">;
   readonly detail: string;
 }
 

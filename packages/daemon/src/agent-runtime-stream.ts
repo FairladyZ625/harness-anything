@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import type * as ClientStatus from "@harness-anything/kernel/internal/domain/client-view-status.ts";
+import type { DispatchAttemptOutcome } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 import type { ActorIdentity, RuntimeSession, WriteSource } from "@harness-anything/kernel";
 import { serialize } from "./agent-runtime-contract.ts";
 
@@ -6,7 +8,7 @@ export type AgentRuntimeActivity = "thinking" | "tool" | "message";
 export type AgentRuntimeNativeSignal =
   | { readonly type: "activity"; readonly activity: AgentRuntimeActivity; readonly content?: string }
   | { readonly type: "heartbeat" }
-  | { readonly type: "exit"; readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" }
+  | { readonly type: "exit"; readonly outcome: DispatchAttemptOutcome }
   | { readonly type: "error"; readonly code: "provider_disconnected" | "provider_protocol_error" };
 type RuntimeStreamBase = {
   readonly schema: "agent-runtime-attach-event/v1";
@@ -18,7 +20,7 @@ export type AgentRuntimeAttachEvent = RuntimeStreamBase &
   (
     | { readonly type: "activity"; readonly activity: AgentRuntimeActivity; readonly content?: string }
     | { readonly type: "heartbeat" }
-    | { readonly type: "exit"; readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" }
+    | { readonly type: "exit"; readonly outcome: DispatchAttemptOutcome }
     | { readonly type: "error"; readonly code: "provider_disconnected" | "provider_protocol_error" }
     | { readonly type: "gap"; readonly required: "snapshot" }
   );
@@ -26,7 +28,7 @@ export type AgentRuntimeAttachResult =
   | { readonly ok: false; readonly code: "unsupported"; readonly runtimeSessionId: string; readonly hint: string }
   | {
       readonly ok: true;
-      readonly status: "attached" | "gap";
+      readonly status: ClientStatus.TerminalAttachStatus;
       readonly runtimeSessionId: string;
       readonly cursor: string;
       readonly events: readonly AgentRuntimeAttachEvent[];

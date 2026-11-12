@@ -1,9 +1,10 @@
+import type { DispatchActivityStatus } from "@harness-anything/kernel/internal/domain/client-view-status.ts";
 import type { ProviderUnreachableEvidence, TaskDispatchRow } from "./protocol/task-dispatch-contract.ts";
 
 /** A live dispatch with no observation for this long is surfaced as silent. */
 export const DISPATCH_SILENT_AFTER_MS = 10 * 60_000;
 
-export type DispatchActivityStatus = "thinking" | "tool" | "waiting" | "silent" | "stalled" | "unknown";
+export type { DispatchActivityStatus };
 export type DispatchProviderActivity = Exclude<DispatchActivityStatus, "silent" | "stalled" | "unknown">;
 
 /** The provider's own reconnect record as it survives in the dispatch stream. */

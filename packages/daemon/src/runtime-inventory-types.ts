@@ -5,10 +5,11 @@
 // Type-only: a value import would pull the effectful kernel barrel (stable-hash → node:crypto)
 // into the GUI renderer bundle.
 import type { RuntimeInstallation } from "@harness-anything/kernel";
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 
 export type RuntimeCapabilitySupport = "supported" | "unsupported" | "unverified";
 export type RuntimeAuthMode = "subscription" | "api-key";
-export type RuntimeEndpointAvailability = "none" | "optional" | "required";
+export type RuntimeEndpointAvailability = OperationalStatus.RuntimeEndpointAvailability;
 export type RuntimeWebSearchMode = "disabled" | "cached" | "live";
 export interface RuntimeProviderDeclaration {
   readonly kindId: string;
@@ -100,8 +101,8 @@ export interface RuntimeProviderDeclaration {
     readonly endpoints: { readonly baseUrl: RuntimeEndpointAvailability };
   };
   readonly isolation: {
-    readonly defaultState: "enforced" | "operator-environment";
-    readonly states: readonly ("enforced" | "operator-environment")[];
+    readonly defaultState: OperationalStatus.RuntimeIsolationState;
+    readonly states: readonly OperationalStatus.RuntimeIsolationState[];
   };
   readonly permissions: { readonly available: boolean; readonly defaultMode: "bypass" };
   readonly launch: {

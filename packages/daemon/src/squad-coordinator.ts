@@ -10,6 +10,7 @@ import {
   isTerminalStatus,
   parseSquadDeclarationV1,
   type AgentRuntimeEventV1,
+  type ScheduleRunOutcome,
   type TaskProjection,
 } from "@harness-anything/kernel";
 import { appendRuntimeWorkerRecord } from "./dispatch-stream.ts";
@@ -75,7 +76,7 @@ type RuntimeOutcomeEvent = Extract<AgentRuntimeEventV1, { readonly type: "runtim
 /** The schedule occurrence a run settles with, once its own phase is terminal. */
 export interface SquadScheduleSettlement {
   readonly schedule: TrustedScheduleRuntime;
-  readonly outcome: "succeeded" | "failed" | "cancelled";
+  readonly outcome: Extract<ScheduleRunOutcome, "succeeded" | "failed" | "cancelled">;
   readonly reason: string | null;
   readonly endedAt: string;
   readonly dispatchId: string;

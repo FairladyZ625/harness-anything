@@ -1,3 +1,4 @@
+import type { DispatchAttemptOutcome as RuntimeExitOutcome } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 import type { RuntimeInstanceKind } from "./agent-runtime-instances.ts";
 import type { ActiveRuntime, ProviderFrame, ProviderReconnect } from "./runtime-spawn-types.ts";
 import type { RuntimeAttemptOutcome, RuntimeProviderFault } from "./runtime-fallback-contract.ts";
@@ -254,7 +255,7 @@ export function classifyRuntimeExit(
   return classified("worker_stop", workerStopReason(active, outcome));
 }
 
-export type RuntimeExitOutcome = "succeeded" | "failed" | "unknown" | "cancelled" | "stopped";
+export type { RuntimeExitOutcome };
 
 /** The provider reconnected, then closed the attempt without a single successful tool call. The
  * attempt answered from a drained stream; the message it wrote is a symptom, never the cause. */

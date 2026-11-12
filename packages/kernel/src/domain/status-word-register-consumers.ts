@@ -56,6 +56,8 @@ const catalogs: readonly Catalog[] = [
         taskRestatementDispositionWords:
           "Imported task contract retires a preset, renames it, or aligns its task class.",
         legacyWorktreeStatusWords: "Legacy worktree rename is planned or has completed.",
+        agentDeclarationMigrationOutcomeWords:
+          "An authored agent declaration is converted to the current shape, already current, or rejected with schema issues.",
       },
       Projection: {
         projectionFreshnesses: "A projection is current, usable from a stale cache, or unavailable without any cache.",
@@ -65,6 +67,18 @@ const catalogs: readonly Catalog[] = [
           "A runtime batch command succeeds, fails, is refused, lacks a confirmed result, or stops.",
         runtimeIsolationStateWords:
           "Runtime provider isolation is enforced or deliberately uses the operator environment.",
+        runtimeAuthStateWords:
+          "Runtime instance authentication is configured, verified authenticated, unauthenticated, or unobserved.",
+        runtimeAuthReadinessStatusWords: "Runtime instance authentication probe is ready to launch or not ready.",
+        runtimeEndpointAvailabilities:
+          "A runtime provider allows no custom endpoint, an optional endpoint, or requires one.",
+        runtimeRecoveryOutcomeWords:
+          "Runtime session recovery reattaches a live session, settles a finished one, fails, or skips a foreign owner.",
+        runtimeSteerLivenessWords: "A steer target process is running, still starting, or already stopped.",
+        providerGroupSweepVerdictWords:
+          "Detached process group sweep observes a running group, proves it stopped, or cannot reach the host table.",
+        relayCostStatusWords:
+          "Cloud dispatch relay settles token spend from provider-reported usage or from the request estimate.",
       },
       Decision: {
         decisionDriftStateWords:
@@ -84,7 +98,11 @@ const catalogs: readonly Catalog[] = [
           "Scaffold output was created, preserved unchanged, or differs from its generated content.",
         bootstrapDocumentDispositionWords: "Bootstrap creates, preserves, or updates a generated document.",
       },
-      Review: { reviewPromptPhaseWords: "Reviewer prompt is for the first review or a returned cut." },
+      Review: {
+        reviewPromptPhaseWords: "Reviewer prompt is for the first review or a returned cut.",
+        reviewDispatchStepOutcomeWords:
+          "Automatic review dispatch spawns a reviewer, reuses an active dispatch or existing review, waits on projection readiness, or fails.",
+      },
       Artifact: {
         skillPublicationStatusWords: "An evaluated skill is a draft or published.",
         deliveryFileStatusWords: "A delivery file is added, modified, deleted, renamed, copied, or changes type.",
@@ -98,10 +116,19 @@ const catalogs: readonly Catalog[] = [
       Schedule: {
         scheduleExecutionAvailabilities:
           "Schedule execution runs on this node, is claimed by another node, or is not bound to this node.",
+        scheduleMissedSettlementOutcomeWords:
+          "Missed schedule interval recording settles, is rejected by receipt, or waits on human authentication.",
+      },
+      SquadRun: {
+        squadControlOutcomeWords: "A squad control command completes or is rejected at admission.",
       },
       Dispatch: {
         dispatchFallbackStateWords:
           "Provider fallback retry is scheduled, has dispatched a replacement attempt, or has exhausted fallback candidates.",
+        dispatchEvidenceStateWords:
+          "Dispatch forensic evidence is pending durable storage, stored, or not required for a normal turn.",
+        dispatchExitNotificationPhaseWords:
+          "An on-exit notification hook records when its child command has started or finished.",
       },
     },
   },
@@ -154,6 +181,10 @@ const catalogs: readonly Catalog[] = [
           "Session display reports success, failure, cancellation, stop, unknown evidence, indeterminate settlement, or current execution.",
         dispatchActivityStatusWords:
           "Dispatch activity is thinking, using a tool, waiting, silent, stalled, or unobserved.",
+        agentRuntimeSessionGroupStatusWords:
+          "Session group filter and badge report a semantic session state, unknown evidence, a blocked wait, or a lost process.",
+        tokenUsageOutcomeWords:
+          "Token usage analytics group dispatches by succeeded, failed, cancelled, stopped, running, or unknown settlement.",
       },
     },
   },

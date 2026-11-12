@@ -13,6 +13,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import {
   consumeKnownError,
   resolveHarnessLayout,
@@ -168,7 +169,11 @@ export interface DispatchStreamWriter {
    * or operator action stores it; `stored` is the normal compaction permit.
    */
   readonly appendEvidenceState?: (
-    value: { readonly state: "pending" | "stored"; readonly reason?: string; readonly files?: readonly string[] },
+    value: {
+      readonly state: Exclude<OperationalStatus.DispatchEvidenceState, "not-required">;
+      readonly reason?: string;
+      readonly files?: readonly string[];
+    },
     occurredAt: string,
   ) => void;
   /** `connectionFailure` stamps a reconnect frame with the last real progress known when the
@@ -188,7 +193,7 @@ export interface DispatchStreamWriter {
   readonly appendProviderBinding: (providerSessionId: string, occurredAt: string) => void;
   readonly appendExitNotification: (
     value: {
-      readonly phase: "started" | "finished";
+      readonly phase: OperationalStatus.DispatchExitNotificationPhase;
       readonly started: boolean;
       readonly exitCode: number | null;
       readonly timedOut: boolean;
@@ -658,7 +663,7 @@ export function readDispatchStream(
   readonly attemptOutcome: RuntimeAttemptOutcome | null;
   readonly terminalOutcome: DispatchTerminalOutcome | null;
   /** The latest evidence-copy disposition; absent streams settle and compact as before. */
-  readonly evidenceState: "pending" | "stored" | null;
+  readonly evidenceState: Exclude<OperationalStatus.DispatchEvidenceState, "not-required"> | null;
   readonly runtimeMetrics: RuntimeMetrics | null;
   /** The latest runtime-incident disposition record this stream carries, still unvalidated: the
    * record vocabulary (option ids, statuses) belongs to the decision module, not the stream

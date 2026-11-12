@@ -109,3 +109,27 @@ export const dispatchActivityStatusWords = ["thinking", "tool", "waiting", "sile
 export type DispatchActivityStatus = (typeof dispatchActivityStatusWords)[number];
 
 export const entityContentReadOutcomes = ["file", "directory", "missing", "too-large", "binary"] as const;
+
+export const agentRuntimeSessionGroupStatusWords = Object.freeze([
+  "running",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "stopped",
+  "ended-indeterminate",
+  "unavailable",
+  "unknown",
+  "blocked",
+  "lost",
+] as const);
+export type AgentRuntimeSessionGroupStatus = (typeof agentRuntimeSessionGroupStatusWords)[number];
+
+export const tokenUsageOutcomeWords = Object.freeze([
+  "succeeded",
+  "failed",
+  "cancelled",
+  "stopped",
+  "running",
+  "unknown",
+] as const);
+export type AgentRuntimeTokenUsageOutcome = (typeof tokenUsageOutcomeWords)[number];

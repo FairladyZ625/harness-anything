@@ -1,9 +1,10 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
+import type { DispatchEvidenceState } from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { consumeKnownError, resolveHarnessLayout } from "@harness-anything/kernel";
 import { removeFileDurably, writeFileDurably } from "../../storage/src/durable-file.ts";
 
-export type DispatchEvidenceState = "pending" | "stored" | "not-required";
+export type { DispatchEvidenceState };
 
 const stateSchema = "dispatch-evidence-state/v1" as const;
 

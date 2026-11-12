@@ -2,6 +2,8 @@ import { readProjectedAgentDeclaration } from "./agent-declaration-resolution.ts
 import { resolveAgentSkills } from "./agent-skills.ts";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
+import type { AgentState } from "@harness-anything/kernel/internal/domain/agent-squad-schema.ts";
+import type * as ClientStatus from "@harness-anything/kernel/internal/domain/client-view-status.ts";
 import { openEntityStore, type EntityStore } from "@harness-anything/storage";
 import {
   attributeEntityActionCriterion,
@@ -79,7 +81,7 @@ export interface SquadEntityGuiAvailableRow {
 export interface AgentEntityGuiDegradedRow {
   readonly id: string;
   readonly layer: "user";
-  readonly state: "invalid" | "missing";
+  readonly state: ClientStatus.DegradedEntityState;
   readonly error: { readonly code: string; readonly hint: string };
 }
 export type AgentEntityGuiRow = AgentEntityGuiAvailableRow | AgentEntityGuiDegradedRow;
@@ -661,8 +663,6 @@ export function prepareAgentEntityInstall(input: {
   };
 }
 
-/** The center claim gate. Missing lifecycle data is the legacy active state. */
-type AgentState = "configured" | "active" | "retired";
 /** A retire prepare: replay follows its recorded event; a new retirement of a system-bundled
  *  id names that semantic instead of a generic not-found. */
 export function prepareAgentEntityRetire(input: {

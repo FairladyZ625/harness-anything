@@ -150,3 +150,48 @@ export type RepoAttachPhase = (typeof repoAttachPhaseWords)[number];
 
 export const dispatchFallbackStateWords = ["scheduled", "dispatched", "exhausted"] as const;
 export type DispatchFallbackState = (typeof dispatchFallbackStateWords)[number];
+
+export const agentDeclarationMigrationOutcomeWords = ["converted", "current", "rejected"] as const;
+export type AgentDeclarationMigrationOutcome = (typeof agentDeclarationMigrationOutcomeWords)[number];
+
+export const runtimeAuthStateWords = ["configured", "authenticated", "unauthenticated", "unknown"] as const;
+export type RuntimeAuthState = (typeof runtimeAuthStateWords)[number];
+
+export const runtimeAuthReadinessStatusWords = ["ready", "not-ready"] as const;
+export type RuntimeAuthReadinessStatus = (typeof runtimeAuthReadinessStatusWords)[number];
+
+export const runtimeEndpointAvailabilities = ["none", "optional", "required"] as const;
+export type RuntimeEndpointAvailability = (typeof runtimeEndpointAvailabilities)[number];
+
+export const dispatchEvidenceStateWords = ["pending", "stored", "not-required"] as const;
+export type DispatchEvidenceState = (typeof dispatchEvidenceStateWords)[number];
+
+export const dispatchExitNotificationPhaseWords = ["started", "finished"] as const;
+export type DispatchExitNotificationPhase = (typeof dispatchExitNotificationPhaseWords)[number];
+
+export const runtimeRecoveryOutcomeWords = ["ready", "settled", "failed", "foreign"] as const;
+export type RuntimeRecoveryOutcome = (typeof runtimeRecoveryOutcomeWords)[number];
+
+export const runtimeSteerLivenessWords = ["running", "starting", "stopped"] as const;
+export type RuntimeSteerLiveness = (typeof runtimeSteerLivenessWords)[number];
+
+export const providerGroupSweepVerdictWords = ["running", "proven_stopped", "unknown_unreachable"] as const;
+export type ProviderGroupSweepVerdict = (typeof providerGroupSweepVerdictWords)[number];
+
+export const relayCostStatusWords = ["reported", "estimated"] as const;
+export type RelayCostStatus = (typeof relayCostStatusWords)[number];
+
+export const scheduleMissedSettlementOutcomeWords = ["settled", "rejected", "human-blocked"] as const;
+export type ScheduleMissedSettlementOutcome = (typeof scheduleMissedSettlementOutcomeWords)[number];
+
+export const squadControlOutcomeWords = ["completed", "op_rejected"] as const;
+export type SquadControlOutcome = (typeof squadControlOutcomeWords)[number];
+
+export const reviewDispatchStepOutcomeWords = [
+  "dispatched",
+  "already_dispatched",
+  "already_reviewed",
+  "pending",
+  "failed",
+] as const;
+export type ReviewDispatchStepOutcome = (typeof reviewDispatchStepOutcomeWords)[number];

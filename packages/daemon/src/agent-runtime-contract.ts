@@ -1,3 +1,9 @@
+import { agentRuntimeSessionGroupStatusWords } from "@harness-anything/kernel/internal/domain/client-view-status.ts";
+import type { RuntimeLiveness } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
+import type { DispatchAttemptOutcome } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
+import type { LeasePhase } from "@harness-anything/kernel/internal/domain/execution.ts";
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
+import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import { validDispatchLifecycleSummary } from "./protocol/daemon-protocol-validate-relation-query.ts";
 import type { DispatchLifecycleSummary } from "@harness-anything/kernel";
 import type { RuntimeCapabilitySupport } from "./runtime-inventory-types.ts";
@@ -32,16 +38,16 @@ interface AgentRuntimeInstanceCommonDto {
   readonly enabled: boolean;
   readonly permissionMode: "bypass" | "workspace-write" | "read-only" | null;
   readonly authMode: "subscription" | "api-key";
-  readonly authState: "configured" | "authenticated" | "unauthenticated" | "unknown";
+  readonly authState: OperationalStatus.RuntimeAuthState;
   readonly authReadiness: {
-    readonly status: "ready" | "not-ready";
+    readonly status: OperationalStatus.RuntimeAuthReadinessStatus;
     readonly code: string | null;
     readonly hint: string | null;
     /** `"metadata"` observes local auth state; `"provider"` observes a completed authenticated request. */
     readonly basis?: "metadata" | "provider";
   };
   readonly hostingCredentialState?: "configured";
-  readonly isolationState: "enforced" | "operator-environment";
+  readonly isolationState: OperationalStatus.RuntimeIsolationState;
   readonly configuration: Readonly<Record<string, unknown>>;
   /** Current HA integration capabilities, from the built-in provider declaration. */
   readonly capabilities?: Readonly<Record<string, RuntimeCapabilitySupport>>;
@@ -63,7 +69,7 @@ export interface AgentRuntimeAssociationDto {
   readonly taskId: string;
   readonly executionId: string;
   readonly holder: { readonly personId: string; readonly executorId: string | null } | null;
-  readonly lease: { readonly phase: "reserving" | "held" | "released" | "orphaned"; readonly expiresAt: string } | null;
+  readonly lease: { readonly phase: LeasePhase; readonly expiresAt: string } | null;
 }
 export interface AgentRuntimeInstallationErrorDto {
   readonly code: "runtime_installation_not_found";
@@ -169,7 +175,7 @@ export interface AgentRuntimeSessionDto {
   readonly definitionSnapshot: AgentDefinitionSnapshot | null;
   readonly definitionSnapshotPersisted: boolean;
   /** @deprecated Observation display only; remove 2026-12-07. */
-  readonly liveness: "live" | "stale" | "unknown" | "exited";
+  readonly liveness: RuntimeLiveness;
   /** @deprecated Previous display word; remove 2026-12-07. */
   readonly semanticState?: RuntimeSessionSemanticState;
   readonly attachCapability: "supported" | "unsupported";
@@ -178,7 +184,7 @@ export interface AgentRuntimeSessionDto {
   readonly attemptChain?: AgentRuntimeAttemptChainDto;
   readonly activity: {
     readonly lastObservedAt: string;
-    readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" | null;
+    readonly outcome: DispatchAttemptOutcome | null;
     readonly exitCode: number | null;
     readonly resultRef: string | null;
     readonly missingEvidence: "exit-code-and-result" | "exit-code" | "result" | null;
@@ -201,7 +207,7 @@ export interface AgentRuntimeLifecycleDto {
 }
 export type AgentRuntimeOverviewResult = {
   readonly ok: true;
-  readonly status: "ready" | "pending";
+  readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
   readonly installations: readonly AgentRuntimeInstallationDto[];
   readonly instances: readonly AgentRuntimeInstanceDto[];
   readonly sessions: readonly AgentRuntimeSessionDto[];
@@ -217,14 +223,14 @@ export type AgentRuntimeOverviewResult = {
 /** The daemon-authoritative terminal verdict for one runtime session: outcome, receipt exit code,
  * and the failure code/reason a transport renders verbatim. Null until the session settles. */
 export interface AgentRuntimeSettlement {
-  readonly outcome: "succeeded" | "failed" | "cancelled" | "unknown" | "stopped";
+  readonly outcome: DispatchAttemptOutcome;
   readonly exitCode: number;
   readonly code: string | null;
   readonly reason: string | null;
 }
 export type AgentRuntimeSessionResult = {
   readonly ok: true;
-  readonly status: "ready" | "pending";
+  readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
   readonly session: AgentRuntimeSessionDto;
   readonly result: { readonly ref: string; readonly text: string } | null;
   readonly settlement: AgentRuntimeSettlement | null;
@@ -246,24 +252,14 @@ export type AgentRuntimeSessionGroupKind = AgentRuntimeSessionGroupBy | "decisio
 export type AgentRuntimeSessionGroupStatus = RuntimeSessionSemanticState | "unknown" | "blocked" | "lost";
 /**
  * The runtime value half of `AgentRuntimeSessionGroupStatus`, so the status filter admits exactly
- * the words the group DTO can report. The kernel keeps its semantic-state list private, so the
- * two halves are pinned together here rather than restated per caller.
+ * the words the group DTO can report. The kernel domain owns the frozen word list; the exactness
+ * witness below pins both halves together at compile time.
  */
-export const agentRuntimeSessionGroupStatusWords = Object.freeze([
-  "running",
-  "succeeded",
-  "failed",
-  "cancelled",
-  "stopped",
-  "ended-indeterminate",
-  "unavailable",
-  "unknown",
-  "blocked",
-  "lost",
-] as const satisfies readonly AgentRuntimeSessionGroupStatus[]);
-export const agentRuntimeSessionGroupStatusWordsAreExact: [AgentRuntimeSessionGroupStatus] extends [
+export { agentRuntimeSessionGroupStatusWords };
+export const agentRuntimeSessionGroupStatusWordsAreExact: [
+  AgentRuntimeSessionGroupStatus,
   (typeof agentRuntimeSessionGroupStatusWords)[number],
-]
+] extends [(typeof agentRuntimeSessionGroupStatusWords)[number], AgentRuntimeSessionGroupStatus]
   ? true
   : never = true;
 /**
@@ -316,7 +312,7 @@ export interface AgentRuntimeSessionGroupDto {
 }
 export type AgentRuntimeSessionGroupsResult = {
   readonly ok: true;
-  readonly status: "ready" | "pending";
+  readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
   readonly groups: readonly AgentRuntimeSessionGroupDto[];
   /** Declared identity for the requested lease sessions, from repository runtime dispatch events. */
   readonly sessionAgents: readonly {

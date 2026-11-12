@@ -1,4 +1,6 @@
 import type { CanonicalSquadRun, SquadRunPhase, SquadRunSubjectV1 } from "@harness-anything/kernel";
+import type { DispatchLifecycleSummary } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
+import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import { validSquadRunSubject } from "@harness-anything/kernel/browser";
 export type { SquadRunPhase, SquadRunSubjectV1 } from "@harness-anything/kernel";
 
@@ -39,7 +41,7 @@ export function isAvailableSquadRunSummary(row: SquadRunListRowDto): row is Squa
 
 export type SquadRunsListResult = {
   readonly ok: true;
-  readonly status: "ready" | "pending";
+  readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
   readonly runs: readonly SquadRunListRowDto[];
   readonly totals: { readonly runs: number };
   readonly truncated: boolean;
@@ -58,7 +60,7 @@ export type SquadRunTriggerDto =
 export type SquadRunDecisionDto =
   | { readonly kind: "converged" }
   | { readonly kind: "plan"; readonly dispatchCount: number };
-export type SquadRunTurnStatus = "running" | "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" | "lost";
+export type SquadRunTurnStatus = Exclude<DispatchLifecycleSummary["displayStatus"], "blocked">;
 export interface SquadRunAttemptMetricsDto {
   readonly tokenUsage: { readonly input: number | null; readonly output: number | null };
   readonly toolCallCount: number | null;
@@ -123,7 +125,7 @@ export function isAvailableSquadRunDetail(
 
 export type SquadRunReadResult = {
   readonly ok: true;
-  readonly status: "ready" | "pending";
+  readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
   readonly run: SquadRunDetailDto | SquadRunInvalidSummaryDto;
   readonly watermark: number;
   readonly sourceRevision: number;
