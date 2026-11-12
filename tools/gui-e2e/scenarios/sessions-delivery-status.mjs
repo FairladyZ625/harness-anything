@@ -28,6 +28,7 @@ export default {
     );
     assert.equal(windows, false, "the sessions delivery scenario must stay hidden");
     const submission = await driveDeliveryTaskLifecycle(fixture);
+    await page.reload();
     assert.equal(
       submission.commitSha,
       null,
@@ -39,6 +40,7 @@ export default {
     );
 
     await nav(page, /^(?:会话|Sessions)$/u, "sessions-view");
+    await page.getByTestId("session-detail").waitFor();
     await groupSessionsByTask(page);
     const deliveryGroup = page.getByTestId(`session-group-${DELIVERY_TASK}`),
       stalledGroup = page.getByTestId(`session-group-${STALLED_TASK}`);

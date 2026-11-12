@@ -8,7 +8,6 @@ import test from "node:test";
 import type { AgentRuntimeSessionResult } from "../src/agent-runtime-contract.ts";
 import { makeAgentRuntimeStreamHub } from "../src/agent-runtime-stream.ts";
 import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
-import { readObservedRuntimeSession } from "../src/agent-runtime-read.ts";
 import { openDispatchStream, appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
 import type { AgentDefinitionSnapshot, RuntimeSession } from "@harness-anything/kernel";
 import type { RepoCellStatus } from "../src/repo-cell-types.ts";
@@ -318,7 +317,7 @@ test("owner adoption checks dead PID before publishing live and preserves live c
         readDispatchLifecycle,
       } as never,
       hub = makeAgentRuntimeStreamHub({
-        readSession: () => readObservedRuntimeSession(projection, rootDir, runtimeSessionId),
+        readSession: () => projection.readRuntimeSession(runtimeSessionId),
         canAttach: () => {
           const lifecycle = readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatchId] });
           return lifecycle.status === "ready" && lifecycle.rows.some(({ attempt }) => attempt.process === "alive");

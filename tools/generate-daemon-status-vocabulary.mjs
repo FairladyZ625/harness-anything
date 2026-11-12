@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+import {
+  dispatchAttemptPhases,
+  dispatchGroupPhases,
+  dispatchReservationStates,
+  dispatchCapacityDispositions,
+  dispatchDisplayStatuses,
+} from "../packages/kernel/src/domain/dispatch-lifecycle.ts";
 
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -18,6 +25,11 @@ const projections = [
   ["taskStatusWords", domainStatuses],
   ["decisionStateWords", decisionStates],
   ["factLivenessWords", factLivenessStates],
+  ["dispatchAttemptPhaseWords", dispatchAttemptPhases],
+  ["dispatchGroupPhaseWords", dispatchGroupPhases],
+  ["dispatchReservationStateWords", dispatchReservationStates],
+  ["dispatchCapacityDispositionWords", dispatchCapacityDispositions],
+  ["dispatchDisplayStatusWords", dispatchDisplayStatuses],
 ];
 
 export function renderDaemonStatusVocabularyProjection() {

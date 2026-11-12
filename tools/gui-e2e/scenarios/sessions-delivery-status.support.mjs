@@ -4,7 +4,12 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { canonicalEventWritePlan } from "../../../packages/kernel/src/index.ts";
-import { makeTaskEventStore, makeTaskProjection } from "../../../packages/storage/src/index.ts";
+import {
+  makeTaskEventStore,
+  makeTaskProjection,
+  openPersistentWriterEpoch,
+  readLedgerWriterEpoch,
+} from "../../../packages/storage/src/index.ts";
 import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
 
 /**
@@ -19,9 +24,10 @@ import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/loca
  *                           ——必须保持「已停手·未交付」(负例)。
  *
  * 与 sessions-grouping 同一条夹具路:任务实体在 daemon 停机前经 repo.task.create 落投影;
- * runtime 事件在停机窗口直接 append(生产 runtime-spawner 同形);任务生命周期
- * (start/doc-submit/submit)在场景 run() 里走真实聚合写口——顺序与生产相反
- * (生产先提交后退出),读面按 executionId 连接,与事件顺序无关。
+ * runtime admission 在停机窗口写入；本场景保留活动 group，task-start/doc-submit/submit
+ * 经真实聚合写口登记交付后，再在第二个停机窗口写 exit/outcome。与生产相同：
+ * admission → execution submission → attempt closure。历史闭合 group 不靠后来的任务提交翻案。
+
  */
 export const DELIVERY_TASK = "task-e2e-docs-delivery",
   STALLED_TASK = "task-e2e-docs-stalled",
@@ -57,7 +63,7 @@ export async function seedGuiE2eDeliveryTasks(endpoint, repoId) {
 }
 
 /** 停机窗口里 append 两个 stopped 轮次(生产 runtime-spawner 同形的事件序列)。 */
-export async function seedGuiE2eDeliverySessions(rootDir, repoId, writerFence) {
+export async function seedGuiE2eDeliverySessions(rootDir, repoId, writerFence, phase = "complete") {
   const store = makeTaskEventStore({ rootDir, repoId, writerFence: () => writerFence }),
     projection = makeTaskProjection({ rootDir, eventStore: store }),
     actor = { principal: { personId: "person-gui" }, executor: null };
@@ -86,48 +92,51 @@ export async function seedGuiE2eDeliverySessions(rootDir, repoId, writerFence) {
       const { dispatchId, runtimeSessionId } = round,
         instanceId = `instance-e2e-${task}`,
         installationId = `installation-e2e-${task}`;
-      append("runtime_dispatch_requested", {
-        dispatchId,
-        runtimeSessionId,
-        taskId: task,
-        executionId: execution,
-        agentId: "glm",
-        agentName: "GLM-5.3",
-        startedAt,
-        instanceId,
-        installationId,
-        kindId: "codex",
-        dispatchKey: `gui-e2e-${task}`,
-        definitionSnapshotRef: `provider:definition/${task}`,
-        definitionSnapshot: {
-          schema: "agent-definition-snapshot/v1",
-          configVersion: 1,
+      if (phase !== "settle") {
+        append("runtime_dispatch_requested", {
+          dispatchId,
+          runtimeSessionId,
+          taskId: task,
+          executionId: execution,
+          agentId: "glm",
+          agentName: "GLM-5.3",
+          startedAt,
           instanceId,
           installationId,
           kindId: "codex",
-          providerId: "openai",
-          model: "gpt-e2e",
-          reasoningEffort: null,
-          baseUrl: null,
-          authMode: "subscription",
-        },
-      });
-      append("runtime_session_started", {
-        runtimeSessionId,
-        instanceId,
-        installationId,
-        kindId: "codex",
-        definitionSnapshotRef: `provider:definition/${task}`,
-        launchGeneration: 1,
-        attachable: false,
-      });
-      append("runtime_session_task_bound", {
-        runtimeSessionId,
-        taskId: task,
-        executionId: execution,
-        providerSessionId: `provider-${task}`,
-        transcriptRef: `file:transcript/${task}.log`,
-      });
+          dispatchKey: `gui-e2e-${task}`,
+          definitionSnapshotRef: `provider:definition/${task}`,
+          definitionSnapshot: {
+            schema: "agent-definition-snapshot/v1",
+            configVersion: 1,
+            instanceId,
+            installationId,
+            kindId: "codex",
+            providerId: "openai",
+            model: "gpt-e2e",
+            reasoningEffort: null,
+            baseUrl: null,
+            authMode: "subscription",
+          },
+        });
+        append("runtime_session_started", {
+          runtimeSessionId,
+          instanceId,
+          installationId,
+          kindId: "codex",
+          definitionSnapshotRef: `provider:definition/${task}`,
+          launchGeneration: 1,
+          attachable: false,
+        });
+        append("runtime_session_task_bound", {
+          runtimeSessionId,
+          taskId: task,
+          executionId: execution,
+          providerSessionId: `provider-${task}`,
+          transcriptRef: `file:transcript/${task}.log`,
+        });
+      }
+      if (phase === "admit") continue;
       append("runtime_session_exited", { runtimeSessionId });
       const body = `gui-e2e delivery fixture ${task} stopped after a normal exit\n`,
         sha256 = createHash("sha256").update(body).digest("hex"),
@@ -276,5 +285,23 @@ export async function driveDeliveryTaskLifecycle(fixture) {
     ?.find((row) => row.taskId === DELIVERY_TASK)
     ?.snapshot?.executions?.find((candidate) => candidate.executionId === DELIVERY_EXECUTION);
   assert.ok(execution?.submission, `delivery execution must carry a submission: ${JSON.stringify(execution)}`);
+  await fixture.pauseDaemon();
+  const stateRoot = path.join(fixture.userRoot, "fleet"),
+    authority = openPersistentWriterEpoch({ stateRoot, holderId: "gui-delivery-settlement-fixture" });
+  let writerFence;
+  try {
+    const lease = authority.acquire(fixture.repoId, readLedgerWriterEpoch(fixture.repoId, fixture.rootDir));
+    writerFence = {
+      schema: "harness-writer-epoch-fence/v1",
+      stateRoot,
+      repoId: fixture.repoId,
+      holderId: lease.holderId,
+      epoch: lease.epoch,
+    };
+  } finally {
+    authority.close();
+  }
+  await seedGuiE2eDeliverySessions(fixture.rootDir, fixture.repoId, writerFence, "settle");
+  await fixture.resumeDaemon();
   return execution.submission;
 }

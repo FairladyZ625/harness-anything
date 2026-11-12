@@ -179,11 +179,7 @@ export const statusVocabularyBaseline = Object.freeze([
     inline: true,
     words: Object.freeze(["ready", "pending"]),
   },
-  {
-    key: "packages/daemon/src/dispatch-read.ts##RuntimeSessionActivityEvidence.outcome",
-    inline: true,
-    words: Object.freeze(["succeeded", "failed", "cancelled", "unknown", "stopped"]),
-  },
+
   {
     key: "packages/daemon/src/dispatch-stream.ts##DispatchStreamWriter.state",
     inline: true,

@@ -1,4 +1,4 @@
-import { dispatchLifecyclePolicies } from "./dispatch-lifecycle-ontology.ts";
+import { dispatchLifecyclePolicies, dispatchLifecycleJudgment } from "./dispatch-lifecycle-ontology.ts";
 import { todoSchema } from "./todo.ts";
 import { createTodoActionCatalog } from "./todo-action-contract.ts";
 import { AGENT_DECLARATION_V1_SCHEMA, SQUAD_DECLARATION_V1_SCHEMA } from "./agent-squad-schema.ts";
@@ -1361,6 +1361,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     ],
     actionCatalog: runtimeSessionCatalog,
     policies: dispatchLifecyclePolicies,
+    judgments: [dispatchLifecycleJudgment],
     entityStore: null,
     authoring: { kind: "agent-runtime-event", contractRef: "agent-runtime-event/v1" },
     sdkExposure: noSdkExposure,

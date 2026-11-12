@@ -40,6 +40,7 @@ export async function runGuiE2E(options = {}) {
       const setupStartedAt = Date.now();
       const active = await openLane({
         lane,
+        scenarioId: scenario.id,
         workspaceRoot,
         env: process.env,
         runRoot: scenarioRoot,

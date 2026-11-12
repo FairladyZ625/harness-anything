@@ -425,12 +425,24 @@ export function readRuntimeSession(db: DatabaseSync, sessionId: string): Runtime
   const row = queryRows(db, "SELECT value_json FROM runtime_session WHERE runtime_session_id = ?", sessionId)[0];
   return row ? (JSON.parse(String(row.value_json)) as RuntimeSession) : null;
 }
+// Same center-owned active index as readDispatchLifecycle; legacy nonExitedOnly is a query alias.
+const ACTIVE_LIFECYCLE_SESSIONS_SQL = `SELECT a.runtime_session_id FROM dispatch_lifecycle_group g
+  INDEXED BY dispatch_lifecycle_active JOIN dispatch_lifecycle_attempt a
+  ON a.dispatch_id = json_extract(g.group_json, '$.currentDispatchId') WHERE g.phase <> 'closed'`;
 export function readRuntimeSessions(db: DatabaseSync, query?: RuntimeSessionReadQuery): RuntimeSession[] {
   if (query?.runtimeSessionId !== undefined) {
     const session = readRuntimeSession(db, query.runtimeSessionId);
     if (!session) return [];
     if ((query.unsettledOnly || query.inFlightOnly) && session.outcome !== null) return [];
-    if (query.nonExitedOnly && session.liveness === "exited") return [];
+    if (
+      query.nonExitedOnly &&
+      queryRows(
+        db,
+        `SELECT runtime_session_id FROM (${ACTIVE_LIFECYCLE_SESSIONS_SQL}) WHERE runtime_session_id = ?`,
+        query.runtimeSessionId,
+      ).length === 0
+    )
+      return [];
     if (query.observedAfter !== undefined && Date.parse(session.lastObservedAt) < Date.parse(query.observedAfter))
       return [];
     if (query.observedBefore !== undefined && Date.parse(session.lastObservedAt) > Date.parse(query.observedBefore))
@@ -450,7 +462,7 @@ export function readRuntimeSessions(db: DatabaseSync, query?: RuntimeSessionRead
   // runtime_session_unsettled_order covers the outcome filter and the recovery ORDER BY together,
   // so the read cannot fall back to scanning the repository's settled history.
   if (query?.unsettledOnly || query?.inFlightOnly) clauses.push("json_extract(value_json, '$.outcome') IS NULL");
-  if (query?.nonExitedOnly) clauses.push("json_extract(value_json, '$.liveness') <> 'exited'");
+  if (query?.nonExitedOnly) clauses.push(`runtime_session.runtime_session_id IN (${ACTIVE_LIFECYCLE_SESSIONS_SQL})`);
   if (query?.providerSessionId !== undefined) {
     clauses.push("json_extract(value_json, '$.providerSessionId') = ?");
     values.push(query.providerSessionId);

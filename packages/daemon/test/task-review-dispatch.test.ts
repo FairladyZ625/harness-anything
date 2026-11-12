@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+import { lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -10,6 +11,7 @@ import {
   reviewReverifyRoute,
   type ExecutionV1,
   type ReviewV1,
+  type DispatchLifecycleQuery,
 } from "@harness-anything/kernel";
 import { reviewPacket } from "../src/repo-cell-packets.ts";
 import { reviewFindingScopePrompt } from "../src/review-prompt-guidance.ts";
@@ -455,6 +457,15 @@ test("node rework candidate waits for the submitting worker to settle", () => {
       input: { repoId: "repo-node-rework-settle" },
       rootDir: "/tmp/repo-node-rework-settle",
       projection: {
+        readDispatchLifecycle: (query: DispatchLifecycleQuery) =>
+          lifecycleReadForSync([
+            {
+              ...dispatchEvent.payload,
+              process: settled ? "exited" : "alive",
+              attemptSettled: settled,
+              outcome: settled ? "succeeded" : null,
+            },
+          ])(query),
         read: () => ({ snapshot, packagePath: "tasks/node-rework-settle" }),
         readTaskIndex: () => ({
           status: "ready",

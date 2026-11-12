@@ -45,7 +45,7 @@ import {
   type DaemonGuiRpcReadMethod,
 } from "./protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiReadResult } from "./protocol/gui-result-validation.ts";
-import { withLocalDispatchStreamEvidence } from "./dispatch-read.ts";
+import { withLocalDispatchStreamEvidence } from "./dispatch-activity-read.ts";
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
 import { seedBuiltinSchedules } from "./schedule-builtin-executor.ts";
 import { resolveRepoBootstrap, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";

@@ -1,10 +1,9 @@
 import {
-  latestRuntimeActivityAt,
   publicRuntimeSession,
   publicRuntimeInstallation,
   runtimeSessionMissingOutcomeEvidence,
-  runtimeSessionOutcomeFromEvidence,
-  runtimeSessionSemanticState,
+  dispatchLifecycleSummary,
+  DISPATCH_LIFECYCLE_PAGE_LIMIT,
   type AgentDefinitionSnapshot,
   type AgentRuntimeEventV1,
   type CanonicalEventStore,
@@ -24,19 +23,17 @@ import {
   type AgentRuntimeSessionGroupStatus,
   type AgentRuntimeSessionResult,
 } from "./agent-runtime-contract.ts";
-import { buildAgentRuntimeSessionGroups, latestDispatchStartedAt } from "./agent-runtime-session-groups.ts";
+import {
+  buildAgentRuntimeSessionGroups,
+  latestDispatchStartedAt,
+  latestEntityNames,
+  runtimeTaskLabels,
+} from "./agent-runtime-session-groups.ts";
 import { runtimeKindForInstallation } from "./runtime-inventory.ts";
 import { isRuntimeKindId } from "./runtime-inventory.ts";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
-import {
-  latestEntityNames,
-  readRuntimeSessionActivityEvidence,
-  runtimeTaskLabels,
-  type RuntimeSessionActivityEvidence,
-} from "./dispatch-read.ts";
 import { readRuntimeSessionContextOccupancy } from "./context-occupancy.ts";
 import { runtimeSessionSettlement } from "./runtime-settlement.ts";
-import { providerConnectionFailure } from "./dispatch-activity.ts";
 import { candidateSample, resolveUniquePrefix } from "./unique-id-prefix.ts";
 
 export function makeAgentRuntimeReadModel(input: {
@@ -51,8 +48,6 @@ export function makeAgentRuntimeReadModel(input: {
   readonly store: Pick<CanonicalEventStore, "readContentBlob">;
   /** Harness root holding dispatch streams; without it no session reports context occupancy. */
   readonly rootDir?: string;
-  /** Local public reads retain the center observation; edge reads may opt into process evidence. */
-  readonly activityEvidence?: boolean;
   /** Explicit exact-count requests scan the remaining set; ordinary pages use P+1 lookahead. */
   readonly includeRemainingCount?: boolean;
   readonly now?: () => string;
@@ -75,43 +70,13 @@ export function makeAgentRuntimeReadModel(input: {
     installation: RuntimeInstallation | null | undefined,
     definition: { readonly snapshot: AgentDefinitionSnapshot | null; readonly persisted: boolean },
     detail: { readonly attemptChain?: boolean; readonly context?: boolean },
-    dispatch: Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> | null,
+    _dispatch: Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> | null,
   ): AgentRuntimeSessionDto => {
-    // The local stream is read for the provider judgment even when this read keeps canonical
-    // liveness: the edge owns the network fact, the center only re-serves it. It never rewrites
-    // the session's liveness/outcome, so the public canonical fields stay untouched.
-    const evidence =
-        input.rootDir === undefined || dispatch === null
-          ? undefined
-          : readRuntimeSessionActivityEvidence(input.rootDir, dispatch.payload.dispatchId),
-      observedSession = publicRuntimeSession(
-        input.rootDir === undefined || input.activityEvidence === false || dispatch === null
-          ? session
-          : sessionWithActivityEvidence(session, evidence),
+    const observedSession = publicRuntimeSession(session),
+      lifecycle = dispatchLifecycleSummary(
+        input.projection.readDispatchLifecycle({ by: "session", runtimeSessionId: session.runtimeSessionId }),
       ),
-      providerNowMs = input.now === undefined ? Date.now() : Date.parse(input.now()),
-      localProviderUnreachable =
-        evidence === undefined ||
-        observedSession.liveness !== "live" ||
-        observedSession.outcome !== null ||
-        !evidence.workerHostAlive
-          ? null
-          : providerConnectionFailure(
-              {
-                lastProgressAt: evidence.lastProgressAt ?? evidence.lastObservedAt,
-                providerReconnect: evidence.lastProviderReconnect ?? null,
-                processAlive: evidence.workerHostAlive,
-                ...(evidence.stallTimeoutMs === undefined ? {} : { stallTimeoutMs: evidence.stallTimeoutMs }),
-              },
-              Number.isFinite(providerNowMs) ? providerNowMs : Date.now(),
-            ),
-      // The center has no local stream (and never probes the provider): it serves the judgment the
-      // executing node already reported. When a local stream exists it remains authoritative so a
-      // stale report cannot outlive the edge's own recovery evidence. The canonical session gates
-      // the report because a missing local stream rewrites only the locally observed liveness.
-      reportedProviderUnreachable =
-        session.liveness === "live" && session.outcome === null ? (session.providerUnreachable ?? null) : null,
-      providerUnreachable = evidence === undefined ? reportedProviderUnreachable : localProviderUnreachable,
+      providerUnreachable = lifecycle.policy?.canSteer ? (session.providerUnreachable ?? null) : null,
       outcome = input.projection
         .readRuntimeSessionEventsByType(session.runtimeSessionId, ["runtime_session_outcome_observed"])
         .findLast(
@@ -145,7 +110,14 @@ export function makeAgentRuntimeReadModel(input: {
       definitionSnapshot: definition.snapshot,
       definitionSnapshotPersisted: definition.persisted,
       liveness: observedSession.liveness,
-      semanticState: runtimeSessionSemanticState(observedSession),
+      lifecycle,
+      // Previous-version display word; removed 2026-12-07. All current consumers use lifecycle.
+      semanticState:
+        lifecycle.displayStatus === "unknown" ||
+        lifecycle.displayStatus === "blocked" ||
+        lifecycle.displayStatus === "lost"
+          ? "unavailable"
+          : lifecycle.displayStatus,
       attachCapability: "unsupported",
       streamCursor: null,
       associations: session.taskBindings.map((binding) => {
@@ -161,7 +133,7 @@ export function makeAgentRuntimeReadModel(input: {
       ...(attemptChain ? { attemptChain } : {}),
       activity: {
         lastObservedAt: observedSession.lastObservedAt,
-        outcome: runtimeSessionOutcomeFromEvidence(observedSession),
+        outcome: observedSession.outcome,
         exitCode: observedSession.exitCode,
         resultRef: observedSession.resultRef,
         missingEvidence: runtimeSessionMissingOutcomeEvidence(observedSession),
@@ -222,7 +194,8 @@ export function makeAgentRuntimeReadModel(input: {
   return {
     overview: (payload: Readonly<Record<string, unknown>>): AgentRuntimeOverviewResult => {
       const query = overviewQuery(payload),
-        cut = input.projection.readCut();
+        active = query.limit === null && query.taskId === null ? activeLifecycleSessions(input.projection) : null,
+        cut = active ?? input.projection.readCut();
       const paged =
         query.limit === null
           ? null
@@ -239,7 +212,7 @@ export function makeAgentRuntimeReadModel(input: {
           : // The unscoped, unpaged overview is the `ha runtime status` default: list what is
             // still running, not every session ever. Scoped reads keep full task history;
             // explicit paging stays the deliberate history lane.
-            input.projection.readRuntimeSessions({ nonExitedOnly: true }));
+            active!.sessions);
       const installationIds = new Set(sessions.map(({ installationId }) => installationId));
       const installations = input.projection.readRuntimeInstallations();
       const installationsById = new Map(
@@ -283,15 +256,17 @@ export function makeAgentRuntimeReadModel(input: {
     },
     sessionGroups: (payload: Readonly<Record<string, unknown>>): AgentRuntimeSessionGroupsResult => {
       const query = sessionGroupsQuery(payload),
-        cut = input.projection.readCut();
-      const sessions = input.projection
-          // The home aggregate asks for the current in-flight set: PG serves it from a
-          // write-maintained current-set table so settled history (and its dead index entries)
-          // never enters the read.
-          .readRuntimeSessions({
-            ...(query.unsettledOnly ? { inFlightOnly: true } : {}),
-            activitySince: query.since,
-          }),
+        active = query.unsettledOnly ? activeLifecycleSessions(input.projection) : null,
+        cut = active ?? input.projection.readCut();
+      const sessions =
+          active?.sessions ??
+          input.projection
+            // The home aggregate asks for the current in-flight set: PG serves it from a
+            // write-maintained current-set table so settled history (and its dead index entries)
+            // never enters the read.
+            .readRuntimeSessions({
+              activitySince: query.since,
+            }),
         // In-flight aggregation reads one newest dispatch per live session, never the session's
         // dispatch history. The full page (not unsettledOnly) still reads the history it renders.
         windowedDispatchEvents = query.unsettledOnly
@@ -417,56 +392,6 @@ export function makeAgentRuntimeReadModel(input: {
     }
     return { ref: session.resultRef, text };
   }
-}
-
-export function readObservedRuntimeSession(
-  projection: Pick<TaskProjection, "readRuntimeSession" | "readRuntimeDispatch">,
-  rootDir: string,
-  runtimeSessionId: string,
-): RuntimeSession | null {
-  const session = projection.readRuntimeSession(runtimeSessionId);
-  if (!session) return null;
-  const dispatch = projection.readRuntimeDispatch(runtimeSessionId, session.definitionSnapshotRef);
-  return sessionWithActivityEvidence(
-    session,
-    dispatch ? readRuntimeSessionActivityEvidence(rootDir, dispatch.payload.dispatchId) : undefined,
-  );
-}
-
-export function sessionWithActivityEvidence(
-  session: RuntimeSession,
-  evidence: RuntimeSessionActivityEvidence | undefined,
-): RuntimeSession {
-  if (!evidence)
-    return session.outcome !== null || session.liveness === "exited"
-      ? session
-      : { ...session, liveness: "unknown", attachable: false };
-  const lastObservedAt = latestRuntimeActivityAt([session.lastObservedAt, evidence.lastObservedAt]);
-  if (session.outcome !== null) return { ...session, lastObservedAt };
-  if (evidence.workerHostAlive) return { ...session, liveness: "live", attachable: true, lastObservedAt };
-  // Process exit and locally persisted settlement remain observable even if canonical writes
-  // are denied. This read does not release a lease or authorize any business operation.
-  if (evidence.terminalOutcome || evidence.process?.exited) {
-    const terminal = evidence.terminalOutcome?.payload;
-    return {
-      ...session,
-      liveness: "exited",
-      attachable: false,
-      outcome: terminal?.outcome ?? null,
-      exitCode: terminal?.exitCode ?? evidence.process?.exitCode ?? null,
-      resultRef: terminal?.resultRef ?? null,
-      ...(terminal?.reasonCode ? { reasonCode: terminal.reasonCode } : {}),
-      lastObservedAt,
-    };
-  }
-  if (session.liveness === "exited") return { ...session, attachable: false, lastObservedAt };
-  if (!evidence.workerHostAlive) return { ...session, liveness: "unknown", attachable: false, lastObservedAt };
-  return {
-    ...session,
-    liveness: "live",
-    attachable: true,
-    lastObservedAt,
-  };
 }
 
 function historicalRuntimeKindId(
@@ -630,4 +555,27 @@ function lifecycleCursor(value: string): number {
     revision = match ? Number(match[1]) : Number.NaN;
   if (!Number.isSafeInteger(revision)) throw coded("invalid_cursor", `Invalid lifecycle cursor: ${value}.`);
   return revision;
+}
+
+/** Active groups are an indexed current set, including backoff and ruling waits. */
+function activeLifecycleSessions(projection: TaskProjection) {
+  const sessions: RuntimeSession[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const read = projection.readDispatchLifecycle({
+      by: "active",
+      limit: DISPATCH_LIFECYCLE_PAGE_LIMIT,
+      ...(cursor === undefined ? {} : { cursor }),
+    });
+    if (read.status === "pending") return { ...read, sessions: [] };
+    for (const row of read.rows) {
+      const session = projection.readRuntimeSession(row.attempt.runtimeSessionId);
+      if (session !== null) sessions.push(session);
+    }
+    if (read.nextCursor === null)
+      return { status: read.status, watermark: read.watermark, sourceRevision: read.sourceRevision, sessions };
+    if (cursor !== undefined && read.nextCursor <= cursor)
+      throw coded("invalid_cursor", "Lifecycle active cursor did not advance.");
+    cursor = read.nextCursor;
+  }
 }

@@ -839,7 +839,6 @@ export function openFleetEdgeRuntime(input: {
               { readContentBlob: (sha256) => readEdgeViewBlob(view, sha256) },
               undefined,
               request.viewRoot,
-              true,
               false,
             ).overview(payload),
             ...frame,

@@ -9,6 +9,8 @@ import { READ_PROBES } from "./fixtures/g38-read-cost.mjs";
 const rootDir = fileURLToPath(new URL("../../../", import.meta.url)),
   probeIds = [
     "cli-schedule-reckon",
+    "dispatch-point",
+    "task-dispatches-page",
     "projection:runtime-session-groups",
     "repo.reckoning.signals.read",
     "in-flight-work",

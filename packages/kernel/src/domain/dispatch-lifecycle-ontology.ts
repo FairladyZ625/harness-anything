@@ -1,5 +1,5 @@
 import { DEFAULT_DISPATCH_INSTANCE_CAPACITY } from "./dispatch-lifecycle.ts";
-import type { OntologyPolicyDeclaration } from "./ontology-source.ts";
+import type { OntologyPolicyDeclaration, OntologyJudgmentDeclaration } from "./ontology-source.ts";
 
 /** Runtime aggregate declarations for dec_AEB05951C69E47FCE53E53C341/CH1 consumer cutover. */
 export const dispatchLifecyclePolicies = [
@@ -26,8 +26,11 @@ export const dispatchLifecyclePolicies = [
       "policy:packages/kernel:packages/kernel/src/domain/dispatch-lifecycle.ts#dispatchAdmissionBlocker:a491cd99bd418e1cb55841e3c427c91b",
       "policy:packages/kernel:packages/kernel/src/domain/dispatch-lifecycle.ts#dispatchAdmissionBlocker:2ef193c4cf48dd763a7480a2729b2bf2",
       "policy:packages/kernel:packages/kernel/src/domain/dispatch-lifecycle.ts#DEFAULT_DISPATCH_INSTANCE_CAPACITY:dd334dec9f46f5f11fb1d1dd3f7ff1c0",
-      "policy:packages/kernel:packages/kernel/src/domain/dispatch-lifecycle.ts#dispatchLifecycleView.policy:99bf81d661cf787576dcf339a1fc69ab",
+      "policy:packages/kernel:packages/kernel/src/domain/dispatch-lifecycle.ts#dispatchLifecycleView.policy:a006a6b85ea220da4042d9eaaeadc5cf",
       "policy:packages/daemon:packages/daemon/src/runtime-spawn-control.ts#steerRuntime.refuse:1e1fcd3898c968cf1017328d0d3f16b5",
+      "policy:packages/daemon:packages/daemon/src/dispatch-read.ts#unsettledCutReviewDispatches.rows.shallow:00191b086680e4e98da6ac785758b04a",
+      "policy:packages/daemon:packages/daemon/src/task-query-read.ts#makeTaskQueryReadModel.agenda.awaitingRuling:632767b9b836887b526c540ca6ec1de4",
+      "policy:packages/daemon:packages/daemon/src/task-query-read.ts#makeTaskQueryReadModel.agenda.awaitingRuling:c6e10f3bdbdac92ac14cf8e1b3956656",
     ].map((candidateId) => ({ candidateId, route: "readDispatchLifecycle" })),
   },
   {
@@ -61,3 +64,16 @@ export const dispatchLifecyclePolicies = [
     ].map((candidateId) => ({ candidateId, route: "readDispatchLifecycle" })),
   },
 ] as const satisfies readonly OntologyPolicyDeclaration[];
+
+/** The receipt is the sole source of current display/agenda/consent conclusions. */
+export const dispatchLifecycleJudgment = {
+  id: "dispatch-lifecycle-read",
+  symbol: "packages/kernel/src/domain/dispatch-lifecycle.ts#dispatchLifecycleHasPendingWork",
+  inputs: ["readonly DispatchLifecycleRead[]"],
+  output: "boolean",
+  failureCodes: [],
+  explain:
+    "Project the center lifecycle cut, including unavailable/pending state; consumers only compose those policies over their indexed execution rows.",
+  consumers: ["packages/daemon/src/task-query-read.ts"],
+  sources: [],
+} as const satisfies OntologyJudgmentDeclaration;

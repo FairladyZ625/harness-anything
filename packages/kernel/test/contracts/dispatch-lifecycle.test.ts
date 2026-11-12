@@ -14,6 +14,7 @@ import {
   type DispatchLifecycleInput,
   type DispatchTaskLease,
   dispatchLifecycleView,
+  dispatchLifecycleSummary,
   dispatchOwnerForNode,
   reduceDispatchLifecycle,
   type DispatchLifecycleGroup,
@@ -704,4 +705,39 @@ test("fallback schedule uses its own due time and closes the group on launch exh
   assert.equal(dispatchLifecycleView(step.group).policy.groupSettled, true);
   assert.equal(step.group.successor.admissible, false);
   assert.equal(reduceDispatchLifecycle(step.group, exhausted).kind, "ignored");
+});
+
+// The compatibility pointer names the adjacent attempt; the control leaf may be several attempts later.
+test("lifecycle summary preserves each immediate successor in a three-attempt group", () => {
+  const events = shapeEvents(
+    [
+      [
+        { t: "R" },
+        { t: "S" },
+        { t: "O", outcome: "failed", classification: "provider_fault", fallbackState: "scheduled" },
+      ],
+      [
+        { t: "R" },
+        { t: "S" },
+        { t: "O", outcome: "failed", classification: "provider_fault", fallbackState: "scheduled" },
+      ],
+      [{ t: "R" }, { t: "S" }, { t: "O", outcome: "stopped", classification: "worker_stop" }],
+    ],
+    "summary-chain",
+  );
+  const group = fold(events).groups.get("summary-chain")!;
+  assert.equal(group.attempts.length, 3);
+  assert.deepEqual(
+    group.attempts.map(
+      ({ dispatchId }) =>
+        dispatchLifecycleSummary({
+          status: "ready",
+          watermark: group.revision,
+          sourceRevision: group.revision,
+          rows: [dispatchLifecycleView(group, dispatchId)],
+          nextCursor: null,
+        }).nextDispatchId,
+    ),
+    ["summary-chain-successor-1", "summary-chain-successor-2", null],
+  );
 });

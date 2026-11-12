@@ -34,7 +34,7 @@ describe("五级注意力分类", () => {
     expect(classifySmartAttention(signal({ status: "succeeded", settledAt: NOW - 1, needsYou: true }), NOW)).toBe(1);
     expect(classifySmartAttention(signal({ status: "blocked" }), NOW)).toBe(1);
     // lost/unverifiable 与 working 让位给 needs you
-    expect(classifySmartAttention(signal({ status: "running", liveness: "live", needsYou: true }), NOW)).toBe(1);
+    expect(classifySmartAttention(signal({ status: "running", needsYou: true }), NOW)).toBe(1);
   });
 
   it("2 Done:succeeded/failed/ended-indeterminate 且收口在新鲜度窗口内", () => {
@@ -53,14 +53,14 @@ describe("五级注意力分类", () => {
   });
 
   it("3 Working:running 且进程活性 live(组/轮次级读面省略 liveness 按 live)", () => {
-    expect(classifySmartAttention(signal({ status: "running", liveness: "live" }), NOW)).toBe(3);
+    expect(classifySmartAttention(signal({ status: "running" }), NOW)).toBe(3);
     expect(classifySmartAttention(signal({ status: "running" }), NOW)).toBe(3);
   });
 
   it("4 Unverifiable:进程应在但心跳超时/状态陈旧,以及 lost", () => {
-    expect(classifySmartAttention(signal({ status: "running", liveness: "stale" }), NOW)).toBe(4);
-    expect(classifySmartAttention(signal({ status: "running", liveness: "unknown" }), NOW)).toBe(4);
-    expect(classifySmartAttention(signal({ status: "running", liveness: "exited" }), NOW)).toBe(4);
+    expect(classifySmartAttention(signal({ status: "lost" }), NOW)).toBe(4);
+    expect(classifySmartAttention(signal({ status: "unknown" }), NOW)).toBe(5);
+    expect(classifySmartAttention(signal({ status: "unavailable" }), NOW)).toBe(5);
     expect(classifySmartAttention(signal({ status: "lost" }), NOW)).toBe(4);
   });
 
@@ -76,7 +76,7 @@ describe("五级注意力分类", () => {
 describe("五级排序", () => {
   it("Needs you 排在 Working 之前,时间戳再新也不抢位", () => {
     const needsYou = signal({ status: "succeeded", settledAt: NOW, needsYou: true, lastTurnActivityAt: 1 }),
-      working = signal({ status: "running", liveness: "live", lastTurnActivityAt: NOW });
+      working = signal({ status: "running", lastTurnActivityAt: NOW });
     expect(compareBySmartAttention(needsYou, working, NOW)).toBeLessThan(0);
     expect(compareBySmartAttention(working, needsYou, NOW)).toBeGreaterThan(0);
   });
@@ -86,7 +86,7 @@ describe("五级排序", () => {
       working = signal({ status: "running", lastTurnActivityAt: NOW - 10 }),
       done = signal({ status: "succeeded", settledAt: NOW - 5, lastTurnActivityAt: NOW - 5 }),
       needsYou = signal({ status: "running", needsYou: true, lastTurnActivityAt: 1 }),
-      staleWorking = signal({ status: "running", liveness: "stale", lastTurnActivityAt: NOW - 1 }),
+      staleWorking = signal({ status: "lost", lastTurnActivityAt: NOW - 1 }),
       idleNoTimestamp = signal({ status: "unknown", lastTurnActivityAt: null });
     const ordered = sortBySmartAttention(
       [idle, working, done, needsYou, staleWorking, idleNoTimestamp],
@@ -112,9 +112,9 @@ describe("分组聚合计数", () => {
     const counts = countSmartAttention(
       [
         signal({ status: "blocked" }),
-        signal({ status: "running", liveness: "live" }),
+        signal({ status: "running" }),
         signal({ status: "succeeded", settledAt: NOW - 1 }),
-        signal({ status: "running", liveness: "stale" }),
+        signal({ status: "lost" }),
         signal({ status: "unknown" }),
         signal({ status: "succeeded", settledAt: NOW - DONE_FRESHNESS_MS - 1 }),
       ],

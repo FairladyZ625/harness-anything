@@ -266,7 +266,7 @@ export function runRows(
     }
   }
   return overview.sessions
-    .filter((session) => session.liveness === "live")
+    .filter((session) => session.lifecycle?.displayStatus === "running")
     .map((session) => {
       const taskId = session.associations[0]?.taskId ?? null,
         definition = session.definitionSnapshot,

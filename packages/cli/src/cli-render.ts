@@ -137,7 +137,7 @@ export function renderDispatchRow(value: unknown): string {
     `attempt:${String(row.attemptIndex ?? 0)}`,
     `provider:${renderDispatchProvider(row)}`,
     `classification:${String(row.classification ?? "-")}`,
-    `fallback:${String(row.fallbackState ?? "-")}`,
+    `lifecycle:${renderLifecyclePhase(row.lifecycle)}`,
     `activity:${String(row.activityStatus ?? "-")}`,
     `worker:${String(row.agentId ?? "-")}`,
     `leader:${String(row.delegatedByAgentId ?? "-")}`,
@@ -193,4 +193,10 @@ export function renderReceiptRow(row: unknown): string {
         .map((value) => String(value))
         .join("\t")
     : String(row);
+}
+
+/** Serialize the center receipt without deriving state from observations. */
+export function renderLifecyclePhase(value: unknown): string {
+  const lifecycle = value as { readonly groupPhase?: string | null; readonly status?: string } | undefined;
+  return lifecycle?.groupPhase ?? lifecycle?.status ?? "pending";
 }

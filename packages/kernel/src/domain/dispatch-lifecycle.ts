@@ -694,6 +694,7 @@ export interface DispatchLifecycleView {
   readonly policy: {
     readonly attemptSettled: boolean;
     readonly groupSettled: boolean;
+    readonly consentBlocked: boolean;
     readonly fallbackPending: boolean;
     readonly capacity: DispatchReservationState;
     readonly capacityDisposition: DispatchCapacityDisposition;
@@ -739,6 +740,8 @@ export function dispatchLifecycleView(group: DispatchLifecycleGroup, dispatchId?
     policy: {
       attemptSettled: attempt.phase === "closed",
       groupSettled: group.phase === "closed",
+      consentBlocked:
+        group.phase === "waiting_backoff" || (group.delivery.status !== "registered" && group.phase !== "closed"),
       fallbackPending: group.phase === "waiting_backoff",
       capacity: reservationState(attempt),
       capacityDisposition,
@@ -804,3 +807,64 @@ export function dispatchGroupIsActive(group: DispatchLifecycleGroup): boolean {
 export const DISPATCH_LIFECYCLE_MODEL_VERSION = 5;
 
 export const DISPATCH_LIFECYCLE_PAGE_LIMIT = 100;
+
+/** Wire presentation of lifecycle conclusions; no session or process-local inference. */
+export const dispatchDisplayStatuses = [
+  "running",
+  "succeeded",
+  "failed",
+  "unknown",
+  "cancelled",
+  "stopped",
+  "blocked",
+  "lost",
+] as const;
+
+/** Compact wire projection of the same lifecycle cut; never serializes attempt history. */
+export interface DispatchLifecycleSummary {
+  readonly status: DispatchLifecycleRead["status"];
+  readonly watermark: number;
+  readonly sourceRevision: number;
+  readonly dispatchId: string | null;
+  readonly groupPhase: DispatchGroupPhase | null;
+  readonly attemptPhase: DispatchAttemptPhase | null;
+  readonly outcome: DispatchAttemptOutcome | null;
+  readonly nextDispatchId: string | null;
+  readonly displayStatus: (typeof dispatchDisplayStatuses)[number];
+  readonly policy: DispatchLifecycleView["policy"] | null;
+}
+
+/** Display and consent consume this receipt, including pending cuts, rather than session/OS guesses. */
+export function dispatchLifecycleSummary(read: DispatchLifecycleRead): DispatchLifecycleSummary {
+  const view = read.status === "ready" ? read.rows[0] : undefined,
+    attempt = view?.attempt,
+    outcome = attempt?.outcome ?? null,
+    position = view && attempt ? view.groupDispatchIds.indexOf(attempt.dispatchId) : -1;
+  return {
+    status: read.status,
+    watermark: read.watermark,
+    sourceRevision: read.sourceRevision,
+    dispatchId: attempt?.dispatchId ?? null,
+    groupPhase: view?.groupPhase ?? null,
+    attemptPhase: attempt?.phase ?? null,
+    outcome,
+    nextDispatchId: view && position >= 0 ? (view.groupDispatchIds[position + 1] ?? null) : null,
+    displayStatus:
+      view?.groupPhase === "waiting_backoff"
+        ? "unknown"
+        : view?.ruling !== null && view?.ruling !== undefined
+          ? "blocked"
+          : outcome === "stopped" && view?.delivery.status === "registered"
+            ? "succeeded"
+            : (outcome ?? (view?.policy.canSteer ? "running" : "unknown")),
+    policy: view?.policy ?? null,
+  };
+}
+
+/** Pending projections and nonterminal groups keep execution work in flight. */
+export function dispatchLifecycleHasPendingWork(reads: readonly DispatchLifecycleRead[]): boolean {
+  return reads.some(
+    (read) =>
+      read.status === "pending" || read.rows.length === 0 || read.rows.some(({ policy }) => !policy.groupSettled),
+  );
+}

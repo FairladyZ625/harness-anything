@@ -6,7 +6,6 @@ import { scheduleOccurrenceSettlementOwner } from "./schedule-runtime-outcome.ts
 import { dispatchTaskReview } from "./task-review-dispatch.ts";
 import { reviewDispatchKey } from "./review-dispatch-key.ts";
 import { resolveAgentRuntimeDeclaration } from "./agent-declaration-resolution.ts";
-import { readObservedRuntimeSession } from "./agent-runtime-read.ts";
 import { createEntityStore, makeTaskEventStore } from "@harness-anything/storage";
 import type { DaemonStorageConfig } from "@harness-anything/storage";
 import {
@@ -198,7 +197,7 @@ export async function openRepoWriterCell(
     userRoot: presetUserRoot(rootDir),
     readSettings: () => readSettings(),
   });
-  const readSession = (runtimeSessionId: string) => readObservedRuntimeSession(projection, rootDir, runtimeSessionId);
+  const readSession = (runtimeSessionId: string) => projection.readRuntimeSession(runtimeSessionId);
   const workerRuntimeStream = makeAgentRuntimeStreamHub({
       readSession,
       canAttach: (session) => {

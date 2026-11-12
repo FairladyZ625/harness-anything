@@ -1,6 +1,7 @@
 import {
   dispatchLifecycleAddress,
   dispatchLifecycleView,
+  dispatchLifecycleSummary,
   reduceDispatchLifecycle,
   type AgentRuntimeEventV1,
   type DispatchLifecycleGroup,
@@ -25,6 +26,9 @@ export function lifecycleReadFor(
     readonly dispatchId: string;
     readonly instanceId?: string;
     readonly owner?: string;
+    readonly deliveryRegistered?: boolean;
+    readonly currentDispatchId?: string;
+    readonly ruling?: boolean;
     readonly attemptSettled?: boolean;
     readonly groupSettled?: boolean;
     readonly process?: "unobserved" | "alive" | "unknown" | "exited";
@@ -32,7 +36,17 @@ export function lifecycleReadFor(
     readonly outcome?: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" | null;
   }[],
 ) {
-  const views: DispatchLifecycleView[] = entries.map((entry) => {
+  const views = lifecycleFixtureViews(entries);
+  return async (query: DispatchLifecycleQuery): Promise<DispatchLifecycleRead> => selectLifecycleViews(views, query);
+}
+
+export function lifecycleReadForSync(entries: Parameters<typeof lifecycleReadFor>[0]) {
+  const views = lifecycleFixtureViews(entries);
+  return (query: DispatchLifecycleQuery) => selectLifecycleViews(views, query);
+}
+
+function lifecycleFixtureViews(entries: Parameters<typeof lifecycleReadFor>[0]): DispatchLifecycleView[] {
+  return entries.map((entry) => {
     const attemptSettled = entry.attemptSettled ?? false,
       groupSettled = entry.groupSettled ?? attemptSettled,
       owner = entry.owner ?? "local",
@@ -59,29 +73,69 @@ export function lifecycleReadFor(
         admittedRevision: 1,
         eventIds: [],
       };
-    return dispatchLifecycleView({
-      attemptGroupId: entry.dispatchId,
-      currentDispatchId: entry.dispatchId,
-      phase: groupSettled ? "closed" : attemptSettled ? "waiting_backoff" : "running",
-      attempts: [attempt],
-      successor: { admissible: !groupSettled, dueAt: null },
-      ruling: null,
-      delivery: { status: "unregistered", targetRef: null, targetDigest: null, registeredRevision: null },
-      revision: 1,
-    } as DispatchLifecycleGroup);
+    return dispatchLifecycleView(
+      {
+        attemptGroupId: entry.dispatchId,
+        currentDispatchId: entry.currentDispatchId ?? entry.dispatchId,
+        phase: entry.ruling
+          ? "awaiting_ruling"
+          : groupSettled
+            ? "closed"
+            : attemptSettled
+              ? "waiting_backoff"
+              : "running",
+        attempts:
+          entry.currentDispatchId && entry.currentDispatchId !== entry.dispatchId
+            ? [
+                attempt,
+                {
+                  ...attempt,
+                  dispatchId: entry.currentDispatchId,
+                  runtimeSessionId: `${entry.runtimeSessionId}-successor`,
+                  phase: "running",
+                  process: "alive",
+                  stopProof: "unproven",
+                  outcome: null,
+                },
+              ]
+            : [attempt],
+        successor: { admissible: !groupSettled, dueAt: null },
+        ruling: entry.ruling ? { dispatchId: entry.dispatchId, status: "awaiting" } : null,
+        delivery: {
+          status: entry.deliveryRegistered ? "registered" : "unregistered",
+          targetRef: null,
+          targetDigest: null,
+          registeredRevision: null,
+        },
+        revision: 1,
+      } as DispatchLifecycleGroup,
+      entry.dispatchId,
+    );
   });
-  return async (query: DispatchLifecycleQuery): Promise<DispatchLifecycleRead> => {
-    let rows: readonly DispatchLifecycleView[];
-    if (query.by === "session")
-      rows = views.filter(({ attempt }) => attempt.runtimeSessionId === query.runtimeSessionId);
-    else if (query.by === "dispatch")
-      rows = views.filter(({ attempt }) => query.dispatchIds.includes(attempt.dispatchId));
-    else if (query.by === "group") rows = views.filter(({ attemptGroupId }) => attemptGroupId === query.attemptGroupId);
-    else
-      rows = views.filter(({ attempt }) => query.instanceId === undefined || attempt.instanceId === query.instanceId);
-    if (query.by === "active") rows = rows.filter(({ policy }) => !policy.groupSettled);
-    return { status: "ready", watermark: 1, sourceRevision: 1, rows, nextCursor: null };
-  };
+}
+
+function selectLifecycleViews(
+  views: readonly DispatchLifecycleView[],
+  query: DispatchLifecycleQuery,
+): DispatchLifecycleRead {
+  let rows: readonly DispatchLifecycleView[];
+  if (query.by === "session") rows = views.filter(({ attempt }) => attempt.runtimeSessionId === query.runtimeSessionId);
+  else if (query.by === "dispatch")
+    rows = views.filter(({ attempt }) => query.dispatchIds.includes(attempt.dispatchId));
+  else if (query.by === "group") rows = views.filter(({ attemptGroupId }) => attemptGroupId === query.attemptGroupId);
+  else rows = views.filter(({ attempt }) => query.instanceId === undefined || attempt.instanceId === query.instanceId);
+  if (query.by === "active") rows = rows.filter(({ policy }) => !policy.groupSettled);
+  return { status: "ready", watermark: 1, sourceRevision: 1, rows, nextCursor: null };
+}
+
+export function lifecycleSummaryFor(entry: Parameters<typeof lifecycleReadFor>[0][number]) {
+  return dispatchLifecycleSummary({
+    status: "ready",
+    watermark: 1,
+    sourceRevision: 1,
+    rows: lifecycleFixtureViews([entry]),
+    nextCursor: null,
+  });
 }
 
 /** A test read port over accepted runtime events: the same kernel fold the projections run. */

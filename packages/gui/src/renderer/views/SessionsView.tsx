@@ -532,7 +532,7 @@ export function SessionsView({
   const selectedSessionTtl = useMemo(
     () =>
       settledCacheTtl(
-        selectedSession.data?.session.semanticState ?? "unavailable",
+        selectedSession.data?.session.lifecycle?.displayStatus ?? "unavailable",
         selectedTouch,
         selectedSessionId === null ? null : (sessionCacheTtlMs.get(selectedSessionId) ?? null),
         nowMs,

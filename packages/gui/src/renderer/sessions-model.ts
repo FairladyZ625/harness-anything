@@ -334,104 +334,6 @@ export function settledCacheTtl(
   return GROUP_TERMINAL_STATUSES.has(status) ? computePromptCacheTtlState(lastCacheTouchAt, nowMs, ttlMs) : null;
 }
 
-/**
- * 生命周期事件能无歧义决定的状态转换。outcome_observed 不在表里:该事件 DTO 不带
- * payload,succeeded/failed 无法分辨,终态词留给下一次 daemon 投影读,增量层只推时间戳。
- */
-const LIFECYCLE_STATUS_TRANSITIONS: Readonly<Partial<Record<SessionLifecycleEventType, SessionStatus>>> = {
-  runtime_session_started: "running",
-  runtime_session_cancelled: "cancelled",
-  runtime_session_exited: "ended-indeterminate",
-};
-
-/**
- * 会话 DTO 的增量补丁:只改命中会话、只改事件能决定的字段(时间戳推进 + 三个无歧义
- * 转换);无命中事件原样返回同一个引用,避免 React Query 缓存无谓重渲。
- */
-export function applyLifecycleEventsToSession(
-  session: AgentRuntimeSessionDto,
-  events: readonly SessionLifecycleEvent[],
-): AgentRuntimeSessionDto {
-  let current = session;
-  for (const event of events) {
-    if (event.runtimeSessionId !== current.runtimeSessionId) continue;
-    const lastObservedAt =
-      event.occurredAt > current.activity.lastObservedAt ? event.occurredAt : current.activity.lastObservedAt;
-    if (event.type === "runtime_session_started")
-      current = {
-        ...current,
-        liveness: "live",
-        semanticState: "running",
-        activity: { ...current.activity, lastObservedAt },
-      };
-    else if (event.type === "runtime_session_cancelled")
-      current = {
-        ...current,
-        semanticState: "cancelled",
-        activity: { ...current.activity, lastObservedAt, outcome: "cancelled" },
-      };
-    else if (event.type === "runtime_session_exited")
-      current = {
-        ...current,
-        liveness: "exited",
-        // 与 kernel runtimeSessionSemanticState 同一条规则:outcome 已知用 outcome 词,unknown 是
-        // ended-indeterminate,缺失(null)在非 live 会话上是 unavailable——本读面拿不到 outcome
-        // 证据,由下一次 daemon 投影读纠正。
-        semanticState:
-          current.activity.outcome === null
-            ? "unavailable"
-            : current.activity.outcome === "unknown"
-              ? "ended-indeterminate"
-              : current.activity.outcome,
-        activity: { ...current.activity, lastObservedAt },
-      };
-    else if (lastObservedAt !== current.activity.lastObservedAt)
-      current = { ...current, activity: { ...current.activity, lastObservedAt } };
-  }
-  return current;
-}
-
-/** 单组补丁:只有组头 latestRound 的会话能定位到组;推进 latestActivityAt、按无歧义转换改
- * latestStatus 并重算 runningCount(该轮在 running↔终态间翻转时 ±1),未命中返回原组引用。 */
-function applyLifecycleEventsToSessionGroup(
-  group: SessionGroup,
-  events: readonly SessionLifecycleEvent[],
-): SessionGroup {
-  const round = group.latestRound;
-  if (round === null) return group;
-  const owned = events.filter((event) => event.runtimeSessionId === round.runtimeSessionId);
-  if (owned.length === 0) return group;
-  let latestActivityAt = group.latestActivityAt,
-    latestStatus = group.latestStatus,
-    runningCount = group.runningCount;
-  for (const event of owned) {
-    if (event.occurredAt > latestActivityAt) latestActivityAt = event.occurredAt;
-    const next = LIFECYCLE_STATUS_TRANSITIONS[event.type];
-    if (next !== undefined && next !== latestStatus) {
-      runningCount += Number(next === "running") - Number(latestStatus === "running");
-      latestStatus = next;
-    }
-  }
-  return { ...group, latestActivityAt, latestStatus, runningCount, latestRound: { ...round, status: latestStatus } };
-}
-
-/**
- * 组级增量补丁:组 DTO 不携带成员会话清单,补丁限定在 latestRound 会话命中的组上;
- * 无组命中时返回原数组引用,避免 React Query 缓存无谓重渲(与会话级补丁同一口径)。
- */
-export function applyLifecycleEventsToSessionGroups(
-  groups: readonly SessionGroup[],
-  events: readonly SessionLifecycleEvent[],
-): readonly SessionGroup[] {
-  let changed = false;
-  const next = groups.map((group) => {
-    const patched = applyLifecycleEventsToSessionGroup(group, events);
-    changed ||= patched !== group;
-    return patched;
-  });
-  return changed ? next : groups;
-}
-
 /** 组展开行之一:一轮派工(一个 dispatchId 一轮),按 startedAt 倒序编号。 */
 export type SessionRound = {
   readonly kind: "round";
@@ -563,7 +465,7 @@ export function sessionOrphans(
       taskId,
       taskTitle,
       startedAt: session.activity.lastObservedAt,
-      status: session.semanticState ?? "unavailable",
+      status: session.lifecycle?.displayStatus ?? "unavailable",
     }));
 }
 

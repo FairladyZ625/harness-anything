@@ -1176,7 +1176,9 @@
         },
         "command:task-dispatches": {
           "measurements": [
-            "task-dispatches"
+            "task-dispatches",
+            "dispatch-point",
+            "task-dispatches-page"
           ]
         },
         "command:task-list": {
@@ -1395,7 +1397,9 @@
         },
         "method:repo.task.dispatches": {
           "measurements": [
-            "task-dispatches"
+            "task-dispatches",
+            "dispatch-point",
+            "task-dispatches-page"
           ]
         },
         "method:repo.task.show": {

@@ -7,10 +7,8 @@ export {
   runtimeDefinitionSnapshotArtifact,
   runtimeEventContentClaims,
   runtimeSessionInActivityWindow,
-  runtimeSessionIsRunning,
   runtimeSessionMissingOutcomeEvidence,
   runtimeSessionOutcomeFromEvidence,
-  runtimeSessionSemanticState,
   sessionProvenance,
   unavailableSessionIdentity,
 } from "./domain/agent-runtime.ts";

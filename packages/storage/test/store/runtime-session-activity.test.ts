@@ -1,10 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  runtimeSessionInActivityWindow,
-  runtimeSessionIsRunning,
-} from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
+import { runtimeSessionInActivityWindow } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 
 test("runtime session activity keeps active work and bounds settled history", () => {
   const since = "2026-08-25T12:00:00.000Z";
@@ -29,8 +26,6 @@ test("runtime session activity keeps active work and bounds settled history", ()
     ),
     false,
   );
-  assert.equal(runtimeSessionIsRunning({ liveness: "live", outcome: null }), true);
-  assert.equal(runtimeSessionIsRunning({ liveness: "live", outcome: "cancelled" }), false);
   assert.throws(
     () => runtimeSessionInActivityWindow({ liveness: "exited", outcome: null, lastObservedAt: since }, "invalid"),
     /ISO timestamp/u,

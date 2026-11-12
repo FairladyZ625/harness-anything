@@ -1,4 +1,3 @@
-import type * as DomainStatus from "../../api/renderer-dto.ts";
 import type { AgentRuntimeSessionGroupStatus } from "@harness-anything/daemon/protocol";
 
 /**
@@ -17,11 +16,6 @@ export type SmartAttentionStatus = AgentRuntimeSessionGroupStatus;
 export interface SmartAttentionSignal {
   /** daemon 会话状态词表(running/succeeded/…/blocked/lost/unknown)。 */
   readonly status: SmartAttentionStatus;
-  /**
-   * 会话进程活性(session DTO 的 liveness)。组/轮次级读面没有该字段,省略按 live 处理:
-   * 缺证据不是失联,只有显式 stale/unknown/exited 才把 running 降为不可验证。
-   */
-  readonly liveness?: DomainStatus.RuntimeLiveness;
   /**
    * 存在未决 awaits 关系、待审批决策或阻塞待输入。由调用方从 agenda awaitingYou
    * (dec_DF67F23066BAFE444190A191B5)等读面按源实体派生,模型不重复判断。
@@ -60,13 +54,12 @@ export function promptCacheTtlMsForKind(kindId: string | null | undefined, baseU
 export const DONE_FRESHNESS_MS = 300_000;
 
 /**
- * 五级分类。HA 状态词表 → 序数的映射(词表语义见 dispatch-read.ts 的 blocked 派生与
- * kernel runtimeSessionSemanticState):
+ * 五级分类。kernel lifecycle 展示状态 → 序数的映射:
  * - 1 Needs you:未决 awaits / 待审批(needsYou),或 status=blocked(结构化阻塞=提问/审批阻断);
  * - 2 Done:succeeded/failed/ended-indeterminate 且 settledAt 在新鲜度窗口内;
  *   cancelled/stopped 是被打断的完成,Orca 归 Idle 不归 Done;
- * - 3 Working:running 且 liveness live(或省略);
- * - 4 Unverifiable:进程应在但心跳超时/状态陈旧:running + stale/unknown/exited,或 lost(失联,进程可能还在);
+ * - 3 Working:the lifecycle read reports running;
+ * - 4 Unverifiable:the lifecycle read reports lost;
  * - 5 Idle:其余——闲置、被打断、超龄完成、无收口时间戳的终态(不虚构新鲜度)。
  */
 export function classifySmartAttention(signal: SmartAttentionSignal, nowMs: number): SmartClass {
@@ -77,7 +70,7 @@ export function classifySmartAttention(signal: SmartAttentionSignal, nowMs: numb
   }
   if (signal.status === "cancelled" || signal.status === "stopped") return 5;
   if (signal.status === "lost") return 4;
-  if (signal.status === "running") return signal.liveness === "live" || signal.liveness === undefined ? 3 : 4;
+  if (signal.status === "running") return 3;
   return 5;
 }
 

@@ -1,4 +1,4 @@
-import type { RuntimeProviderUnreachable } from "@harness-anything/kernel";
+import type { DispatchLifecycleSummary, RuntimeProviderUnreachable } from "@harness-anything/kernel";
 
 export type TaskDispatchResume = {
   readonly dispatchId: string;
@@ -65,6 +65,9 @@ export type TaskDispatchDecisionAction =
     };
 
 export interface TaskDispatchRow {
+  /** Current lifecycle receipt. Absent only on the previous wire version (remove 2026-12-07).
+   * Absence is unavailable, never permission to infer state from legacy fields. */
+  readonly lifecycle?: DispatchLifecycleSummary;
   readonly decisionAction?: TaskDispatchDecisionAction;
   readonly reviewTarget?:
     | { readonly kind: "task"; readonly taskId: string; readonly executionId: string; readonly digest: string }
@@ -123,6 +126,7 @@ export interface TaskDispatchRow {
   readonly faultClass?: "quota_exhausted" | "rate_limited";
   readonly resetAt?: string;
   readonly nextAction?: string;
+  /** @deprecated Previous wire version only; always null on current producers. Remove 2026-12-07. */
   readonly fallbackState: "scheduled" | "dispatched" | "exhausted" | null;
   readonly nextDispatchId: string | null;
   readonly agentId?: string;
@@ -141,7 +145,7 @@ export interface TaskDispatchRow {
   readonly startedAt: string;
   readonly endedAt: string | null;
   readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" | null;
-  readonly status: "running" | "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" | "blocked" | "lost";
+  readonly status: DispatchLifecycleSummary["displayStatus"];
   readonly resultRef?: string | null;
   readonly exitCode?: number | null;
   readonly dispatchPath?: string | null;
@@ -162,5 +166,6 @@ export type TaskDispatchAttempt = Pick<
   | "resetAt"
   | "nextAction"
   | "fallbackState"
+  | "lifecycle"
   | "nextDispatchId"
 >;

@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+import { lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import type {
@@ -25,6 +26,14 @@ function largeDispatchProjection(count = 500, reason = "派工原因 / long/path
     },
   })) as Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requested" }>[];
   const projection = {
+    readDispatchLifecycle: lifecycleReadForSync(
+      events.map(({ payload }, index) => ({
+        runtimeSessionId: payload.runtimeSessionId,
+        dispatchId: payload.dispatchId,
+        attemptSettled: true,
+        outcome: index % 2 ? "failed" : "succeeded",
+      })),
+    ),
     readTaskIndex(this: TaskProjection, query: { readonly taskIds?: readonly string[] } = {}) {
       return {
         rows: (query.taskIds ?? []).flatMap((id) => {

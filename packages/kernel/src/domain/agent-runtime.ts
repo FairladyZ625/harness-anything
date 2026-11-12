@@ -290,7 +290,7 @@ export function runtimeSessionMissingOutcomeEvidence(
 }
 
 /** A domain judgment over independent liveness and outcome evidence. */
-export function runtimeSessionSemanticState(
+function runtimeSessionSemanticState(
   session: Pick<RuntimeSession, "liveness" | "outcome"> &
     Partial<Pick<RuntimeSession, "exitCode" | "resultRef" | "reasonCode">>,
 ): RuntimeSessionSemanticState {
@@ -314,7 +314,7 @@ export function runtimeSessionEntityV1(session: RuntimeSession): Readonly<Record
   });
 }
 
-export function runtimeSessionIsRunning(
+function runtimeSessionIsRunning(
   session: Pick<RuntimeSession, "liveness" | "outcome"> &
     Partial<Pick<RuntimeSession, "exitCode" | "resultRef" | "reasonCode">>,
 ): boolean {

@@ -130,7 +130,18 @@ export function pgRuntimeSessionReadStatement(
   const sessionParameter = query.runtimeSessionId === undefined ? undefined : bind(query.runtimeSessionId);
   if (sessionParameter) where.push(`v.entity_id=${sessionParameter}`);
   if (query.unsettledOnly) where.push("v.runtime_outcome IS NULL");
-  if (query.nonExitedOnly) where.push("v.runtime_liveness <> 'exited'");
+  if (query.nonExitedOnly)
+    where.push(`EXISTS (SELECT 1 FROM ha_projection_values active
+    JOIN ha_projection_values address ON address.tenant_id=active.tenant_id AND address.project_id=active.project_id
+      AND address.policy_epoch=active.policy_epoch AND address.model='dispatch-lifecycle-session' AND address.owner_id=''
+      AND address.value=to_jsonb(active.entity_id)::text
+    WHERE active.tenant_id=v.tenant_id AND active.project_id=v.project_id AND active.policy_epoch=v.policy_epoch
+      AND active.model='dispatch-lifecycle-active' AND address.entity_id=v.entity_id
+      AND EXISTS (SELECT 1 FROM jsonb_array_elements(ha_read_index_json(active.value)->'attempts') attempt
+        WHERE attempt->>'dispatchId'=ha_read_index_json(active.value)->>'currentDispatchId'
+          AND attempt->>'runtimeSessionId'=v.entity_id)
+      AND (cardinality($4::text[])=0 OR active.readers && $4::text[])
+      AND (cardinality($4::text[])=0 OR address.readers && $4::text[]))`);
   if (query.providerSessionId !== undefined)
     where.push(`ha_read_index_json(v.value)->>'providerSessionId'=${bind(query.providerSessionId)}`);
   const observed = pgRuntimeObservedAtSql("v.value");

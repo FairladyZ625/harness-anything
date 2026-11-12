@@ -1,4 +1,6 @@
 // harness-test-tier: fast
+import { readRuntimeAttemptChain } from "../src/runtime-attempt-read.ts";
+import { lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
@@ -13,7 +15,6 @@ import {
 } from "@harness-anything/kernel";
 import {
   isReviewerDispatch,
-  readRuntimeAttemptChain,
   readSessionGroupDispatches,
   readTaskDispatches,
   readTaskDispatchSession,
@@ -99,7 +100,27 @@ function fixture(
     },
   } as unknown as Dispatch;
   const events = options.successor ? [event, options.successor] : [event];
+  let deliveryRegistered = false;
   const projection = {
+    readDispatchLifecycle: (query: Parameters<TaskProjection["readDispatchLifecycle"]>[0]) =>
+      lifecycleReadForSync(
+        events.map((candidate) => ({
+          runtimeSessionId: candidate.payload.runtimeSessionId,
+          dispatchId: candidate.payload.dispatchId,
+          instanceId: current.instanceId,
+          process:
+            current.liveness === "live"
+              ? ("alive" as const)
+              : current.outcome === null
+                ? ("unknown" as const)
+                : ("exited" as const),
+          attemptSettled: current.outcome !== null,
+          groupSettled: options.attemptFallbackState !== "scheduled" && current.outcome !== null,
+          currentDispatchId: options.successor?.payload.dispatchId,
+          deliveryRegistered,
+          outcome: current.outcome,
+        })),
+      )(query),
     readCut: () => ({ status: "ready", watermark: 1, sourceRevision: 1 }),
     readTaskIndex: taskMetadata,
     read: () => ({
@@ -166,7 +187,14 @@ function fixture(
           : null,
     }),
   } as unknown as TaskProjection;
-  return { projection, event, rows: () => readTaskDispatches({ projection, taskId }).dispatches };
+  return {
+    projection,
+    event,
+    acceptDelivery: () => {
+      deliveryRegistered = true;
+    },
+    rows: () => readTaskDispatches({ projection, taskId }).dispatches,
+  };
 }
 
 test("task dispatch read queries the requested task ids instead of the dispatch history", () => {
@@ -426,7 +454,7 @@ test("resume is derived from canonical provider identity and withdrawn by an acc
   const resumed = fixture(session("exited", "failed"), { successor });
   assert.equal(resumed.rows()[0]?.resume, undefined);
   assert.equal(resumed.rows()[0]?.nextDispatchId, successor.payload.dispatchId);
-  assert.equal(resumed.rows()[0]?.fallbackState, "dispatched");
+  assert.equal(resumed.rows()[0]?.fallbackState, null);
   assert.equal(readRuntimeAttemptChain(runtimeSessionId, resumed.projection)?.attempts.length, 2);
 });
 
@@ -465,7 +493,7 @@ test("a canonical fallback successor outranks a stale scheduled stream state", (
 
   const row = readTaskDispatches({ projection: f.projection, taskId, rootDir }).dispatches[0]!;
   assert.equal(row.nextDispatchId, "dispatch_fedcba987654321001234567");
-  assert.equal(row.fallbackState, "dispatched");
+  assert.equal(row.fallbackState, null);
 });
 
 test("a canonical fallback successor outranks a scheduled outcome snapshot", () => {
@@ -484,7 +512,7 @@ test("a canonical fallback successor outranks a scheduled outcome snapshot", () 
 
   const row = readTaskDispatches({ projection: f.projection, taskId }).dispatches[0]!;
   assert.equal(row.nextDispatchId, "dispatch_fedcba987654321001234567");
-  assert.equal(row.fallbackState, "dispatched");
+  assert.equal(row.fallbackState, null);
 });
 
 test("only accepted outcome metrics appear and unknown live telemetry stays absent", () => {
@@ -503,7 +531,7 @@ test("only accepted outcome metrics appear and unknown live telemetry stays abse
   });
 });
 
-test("canonical archive preserves result, artifact, delegation and provider quota evidence", () => {
+test("canonical archive preserves evidence without becoming the lifecycle authority", () => {
   const resultRef = `artifact:runtime-result/sha256/${"a".repeat(64)}`;
   const row = fixture(session("exited", null), {
     archive: {
@@ -518,7 +546,7 @@ test("canonical archive preserves result, artifact, delegation and provider quot
     },
   }).rows()[0]!;
   assert.equal(row.resultRef, resultRef);
-  assert.equal(row.status, "failed");
+  assert.equal(row.status, "unknown");
   assert.equal(row.parentRuntimeSessionId, "runtime-parent");
   assert.equal(row.delegatedByAgentId, "leader");
   assert.equal(row.dispatchPath, `tasks/task-1/artifacts/dispatches/${dispatchId}.json`);
@@ -624,6 +652,7 @@ test("a stopped dispatch whose execution delivered is read back succeeded", () =
     const f = fixture(
       session("exited", "stopped", { exitCode: 0, resultRef: "artifact:runtime-result/sha256/" + "a".repeat(64) }),
     );
+    f.acceptDelivery();
     const projection = {
       ...f.projection,
       read: () => ({
@@ -659,6 +688,7 @@ test("a stopped dispatch with the same empty-cut accepted submission is read bac
   const f = fixture(
     session("exited", "stopped", { exitCode: 0, resultRef: "artifact:runtime-result/sha256/" + "a".repeat(64) }),
   );
+  f.acceptDelivery();
   const projection = {
     ...f.projection,
     read: () => ({
@@ -739,19 +769,6 @@ test("the historical archive records still validate and keep their old classific
   }
 });
 
-test("stopped dispatch is shown as blocked only from a structured task state", () => {
-  const f = fixture(
-    session("exited", "stopped", { exitCode: 0, resultRef: "artifact:runtime-result/sha256/" + "a".repeat(64) }),
-  );
-  const projection = {
-    ...f.projection,
-    read: () => ({ snapshot: { task: { taskId, status: "blocked" } }, packagePath: "tasks/task-1" }),
-    readLeaseIntervals: () => [blockLease()],
-    readCanonicalEvents: () => ({ events: [blockedRelease()] }),
-  } as unknown as TaskProjection;
-  assert.equal(readTaskDispatches({ projection, taskId }).dispatches[0]?.status, "blocked");
-});
-
 test("point dispatch lookup cannot attribute a canonical dispatch to a different task", () => {
   const f = fixture();
   assert.equal(readTaskDispatchSession(f.projection, "wrong-task", dispatchId), null);
@@ -789,7 +806,7 @@ test("accepted dispatch before session binding is visible without a live index",
   } as unknown as TaskProjection;
   const row = readTaskDispatches({ projection, taskId }).dispatches[0]!;
   assert.equal(row.dispatchId, dispatchId);
-  assert.equal(row.status, "unknown");
+  assert.equal(row.status, "running");
 });
 
 test("a dispatch without canonical attempt-group attribution does not advertise an empty chain", () => {
@@ -800,82 +817,6 @@ test("a dispatch without canonical attempt-group attribution does not advertise 
     readRuntimeDispatchesBySession: () => [{ event: { ...f.event, payload } }],
   } as TaskProjection;
   assert.equal(readRuntimeAttemptChain(runtimeSessionId, projection), undefined);
-});
-
-function blockLease() {
-  return {
-    executionId: "execution-1",
-    acquiredRevision: 10,
-    releasedRevision: 20,
-    holder: { actor: { executor: { id: `runtime-session:${runtimeSessionId}` } } },
-    leaseExpiresAt: "2026-08-24T00:00:00.000Z",
-  };
-}
-
-function blockedRelease() {
-  return {
-    schema: "task-event/v1",
-    type: "lease_released",
-    actor: { executor: { id: `runtime-session:${runtimeSessionId}` } },
-    payload: { task: { status: "blocked" }, mutation: { fields: ["status"] } },
-  };
-}
-
-// dec_614F7BBB18C8687E7EFC72173D/CH2: prose, other executions and stale awaits cannot declare this stop blocked.
-test("stopped dispatch awaits must be active and written within its lease interval", () => {
-  const f = fixture(session("exited", "stopped"));
-  for (const sample of [
-    { state: "active", revision: 15, executor: `runtime-session:${runtimeSessionId}`, expected: "blocked" },
-    { state: "retired", revision: 15, executor: `runtime-session:${runtimeSessionId}`, expected: "stopped" },
-    { state: "active", revision: 9, executor: `runtime-session:${runtimeSessionId}`, expected: "stopped" },
-    { state: "active", revision: 21, executor: `runtime-session:${runtimeSessionId}`, expected: "stopped" },
-    { state: "active", revision: null, executor: `runtime-session:${runtimeSessionId}`, expected: "stopped" },
-    { state: "active", revision: 15, executor: "owner:register-awaits", expected: "blocked" },
-  ]) {
-    const projection = {
-      ...f.projection,
-      readLeaseIntervals: () => [blockLease()],
-      readTaskRelationsBySources: () => ({
-        rows: [{ state: sample.state, sourceRef: `task/${taskId}`, workspaceRevision: sample.revision }],
-      }),
-      readEventWitness: () => ({
-        actor: { executor: { id: sample.executor } },
-        occurredAt: "2026-08-23T12:00:00.000Z",
-      }),
-    } as unknown as TaskProjection;
-    assert.equal(readTaskDispatches({ projection, taskId }).dispatches[0]?.status, sample.expected);
-  }
-  const expired = {
-    ...f.projection,
-    readLeaseIntervals: () => [blockLease()],
-    readTaskRelationsBySources: () => ({
-      rows: [{ state: "active", sourceRef: `task/${taskId}`, workspaceRevision: 15 }],
-    }),
-    readEventWitness: () => ({ occurredAt: "2026-08-25T00:00:00.000Z" }),
-  } as unknown as TaskProjection;
-  assert.equal(readTaskDispatches({ projection: expired, taskId }).dispatches[0]?.status, "stopped");
-  const unrelated = {
-    ...f.projection,
-    read: () => ({ snapshot: { task: { taskId, status: "blocked" } }, packagePath: "tasks/task-1" }),
-  } as unknown as TaskProjection;
-  assert.equal(readTaskDispatches({ projection: unrelated, taskId }).dispatches[0]?.status, "stopped");
-  const supersededLease = {
-    ...unrelated,
-    readCanonicalEvents: () => ({ events: [blockedRelease()] }),
-    readLeaseIntervals: () => [
-      blockLease(),
-      { ...blockLease(), holder: { actor: { executor: { id: "runtime-session:next-worker" } } } },
-    ],
-  } as unknown as TaskProjection;
-  assert.equal(readTaskDispatches({ projection: supersededLease, taskId }).dispatches[0]?.status, "stopped");
-  const unchangedStatus = {
-    ...unrelated,
-    readLeaseIntervals: () => [blockLease()],
-    readCanonicalEvents: () => ({
-      events: [{ ...blockedRelease(), payload: { task: { status: "blocked" }, mutation: { fields: [] } } }],
-    }),
-  } as unknown as TaskProjection;
-  assert.equal(readTaskDispatches({ projection: unchangedStatus, taskId }).dispatches[0]?.status, "stopped");
 });
 
 test("member dispatch reads page an executor's newest rows with window groups and full-history totals", () => {
@@ -923,6 +864,20 @@ test("member dispatch reads page an executor's newest rows with window groups an
       ],
     };
   const projection = {
+    readDispatchLifecycle: lifecycleReadForSync([
+      {
+        runtimeSessionId: "runtime-terra-1",
+        dispatchId: "dispatch_member_old",
+        attemptSettled: true,
+        outcome: "succeeded",
+      },
+      {
+        runtimeSessionId: "runtime-terra-2",
+        dispatchId: "dispatch_member_new",
+        attemptSettled: true,
+        outcome: "failed",
+      },
+    ]),
     readTaskIndex: taskMetadata,
     read: () => ({ snapshot: { task: { taskId } }, packagePath: "tasks/task-1" }),
     readDocument: () => ({ document: null }),
@@ -1020,6 +975,20 @@ test("a member page window group falls back to the session's newest dispatch, no
   const older = dispatchEvent("dispatch_member_old", "task-a", "2026-08-23T00:00:00.000Z"),
     newer = dispatchEvent("dispatch_member_new", "task-b", "2026-08-24T00:00:00.000Z"),
     projection = {
+      readDispatchLifecycle: lifecycleReadForSync([
+        {
+          runtimeSessionId: "runtime-terra-1",
+          dispatchId: "dispatch_member_old",
+          attemptSettled: true,
+          outcome: "succeeded",
+        },
+        {
+          runtimeSessionId: "runtime-terra-2",
+          dispatchId: "dispatch_member_new",
+          attemptSettled: true,
+          outcome: "failed",
+        },
+      ]),
       readTaskIndex: taskMetadata,
       read: () => ({ snapshot: { task: { taskId } }, packagePath: "tasks/task-1" }),
       readDocument: () => ({ document: null }),
@@ -1146,6 +1115,15 @@ test("cut review settlement selects reviewer dispatches of one submission digest
       ]),
     ),
     projection = {
+      readDispatchLifecycle: lifecycleReadForSync(
+        events.map(({ payload }) => ({
+          runtimeSessionId: payload.runtimeSessionId,
+          dispatchId: payload.dispatchId,
+          process: "alive",
+          attemptSettled: payload.dispatchId === "dispatch-cancelled",
+          outcome: payload.dispatchId === "dispatch-cancelled" ? "cancelled" : null,
+        })),
+      ),
       readRuntimeDispatchesByTaskExecution: () =>
         events.map((event) => ({ event, metrics: null, endedAt: null, outcome: null })),
       readRuntimeSession: (id: string) => sessions.get(id) ?? null,
