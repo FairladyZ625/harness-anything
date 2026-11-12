@@ -1,3 +1,4 @@
+import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import { isJsonObject } from "./json-rpc-types.ts";
 
 export interface DaemonTaskDeliveryDiffLine {
@@ -14,7 +15,7 @@ export interface DaemonTaskDeliveryDiffFile {
 
 export type DaemonTaskDeliveryDiffResult = {
   readonly ok: true;
-  readonly status: "ready" | "pending";
+  readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
   readonly taskId: string;
   readonly baseline: string | null;
   readonly commitSha: string | null;

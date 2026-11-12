@@ -1,3 +1,7 @@
+import type * as ClientStatus from "@harness-anything/kernel/internal/domain/client-view-status.ts";
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
+import type { ScheduleState } from "@harness-anything/kernel/internal/domain/schedule.ts";
+import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import { agentRuntimeKindMatches } from "../agent-runtime-contract.ts";
 import { SCHEDULE_MIN_EVERY_MS } from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, rejectSecretKeys } from "./json-rpc-types.ts";
@@ -7,7 +11,7 @@ import { isJsonObject, rejectSecretKeys } from "./json-rpc-types.ts";
  * 不判 repo mode,不选 node/provider(dec_9C393CDA 拓扑:定义=ledger,执行=runtime-local,
  * run view=projection)。本文件只持有线形状与校验,读侧 join 在
  * packages/daemon/src/schedules-gui-read.ts,protocol 目录不引 kernel barrel。 */
-export type ScheduleExecutionAvailability = "local" | "claimed-elsewhere" | "not-on-this-node";
+export type ScheduleExecutionAvailability = OperationalStatus.ScheduleExecutionAvailability;
 
 export type ScheduleGuiTriggerDto =
   | {
@@ -39,7 +43,7 @@ export type ScheduleGuiAgentOptionDto =
     }
   | {
       readonly agentId: string;
-      readonly state: "invalid" | "missing";
+      readonly state: ClientStatus.DegradedEntityState;
       readonly error: { readonly code: string; readonly hint: string };
     };
 
@@ -83,7 +87,7 @@ export interface ScheduleGuiHealthDto {
 export interface ScheduleGuiRowDto {
   readonly scheduleId: string;
   readonly name: string;
-  readonly state: "armed" | "paused";
+  readonly state: ScheduleState;
   readonly mode: "detect" | "remediate";
   readonly systemPresetId: string | null;
   readonly definitionResidency: "ledger";
@@ -107,7 +111,7 @@ export interface ScheduleGuiRowDto {
         readonly keepMonthly: boolean;
       }
     | { readonly kind: "agent-unconfigured" };
-  readonly targetState?: "invalid" | "missing";
+  readonly targetState?: ClientStatus.DegradedEntityState;
   readonly targetError?: { readonly code: string; readonly hint: string };
   readonly mission: string;
   readonly executionAvailability: ScheduleExecutionAvailability;
@@ -165,7 +169,7 @@ export type ScheduleGuiListRowDto = ScheduleGuiRowDto | ScheduleGuiInvalidRowDto
 
 export interface SchedulesListResult {
   readonly ok: true;
-  readonly status: "ready" | "pending";
+  readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
   readonly repoId: string;
   readonly repoMode: "local" | "remote-center" | "remote-edge";
   readonly viewerNodeId: string | null;

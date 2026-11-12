@@ -1,3 +1,11 @@
+import type {
+  DispatchAttemptOutcome,
+  DispatchLifecycleSummary,
+} from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
+import type { PackageDisposition } from "@harness-anything/kernel/internal/domain/package-disposition.ts";
+import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
+import type { WriteReceiptOutcome } from "@harness-anything/kernel/internal/domain/write-receipt-status.ts";
 import type { DaemonHomeOverviewResult } from "../home/home-overview-types.ts";
 import type { TaskAssignmentDirectory, TaskClaimableResult } from "./daemon-protocol-schema-ids.ts";
 export type { TaskAssignmentDirectory, TaskClaimableResult } from "./daemon-protocol-schema-ids.ts";
@@ -201,7 +209,7 @@ type ObserveTailBase = {
 };
 
 export type ObserveTailResult =
-  | (ObserveTailBase & { readonly status: "ready" | "pending" })
+  | (ObserveTailBase & { readonly status: ProjectionStatus.ReadSetProjectionCut["status"] })
   | (ObserveTailBase & {
       readonly status: "unavailable";
       readonly unavailable: {
@@ -397,7 +405,7 @@ type DaemonGuiReadDataMap = {
   readonly "repo.decisions.list": DaemonDecisionListResult;
   readonly "repo.tasks.document.read": {
     readonly ok: true;
-    readonly status: "ready" | "pending";
+    readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
     readonly taskId: string;
     readonly path: string;
     /** The cut `body`/`blobSha256`/`size`/`mediaType`/`bytes` were read from. A read never mixes a
@@ -748,7 +756,7 @@ export interface DaemonDecisionSummaryRow {
 export interface DaemonDecisionReviewDispatchRow {
   readonly dispatchId: string;
   readonly runtimeSessionId: string;
-  readonly status: "running" | "succeeded" | "failed" | "unknown";
+  readonly status: Extract<DispatchLifecycleSummary["displayStatus"], "running" | "succeeded" | "failed" | "unknown">;
   readonly reviewContentDigest: string;
   readonly reportRef: string | null;
   /** 评审人显示名:派工头的 agentName,缺名时为 agentId。 */
@@ -830,7 +838,7 @@ export interface TaskPlacementSupplement {
   readonly parentTaskId: string | null;
   readonly origin: "native" | "archival" | "external";
   readonly engine: string;
-  readonly packageDisposition: "active" | "archived" | "tombstoned";
+  readonly packageDisposition: PackageDisposition;
   readonly provenance: readonly {
     readonly kind: "l2" | "decision-relation" | "canonical-event";
     readonly ref: string;
@@ -864,7 +872,7 @@ export interface TaskDocumentListEntryRow {
 
 export type DaemonTaskDocumentListResult = {
   readonly ok: true;
-  readonly status: "ready" | "pending";
+  readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
   readonly taskId: string;
   readonly documents: readonly TaskDocumentListEntryRow[];
   readonly watermark: number;
@@ -875,10 +883,10 @@ export type DaemonTaskDispatchesResultBase = {
   readonly ok: true;
   /** Authored document rows stay canonical in daemon reads; the CLI uses this prefix at its output boundary. */
   readonly workspacePathPrefix?: string;
-  readonly status: "ready" | "pending";
+  readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
   readonly dispatches: readonly TaskDispatchRow[];
   /** Daemon-authoritative aggregate terminal verdict over the returned dispatch rows. */
-  readonly outcome: "succeeded" | "failed" | "cancelled" | "unknown" | "stopped";
+  readonly outcome: DispatchAttemptOutcome;
   readonly exitCode: number;
   readonly watermark: number;
   readonly sourceRevision: number;
@@ -927,7 +935,7 @@ export type TaskDeliveryStage =
 
 export type DaemonTaskSnapshotListResult = {
   readonly ok: true;
-  readonly status: "ready" | "pending";
+  readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
   readonly rows: readonly (TaskProjectionListRow & {
     /** Current assignment aggregate CAS version, including retired assignment relations. */
     readonly assignmentRevision?: number;
@@ -980,7 +988,7 @@ export interface DaemonTaskSnapshotInvalidRow {
 export type DaemonWorkspaceSummaryResult = {
   readonly schema: "daemon.workspace-summary/v1";
   readonly ok: true;
-  readonly status: "ready" | "pending";
+  readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
   readonly tasks: import("@harness-anything/kernel/internal/domain/workspace-summary").WorkspaceTaskSummary;
   readonly decisions: import("@harness-anything/kernel/internal/domain/workspace-summary").WorkspaceDecisionSummary;
   readonly watermark: number;
@@ -999,7 +1007,7 @@ export type TaskWorkspaceView =
       readonly kind: "worktree";
       readonly branch: string;
       readonly path: string;
-      readonly state: "bound" | "materialized" | "reclaimed" | "retained";
+      readonly state: OperationalStatus.TaskWorkspaceState;
     }
   | { readonly kind: "task-package"; readonly path: string };
 
@@ -1127,7 +1135,7 @@ export type DaemonAgendaResult = {
   readonly schema: "daemon.agenda/v1";
   readonly ok: true;
   readonly command: "agenda";
-  readonly status: "ready" | "pending";
+  readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
   readonly pinnedEntities: readonly AgendaPinnedEntityRow[];
   readonly pinnedEntityOverflow: number;
   /** 等你处理:指向读者本人(读绑定的 principal)的 active awaits 边。 */
@@ -1178,7 +1186,7 @@ export type DaemonGuiActionResult = JsonObject & {
   readonly schema: "command-receipt/v2";
   readonly ok: boolean;
   readonly command: string;
-  readonly outcome: "applied" | "pending" | "no_changes" | "indeterminate" | "op_rejected";
+  readonly outcome: WriteReceiptOutcome;
   readonly opId: string;
 };
 

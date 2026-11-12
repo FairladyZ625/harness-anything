@@ -838,3 +838,23 @@ test("fleet/access and repository/document/operations have no status vocabulary 
     [],
   );
 });
+
+// dec_499E4E98A3D4754132B3BCA1E6/CH1: daemon batch 2 retires protocol/gui/home declaration debt.
+test("daemon protocol/gui/home modules have no status vocabulary debt", () => {
+  const retiredModules = new Set([
+    "packages/daemon/src/gui-s3-control.ts",
+    "packages/daemon/src/home/home-overview-types.ts",
+    "packages/daemon/src/protocol/artifacts-gui-contract.ts",
+    "packages/daemon/src/protocol/daemon-protocol-gui-types.ts",
+    "packages/daemon/src/protocol/daemon-protocol-task-delivery-diff.ts",
+    "packages/daemon/src/protocol/daemon-protocol-validate-results.ts",
+    "packages/daemon/src/protocol/daemon-status-contract.ts",
+    "packages/daemon/src/protocol/schedule-runs-contract.ts",
+    "packages/daemon/src/protocol/schedules-gui-contract.ts",
+    "packages/daemon/src/protocol/task-dispatch-contract.ts",
+  ]);
+  assert.deepEqual(
+    statusVocabularyBaseline.filter(({ key }) => retiredModules.has(key.split("#")[0])),
+    [],
+  );
+});

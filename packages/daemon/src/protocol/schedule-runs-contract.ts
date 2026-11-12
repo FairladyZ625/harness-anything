@@ -1,3 +1,4 @@
+import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import type { ScheduleMissedReason, ScheduleRunOutcome } from "@harness-anything/kernel";
 import { isJsonObject, rejectSecretKeys } from "./json-rpc-types.ts";
 
@@ -34,7 +35,7 @@ export interface ScheduleRunRowDto {
 
 export interface ScheduleRunsResult {
   readonly ok: true;
-  readonly status: "ready" | "pending";
+  readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
   readonly scheduleId: string;
   readonly runs: readonly ScheduleRunRowDto[];
   readonly totals: { readonly runs: number; readonly missed: number; readonly failed: number };

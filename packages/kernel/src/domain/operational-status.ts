@@ -135,3 +135,18 @@ export const workTopologyStateWords = [
   "boundary",
 ] as const;
 export type WorkTopologyState = (typeof workTopologyStateWords)[number];
+
+export const scheduleExecutionAvailabilities = ["local", "claimed-elsewhere", "not-on-this-node"] as const;
+export type ScheduleExecutionAvailability = (typeof scheduleExecutionAvailabilities)[number];
+
+export const homeRepoStatusWords = ["online", "warming", "unavailable", "offline"] as const;
+export type HomeRepoStatus = (typeof homeRepoStatusWords)[number];
+
+export const taskWorkspaceStateWords = ["bound", "materialized", "reclaimed", "retained"] as const;
+export type TaskWorkspaceState = (typeof taskWorkspaceStateWords)[number];
+
+export const repoAttachPhaseWords = ["opening", "recovering", "catching-up", "restoring-runtimes"] as const;
+export type RepoAttachPhase = (typeof repoAttachPhaseWords)[number];
+
+export const dispatchFallbackStateWords = ["scheduled", "dispatched", "exhausted"] as const;
+export type DispatchFallbackState = (typeof dispatchFallbackStateWords)[number];

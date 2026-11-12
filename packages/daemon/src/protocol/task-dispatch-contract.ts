@@ -1,4 +1,7 @@
 import type { DispatchLifecycleSummary, RuntimeProviderUnreachable } from "@harness-anything/kernel";
+import type * as ClientStatus from "@harness-anything/kernel/internal/domain/client-view-status.ts";
+import type { DispatchAttemptOutcome } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 
 export type TaskDispatchResume = {
   readonly dispatchId: string;
@@ -48,7 +51,7 @@ export type TaskDispatchDecisionAction =
   | {
       readonly pointId: string;
       readonly questionVersion: string;
-      readonly status: "applied" | "failed";
+      readonly status: OperationalStatus.DecisionActionStatus;
       readonly selected: string;
       readonly action: "resume" | "rerun" | "needs_attention" | "no_action";
       /** Why an owner escalation needs attention: a real `question`, or a `guard` refusal that is
@@ -94,7 +97,7 @@ export interface TaskDispatchRow {
   /** Latest canonical or local dispatch observation, projected beside the dispatch row. */
   readonly lastObservedAt?: string;
   /** Daemon-owned activity judgment for the live-floor page. */
-  readonly activityStatus?: "thinking" | "tool" | "waiting" | "silent" | "stalled" | "unknown";
+  readonly activityStatus?: ClientStatus.DispatchActivityStatus;
   /** Observation used to calculate the activity age shown by the live-floor page. */
   readonly activityObservedAt?: string;
   /** Whole minutes since activityObservedAt; only meaningful for a live dispatch. */
@@ -127,7 +130,7 @@ export interface TaskDispatchRow {
   readonly resetAt?: string;
   readonly nextAction?: string;
   /** @deprecated Previous wire version only; always null on current producers. Remove 2026-12-07. */
-  readonly fallbackState: "scheduled" | "dispatched" | "exhausted" | null;
+  readonly fallbackState: OperationalStatus.DispatchFallbackState | null;
   readonly nextDispatchId: string | null;
   readonly agentId?: string;
   readonly agentName?: string;
@@ -144,7 +147,7 @@ export interface TaskDispatchRow {
   readonly eventStreamRef: string | null;
   readonly startedAt: string;
   readonly endedAt: string | null;
-  readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" | null;
+  readonly outcome: DispatchAttemptOutcome | null;
   readonly status: DispatchLifecycleSummary["displayStatus"];
   readonly resultRef?: string | null;
   readonly exitCode?: number | null;

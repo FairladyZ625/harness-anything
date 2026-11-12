@@ -39,6 +39,10 @@ const catalogs: readonly Catalog[] = [
         repoCellAttachmentStateWords:
           "Repository cell attachment warms, serves requests, is unavailable, or has closed.",
         repoRecoveryStatusWords: "Repository recovery has no uncertainty or cannot determine settlement.",
+        homeRepoStatusWords:
+          "Home repository roll-up reports an attached cell as online, warming, unavailable, or offline when unloaded.",
+        repoAttachPhaseWords:
+          "Repository cell startup opens storage, recovers durable state, catches up projections, or restores runtime sessions.",
       },
       Migration: {
         migrationPhaseWords:
@@ -88,6 +92,16 @@ const catalogs: readonly Catalog[] = [
       Task: {
         workTopologyStateWords:
           "Work topology shows completion, cancellation, execution, ruling wait, blocking, readiness, unknown evidence, or an external boundary.",
+        taskWorkspaceStateWords:
+          "Task worktree is bound without a local checkout, materialized on disk, reclaimed after closeout, or retained on disk.",
+      },
+      Schedule: {
+        scheduleExecutionAvailabilities:
+          "Schedule execution runs on this node, is claimed by another node, or is not bound to this node.",
+      },
+      Dispatch: {
+        dispatchFallbackStateWords:
+          "Provider fallback retry is scheduled, has dispatched a replacement attempt, or has exhausted fallback candidates.",
       },
     },
   },

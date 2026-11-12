@@ -1,3 +1,4 @@
+import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import { queryPageRow } from "./daemon-protocol-validate-task.ts";
 import type { CursorPage } from "../task-index-query.ts";
 import { isJsonObject, rejectSecretKeys } from "./json-rpc-types.ts";
@@ -34,7 +35,7 @@ export interface ArtifactGuiRowDto {
 
 export interface ArtifactsListResult {
   readonly ok: true;
-  readonly status: "ready" | "pending";
+  readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
   readonly repoId: string;
   /** 本页返回的 facet;html 是时间线默认面,md/raw 必须显式请求(md 体量 ~77×)。 */
   readonly kind: ArtifactGuiKind;
