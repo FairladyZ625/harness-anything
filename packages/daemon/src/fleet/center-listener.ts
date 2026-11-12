@@ -57,12 +57,7 @@ import type { Delivery, FleetCenterOptions, FleetTlsCenter, SessionWindow } from
 import { FleetFault } from "./center-types.ts";
 import { type FleetFrameV1 } from "./command-protocol.ts";
 import type { FleetOverviewResult } from "./fleet-overview-read.ts";
-import {
-  makeTaskEventReader,
-  makeTaskProjection,
-  openFleetStorage,
-  hasDaemonGitFollower,
-} from "@harness-anything/storage";
+import { openFleetStorage, hasDaemonGitFollower } from "@harness-anything/storage";
 import { runWalSender } from "./walsender.ts";
 import { createReplicationRetention, openReplicationSlots, replicationSlotKey } from "@harness-anything/storage";
 import { createNodeRetirementAdmission } from "./node-retirement.ts";
@@ -355,7 +350,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       const value = receipt as { readonly outcome?: unknown; readonly event?: unknown };
       return value.outcome === "applied" || (value.event !== null && value.event !== undefined);
     };
-  const projectionReady = new Map<string, Promise<void>>();
   const backupBuildQueue = createBaseBackupQueue(options.replicationBaseBackupConcurrency ?? 2);
   type CachedBackup = {
     readonly archive: Promise<BaseBackupArchive>;
@@ -455,32 +449,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       centerBuildCommit,
       taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
     });
-    const rootDir = repoRoot(frame.repoId),
-      layout = resolveHarnessLayout(rootDir);
+    const rootDir = repoRoot(frame.repoId);
     const store = openFleetStorage({ rootDir, repoId: frame.repoId, storage: options.storage?.[frame.repoId] });
-    let ready = projectionReady.get(frame.repoId);
-    if (!ready) {
-      ready = (async () => {
-        const events = makeTaskEventReader({ rootDir, repoId: frame.repoId, storage: options.storage?.[frame.repoId] });
-        const projection = makeTaskProjection({
-          rootDir,
-          projectionPath: path.join(layout.localRoot, "cache", "task.sqlite"),
-          eventStore: events,
-          storage: options.storage?.[frame.repoId],
-        });
-        projection.catchUp?.();
-        projection.close();
-        await events.drain();
-      })();
-      projectionReady.set(frame.repoId, ready);
-    }
-    try {
-      await ready;
-    } catch (error) {
-      // A failed catch-up fails this session; the next one tries again instead of reusing the rejection.
-      if (projectionReady.get(frame.repoId) === ready) projectionReady.delete(frame.repoId);
-      throw error;
-    }
     const slots = replicationSlots;
     nodeAdmission.assertOpen(nodeId);
     const owned = ownedEpochFor(frame.repoId),
@@ -578,12 +548,19 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             retained = false;
             unpin();
           };
-          const started = await store.startBackup(
-            directory,
-            path.join(layout.localRoot, "cache", "task.sqlite"),
+          return options.host.replica(frame.repoId).backup(
+            {
+              directory,
+              writerEpochFence: {
+                schema: "harness-writer-epoch-fence/v1",
+                stateRoot: options.writerEpochStateRoot ?? options.stateRoot,
+                repoId: frame.repoId,
+                epoch: owned.epoch,
+                holderId: owned.holderId,
+              },
+            },
             buildSignal,
           );
-          return started.complete;
         })()
           .then(
             (built) => {

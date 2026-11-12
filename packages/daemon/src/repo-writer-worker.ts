@@ -304,8 +304,8 @@ async function startRepoWriterWorker(): Promise<void> {
     const markExecutionStart = (): void => {
       executionStartedAtMs ??= monotonicMs();
     };
-    // Only the two socket write families append to the cell's single-write chain; the queue copies
-    // the live head into this object at that append, before the request waits.
+    // The single-write chain copies its live head into this object when the request appends,
+    // before the request waits.
     const queueObservation = writeQueueObservationFor(request);
     activeRequests.set(request.requestId, abort);
     if ((bootstrap.role !== "reader" && !cell) || draining) {
@@ -415,6 +415,13 @@ async function startRepoWriterWorker(): Promise<void> {
           break;
         case "pruneReplicationLog":
           value = await cell.pruneReplicationLog!(Number(request.payload), queueObservation);
+          break;
+        case "fleetBackup":
+          value = await cell.fleetBackup!(
+            request.payload as Parameters<NonNullable<typeof cell.fleetBackup>>[0],
+            abort.signal,
+            queueObservation,
+          );
           break;
         case "catalog": {
           const payload = request.payload as { method: keyof typeof cell.catalog; args: unknown[] };
@@ -687,6 +694,7 @@ const writeQueueCommandForMethod: Partial<Record<RepoWriterRequestV1["method"], 
   steerRuntime: "runtime-steer",
   runtimeIngress: "runtime-run",
   pruneReplicationLog: "replication-prune",
+  fleetBackup: "replication-snapshot",
 };
 
 function monotonicMs(): number {
