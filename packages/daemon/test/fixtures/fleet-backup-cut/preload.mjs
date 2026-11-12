@@ -5,6 +5,7 @@ import threads, {
   MessageChannel,
   BroadcastChannel,
   threadId,
+  parentPort,
 } from "node:worker_threads";
 import { syncBuiltinESMExports } from "node:module";
 import { DatabaseSync } from "node:sqlite";
@@ -23,13 +24,25 @@ export function installAdapter(config) {
       producerThreadId: threadId,
       order: Atomics.add(new Int32Array(config.shared), 1, 1),
     });
+  const received = (message) => {
+    if (message.schema === "harness-repo-writer-cancel/v1")
+      emit({ event: "cancel-received", requestId: message.requestId });
+    if (message.schema === "harness-repo-writer-request/v1" && message.payload?.action?.taskId === config.taskId)
+      queueMicrotask(() => emit({ event: "write-received", requestId: message.requestId }));
+  };
+  // Only the resident writer consumes cancellation. Do not change read/backup worker port refs.
+  if (workerData?.schema === "harness-repo-writer-bootstrap/v1" && workerData.role !== "reader")
+    parentPort.on("message", received);
+  let backups = 0;
   class ObservedWorker extends NativeWorker {
     constructor(url, options = {}) {
       const filename = String(url);
       const backup = /\/fleet-basebackup-worker\.(?:ts|js)$/u.test(filename);
       const writer = /\/repo-writer-worker\.(?:ts|js)$/u.test(filename);
       const ports = backup ? new MessageChannel() : null;
-      const extra = backup ? { [probeKey]: { ...config, port: ports.port2 } } : {};
+      const extra = backup
+        ? { [probeKey]: { ...config, fault: backups++ === 0 ? config.fault : undefined, port: ports.port2 } }
+        : {};
       try {
         super(url, {
           ...options,
@@ -60,13 +73,27 @@ export function installAdapter(config) {
       }
       if (writer) {
         const send = this.postMessage;
+        const snapshots = new Set();
         this.postMessage = function (message, ...args) {
           // Observe only the selected real task write; never serialize its binding or credentials.
           if (message.schema === "harness-repo-writer-request/v1" && message.payload?.action?.taskId === config.taskId)
             emit({ event: "write-dispatched", requestId: message.requestId, targetThreadId });
+          if (message.schema === "harness-repo-writer-request/v1" && message.method === "fleetBackup") {
+            snapshots.add(message.requestId);
+            emit({ event: "snapshot-dispatched", requestId: message.requestId, targetThreadId });
+          }
           return send.call(this, message, ...args);
         };
         this.on("message", (message) => {
+          if (message.schema === "harness-repo-writer-receipt/v1" && snapshots.has(message.requestId))
+            emit({
+              event: "snapshot-receipt",
+              requestId: message.requestId,
+              outcome: message.outcome,
+              error: message.error,
+              queueHead: message.queueHead ?? null,
+              targetThreadId,
+            });
           if (message.schema === "harness-repo-writer-receipt/v1" && message.value?.taskId === config.taskId)
             emit({
               event: "writer-receipt",
@@ -84,6 +111,7 @@ export function installAdapter(config) {
     threads.Worker = NativeWorker;
     syncBuiltinESMExports();
     channel.close();
+    parentPort?.off("message", received);
     restore = undefined;
   };
   return () => restore();
@@ -97,6 +125,18 @@ if (probe) {
   const emit = (event) =>
     probe.port.postMessage({ ...event, producerThreadId: threadId, order: Atomics.add(cells, 1, 1), threadId });
   const prepare = DatabaseSync.prototype.prepare;
+  const send = parentPort.postMessage;
+  parentPort.postMessage = function (message, ...args) {
+    const result = send.call(this, message, ...args);
+    if (message.kind === "pinned" && probe.holdArchive) {
+      emit({ event: "archive-held" });
+      const outcome = Atomics.wait(cells, 2, 0, 30_000);
+      if (outcome === "timed-out") throw new Error("archive barrier was not released within its cleanup bound");
+      emit({ event: "archive-barrier-released" });
+      if (probe.fault === "after-pinned") throw new Error("injected backup failure after pinning");
+    }
+    return result;
+  };
   DatabaseSync.prototype.prepare = function (sql) {
     const statement = prepare.call(this, sql);
     const ledger =
@@ -115,6 +155,7 @@ if (probe) {
       } else {
         DatabaseSync.prototype.prepare = prepare;
         emit({ event: "sqlite-patch-restored" });
+        if (probe.fault === "before-pinned") throw new Error("injected backup failure before pinning");
       }
       return row;
     };

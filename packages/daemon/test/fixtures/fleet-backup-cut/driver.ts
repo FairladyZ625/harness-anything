@@ -1,74 +1,19 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import path from "node:path";
 import tls from "node:tls";
-import { BroadcastChannel, setEnvironmentData, threadId } from "node:worker_threads";
 import type { TestContext } from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { fleetReplicationFixture, replicationRepoId } from "../../fleet-replication.fixture.ts";
 import { catchUpReplica } from "../../replica-catch-up.fixture.ts";
 import { readReplicaGeneration } from "../../../src/fleet/replica-generation.ts";
-import { installAdapter, probeKey } from "./preload.mjs";
+import { cutProbe } from "./probe.ts";
 
-type Entry = { event: string; order: number; [key: string]: any };
 export type Schedule = "stationary" | "after-pinned" | "between-selects";
 
 export async function runCut(t: TestContext, schedule: Schedule): Promise<void> {
-  const shared = new SharedArrayBuffer(8),
-    cells = new Int32Array(shared);
-  const config = { shared, channel: `backup-cut-${randomUUID()}`, taskId: "task_cut000000000000000000000001" };
-  const entries: Entry[] = [];
-  const pending = new Set<() => void>();
-  const record = (event: string, detail: Record<string, unknown> = {}) => {
-    // Sequence numbers are assigned by the producer, not by the receiving channel.
-    const entry = { event, ...detail, producerThreadId: threadId, order: Atomics.add(cells, 1, 1) };
-    accept(entry);
-  };
-  const accept = (entry: Entry) => {
-    entries.push(entry);
-    process.stdout.write(`[backup-cut] ${JSON.stringify({ schedule, ...entry })}\n`);
-    for (const check of [...pending]) check();
-  };
-  const wait = (event: string): Promise<Entry> =>
-    new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        pending.delete(check);
-        reject(new Error(`missing discrete event: ${event}`));
-      }, 30_000);
-      const check = () => {
-        const entry = entries.find((entry) => entry.event === event);
-        if (!entry) return;
-        clearTimeout(timer);
-        pending.delete(check);
-        resolve(entry);
-      };
-      pending.add(check);
-      check();
-    });
-  const channel = new BroadcastChannel(config.channel);
-  channel.onmessage = ({ data }) => accept(data);
-  setEnvironmentData(probeKey, config);
-  const restore = installAdapter(config);
-  const release = () => {
-    record("release-requested");
-    Atomics.store(cells, 0, 1);
-    Atomics.notify(cells, 0);
-  };
-  // Registered before fixture cleanup: a failed assertion cannot strand its backup worker.
-  t.after(() => {
-    release();
-    setEnvironmentData(probeKey, undefined);
-    restore();
-    channel.close();
-  });
-  record("environment", {
-    node: process.version,
-    platform: process.platform,
-    concurrency: process.env.HARNESS_TEST_CONCURRENCY ?? "runner-argv",
-    actor: process.env.HARNESS_ACTOR,
-  });
+  const { config, entries, record, wait, release } = cutProbe(t, schedule);
   const f = await fleetReplicationFixture(t);
   const seeded = await f.centerRun({
     kind: "task-create",
@@ -203,13 +148,23 @@ export async function runCut(t: TestContext, schedule: Schedule): Promise<void> 
       // or absence of a receipt is used to claim the write was blocked.
       const dispatched = await wait("write-dispatched");
       assert.equal(dispatched.targetThreadId, created.parentThreadId);
+      await wait("write-received", (e) => e.requestId === dispatched.requestId);
       record("write-dispatched-to-backup-owner");
     }
   }
   release();
   if (schedule === "after-pinned") {
     await wait("pinned");
+    await wait("archive-held");
     writing = write();
+    await writing;
+    // The worker cannot produce an archive until this explicit release, after the applied write.
+    assert.equal(
+      entries.some((e) => e.event === "archive-complete"),
+      false,
+    );
+    record("write-completed-while-archive-held");
+    release(2);
   }
   const result = await replica;
   await writing;
@@ -229,6 +184,7 @@ export async function runCut(t: TestContext, schedule: Schedule): Promise<void> 
     const projection = entries.find((e) => e.event === "projection-select")!;
     assert.equal(ledger.row.revision, projection.row.watermark, "backup uses one accepted and projected cut");
     assert.equal(f.transportErrors.length, 0);
+    assert.ok(f.host.status().repos.some((r) => r.repoId === replicationRepoId && r.state === "attached"));
     assert.equal(entries.filter((e) => e.event === "pinned").length, 1);
     assert.ok(
       entries.some((e) => e.event === "replica.ack"),
@@ -236,7 +192,13 @@ export async function runCut(t: TestContext, schedule: Schedule): Promise<void> 
     );
     if (schedule === "between-selects") {
       const writer = await wait("writer-receipt");
-      assert.ok(writer.queueHead, "the real write waited behind the snapshot owner's queue head");
+      const snapshot = await wait("snapshot-dispatched");
+      assert.equal(
+        writer.queueHead?.requestId,
+        snapshot.requestId,
+        "the write waited behind this exact snapshot request",
+      );
+      assert.equal(writer.queueHead?.command, "replication-snapshot");
       assert.ok(
         entries.find((e) => e.event === "pinned")!.order < entries.find((e) => e.event === "write-receipt")!.order,
       );
