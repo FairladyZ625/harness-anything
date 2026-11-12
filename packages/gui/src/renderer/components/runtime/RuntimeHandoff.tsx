@@ -9,10 +9,12 @@ import { isRendererRecord } from "../../result-validation.ts";
 export function RuntimeHandoff({
   repoId,
   dispatchId,
+  canExport,
   onNavigate,
 }: {
   readonly repoId: string;
   readonly dispatchId: string;
+  readonly canExport: boolean;
   readonly onNavigate: (ref: string) => void;
 }) {
   const [dispatchKey] = useState(() => `gui-handoff-${crypto.randomUUID()}`);
@@ -56,7 +58,7 @@ export function RuntimeHandoff({
       <div data-testid="runtime-handoff" className="flex flex-col gap-2">
         <p className="ui-meta text-text-muted">{t("agentRuntime.handoffHint")}</p>
         <div className="flex flex-wrap gap-2">
-          <Button testId="handoff-export" disabled={busy} onClick={() => void run("export")}>
+          <Button testId="handoff-export" disabled={busy || !canExport} onClick={() => void run("export")}>
             {t("agentRuntime.handoffExport")}
           </Button>
           <Button testId="handoff-revoke" disabled={busy} onClick={() => void run("revoke")}>

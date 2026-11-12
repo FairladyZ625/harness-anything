@@ -740,8 +740,7 @@ export function dispatchLifecycleView(group: DispatchLifecycleGroup, dispatchId?
     policy: {
       attemptSettled: attempt.phase === "closed",
       groupSettled: group.phase === "closed",
-      consentBlocked:
-        group.phase === "waiting_backoff" || (group.delivery.status !== "registered" && group.phase !== "closed"),
+      consentBlocked: group.phase !== "closed",
       fallbackPending: group.phase === "waiting_backoff",
       capacity: reservationState(attempt),
       capacityDisposition,

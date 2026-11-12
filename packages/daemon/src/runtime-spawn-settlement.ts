@@ -726,6 +726,9 @@ export async function publishExit(
     if (!stopProofPending) {
       context.processes.delete(active.runtimeSessionId);
       active.process.release?.();
+      // The transport ended even if terminal publication was denied. This notification
+      // closes subscriptions; outcome waiters still re-read the accepted lifecycle.
+      context.input.stream.publish(active.runtimeSessionId, { type: "exit", outcome: "unknown" });
     }
     settlementFailed = true;
     if (active.exitSettlement === settlement) active.exitSettlement = undefined;

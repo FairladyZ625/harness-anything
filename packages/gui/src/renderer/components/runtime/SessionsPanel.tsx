@@ -171,11 +171,12 @@ export function SessionsPanel({
           onNavigateEntity={onNavigateEntity}
         />
       )}
-      {row?.kind === "round" && session?.kindId === "codex" && session.lifecycle?.policy?.attemptSettled === true && (
+      {row?.kind === "round" && session?.kindId === "codex" && (
         <RuntimeHandoff
           key={row.dispatchId}
           repoId={repoId}
           dispatchId={row.dispatchId}
+          canExport={session.lifecycle?.policy?.canHandoff === true}
           onNavigate={onNavigateEntity}
         />
       )}

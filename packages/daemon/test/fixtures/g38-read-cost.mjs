@@ -107,7 +107,7 @@ export const READ_PROBES = Object.freeze({
   },
   "task-dispatches-page": {
     reads: ["command:task-dispatches", "method:repo.task.dispatches"],
-    run: ({ runtime }) => runtime.read("repo.task.dispatches", { taskIds: ["task-parity"], limit: 1 }),
+    run: ({ runtime }) => runtime.read("repo.task.dispatches", { taskIds: ["history-task"], limit: 1 }),
     size: (value) => value.dispatches.length,
   },
   "task-dispatches": {

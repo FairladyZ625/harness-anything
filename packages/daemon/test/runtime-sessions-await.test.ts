@@ -3,7 +3,7 @@ import { lifecycleSummaryFor } from "./dispatch-lifecycle-read.fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentRuntimeSessionResult } from "../src/agent-runtime-contract.ts";
-import { taskDispatchRowSettled, taskDispatchRowsSettled } from "../src/dispatch-read.ts";
+import { taskDispatchRowsSettled } from "../src/dispatch-read.ts";
 import type { DaemonTaskDispatchesResult, TaskDispatchRow } from "../src/protocol/daemon-protocol.contract.ts";
 import { orchestrateRuntimeSessionsAwait, type RuntimeAwaitContext } from "../src/runtime-orchestration.ts";
 
@@ -229,7 +229,7 @@ test("sessions.await preserves stopped as a terminal verdict without reporting s
     assert.equal(signals.waits, 0);
   }
   for (const status of ["stopped", "blocked"] as const) {
-    assert.equal(taskDispatchRowSettled(dispatchRow({ status, outcome: "stopped" }), ["dispatch-1"]), true);
+    assert.equal(taskDispatchRowsSettled([dispatchRow({ status, outcome: "stopped" })]), true);
   }
 });
 
@@ -286,8 +286,8 @@ test("dispatch awaits use the group policy and ignore obsolete fallback markers"
       attemptSettled: true,
       outcome: "failed",
     });
-  assert.equal(taskDispatchRowSettled(dispatchRow({ lifecycle: waiting, fallbackState: "exhausted" }), []), false);
-  assert.equal(taskDispatchRowSettled(dispatchRow({ lifecycle: exhausted, fallbackState: "scheduled" }), []), true);
+  assert.equal(taskDispatchRowsSettled([dispatchRow({ lifecycle: waiting, fallbackState: "exhausted" })]), false);
+  assert.equal(taskDispatchRowsSettled([dispatchRow({ lifecycle: exhausted, fallbackState: "scheduled" })]), true);
   assert.equal(
     taskDispatchRowsSettled([dispatchRow({ lifecycle: exhausted }), dispatchRow({ lifecycle: waiting })]),
     false,

@@ -1,3 +1,4 @@
+import { readRuntimeCanAttach } from "./agent-runtime-read.ts";
 import { taskListQueryFromPayload } from "./repo-query-payload.ts";
 import { type TaskProjection, type TaskProjectionQueries, type WriteReceiptDraft } from "@harness-anything/kernel";
 import { makeDaemonProjectionReader, makeTaskEventReader } from "@harness-anything/storage";
@@ -315,14 +316,7 @@ export function makeRepoReadRuntime(
     readSettlementSession: (runtimeSessionId: string) =>
       reader.withSession((projection) => projection.readDispatchLifecycle({ by: "session", runtimeSessionId })),
     canAttach: (session: NonNullable<ReturnType<typeof readSession>>) =>
-      query((projection) => {
-        const read = projection.readDispatchLifecycle({ by: "session", runtimeSessionId: session.runtimeSessionId });
-        return (
-          read.status === "ready" &&
-          read.rows.some(({ policy }) => policy.canSteer) &&
-          Boolean(projection.readRuntimeInstallation(session.installationId)?.effectiveCapabilities.includes("attach"))
-        );
-      }),
+      query((projection) => readRuntimeCanAttach(projection, session)),
     explainBasis: (payload: Readonly<Record<string, unknown>>, binding?: RepoCellBinding) => {
       const read = (projection: TaskProjectionQueries) => ({
         revision: projection.readCut().sourceRevision,

@@ -2,7 +2,6 @@ import type { TaskProjection } from "@harness-anything/kernel";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
 import { readDispatchRowsByIds, readTaskDispatches } from "./dispatch-read.ts";
-import { squadReadError } from "./squad-run-list.ts";
 import { squadTaskRef, type SquadState } from "./squad-run-state.ts";
 import { synthesisReportPath, type LeaderDecision, type WorkerAttempt } from "./squad-leader-decision.ts";
 
@@ -55,17 +54,11 @@ export function dispatchRows(
     ];
     return query((projection) => readDispatchRowsByIds({ projection, rootDir, dispatchIds }));
   }
-  const childIds = state.workerAttempts.flatMap((attempt) => (attempt.taskId ? [attempt.taskId] : [])),
-    result = query((projection) =>
-      readTaskDispatches({
-        projection,
-        rootDir,
-        ...(childIds.length ? { taskIds: [task.taskId, ...childIds] } : { taskId: task.taskId }),
-      }),
-    );
-  if ("unavailableTaskIds" in result && result.unavailableTaskIds.length)
-    throw squadReadError("task_not_found", `Task ${result.unavailableTaskIds[0]} has no projected package path.`);
-  return result.dispatches;
+  // Discovery needs the complete task histories; taskIds is a bounded public page.
+  const taskIds = new Set([task.taskId, ...state.workerAttempts.flatMap((attempt) => attempt.taskId ?? [])]);
+  return query((projection) =>
+    [...taskIds].flatMap((taskId) => readTaskDispatches({ projection, rootDir, taskId }).dispatches),
+  );
 }
 
 export function workerRows(

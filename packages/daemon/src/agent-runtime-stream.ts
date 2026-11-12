@@ -61,7 +61,7 @@ export interface AgentRuntimeStreamHub {
 const BUFFER_LIMIT = 32,
   WITNESS_TTL_MS = 5 * 60_000;
 type BufferedEvent = { readonly sequence: number; readonly event: AgentRuntimeAttachEvent };
-type StreamState = { sequence: number; events: BufferedEvent[]; subscribers: Set<Subscriber> };
+type StreamState = { sequence: number; ended: boolean; events: BufferedEvent[]; subscribers: Set<Subscriber> };
 type Subscriber = { runtimeSessionId: string; cursor: number; detached: boolean; wake: (() => void) | null };
 
 export function makeAgentRuntimeStreamHub(input: {
@@ -78,7 +78,7 @@ export function makeAgentRuntimeStreamHub(input: {
   const stateFor = (runtimeSessionId: string): StreamState => {
     let state = streams.get(runtimeSessionId);
     if (!state) {
-      state = { sequence: 0, events: [], subscribers: new Set() };
+      state = { sequence: 0, ended: false, events: [], subscribers: new Set() };
       streams.set(runtimeSessionId, state);
     }
     return state;
@@ -90,6 +90,9 @@ export function makeAgentRuntimeStreamHub(input: {
       if (session === null || !(await input.canAttach(session))) return unsupported(runtimeSessionId);
       const state = stateFor(runtimeSessionId),
         after = parseCursor(afterCursor);
+      // Transport EOF refuses new subscriptions even if terminal publication was denied.
+      // This does not settle the canonical lifecycle or its parked outcome waiter.
+      if (state.ended) return unsupported(runtimeSessionId);
       const oldest = state.events[0]?.sequence ?? state.sequence + 1,
         gap = after > state.sequence || after < oldest - 1;
       const initialEvents = gap
@@ -121,6 +124,7 @@ export function makeAgentRuntimeStreamHub(input: {
         sequence = ++state.sequence,
         event = signalEvent(runtimeSessionId, sequence, now(), signal);
       state.events.push({ sequence, event });
+      if (signal.type === "exit") state.ended = true;
       if (state.events.length > BUFFER_LIMIT) state.events.splice(0, state.events.length - BUFFER_LIMIT);
       for (const subscriber of state.subscribers) subscriber.wake?.();
       return event;

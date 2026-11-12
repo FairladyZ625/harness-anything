@@ -395,31 +395,64 @@ export function repositoryEventQueries(
           return projected ? [projected] : [];
         }),
       ),
-    readRuntimeDispatchPage: ({ startedAtGte, cursor, limit: pageLimit }) =>
+    readRuntimeDispatchPage: ({ taskIds, startedAtGte, cursor, limit: pageLimit }) =>
       withRead((db) => {
         if (!validateStorageReadWindow(pageLimit, storageReadPolicy.defaultValue.pageSizes.standard))
           throw new Error("runtime dispatch page requires a limit from 1 to 500");
         const afterStartedAt = cursor?.startedAt ?? "",
           afterDispatchId = cursor?.dispatchId ?? "",
-          raw = queryRows(
-            db,
-            RUNTIME_DISPATCH_PAGE_SQL,
-            startedAtGte,
-            afterStartedAt,
-            afterStartedAt,
-            afterDispatchId,
-            pageLimit + 1,
-          ),
+          raw =
+            taskIds === undefined
+              ? queryRows(
+                  db,
+                  RUNTIME_DISPATCH_PAGE_SQL,
+                  startedAtGte,
+                  afterStartedAt,
+                  afterStartedAt,
+                  afterDispatchId,
+                  pageLimit + 1,
+                )
+              : taskIds
+                  .flatMap((taskId) =>
+                    queryRows(
+                      db,
+                      RUNTIME_LATEST_DISPATCH_BY_TASK_SQL.replace(
+                        "ORDER BY",
+                        `AND COALESCE(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.occurredAt')) >= ? AND
+              (COALESCE(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.occurredAt')),
+               json_extract(event_json, '$.payload.dispatchId')) > (?, ?) ORDER BY`,
+                      )
+                        .replaceAll(" DESC", " ASC")
+                        .replace("LIMIT 1", "LIMIT ?"),
+                      taskId,
+                      startedAtGte,
+                      afterStartedAt,
+                      afterDispatchId,
+                      pageLimit + 1,
+                    ),
+                  )
+                  .sort((left, right) => {
+                    const a = JSON.parse(String(left.event_json)),
+                      b = JSON.parse(String(right.event_json));
+                    return (
+                      (a.payload.startedAt ?? a.occurredAt).localeCompare(b.payload.startedAt ?? b.occurredAt) ||
+                      a.payload.dispatchId.localeCompare(b.payload.dispatchId)
+                    );
+                  })
+                  .slice(0, pageLimit + 1),
           done = raw.length <= pageLimit,
           rows = raw.slice(0, pageLimit).flatMap((row) => {
             const projected = projectedDispatch(db, row);
             return projected ? [projected] : [];
           }),
-          last = rows.at(-1)?.event.payload;
+          last = rows.at(-1)?.event;
         return {
           rows,
           done,
-          nextCursor: !done && last?.startedAt ? { startedAt: last.startedAt, dispatchId: last.dispatchId } : null,
+          nextCursor:
+            !done && last
+              ? { startedAt: last.payload.startedAt ?? last.occurredAt, dispatchId: last.payload.dispatchId }
+              : null,
         };
       }),
     readRuntimeDispatchesByMember: ({ agentId, squadId, limit }) =>

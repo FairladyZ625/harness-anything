@@ -72,7 +72,7 @@ test("a stale lifecycle watermark is pending and never advertised live", () => {
   assert.equal(taskDispatchRowsSettled([row]), false);
 });
 
-test("consent uses accepted review delivery while its provider process is still running", async () => {
+test("consent waits for the provider process even after accepted review delivery", async () => {
   const { reduceDispatchLifecycle, dispatchLifecycleView } = await import("@harness-anything/kernel"),
     digest = `sha256:${"a".repeat(64)}` as const,
     options = {
@@ -120,13 +120,44 @@ test("consent uses accepted review delivery while its provider process is still 
   const { unsettledCutReviewDispatches } = await import("../src/dispatch-read.ts");
   assert.equal(view.policy.groupSettled, false);
   assert.equal(view.policy.capacityDisposition, "busy");
-  assert.deepEqual(
+  assert.equal(
     unsettledCutReviewDispatches({
       projection,
       taskId: options.taskId,
       executionId: options.executionId,
       submissionDigest: digest,
-    }),
-    [],
+    }).length,
+    1,
   );
+});
+
+test("both attach entry points share the central interactive policy and fail closed for pending/fence", async () => {
+  const { readRuntimeCanAttach } = await import("../src/agent-runtime-read.ts"),
+    { reduceDispatchLifecycle, dispatchLifecycleView } = await import("@harness-anything/kernel");
+  const options = { instanceId: "worker", source: "local" as const, dispatchId: "dispatch-attach" },
+    admitted = reduceDispatchLifecycle(null, lifecycleEvent("R", "runtime-attach", options));
+  assert.ok(admitted.kind === "applied");
+  const started = reduceDispatchLifecycle(admitted.group, lifecycleEvent("S", "runtime-attach", options));
+  assert.ok(started.kind === "applied");
+  const group = started.group,
+    attempt = group.attempts[0]!;
+  for (const [name, candidate, expected] of [
+    ["running", group, true],
+    ["settling", { ...group, attempts: [{ ...attempt, phase: "settling" as const }] }, false],
+    ["owner unverified", { ...group, attempts: [{ ...attempt, fence: { ...attempt.fence, verified: false } }] }, false],
+    ["pending", null, false],
+  ] as const) {
+    const read = candidate
+      ? { status: "ready", watermark: 1, sourceRevision: 1, nextCursor: null, rows: [dispatchLifecycleView(candidate)] }
+      : { status: "pending", watermark: 1, sourceRevision: 2 };
+    const projection = {
+      readDispatchLifecycle: () => read,
+      readRuntimeInstallation: () => ({ effectiveCapabilities: ["attach"] }),
+    } as unknown as TaskProjectionQueries;
+    assert.equal(
+      readRuntimeCanAttach(projection, { runtimeSessionId: "runtime-attach", installationId: "install" } as never),
+      expected,
+      name,
+    );
+  }
 });

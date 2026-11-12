@@ -721,7 +721,6 @@ const runtimeSessionDoc: EntityKindDoc = {
     field("liveness", true, "enum", "进程存活:见状态词表。"),
     field("outcome", true, "enum", "provider 结果;未结算为 null。"),
     field("semanticState", true, "enum", "上一版协议兼容字段;2026-12-07 删除。"),
-    field("lifecycle", false, "object", "中心 lifecycle 派生的 phase、displayStatus 与 policy。"),
   ],
   nestedFields: noNested,
   edges: [

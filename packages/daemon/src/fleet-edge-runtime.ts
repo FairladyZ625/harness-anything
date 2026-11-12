@@ -1,3 +1,4 @@
+import { readAllTaskDispatchPages } from "./dispatch-read.ts";
 import type * as RuntimeStatus from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import { fleetMirrorTaskPaths } from "./fleet-edge-mirror.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
@@ -5,6 +6,7 @@ import { requiredCellText } from "./repo-cell-settlement.ts";
 import { operationId } from "./repo-cell-proof.ts";
 import {
   canStartExecution,
+  DISPATCH_LIFECYCLE_PAGE_LIMIT,
   consumeKnownError,
   isNativeExecution,
   type RepositorySettingsV1,
@@ -1216,7 +1218,14 @@ export function openFleetEdgeRuntime(input: {
       readSession: async (runtimeSessionId) =>
         (await read("repo.agentRuntime.sessions.read", { runtimeSessionId })) as never,
       readTaskDispatches: async (taskIds) =>
-        (await read("repo.task.dispatches", { taskIds: taskIds as string[] })) as never,
+        readAllTaskDispatchPages(
+          async (facets) =>
+            (await read("repo.task.dispatches", {
+              taskIds: taskIds as string[],
+              limit: DISPATCH_LIFECYCLE_PAGE_LIMIT,
+              ...facets,
+            })) as never,
+        ),
       awaitSignal: () => waitForLocalReplicaChange(request.viewRoot, request.repoId, request.nodeId, connectionSignal),
       connectionSignal,
       codedError: (code, message) => Object.assign(new Error(message), { code }),

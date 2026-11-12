@@ -783,7 +783,7 @@ export type DaemonDecisionListResult =
     };
 
 /** The CLI-compatible single read and GUI batch read share the same stable method and
- * schema ids. Exactly one selector is allowed; pagination applies only to taskIds. The
+ * schema ids. Exactly one selector is allowed; pagination bounds dispatch rows selected by taskIds. The
  * member selector returns one executor's newest dispatches, bounded by the required limit. */
 export type DaemonTaskDispatchesPayload = {
   readonly advisorySurface?: DecisionReadSurface;

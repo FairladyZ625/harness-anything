@@ -37,6 +37,7 @@ export interface RpcRoutingDeclaration {
 // These host controls have no CLI action declaration. This is their ownership port,
 // consumed by protocol startup as well as the coverage gate; unknown methods have no default.
 const hostMethodTopology: ReadonlyMap<string, CommandTopology> = new Map([
+  ["protocol.dispatchLifecycle.enable", repoReadCommandTopology],
   // Version registration mutates the daemon's skill-evaluation catalog and has no
   // repository payload; keep it on the host-admin route alongside the other skillEval writes.
   ["daemon.skillEval.version.register", hostAdminCommandTopology],

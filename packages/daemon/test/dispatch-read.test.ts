@@ -147,6 +147,14 @@ function fixture(
         (candidate) => candidate.payload.taskId !== undefined && taskIds.includes(candidate.payload.taskId),
       ),
     readLatestRuntimeDispatchesByTaskIds: () => [event],
+    readRuntimeDispatchPage: ({ taskIds, limit }: Parameters<TaskProjection["readRuntimeDispatchPage"]>[0]) => ({
+      rows: events
+        .filter((candidate) => taskIds?.includes(candidate.payload.taskId!))
+        .slice(0, limit)
+        .map((event) => ({ event, outcome: null })),
+      done: true,
+      nextCursor: null,
+    }),
     readRuntimeDispatchById: (id: string) => {
       const event = events.find((e) => e.payload.dispatchId === id);
       return event ? { event } : null;
@@ -203,11 +211,11 @@ test("task dispatch read queries the requested task ids instead of the dispatch 
     requested: readonly string[] = [];
   const measured = new Proxy(projection, {
     get: (target, property, receiver) => {
-      if (property === "readRuntimeDispatchesByTaskIds")
-        return (taskIds: readonly string[]) => {
+      if (property === "readRuntimeDispatchPage")
+        return (query: Parameters<TaskProjection["readRuntimeDispatchPage"]>[0]) => {
           byTaskCalls += 1;
-          requested = taskIds;
-          return target.readRuntimeDispatchesByTaskIds(taskIds);
+          requested = query.taskIds!;
+          return target.readRuntimeDispatchPage(query);
         };
       const value = Reflect.get(target, property, receiver);
       return typeof value === "function" ? value.bind(target) : value;
@@ -662,7 +670,7 @@ test("a stopped dispatch whose execution delivered is read back succeeded", () =
     } as unknown as TaskProjection;
     const rows = readTaskDispatches({ projection, taskId }).dispatches;
     assert.equal(rows[0]?.status, "succeeded");
-    assert.equal(taskDispatchesOutcome(rows, new Map()).outcome, "succeeded");
+    assert.equal(taskDispatchesOutcome(rows).outcome, "succeeded");
   }
 });
 
@@ -701,7 +709,7 @@ test("a stopped dispatch with the same empty-cut accepted submission is read bac
   } as unknown as TaskProjection;
   const rows = readTaskDispatches({ projection, taskId }).dispatches;
   assert.equal(rows[0]?.status, "succeeded");
-  assert.equal(taskDispatchesOutcome(rows, new Map()).outcome, "succeeded");
+  assert.equal(taskDispatchesOutcome(rows).outcome, "succeeded");
 });
 
 test("an awaiting-ruling dispatch row carries the question and options, not just a raw stream", () => {

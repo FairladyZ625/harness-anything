@@ -10,6 +10,7 @@ import {
   type RuntimeInstallation,
   type RuntimeSession,
   type TaskProjection,
+  type TaskProjectionQueries,
 } from "@harness-anything/kernel";
 import type { AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
 import {
@@ -35,6 +36,17 @@ import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
 import { readRuntimeSessionContextOccupancy } from "./context-occupancy.ts";
 import { runtimeSessionSettlement } from "./runtime-settlement.ts";
 import { candidateSample, resolveUniquePrefix } from "./unique-id-prefix.ts";
+
+/** Attach is an interactive stream: both writer and query entry points consume canSteer.
+ * Installation support is transport inventory, never an alternative process/lifecycle judgment. */
+export function readRuntimeCanAttach(projection: TaskProjectionQueries, session: RuntimeSession): boolean {
+  const read = projection.readDispatchLifecycle({ by: "session", runtimeSessionId: session.runtimeSessionId });
+  return (
+    read.status === "ready" &&
+    read.rows.some(({ policy }) => policy.canSteer) &&
+    Boolean(projection.readRuntimeInstallation(session.installationId)?.effectiveCapabilities.includes("attach"))
+  );
+}
 
 export function makeAgentRuntimeReadModel(input: {
   readonly readDispatch?: (taskId: string, dispatchId: string) => { readonly runtimeSessionId: string } | null;

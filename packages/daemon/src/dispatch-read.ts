@@ -64,10 +64,7 @@ export async function readAllTaskDispatchPages(
         dispatches,
         taskIds: [...taskIds],
         unavailableTaskIds: [...unavailable],
-        ...taskDispatchesOutcome(
-          dispatches,
-          new Map(dispatches.flatMap((row) => (row.nextDispatchId ? [[row.dispatchId, row.nextDispatchId]] : []))),
-        ),
+        ...taskDispatchesOutcome(dispatches),
         status: pending ? "pending" : "ready",
         watermark,
         sourceRevision,
@@ -100,33 +97,16 @@ export function readTaskDispatches(
     return withWorkspacePathPrefix(readMemberTaskDispatches(input), rootDir);
   if (input.latestOnly === true && input.taskIds !== undefined)
     return withWorkspacePathPrefix(readLatestTaskDispatches({ ...input, taskIds: input.taskIds }), rootDir);
-  const singleTaskId = input.taskId,
-    paged = singleTaskId === undefined && (input.limit !== undefined || input.cursor !== undefined),
-    batch = projection.readTaskRuntimeBatch(
-      singleTaskId === undefined
-        ? {
-            taskIds: input.taskIds,
-            ...(input.limit === undefined ? {} : { limit: input.limit }),
-            ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
-          }
-        : { taskIds: [singleTaskId] },
-    );
-  if (singleTaskId !== undefined) {
-    const notFound = projectedTaskNotFound(projection.read(singleTaskId), singleTaskId);
-    if (notFound !== null) throw notFound;
-  }
-  const rows = new Map<string, TaskDispatchRow>(),
-    tasks = new Set(batch.taskIds),
-    sessions = new Map(
-      batch.rows.flatMap((task) => task.sessions.map((session) => [session.runtimeSessionId, session] as const)),
-    );
-  if (
-    singleTaskId !== undefined &&
-    batch.status === "ready" &&
-    !batch.rows.find((row) => row.taskId === singleTaskId)?.packagePath
-  )
+  if (input.taskIds !== undefined)
+    return withWorkspacePathPrefix(readTaskDispatchPage({ ...input, taskIds: input.taskIds }), rootDir);
+  const singleTaskId = input.taskId!,
+    task = projection.read(singleTaskId),
+    cut = projection.readCut();
+  const notFound = projectedTaskNotFound(task, singleTaskId);
+  if (notFound !== null) throw notFound;
+  if (cut.status === "ready" && !task.packagePath)
     throw Object.assign(new Error(`Task ${singleTaskId} has no projected package.`), { code: "task_not_found" });
-  const dispatchEvents = tasks.size === 0 ? [] : projection.readRuntimeDispatchesByTaskIds([...tasks]),
+  const dispatchEvents = projection.readRuntimeDispatchesByTaskIds([singleTaskId]),
     annotations = rootDir
       ? readDecisionAnnotationsByDispatch(
           rootDir,
@@ -134,44 +114,96 @@ export function readTaskDispatches(
           input.advisorySurface ?? "task.dispatches",
         )
       : new Map();
-  for (const event of dispatchEvents)
-    rows.set(
-      event.payload.dispatchId,
-      canonicalDispatchRow(
-        projection,
-        event,
-        sessions.get(event.payload.runtimeSessionId),
-        rootDir,
-        annotations.get(event.payload.dispatchId) ?? [],
-      ),
-    );
-  const dispatches = [...rows.values()].sort(
-      (left, right) =>
-        left.startedAt.localeCompare(right.startedAt) || (paged ? left.dispatchId.localeCompare(right.dispatchId) : 0),
-    ),
-    resumed = new Map(dispatches.flatMap((row) => (row.nextDispatchId ? [[row.dispatchId, row.nextDispatchId]] : []))),
-    terminal = taskDispatchesOutcome(dispatches, resumed);
-  const result: DaemonTaskDispatchesResult = {
+  const dispatches = dispatchEvents
+      .map((event) =>
+        canonicalDispatchRow(
+          projection,
+          event,
+          projection.readRuntimeSession(event.payload.runtimeSessionId) ?? undefined,
+          rootDir,
+          annotations.get(event.payload.dispatchId) ?? [],
+        ),
+      )
+      .sort((left, right) => left.startedAt.localeCompare(right.startedAt)),
+    terminal = taskDispatchesOutcome(dispatches);
+  return {
     ok: true,
     status:
-      batch.status === "pending" || dispatches.some((row) => row.lifecycle?.status === "pending") ? "pending" : "ready",
+      cut.status === "pending" || dispatches.some((row) => row.lifecycle?.status === "pending") ? "pending" : "ready",
     dispatches,
     outcome: terminal.outcome,
     exitCode: terminal.exitCode,
-    watermark: batch.watermark,
-    sourceRevision: batch.sourceRevision,
+    watermark: cut.watermark,
+    sourceRevision: cut.sourceRevision,
     ...(rootDir === undefined ? {} : { workspacePathPrefix: documentWorkspacePath(rootDir, "") }),
-    ...(singleTaskId === undefined
-      ? {
-          taskIds: batch.taskIds,
-          unavailableTaskIds: batch.taskIds.filter(
-            (taskId) => !batch.rows.some((row) => row.taskId === taskId && row.packagePath),
-          ),
-          page: batch.page,
-        }
-      : { taskId: singleTaskId }),
+    taskId: singleTaskId,
   };
-  return "page" in result && paged ? { ...result, page: { ...result.page, cursor: input.cursor ?? null } } : result;
+}
+
+/** Explicit history pages bound both dispatch and session reads by the returned window. */
+function readTaskDispatchPage(input: {
+  readonly projection: TaskProjectionQueries;
+  readonly taskIds: readonly string[];
+  readonly rootDir?: string;
+  readonly limit?: number;
+  readonly cursor?: string;
+  readonly advisorySurface?: DecisionReadSurface;
+}): DispatchBatchRead {
+  const { projection, taskIds } = input,
+    limit = input.limit ?? 500;
+  let cursor: { readonly startedAt: string; readonly dispatchId: string } | undefined;
+  if (input.cursor !== undefined) {
+    const parts: unknown = JSON.parse(Buffer.from(input.cursor, "base64url").toString("utf8"));
+    if (
+      !Array.isArray(parts) ||
+      parts.length !== 2 ||
+      !parts.every((part) => typeof part === "string" && part.length > 0)
+    )
+      throw new Error("query cursor is invalid");
+    cursor = { startedAt: parts[0], dispatchId: parts[1] };
+  }
+  const page = projection.readRuntimeDispatchPage({ taskIds, startedAtGte: "", cursor, limit }),
+    annotations = input.rootDir
+      ? readDecisionAnnotationsByDispatch(
+          input.rootDir,
+          page.rows.map(({ event }) => event.payload.dispatchId),
+          input.advisorySurface ?? "task.dispatches",
+        )
+      : new Map(),
+    dispatches = page.rows.map(({ event }) =>
+      canonicalDispatchRow(
+        projection,
+        event,
+        projection.readRuntimeSession(event.payload.runtimeSessionId) ?? undefined,
+        input.rootDir,
+        annotations.get(event.payload.dispatchId) ?? [],
+      ),
+    ),
+    cut = projection.readCut(),
+    metadata = projection.readTaskIndex({ taskIds });
+  return {
+    ok: true,
+    ...cut,
+    status:
+      cut.status === "pending" ||
+      metadata.status === "pending" ||
+      dispatches.some((row) => row.lifecycle?.status === "pending")
+        ? "pending"
+        : "ready",
+    dispatches,
+    taskIds,
+    unavailableTaskIds: taskIds.filter(
+      (taskId) => !metadata.rows.some((row) => row.taskId === taskId && row.packagePath),
+    ),
+    ...taskDispatchesOutcome(dispatches),
+    page: {
+      limit,
+      cursor: input.cursor ?? null,
+      nextCursor: page.done
+        ? null
+        : Buffer.from(JSON.stringify([page.nextCursor!.startedAt, page.nextCursor!.dispatchId])).toString("base64url"),
+    },
+  };
 }
 
 function withWorkspacePathPrefix(
@@ -204,8 +236,7 @@ function readLatestTaskDispatches(input: {
         (left, right) =>
           left.startedAt.localeCompare(right.startedAt) || left.dispatchId.localeCompare(right.dispatchId),
       ),
-    resumed = new Map(dispatches.flatMap((row) => (row.nextDispatchId ? [[row.dispatchId, row.nextDispatchId]] : []))),
-    terminal = taskDispatchesOutcome(dispatches, resumed),
+    terminal = taskDispatchesOutcome(dispatches),
     cut = projection.readCut();
   return {
     ok: true,
@@ -273,10 +304,7 @@ function readMemberTaskDispatches(input: {
     },
     cut,
   });
-  const resumed = new Map(
-      dispatches.flatMap((row) => (row.nextDispatchId ? [[row.dispatchId, row.nextDispatchId]] : [])),
-    ),
-    terminal = taskDispatchesOutcome(dispatches, resumed);
+  const terminal = taskDispatchesOutcome(dispatches);
   const result: DaemonTaskDispatchesResult = {
     ok: true,
     status: cut.status,
@@ -297,14 +325,11 @@ function readMemberTaskDispatches(input: {
 /** The aggregate terminal verdict for a task's dispatch list, computed once beside the rows so
  * transports render it instead of re-deriving outcome semantics per caller. A still-dispatched
  * fallback attempt is not a verdict; its successor row is. */
-export function taskDispatchesOutcome(
-  dispatches: readonly TaskDispatchRow[],
-  resumedDispatches: ReadonlyMap<string, string>,
-): {
+export function taskDispatchesOutcome(dispatches: readonly TaskDispatchRow[]): {
   readonly outcome: NonNullable<TaskDispatchRow["outcome"]>;
   readonly exitCode: number;
 } {
-  const finalRows = dispatches.filter((row) => !resumedDispatches.has(row.dispatchId)),
+  const finalRows = dispatches.filter((row) => !row.nextDispatchId),
     unsettled = finalRows.length === 0 || finalRows.some((row) => row.lifecycle?.policy?.groupSettled !== true),
     outcome =
       unsettled || finalRows.some((row) => row.status === "lost" || row.status === "unknown")
@@ -319,15 +344,9 @@ export function taskDispatchesOutcome(
   return { outcome, exitCode: unsettled || outcome === "succeeded" ? 0 : 1 };
 }
 
-/** The group policy includes scheduled successors; attempt exit alone never settles a group. */
-export function taskDispatchRowSettled(row: TaskDispatchRow, _dispatchIds: readonly string[]): boolean {
-  return row.lifecycle?.policy?.groupSettled === true;
-}
-
 /** A dispatch list is settled when every row reached its own terminal verdict. */
 export function taskDispatchRowsSettled(rows: readonly TaskDispatchRow[]): boolean {
-  const dispatchIds = rows.map((row) => row.dispatchId);
-  return rows.every((row) => taskDispatchRowSettled(row, dispatchIds));
+  return rows.every((row) => row.lifecycle?.policy?.groupSettled === true);
 }
 
 /**
@@ -389,10 +408,7 @@ export function readTaskLineageDispatches(input: {
         : null;
   }
   const rows: TaskDispatchRow[] = [];
-  for (let offset = 0; offset < taskIds.length; offset += 500)
-    rows.push(
-      ...readTaskDispatches({ projection: input.projection, taskIds: taskIds.slice(offset, offset + 500) }).dispatches,
-    );
+  for (const taskId of taskIds) rows.push(...readTaskDispatches({ projection: input.projection, taskId }).dispatches);
   return rows.sort((left, right) => left.startedAt.localeCompare(right.startedAt));
 }
 

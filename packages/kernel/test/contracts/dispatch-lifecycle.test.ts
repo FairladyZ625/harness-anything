@@ -601,6 +601,7 @@ test("a scheduled fallback carries its due time and a delivery is registered aga
     ["registered", "review:review-d-rev", "running"],
     "a registered review is a delivery; the reviewer still runs until it stops",
   );
+  assert.equal(reviewed.policy.consentBlocked, true, "review registration alone does not finish the review lane");
   assert.deepEqual(
     [reviewed.attempt.stopProof, reviewed.policy.capacityDisposition],
     ["unproven", "busy"],

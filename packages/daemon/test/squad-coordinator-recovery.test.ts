@@ -209,7 +209,9 @@ function makeRecoveryFixture(
   });
 
   const projection = {
+    readCut: () => ({ status: "ready", watermark: 1, sourceRevision: 1 }),
     read: (taskId: string) => ({
+      packagePath: `tasks/${taskId}`,
       watermark: 1,
       sourceRevision: 1,
       snapshot: {
