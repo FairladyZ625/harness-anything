@@ -1,4 +1,3 @@
-import type { ReturnWrite } from "./task-return-dispatch.ts";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { createEntityStore } from "@harness-anything/storage";
@@ -42,7 +41,7 @@ import { runtimeKindForId } from "./runtime-inventory.ts";
 import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
 import { DecisionReviewContentConflictError } from "./repo-cell-errors.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
-import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import type { RepoCellBinding, RepoCellContinuationWrite, RepoTaskAction } from "./repo-cell-types.ts";
 import type { NodeAutoDispatchCandidate } from "./node-auto-dispatch.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { taskExecutionPlacement } from "./task-execution-placement.ts";
@@ -591,7 +590,7 @@ export async function spawnCutReviewDispatch(
     readonly packagePath: string;
     readonly binding: RepoCellBinding;
     readonly revision: number;
-    readonly enqueuePublication?: ReturnWrite;
+    readonly enqueuePublication?: RepoCellContinuationWrite;
     readonly reviewerId: string;
     readonly ownerNote?: string;
     readonly extras?: Readonly<Record<string, unknown>>;
@@ -736,7 +735,7 @@ export async function spawnCutReviewDispatch(
       attemptPayload: typeof payload,
       effect: (authorizationDecision: import("@harness-anything/kernel").AuthorizationDecision) => Promise<unknown>,
     ) => {
-      const apply = async (): Promise<WriteReceiptDraft> => {
+      const apply = async (authorizedBinding?: RepoCellBinding): Promise<WriteReceiptDraft> => {
         const current = cell.projection.read(input.taskId).snapshot,
           execution = current.executions.find((value) => value.executionId === input.execution.executionId);
         if (
@@ -775,15 +774,17 @@ export async function spawnCutReviewDispatch(
                 "Retry after that review session ends.",
             );
         }
-        const authorizationDecision = await evaluateRepoCellAction({
-          action: { kind: "runtime-spawn", ...attemptPayload },
-          repoId: cell.input.repoId,
-          binding: input.binding,
-          actionId: reviewDispatchIds(cell.input.repoId, attemptPayload.dispatchKey).dispatchOpId,
-          revision: cell.store.readHead()?.revision ?? 0,
-          now: cell.now(),
-          readTask: (taskId) => cell.projection.read(taskId).snapshot.task,
-        });
+        const authorizationDecision = authorizedBinding?.authorizationDecision
+          ? authorizedBinding.authorizationDecision
+          : await evaluateRepoCellAction({
+              action: { kind: "runtime-spawn", ...attemptPayload },
+              repoId: cell.input.repoId,
+              binding: input.binding,
+              actionId: reviewDispatchIds(cell.input.repoId, attemptPayload.dispatchKey).dispatchOpId,
+              revision: cell.store.readHead()?.revision ?? 0,
+              now: cell.now(),
+              readTask: (taskId) => cell.projection.read(taskId).snapshot.task,
+            });
         if (authorizationDecision.outcome !== "allowed")
           throw cell.cellCodedError(
             "authorization_denied",
@@ -791,12 +792,22 @@ export async function spawnCutReviewDispatch(
           );
         return (await effect(authorizationDecision)) as WriteReceiptDraft;
       };
-      const receipt = await (input.enqueuePublication ? input.enqueuePublication(apply) : apply());
+      const receipt = await (input.enqueuePublication
+        ? input
+            .enqueuePublication({ kind: "runtime-spawn", ...attemptPayload }, input.binding, apply)
+            .catch((error) => {
+              if (runtimeErrorCode(error) !== "authorization_denied") throw error;
+              throw cell.cellCodedError(
+                "authorization_denied",
+                `authorization_denied: ${error instanceof Error ? error.message : String(error)}`,
+              );
+            })
+        : apply());
       if (receipt.outcome === "no_changes") alreadyDispatched = true;
       if (receipt.outcome !== "applied" && receipt.outcome !== "no_changes")
         throw cell.cellCodedError(
           receipt.code ?? "review_dispatch_failed",
-          receipt.rejectionExplanation ?? "Review dispatch failed.",
+          `${receipt.code === "authorization_denied" ? "authorization_denied: " : ""}${receipt.rejectionExplanation ?? "Review dispatch failed."}`,
         );
     };
   try {
@@ -888,7 +899,7 @@ export async function dispatchInReviewCutReview(
   action: RepoTaskAction,
   binding: RepoCellBinding,
   receipt: WriteReceiptDraft,
-  enqueuePublication?: ReturnWrite,
+  enqueuePublication?: RepoCellContinuationWrite,
   submissionOpId?: string,
 ): Promise<{
   readonly seat?: ReviewSeat;

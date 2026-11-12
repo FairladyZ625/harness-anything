@@ -433,11 +433,11 @@ async function refreshDefaultBranch(rootDir: string): Promise<void> {
   );
 }
 
-// A checkout runs outside the repository write queue, so two starts, or a start and a dispatch, can reach one
-// worktree at once. They take turns per worktree path: the later one finds the checkout and its finished steps.
+// Checkout and publication run outside the repository writer. They share a turn per worktree path,
+// so setup and branch/PR effects cannot overlap for that checkout; unrelated worktrees remain independent.
 const worktreeTurns = new Map<string, Promise<void>>();
 
-function inWorktreeTurn<T>(cwd: string, work: () => Promise<T>): Promise<T> {
+export function inWorktreeTurn<T>(cwd: string, work: () => Promise<T>): Promise<T> {
   const turn = (worktreeTurns.get(cwd) ?? Promise.resolve()).then(work),
     settled = turn.then(
       () => undefined,

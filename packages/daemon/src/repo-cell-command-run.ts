@@ -1,3 +1,4 @@
+import { enqueueRuntimePublication } from "./runtime-publication-queue.ts";
 import { continueSubmittedTask } from "./repo-cell-submit.ts";
 import { continueReviewRework } from "./task-return-dispatch.ts";
 import { runCompletionSources } from "./task-witness-runner.ts";
@@ -438,7 +439,18 @@ export function makeRepoCellCommandRunner(
               action,
               binding,
               receipt,
-              async (work) => (await enqueuePublication(work, undefined, false)) as WriteReceiptDraft,
+              async (nextAction, nextBinding, work) =>
+                (work
+                  ? await enqueueRuntimePublication(
+                      context,
+                      "runtime-run",
+                      nextAction,
+                      nextBinding,
+                      work as unknown as (
+                        authorized: RepoCellBinding,
+                      ) => Promise<import("./protocol/json-rpc-types.ts").JsonObject>,
+                    )
+                  : await enqueueCommand(nextAction, nextBinding)) as WriteReceiptDraft,
             )) as WriteReceipt;
           if (!replaceAfterPublication) return receipt;
           await context.attemptRecovery(true);
@@ -530,6 +542,7 @@ export function makeRepoCellCommandRunner(
       context.executeAction(action, authorizationDecision ? { ...binding, authorizationDecision } : binding),
     );
   };
+  const enqueueCommand = run;
   return async (
     action: RepoTaskAction,
     binding: RepoCellBinding,

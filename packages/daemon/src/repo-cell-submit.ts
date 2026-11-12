@@ -40,7 +40,7 @@ import { TaskLifecycleContractError } from "@harness-anything/kernel/internal/do
 import { errorCode } from "@harness-anything/kernel/internal/domain/task-lifecycle-contract-support.ts";
 import { attributeCellCriterion } from "./repo-cell-errors.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
-import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
+import type { RepoCellBinding, RepoCellContinuationWrite, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { assertCurrentSubmittedExecution } from "./repo-cell-execution-selection.ts";
 import { createSubmissionArtifactReader } from "./submission-artifacts.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
@@ -58,7 +58,6 @@ import { publishesPublicPullRequest } from "./hosting-provider.ts";
 import { publishSubmittedCut } from "./submitted-cut-publication.ts";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { taskExecutionPlacement } from "./task-execution-placement.ts";
-import type { ReturnWrite } from "./task-return-dispatch.ts";
 import { taskPrBodyRenderer } from "./task-pr-body-render.ts";
 
 /** Git resolves the empty-tree object id virtually; it exists in every repository. */
@@ -491,7 +490,7 @@ async function autoDeclareSubmittedExecutor(
   taskId: string,
   executionId: string,
   binding: RepoCellBinding,
-  enqueuePublication: ReturnWrite,
+  enqueuePublication: RepoCellContinuationWrite,
 ): Promise<WriteReceiptDraft | null> {
   const snapshot = (await cell.service.read(taskId)).snapshot,
     execution = snapshot.executions.find((candidate) => candidate.executionId === executionId);
@@ -525,18 +524,14 @@ async function autoDeclareSubmittedExecutor(
   if (candidates.size !== 1) return null;
   const [candidate] = candidates.values();
   if (!candidate) return null;
-  return enqueuePublication(async () =>
-    cell.declareExecutionExecutor(
-      {
-        kind: "task-declare-executor",
-        taskId,
-        executionId,
-        agent: candidate.executorId,
-        reason: "Automatically attributed from the unique implementation dispatch for this execution at submission.",
-      },
-      binding,
-    ),
-  );
+  const action = {
+    kind: "task-declare-executor",
+    taskId,
+    executionId,
+    agent: candidate.executorId,
+    reason: "Automatically attributed from the unique implementation dispatch for this execution at submission.",
+  };
+  return enqueuePublication(action, binding);
 }
 
 /**
@@ -575,15 +570,21 @@ export async function continueSubmittedTask(
   action: RepoTaskAction,
   binding: RepoCellBinding,
   receipt: WriteReceiptDraft,
-  enqueuePublication: ReturnWrite,
+  enqueuePublication: RepoCellContinuationWrite,
 ): Promise<WriteReceiptDraft> {
   const event = cell.store.readTaskEvent(receipt.opId);
   if (event?.type !== "execution_submitted") return receipt;
-  const executor = await autoDeclareSubmittedExecutor(
+  const {
+      executionPrincipal: _executionPrincipal,
+      authorizationDecision: _authorizationDecision,
+      ...principal
+    } = binding,
+    principalBinding = { ...principal, actor: { principal: binding.actor.principal, executor: null } },
+    executor = await autoDeclareSubmittedExecutor(
       cell,
       event.taskId,
       event.payload.execution.executionId,
-      binding,
+      principalBinding,
       enqueuePublication,
     ),
     review = await submittedCutReview(
@@ -801,7 +802,7 @@ async function submittedCutReview(
   action: RepoTaskAction,
   binding: RepoCellBinding,
   receipt: WriteReceiptDraft,
-  enqueuePublication: ReturnWrite,
+  enqueuePublication: RepoCellContinuationWrite,
   submitted: ExecutionV1,
 ): Promise<{ readonly steps: readonly WriteReceiptDraft[]; readonly warnings: readonly string[] }> {
   const { snapshot } = await cell.service.read(taskId),
@@ -826,13 +827,15 @@ async function submittedCutReview(
         instanceId = binding.executionPrincipal
           ? cell.projection.readRuntimeDispatch(binding.executionPrincipal.runtimeSessionId)?.payload.instanceId
           : undefined,
+        executionRef = `execution/${execution.executionId}`,
+        executionVersion = cell.projection.readEntityVersionWitness(executionRef).currentVersion,
         renderBody = await taskPrBodyRenderer({
           rootDir: cell.rootDir,
           projection: cell.projection,
           taskId,
           submission: execution.submission,
         });
-      await publishSubmittedCut({
+      const current = await publishSubmittedCut({
         rootDir: cell.rootDir,
         repoId: cell.input.repoId,
         taskId,
@@ -843,7 +846,12 @@ async function submittedCutReview(
         ...(typeof instanceId === "string" ? { instanceId } : {}),
         prepareDaemonGitEnvironment: cell.input.prepareDaemonGitEnvironment,
         ...(renderBody ? { renderBody } : {}),
+        isCurrentCut: () =>
+          executionVersion !== null &&
+          cell.projection.readEntityVersionWitness(executionRef).currentVersion === executionVersion &&
+          cell.projection.readTaskSubmissionOperation(taskId, execution.executionId) === receipt.opId,
       });
+      if (!current) return { steps: [], warnings: [] };
     } catch (error) {
       const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512),
         warning = `The cut is frozen, but publication failed before review: ${detail} Retry: ha task submit ${taskId} --amend.`;

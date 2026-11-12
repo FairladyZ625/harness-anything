@@ -5,8 +5,9 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { classifyTextualArtifactPath, sha256Text } from "@harness-anything/kernel";
-import { executionId, fixture, owner, taskId } from "./task-completion-review.fixture.ts";
+import { executionId, fixture, owner, principal, taskId } from "./task-completion-review.fixture.ts";
 import { openRepoWriterCell } from "../src/repo-cell-open.ts";
+import { readRuntimeExecutionPrincipal, runtimeExecutionActor } from "../src/runtime-execution-credential.ts";
 import { acquireWorkspaceLock } from "../src/repo-cell-lock.ts";
 import { fixtureFence, settleSettingsEvent } from "./repo-settings.fixture.ts";
 import {
@@ -34,10 +35,13 @@ function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
-async function publicationFixture(context: test.TestContext) {
+async function publicationFixture(
+  context: test.TestContext,
+  prepareDaemonGitEnvironment?: Parameters<typeof openRepoWriterCell>[0]["prepareDaemonGitEnvironment"],
+) {
   const f = await fixture(false, true, false, false, false, {
     autoSubmit: false,
-    openCell: openPublicationCell,
+    openCell: (input) => openPublicationCell({ ...input, prepareDaemonGitEnvironment }),
     create: { presetId: "standard-task" },
   });
   context.after(() => f.close());
@@ -62,6 +66,7 @@ async function publicationFixture(context: test.TestContext) {
     order: string[] = [];
   let prHead = previous,
     prExists = false,
+    prBody = "",
     failHosting = false,
     stalePrHead = false,
     cuts = 0,
@@ -81,14 +86,19 @@ async function publicationFixture(context: test.TestContext) {
     if (!String(_url).includes("/pulls")) return Response.json({ default_branch: "main" });
     prHead = stalePrHead ? previous : git(remote, "rev-parse", `refs/heads/${taskId}`);
     order.push(`hosting:${method}:${prHead}`);
-    const pr = { number: 42, html_url: "https://github.com/acme/repo/pull/42", head: { sha: prHead } };
+    if (typeof options.body === "string") {
+      const patch = JSON.parse(options.body);
+      if (typeof patch.body === "string") prBody = patch.body;
+    }
+    const pr = { body: prBody, number: 42, html_url: "https://github.com/acme/repo/pull/42", head: { sha: prHead } };
     if (method === "GET" && !String(_url).endsWith("/42")) return Response.json(prExists ? [pr] : []);
     prExists = true;
     return Response.json(pr);
   });
   f.launches.push = (...launches: (typeof f.launches)[number][]) => {
     const submitted = f.events().findLast((event) => event.type === "execution_submitted");
-    assert.ok(submitted?.type === "execution_submitted");
+    if (!submitted) return Array.prototype.push.apply(f.launches, launches);
+    assert.ok(submitted.type === "execution_submitted");
     const frozen = submitted.payload.execution.submission!.commitSha;
     order.push(`review:${prHead}`);
     console.log(
@@ -130,6 +140,8 @@ async function publicationFixture(context: test.TestContext) {
     f,
     order,
     previous,
+    remote,
+    prBody: () => prBody,
     cut,
     submit,
     writeCloseout,
@@ -326,22 +338,26 @@ for (const mode of ["ordinary", "amend", "docChanges", "resume", "settle"] as co
 test("concurrent resumes publish one frozen cut and hold one review dispatch", { timeout: 30_000 }, async (context) => {
   const { f, cut, submit, pausePublication } = await publicationFixture(context),
     entered = Promise.withResolvers<void>(),
-    bothEntered = Promise.withResolvers<void>(),
     release = Promise.withResolvers<void>();
   context.signal.addEventListener("abort", () => release.resolve(), { once: true });
   cut();
-  let arrivals = 0;
   pausePublication(async () => {
-    arrivals += 1;
     entered.resolve();
-    if (arrivals === 2) bothEntered.resolve();
     await release.promise;
   });
   const first = submit();
   await entered.promise;
   const resumed = submit();
   try {
-    await bothEntered.promise;
+    const unrelated = await f.run({
+      kind: "fact-record",
+      statement: "Both submits have entered the writer while publication is pending.",
+      evidenceSource: "README.md",
+      confidence: "high",
+      memoryClass: "episodic",
+      memoryTags: [],
+    });
+    assert.equal(unrelated.outcome, "applied", JSON.stringify(unrelated));
     assert.equal(f.launches.length, 0);
     assert.equal(f.events().filter((event) => event.type === "execution_submitted").length, 1);
   } finally {
@@ -353,3 +369,141 @@ test("concurrent resumes publish one frozen cut and hold one review dispatch", {
     assert.ok(receipts.some((receipt) => /no new reviewer was dispatched/u.test(JSON.stringify(receipt.warnings))));
   }
 });
+
+async function startPublicationWorker(f: Awaited<ReturnType<typeof fixture>>) {
+  assert.equal(
+    (await f.run({ kind: "task-release", taskId, reason: "Hand off to the runtime worker." })).outcome,
+    "applied",
+  );
+  const spawned = await f.cell().spawnRuntime(
+    {
+      agentId: "closeout-reviewer",
+      role: "worker",
+      taskId,
+      dispatchKey: "publication-worker",
+      prompt: "Implement this task.",
+    },
+    principal,
+  );
+  assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
+  const shown = JSON.parse(String((await f.run({ kind: "task-show", taskId })).evidence)),
+    workerExecutionId = String(shown.lease.executionId),
+    runtimeSessionId = String(spawned.runtimeSessionId),
+    executor = { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` };
+  assert.deepEqual(shown.lease.actor.executor, executor);
+  return { workerExecutionId, runtimeSessionId, executor, dispatchId: String(spawned.dispatchId) };
+}
+
+for (const mode of ["ordinary", "docChanges", "settle"] as const) {
+  test(
+    `a CLI runtime worker ${mode} submit dispatches review after releasing its lease`,
+    { timeout: 30_000 },
+    async (context) => {
+      const { f, cut, writeCloseout } = await publicationFixture(context),
+        worker = await startPublicationWorker(f);
+      cut();
+      writeCloseout();
+      const extra: Record<string, unknown> = {};
+      if (mode === "docChanges") {
+        assert.equal((await f.run({ kind: "doc-submit", paths: [`${f.packagePath}/closeout.md`] })).outcome, "applied");
+        const body = "Carried worker evidence.\n",
+          ref = "doc-sync-claims/abcdef0123456789abcdef0123456789ab";
+        mkdirSync(path.join(f.root, ".harness", "doc-sync-claims"), { recursive: true });
+        writeFileSync(path.join(f.root, ".harness", ref), body);
+        const artifact = `${f.packagePath}/artifacts/worker.md`;
+        extra.docChanges = [
+          {
+            path: artifact,
+            baseBlobSha256: null,
+            policyId: classifyTextualArtifactPath(artifact)!.policyId,
+            candidate: { ref, sha256: sha256Text(body), size: Buffer.byteLength(body), mediaType: "text/markdown" },
+          },
+        ];
+      }
+      const receipt = await f.cell().run(
+        {
+          kind: mode === "settle" ? "task-settle" : "task-submit",
+          taskId,
+          executionId: worker.workerExecutionId,
+          executor: worker.executor,
+          ...extra,
+        },
+        principal,
+      );
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      const shown = JSON.parse(String((await f.run({ kind: "task-show", taskId })).evidence));
+      assert.equal(shown.lease, null, "the implementation lease is released by durable submission");
+      assert.equal(
+        f.events().filter((event) => event.type === "runtime_dispatch_requested" && event.payload.role === "reviewer")
+          .length,
+        1,
+        JSON.stringify(receipt),
+      );
+      assert.doesNotMatch(JSON.stringify(receipt), /executor_binding_invalid/u);
+    },
+  );
+}
+
+test(
+  "a delayed older publication cannot replace an amended branch or PR facts",
+  { timeout: 30_000 },
+  async (context) => {
+    const entered = Promise.withResolvers<void>(),
+      release = Promise.withResolvers<void>();
+    context.signal.addEventListener("abort", () => release.resolve(), { once: true });
+    let preparations = 0;
+    const { f, cut, remote, writeCloseout, prBody } = await publicationFixture(context, async () => {
+        if (++preparations === 1) {
+          entered.resolve();
+          await release.promise;
+        }
+        return null;
+      }),
+      worker = await startPublicationWorker(f),
+      executionPrincipal = await readRuntimeExecutionPrincipal(await policyTestCenter(), worker.dispatchId),
+      binding = {
+        ...principal,
+        actor: runtimeExecutionActor(executionPrincipal),
+        executionPrincipal,
+      };
+    const older = cut();
+    writeCloseout();
+    const submit = (amend = false) =>
+      f.cell().run(
+        {
+          kind: "task-submit",
+          taskId,
+          executionId: worker.workerExecutionId,
+          executor: worker.executor,
+          ...(amend ? { amend: true } : {}),
+        },
+        amend ? principal : binding,
+      );
+    const first = submit();
+    try {
+      await Promise.race([
+        entered.promise,
+        first.then((receipt) =>
+          assert.fail(`Submission never reached credential preparation: ${JSON.stringify(receipt)}`),
+        ),
+      ]);
+      const newer = cut(),
+        amended = await submit(true);
+      assert.equal(amended.outcome, "applied", JSON.stringify(amended));
+      assert.equal(git(remote, "rev-parse", `refs/heads/${taskId}`), newer);
+      assert.ok(prBody().includes(newer));
+      release.resolve();
+      assert.equal((await first).outcome, "applied");
+      assert.equal(
+        git(remote, "rev-parse", `refs/heads/${taskId}`),
+        newer,
+        "older cut cannot roll the amended branch back",
+      );
+      assert.ok(prBody().includes(newer), "PR facts retain the newer cut");
+      assert.ok(!prBody().includes(older), "older renderer cannot replace amended PR facts");
+    } finally {
+      release.resolve();
+      await first;
+    }
+  },
+);
