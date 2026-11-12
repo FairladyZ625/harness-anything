@@ -1,3 +1,4 @@
+import { cliOperationalPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import path from "node:path";
 import { firstCliCommandIndex } from "../../cli/thin-command-help.ts";
 
@@ -39,21 +40,7 @@ export type ParseResult<T> =
 // refused rather than sent over the socket (a worker must not be able to reach daemon.stop here).
 export const JS_STACK_METHOD_ALLOWLIST: readonly string[] = Object.freeze(["daemon.diagnostics.stack"]);
 
-export const probeDefaults = Object.freeze({
-  intervalMs: 5_000,
-  timeoutMs: 2_000,
-  slowMs: 1_000,
-  unresponsiveMs: 30_000,
-  cpuPercent: 90,
-  cpuSustainMs: 60_000,
-  // The center daemon legitimately holds several GiB with many attached repositories (3.2 GiB
-  // observed 2026-11-03); 8 GiB is a runaway threshold, not a footprint target.
-  rssBytes: 8 * 1024 * 1024 * 1024,
-  cooldownMs: 10 * 60_000,
-  keptDays: 7,
-  sampleSeconds: 5,
-  jsStackMethod: "daemon.diagnostics.stack",
-});
+export const probeDefaults = Object.freeze(cliOperationalPolicy.defaultValue.probe);
 
 const probeValueFlags: readonly string[] = [
   "--interval",
@@ -130,8 +117,10 @@ export function parseProbeArgs(argv: readonly string[], userRoot: string): Parse
       ok: false,
       message: `Use a read-only diagnostic stack method (${JS_STACK_METHOD_ALLOWLIST.join(", ")}); control methods are refused.`,
     };
-  if (interval.value < 250) return { ok: false, message: "Use --interval of at least 250ms." };
-  if (timeout.value > 120_000) return { ok: false, message: "Use --timeout of at most 120s." };
+  if (interval.value < cliOperationalPolicy.defaultValue.probeMinimumIntervalMs)
+    return { ok: false, message: "Use --interval of at least 250ms." };
+  if (timeout.value > cliOperationalPolicy.defaultValue.probeMaximumTimeoutMs)
+    return { ok: false, message: "Use --timeout of at most 120s." };
   if (duration.value !== null && duration.value < interval.value)
     return { ok: false, message: "Use --duration of at least one --interval, or omit it to run until signalled." };
   return {

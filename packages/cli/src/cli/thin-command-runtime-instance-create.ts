@@ -1,3 +1,4 @@
+import { cliContractPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import {
   builtInRuntimeProviderInputDeclaration,
   type SafePath,
@@ -131,7 +132,9 @@ function runtimeInstanceKindConfig(
       ...(booleans.has("--fast") ? { fast: true } : {}),
       ...(webSearch ? { webSearch } : {}),
       ...(baseUrl ? { baseUrl } : {}),
-      ...(booleans.has("--allow-insecure-http") ? { allowInsecureHttp: true } : {}),
+      ...(booleans.has("--allow-insecure-http")
+        ? { allowInsecureHttp: cliContractPolicy.defaultValue.allowInsecureHttp }
+        : {}),
       ...(one.get("--wire-api") ? { wireApi: one.get("--wire-api") } : {}),
       ...(booleans.has("--requires-openai-auth") ? { requiresOpenAiAuth: true } : {}),
       ...(headers ? { httpHeaders: headers } : {}),

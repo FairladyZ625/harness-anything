@@ -3607,7 +3607,7 @@
         "explain": "validateExtensionInputShape: Preset template/vertical/completion declaration validation and cross-reference input consistency.",
         "sources": [
           {
-            "candidateId": "judgment:packages/preset:packages/preset/src/preset-extension-model.ts#validateCompletionDeclaration:071eecee26b9dea19ac1a815548b3bd1",
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-extension-model.ts#validateCompletionDeclaration:07f8a4a29ba19aa3e2d9f926bee9df6d",
             "route": "packages/preset/src/preset-extension-model.ts#validateCompletionDeclaration"
           }
         ]

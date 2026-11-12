@@ -1,7 +1,8 @@
+import { cliOperationalPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 // One bounded histogram per method for a whole UTC day. Percentiles are computed from bucket
 // counts, so the result never depends on which source lines happened to be retained; exact
 // milliseconds are kept below 5s and log-spaced buckets cover the long tail.
-const EXACT_LIMIT_MS = 5_000;
+const EXACT_LIMIT_MS = cliOperationalPolicy.defaultValue.slo.exactHistogramMs;
 const LOG_BASE_MS = 5_000;
 const LOG_STEPS_PER_OCTAVE = 64;
 const MAX_LOG_BUCKET = EXACT_LIMIT_MS + 1_025;

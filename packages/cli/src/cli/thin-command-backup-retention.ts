@@ -1,3 +1,4 @@
+import { cliOperationalPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
@@ -12,7 +13,7 @@ export interface BackupRetentionEntry {
 
 /** Retention rule (one sentence): a backup entry is kept for `keepDays` days from its last
  *  write (directory mtime), after which this listing marks it expired — deletion stays manual. */
-export const defaultBackupRetentionDays = 30,
+export const defaultBackupRetentionDays = cliOperationalPolicy.defaultValue.backupDays,
   dayMs = 86_400_000;
 
 export interface BackupRetentionInvocation {

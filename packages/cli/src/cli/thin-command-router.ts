@@ -1,3 +1,7 @@
+import {
+  cliContractPolicy,
+  cliOperationalPolicy,
+} from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
@@ -250,7 +254,10 @@ export function parseRouted(
     if (!f.ok) return rejected(f.code, f.nextAction, json);
     const wait = f.one.get("--wait"),
       timeout = f.one.get("--timeout-ms");
-    if (timeout !== undefined && (!/^[0-9]+$/u.test(timeout) || Number(timeout) > 60_000))
+    if (
+      timeout !== undefined &&
+      (!/^[0-9]+$/u.test(timeout) || Number(timeout) > cliOperationalPolicy.defaultValue.waitMaximumMs)
+    )
       return rejected("invalid_field", "--timeout-ms must be between 0 and 60000.", json);
     return accepted(
       rootDir,
@@ -432,7 +439,7 @@ function parseAgentRun(
     {
       kind: "runtime-run",
       agentId,
-      ...(f.booleans.has("--claim-next") ? { claimNext: true } : {}),
+      ...(f.booleans.has("--claim-next") ? { claimNext: cliContractPolicy.defaultValue.claimNext } : {}),
       ...(resumeDispatch ? { dispatchId: resumeDispatch } : {}),
       ...agentRunRecovery(f.one),
       ...(f.booleans.has("--enable-handoff") ? { handoffEnabled: true } : {}),

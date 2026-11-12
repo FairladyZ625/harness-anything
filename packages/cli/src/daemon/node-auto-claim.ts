@@ -1,3 +1,4 @@
+import { cliOperationalPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import {
   DEFAULT_NODE_AUTO_CLAIM_POLICY,
   readNodeAutoClaimDiagnostics,
@@ -49,9 +50,13 @@ export function parseNodeAutoClaimControl(args: readonly string[]): NodeAutoClai
     return { operation: "disable" };
   }
   const allowedAgentIds = values.get("--agent") ?? [],
-    maxConcurrent = Number(values.get("--max-concurrent")?.[0] ?? 1);
-  if (allowedAgentIds.length === 0) return "Enable requires at least one --agent <id>.";
-  if (maxConcurrent > 64) return "--max-concurrent must be one integer from 1 to 64.";
+    maxConcurrent = Number(
+      values.get("--max-concurrent")?.[0] ?? cliOperationalPolicy.defaultValue.autoClaim.defaultConcurrency,
+    );
+  if (allowedAgentIds.length < cliOperationalPolicy.defaultValue.autoClaim.minimumAgents)
+    return "Enable requires at least one --agent <id>.";
+  if (maxConcurrent > cliOperationalPolicy.defaultValue.autoClaim.maximumConcurrency)
+    return "--max-concurrent must be one integer from 1 to 64.";
   return {
     operation: "enable",
     allowedAgentIds,

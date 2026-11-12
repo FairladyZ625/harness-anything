@@ -1,3 +1,4 @@
+import { cliOperationalPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 export type RuntimeCwd = Readonly<Record<string, string>>;
 
@@ -48,5 +49,5 @@ export type SquadRunAction = {
   readonly detach?: boolean;
 };
 
-export const runtimeBatchDefaultConcurrency = 2,
-  runtimeBatchMaxConcurrency = 32;
+export const runtimeBatchDefaultConcurrency = cliOperationalPolicy.defaultValue.batch.defaultConcurrency,
+  runtimeBatchMaxConcurrency = cliOperationalPolicy.defaultValue.batch.maximumConcurrency;

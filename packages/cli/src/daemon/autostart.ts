@@ -1,3 +1,4 @@
+import { cliOperationalPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import path from "node:path";
 import type {
   DaemonAutostartResult,
@@ -23,7 +24,7 @@ export async function ensureCliDaemonRunning(input: {
       "@harness-anything/daemon/internal/client/daemon-autostart"
     ),
     refusal = runtimeDaemonStartRefusal();
-  if (refusal) return { ok: false, ...refusal, attempts: 0 };
+  if (refusal) return { ok: false, ...refusal, attempts: cliOperationalPolicy.defaultValue.daemon.unattempted };
   const userRoot = path.resolve(input.userRoot ?? daemonUserRoot()),
     daemonId = input.daemonId ?? daemonIdFromEnv();
   return ensureLocalDaemonRunning({

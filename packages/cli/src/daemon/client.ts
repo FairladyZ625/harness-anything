@@ -1,3 +1,4 @@
+import { cliOperationalPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { runtimeCredentialInput } from "../cli/runtime-credential-input.ts";
 import { readPasswordInput } from "./password-input.ts";
 import { readFileSync } from "node:fs";
@@ -332,7 +333,7 @@ export async function runCommandThroughDaemon(
             : {}),
         };
       }
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      await new Promise((resolve) => setTimeout(resolve, cliOperationalPolicy.defaultValue.daemon.warmingPollMs));
       try {
         statusReader ??= await openLocalDaemonReader(target, "repo.preset.run.status", {
           repo: { repoId: target.repoId },
@@ -472,7 +473,11 @@ async function settleRepoWarming(
   try {
     // A fixed number of refresh attempts (about 60 s at 250 ms) replaces the clock deadline; the
     // warming predicate is the read, so no wall-clock comparison decides the outcome.
-    for (let attempt = 0; isRepoWarming(result) && attempt < 240; attempt += 1) {
+    for (
+      let attempt = 0;
+      isRepoWarming(result) && attempt < cliOperationalPolicy.defaultValue.daemon.warmingAttempts;
+      attempt += 1
+    ) {
       const progress = readDaemonStartProgress(launch, Date.now() - startedAt);
       if (progress) {
         const key = `${progress.fingerprint}:${Math.floor((Date.now() - startedAt) / 1_000)}`;
@@ -481,7 +486,7 @@ async function settleRepoWarming(
           process.stderr.write(`${progress.message}\n`);
         }
       }
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      await new Promise((resolve) => setTimeout(resolve, cliOperationalPolicy.defaultValue.daemon.warmingPollMs));
       reader ??= await openReader();
       result = await reader.read();
     }
@@ -512,7 +517,7 @@ export async function streamRuntimeThroughDaemon(
     repoId: target.repoId,
     payload: { runtimeSessionId, afterCursor: "stream:0" },
     onValue,
-    timeoutMs: 2_000,
+    timeoutMs: cliOperationalPolicy.defaultValue.daemon.streamTimeoutMs,
     invokingCommand: command.id,
     ...(onClosed ? { onClosed } : {}),
   });

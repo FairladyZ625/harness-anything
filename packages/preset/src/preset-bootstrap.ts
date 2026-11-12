@@ -1,3 +1,4 @@
+import { presetExecutionPolicy } from "@harness-anything/kernel/internal/domain/preset-execution-policy.ts";
 import { createTaskBootstrapEvent } from "@harness-anything/kernel";
 import {
   REPLAY_TASK_GRAPH,
@@ -232,7 +233,10 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
       );
   const tierGoverned = input.riskTierFlowVersion === 1,
     explainer =
-      (tierGoverned ? metadata.riskTier === "low" : metadata.profileId === "lightweight") || input.taskClass === "work"
+      (tierGoverned
+        ? metadata.riskTier === presetExecutionPolicy.defaultValue.explainer.minimalRisk
+        : metadata.profileId === presetExecutionPolicy.defaultValue.explainer.minimalProfile) ||
+      input.taskClass === presetExecutionPolicy.defaultValue.explainer.workClass
         ? null
         : {
             slot: "task.explainer",
