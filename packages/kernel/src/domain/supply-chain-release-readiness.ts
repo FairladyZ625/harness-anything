@@ -1,3 +1,4 @@
+import type { ReleaseBoundaryContract } from "./runtime-release-readiness.ts";
 import { supplyChainReadinessStatusWords, type SupplyChainReadinessStatus } from "./operational-status.ts";
 import type { OntologyPolicyDeclaration, OntologyJudgmentDeclaration } from "./ontology-source.ts";
 export type { SupplyChainReadinessStatus } from "./operational-status.ts";
@@ -77,16 +78,10 @@ export interface ElectronUpgradeContract {
   readonly reviewDoc: "docs-release/release-posture.md";
 }
 
-export interface SupplyChainReleaseBoundaryContract {
-  readonly packagesPrivateExceptPublicReady: true;
-  readonly internalWorkspaceVersion: "0.0.1";
-  readonly productVersion: "0.1.0";
-  readonly publicReadyPackageVersion: "0.1.0";
-  readonly npmReleaseClaimed: false;
-  readonly releaseArtifactsPublished: false;
-  readonly signedInstallersShipped: false;
-  readonly autoUpdateShipped: false;
-}
+export type SupplyChainReleaseBoundaryContract = Omit<
+  ReleaseBoundaryContract,
+  "notarizedBuildsShipped" | "releaseFeedsShipped"
+>;
 
 export interface SupplyChainReleaseReadinessPolicy {
   readonly schema: "supply-chain-release-readiness/v1";

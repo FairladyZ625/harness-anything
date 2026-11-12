@@ -14,10 +14,7 @@ export interface PostgresScopeClaims {
 export interface PostgresEventStoreScope extends PostgresScopeClaims {
   readonly readers: readonly string[];
 }
-interface ScopeRow {
-  readonly readers: readonly string[];
-  readonly policyEpoch: number;
-}
+type ScopeRow = Pick<PostgresEventStoreScope, "readers" | "policyEpoch">;
 interface MigrationTuple {
   readonly scope: ScopeRow;
   readonly events: readonly ScopeRow[];
@@ -107,10 +104,7 @@ export const storageScopePolicy = {
   version: 1,
   scope: "storage-scope",
   reason: "Keep the existing admission rule and its unique pure implementation together.",
-  fixtures: [
-    "packages/storage/test/migration/storage-migration-recovery.integration.test.ts",
-    "packages/storage/test/migration/storage-migration-recovery.integration.test.ts",
-  ],
+  fixtures: ["packages/storage/test/migration/storage-migration-recovery.integration.test.ts"],
   sources: [
     "policy:packages/kernel:packages/kernel/src/domain/storage-scope-policy.ts#resolvePostgresEventStoreScope:ba92d31e4752cfe77e5b624ae15c2bc8",
     "policy:packages/kernel:packages/kernel/src/domain/storage-scope-policy.ts#assertPostgresClaims:5312ed68cf1379a960ba250924adeb03",

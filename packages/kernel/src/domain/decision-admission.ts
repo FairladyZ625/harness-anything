@@ -37,8 +37,7 @@ export function assertDecisionAdmissionAtCut(state: DecisionAdmissionState, even
       `Decision ${event.decisionId} can leave proposed for superseded only with an active supersedes Relation from another Decision.`,
     );
   if (["decision_accepted", "decision_rejected", "decision_deferred"].includes(event.type)) {
-    const current = state.document;
-    if (!current) fail("entity_not_found", `Decision ${event.decisionId} does not exist.`);
+    const current = row;
     try {
       assertDecisionJudgmentConsent(
         current,
@@ -72,29 +71,15 @@ export function assertDecisionAdmissionAtCut(state: DecisionAdmissionState, even
     }
     return;
   }
-  if (event.type === "decision_superseded" || event.type === "decision_retired") {
-    const current = state.document!;
+  if (
+    event.type === "decision_superseded" ||
+    event.type === "decision_retired" ||
+    event.type === "decision_amended" ||
+    event.type === "decision_repinned"
+  ) {
+    if (event.type === "decision_amended") assertAmendment(state, event);
     try {
-      assertDecisionContentPin(current, event);
-    } catch (error) {
-      throw new FactProjectionError("invalid_transition", error instanceof Error ? error.message : String(error));
-    }
-    return;
-  }
-  if (event.type === "decision_amended") {
-    assertAmendment(state, event);
-    const current = state.document!;
-    try {
-      assertDecisionContentPin(current, event);
-    } catch (error) {
-      throw new FactProjectionError("invalid_transition", error instanceof Error ? error.message : String(error));
-    }
-    return;
-  }
-  if (event.type === "decision_repinned") {
-    const current = state.document!;
-    try {
-      assertDecisionContentPin(current, event);
+      assertDecisionContentPin(row, event);
     } catch (error) {
       throw new FactProjectionError("invalid_transition", error instanceof Error ? error.message : String(error));
     }
@@ -268,7 +253,7 @@ export const decisionAdmissionJudgments = [
     sources: [
       {
         candidateId:
-          "judgment:packages/kernel:packages/kernel/src/domain/decision-admission.ts#assertDecisionAdmissionAtCut:78a01adca8ce27639cb0e4cc83de64de",
+          "judgment:packages/kernel:packages/kernel/src/domain/decision-admission.ts#assertDecisionAdmissionAtCut:1bcb04ec58f7775b7d31e4f1abad54b0",
         route: "Decision admission",
       },
     ],

@@ -25,7 +25,7 @@ import {
   canonicalLedgerCut,
   validateCanonicalWriteBundle,
 } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
-import { withPostgresTransaction, type PostgresScopeClaims } from "./transaction.ts";
+import { withPostgresTransaction } from "./transaction.ts";
 import {
   assertAuthorizedReplacements,
   requiresReplacementAuthorization,
@@ -38,9 +38,8 @@ import {
   canonicalDocumentRetirements,
 } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 
-export interface PostgresEventStoreScope extends PostgresScopeClaims {
-  readonly readers: readonly string[];
-}
+import type { PostgresEventStoreScope } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
+export type { PostgresEventStoreScope } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
 export interface PostgresAppendHooks {
   /** A4 may supply live authored bytes. Without a worktree, only canonical document bases are available. */
   readonly readAuthoredDocument?: (path: string) => DocumentNode | null | Promise<DocumentNode | null>;

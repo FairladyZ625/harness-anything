@@ -1,12 +1,11 @@
-import { assertPostgresClaims } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
+import {
+  assertPostgresClaims,
+  type PostgresScopeClaims,
+} from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
 import { Pool, type PoolClient, type PoolConfig } from "pg";
 import { POSTGRES_SCOPE_SCHEMA_CONTRACT } from "./scope-schema.ts";
 
-export interface PostgresScopeClaims {
-  readonly tenantId: string;
-  readonly projectId: string;
-  readonly policyEpoch: number;
-}
+export type { PostgresScopeClaims } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
 
 export interface PostgresTransactionOptions {
   /** Keep every statement in a read transaction on one committed snapshot. */
