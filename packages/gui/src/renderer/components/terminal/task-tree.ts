@@ -1,3 +1,4 @@
+import { guiInteractionPolicy } from "../../../api/renderer-dto.ts";
 import type { SnapshotStatus } from "../../model/types.ts";
 
 /** 树选择器只需要的 task 投影(App 从 TaskRow 裁出来)。 */
@@ -30,7 +31,7 @@ export interface TaskTreeIndex {
 }
 
 /** 最多渲染多少行;超过就让用户继续收窄,几千个 task 不进 DOM。 */
-export const taskTreeRowLimit = 300;
+export const taskTreeRowLimit = guiInteractionPolicy.defaultValue.pageSizes.taskTree;
 const rootKey = "";
 
 export function buildTaskTreeIndex(nodes: readonly TaskTreeNode[]): TaskTreeIndex {

@@ -1,4 +1,9 @@
 import type { receiptAcceptanceStatuses } from "@harness-anything/kernel/internal/domain/receipt-acceptance.ts";
+import { documentNodeKind } from "../document-node-kind.ts";
+import {
+  storageReadPolicy,
+  validateStorageReadWindow,
+} from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { migrationWritable, type StorageMigrationRecord } from "../migration/types.ts";
 import { validateContentRange } from "../content-blob-range.ts";
 import type { Pool, PoolClient } from "pg";
@@ -20,7 +25,7 @@ import {
   canonicalLedgerCut,
   validateCanonicalWriteBundle,
 } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
-import { withPostgresTransaction, type PostgresScopeClaims } from "./transaction.ts";
+import { withPostgresTransaction } from "./transaction.ts";
 import {
   assertAuthorizedReplacements,
   requiresReplacementAuthorization,
@@ -33,9 +38,8 @@ import {
   canonicalDocumentRetirements,
 } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 
-export interface PostgresEventStoreScope extends PostgresScopeClaims {
-  readonly readers: readonly string[];
-}
+import type { PostgresEventStoreScope } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
+export type { PostgresEventStoreScope } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
 export interface PostgresAppendHooks {
   /** A4 may supply live authored bytes. Without a worktree, only canonical document bases are available. */
   readonly readAuthoredDocument?: (path: string) => DocumentNode | null | Promise<DocumentNode | null>;
@@ -77,11 +81,8 @@ export async function executePostgresRead(
           const input = payload as { repoId: string; cursor?: string | null; maxItems?: number },
             after = input.cursor == null ? 0 : Number(input.cursor),
             limit = operation === "stream" ? undefined : input.maxItems;
-          if (
-            !Number.isSafeInteger(after) ||
-            after < 0 ||
-            (operation === "batch" && (!Number.isSafeInteger(limit) || limit! < 1))
-          )
+          const rows = operation === "batch" ? limit! : storageReadPolicy.defaultValue.minimumRows;
+          if (!validateStorageReadWindow(rows, undefined, after))
             throw new TaskEventStoreError("invalid_store", "event batch cursor or size is invalid");
           const head = (
               await client.query<{ revision: string }>(
@@ -511,7 +512,7 @@ export async function updateDocumentHeads(
       path: claim.path,
       sha256: claim.sha256,
       size: claim.size,
-      nodeKind: canonicalDocumentMode(event, claim.path) === "120000" ? "symbolic-link" : "file",
+      nodeKind: documentNodeKind(canonicalDocumentMode(event, claim.path)),
     })),
     ...canonicalDocumentRetirements(event).map((claim) => ({
       path: claim.path,
@@ -572,7 +573,7 @@ async function readEvents(client: PoolClient, scope: PostgresEventStoreScope, in
   };
   if (input.query) {
     const query = input.query;
-    if (!Number.isSafeInteger(query.limit) || query.limit < 1)
+    if (!validateStorageReadWindow(query.limit))
       throw new TaskEventStoreError("invalid_store", "event query limit is invalid");
     if (query.type !== undefined) add("event_type=?", query.type);
     if (query.actor !== undefined) add("actor_refs @> ARRAY[?]::text[]", query.actor);
@@ -589,10 +590,11 @@ async function readEvents(client: PoolClient, scope: PostgresEventStoreScope, in
     add("TRUE ORDER BY revision DESC LIMIT ?", query.limit);
   } else {
     if (
-      !Number.isSafeInteger(input.afterRevision ?? 0) ||
-      (input.afterRevision ?? 0) < 0 ||
-      !Number.isSafeInteger(input.limit ?? 1) ||
-      (input.limit ?? 1) < 1
+      !validateStorageReadWindow(
+        input.limit ?? storageReadPolicy.defaultValue.minimumRows,
+        undefined,
+        input.afterRevision ?? storageReadPolicy.defaultValue.minimumRevision,
+      )
     )
       throw new TaskEventStoreError("invalid_store", "event batch cursor or size is invalid");
     add("revision>?", input.afterRevision ?? 0);

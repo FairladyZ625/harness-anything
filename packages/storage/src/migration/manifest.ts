@@ -98,23 +98,4 @@ function validateTuple(repoId: string, tuple: MigrationTuple): void {
   if (members.size !== tuple.events.length)
     throw new StorageMigrationError("storage_migration_invalid", "events are missing command outcomes");
 }
-export function assertSqliteMigrationScope(tuples: readonly MigrationTuple[]): void {
-  if (tuples.length !== 1)
-    throw new StorageMigrationError(
-      "storage_migration_multiple_tuples",
-      "SQLite requires exactly one tenant/project tuple",
-    );
-  const tuple = tuples[0]!;
-  if (
-    [tuple.scope, ...tuple.events, ...tuple.blobs, ...tuple.outcomes, ...tuple.documentHeads].some(
-      (row) => row.readers.length > 0,
-    )
-  )
-    throw new StorageMigrationError("storage_migration_readers", "SQLite cannot enforce PostgreSQL readers");
-  if (
-    [tuple.scope, ...tuple.events, ...tuple.blobs, ...tuple.outcomes, ...tuple.documentHeads].some(
-      (row) => row.policyEpoch !== 0,
-    )
-  )
-    throw new StorageMigrationError("storage_migration_policy_epoch", "SQLite cannot enforce policy_epoch");
-}
+export { assertSqliteMigrationScope } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";

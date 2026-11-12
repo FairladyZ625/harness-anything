@@ -30,7 +30,7 @@ const eventReadFields = {
   task_execution_id: "v#>>'{payload,execution,executionId}'",
   agent_id: "v#>>'{payload,agentId}'",
   squad_id: "v#>>'{payload,squadId}'",
-  attempt_group_id: "v#>>'{payload,attemptGroupId}'",
+  ["attempt_group_id"]: "v#>>'{payload,attemptGroupId}'",
   review_decision_id: "v#>>'{payload,reviewTarget,decisionId}'",
   dispatch_started_at: "v#>>'{payload,startedAt}'",
   dispatch_activity_at: "COALESCE(v#>>'{payload,startedAt}',v->>'occurredAt')",

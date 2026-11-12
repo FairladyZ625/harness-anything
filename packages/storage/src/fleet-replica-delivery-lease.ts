@@ -72,7 +72,12 @@ export function replicaDeliveryLeases(database: (repoId: string) => DatabaseSync
         /* @gate-identity state-store/execution.source.storage.src.fleet-replica-delivery-lease.sqlite-database */ store
           .prepare("SELECT claim_fence FROM delivery_lease WHERE node_id=?")
           .get(key.nodeId);
-      const lease = { ...key, holderId, claimFence: Number(row?.claim_fence ?? 0) + 1, expiresAt: now + ttlMs };
+      const lease = {
+        ...key,
+        holderId,
+        claimFence: Number(row?.claim_fence ?? 0) + 1,
+        expiresAt: now + ttlMs,
+      } satisfies ReplicaDeliveryLease;
       /* @gate-identity state-store/execution.source.storage.src.fleet-replica-delivery-lease.sqlite-database */ store
         .prepare("INSERT OR REPLACE INTO delivery_lease VALUES(?,?,?,?,?)")
         .run(key.nodeId, key.viewId, holderId, lease.claimFence, lease.expiresAt);

@@ -1,3 +1,4 @@
+import { assertPostgresStoreScope } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
 import { readPgEntityDeclarations } from "../pg/pg-entity-declarations.ts";
 import {
   freezeDeclaredWritePlan,
@@ -94,17 +95,7 @@ export interface PostgresTaskEventCapabilityOptions extends PostgresAppendHooks 
 export function makePostgresTaskEventStore(options: PostgresTaskEventCapabilityOptions) {
   const { pool, repoId } = options,
     scope = { ...options.scope, readers: [...new Set(options.scope.readers)].sort() };
-  if (
-    !repoId ||
-    !scope.tenantId ||
-    !scope.projectId ||
-    !Number.isSafeInteger(scope.policyEpoch) ||
-    scope.policyEpoch < 0 ||
-    scope.readers.some((reader) => !reader)
-  )
-    throw new TypeError(
-      "PostgreSQL event store requires repoId, tenantId, projectId, readers, and a non-negative policyEpoch scope",
-    );
+  assertPostgresStoreScope(repoId, scope);
 
   const readHead = async () => {
     const row = (await executePostgresRead(pool, scope, "head", { repoId })) as HeadRow | null;

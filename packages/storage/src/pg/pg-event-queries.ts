@@ -1,3 +1,7 @@
+import {
+  storageReadPolicy,
+  validateStorageReadWindow,
+} from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { assertPgEventReadIndexReady } from "./pg-event-read-index-migration.ts";
 import { assertPgProjectionSchemaVersion } from "./pg-projection-schema.ts";
 import type { AgentRuntimeEventV1, CanonicalEventV1 } from "@harness-anything/kernel";
@@ -31,13 +35,7 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
     withPostgresTransaction(
       options.pool,
       async (client) => {
-        if (
-          !Number.isSafeInteger(afterRevision) ||
-          afterRevision < 0 ||
-          !Number.isSafeInteger(pageLimit) ||
-          pageLimit < 1 ||
-          pageLimit > 500
-        )
+        if (!validateStorageReadWindow(pageLimit, storageReadPolicy.defaultValue.pageSizes.standard, afterRevision))
           throw new Error("canonical event page requires a non-negative revision and a limit from 1 to 500");
         const cut = await readCutInTransaction(client, claims, readers, repoId),
           events = await readEventsInTransaction(
@@ -118,7 +116,7 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
     withPostgresTransaction(
       options.pool,
       async (client) => {
-        if (!Number.isSafeInteger(afterRevision) || afterRevision < 0 || !Number.isSafeInteger(limit) || limit < 1)
+        if (!validateStorageReadWindow(limit, undefined, afterRevision))
           throw new Error("runtime session event page requires a non-negative revision and a positive limit");
         const events = await readEventsInTransaction(
           client,
@@ -164,7 +162,7 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
     withPostgresTransaction(
       options.pool,
       async (client) => {
-        if (!Number.isSafeInteger(query.limit) || query.limit < 1 || query.limit > 500)
+        if (!validateStorageReadWindow(query.limit, storageReadPolicy.defaultValue.pageSizes.standard))
           throw new Error("event list limit must be between 1 and 500");
         await assertPgEventReadIndexReady(client, claims, repoId, 6);
         const cut = await readCutInTransaction(client, claims, readers, repoId),
@@ -233,13 +231,7 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
     withPostgresTransaction(
       options.pool,
       async (client) => {
-        if (
-          !Number.isSafeInteger(afterRevision) ||
-          afterRevision < 0 ||
-          !Number.isSafeInteger(limit) ||
-          limit < 1 ||
-          limit > 2048
-        )
+        if (!validateStorageReadWindow(limit, storageReadPolicy.defaultValue.pageSizes.summaries, afterRevision))
           throw new Error("event summary page requires a non-negative revision and a limit from 1 to 2048");
         const cut = await readCutInTransaction(client, claims, readers, repoId);
         if (typeof fields === "object") {

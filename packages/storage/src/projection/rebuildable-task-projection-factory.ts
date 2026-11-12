@@ -1,3 +1,4 @@
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { projectionCatchUpLimit } from "./catch-up-limit.ts";
 import { createSqlTaskQueryReader } from "../pg/sql-task-query-reader.ts";
 import { makePgTaskProjection } from "../pg/pg-task-projection.ts";
@@ -196,11 +197,10 @@ export function makeTaskProjection(
         )
           throw new Error("vertical declaration write plan does not match the event");
       }
-      if (
+      const ownsDocuments =
         isTaskEvent(event) &&
-        ((event.payload.documentClaims?.length ?? 0) > 0 || (event.payload.carriedDocumentClaims?.length ?? 0) > 0)
-      )
-        assertTaskLifecycleWritePlan(event, plan);
+        ((event.payload.documentClaims?.length ?? 0) > 0 || (event.payload.carriedDocumentClaims?.length ?? 0) > 0);
+      if (ownsDocuments) assertTaskLifecycleWritePlan(event, plan);
       if (isTaskBootstrapEvent(event)) assertTaskBootstrapWritePlan(event, plan as FrozenWritePlan<"TaskBootstrap">);
       if (isPresetSnapshotUpgradeEvent(event))
         assertPresetSnapshotUpgradeWritePlan(event, plan as FrozenWritePlan<"PresetSnapshotUpgrade">);
@@ -344,7 +344,7 @@ export function makeTaskProjectionReader(
       projectionPath,
       readHead,
       eventStore: unavailableSource,
-      limit: 4096,
+      limit: storageReadPolicy.defaultValue.pageSizes.progress,
       now,
     },
     taskQueries = taskQueryApi(context),

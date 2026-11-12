@@ -48,7 +48,7 @@ export function buildImportGraph(root, options = {}) {
   const startedAt = Date.now();
   const files = options.files ?? listImportGraphFiles(root);
   const knownTargets = new Set(options.knownTargets ?? []);
-  const resolver = createResolver(root, knownTargets);
+  const resolveImport = createSourceImportResolver(root, knownTargets);
   const reverse = new Map();
   // `imports` mirrors `reverse` for callers that rank tests by how closely their direct
   // imports resemble the tests that directly cover the changed files (see
@@ -59,7 +59,7 @@ export function buildImportGraph(root, options = {}) {
   for (const importer of files) {
     const source = readFileSync(path.join(root, importer), "utf8");
     for (const { fileName } of ts.preProcessFile(source, true, true).importedFiles) {
-      const target = resolveSpecifier(resolver, importer, fileName);
+      const target = resolveImport(importer, fileName);
       if (target === null) {
         if (!fileName.startsWith("node:") && !fileName.startsWith("/"))
           unresolved.push({ importer, specifier: fileName });
@@ -86,6 +86,11 @@ export function buildImportGraph(root, options = {}) {
     unresolved,
     durationMs: Date.now() - startedAt,
   };
+}
+
+export function createSourceImportResolver(root, knownTargets = new Set()) {
+  const resolver = createResolver(root, knownTargets);
+  return (importer, specifier) => resolveSpecifier(resolver, importer, specifier);
 }
 
 function createResolver(root, knownTargets) {

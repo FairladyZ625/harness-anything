@@ -1,6 +1,6 @@
 import type { TaskProjection, TaskProjectionQueries } from "@harness-anything/kernel";
 import { assertFactAdmissionAtCut } from "@harness-anything/kernel/internal/domain/fact-admission.ts";
-import { assertDecisionAdmissionAtCut } from "../projection/decision-projection-admission.ts";
+import { assertDecisionAdmissionAtCut } from "@harness-anything/kernel/internal/domain/decision-admission.ts";
 import { createSqlTaskQueryReader } from "./sql-task-query-reader.ts";
 import { PG_TASK_QUERY_METHODS } from "./pg-task-query-contract.ts";
 import { projectionCatchUpLimit } from "../projection/catch-up-limit.ts";

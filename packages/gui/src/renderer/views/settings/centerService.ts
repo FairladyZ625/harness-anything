@@ -1,3 +1,5 @@
+import { isMirrorQuotaValid } from "../../../api/renderer-dto.ts";
+import { guiInteractionPolicy } from "../../../api/renderer-dto.ts";
 import type { CenterStartInput } from "../../../api/center-settings-contract.ts";
 
 /**
@@ -18,8 +20,8 @@ export function centerServiceState(reply: unknown): CenterServiceState {
   return record.running === true ? { state: "running" } : { state: "stopped" };
 }
 
-export const centerDefaultPort = 7545,
-  centerMirrorQuotaBytes = 50 * 1024 * 1024 * 1024;
+export const centerDefaultPort = guiInteractionPolicy.defaultValue.center.port,
+  centerMirrorQuotaBytes = guiInteractionPolicy.defaultValue.center.mirrorBytes;
 
 /**
  * The one-click start parameters, derived so the invite entry never asks for a certificate:
@@ -57,10 +59,7 @@ export function centerStartDefaults(input: {
         ? Number(record.port)
         : centerDefaultPort,
     bind = record.bind === "127.0.0.1" ? "127.0.0.1" : "0.0.0.0",
-    quotaBytes =
-      Number.isSafeInteger(record.quotaBytes) && Number(record.quotaBytes) > 0
-        ? Number(record.quotaBytes)
-        : centerMirrorQuotaBytes,
+    quotaBytes = isMirrorQuotaValid(record.quotaBytes) ? Number(record.quotaBytes) : centerMirrorQuotaBytes,
     savedExternalUrl = typeof record.externalUrl === "string" && record.externalUrl !== "" ? record.externalUrl : null,
     externalUrl =
       savedExternalUrl ?? (input.loginHostname !== null ? `https://${input.loginHostname}:${String(port)}` : null);

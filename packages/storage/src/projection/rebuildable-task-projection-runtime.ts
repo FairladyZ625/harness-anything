@@ -1,3 +1,12 @@
+import {
+  assertLeaseReservation,
+  checkedLease,
+  decideReadableTaskLease,
+} from "@harness-anything/kernel/internal/domain/task-lease-policy.ts";
+import {
+  storageReadPolicy,
+  validateStorageReadWindow,
+} from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { DatabaseSync } from "node:sqlite";
 import { isoTimestampMillisecondsSql } from "./iso-timestamp-sql.ts";
 import {
@@ -6,12 +15,7 @@ import {
   type TaskEventV1,
   type TaskLifecycleSnapshot,
 } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
-import {
-  TASK_LEASE_BROKER_CONTRACT,
-  validateLeaseV1,
-  type LeaseHolder,
-  type LeaseV1,
-} from "@harness-anything/kernel/internal/domain/execution.ts";
+import { type LeaseHolder, type LeaseV1 } from "@harness-anything/kernel/internal/domain/execution.ts";
 import {
   runtimeSessionInActivityWindow,
   type RuntimeInstallation,
@@ -47,7 +51,7 @@ const INSERT_LEASE_INTERVAL_SQL = [
   "holder_json, previous_holder_json, lease_expires_at, reason)",
   "VALUES (?, ?, ?, NULL, ?, ?, ?, ?)",
 ].join(" ");
-const UPDATE_LEASE_SQL = "UPDATE lease_cas SET lease_json = ? WHERE task_id = ?";
+const UPDATE_LEASE_SQL = "UPDATE lease_cas SET lease_json = ? WHERE task_id = ?" as const;
 const UPDATE_LEASE_EXPIRY_SQL = [
   "UPDATE lease_interval SET lease_expires_at = ?",
   "WHERE task_id = ? AND execution_id = ? AND released_revision IS NULL",
@@ -274,7 +278,7 @@ function readSnapshotsInternal(
             ...snapshot,
             executions: executions.get(taskId) ?? [],
             reviews: reviews.get(taskId) ?? [],
-            lease: lease?.phase === "released" ? null : lease,
+            lease: decideReadableTaskLease(lease),
             decisionRelations: relations.get(`task/${taskId}`) ?? [],
           },
         ] as const,
@@ -366,19 +370,6 @@ export function reserve(db: DatabaseSync, lease: LeaseV1, now: string): LeaseV1 
     ),
   ).run(lease.taskId, canonicalJson(lease));
   return lease;
-}
-
-export function assertLeaseReservation(lease: LeaseV1, current: LeaseV1 | null, activeCount: number): void {
-  checkedLease(lease);
-  if (current !== null && current.phase !== "orphaned" && current.phase !== "released")
-    throw new Error(`lease conflict for task ${lease.taskId}`);
-  if (activeCount >= TASK_LEASE_BROKER_CONTRACT.capacity)
-    throw new Error(
-      `lease capacity ${TASK_LEASE_BROKER_CONTRACT.capacity} exhausted; wait for a lease to be released or expire`,
-    );
-  const expectedVersion = current === null ? 0 : current.version + 1;
-  if (lease.phase !== "reserving" || lease.version !== expectedVersion)
-    throw new Error(`stale lease reservation for task ${lease.taskId}`);
 }
 
 export function changeLease(
@@ -520,7 +511,7 @@ export function readRuntimeSessionsForTask(db: DatabaseSync, taskId: string): Ru
   ).map((row) => JSON.parse(String(row.value_json)) as RuntimeSession);
 }
 export function readRuntimeSessionPage(db: DatabaseSync, query: RuntimeSessionPageQuery): RuntimeSessionPageRead {
-  if (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > 64)
+  if (!validateStorageReadWindow(query.limit, storageReadPolicy.defaultValue.pageSizes.sessions))
     throw new Error("runtime session page limit must be between 1 and 64");
   const after = query.afterRuntimeSessionId,
     taskId = query.taskId;
@@ -593,8 +584,5 @@ function holder(lease: LeaseV1): LeaseHolder {
     source: lease.source,
   };
 }
-function checkedLease(lease: LeaseV1, historical = false): LeaseV1 {
-  const issues = validateLeaseV1(lease, historical);
-  if (issues.length > 0) throw new Error(issues.map((issue) => issue.message).join("; "));
-  return lease;
-}
+
+export { assertLeaseReservation } from "@harness-anything/kernel/internal/domain/task-lease-policy.ts";

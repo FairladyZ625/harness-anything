@@ -1,3 +1,4 @@
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { randomBytes, randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import type { PostgresEventStoreScope } from "../postgres/pg-event-store.ts";
@@ -73,8 +74,8 @@ export async function createMigrationGrant(
     user: role,
     password,
     max: 1,
-    connectionTimeoutMillis: 10000,
-    statement_timeout: 30000,
+    connectionTimeoutMillis: storageReadPolicy.defaultValue.deadlines.migrationConnect,
+    statement_timeout: storageReadPolicy.defaultValue.deadlines.migrationStatement,
   };
   if (options.connectionString) {
     const connection = new URL(options.connectionString);

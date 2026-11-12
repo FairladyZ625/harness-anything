@@ -1,3 +1,4 @@
+import { decideRawTaskLease } from "@harness-anything/kernel/internal/domain/task-lease-policy.ts";
 import { relationCreatedEventForReplay } from "@harness-anything/kernel";
 import { initializePgDecisionReadStatus } from "./pg-decision-read-status.ts";
 import {
@@ -287,17 +288,7 @@ async function reduceAndStoreTaskSnapshot(
   const previous = existing.rows[0]?.snapshot ?? emptyTaskLifecycleSnapshot(0),
     snapshot = reduceTaskEvent(previous, event);
   // The domain snapshot clears released leases; the raw query projection retains their CAS version.
-  let rawLease = existing.rows[0]?.raw_lease ?? null;
-  if (event.type === "execution_started") rawLease = { ...event.payload.lease, phase: "held" };
-  else if (event.type === "lease_renewed") rawLease = event.payload.lease;
-  else if (
-    ((event.type === "execution_submitted" && event.payload.supersedesSubmissionId === undefined) ||
-      event.type === "lease_released" ||
-      event.type === "task_completion_generation_retired") &&
-    rawLease !== null &&
-    rawLease.executionId === event.payload.execution.executionId
-  )
-    rawLease = { ...rawLease, phase: "released", version: rawLease.version + 1 };
+  const rawLease = decideRawTaskLease(existing.rows[0]?.raw_lease ?? null, event);
 
   await client.query(
     `INSERT INTO ha_task_snapshots

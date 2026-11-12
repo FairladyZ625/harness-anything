@@ -1,4 +1,5 @@
 import type * as DomainStatus from "../api/renderer-dto.ts";
+import { guiInteractionPolicy } from "../api/renderer-dto.ts";
 import { clip, recordOf, stringOf } from "./daemon-observe-model.ts";
 
 export type SessionTranscriptItemType = "thinking" | "tool_call" | "tool_result" | "text" | "error";
@@ -39,7 +40,7 @@ type PendingCompactedSegment = {
   readonly at: string | null;
 };
 
-const DETAIL_LIMIT = 8_000;
+const DETAIL_LIMIT = guiInteractionPolicy.defaultValue.text.sessionDetail;
 
 /** Persisted provider events from all three runtime adapters become one chronological turn timeline. */
 export function sessionTranscriptTurns(

@@ -734,22 +734,26 @@ function readTaskListResult(value: unknown): TaskListSuccess {
 
 function readTaskWipResult(value: unknown): TaskWipRead {
   const result = value as Partial<TaskWipRead>;
-  if (
-    !result ||
-    !Number.isSafeInteger(result.limit) ||
-    Number(result.limit) < 1 ||
-    typeof result.limitLabel !== "string" ||
-    !Array.isArray(result.counted) ||
-    !Array.isArray(result.roots) ||
-    !Number.isSafeInteger(result.threshold) ||
-    Number(result.threshold) < 1
-  )
+  const validSizes =
+    result &&
+    Number.isSafeInteger(result.limit) &&
+    Number(result.limit) >= 1 &&
+    typeof result.limitLabel === "string" &&
+    Number.isSafeInteger(result.threshold) &&
+    Number(result.threshold) >= 1;
+  if (!result || !validSizes || !Array.isArray(result.counted) || !Array.isArray(result.roots))
     throw new Error(localErrorHint(value, "Task WIP bridge returned an invalid result."));
   return result as TaskWipRead;
 }
 
 function readAgendaResult(value: unknown): AgendaSuccess {
   const result = value as Partial<AgendaSuccess>;
+  const validPage =
+    result &&
+    isRendererRecord(result.page) &&
+    Number.isInteger(result.page.sourceLimit) &&
+    (result.page.cursor === null || typeof result.page.cursor === "string") &&
+    (result.page.nextCursor === null || typeof result.page.nextCursor === "string");
   if (
     !result ||
     result.ok !== true ||
@@ -788,10 +792,7 @@ function readAgendaResult(value: unknown): AgendaSuccess {
     !result.attentionItems.every(isAgendaAttentionItem) ||
     !isRegionWeights(result.regionWeights) ||
     typeof result.summary !== "string" ||
-    !isRendererRecord(result.page) ||
-    !Number.isInteger(result.page.sourceLimit) ||
-    (result.page.cursor !== null && typeof result.page.cursor !== "string") ||
-    (result.page.nextCursor !== null && typeof result.page.nextCursor !== "string") ||
+    !validPage ||
     !Number.isInteger(result.watermark) ||
     !Number.isInteger(result.sourceRevision)
   )

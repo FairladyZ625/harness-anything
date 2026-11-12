@@ -3150,7 +3150,7 @@
       "tierReason": null,
       "authoritySource": [
         "harness/governance/standards/ci-cd-standard.md#local-distribution-and-release",
-        "packages/gui/src/distribution/runtime-release-readiness.ts",
+        "packages/kernel/src/domain/runtime-release-readiness.ts",
         "docs-release/"
       ],
       "consumerScope": ["runtime release readiness declarations"],
@@ -3159,7 +3159,7 @@
         "docs-release/**",
         "package.json",
         "packages/**/package.json",
-        "packages/gui/src/distribution/**",
+        "packages/kernel/src/domain/runtime-release-readiness.ts",
         ".github/workflows/**",
         "tools/gate-manifest.json",
         "tools/check-runtime-release-readiness.mjs",

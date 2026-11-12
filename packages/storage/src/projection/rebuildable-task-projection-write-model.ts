@@ -1,6 +1,8 @@
+import { assertTaskProgressReferences } from "@harness-anything/kernel/internal/domain/storage-replay-policy.ts";
+import { FACT_DOCUMENT_POLICY_ID } from "@harness-anything/kernel/internal/domain/fact-event.ts";
+import { DECISION_DOCUMENT_POLICY_ID } from "@harness-anything/kernel/internal/domain/decision-event.ts";
 import { DatabaseSync } from "node:sqlite";
 import { emptyTaskLifecycleSnapshot } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
-import { isSamePerson } from "@harness-anything/kernel/internal/domain/actor-domain-services.ts";
 import { currentTaskForWrite } from "@harness-anything/kernel/internal/domain/task.ts";
 import { docByteLength, type DocumentState } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import { requireEntityKindContract } from "@harness-anything/kernel/internal/domain/entity-kind-registry.ts";
@@ -53,16 +55,7 @@ export function projectProgress(
     runtimeSessionIdValue = event.payload.runtimeSessionId,
     runtime = runtimeSessionIdValue ? readRuntimeSession(db, runtimeSessionIdValue) : null;
   // Admission checks the current lease. Replay checks accepted fact references, not today's authority.
-  if (
-    snapshot.task === null ||
-    !(event.payload.executionId === ""
-      ? snapshot.task.taskClass === "work" && isSamePerson(snapshot.task.createdBy, event.actor)
-      : snapshot.executions.some((execution) => execution.executionId === event.payload.executionId)) ||
-    !packagePath ||
-    claim.path !== `${packagePath}/progress.md` ||
-    (runtimeSessionIdValue !== undefined && !runtime?.taskBindings.some((binding) => binding.taskId === taskId))
-  )
-    throw new Error(`progress event task, execution, or runtime reference mismatch for task ${taskId}`);
+  assertTaskProgressReferences(snapshot, event, packagePath, runtime);
   if (event.payload.baseDocumentSha256 !== (base?.blob_sha256 ?? null) || !bytes || bytes.byteLength !== claim.size)
     throw new Error(`progress document base or blob mismatch for task ${taskId}`);
   const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -275,7 +268,7 @@ export function projectEntityDocumentRematerialization(
       workspaceRevision: event.workspaceRevision,
     };
     runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
-    if (claim.policyId === "markdown-body-replaceable/v1") refreshDecisionDocumentSearch(db, document);
+    if (claim.policyId === DECISION_DOCUMENT_POLICY_ID) refreshDecisionDocumentSearch(db, document);
   }
 }
 export function projectRelationDocuments(
@@ -288,9 +281,9 @@ export function projectRelationDocuments(
     if (!bytes || bytes.byteLength !== claim.size)
       throw new Error(`relation document blob ${claim.sha256} is unavailable`);
     if (
-      (claim.policyId === "markdown-body-replaceable/v1" &&
+      (claim.policyId === DECISION_DOCUMENT_POLICY_ID &&
         !/^decisions\/decision-[^/]+\/decision\.md$/u.test(claim.path)) ||
-      (claim.policyId === "typed-machine-writer/v1" && !/^facts\/F-[0-9A-HJKMNP-TV-Z]{8}\.md$/u.test(claim.path))
+      (claim.policyId === FACT_DOCUMENT_POLICY_ID && !/^facts\/F-[0-9A-HJKMNP-TV-Z]{8}\.md$/u.test(claim.path))
     )
       throw new Error(`relation document path ${claim.path} does not match its policy`);
     const document: DocumentState = {
@@ -303,7 +296,7 @@ export function projectRelationDocuments(
       workspaceRevision: event.workspaceRevision,
     };
     runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
-    if (claim.policyId === "markdown-body-replaceable/v1") refreshDecisionDocumentSearch(db, document);
+    if (claim.policyId === DECISION_DOCUMENT_POLICY_ID) refreshDecisionDocumentSearch(db, document);
   }
 }
 

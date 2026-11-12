@@ -72,3 +72,33 @@ function clonePolicy(): RuntimeReleaseReadinessPolicy & {
 } {
   return structuredClone(harnessRuntimeReleaseReadiness);
 }
+
+test("runtime readiness rejects every unshipped release claim without narrowing Node coverage", () => {
+  for (const [field, value] of [
+    ["packagesPrivateExceptPublicReady", false],
+    ["internalWorkspaceVersion", "0.0.2"],
+    ["productVersion", "0.2.0"],
+    ["publicReadyPackageVersion", "0.2.0"],
+    ["npmReleaseClaimed", true],
+    ["signedInstallersShipped", true],
+    ["notarizedBuildsShipped", true],
+    ["autoUpdateShipped", true],
+    ["releaseFeedsShipped", true],
+    ["releaseArtifactsPublished", true],
+  ] as const) {
+    const candidate = {
+      ...harnessRuntimeReleaseReadiness,
+      releaseBoundary: { ...harnessRuntimeReleaseReadiness.releaseBoundary, [field]: value },
+    } as RuntimeReleaseReadinessPolicy;
+    assert.deepEqual(
+      validateRuntimeReleaseReadiness(candidate).errors.map(({ code }) => code),
+      ["invalid_release_boundary"],
+      field,
+    );
+  }
+  const additionalMajor = {
+    ...harnessRuntimeReleaseReadiness,
+    supportedNodeMajors: [24, 26, 28],
+  } as unknown as RuntimeReleaseReadinessPolicy;
+  assert.equal(validateRuntimeReleaseReadiness(additionalMajor).ok, true);
+});

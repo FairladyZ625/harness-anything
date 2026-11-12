@@ -1,10 +1,19 @@
+export {
+  gateMappingDrafts,
+  validateGateMappingDraftRows,
+  gatesDraftValue,
+  normalizedGateGovernance,
+  gateGovernanceValue,
+} from "@harness-anything/kernel/browser";
+export type { GateMappingDraft, GateMappingIssue, GateMappingRowIssue } from "@harness-anything/kernel/browser";
+export { isMirrorQuotaValid, shouldExpireApproval, canOverrideGate } from "@harness-anything/kernel/browser";
 import type {
   DaemonGuiActionResult,
   DaemonGuiReadPayloadMap,
   DaemonGuiReadResultMap,
   GuiSubmissionV1,
 } from "@harness-anything/daemon/protocol";
-export { guiQueryPacing } from "@harness-anything/kernel/browser";
+export { guiInteractionPolicy, guiQueryPacing } from "@harness-anything/kernel/browser";
 export type * from "@harness-anything/kernel/browser";
 export type { RelationDirection, RelationState } from "@harness-anything/kernel/browser";
 /**

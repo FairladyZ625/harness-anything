@@ -1,3 +1,4 @@
+import { guiInteractionPolicy } from "@harness-anything/kernel/internal/domain/gui-interaction-policy.ts";
 import { daemonProtocolError, isDaemonGuiActionMethod, isDaemonGuiReadMethod } from "@harness-anything/daemon/client";
 import type { DaemonTaskSnapshotListResult, DaemonStreamPayloadMap } from "@harness-anything/daemon/protocol";
 import {
@@ -202,15 +203,15 @@ export function reportInvalidTaskSnapshotRows(
 // The registry has no transport timeouts; the specialized deadlines below have never been tuned and
 // stay named constants with their reasons. The default read deadline is the local setting.
 // First-run repository setup runs package installs.
-const BOOTSTRAP_TIMEOUT_MS = 75_000;
+const BOOTSTRAP_TIMEOUT_MS = guiInteractionPolicy.defaultValue.deadlines.bootstrap;
 // Instance create/update with an API key dials the provider before answering.
-const INSTANCE_KEY_TIMEOUT_MS = 75_000;
+const INSTANCE_KEY_TIMEOUT_MS = guiInteractionPolicy.defaultValue.deadlines.instanceKey;
 // Repository writes publish through the coordinator and may include SQLite/WAL plus authored-file
 // materialization. Timing them out at the short read deadline leaves an ambiguous durable write.
-const REPO_WRITE_TIMEOUT_MS = 20_000;
-const INSTANCE_OP_TIMEOUT_MS = 20_000;
-const INSTANCE_SHOW_TIMEOUT_MS = 2_000;
-const SESSION_AUTH_TIMEOUT_MS = 1_000;
+const REPO_WRITE_TIMEOUT_MS = guiInteractionPolicy.defaultValue.deadlines.repoWrite;
+const INSTANCE_OP_TIMEOUT_MS = guiInteractionPolicy.defaultValue.deadlines.instanceOperation;
+const INSTANCE_SHOW_TIMEOUT_MS = guiInteractionPolicy.defaultValue.deadlines.instanceShow;
+const SESSION_AUTH_TIMEOUT_MS = guiInteractionPolicy.defaultValue.deadlines.sessionAuth;
 
 function requestTimeoutMs(route: ShippedGuiRoute, payload: JsonObject, timeouts: GuiRequestTimeouts): number {
   if (

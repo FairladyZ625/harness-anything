@@ -1,4 +1,5 @@
 import type * as DomainStatus from "../api/renderer-dto.ts";
+import { guiInteractionPolicy } from "../api/renderer-dto.ts";
 import { useEffect, useRef, useState } from "react";
 import { harnessClient } from "./api-client.ts";
 import type { ObserveTailRead } from "../api/renderer-dto.ts";
@@ -18,7 +19,7 @@ import { cadenceEventOf, mergeCadenceEvents, type CadenceFeedEvent } from "./mod
  * `unavailable`(远端 edge 无事件流)显式呈现并慢速重试,不冒充空窗口。
  */
 
-const CADENCE_HISTORY_PAGE_BUDGET = 16,
+const CADENCE_HISTORY_PAGE_BUDGET = guiInteractionPolicy.defaultValue.pages.cadenceHistory,
   CADENCE_FOLLOW_MS = 5_000,
   CADENCE_PENDING_MS = 500,
   CADENCE_ERROR_MS = 1_500,

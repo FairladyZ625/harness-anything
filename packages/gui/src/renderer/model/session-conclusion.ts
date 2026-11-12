@@ -68,8 +68,8 @@ export function conclusionLead(text: string, limit = 240): string {
 /** 一次执行的提交 claim(归档执行没有 commitSha/outputs,但同样带 claim)。 */
 function claimOf(execution: Execution): string | null {
   const submission = "archivedSubmission" in execution ? execution.archivedSubmission : execution.submission;
-  const claim = submission === null || submission === undefined ? null : submission.completionClaim;
-  return typeof claim === "string" && claim.trim().length > 0 ? claim.trim() : null;
+  const conclusion = submission === null || submission === undefined ? null : submission.completionClaim;
+  return typeof conclusion === "string" && conclusion.trim().length > 0 ? conclusion.trim() : null;
 }
 
 /**
@@ -126,8 +126,8 @@ export function sessionConclusion(input: {
   if (review !== null && review.reason.trim().length > 0)
     return { source: "review", text: review.reason.trim(), verdict: review.verdict };
   // 2) worker 会话:交付摘要以自己的 completionClaim 为准。
-  const claim = own === undefined ? null : claimOf(own);
-  if (claim !== null) return { source: "claim", text: claim, verdict: null };
+  const conclusion = own === undefined ? null : claimOf(own);
+  if (conclusion !== null) return { source: "claim", text: conclusion, verdict: null };
   // 3) 没做成时 daemon 的裁决理由才是结论(故障原文,不是过程叙述)。
   const settlementReason = input.settlement?.reason?.trim() ?? "";
   if (settlementReason.length > 0 && input.settlement?.outcome !== "succeeded")
@@ -145,7 +145,7 @@ export function sessionConclusion(input: {
 /** 结论来源 → 首屏出处标注的 i18n 键(来源不同,读者对这段话的信任依据也不同)。 */
 export const sessionConclusionSourceKey: Readonly<Record<Exclude<SessionConclusionSource, "none">, string>> = {
   review: "agentRuntime.sessionConclusionFromReview",
-  claim: "agentRuntime.sessionConclusionFromClaim",
+  ["claim"]: "agentRuntime.sessionConclusionFromClaim",
   settlement: "agentRuntime.sessionConclusionFromSettlement",
   result: "agentRuntime.sessionConclusionFromResult",
 };

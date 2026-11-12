@@ -1,3 +1,7 @@
+import {
+  storageReadPolicy,
+  validateStorageReadWindow,
+} from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { assertRuntimeDispatchKeyIndexReady, assertRuntimeMemberIndexReady } from "./runtime-member-index.ts";
 import { prefixUpperBound } from "./document-read-range.ts";
 import { isoTimestampMillisecondsSql } from "./iso-timestamp-sql.ts";
@@ -219,13 +223,7 @@ export function repositoryEventQueries(
       }),
     readEventSummaries: (afterRevision, limit, fields) =>
       withRead((db, cut) => {
-        if (
-          !Number.isSafeInteger(afterRevision) ||
-          afterRevision < 0 ||
-          !Number.isSafeInteger(limit) ||
-          limit < 1 ||
-          limit > 2048
-        )
+        if (!validateStorageReadWindow(limit, storageReadPolicy.defaultValue.pageSizes.summaries, afterRevision))
           throw new Error("event summary page requires a non-negative revision and a limit from 1 to 2048");
         if (typeof fields === "object") {
           const selected = [...new Set(fields.taskIds)].flatMap((taskId) =>
@@ -367,7 +365,7 @@ export function repositoryEventQueries(
       withRead((db) => {
         if (typeof prefix !== "string" || prefix.length === 0)
           throw new Error("runtime dispatch id prefix requires a non-empty prefix");
-        if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500)
+        if (!validateStorageReadWindow(limit, storageReadPolicy.defaultValue.pageSizes.standard))
           throw new Error("runtime dispatch id prefix limit must be from 1 to 500");
         return queryRows(db, RUNTIME_DISPATCH_BY_ID_PREFIX_SQL, prefix, `${prefix}\uFFFF`, limit).flatMap((row) => {
           const projected = projectedDispatch(db, row);
@@ -399,7 +397,7 @@ export function repositoryEventQueries(
       ),
     readRuntimeDispatchPage: ({ startedAtGte, cursor, limit: pageLimit }) =>
       withRead((db) => {
-        if (!Number.isSafeInteger(pageLimit) || pageLimit < 1 || pageLimit > 500)
+        if (!validateStorageReadWindow(pageLimit, storageReadPolicy.defaultValue.pageSizes.standard))
           throw new Error("runtime dispatch page requires a limit from 1 to 500");
         const afterStartedAt = cursor?.startedAt ?? "",
           afterDispatchId = cursor?.dispatchId ?? "",
@@ -428,7 +426,7 @@ export function repositoryEventQueries(
       withRead((db) => {
         if ((agentId === undefined) === (squadId === undefined))
           throw new Error("runtime dispatch member page requires exactly one of agentId or squadId");
-        if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500)
+        if (!validateStorageReadWindow(limit, storageReadPolicy.defaultValue.pageSizes.standard))
           throw new Error("runtime dispatch member page requires a limit from 1 to 500");
         assertRuntimeMemberIndexReady(db);
         const member: "agentId" | "squadId" = agentId === undefined ? "squadId" : "agentId",
@@ -456,7 +454,7 @@ export function repositoryEventQueries(
       }),
     readRuntimeSessionEvents: (runtimeSessionIdValue, afterRevision, limit) =>
       withRead((db) => {
-        if (!Number.isSafeInteger(afterRevision) || afterRevision < 0 || !Number.isSafeInteger(limit) || limit < 1)
+        if (!validateStorageReadWindow(limit, undefined, afterRevision))
           throw new Error("runtime session event page requires a non-negative revision and a positive limit");
         return queryRows(db, RUNTIME_SESSION_EVENTS_SQL, afterRevision, runtimeSessionIdValue, limit)
           .map((row) => JSON.parse(String(row.event_json)))

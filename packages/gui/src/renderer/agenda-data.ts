@@ -1,10 +1,11 @@
+import { guiInteractionPolicy } from "../api/renderer-dto.ts";
 import { useQuery } from "@tanstack/react-query";
 import { attentionRegionWeights, compareAttention } from "@harness-anything/daemon/protocol";
 import { harnessClient, type AgendaSuccess } from "./api-client.ts";
 import { drainCursorPages } from "./paginated-read.ts";
 
 /** 每个 agenda source 的一页上限(daemon 上限 500;GUI 用默认页大小,不放大读面)。 */
-export const AGENDA_PAGE_LIMIT = 100;
+export const AGENDA_PAGE_LIMIT = guiInteractionPolicy.defaultValue.pageSizes.agenda;
 
 export const agendaQueryKeys = {
   read: (repoId: string) => ["agenda", repoId] as const,

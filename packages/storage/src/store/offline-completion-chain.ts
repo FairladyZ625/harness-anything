@@ -132,16 +132,16 @@ export function makeOfflineCompletionChain(input: {
     return current;
   }
   function mapContractClaim(
-    claim: ContentClaim,
+    document: ContentClaim,
     oldDigest: string,
     task: TaskV2,
     blobs: CanonicalContentBlob[],
   ): ContentClaim {
-    const bytes = input.readContent(claim.sha256);
-    if (!bytes) throw new Error(`task contract content ${claim.sha256} is absent`);
+    const bytes = input.readContent(document.sha256);
+    if (!bytes) throw new Error(`task contract content ${document.sha256} is absent`);
     const body = JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>;
     if (body.presetSnapshotDigest !== oldDigest)
-      throw new Error(`task contract ${claim.path} does not bind its event snapshot`);
+      throw new Error(`task contract ${document.path} does not bind its event snapshot`);
     const serialized = `${JSON.stringify(
         {
           ...body,
@@ -153,8 +153,8 @@ export function makeOfflineCompletionChain(input: {
       )}\n`,
       sha256 = sha256Text(serialized),
       size = Buffer.byteLength(serialized);
-    blobs.push({ sha256, size, mediaType: claim.mediaType, body: serialized });
-    return { ...claim, sha256, size };
+    blobs.push({ sha256, size, mediaType: document.mediaType, body: serialized });
+    return { ...document, sha256, size };
   }
   return {
     convert(event: CanonicalEventV1): {
@@ -202,8 +202,10 @@ export function makeOfflineCompletionChain(input: {
       if (original.initialDocumentClaims && oldSnapshot)
         payload = {
           ...payload,
-          initialDocumentClaims: original.initialDocumentClaims.map((claim) =>
-            claim.path?.endsWith("/task-contract.json") ? mapContractClaim(claim, oldSnapshot, task, blobs) : claim,
+          initialDocumentClaims: original.initialDocumentClaims.map((document) =>
+            document.path?.endsWith("/task-contract.json")
+              ? mapContractClaim(document, oldSnapshot, task, blobs)
+              : document,
           ),
         };
       if (original.taskContractClaim && oldSnapshot)
@@ -214,8 +216,10 @@ export function makeOfflineCompletionChain(input: {
       if (original.documentClaims && oldSnapshot)
         payload = {
           ...payload,
-          documentClaims: original.documentClaims.map((claim) =>
-            claim.path?.endsWith("/task-contract.json") ? mapContractClaim(claim, oldSnapshot, task, blobs) : claim,
+          documentClaims: original.documentClaims.map((document) =>
+            document.path?.endsWith("/task-contract.json")
+              ? mapContractClaim(document, oldSnapshot, task, blobs)
+              : document,
           ),
         };
       const execution = original.execution;

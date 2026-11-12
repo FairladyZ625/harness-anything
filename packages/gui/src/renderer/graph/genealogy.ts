@@ -1,3 +1,4 @@
+import { guiInteractionPolicy } from "../../api/renderer-dto.ts";
 import type { DecisionRow, RelationEdge, RelationKind } from "../model/types";
 import { dayKeyOf, formatDayKeyLabel } from "../model/time.ts";
 
@@ -35,7 +36,7 @@ export const PAD_Y = 20;
 export const CLUSTER_W = 188;
 export const CLUSTER_H = 72;
 const LANE_STEP_MIN = 12;
-const SAME_DAY_CLUSTER_THRESHOLD = 2;
+const SAME_DAY_CLUSTER_THRESHOLD = guiInteractionPolicy.defaultValue.presentation.sameDayCluster;
 
 export interface GenealogyEdge {
   from: string;

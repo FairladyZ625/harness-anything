@@ -368,7 +368,8 @@ function CenterConnectionPanel({
     enabled: centerSettings !== undefined,
   });
   const service = fleetStatus.data,
-    serviceRunning = service !== undefined && service.ok === true && service.running;
+    serviceRunning = service !== undefined && service.ok === true && service.running,
+    mirrorBytes = service?.ok === true ? (service.quotaBytes ?? centerMirrorQuotaBytes) : centerMirrorQuotaBytes;
   // 表单只在首个确定状态到达时取一次保存值;之后用户怎么改都不被查询结果覆盖。
   useEffect(() => {
     if (serviceFormInitialized.current || service === undefined || service.ok !== true) return;
@@ -409,10 +410,7 @@ function CenterConnectionPanel({
     startCenter.mutate({
       port: portNumber,
       repoId: serviceRepoId,
-      quotaBytes:
-        service !== undefined && service.ok === true && service.quotaBytes !== null
-          ? service.quotaBytes
-          : centerMirrorQuotaBytes,
+      quotaBytes: mirrorBytes,
       bind: serviceBind,
       ...(externalUrl.trim() !== "" ? { externalUrl: externalUrl.trim() } : {}),
     });
@@ -608,15 +606,7 @@ function CenterConnectionPanel({
             </div>
             <p className="mt-2 ui-micro text-text-faint">
               {t("views.repositories.centerServiceQuota", {
-                gb: String(
-                  Math.round(
-                    ((service !== undefined && service.ok === true && service.quotaBytes !== null
-                      ? service.quotaBytes
-                      : centerMirrorQuotaBytes) /
-                      1024 ** 3) *
-                      10,
-                  ) / 10,
-                ),
+                gb: String(Math.round((mirrorBytes / 1024 ** 3) * 10) / 10),
               })}
               {t("views.repositories.centerServiceExternalHint")}
             </p>

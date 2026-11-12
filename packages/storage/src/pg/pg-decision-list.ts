@@ -71,6 +71,7 @@ export async function listPgDecisionRows(
       selected,
       filters.withBody === true,
     );
+  const last = decisions.at(-1);
   return {
     decisions,
     ...(limit === null
@@ -79,8 +80,7 @@ export async function listPgDecisionRows(
           page: {
             limit,
             cursor: filters.cursor ?? null,
-            nextCursor:
-              result.rows.length > limit && decisions.at(-1) ? encodePageCursor([decisions.at(-1)!.decisionId]) : null,
+            nextCursor: result.rows.length > limit && last ? encodePageCursor([last.decisionId]) : null,
           },
         }),
   };

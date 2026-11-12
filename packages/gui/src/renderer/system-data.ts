@@ -1,3 +1,4 @@
+import { guiInteractionPolicy } from "../api/renderer-dto.ts";
 import { useCallback, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { harnessClient, type DaemonControlReceipt, type SystemRepoRow } from "./api-client.ts";
@@ -47,7 +48,13 @@ export async function settleDaemonControl(
   pause: () => Promise<void> = () => new Promise((resolve) => window.setTimeout(resolve, 250)),
 ): Promise<DaemonControlReceipt> {
   let receipt = initial;
-  for (let attempt = 0; attempt < 80 && receipt.ok && !["settled", "failed"].includes(receipt.phase); attempt += 1) {
+  for (
+    let round = 0;
+    round < guiInteractionPolicy.defaultValue.polls.daemonControl &&
+    receipt.ok &&
+    !["settled", "failed"].includes(receipt.phase);
+    round += 1
+  ) {
     await pause();
     receipt = await read(receipt.operationId);
   }

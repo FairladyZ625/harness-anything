@@ -1,3 +1,4 @@
+import { guiInteractionPolicy } from "../../api/renderer-dto.ts";
 import { TabPanel } from "../components/primitives/EntryBoundary.tsx";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -40,7 +41,7 @@ import {
 
 const AVAILABILITY_META: Record<ScheduleGuiRowDto["executionAvailability"], MessageKey> = {
   local: "schedules.availability.local",
-  "claimed-elsewhere": "schedules.availability.claimedElsewhere",
+  ["claimed-elsewhere"]: "schedules.availability.claimedElsewhere",
   "not-on-this-node": "schedules.availability.notOnThisNode",
 };
 const TARGET_STATE_KEY: Readonly<Record<NonNullable<ScheduleGuiRowDto["targetState"]>, MessageKey>> = {
@@ -186,7 +187,7 @@ export function ScheduleDetailView({
   const runsQuery = useQuery({
     queryKey: ["schedule-runs", repoId, row.scheduleId],
     queryFn: () => schedulesClient.runs(repoId, row.scheduleId),
-    retry: false,
+    retry: guiInteractionPolicy.defaultValue.retry,
     staleTime: 2_000,
   });
   // One daemon projection paints the timeline; the renderer never recomputes

@@ -1,3 +1,4 @@
+import { normalizedGateGovernance, gateGovernanceValue } from "../../../api/renderer-dto.ts";
 import { Toggle } from "../../components/primitives/Toggle.tsx";
 import { t, type MessageKey } from "../../i18n/index.tsx";
 import { SettingSelect } from "../../components/ui/widgets";
@@ -10,7 +11,7 @@ const ISSUE_COPY: Readonly<Record<GateMappingIssue, MessageKey>> = {
   adapterUnknown: "views.settingsView.gateIssue.adapterUnknown",
   adapterFieldMissing: "views.settingsView.gateIssue.adapterFieldMissing",
   adapterFieldUnexpected: "views.settingsView.gateIssue.adapterFieldUnexpected",
-  governanceNotAllowed: "views.settingsView.gateIssue.governanceNotAllowed",
+  ["governanceNotAllowed"]: "views.settingsView.gateIssue.governanceNotAllowed",
 };
 
 const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
@@ -52,11 +53,7 @@ export function GateMappingsEditor({
           for (const field of allowed)
             if (draft[field as keyof GateMappingDraft] !== undefined)
               next[field] = draft[field as keyof GateMappingDraft];
-          if (governable) {
-            if (draft.mandatorySignoff === true) next.mandatorySignoff = true;
-            if (draft.allowOverride === true) next.allowOverride = true;
-          }
-          return next as unknown as GateMappingDraft;
+          return { ...next, ...(governable ? normalizedGateGovernance(draft) : {}) } as unknown as GateMappingDraft;
         }),
       );
   return (
@@ -118,9 +115,7 @@ export function GateMappingsEditor({
                         label={t("views.settingsView.gateMandatorySignoffLabel")}
                         checked={draft.mandatorySignoff === true}
                         disabled={disabled}
-                        onChange={(enabled) =>
-                          updateRow(row, enabled ? { mandatorySignoff: true } : { mandatorySignoff: undefined })
-                        }
+                        onChange={(enabled) => updateRow(row, { mandatorySignoff: gateGovernanceValue(enabled) })}
                       />
                       {t("views.settingsView.gateMandatorySignoffLabel")}
                     </label>
@@ -132,9 +127,7 @@ export function GateMappingsEditor({
                         label={t("views.settingsView.gateAllowOverrideLabel")}
                         checked={draft.allowOverride === true}
                         disabled={disabled}
-                        onChange={(enabled) =>
-                          updateRow(row, enabled ? { allowOverride: true } : { allowOverride: undefined })
-                        }
+                        onChange={(enabled) => updateRow(row, { allowOverride: gateGovernanceValue(enabled) })}
                       />
                       {t("views.settingsView.gateAllowOverrideLabel")}
                     </label>

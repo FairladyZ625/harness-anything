@@ -1,3 +1,4 @@
+import { validateStorageReadWindow } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import type { PoolClient } from "pg";
 import type { ReplicationPosition, ReplicationCommit } from "../store/replication-log.ts";
 import type { SqliteCommandOutcome, SqliteEventRow } from "../store/sqlite-event-store-types.ts";
@@ -96,8 +97,7 @@ export async function pgReplicationPage(
       )
     ).rows[0];
   if (
-    !Number.isSafeInteger(limit) ||
-    limit < 1 ||
+    !validateStorageReadWindow(limit) ||
     after.history !== head.history ||
     !anchor ||
     Number(anchor.revision) !== after.revision ||

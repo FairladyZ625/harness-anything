@@ -1,3 +1,4 @@
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { completionConversionStream } from "./completion-conversion-stream.ts";
 import { completionRetirementExecutions } from "@harness-anything/kernel/internal/domain/task-completion-generation-retirement.ts";
 import { retireCompletionExecutions } from "./completion-generation-retirement.ts";
@@ -138,7 +139,10 @@ export function verifyCompletionGeneration(source: SqliteEventStore, root: strin
         throw new Error("generation 3 cold replay differs");
       let cursor: string | null = null;
       do {
-        const page = projection.list({ limit: 500, ...(cursor === null ? {} : { cursor }) });
+        const page = projection.list({
+          limit: storageReadPolicy.defaultValue.pageSizes.standard,
+          ...(cursor === null ? {} : { cursor }),
+        });
         for (const row of page.rows)
           if (completionRetirementExecutions(projection.read(row.taskId).snapshot).length)
             throw new Error(`completion retirement is incomplete for ${row.taskId}`);

@@ -1,3 +1,8 @@
+import {
+  storageReadPolicy,
+  validateStorageReadWindow,
+  canTruncateRelationNeighborhood,
+} from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { readTaskDocumentOwner } from "./task-document-owner-query.ts";
 import { listPinnedEntityRows } from "./rebuildable-task-projection-entities.ts";
 import type { DatabaseSync } from "node:sqlite";
@@ -200,10 +205,9 @@ export function taskQueryApi(
     readTaskRelationNeighborhood: (query) =>
       withDatabase(projectionPath, readHead, (db) => {
         const cut = readProjectionCut(db, readHead),
-          rows =
-            query.allowTruncation === true
-              ? readTaskRelationNeighborhoodWindow(db, query)
-              : { rows: readTaskRelationNeighborhoodRows(db, query), truncated: false };
+          rows = canTruncateRelationNeighborhood(query.allowTruncation)
+            ? readTaskRelationNeighborhoodWindow(db, query)
+            : { rows: readTaskRelationNeighborhoodRows(db, query), truncated: false };
         return {
           status: cut.status,
           rows: rows.rows,
@@ -332,13 +336,7 @@ export function taskQueryApi(
       }),
     readCanonicalEvents: (afterRevision, pageLimit) =>
       withDatabase(projectionPath, readHead, (db) => {
-        if (
-          !Number.isSafeInteger(afterRevision) ||
-          afterRevision < 0 ||
-          !Number.isSafeInteger(pageLimit) ||
-          pageLimit < 1 ||
-          pageLimit > 500
-        )
+        if (!validateStorageReadWindow(pageLimit, storageReadPolicy.defaultValue.pageSizes.standard, afterRevision))
           throw new Error("canonical event page requires a non-negative revision and a limit from 1 to 500");
         const cut = readProjectionCut(db, readHead);
         return {

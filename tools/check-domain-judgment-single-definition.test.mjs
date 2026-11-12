@@ -352,6 +352,16 @@ test("registry judgments enforce canonical definitions, consumers and equivalent
       writeFileSync(path.join(root, file), body);
     },
     findings = () => checkDomainJudgmentSingleDefinition(root, kinds).filter((item) => item.includes("eligibility"));
+  write(
+    "packages/kernel/package.json",
+    JSON.stringify({
+      name: "@harness-anything/kernel",
+      exports: {
+        "./browser": "./src/browser.ts",
+        "./internal/domain/*.ts": "./src/domain/*.ts",
+      },
+    }),
+  );
   write(canonical, "export function isEligible(value: boolean) { return value; }");
   write(
     consumer,
@@ -397,6 +407,39 @@ test("registry judgments enforce canonical definitions, consumers and equivalent
   assert.ok(
     findings().some((item) => item.includes("must consume")),
     "the import must resolve to the canonical owner",
+  );
+  // dec_7E44897ECDCAEF2B92EC66A260: browser-safe transitive aliases must reach the same owner.
+  write("packages/kernel/src/browser.ts", "export { isEligible as publicEligibility } from './domain/eligibility.ts';");
+  write("packages/gui/src/api.ts", "export { publicEligibility as eligible } from '@harness-anything/kernel/browser';");
+  write(consumer, "import { eligible } from '../../gui/src/api.ts'; export const verdict = eligible(true);");
+  assert.deepEqual(findings(), [], "a called runtime alias through browser/API exports is a real consumer");
+  write(
+    "packages/gui/src/api.ts",
+    "export type { publicEligibility as eligible } from '@harness-anything/kernel/browser';",
+  );
+  assert.ok(
+    findings().some((item) => item.includes("must consume")),
+    "type-only exports cannot satisfy runtime consumption",
+  );
+  write("packages/gui/src/api.ts", "export { unrelated as eligible } from './unrelated.ts';");
+  write("packages/gui/src/unrelated.ts", "export const unrelated = true;");
+  assert.ok(
+    findings().some((item) => item.includes("must consume")),
+    "a similarly named unrelated export cannot satisfy consumption",
+  );
+  write("packages/gui/src/api.ts", "export { eligible } from './cycle.ts';");
+  write("packages/gui/src/cycle.ts", "export { eligible } from './api.ts';");
+  assert.ok(
+    findings().some((item) => item.includes("must consume")),
+    "an export cycle cannot fabricate a canonical consumer",
+  );
+  write("packages/gui/src/api.ts", "export { publicEligibility as eligible } from '@harness-anything/kernel/browser';");
+  write(canonical, "export const isEligible = (value: boolean) => value;");
+  assert.deepEqual(findings(), [], "an exported canonical arrow function remains callable through aliases");
+  write(canonical, "const isEligible = (value: boolean) => value;");
+  assert.ok(
+    findings().some((item) => item.includes("must consume")),
+    "a private canonical declaration is not a runtime export",
   );
   write(canonical, "// canonical definition removed");
   assert.ok(

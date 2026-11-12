@@ -1,3 +1,4 @@
+import { documentNodeKind } from "../document-node-kind.ts";
 import {
   SQLITE_DECLARATION_INDEX_DDL,
   applySqliteDeclarationIndex,
@@ -839,7 +840,7 @@ function applyDocumentHeads(query: SqliteQuery, event: CanonicalEventV1, updateW
       claim.path,
       claim.sha256,
       claim.size,
-      canonicalDocumentMode(event, claim.path) === "120000" ? "symbolic-link" : "file",
+      documentNodeKind(canonicalDocumentMode(event, claim.path)),
       event.workspaceRevision,
     ]);
   for (const retirement of canonicalDocumentRetirements(event))

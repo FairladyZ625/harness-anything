@@ -68,7 +68,7 @@ export function listProjection(
       at = now();
     // The unparameterized read keeps its original single statement so its result
     // stays byte-identical; only explicit query parameters take the indexed path.
-    if (
+    const unfiltered =
       query.status === undefined &&
       query.changedAfterRevision === undefined &&
       query.updatedAfter === undefined &&
@@ -81,8 +81,8 @@ export function listProjection(
       query.presentationStatus !== true &&
       query.scopeRootTaskId === undefined &&
       query.leaseOnly !== true &&
-      query.decisionRelationsOnly !== true
-    ) {
+      query.decisionRelationsOnly !== true;
+    if (unfiltered) {
       const rows = queryPreparedRows<{
           readonly task_id: string;
           readonly package_path: string | null;

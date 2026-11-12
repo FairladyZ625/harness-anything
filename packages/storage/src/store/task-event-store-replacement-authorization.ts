@@ -1,3 +1,4 @@
+import { documentNodeKind } from "../document-node-kind.ts";
 import {
   isDecisionEvent,
   isMigrationImportEvent,
@@ -41,7 +42,7 @@ export function requiresReplacementAuthorization(event: CanonicalEventV1): boole
   );
 }
 
-export function assertAuthorizedReplacements(
+export function authorizeReplacementBatch(
   store: DocumentReplacementState,
   members: readonly CanonicalWriteBundle[],
 ): void {
@@ -73,7 +74,7 @@ export function assertAuthorizedReplacements(
       pending.set(claim.path, {
         ...claim,
         body: blob.body,
-        nodeKind: canonicalDocumentMode(member.event, claim.path) === "120000" ? "symbolic-link" : "file",
+        nodeKind: documentNodeKind(canonicalDocumentMode(member.event, claim.path)),
       });
     }
     for (const claim of canonicalDocumentRetirements(member.event)) pending.set(claim.path, null);
@@ -145,3 +146,5 @@ function authorize(
       );
   }
 }
+
+export { authorizeReplacementBatch as assertAuthorizedReplacements };

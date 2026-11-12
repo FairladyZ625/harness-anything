@@ -1,4 +1,5 @@
 import type * as DomainStatus from "../../../api/renderer-dto.ts";
+import { guiInteractionPolicy } from "../../../api/renderer-dto.ts";
 import { useEffect, useState } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
@@ -203,8 +204,8 @@ function useRuntimeChannel(repoId: string, refresh?: () => Promise<unknown>) {
 // 两段读窗独立(G12 §2a):sessions 段用 since,squads 段用 squadSince。
 // 本页不自带刷新:cancel 的 canonical 事件推进台账 cut,App 层探针的扇出
 // (invalidateLedgerDependents)在几秒内把新状态带进挂载中的列表。
-const SESSION_GROUPS_PAGE_LIMIT = 1000;
-const SQUAD_RUNS_LIMIT = 1000;
+const SESSION_GROUPS_PAGE_LIMIT = guiInteractionPolicy.defaultValue.pageSizes.sessionGroups;
+const SQUAD_RUNS_LIMIT = guiInteractionPolicy.defaultValue.pageSizes.squadRuns;
 export function useSessionsWorkspace(
   repoId: string,
   list: {
@@ -466,7 +467,7 @@ export function useAgentSquadWorkspace(repoId: string) {
       // asynchronous binding before refreshing the task/agent read facets; otherwise the first
       // refresh permanently caches the session as "unattributed" until a later user action.
       if (settled?.runtimeSessionId && request.taskId !== null) {
-        for (let attempt = 0; attempt < 40; attempt += 1) {
+        for (let round = 0; round < guiInteractionPolicy.defaultValue.polls.sessionBinding; round += 1) {
           try {
             // 绑定等待只读这一个 session 的 associations,不随全仓 session-group 历史增长。
             const session = await agentRuntimeClient.session(repoId, settled.runtimeSessionId);
@@ -613,7 +614,7 @@ export function useProviderWorkspace(repoId: string, requestedInstanceId: string
         // Provider auth commands may invoke the provider executable. Probe the visible carrier;
         // probing every catalog row at once created a second daemon request storm on cold entry.
         enabled: needsProbe && instance.instanceId === autoProbeInstanceId,
-        retry: false,
+        retry: guiInteractionPolicy.defaultValue.retry,
         // A not-checked verdict is not a reusable answer: when the key returns to it (for example
         // after a daemon generation reset), the next mount probes again.
         staleTime: needsProbe ? 0 : 2_000,
@@ -661,7 +662,7 @@ export function useProviderWorkspace(repoId: string, requestedInstanceId: string
     );
     if (!result?.runtimeSessionId) return null;
     try {
-      for (let attempt = 0; attempt < 80; attempt += 1) {
+      for (let round = 0; round < guiInteractionPolicy.defaultValue.polls.providerSelfTest; round += 1) {
         const snapshot = await agentRuntimeClient.session(repoId, result.runtimeSessionId);
         const successfulResult = successfulAgentRuntimeResult(snapshot);
         if (successfulResult) return successfulResult;
@@ -792,7 +793,7 @@ export function useSquadRunDetail(repoId: string, squadRunId: string | null) {
 }
 
 // A task-bound dispatch spawns first; only a runtime_task_lease_required rejection triggers
-// one lease acquisition and one resubmit under the same idempotency key — the first attempt
+// one lease acquisition and one resubmit under the same idempotency key — the first round
 // wrote no ledger event, so the retry is not a duplicate dispatch.
 async function leaseAwareSpawn(
   repoId: string,

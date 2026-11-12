@@ -40,6 +40,7 @@ export function NodeDetails({
   readonly onNavigateEntity: (ref: string) => void;
   readonly onClose: () => void;
 }) {
+  const assignments = node.leases;
   return (
     <div data-testid="collaboration-node-details" className="flex flex-col gap-4">
       <header className="flex items-start justify-between gap-3 border-b border-border pb-3">
@@ -67,19 +68,19 @@ export function NodeDetails({
         />
       )}
       <DetailBlock title={t("collaboration.doingTitle")}>
-        {"redacted" in node.leases ? (
+        {"redacted" in assignments ? (
           <p
             data-testid="collaboration-node-leases-redacted"
-            data-reason={node.leases.redacted}
-            title={node.leases.redacted}
+            data-reason={assignments.redacted}
+            title={assignments.redacted}
             className="ui-meta text-status-blocked"
           >
-            {t("collaboration.noPermission")}：{reasonText(node.leases.redacted)}
+            {t("collaboration.noPermission")}：{reasonText(assignments.redacted)}
           </p>
-        ) : node.leases.length === 0 ? (
+        ) : assignments.length === 0 ? (
           <p className="ui-meta text-text-muted">{t("collaboration.noLeases")}</p>
         ) : (
-          node.leases.map((lease) => (
+          assignments.map((lease) => (
             <LeaseRow
               key={lease.taskId}
               lease={lease}

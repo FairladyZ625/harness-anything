@@ -63,14 +63,7 @@ export interface StorageMigrationManifest {
   readonly target: string;
   readonly tuples: readonly MigrationTuple[];
 }
-export class StorageMigrationError extends Error {
-  readonly code: string;
-  constructor(code: string, message: string) {
-    super(message);
-    this.code = code;
-    this.name = "StorageMigrationError";
-  }
-}
+export { StorageMigrationError } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
 export function migrationWritable(record: StorageMigrationRecord | null): boolean {
   return (
     record === null ||

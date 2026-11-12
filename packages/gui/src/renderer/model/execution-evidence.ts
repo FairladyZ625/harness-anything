@@ -210,6 +210,7 @@ function adaptOutput(
   output: ProjectedOutput | undefined,
   submittedLocator: string | undefined,
 ): ExecutionEvidenceOutput {
+  const supportedSubstrates: readonly unknown[] = ["repository-path", "uri", "canonical-event", "opaque"];
   const candidate = output as Partial<ProjectedOutput> | undefined;
   const checkerReceiptRef = candidate?.checkerReceiptRef === null ? null : text(candidate?.checkerReceiptRef);
   const checkerResult =
@@ -219,13 +220,7 @@ function adaptOutput(
   return {
     evidenceId: text(candidate?.evidenceId),
     locator: text(candidate?.locator),
-    substrate:
-      candidate?.substrate === "repository-path" ||
-      candidate?.substrate === "uri" ||
-      candidate?.substrate === "canonical-event" ||
-      candidate?.substrate === "opaque"
-        ? candidate.substrate
-        : undefined,
+    substrate: supportedSubstrates.includes(candidate?.substrate) ? candidate?.substrate : undefined,
     checkerReceiptRef,
     checkerResult,
     isPassingReceipt: checkerReceiptRef !== undefined && checkerReceiptRef !== null && checkerResult === "pass",

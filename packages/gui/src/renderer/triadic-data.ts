@@ -1,3 +1,4 @@
+import { guiInteractionPolicy } from "../api/renderer-dto.ts";
 import { useMemo } from "react";
 import { useInfiniteQuery, useQueries, useQuery } from "@tanstack/react-query";
 import type {
@@ -88,7 +89,7 @@ export function useActiveEdgesQuery(repoId: string | null, enabled: boolean) {
         repoId: repoId!,
         facet: "edges",
         state: "active",
-        limit: 500,
+        limit: guiInteractionPolicy.defaultValue.pageSizes.relationGraph,
         ...(pageParam === undefined ? {} : { cursor: pageParam }),
       }),
     getNextPageParam: (last) => last.page!.nextCursor ?? undefined,
@@ -137,7 +138,7 @@ export function usePaletteFactsQuery(repoId: string | null, enabled: boolean) {
       harnessClient.getRelationFacts({
         repoId: repoId!,
         facet: "facts",
-        limit: 500,
+        limit: guiInteractionPolicy.defaultValue.pageSizes.facts,
         ...(pageParam === undefined ? {} : { cursor: pageParam }),
       }),
     getNextPageParam: (last) => last.page.nextCursor ?? undefined,
@@ -269,7 +270,10 @@ async function drainRelationGraph(
   read: (payload: { readonly limit: number; readonly cursor?: string }) => Promise<RelationGraphSuccess>,
   label: string,
 ): Promise<RelationGraphSuccess> {
-  const pages = await drainCursorPages((facets) => read({ limit: 500, ...facets }), label);
+  const pages = await drainCursorPages(
+    (facets) => read({ limit: guiInteractionPolicy.defaultValue.pageSizes.relationGraph, ...facets }),
+    label,
+  );
   const first = pages[0];
   return {
     ...mergeRelationGraphs(pages),

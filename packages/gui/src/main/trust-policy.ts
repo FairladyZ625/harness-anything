@@ -1,13 +1,14 @@
+import {
+  validateDesktopTrustPolicy,
+  type TrustPolicy,
+  type TrustPolicyValidationResult,
+} from "@harness-anything/kernel/internal/domain/gui-admission-policy.ts";
+export type {
+  TrustPolicy,
+  TrustPolicyValidationResult,
+} from "@harness-anything/kernel/internal/domain/gui-admission-policy.ts";
 /** @slice-activation Slice 7.5 GUI trust policy - Embedded browser and terminal link opening consume this when wired. */
 import path from "node:path";
-
-export interface TrustPolicy {
-  readonly projectId: string;
-  readonly allowedRoots: readonly string[];
-  readonly allowedLocalhostPorts?: readonly number[];
-  readonly allowedUrlOrigins: readonly string[];
-  readonly openExternalByDefault: boolean;
-}
 
 export type TrustPolicyDecisionReason =
   | "invalid_policy"
@@ -31,28 +32,8 @@ export interface TerminalOutputLinkRequest {
   readonly userGesture: boolean;
 }
 
-export type TrustPolicyValidationResult =
-  | { readonly ok: true }
-  | {
-      readonly ok: false;
-      readonly error: {
-        readonly code: "invalid_trust_policy";
-        readonly hint: string;
-      };
-    };
-
 export function validateTrustPolicy(policy: TrustPolicy): TrustPolicyValidationResult {
-  if (!policy.projectId) return invalidPolicy("TrustPolicy requires projectId.");
-  if (policy.allowedRoots.length === 0 || !policy.allowedRoots.every((root) => path.isAbsolute(root))) {
-    return invalidPolicy("TrustPolicy allowedRoots must be non-empty absolute paths.");
-  }
-  if ((policy.allowedLocalhostPorts ?? []).some((port) => !Number.isInteger(port) || port <= 0 || port > 65535)) {
-    return invalidPolicy("TrustPolicy allowedLocalhostPorts must be valid TCP ports.");
-  }
-  if (!policy.allowedUrlOrigins.every(isValidOrigin)) {
-    return invalidPolicy("TrustPolicy allowedUrlOrigins must be URL origins.");
-  }
-  return { ok: true };
+  return validateDesktopTrustPolicy(policy, path.isAbsolute, isValidOrigin);
 }
 
 export function evaluateFileTarget(policy: TrustPolicy, targetPath: string): TrustPolicyDecision {
@@ -134,16 +115,6 @@ function parseUrl(value: string): URL | undefined {
   } catch {
     return undefined;
   }
-}
-
-function invalidPolicy(hint: string): TrustPolicyValidationResult {
-  return {
-    ok: false,
-    error: {
-      code: "invalid_trust_policy",
-      hint,
-    },
-  };
 }
 
 function isValidOrigin(value: string): boolean {

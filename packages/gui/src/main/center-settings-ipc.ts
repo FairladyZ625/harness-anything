@@ -1,3 +1,4 @@
+import { isMirrorQuotaValid } from "@harness-anything/kernel/internal/domain/gui-admission-policy.ts";
 import type { IpcMainInvokeEvent } from "electron";
 import type { JsonObject } from "@harness-anything/daemon";
 import { CENTER_SETTINGS_CHANNEL, type CertificateMode } from "../api/center-settings-contract.ts";
@@ -46,7 +47,7 @@ export function registerCenterSettingsIpc(
         throw new Error("Center start port must be an integer between 1 and 65535.");
       if (typeof record.repoId !== "string" || !/^[a-z][a-z0-9-]{0,62}$/u.test(record.repoId))
         throw new Error("Center start requires one authority repository id.");
-      if (!Number.isSafeInteger(record.quotaBytes) || Number(record.quotaBytes) <= 0)
+      if (!isMirrorQuotaValid(record.quotaBytes))
         throw new Error("Center start requires a positive integer mirror quota.");
       if (record.bind !== "0.0.0.0" && record.bind !== "127.0.0.1")
         throw new Error("Center start binds either all interfaces or loopback only.");

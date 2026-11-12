@@ -1,8 +1,9 @@
+import { guiInteractionPolicy } from "../api/renderer-dto.ts";
 import type { DaemonTaskDispatchesPayload } from "@harness-anything/daemon/protocol";
 import type { TaskDispatchProjectionRow } from "../api/renderer-dto.ts";
 import { harnessClient, type TaskDispatchBatchRead } from "./api-client.ts";
 import { drainCursorPages } from "./paginated-read.ts";
-const TASK_DISPATCH_PAGE_LIMIT = 16;
+const TASK_DISPATCH_PAGE_LIMIT = guiInteractionPolicy.defaultValue.pageSizes.taskDispatch;
 
 type TaskDispatchSelection = { readonly repoId: string } & Pick<DaemonTaskDispatchesPayload, "advisorySurface"> &
   (

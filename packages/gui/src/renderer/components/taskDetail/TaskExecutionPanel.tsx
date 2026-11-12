@@ -62,8 +62,8 @@ export function TaskExecutionPanel({ task }: { readonly task: TaskRow }) {
   const rows = useMemo(
     () =>
       (dispatches.data?.dispatches ?? []).slice().sort((left, right) => {
-        const byAttempt = left.attemptIndex - right.attemptIndex;
-        if (byAttempt !== 0) return byAttempt;
+        const roundOrder = left.attemptIndex - right.attemptIndex;
+        if (roundOrder !== 0) return roundOrder;
         const byStarted = (epochMs(left.startedAt) ?? 0) - (epochMs(right.startedAt) ?? 0);
         return byStarted !== 0 ? byStarted : left.dispatchId.localeCompare(right.dispatchId);
       }),

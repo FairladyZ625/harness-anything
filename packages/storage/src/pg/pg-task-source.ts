@@ -1,4 +1,5 @@
 import type * as ReadSet from "@harness-anything/kernel/internal/domain/task-read-set.ts";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { assertPgTaskParentIndexReady } from "./pg-task-parent-index.ts";
 import { projectPgFactLiveness, readPgFactsInTransaction } from "./pg-fact-reads.ts";
 import { pgGraphQueries, type PgGraphQueries } from "./pg-graph-queries.ts";
@@ -309,7 +310,8 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
             where.push(`snapshot #>> '{task,metadata,${key}}' = $${values.length}`);
           }
         if (query.openOnly === true) where.push(`snapshot #>> '{task,status}' NOT IN ('done', 'cancelled')`);
-        if (query.leaseOnly === true) where.push(`raw_lease IS NOT NULL AND raw_lease->>'phase' <> 'released'`);
+        const onlyWithLeases = query.leaseOnly === true;
+        if (onlyWithLeases) where.push(`raw_lease IS NOT NULL AND raw_lease->>'phase' <> 'released'`);
         if (query.activePackagesOnly === true)
           where.push(`COALESCE(snapshot #>> '{task,packageDisposition}', 'active') = 'active'`);
         if (query.workRootsOnly === true)
@@ -502,7 +504,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
     };
   };
   const readFact = async (factId: string): Promise<FactProjectionRead> => {
-    const result = await searchFacts({ refs: [`fact/${factId}`], limit: 1 });
+    const result = await searchFacts({ refs: [`fact/${factId}`], limit: storageReadPolicy.defaultValue.pageSizes.one });
     return {
       status: result.status,
       fact: result.facts[0] ?? null,
@@ -533,16 +535,14 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
             urgency: value.urgency as "low" | "medium" | "high",
             proposedAt: String(value.proposedAt ?? ""),
           }));
+        const last = decisions.at(-1);
         return {
           status: cut.status,
           decisions,
           page: {
             limit,
             cursor: query.cursor ?? null,
-            nextCursor:
-              rows.rows.length > limit && decisions.at(-1)
-                ? encodeTaskListCursor([decisions.at(-1)!.decisionId])
-                : null,
+            nextCursor: rows.rows.length > limit && last ? encodeTaskListCursor([last.decisionId]) : null,
           },
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,

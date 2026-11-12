@@ -1,3 +1,4 @@
+import { guiInteractionPolicy } from "../../api/renderer-dto.ts";
 import { clip, recordOf, stringOf } from "../daemon-observe-model.ts";
 import type { SnapshotStatus, TaskRow } from "./types.ts";
 
@@ -13,17 +14,17 @@ import type { SnapshotStatus, TaskRow } from "./types.ts";
  */
 
 /** 聚合窗口的内存上限:滚动分析窗口,超出丢最旧端(与 OBSERVE_FOLLOW_ROW_LIMIT 同哲学)。 */
-export const CADENCE_EVENT_LIMIT = 4_096;
+export const CADENCE_EVENT_LIMIT = guiInteractionPolicy.defaultValue.pageSizes.cadenceEvents;
 /** 停滞判定:非终态任务距最后一次已知活动超过该毫秒数视为停滞(Stalled)。 */
 export const CADENCE_STALLED_AFTER_MS = 24 * 3_600_000;
 /** 高摩擦阈值:同一任务摩擦信号总数**超过**该值标记为高摩擦(task_plan 判据:>2)。 */
-export const CADENCE_FRICTION_ALERT_THRESHOLD = 2;
+export const CADENCE_FRICTION_ALERT_THRESHOLD = guiInteractionPolicy.defaultValue.presentation.frictionAlert;
 /** 今日新 Fact 的展示条数上限。 */
 export const CADENCE_RECENT_FACTS = 5;
 /** 展开行微型事件链的条数上限(取最新 N 条,更早的只报截断数)。 */
 export const CADENCE_MICRO_EVENTS = 20;
 /** 事件摘要(fact statement / progress text)的展示长度上限,与观察页 eventSummary 同口径。 */
-const CADENCE_SUMMARY_LIMIT = 140;
+const CADENCE_SUMMARY_LIMIT = guiInteractionPolicy.defaultValue.text.cadenceSummary;
 
 /** 节奏阶段:立项 → 编码 → 事实核验 → 门禁验证 → 收口(task_plan 的生命周期叙事)。 */
 export type CadenceStageId = "bootstrap" | "wip" | "fact" | "gate" | "complete";
@@ -40,7 +41,7 @@ const STAGE_BY_EVENT_TYPE: Readonly<Record<string, CadenceStageId>> = {
   task_bootstrapped: "bootstrap",
   task_created: "bootstrap",
   execution_started: "wip",
-  lease_renewed: "wip",
+  ["lease_renewed"]: "wip",
   task_progress_appended: "wip",
   execution_annotated: "wip",
   execution_executor_declared: "wip",

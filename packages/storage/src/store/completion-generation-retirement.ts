@@ -1,3 +1,4 @@
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import path from "node:path";
 import { completionRetirementExecutions } from "@harness-anything/kernel/internal/domain/task-completion-generation-retirement.ts";
 import {
@@ -30,7 +31,10 @@ export function retireCompletionExecutions(
     projection.rebuild();
     let cursor: string | null = null;
     do {
-      const page = projection.list({ limit: 500, ...(cursor === null ? {} : { cursor }) });
+      const page = projection.list({
+        limit: storageReadPolicy.defaultValue.pageSizes.standard,
+        ...(cursor === null ? {} : { cursor }),
+      });
       for (const row of page.rows) {
         let snapshot = projection.read(row.taskId).snapshot;
         for (const execution of completionRetirementExecutions(snapshot)) {

@@ -39,7 +39,7 @@ const STATUS_TONE: Readonly<Record<SessionStatus, StatusTone>> = {
   blocked: "bad",
 };
 
-const CLAIM_KEY: Readonly<Record<Exclude<FleetTaskClaim, null>, string>> = {
+const TASK_STATE_COPY: Readonly<Record<Exclude<FleetTaskClaim, null>, string>> = {
   awaiting: "views.cadence.fleetTaskAwaiting",
   done: "views.cadence.fleetTaskDone",
   cancelled: "views.cadence.fleetTaskCancelled",
@@ -60,8 +60,8 @@ function rowTitle(row: FleetExecutionRow): string {
   return key === undefined ? row.title : t(key as never);
 }
 
-function claimText(row: FleetExecutionRow): string {
-  return row.taskClaim === null ? "" : t(CLAIM_KEY[row.taskClaim] as never);
+function stateCopy(row: FleetExecutionRow): string {
+  return row.taskClaim === null ? "" : t(TASK_STATE_COPY[row.taskClaim] as never);
 }
 
 function FleetRow({
@@ -200,7 +200,7 @@ export function FleetPulsePane({
                       meta={
                         <>
                           {row.agentName ?? row.instanceId}
-                          {claimText(row) === "" ? "" : ` · ${claimText(row)}`}
+                          {stateCopy(row) === "" ? "" : ` · ${stateCopy(row)}`}
                         </>
                       }
                       onNavigateEntity={onNavigateEntity}
@@ -232,7 +232,7 @@ export function FleetPulsePane({
                     meta={
                       <>
                         {row.agentName ?? row.instanceId}
-                        {claimText(row) === "" ? "" : ` · ${claimText(row)}`}
+                        {stateCopy(row) === "" ? "" : ` · ${stateCopy(row)}`}
                       </>
                     }
                     onNavigateEntity={onNavigateEntity}

@@ -9,7 +9,7 @@ export async function borrowPgReadClient(
   const name = `ha_read_${++nextSavepoint}`;
   await client.query(`SAVEPOINT ${name}`);
   let ending: Promise<QueryResult> | undefined,
-    released = false;
+    returned = false;
   const finish = () =>
     (ending ??= client.query(`ROLLBACK TO SAVEPOINT ${name}`).then(() => client.query(`RELEASE SAVEPOINT ${name}`)));
   return {
@@ -23,8 +23,8 @@ export async function borrowPgReadClient(
     on: client.on.bind(client),
     removeListener: client.removeListener.bind(client),
     release: (error?: Error | boolean) => {
-      if (released) return;
-      released = true;
+      if (returned) return;
+      returned = true;
       if (ending || error) {
         onRelease();
         return;

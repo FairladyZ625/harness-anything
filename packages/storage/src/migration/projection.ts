@@ -1,3 +1,4 @@
+import { decideReadableTaskLease } from "@harness-anything/kernel/internal/domain/task-lease-policy.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -157,8 +158,8 @@ export async function auditMigrationProjection(
     if (lifecycle.status !== "ready" || lifecycle.rows.length > 0)
       throw new StorageMigrationError("storage_migration_runtime_active", "in-flight runtime prevents freezing");
     for (const { taskId } of expected.readTaskStatuses().rows) {
-      const lease = expected.currentLease(taskId);
-      if (lease && lease.phase !== "released")
+      const lease = decideReadableTaskLease(expected.currentLease(taskId));
+      if (lease)
         throw new StorageMigrationError(
           "storage_migration_lease_active",
           `unreleased lease ${lease.executionId} prevents freezing`,

@@ -156,7 +156,7 @@ function openRepoEpochAuthority(options: {
             epoch,
             version: Math.max(previous?.version ?? 0, floor) + 1,
             issuedAt: options.now(),
-          };
+          } satisfies WriterEpochLease;
         if (!Number.isSafeInteger(epoch))
           throw new WriterEpochError(
             "writer_epoch_invalid",

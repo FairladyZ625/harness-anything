@@ -4,7 +4,6 @@ import { makePostgresTaskEventStore } from "../postgres/pg-task-event-store.ts";
 import { createPgEntityStore, type PgEntityDeclarationStore } from "./pg-entity-store.ts";
 import { materializePgProjectionEvents } from "./pg-task-event-materialize.ts";
 import { createPgTaskProjectionSource, type PgTaskProjectionSource } from "./pg-task-source.ts";
-import type { StorageScope } from "../storage-backend.ts";
 
 export interface PgStorageBackendOptions {
   readonly pool: Pool;
@@ -14,28 +13,7 @@ export interface PgStorageBackendOptions {
   readonly readAuthoredDocument?: PostgresAppendHooks["readAuthoredDocument"];
 }
 
-export function resolvePostgresEventStoreScope(scope: StorageScope | undefined): PostgresEventStoreScope {
-  if (
-    typeof scope?.tenantId !== "string" ||
-    !scope.tenantId ||
-    typeof scope.projectId !== "string" ||
-    !scope.projectId ||
-    !Number.isSafeInteger(scope.policyEpoch) ||
-    scope.policyEpoch! < 0
-  )
-    throw new TypeError("PostgreSQL storage requires tenant, project, and non-negative policy epoch scope");
-  if (
-    scope.readers !== undefined &&
-    (!Array.isArray(scope.readers) || scope.readers.some((reader) => typeof reader !== "string" || !reader))
-  )
-    throw new TypeError("PostgreSQL readers must be an array of nonempty identities");
-  return {
-    tenantId: scope.tenantId,
-    projectId: scope.projectId,
-    policyEpoch: scope.policyEpoch!,
-    readers: scope.readers ?? [],
-  };
-}
+export { resolvePostgresEventStoreScope } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
 
 /** Shared PostgreSQL-dialect storage ports; callers retain ownership of the supplied pool. */
 export function createPgStorageBackend(options: PgStorageBackendOptions): PgStorageBackend {

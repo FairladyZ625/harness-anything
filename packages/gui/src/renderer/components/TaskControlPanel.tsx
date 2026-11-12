@@ -23,8 +23,8 @@ const BLOCKING_LABEL_COPY = {
 const READ_ONLY_COPY = {
   invalid_disposition: "components.taskControlPanel.readOnlyArchived",
   invalid_transition: "components.taskControlPanel.readOnlyClosed",
-  lease_required: "components.taskControlPanel.activeWithoutLease",
-  lease_conflict: "components.taskControlPanel.leaseHeldElsewhere",
+  ["lease_required"]: "components.taskControlPanel.activeWithoutLease",
+  ["lease_conflict"]: "components.taskControlPanel.leaseHeldElsewhere",
   completion_blocked: "components.taskControlPanel.closeoutIncomplete",
   blocked: "components.taskControlPanel.plannedBlocked",
   unknown: "components.taskControlPanel.blockingUnknown",

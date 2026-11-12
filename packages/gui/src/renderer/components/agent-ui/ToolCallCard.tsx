@@ -1,3 +1,4 @@
+import { guiInteractionPolicy } from "../../../api/renderer-dto.ts";
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { ArrowClockwise, CheckCircle, CircleNotch, WarningCircle } from "@phosphor-icons/react";
 import { CopyContextButton } from "../CopyContextButton.tsx";
@@ -20,7 +21,7 @@ import type {
 export type { ToolCallEntry, ToolCallStatus } from "../../session-transcript-model.ts";
 
 /** 展示层截断上限:预览最多渲染这么多字符,复制始终给完整原文(任务约束:严禁直接渲染超大字符串)。 */
-export const DEFAULT_PAYLOAD_PREVIEW_LIMIT = 2_000;
+export const DEFAULT_PAYLOAD_PREVIEW_LIMIT = guiInteractionPolicy.defaultValue.text.toolPayload;
 
 const STATUS_META: Record<ToolCallStatus, { readonly labelKey: MessageKey; readonly className: string }> = {
   running: { labelKey: "agentUi.toolcall.status.running", className: "text-status-active" },

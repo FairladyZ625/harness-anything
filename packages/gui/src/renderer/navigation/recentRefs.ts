@@ -1,5 +1,6 @@
+import { guiInteractionPolicy } from "../../api/renderer-dto.ts";
 /** 最近访问列表上限(与 archive 线 FocusSwitcher 的 RECENT_MAX 一致)。 */
-export const RECENT_LIMIT = 12;
+export const RECENT_LIMIT = guiInteractionPolicy.defaultValue.pageSizes.recent;
 
 /**
  * 把 navRef 推到最近访问头部:去重 + 截 RECENT_LIMIT。

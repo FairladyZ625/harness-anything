@@ -1,3 +1,4 @@
+import { guiInteractionPolicy } from "../../../api/renderer-dto.ts";
 import { readAgendaPage } from "../../agenda-data.ts";
 import { useQueries } from "@tanstack/react-query";
 import type { SystemRepoRow } from "../../api-client.ts";
@@ -19,7 +20,7 @@ export function useProjectActivity(repos: ReadonlyArray<SystemRepoRow>): (repo: 
         queryKey: ["agenda", repo.repoId, "project-first-page"],
         queryFn: () => readAgendaPage(repo.repoId, {}),
         staleTime: 10_000,
-        retry: false,
+        retry: guiInteractionPolicy.defaultValue.retry,
       })),
     }),
     reads = new Map(

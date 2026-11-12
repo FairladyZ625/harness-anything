@@ -36,7 +36,7 @@ const AVAILABILITY_NOTE: Record<
   Exclude<ScheduleGuiRowDto["executionAvailability"], "local">,
   "schedules.availability.claimedElsewhere" | "schedules.availability.notOnThisNode"
 > = {
-  "claimed-elsewhere": "schedules.availability.claimedElsewhere",
+  ["claimed-elsewhere"]: "schedules.availability.claimedElsewhere",
   "not-on-this-node": "schedules.availability.notOnThisNode",
 };
 
@@ -78,7 +78,7 @@ export function ScheduleListPane({
   const matchesFilter = (row: ScheduleGuiListRowDto, key: ScheduleFilter) =>
     key === "all" ? true : key === "attn" ? needsAttention(row) : row.state === "paused";
   const visible = rows.filter((row) => matchesSearch(row) && matchesFilter(row, filter)),
-    tiers = scheduleTiers(visible, rows.length),
+    sections = scheduleTiers(visible, rows.length),
     upcoming = upcomingRuns(rows);
   // 列表页头随列表态渲染(详情态整个卸载,chrome 审计 B1①);汇总句只数本列表的行。
   const total = rows.length,
@@ -198,42 +198,44 @@ export function ScheduleListPane({
           <Empty>{t("schedules.list.emptyFiltered")}</Empty>
         ) : (
           <>
-            {tiers.normalSize === "large" ? (
+            {sections.normalSize === "large" ? (
               // 两档同为大卡时连成一个网格,需要关注的排在前面,不另起组标题。
-              tiers.attention.length + tiers.normal.length > 0 && (
+              sections.attention.length + sections.normal.length > 0 && (
                 <SummaryCardGroup size="large">
-                  {[...tiers.attention, ...tiers.normal].map((row) => card(row, "large"))}
+                  {[...sections.attention, ...sections.normal].map((row) => card(row, "large"))}
                 </SummaryCardGroup>
               )
             ) : (
               <>
-                {tiers.attention.length > 0 && (
+                {sections.attention.length > 0 && (
                   <SummaryCardGroup
                     size="large"
                     title={t("schedules.list.filter.attn")}
-                    count={tiers.attention.length}
+                    count={sections.attention.length}
                     testId="schedules-tier-attention"
                   >
-                    {tiers.attention.map((row) => card(row, "large"))}
+                    {sections.attention.map((row) => card(row, "large"))}
                   </SummaryCardGroup>
                 )}
-                {tiers.normal.length > 0 && (
+                {sections.normal.length > 0 && (
                   <SummaryCardGroup
                     size="small"
                     title={t("schedules.list.tierNormal")}
-                    count={tiers.normal.length}
+                    count={sections.normal.length}
                     testId="schedules-tier-normal"
                   >
-                    {tiers.normal.map((row) => card(row, "small"))}
+                    {sections.normal.map((row) => card(row, "small"))}
                   </SummaryCardGroup>
                 )}
               </>
             )}
-            {tiers.paused.length > 0 && (
+            {sections.paused.length > 0 && (
               <div>
-                <CompletedDivider>{t("schedules.list.pausedDivider", { count: tiers.paused.length })}</CompletedDivider>
+                <CompletedDivider>
+                  {t("schedules.list.pausedDivider", { count: sections.paused.length })}
+                </CompletedDivider>
                 <SummaryCardGroup size="tile" testId="schedules-tier-paused">
-                  {tiers.paused.map((row) => (
+                  {sections.paused.map((row) => (
                     <SummaryCard
                       key={row.scheduleId}
                       size="tile"

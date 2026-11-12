@@ -1,4 +1,5 @@
 import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
+import { MIGRATION_DOCUMENT_POLICY_ID } from "@harness-anything/kernel/internal/domain/document-policy-ids.ts";
 import { createMigrationImportEvent } from "@harness-anything/kernel";
 import { validateRetiredCiRunObservationEvent } from "@harness-anything/kernel/internal/domain/ci-run-observation-retired-event.ts";
 import path from "node:path";
@@ -13,7 +14,10 @@ import type {
   CanonicalEventV1,
   PersistedCanonicalEventV1,
 } from "@harness-anything/kernel/internal/domain/doc-sync-types.ts";
-import type { MigrationImportEventV1 } from "@harness-anything/kernel/internal/domain/migration-import-event.ts";
+import type {
+  MigrationImportEventV1,
+  MigrationDocumentClaim,
+} from "@harness-anything/kernel/internal/domain/migration-import-event.ts";
 import { sha256Bytes, sha256Text, stableStringify } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { localRuntimeStateFileSystem as files } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
 import { resolveHarnessLayout } from "@harness-anything/kernel/internal/layout/index.ts";
@@ -169,10 +173,10 @@ function planConversion(source: SqliteEventStore) {
     if (retiredCi) {
       const issues = validateRetiredCiRunObservationEvent(original);
       if (issues.length) throw new Error(`invalid historical CI observation: ${issues.join("; ")}`);
-      for (const claim of contentClaims(original)) {
-        const bytes = source.readContentObject(claim.sha256);
-        if (!bytes || bytes.byteLength !== claim.size || sha256Bytes(bytes) !== claim.sha256)
-          throw new Error(`historical CI observation content ${claim.sha256} is unavailable or corrupt`);
+      for (const document of contentClaims(original)) {
+        const bytes = source.readContentObject(document.sha256);
+        if (!bytes || bytes.byteLength !== document.size || sha256Bytes(bytes) !== document.sha256)
+          throw new Error(`historical CI observation content ${document.sha256} is unavailable or corrupt`);
       }
       candidate = original;
       reasons.push("historical CI observation preserved read-only without schema rewrite");
@@ -198,11 +202,11 @@ function planConversion(source: SqliteEventStore) {
         }
         const issues = validateCurrentCanonicalEvent(event);
         if (issues.length) throw new Error(issues.join("; "));
-        for (const claim of contentClaims(event)) {
-          const bytes = source.readContentObject(claim.sha256);
-          if (bytes && (bytes.byteLength !== claim.size || sha256Bytes(bytes) !== claim.sha256))
-            throw new Error(`corrupt accepted content ${claim.sha256}`);
-          if (!bytes) throw new Error(`missing accepted content ${claim.sha256}`);
+        for (const document of contentClaims(event)) {
+          const bytes = source.readContentObject(document.sha256);
+          if (bytes && (bytes.byteLength !== document.size || sha256Bytes(bytes) !== document.sha256))
+            throw new Error(`corrupt accepted content ${document.sha256}`);
+          if (!bytes) throw new Error(`missing accepted content ${document.sha256}`);
         }
         candidate = { ...event, workspaceRevision: events.length + 1 };
         // Preserving every source record keeps revisions aligned. Once anything is dropped, every
@@ -285,8 +289,8 @@ export function historicalWitness(
           sha256,
           size: raw.byteLength,
           mediaType: "application/json",
-          policyId: "typed-migration-import/v1",
-        },
+          policyId: MIGRATION_DOCUMENT_POLICY_ID,
+        } satisfies MigrationDocumentClaim,
         referencedContentClaims: historicalContentClaims(original, source),
         destinationPreimage: { nodeKind: "file", sha256, size: raw.byteLength },
       },
@@ -308,20 +312,20 @@ function historicalContentClaims(event: CanonicalEventV1, source: SqliteEventSto
   const result = new Map<string, Claim>();
   for (const candidate of candidates) {
     if (candidate === null || typeof candidate !== "object") continue;
-    const claim = candidate as Claim;
+    const document = candidate as Claim;
     if (
-      typeof claim.sha256 !== "string" ||
-      !/^[0-9a-f]{64}$/.test(claim.sha256) ||
-      !Number.isSafeInteger(claim.size) ||
-      claim.size < 0 ||
-      typeof claim.mediaType !== "string"
+      typeof document.sha256 !== "string" ||
+      !/^[0-9a-f]{64}$/.test(document.sha256) ||
+      !Number.isSafeInteger(document.size) ||
+      document.size < 0 ||
+      typeof document.mediaType !== "string"
     )
       continue;
-    const bytes = source.readContentObject(claim.sha256);
+    const bytes = source.readContentObject(document.sha256);
     if (!bytes) continue;
-    if (bytes.byteLength !== claim.size || sha256Bytes(bytes) !== claim.sha256)
-      throw new Error(`corrupt historical content ${claim.sha256}`);
-    result.set(claim.sha256, { sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType });
+    if (bytes.byteLength !== document.size || sha256Bytes(bytes) !== document.sha256)
+      throw new Error(`corrupt historical content ${document.sha256}`);
+    result.set(document.sha256, { sha256: document.sha256, size: document.size, mediaType: document.mediaType });
   }
   return [...result.values()].sort((a, b) => a.sha256.localeCompare(b.sha256));
 }
@@ -370,16 +374,16 @@ function convert(
         converted = members.map((mapping) => events[mapping.destinationRevision! - 1]!),
         blobs = new Map(
           converted.flatMap((event, index) =>
-            contentClaims(event).map((claim) => {
+            contentClaims(event).map((document) => {
               const witness =
                 members[index]!.disposition === "retained-read-only" &&
                 event.schema === "migration-import-event/v1" &&
                 event.payload.entity.kind === "repo-document" &&
-                claim.sha256 === event.payload.entity.documentClaim.sha256;
+                document.sha256 === event.payload.entity.documentClaim.sha256;
               const body = witness
                 ? new TextEncoder().encode(rows[members[index]!.sourceRevision - 1]!.eventJson)
-                : source.readContentObject(claim.sha256)!;
-              return [claim.sha256, { ...claim, body }] as const;
+                : source.readContentObject(document.sha256)!;
+              return [document.sha256, { ...document, body }] as const;
             }),
           ),
         );
@@ -440,10 +444,10 @@ function verify(
         row.recordedAt !== original.recordedAt
       )
         throw new Error(`converted event or timestamps differ at revision ${index + 1}`);
-      for (const claim of contentClaims(event)) {
-        const bytes = destination.readContentObject(claim.sha256);
-        if (!bytes || bytes.byteLength !== claim.size || sha256Bytes(bytes) !== claim.sha256)
-          throw new Error(`converted content closure differs: ${claim.sha256}`);
+      for (const document of contentClaims(event)) {
+        const bytes = destination.readContentObject(document.sha256);
+        if (!bytes || bytes.byteLength !== document.size || sha256Bytes(bytes) !== document.sha256)
+          throw new Error(`converted content closure differs: ${document.sha256}`);
       }
     }
     if (destinationOutcomes.length !== sourceOutcomes.length) throw new Error("command outcome count differs");
@@ -481,7 +485,7 @@ function verify(
               new Map(
                 selected.flatMap((event) =>
                   contentClaims(event).map(
-                    (claim) => [claim.sha256, destination.readContentObject(claim.sha256)] as const,
+                    (document) => [document.sha256, destination.readContentObject(document.sha256)] as const,
                   ),
                 ),
               ),

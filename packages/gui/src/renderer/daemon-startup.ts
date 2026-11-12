@@ -1,5 +1,6 @@
 import type * as DomainStatus from "../api/renderer-dto.ts";
-export const daemonStartupBudgetMs = 30_000;
+import { guiInteractionPolicy } from "../api/renderer-dto.ts";
+export const daemonStartupBudgetMs = guiInteractionPolicy.defaultValue.deadlines.startup;
 
 const retryableDaemonCodes = new Set([
   "daemon_closed",

@@ -132,10 +132,10 @@ class OwnerGate {
     return this.releaseFor();
   }
   private releaseFor(): () => void {
-    let released = false;
+    let returned = false;
     return () => {
-      if (released) return;
-      released = true;
+      if (returned) return;
+      returned = true;
       const next = this.waiting.shift();
       this.owner = next?.group ?? null;
       if (next) next.resolve(this.releaseFor());
