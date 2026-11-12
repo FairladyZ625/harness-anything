@@ -137,7 +137,7 @@ test("historical runtime sessions with no snapshot event degrade without failing
     assert.deepEqual(validateAgentRuntimeOverview(overview), []);
   }));
 
-test("runtime status reports unknown without local process evidence, for local and remote owners", (t) =>
+test("runtime lifecycle ignores local process evidence for local and remote owners", (t) =>
   withRuntime(({ rootDir, store, projection }) => {
     const dispatchId = "dispatch_abcdefabcdefabcdefabcdef",
       projectionForDispatch = (source?: { readonly kind: "node"; readonly nodeId: string }) =>
@@ -168,7 +168,8 @@ test("runtime status reports unknown without local process evidence, for local a
         projection: projectionForDispatch({ kind: "node", nodeId: "another-edge" }),
         rootDir,
       });
-    assert.equal(localReads.overview({}).sessions[0]?.lifecycle?.displayStatus, "running");
+    const lifecycle = localReads.overview({}).sessions[0]?.lifecycle;
+    assert.equal(lifecycle?.displayStatus, "running");
     assert.equal(
       remoteReads.session({ runtimeSessionId: "runtime-session" }).session.lifecycle?.displayStatus,
       "running",
@@ -186,10 +187,11 @@ test("runtime status reports unknown without local process evidence, for local a
     appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: worker.pid });
     assert.equal(
       readDispatchStreamSummary(rootDir, dispatchId)?.process?.pid,
-      process.pid,
+      worker.pid,
       "the fixture must contain live process evidence",
     );
     assert.equal(localReads.overview({}).sessions[0]?.liveness, "live");
+    assert.deepEqual(localReads.overview({}).sessions[0]?.lifecycle, lifecycle);
   }));
 
 test("unscoped overview includes lifecycle settling while short session ids remain bounded", () =>
