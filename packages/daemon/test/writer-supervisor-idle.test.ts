@@ -156,3 +156,56 @@ test("a missing idle drain acknowledgement fails closed with a bounded control e
   await assert.rejects(supervisor.close(), { code: "writer_control_timeout" });
   assert.equal(writer.terminated, 1);
 });
+
+test("replacement generations increase even when the wall clock steps backwards", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000_000 });
+  const old = new Writer(),
+    next = new Writer(),
+    generations: number[] = [];
+  const opening = openWriterSupervisor(input, {
+    createWorker: (_url, options) => {
+      const writer = generations.length === 0 ? old : next;
+      generations.push(options.workerData.config.writerGeneration!);
+      if (writer === next) queueMicrotask(() => writer.ready(generations.at(-1)!));
+      return writer as unknown as Worker;
+    },
+  });
+  old.ready(generations[0]!);
+  const supervisor = await opening;
+  t.mock.timers.tick(WRITER_IDLE_TIMEOUT_MS);
+  await turn();
+  t.mock.timers.setTime(1);
+  assert.equal(await supervisor.request("run", "after-clock-step"), "after-clock-step");
+  assert.ok(generations[1]! > generations[0]!);
+  assert.equal(supervisor.status().generation, generations[1]);
+  await supervisor.close();
+});
+
+test("waking a parked isolate retains the attached repository cut while startup progresses", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const old = new Writer(),
+    next = new Writer(),
+    published: string[] = [];
+  let created = 0;
+  const opening = openWriterSupervisor(input, {
+    createWorker: () => (++created === 1 ? old : next) as unknown as Worker,
+    onPublishedStatus: (status) => published.push(status.state),
+  });
+  old.ready(1);
+  const supervisor = await opening;
+  t.mock.timers.tick(WRITER_IDLE_TIMEOUT_MS);
+  await turn();
+  const write = supervisor.request("run", "wake");
+  await turn();
+  next.emit("message", {
+    schema: "harness-repo-writer-status/v1",
+    kind: "attach-progress",
+    status: { ...input, state: "warming", generation: null, queueDepth: 0 },
+  });
+  assert.equal(supervisor.status().state, "attached");
+  assert.equal(supervisor.status().generation, 1);
+  assert.equal(published.at(-1), "attached", "cold writer startup does not revoke the host's readable repository");
+  next.ready(2);
+  assert.equal(await write, "wake");
+  await supervisor.close();
+});

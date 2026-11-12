@@ -113,6 +113,8 @@ export interface RepoCellOpenInput {
   readonly repoId: WorkspaceId;
   readonly rootDir: CanonicalRoot;
   readonly ownerId: string;
+  /** Supervisor-owned generation for physical isolate replacement, independent of wall-clock steps. */
+  readonly writerGeneration?: number;
   readonly mode?: DaemonRepoMode;
   readonly authoredBranch?: string;
   readonly runtimeLaunch?: RuntimeLauncher;
@@ -180,7 +182,7 @@ export async function openRepoWriterCell(
       "The repository is still opening; repository Settings become readable once it finishes attaching.",
     );
   };
-  const generation = Date.now() * 1_000 + (process.pid % 1_000);
+  const generation = input.writerGeneration ?? Date.now() * 1_000 + (process.pid % 1_000);
   const activeWriter: WriterGeneration = {
       workspaceId: input.repoId,
       generation,

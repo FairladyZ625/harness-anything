@@ -82,7 +82,8 @@ export async function openWriterSupervisor(
     readonly onPublishedStatus?: (status: RepoCellStatus) => void;
   } = {},
 ): Promise<WriterSupervisor> {
-  let users = 0,
+  let writerGeneration = 0,
+    users = 0,
     retiring = false,
     idleTimer: ReturnType<typeof setTimeout> | undefined;
   const expectedExits = new WeakSet<Worker>();
@@ -256,7 +257,9 @@ export async function openWriterSupervisor(
 
   function startWriterWorker(): Promise<void> {
     if (closed) return Promise.reject(new Error("WriterSupervisor is closed"));
+    const resuming = opened && status.state === "attached";
     return new Promise((resolve, reject) => {
+      writerGeneration = Math.max(writerGeneration + 1, Date.now() * 1_000 + (process.pid % 1_000));
       const watchdogMs = resolveWriterReadyWatchdogMs(),
         context = prepareStorageWorkerContext(input.storage, input.repoId),
         workerOptions = {
@@ -277,6 +280,7 @@ export async function openWriterSupervisor(
                   }
                 : input,
               options.canonicalStore !== undefined,
+              writerGeneration,
             ),
             storageContext: context.context,
           },
@@ -342,12 +346,12 @@ export async function openWriterSupervisor(
           const published = message.status;
           if (published && typeof published === "object") {
             const attaching = published.state === "warming";
-            if (!settled || !attaching) {
+            if ((!settled || !attaching) && !(resuming && attaching)) {
               status = published;
               statusObservedAt = Date.now();
             }
             options.onPublishedStatus?.(status);
-            if (!settled && attaching) options.onAttachStatus?.(published);
+            if (!settled && attaching && !resuming) options.onAttachStatus?.(published);
             if (
               !settled &&
               attaching &&
@@ -673,7 +677,11 @@ function statusWithCurrentRetryElapsed(status: RepoCellStatus, observedAt: numbe
   };
 }
 
-function bootstrapMessage(input: RepoCellOpenInput, canonicalStore: boolean): RepoWriterBootstrapV1 {
+function bootstrapMessage(
+  input: RepoCellOpenInput,
+  canonicalStore: boolean,
+  writerGeneration: number,
+): RepoWriterBootstrapV1 {
   return {
     schema: "harness-repo-writer-bootstrap/v1",
     protocolVersion: REPO_WRITER_PROTOCOL_VERSION,
@@ -682,6 +690,7 @@ function bootstrapMessage(input: RepoCellOpenInput, canonicalStore: boolean): Re
       repoId: input.repoId,
       rootDir: input.rootDir,
       ownerId: input.ownerId,
+      writerGeneration,
       ...(input.mode ? { mode: input.mode } : {}),
       ...(input.authoredBranch ? { authoredBranch: input.authoredBranch } : {}),
       ...(input.runtimeDaemonRoute ? { runtimeDaemonRoute: input.runtimeDaemonRoute } : {}),

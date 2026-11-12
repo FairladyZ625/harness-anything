@@ -27,6 +27,7 @@ export interface RepoWriterBootstrapV1 {
     readonly repoId: string;
     readonly rootDir: string;
     readonly ownerId: string;
+    readonly writerGeneration?: number;
     readonly mode?: DaemonRepoMode;
     readonly authoredBranch?: string;
     readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
