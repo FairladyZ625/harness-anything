@@ -29353,17 +29353,6 @@
         "removalSlice": "S3"
       },
       {
-        "id": "policy:packages/kernel:packages/kernel/src/domain/task-lifecycle-replay.ts#assertReplay:2f69a498393f9d74b40f2cfe0a2d983a",
-        "category": "policy",
-        "path": "packages/kernel/src/domain/task-lifecycle-replay.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/kernel",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic policy candidate, semantic ownership to be resolved in S3: policy-shaped condition contains a literal: !snapshot.lease ||\n      !sameReleasedLease(snapshot.lease, event.payload.releasedLease) ||\n      event.payload.execution.executionId !== snapshot.lease.executi",
-        "replacementRef": "EntityKindContract.policies",
-        "removalSlice": "S3"
-      },
-      {
         "id": "policy:packages/kernel:packages/kernel/src/domain/task-lifecycle-replay.ts#assertReplay:b0feec1619d194d090128eacc33d72b3",
         "category": "policy",
         "path": "packages/kernel/src/domain/task-lifecycle-replay.ts",
