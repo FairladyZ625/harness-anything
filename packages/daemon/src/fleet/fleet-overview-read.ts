@@ -598,80 +598,81 @@ export async function readFleetOverviewFromHost(input: {
   readonly daemon: { readonly daemonId: string; readonly startedAt: string };
   readonly versionWarning?: FleetOverviewResult["versionWarning"];
 }): Promise<FleetOverviewResult> {
-  const leaseFacts = await authorizedOrThrow(async () => {
-    const rows: DaemonTaskSnapshotListResult["rows"][number][] = [];
-    for (const status of LEASE_TASK_STATUSES) {
-      // 翻页读完一个状态:keyset 游标与 repo.tasks.list 的既有点页契约一致
-      // (同 task-claimable-read 的完整读),首页 500 行之外的租约行靠它到达。
-      let cursor: string | undefined;
-      do {
-        const page = await input.cell.read(
-          "repo.tasks.list",
-          // A lease only exists on a raw-active task (the lifecycle contract), and the aggregate
-          // must not pay for the presentation-status subtree derivation: that filter cannot be
-          // index-bounded and would scan every task the repository ever had.
-          {
-            status,
-            limit: 500,
-            statusSource: "raw",
-            // Start from live lease rows, not from every raw-active task: active work without a
-            // lease must not make a fixed lease count scan history.
-            leaseOnly: true,
-            ...(cursor === undefined ? {} : { cursor }),
-          },
+  const leaseFacts = async () => {
+      const rows: DaemonTaskSnapshotListResult["rows"][number][] = [];
+      for (const status of LEASE_TASK_STATUSES) {
+        // 翻页读完一个状态:keyset 游标与 repo.tasks.list 的既有点页契约一致
+        // (同 task-claimable-read 的完整读),首页 500 行之外的租约行靠它到达。
+        let cursor: string | undefined;
+        do {
+          const page = await input.cell.read(
+            "repo.tasks.list",
+            // A lease only exists on a raw-active task (the lifecycle contract), and the aggregate
+            // must not pay for the presentation-status subtree derivation: that filter cannot be
+            // index-bounded and would scan every task the repository ever had.
+            {
+              status,
+              limit: 500,
+              statusSource: "raw",
+              // Start from live lease rows, not from every raw-active task: active work without a
+              // lease must not make a fixed lease count scan history.
+              leaseOnly: true,
+              ...(cursor === undefined ? {} : { cursor }),
+            },
+            input.binding,
+          );
+          rows.push(...page.rows);
+          cursor = page.page?.nextCursor ?? undefined;
+        } while (cursor !== undefined);
+      }
+      const leases: FleetLeaseFact[] = [];
+      for (const row of rows) {
+        const lease = row.snapshot.lease;
+        if (lease === null || lease === undefined) continue;
+        const nodeId =
+          lease.source === "local"
+            ? FLEET_CENTER_NODE_ID
+            : typeof lease.source === "object" && lease.source.kind === "node"
+              ? lease.source.nodeId
+              : null;
+        leases.push({
+          taskId: row.taskId,
+          title: row.snapshot.task?.title ?? null,
+          coordinationStatus: String(row.coordinationStatus),
+          leasePhase: lease.phase,
+          leaseExpiresAt: lease.expiresAt,
+          personId: lease.actor.principal.personId,
+          executorId: lease.actor.executor?.id ?? null,
+          nodeId,
+        });
+      }
+      const taskIds = [...new Set(leases.map((lease) => lease.taskId))];
+      const dispatches: FleetDispatchFact[] = [];
+      for (let offset = 0; offset < taskIds.length; offset += 500) {
+        // This intermediate DTO stays inside the daemon and is projected to shallow
+        // facts below. A transport page budget would reject prose that is never sent.
+        const read = await input.cell.read(
+          "repo.task.dispatches",
+          // One current dispatch per lease task: the fleet view never renders the task's dispatch
+          // history, so a long-running task must not make this read linear in that history.
+          { taskIds: taskIds.slice(offset, offset + 500), latestOnly: true },
           input.binding,
         );
-        rows.push(...page.rows);
-        cursor = page.page?.nextCursor ?? undefined;
-      } while (cursor !== undefined);
-    }
-    const leases: FleetLeaseFact[] = [];
-    for (const row of rows) {
-      const lease = row.snapshot.lease;
-      if (lease === null || lease === undefined) continue;
-      const nodeId =
-        lease.source === "local"
-          ? FLEET_CENTER_NODE_ID
-          : typeof lease.source === "object" && lease.source.kind === "node"
-            ? lease.source.nodeId
-            : null;
-      leases.push({
-        taskId: row.taskId,
-        title: row.snapshot.task?.title ?? null,
-        coordinationStatus: String(row.coordinationStatus),
-        leasePhase: lease.phase,
-        leaseExpiresAt: lease.expiresAt,
-        personId: lease.actor.principal.personId,
-        executorId: lease.actor.executor?.id ?? null,
-        nodeId,
-      });
-    }
-    const taskIds = [...new Set(leases.map((lease) => lease.taskId))];
-    const dispatches: FleetDispatchFact[] = [];
-    for (let offset = 0; offset < taskIds.length; offset += 500) {
-      // This intermediate DTO stays inside the daemon and is projected to shallow
-      // facts below. A transport page budget would reject prose that is never sent.
-      const read = await input.cell.read(
-        "repo.task.dispatches",
-        // One current dispatch per lease task: the fleet view never renders the task's dispatch
-        // history, so a long-running task must not make this read linear in that history.
-        { taskIds: taskIds.slice(offset, offset + 500), latestOnly: true },
-        input.binding,
-      );
-      dispatches.push(
-        ...read.dispatches.map((row) => ({
-          dispatchId: row.dispatchId,
-          taskId: row.taskId,
-          runtimeSessionId: row.runtimeSessionId,
-          agentId: row.agentId ?? null,
-          agentName: row.agentName ?? null,
-          startedAt: row.startedAt,
-          status: row.status,
-        })),
-      );
-    }
-    return { leases, dispatches };
-  });
+        dispatches.push(
+          ...read.dispatches.map((row) => ({
+            dispatchId: row.dispatchId,
+            taskId: row.taskId,
+            runtimeSessionId: row.runtimeSessionId,
+            agentId: row.agentId ?? null,
+            agentName: row.agentName ?? null,
+            startedAt: row.startedAt,
+            status: row.status,
+          })),
+        );
+      }
+      return { leases, dispatches };
+    },
+    leaseFactsResult = await authorizedOrThrow(leaseFacts);
   const events = await input.cell.observeTail(
     // Header-only projection: the overview renders event type/time/title, never the payload body.
     { kind: "events", direction: "history", fields: "fleet" },
@@ -700,7 +701,9 @@ export async function readFleetOverviewFromHost(input: {
     };
   });
   const leaseNodes = new Set<string>(
-    leaseFacts.ok ? leaseFacts.value.leases.flatMap((lease) => (lease.nodeId === null ? [] : [lease.nodeId])) : [],
+    leaseFactsResult.ok
+      ? leaseFactsResult.value.leases.flatMap((lease) => (lease.nodeId === null ? [] : [lease.nodeId]))
+      : [],
   );
   const nodeOwners = new Map<string, FleetFieldState>();
   const retiredNodes = new Set<string>();
@@ -738,13 +741,15 @@ export async function readFleetOverviewFromHost(input: {
     },
     nodeSessions: input.nodeSessions.filter((session) => !retiredNodes.has(session.nodeId)),
     replicas: input.fleetReplicas.filter((replica) => !retiredNodes.has(replica.nodeId)),
-    leaseReads: leaseFacts.ok
+    leaseReads: leaseFactsResult.ok
       ? {
           ok: true,
-          ...leaseFacts.value,
-          leases: leaseFacts.value.leases.filter((lease) => lease.nodeId === null || !retiredNodes.has(lease.nodeId)),
+          ...leaseFactsResult.value,
+          leases: leaseFactsResult.value.leases.filter(
+            (lease) => lease.nodeId === null || !retiredNodes.has(lease.nodeId),
+          ),
         }
-      : { ok: false, code: leaseFacts.code },
+      : { ok: false, code: leaseFactsResult.code },
     events: eventFacts.slice(0, EVENT_PAGE_LIMIT),
     ...(input.versionWarning === undefined ? {} : { versionWarning: input.versionWarning }),
     nodeOwners,
