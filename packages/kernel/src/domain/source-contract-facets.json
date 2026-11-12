@@ -1729,6 +1729,17 @@
             "route": "packages/storage/src/store/sqlite-event-store.ts#assertMetadata"
           }
         ]
+      },
+      {
+        "id": "daemon/fleet/ReplicationCommit",
+        "symbol": "packages/daemon/src/fleet/protocol.ts#validateReplicationCommit",
+        "explain": "ReplicationCommit wire codec: exact envelope shape, contiguous event revisions and outcome membership. The same boundary validates both N-1 buffered frames and replayable staged rows; business event admission remains center-owned.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/fleet/protocol.ts#validateReplicationCommit:57501758468a75bbd07abfe701adced5",
+            "route": "packages/daemon/src/fleet/protocol.ts#validateReplicationCommit"
+          }
+        ]
       }
     ]
   },

@@ -492,20 +492,20 @@ function openSqliteEventStoreInternal(
         if (commit.position.sequence <= current.sequence) return current;
         if (commit.position.sequence !== current.sequence + 1)
           throw new TaskEventStoreError("revision_conflict", "replication sequence gap");
-        if (
-          commit.position.revision !== current.revision + commit.events.length ||
-          commit.events.some((row, index) => row.revision !== current.revision + index + 1)
-        )
-          throw new TaskEventStoreError("revision_conflict", "replication revision gap");
-        const events = commit.events.map((row) => JSON.parse(row.eventJson) as CanonicalEventV1);
-        persistContentObjects(objectRoot, events, blobs);
-        for (const [index, row] of commit.events.entries()) {
+        const supplied = new Map(blobs.map((blob) => [blob.sha256, blob]));
+        let revision = current.revision;
+        for (const row of commit.events) {
+          if (row.revision !== ++revision)
+            throw new TaskEventStoreError("revision_conflict", "replication revision gap");
+          const event = JSON.parse(row.eventJson) as CanonicalEventV1;
+          persistContentObjects(objectRoot, [event], supplied);
           insertEvent.run(row.revision, row.opId, row.eventJson, row.digest, row.occurredAt, row.recordedAt);
-          const event = events[index]!;
           applyEventQueryRefs(query, event);
           applyDerivedGuards(db, event);
           applyDocumentHeads(query, event);
         }
+        if (revision !== commit.position.revision)
+          throw new TaskEventStoreError("revision_conflict", "replication revision gap");
         query("UPDATE ledger_meta SET revision=? WHERE singleton=1", [commit.position.revision]);
         const result = commit.outcome;
         if (result)

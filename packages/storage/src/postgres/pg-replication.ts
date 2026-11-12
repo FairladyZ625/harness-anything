@@ -1,6 +1,11 @@
 import { validateStorageReadWindow } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import type { PoolClient } from "pg";
-import type { ReplicationPosition, ReplicationCommit } from "../store/replication-log.ts";
+import {
+  replicationCommitBytes,
+  REPLICATION_PAGE_BYTES,
+  type ReplicationPosition,
+  type ReplicationCommit,
+} from "../store/replication-log.ts";
 import type { SqliteCommandOutcome, SqliteEventRow } from "../store/sqlite-event-store-types.ts";
 import type { PostgresEventStoreScope } from "./pg-event-store.ts";
 import { TaskEventStoreError } from "@harness-anything/kernel";
@@ -117,9 +122,10 @@ export async function pgReplicationPage(
       )
     ).rows,
     commits: ReplicationCommit[] = [];
+  let bytes = 0;
   for (const row of rows) {
     const outcome = row.last_op_id ? ((await pgOutcomes(client, scope, repoId, row.last_op_id))[0] ?? null) : null;
-    commits.push({
+    const commit: ReplicationCommit = {
       position: { history: head.history, sequence: Number(row.sequence), revision: Number(row.revision) },
       outcome,
       events:
@@ -127,7 +133,12 @@ export async function pgReplicationPage(
           ? []
           : await pgEventRows(client, scope, repoId, outcome.firstRevision - 1, outcome.lastRevision!),
       writer: { repoId, holder: row.writer_holder_id, epoch: Number(row.writer_epoch) },
-    });
+    };
+    const size = replicationCommitBytes(commit);
+    if (commits.length && bytes + size > REPLICATION_PAGE_BYTES) break;
+    commits.push(commit);
+    bytes += size;
+    if (bytes >= REPLICATION_PAGE_BYTES) break;
   }
   return { commits, head, done: (commits.at(-1)?.position.sequence ?? after.sequence) === head.sequence };
 }

@@ -9,9 +9,9 @@ import { contentClaims } from "@harness-anything/kernel/internal/ports/canonical
 export function persistContentObjects(
   objectRoot: string,
   events: readonly CanonicalEventV1[],
-  blobs: readonly CanonicalContentBlob[],
+  blobs: readonly CanonicalContentBlob[] | ReadonlyMap<string, CanonicalContentBlob>,
 ): void {
-  const supplied = new Map(blobs.map((blob) => [blob.sha256, blob])),
+  const supplied = "get" in blobs ? blobs : new Map(blobs.map((blob) => [blob.sha256, blob])),
     pending = new Map<string, Uint8Array>();
   for (const event of events)
     for (const claim of contentClaims(event)) {

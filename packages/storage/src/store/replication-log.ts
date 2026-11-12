@@ -7,9 +7,9 @@ export interface ReplicationPosition {
   readonly revision: number;
 }
 
-export interface ReplicationCommit {
+export interface ReplicationCommit<Events extends Iterable<SqliteEventRow> = readonly SqliteEventRow[]> {
   readonly position: ReplicationPosition;
-  readonly events: readonly SqliteEventRow[];
+  readonly events: Events;
   readonly outcome: SqliteCommandOutcome | null;
   readonly writer: SqliteWriterFence | null;
 }
@@ -68,12 +68,14 @@ export function readReplicationCommits(
     after.sequence > head.sequence
   )
     throw new TaskEventStoreError("revision_conflict", "replication_snapshot_required");
-  const commits = query("SELECT * FROM replication_log WHERE sequence>? ORDER BY sequence LIMIT ?", [
+  const commits: ReplicationCommit[] = [];
+  let bytes = 0;
+  for (const row of query("SELECT * FROM replication_log WHERE sequence>? ORDER BY sequence LIMIT ?", [
     after.sequence,
     limit,
-  ]).map((row) => {
+  ])) {
     const outcome = row.outcome_op_id === null ? null : readOutcome(String(row.outcome_op_id));
-    return {
+    const commit: ReplicationCommit = {
       position: { history: head.history, sequence: Number(row.sequence), revision: Number(row.revision) },
       outcome,
       events:
@@ -82,6 +84,33 @@ export function readReplicationCommits(
           : readEvents(outcome.firstRevision - 1, outcome.lastRevision! - outcome.firstRevision + 1),
       writer: row.writer_json === null ? null : (JSON.parse(String(row.writer_json)) as SqliteWriterFence),
     };
-  });
+    const size = replicationCommitBytes(commit);
+    // One indivisible transaction may exceed the budget; never combine it with another.
+    if (commits.length && bytes + size > REPLICATION_PAGE_BYTES) break;
+    commits.push(commit);
+    bytes += size;
+    if (bytes >= REPLICATION_PAGE_BYTES) break;
+  }
   return { commits, done: (commits.at(-1)?.position.sequence ?? after.sequence) === head.sequence, head };
+}
+
+/** Per-session page working set, independent of transaction count. */
+export const REPLICATION_PAGE_BYTES = 16 * 1024 * 1024;
+
+/** The existing wire envelope, emitted a record at a time (no whole-transaction stringify). */
+export function* replicationCommitChunks(commit: ReplicationCommit): Generator<string> {
+  yield `{"position":${JSON.stringify(commit.position)},"events":[`;
+  let separator = "";
+  for (const event of commit.events) {
+    yield separator;
+    yield JSON.stringify(event);
+    separator = ",";
+  }
+  yield `],"outcome":${JSON.stringify(commit.outcome)},"writer":${JSON.stringify(commit.writer)}}`;
+}
+
+export function replicationCommitBytes(commit: ReplicationCommit): number {
+  let bytes = 0;
+  for (const chunk of replicationCommitChunks(commit)) bytes += Buffer.byteLength(chunk);
+  return bytes;
 }

@@ -1,5 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { closeSync, fsyncSync, mkdirSync, openSync, readSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+  writeSync,
+} from "node:fs";
 import path from "node:path";
 
 export type WriteFence = <T>(operation: () => T) => T;
@@ -133,4 +143,37 @@ export function removeFileDurably(file: string, withFence?: WriteFence): void {
   if (withFence) withFence(remove);
   else remove();
   syncDirectory(path.dirname(file));
+}
+
+/** Private replay scratch: never published, removed on close and discarded on interrupted sessions. */
+export function openTemporaryFile(file: string) {
+  /* @gate-identity state-store/document.source.storage.src.durable-file.filesystem-store */ mkdirSync(
+    path.dirname(file),
+    { recursive: true },
+  );
+  const descriptor =
+    /* @gate-identity state-store/document.source.storage.src.durable-file.filesystem-store */ openSync(file, "wx+");
+  return {
+    write: (bytes: Buffer): void => {
+      let offset = 0;
+      while (offset < bytes.length)
+        offset += /* @gate-identity state-store/document.source.storage.src.durable-file.filesystem-store */ writeSync(
+          descriptor,
+          bytes,
+          offset,
+        );
+    },
+    read: (bytes: Buffer, offset: number): number => readSync(descriptor, bytes, 0, bytes.length, offset),
+    close: (): void => {
+      try {
+        /* @gate-identity state-store/document.source.storage.src.durable-file.filesystem-store */ closeSync(
+          descriptor,
+        );
+      } finally {
+        /* @gate-identity state-store/document.source.storage.src.durable-file.filesystem-store */ rmSync(file, {
+          force: true,
+        });
+      }
+    },
+  };
 }

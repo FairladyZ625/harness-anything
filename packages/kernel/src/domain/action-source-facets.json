@@ -2847,6 +2847,36 @@
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/commit-file.ts#openReplicationCommitFile:e8c6eb5fc6239a9ec08a5ca518e4187f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/durable-file.ts#openTemporaryFile.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/commit-file.ts#openReplicationCommitFile:fb65c20c1f0aa570407d72f8bf8249b2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/durable-file.ts#openTemporaryFile.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/commit-file.ts#openReplicationCommitFile.write:753b899db069c5de2cffc538d47e2c12",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@streamparser/json/dist/mjs/jsonparser.d.ts#JSONParser.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/walreceiver.ts#runWalReceiver:5b6f2617d39753b10e9efa4b460376a2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/commit-file.ts#openReplicationCommitFile.write"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/durable-file.ts#openTemporaryFile.close:fe2dd164e2953bc3a73ed350f9390bac",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
       }
     ],
     "technical": true

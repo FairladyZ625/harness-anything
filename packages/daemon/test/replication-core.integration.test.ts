@@ -452,5 +452,10 @@ test("receiver reports an apply failure to the sender before closing the stream"
     results.map((result) => result.status),
     ["rejected", "rejected"],
   );
-  assert.deepEqual(observed, [{ code: "invalid_schema", message: "completion contract is invalid" }]);
+  assert.equal(observed.length, 1);
+  assert.equal(observed[0]!.code, "invalid_schema");
+  assert.match(observed[0]!.message, /completion contract is invalid; replica=/u);
+  assert.match(observed[0]!.message, /"repoId":"stream"/u);
+  assert.match(observed[0]!.message, /"size":\d+/u);
+  assert.match(observed[0]!.message, /"sequence":0/u);
 });
