@@ -255,10 +255,32 @@ test("G03 rejects a second writer and a token from an old generation", () => {
   for (const token of [
     issueWriterGenerationToken({ ...active, generation: 1 }),
     issueWriterGenerationToken({ ...active, ownerId: "daemon-b" }),
+    issueWriterGenerationToken({ ...active, workspaceId: "workspace-2" }),
   ]) {
     assert.throws(
       () => assertCurrentWriter(active, token, "workspace-1"),
-      (error) => error instanceof WriteChainContractError && error.code === "writer_rejected",
+      (error) =>
+        error instanceof WriteChainContractError &&
+        error.code === "writer_rejected" &&
+        error.message === "writer token is not the active workspace generation and owner",
     );
   }
+});
+
+test("G03 rejects an otherwise valid token when the active writer or requested workspace changes", () => {
+  const active = { workspaceId: "workspace-1", generation: 2, ownerId: "daemon-a" };
+  const token = issueWriterGenerationToken(active);
+  for (const [writer, workspace] of [
+    [{ ...active, workspaceId: "workspace-2" }, "workspace-1"],
+    [{ ...active, generation: 3 }, "workspace-1"],
+    [{ ...active, ownerId: "daemon-b" }, "workspace-1"],
+    [active, "workspace-2"],
+  ])
+    assert.throws(
+      () => assertCurrentWriter(writer, token, workspace),
+      (error) =>
+        error instanceof WriteChainContractError &&
+        error.code === "writer_rejected" &&
+        error.message === "writer token is not the active workspace generation and owner",
+    );
 });

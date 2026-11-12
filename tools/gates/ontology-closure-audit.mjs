@@ -212,11 +212,10 @@ export function auditOntologyClosure({
     if (declaration && declaration.status !== "technical-exempt") {
       if (
         candidate.category === "judgment" &&
-        (declaration.sourceContract
-          ? declaration.symbol.split("#")[0] !== candidate.file ||
-            declaration.route !== `${candidate.file}#${candidate.symbol}`
-          : !candidate.file.startsWith("packages/kernel/src/domain/") ||
-            declaration.symbol !== `${candidate.file}#${candidate.symbol}`)
+        ((declaration.sourceContract
+          ? declaration.route !== declaration.symbol
+          : !candidate.file.startsWith("packages/kernel/src/domain/")) ||
+          declaration.symbol !== `${candidate.file}#${candidate.symbol}`)
       ) {
         findings.push({
           ...candidate,

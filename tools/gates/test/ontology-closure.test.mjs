@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { loadGateAllowlist } from "../../gate-allowlists/load-gate-allowlist.mjs";
+import { loadOntologyClosureSnapshot } from "../ontology-gate-lib.mjs";
 import { auditOntologyClosure } from "../ontology-closure-audit.mjs";
 import { scanOntologyText, scanOntologySources } from "../ontology-closure-scan.mjs";
 import { baselineFile, evaluateOntologyClosure, main } from "../ontology-closure.mjs";
@@ -126,7 +127,8 @@ test("closure positive emits all three errors and prescriptions; negative text i
 
 test("input contracts retain their actual codec owner and exact identity without becoming domain judgments", () => {
   const target = "packages/preset/src/codec.ts",
-    source = 'function validateInput(value) { if (typeof value !== "string") return ["invalid input"]; return []; }',
+    source =
+      'function validateInput(value) { if (typeof value !== "string") return ["invalid input"]; return []; } function unrelated(value) { return value; }',
     candidates = scanOntologyText(target, source),
     contract = {
       id: "input",
@@ -142,9 +144,17 @@ test("input contracts retain their actual codec owner and exact identity without
       (row) => row.code === "ONTOLOGY_JUDGMENT_UNDECLARED",
     ),
   );
+  contract.symbol = `${target}#unrelated`;
+  assert.ok(
+    audit(candidates, { snapshot }).findings.some((row) => row.code === "ONTOLOGY_JUDGMENT_DUPLICATE"),
+    "an unrelated function in the same file cannot own the input contract",
+  );
   contract.symbol = "packages/preset/src/other.ts#wrongOwner";
   assert.ok(audit(candidates, { snapshot }).findings.some((row) => row.code === "ONTOLOGY_JUDGMENT_DUPLICATE"));
   contract.symbol = `${target}#validateInput`;
+  contract.sources[0].route = `${target}#unrelated`;
+  assert.ok(audit(candidates, { snapshot }).findings.some((row) => row.code === "ONTOLOGY_JUDGMENT_DUPLICATE"));
+  contract.sources[0].route = contract.symbol;
   snapshot.kinds[0].sourceContracts.push(contract);
   assert.throws(() => audit(candidates, { snapshot }), /multiple ontology owners/u);
 });
@@ -466,4 +476,11 @@ test("S1a CLI/kernel/preset sources are declared without technical exemptions", 
     baseline.filter((row) => row.removalSlice === "S1" && /^action:packages\/(?:cli|kernel|preset):/u.test(row.id)),
     [],
   );
+});
+
+test("every registered source contract names its own exact helper", () => {
+  for (const kind of loadOntologyClosureSnapshot(repoRoot).kinds)
+    for (const contract of kind.sourceContracts ?? [])
+      for (const source of contract.sources)
+        assert.equal(contract.symbol, source.route, `${contract.id} must name the actual source helper`);
 });

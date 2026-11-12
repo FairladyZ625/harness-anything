@@ -3,3 +3,5 @@ export function decisionAcceptReviewReadiness() {
 }
 export function assertDecisionAcceptReview() {}
 export function assertRelationAdmission() {}
+
+export function assertCurrentWriter() {}
