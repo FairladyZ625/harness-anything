@@ -1,3 +1,4 @@
+import { continueSubmittedTask } from "./repo-cell-submit.ts";
 import { continueReviewRework } from "./task-return-dispatch.ts";
 import { runCompletionSources } from "./task-witness-runner.ts";
 import { requireSquadBusinessAction } from "./squad-runtime-ingress.ts";
@@ -426,6 +427,19 @@ export function makeRepoCellCommandRunner(
                   : undefined,
               )) as WriteReceipt;
           }
+          if (
+            continueReturn &&
+            "outcome" in receipt &&
+            receipt.outcome === "applied" &&
+            (action.kind === "task-submit" || action.kind === "task-settle")
+          )
+            return (await continueSubmittedTask(
+              context.extracted,
+              action,
+              binding,
+              receipt,
+              async (work) => (await enqueuePublication(work, undefined, false)) as WriteReceiptDraft,
+            )) as WriteReceipt;
           if (!replaceAfterPublication) return receipt;
           await context.attemptRecovery(true);
           return context.state === "attached"

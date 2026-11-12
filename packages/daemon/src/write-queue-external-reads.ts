@@ -123,7 +123,7 @@ export function readBeforeWriteQueue(
           );
         const submission = executions[0]?.submission,
           renderBody = submission
-            ? taskPrBodyRenderer({
+            ? await taskPrBodyRenderer({
                 rootDir: context.rootDir,
                 projection: context.projection,
                 taskId,

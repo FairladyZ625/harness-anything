@@ -1,9 +1,10 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { classifyTextualArtifactPath, sha256Text } from "@harness-anything/kernel";
 import { executionId, fixture, taskId } from "./task-completion-review.fixture.ts";
 import { openRepoWriterCell } from "../src/repo-cell-open.ts";
 import { acquireWorkspaceLock } from "../src/repo-cell-lock.ts";
@@ -58,7 +59,8 @@ async function publicationFixture(context: test.TestContext) {
     prExists = false,
     failHosting = false,
     stalePrHead = false,
-    cuts = 0;
+    cuts = 0,
+    publicationBarrier: (() => Promise<void>) | undefined;
   const priorToken = process.env.GH_TOKEN;
   process.env.GH_TOKEN = "fixture-hosting-token";
   context.after(() => {
@@ -68,6 +70,7 @@ async function publicationFixture(context: test.TestContext) {
   const fetchBeforeMock = globalThis.fetch;
   context.mock.method(globalThis, "fetch", async (_url: string | URL, options: RequestInit = {}) => {
     if (!String(_url).startsWith("https://api.github.com/")) return fetchBeforeMock(_url, options);
+    await publicationBarrier?.();
     const method = options.method ?? "GET";
     if (failHosting) return Response.json({ message: "unavailable" }, { status: 503 });
     if (!String(_url).includes("/pulls")) return Response.json({ default_branch: "main" });
@@ -101,17 +104,21 @@ async function publicationFixture(context: test.TestContext) {
     git(worktree, "commit", "-qm", "fix: frozen delivery");
     return git(worktree, "rev-parse", "HEAD");
   };
-  const submit = (amend = false) => {
+  const writeCloseout = () => {
     writeFileSync(
       path.join(f.root, "harness", f.packagePath, "closeout.md"),
       "# Closeout\n\n## Summary\n\nPublish before review.\n\n## Verification\n\nDirected tests.\n\n" +
         "## 摘要\n\n先推送后评审。\n\n## 验证\n\n定向测试。\n",
     );
+  };
+  const submit = (amend = false, extra: Record<string, unknown> = {}) => {
+    writeCloseout();
     return f.run({
       kind: "task-submit",
       taskId,
       executionId,
       ...(amend ? { amend: true } : {}),
+      ...extra,
     });
   };
   return {
@@ -120,6 +127,10 @@ async function publicationFixture(context: test.TestContext) {
     previous,
     cut,
     submit,
+    writeCloseout,
+    pausePublication: (barrier: (() => Promise<void>) | undefined) => {
+      publicationBarrier = barrier;
+    },
     failHosting: (value = true) => {
       failHosting = value;
     },
@@ -222,3 +233,105 @@ test(
     assert.match(JSON.stringify(receipt), /PR head.*does not match the frozen delivery/u);
   },
 );
+
+for (const mode of ["ordinary", "amend", "docChanges", "resume", "settle"] as const) {
+  test(
+    `a frozen ${mode} submit releases the write queue while PR publication is pending`,
+    { timeout: 30_000 },
+    async (context) => {
+      const { f, cut, submit, writeCloseout, pausePublication } = await publicationFixture(context),
+        entered = Promise.withResolvers<void>(),
+        release = Promise.withResolvers<void>();
+      context.signal.addEventListener("abort", () => release.resolve(), { once: true });
+      cut();
+      if (mode === "resume" || mode === "amend") {
+        assert.equal((await submit()).outcome, "applied");
+        if (mode === "amend") cut();
+      }
+      const extra: Record<string, unknown> = mode === "settle" ? { kind: "task-settle" } : {};
+      if (mode === "docChanges") {
+        writeCloseout();
+        assert.equal((await f.run({ kind: "doc-submit", paths: [`${f.packagePath}/closeout.md`] })).outcome, "applied");
+        const artifact = `${f.packagePath}/artifacts/carried.md`,
+          body = "Carried submission evidence.\n",
+          ref = "doc-sync-claims/0123456789abcdef0123456789abcdef",
+          claim = path.join(f.root, ".harness", ref);
+        mkdirSync(path.dirname(claim), { recursive: true });
+        writeFileSync(claim, body);
+        extra.docChanges = [
+          {
+            path: artifact,
+            baseBlobSha256: null,
+            policyId: classifyTextualArtifactPath(artifact)!.policyId,
+            candidate: { ref, sha256: sha256Text(body), size: Buffer.byteLength(body), mediaType: "text/markdown" },
+          },
+        ];
+      }
+      pausePublication(async () => {
+        entered.resolve();
+        await release.promise;
+      });
+      const launches = f.launches.length;
+      let returned = false;
+      const submitting = submit(mode === "amend", extra).then((receipt) => {
+        returned = true;
+        return receipt;
+      });
+      try {
+        await entered.promise;
+        assert.ok(f.events().some((event) => event.type === "execution_submitted"));
+        const unrelated = await f.run({
+          kind: "fact-record",
+          statement: "An unrelated canonical write during publication.",
+          evidenceSource: "README.md",
+          confidence: "high",
+          memoryClass: "episodic",
+          memoryTags: [],
+        });
+        assert.equal(unrelated.outcome, "applied", JSON.stringify(unrelated));
+        assert.equal(returned, false, "submit still awaits the full synchronous receipt");
+        assert.equal(f.launches.length, launches, "publication has not been released");
+        console.log(`[publication-barrier:${mode}] unrelated=applied submit=pending`);
+      } finally {
+        pausePublication(undefined);
+        release.resolve();
+        const receipt = await submitting,
+          steps = (receipt as Record<string, unknown>).steps;
+        assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+        assert.ok(Array.isArray(steps) && steps.length > 0, JSON.stringify(receipt));
+        if (mode !== "docChanges") assert.ok((receipt as Record<string, unknown>).riskTierAssessment);
+      }
+    },
+  );
+}
+
+test("concurrent resumes publish one frozen cut and hold one review dispatch", { timeout: 30_000 }, async (context) => {
+  const { f, cut, submit, pausePublication } = await publicationFixture(context),
+    entered = Promise.withResolvers<void>(),
+    bothEntered = Promise.withResolvers<void>(),
+    release = Promise.withResolvers<void>();
+  context.signal.addEventListener("abort", () => release.resolve(), { once: true });
+  cut();
+  let arrivals = 0;
+  pausePublication(async () => {
+    arrivals += 1;
+    entered.resolve();
+    if (arrivals === 2) bothEntered.resolve();
+    await release.promise;
+  });
+  const first = submit();
+  await entered.promise;
+  const resumed = submit();
+  try {
+    await bothEntered.promise;
+    assert.equal(f.launches.length, 0);
+    assert.equal(f.events().filter((event) => event.type === "execution_submitted").length, 1);
+  } finally {
+    pausePublication(undefined);
+    release.resolve();
+    const receipts = await Promise.all([first, resumed]);
+    for (const receipt of receipts) assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    assert.equal(f.launches.length, 1, "queued admission deduplicates the shared cut after concurrent preparation");
+    assert.ok(receipts.some((receipt) => /no new reviewer was dispatched/u.test(JSON.stringify(receipt.warnings))));
+  }
+});

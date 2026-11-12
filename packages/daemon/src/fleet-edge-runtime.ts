@@ -778,11 +778,11 @@ export function openFleetEdgeRuntime(input: {
             implementationSession = executorId?.startsWith("runtime-session:")
               ? executorId.slice("runtime-session:".length)
               : null,
-            publication = await readRuntimeProjection(request, (projection) => ({
+            publication = await readRuntimeProjection(request, async (projection) => ({
               instanceId: implementationSession
                 ? projection.readRuntimeDispatch(implementationSession)?.payload.instanceId
                 : undefined,
-              renderBody: taskPrBodyRenderer({
+              renderBody: await taskPrBodyRenderer({
                 rootDir: request.workspaceRoot,
                 projection: projection as TaskProjection,
                 taskId,
