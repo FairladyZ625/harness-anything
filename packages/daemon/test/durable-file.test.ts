@@ -108,7 +108,7 @@ test("#1586: a read-only handle is opened for flushing in exactly one module", (
   const offenders = sourceFiles(sourceRoot)
     .filter((file) => /openSync\([^)]*, "r"\)/u.test(readFileSync(file, "utf8")))
     .map((file) => path.relative(sourceRoot, file));
-  assert.deepEqual(offenders, ["durable-file.ts", "store/local-version-control-system.ts"]);
+  assert.deepEqual(offenders, ["durable-file.ts"]);
 });
 
 test("#1586: flushing a file uses a writable handle, which Windows requires", (t) => {
