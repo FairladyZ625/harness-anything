@@ -969,7 +969,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           : {}),
       }));
     let requested: Awaited<ReturnType<typeof publishRuntimeEvent>> | undefined,
-      dispatchRequestSent = false;
+      dispatchRequestSent = false,
+      releaseUnadmittedClaim: (() => Promise<void>) | undefined;
     const requestDispatch = () =>
       publishRuntimeEvent(
         "runtime_dispatch_requested",
@@ -1035,17 +1036,22 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       if (process && !(await runtimeProcessTreeStopped(input.rootDir, newDispatchId, process))) return;
       // A lost receipt (including credential issuance after commit) does not undo admission.
       // Center reads must be ready; an unavailable read preserves the stream and claim for recovery.
-      const admitted =
-        requested ||
-        (dispatchRequestSent &&
-          (input.remote
+      const observed =
+          !requested && dispatchRequestSent && input.remote
             ? readyDispatchLifecycle(
                 await input.remote.readDispatchLifecycle({ by: "dispatch", dispatchIds: [newDispatchId] }),
                 runtimeSpawnError,
-              ).length > 0
-            : input.store!().readEvent(dispatchOpId) !== null));
+              )[0]
+            : null,
+        admitted =
+          requested || observed || (dispatchRequestSent && !input.remote && input.store!().readEvent(dispatchOpId));
+      if (observed?.policy.attemptSettled) {
+        if (stream) removeDispatchStream(input.rootDir, newDispatchId);
+        return;
+      }
       if (!admitted) {
         await releaseUnadmittedLease?.();
+        await releaseUnadmittedClaim?.();
         if (stream) removeDispatchStream(input.rootDir, newDispatchId);
         return;
       }
@@ -1195,6 +1201,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       openStream();
       onPrepared?.(newDispatchId, runtimeSessionId);
       dispatchRequestSent = true;
+      // The acceptance boundary now owns claim cleanup. A missing reply must not let the
+      // outer preparation rollback release an accepted or still-unknown task claim.
+      releaseUnadmittedClaim = claim.release;
+      claim.release = undefined;
       requested = await requestDispatch();
     } catch (error) {
       await cleanupFailedLaunch(error);
