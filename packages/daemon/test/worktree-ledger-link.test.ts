@@ -8,6 +8,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  readlinkSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -286,6 +287,60 @@ for (const links of [false, true]) {
       assert.equal(readFileSync(path.join(cwd, name, "note.txt"), "utf8"), links ? "outside bytes\n" : "user bytes\n");
     assert.equal(readFileSync(path.join(external, "note.txt"), "utf8"), "outside bytes\n");
   });
+}
+
+for (const mixed of [false, true]) {
+  for (const userLink of ["my-notes", "tasks", "renamed-tasks"] as const) {
+    test(`reclaim without .git preserves ${mixed ? "mixed managed/user" : "user-only"} ledger links: ${userLink}`, async (t) => {
+      const root = repositoryFixture(t),
+        cwd = path.join(root, ".worktrees", "user-ledger-link"),
+        mirror = path.join(cwd, "harness"),
+        external = path.join(path.dirname(root), "user-notes"),
+        target = userLink === "renamed-tasks" ? path.join(root, "harness", "tasks") : external,
+        link = path.join(mirror, userLink),
+        managed = path.join(mirror, "skills");
+      mkdirSync(mirror, { recursive: true });
+      mkdirSync(external);
+      writeFileSync(path.join(external, "note.txt"), "user bytes\n");
+      symlinkDirectory(target, link);
+      if (mixed) symlinkDirectory(path.join(root, "harness", "skills"), managed);
+      const originalTarget = readlinkSync(link);
+      writeFileSync(path.join(root, "README.md"), "outer unmerged commit\n");
+      git(root, "add", "README.md");
+      git(root, "commit", "-qm", "outer unmerged commit");
+      writeFileSync(path.join(root, "README.md"), "outer dirty bytes\n");
+      const before = {
+          head: git(root, "rev-parse", "HEAD"),
+          status: git(root, "status", "--porcelain"),
+          tags: git(root, "tag", "--list"),
+        },
+        result = await reclaimManagedWorktree(root, { cwd, branch: "user-ledger-link", baseRef: "origin/main" });
+      t.diagnostic(
+        JSON.stringify({ userLink, mixed, result, entries: existsSync(mirror) ? readdirSync(mirror) : null }),
+      );
+      assert.equal(
+        lstatSync(link, { throwIfNoEntry: false })?.isSymbolicLink(),
+        true,
+        "the user's link itself must survive",
+      );
+      assert.equal(readlinkSync(link), originalTarget);
+      assert.deepEqual(result, { outcome: "retained", reason: "missing .git marker; directory contains user files" });
+      assert.deepEqual(readdirSync(mirror), [userLink], "only the genuine managed link may be removed");
+      assert.equal(existsSync(managed), false);
+      assert.equal(readFileSync(path.join(external, "note.txt"), "utf8"), "user bytes\n");
+      assert.equal(readFileSync(path.join(root, skill), "utf8"), "# Review\n");
+      assert.equal(readFileSync(path.join(root, plan), "utf8"), "# Plan\n");
+      assert.equal(readFileSync(path.join(root, "README.md"), "utf8"), "outer dirty bytes\n");
+      assert.deepEqual(
+        {
+          head: git(root, "rev-parse", "HEAD"),
+          status: git(root, "status", "--porcelain"),
+          tags: git(root, "tag", "--list"),
+        },
+        before,
+      );
+    });
+  }
 }
 
 test("empty directory removal refuses user files even if they arrive after the emptiness check", (t) => {

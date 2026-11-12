@@ -534,6 +534,9 @@ export function unlinkWorktreeLedger(rootDir: string, cwd: string): void {
   if (base !== null && existsSync(base)) removeMirrorEntry(base);
   if (ownership === "legacy") {
     for (const entry of readdirSync(mirror)) {
+      // A directory of links alone proves no ownership. The old setup linked same-name ledger entries only.
+      if (!linked && path.resolve(mirror, readlinkSync(path.join(mirror, entry))) !== path.join(authoredRoot, entry))
+        continue;
       /* @gate-identity non-state/environment-io.28f0d0f15b149005 */
       unlinkSync(path.join(mirror, entry));
     }
