@@ -289,7 +289,7 @@ function localObservationDependencies(source) {
     ts.forEachChild(node, collect);
   };
   collect(source);
-  return (expression) => {
+  const dependencies = (expression) => {
     const nodes = new Set();
     const visit = (node) => {
       if (!node || nodes.has(node) || ts.isTypeNode(node) || ts.isFunctionLike(node)) return;
@@ -377,12 +377,13 @@ function localObservationDependencies(source) {
     visit(expression);
     return [...nodes];
   };
+  return { dependencies, symbolOf };
 }
 
 function scanLocalObservationJudgments(source, pidProbes, add) {
   if (!/runtimePidIsAlive|fallbackState|fallbackSchedule|fallback_state|\bliveness\b|\bprocess\b/u.test(source.text))
     return;
-  const dependencies = localObservationDependencies(source),
+  const { dependencies, symbolOf } = localObservationDependencies(source),
     samplingConditions = new Set();
   const kindsOf = (expression) => {
     const kinds = new Set();
@@ -547,7 +548,7 @@ function scanLocalObservationJudgments(source, pidProbes, add) {
     if (loopTest && !samplingConditions.has(loopTest)) report(node, loopTest);
     if (
       ts.isSwitchStatement(node) &&
-      spoolObservationSwitch(node, dependencies) === null &&
+      spoolObservationSwitch(node, dependencies, symbolOf) === null &&
       !node.caseBlock.clauses.every((clause) =>
         clause.statements.every((statement) => ts.isBreakStatement(statement) || isObservationEmission(statement)),
       )
@@ -660,7 +661,40 @@ function directLegacyFallbackProjection(node) {
  * Every statement is checked: adding a resource call/assignment or a value return ends
  * this boundary. It does not exempt another use of the same observation elsewhere.
  */
-function spoolObservationSwitch(node, dependencies) {
+function spoolObservationSwitch(node, dependencies, symbolOf) {
+  // Closed expression grammar: template spans and call arguments are evaluated too.
+  // Only raw reads, literal records and the producer's unshadowed built-ins are allowed.
+  const valueOnly = (expression) => {
+    const value = unwrappedExpression(expression);
+    if (ts.isIdentifier(value) || ts.isLiteralExpression(value)) return true;
+    if ([ts.SyntaxKind.NullKeyword, ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword].includes(value.kind))
+      return true;
+    if (ts.isPropertyAccessExpression(value)) return valueOnly(value.expression);
+    if (ts.isElementAccessExpression(value)) return valueOnly(value.expression) && valueOnly(value.argumentExpression);
+    if (ts.isTemplateExpression(value)) return value.templateSpans.every((span) => valueOnly(span.expression));
+    if (ts.isObjectLiteralExpression(value))
+      return value.properties.every((property) =>
+        ts.isShorthandPropertyAssignment(property)
+          ? !property.objectAssignmentInitializer
+          : ts.isPropertyAssignment(property) &&
+            !ts.isComputedPropertyName(property.name) &&
+            valueOnly(property.initializer),
+      );
+    if (!ts.isCallExpression(value)) return false;
+    const callee = value.expression;
+    if (ts.isIdentifier(callee) && callee.text === "String" && !symbolOf(callee))
+      return value.arguments.length === 1 && value.arguments.every(valueOnly);
+    return (
+      ts.isPropertyAccessExpression(callee) &&
+      callee.name.text === "toISOString" &&
+      value.arguments.length === 0 &&
+      ts.isNewExpression(callee.expression) &&
+      ts.isIdentifier(callee.expression.expression) &&
+      callee.expression.expression.text === "Date" &&
+      !symbolOf(callee.expression.expression) &&
+      callee.expression.arguments?.length === 0
+    );
+  };
   const switched = unwrappedExpression(node.expression),
     liveValue =
       ts.isConditionalExpression(switched) && ts.isPropertyAccessExpression(unwrappedExpression(switched.whenTrue))
@@ -669,6 +703,7 @@ function spoolObservationSwitch(node, dependencies) {
   if (
     !ts.isConditionalExpression(switched) ||
     trailingName(switched.condition) !== "runtimeSessionId" ||
+    !valueOnly(switched.condition) ||
     trailingName(switched.whenFalse) !== "undefined" ||
     !liveValue ||
     liveValue.name.text !== "liveness" ||
@@ -687,7 +722,11 @@ function spoolObservationSwitch(node, dependencies) {
     if (ts.isReturnStatement(statement)) return !statement.expression;
     if (ts.isVariableStatement(statement))
       return statement.declarationList.declarations.every(
-        (declaration) => declaration.initializer && ts.isTemplateExpression(declaration.initializer),
+        (declaration) =>
+          ts.isIdentifier(declaration.name) &&
+          declaration.initializer &&
+          ts.isTemplateExpression(declaration.initializer) &&
+          valueOnly(declaration.initializer),
       );
     if (ts.isIfStatement(statement))
       return (
@@ -707,27 +746,38 @@ function spoolObservationSwitch(node, dependencies) {
       expression.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
       ts.isIdentifier(expression.left) &&
       ts.isCallExpression(expression.right) &&
-      trailingName(expression.right.expression) === "readRuntimeWorkerChunk"
+      ts.isIdentifier(expression.right.expression) &&
+      expression.right.expression.text === "readRuntimeWorkerChunk" &&
+      expression.right.arguments.every(valueOnly)
     ) {
       buffers.add(expression.left.text);
       return true;
     }
-    if (isObservationEmission(statement)) {
+    if (
+      isObservationEmission(statement) &&
+      ts.isCallExpression(expression) &&
+      valueOnly(expression.expression) &&
+      expression.arguments.every(valueOnly)
+    ) {
       lossRecords.push(statement);
       return true;
     }
     if (
       ts.isCallExpression(expression) &&
-      trailingName(expression.expression) === "emitExit" &&
+      ts.isIdentifier(expression.expression) &&
+      expression.expression.text === "emitExit" &&
       expression.arguments.length === 3 &&
-      trailingName(expression.arguments[2]) === "payload"
+      trailingName(expression.arguments[2]) === "payload" &&
+      expression.arguments.every(valueOnly)
     ) {
       observations.push(statement);
       return true;
     }
     return false;
   };
-  return node.caseBlock.clauses.every((clause) => clause.statements.every(statementOnly)) &&
+  return node.caseBlock.clauses.every(
+    (clause) => (!ts.isCaseClause(clause) || valueOnly(clause.expression)) && clause.statements.every(statementOnly),
+  ) &&
     buffers.size > 0 &&
     lossRecords.length > 0 &&
     observations.length > 0

@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -511,6 +511,73 @@ for (const [name, kind, body] of [
       findings.some((finding) => finding.startsWith(`${file}#`) && finding.includes(`forbidden ${kind} judgment`)),
       findings.join("\n"),
     );
+  });
+}
+
+// R2: exercise the real producer and the complete checker. Every evaluated child of
+// its observation switch belongs to the same boundary, including template spans.
+const producerReason = "const reason = `runtime process ${String(pid)} is no longer alive without process_exit`;";
+for (const [name, mutate, forbidden = true] of [
+  ["unchanged producer", (body) => body, false],
+  ["direct resource effect", (body) => body.replace(producerReason, `releaseCapacity(); ${producerReason}`)],
+  ["template resource effect", (body) => body.replace("String(pid)", "(releaseCapacity(), String(pid))")],
+  ["template call argument", (body) => body.replace("String(pid)", "String(releaseCapacity())")],
+  ["template invoked closure", (body) => body.replace("String(pid)", "(() => releaseCapacity())()")],
+  ["template tagged call", (body) => body.replace("String(pid)", "releaseCapacity`pid`")],
+  ["template assignment", (body) => body.replace("String(pid)", "(capacity = 0)")],
+  ["template update", (body) => body.replace("String(pid)", "capacity++")],
+  [
+    "chunk read argument",
+    (body) =>
+      body.replace(
+        "bytes = readRuntimeWorkerChunk(stream, offset);\n            if",
+        "bytes = readRuntimeWorkerChunk(stream, (releaseCapacity(), offset));\n            if",
+      ),
+  ],
+  [
+    "spool record argument",
+    (body) => body.replace('kind: "process_lost",', 'kind: "process_lost", leaked: releaseCapacity(),'),
+  ],
+  [
+    "nested timestamp argument",
+    (body) => body.replace("new Date().toISOString()", "new Date(releaseCapacity()).toISOString()"),
+  ],
+  [
+    "exit observation argument",
+    (body) =>
+      body.replace(
+        "emitExit(null, reason, livenessEvent.payload);",
+        "emitExit(null, (releaseCapacity(), reason), livenessEvent.payload);",
+      ),
+  ],
+  ["case expression", (body) => body.replace('case "unknown": {', 'case (releaseCapacity(), "unknown"): {')],
+  [
+    "binding pattern",
+    (body) => body.replace(producerReason, "const { [releaseCapacity()]: reason } = `process lost ${String(pid)}`;"),
+  ],
+  ["shadowed conversion", (body) => body.replace(producerReason, `const String = releaseCapacity; ${producerReason}`)],
+]) {
+  test(`spool producer boundary ${forbidden ? "refuses" : "accepts"} ${name}`, (t) => {
+    const base = readFileSync(path.join(repoRoot, "packages/daemon/src/runtime-spawn-process.ts"), "utf8");
+    assert.ok(base.includes(producerReason), "real producer reason anchor must exist");
+    const start = base.indexOf("switch (runtimeSessionId ? livenessEvent.payload.liveness : undefined)"),
+      end = base.indexOf("offset += bytes.length;", start);
+    assert.ok(start >= 0 && end > start, "real producer switch anchors must exist");
+    const body = base.slice(0, start) + mutate(base.slice(start, end)) + base.slice(end);
+    if (forbidden) assert.notEqual(body, base, "negative control must mutate the real producer");
+    const { root, file } = localObservationFixture(t, body);
+    const findings = forbidden
+      ? checkDomainJudgmentSingleDefinition(root, [])
+      : scanDispatchLifecycleObservationSites(root);
+    if (forbidden)
+      assert.ok(
+        findings.some(
+          (finding) =>
+            finding.startsWith(`${file}#drain:`) && finding.includes("forbidden liveness-comparison judgment"),
+        ),
+        findings.join("\n"),
+      );
+    else assert.deepEqual(findings, [], findings.join("\n"));
   });
 }
 
