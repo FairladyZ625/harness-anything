@@ -335,6 +335,75 @@ function localObservationFixture(t, body) {
 }
 
 for (const [name, kind, body] of [
+  // Second R1 review: object field names are not output boundaries; member syntax and
+  // a switch with resource side effects must obey the same dependency/sink contract.
+  [
+    "fallback object business verdict",
+    "fallback-state-branch",
+    "const local = { fallbackState: stream.fallbackState ? false : true }; return local.fallbackState;",
+  ],
+  [
+    "undated nullable fallback output",
+    "fallback-state-branch",
+    "return { fallbackState: stream.fallbackState ?? null };",
+  ],
+  [
+    "aliased nullable fallback output",
+    "fallback-state-branch",
+    "const state = stream.fallbackState; return { fallbackState: state ?? null };",
+  ],
+  [
+    "stream element alias",
+    "stream-process-terminal-return",
+    'const exited = summary.process["exited"]; return exited ? "unknown" : "running";',
+  ],
+  [
+    "fallback switch resource action",
+    "fallback-state-branch",
+    'switch (stream.fallbackState) { case "scheduled": releaseCapacity(); break; }',
+  ],
+  [
+    "fallback object null default then admission",
+    "fallback-state-branch",
+    "const local = { fallbackState: stream.fallbackState ?? null }; if (local.fallbackState) releaseCapacity();",
+  ],
+  [
+    "fallback object boolean default",
+    "fallback-state-branch",
+    "return { fallbackState: stream.fallbackState ?? false };",
+  ],
+  [
+    "stream bracket chain resource action",
+    "stream-process-terminal-return",
+    'const p = summary["process"]; if (p["exited"]) releaseCapacity();',
+  ],
+  [
+    "liveness switch assignment",
+    "liveness-comparison",
+    'switch (session["liveness"]) { case "live": capacity = "released"; break; }',
+  ],
+  [
+    "PID switch nested resource action",
+    "runtimePidIsAlive",
+    "switch (localProbe(pids[0])) { case true: { releaseCapacity(); break; } }",
+  ],
+  [
+    "fallback switch cannot borrow the spool producer shape",
+    "fallback-state-branch",
+    `switch (stream.fallbackState) {
+      case "scheduled": {
+        let bytes = readRuntimeWorkerChunk(stream, offset);
+        if (bytes.length === 0) {
+          const reason = \`process lost\`;
+          appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_lost", reason });
+          emitExit(null, reason, livenessEvent.payload);
+          return;
+        }
+        break;
+      }
+      default: break;
+    }`,
+  ],
   ["PID callback capacity", "runtimePidIsAlive", "return pids.filter(runtimePidIsAlive).length < 2;"],
   ["fallback truthiness", "fallback-state-branch", "return stream.fallbackState ? false : true;"],
   [
@@ -471,9 +540,18 @@ test("dispatch local flow preserves producers, stop proof, raw spool and dated p
     }
     export const rawPidFilter = (pids: number[]) => pids.filter(pid => localProbe(pid));
     export function oldDto(row: any) {
-      const state = row.fallbackState;
       // Previous-version protocol output; remove 2026-12-07.
-      return { fallbackState: state ?? null };
+      return { fallbackState: row.fallbackState ?? null };
+    }
+    export function rawNullableState(row: any) {
+      // Previous-version protocol output; remove 2026-12-07.
+      return { fallbackState: row["fallbackState"] ?? null };
+    }
+    export function observationSwitch(row: any) {
+      switch (row.liveness) {
+        case "exited": events.push({ type: "runtime_session_exited", payload: {} }); break;
+        default: events.push({ type: "runtime_session_liveness_changed", payload: { liveness: row.liveness } });
+      }
     }
     export function rawSpool(summary: any) { return { exited: summary.process.exited }; }
     export function rawLossReason(summary: any, reason: string) {

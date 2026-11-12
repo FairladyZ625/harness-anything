@@ -398,7 +398,7 @@ function scanLocalObservationJudgments(source, pidProbes, add) {
       if (name === "liveness") kinds.add("liveness-comparison");
       if (
         name === "exited" &&
-        (ts.isPropertyAccessExpression(node) || ts.isBindingElement(node)) &&
+        (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node) || ts.isBindingElement(node)) &&
         dependencies(ts.isBindingElement(node) ? node.parent.parent.initializer : node.expression).some(
           (part) => trailingName(part) === "process",
         )
@@ -408,7 +408,7 @@ function scanLocalObservationJudgments(source, pidProbes, add) {
     return kinds;
   };
   const report = (node, expression, returnSinkOnly = false) => {
-    if (insideDispatchObservationPayload(node) || protocolFallbackProjection(node)) return;
+    if (insideDispatchObservationPayload(node) || directLegacyFallbackProjection(node)) return;
     for (let current = node; current && !ts.isFunctionLike(current); current = current.parent)
       if (
         ts.isIfStatement(current) &&
@@ -533,11 +533,10 @@ function scanLocalObservationJudgments(source, pidProbes, add) {
       )
         report(node, node);
       if (
-        [
-          ts.SyntaxKind.QuestionQuestionToken,
-          ts.SyntaxKind.BarBarToken,
-          ts.SyntaxKind.AmpersandAmpersandToken,
-        ].includes(operator)
+        [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.AmpersandAmpersandToken].includes(operator) ||
+        // Null normalization preserves the raw observation; its later use is still traced.
+        (operator === ts.SyntaxKind.QuestionQuestionToken &&
+          (node.right.kind !== ts.SyntaxKind.NullKeyword || !directLegacyFallbackProjection(node)))
       )
         report(node, node, true);
     }
@@ -548,8 +547,9 @@ function scanLocalObservationJudgments(source, pidProbes, add) {
     if (loopTest && !samplingConditions.has(loopTest)) report(node, loopTest);
     if (
       ts.isSwitchStatement(node) &&
-      node.caseBlock.clauses.some((clause) =>
-        clause.statements.some((statement) => ts.isReturnStatement(statement) && statement.expression),
+      spoolObservationSwitch(node, dependencies) === null &&
+      !node.caseBlock.clauses.every((clause) =>
+        clause.statements.every((statement) => ts.isBreakStatement(statement) || isObservationEmission(statement)),
       )
     )
       report(node, node.expression);
@@ -628,18 +628,111 @@ function returnStatementAncestor(node) {
   return null;
 }
 
-function protocolFallbackProjection(node) {
-  for (let parent = node.parent; parent && !ts.isFunctionLike(parent); parent = parent.parent) {
-    if (!ts.isObjectLiteralExpression(parent)) continue;
-    return parent.properties.some(
-      (property) =>
-        ts.isPropertyAssignment(property) &&
-        propertyName(property.name) === "fallbackState" &&
-        property.initializer.getStart() <= node.getStart() &&
-        property.initializer.getEnd() >= node.getEnd(),
-    );
-  }
-  return false;
+/** The previous-version DTO may return only the nullable raw fallback value.
+ * This exception covers the exact output field, never an intermediate/business object.
+ */
+function directLegacyFallbackProjection(node) {
+  const value = unwrappedExpression(node),
+    source = ts.isBinaryExpression(value) ? unwrappedExpression(value.left) : null,
+    property = value.parent,
+    object = property?.parent;
+  return (
+    ts.isBinaryExpression(value) &&
+    value.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken &&
+    value.right.kind === ts.SyntaxKind.NullKeyword &&
+    source &&
+    (ts.isPropertyAccessExpression(source) || ts.isElementAccessExpression(source)) &&
+    trailingName(source) === "fallbackState" &&
+    property &&
+    ts.isPropertyAssignment(property) &&
+    propertyName(property.name) === "fallbackState" &&
+    property.initializer === value &&
+    object &&
+    ts.isObjectLiteralExpression(object) &&
+    object.parent &&
+    ts.isReturnStatement(object.parent) &&
+    object.parent.expression === object &&
+    /Previous-version protocol output; remove 2026-12-07\./u.test(object.parent.getFullText())
+  );
+}
+
+/** The raw spool observer may reread an empty chunk and emit process-loss evidence.
+ * Every statement is checked: adding a resource call/assignment or a value return ends
+ * this boundary. It does not exempt another use of the same observation elsewhere.
+ */
+function spoolObservationSwitch(node, dependencies) {
+  const switched = unwrappedExpression(node.expression),
+    liveValue =
+      ts.isConditionalExpression(switched) && ts.isPropertyAccessExpression(unwrappedExpression(switched.whenTrue))
+        ? unwrappedExpression(switched.whenTrue)
+        : null;
+  if (
+    !ts.isConditionalExpression(switched) ||
+    trailingName(switched.condition) !== "runtimeSessionId" ||
+    trailingName(switched.whenFalse) !== "undefined" ||
+    !liveValue ||
+    liveValue.name.text !== "liveness" ||
+    !ts.isPropertyAccessExpression(liveValue.expression) ||
+    liveValue.expression.name.text !== "payload" ||
+    trailingName(liveValue.expression.expression) !== "livenessEvent" ||
+    !dependencies(switched.whenTrue).some((value) => trailingName(value) === "livenessEvent")
+  )
+    return null;
+  const buffers = new Set(),
+    lossRecords = [],
+    observations = [];
+  const statementOnly = (statement) => {
+    if (ts.isBlock(statement)) return statement.statements.every(statementOnly);
+    if (ts.isBreakStatement(statement)) return true;
+    if (ts.isReturnStatement(statement)) return !statement.expression;
+    if (ts.isVariableStatement(statement))
+      return statement.declarationList.declarations.every(
+        (declaration) => declaration.initializer && ts.isTemplateExpression(declaration.initializer),
+      );
+    if (ts.isIfStatement(statement))
+      return (
+        ts.isBinaryExpression(statement.expression) &&
+        statement.expression.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken &&
+        ts.isPropertyAccessExpression(statement.expression.left) &&
+        statement.expression.left.name.text === "length" &&
+        buffers.has(statement.expression.left.expression.getText()) &&
+        statement.expression.right.getText() === "0" &&
+        statementOnly(statement.thenStatement) &&
+        (!statement.elseStatement || statementOnly(statement.elseStatement))
+      );
+    if (!ts.isExpressionStatement(statement)) return false;
+    const expression = statement.expression;
+    if (
+      ts.isBinaryExpression(expression) &&
+      expression.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isIdentifier(expression.left) &&
+      ts.isCallExpression(expression.right) &&
+      trailingName(expression.right.expression) === "readRuntimeWorkerChunk"
+    ) {
+      buffers.add(expression.left.text);
+      return true;
+    }
+    if (isObservationEmission(statement)) {
+      lossRecords.push(statement);
+      return true;
+    }
+    if (
+      ts.isCallExpression(expression) &&
+      trailingName(expression.expression) === "emitExit" &&
+      expression.arguments.length === 3 &&
+      trailingName(expression.arguments[2]) === "payload"
+    ) {
+      observations.push(statement);
+      return true;
+    }
+    return false;
+  };
+  return node.caseBlock.clauses.every((clause) => clause.statements.every(statementOnly)) &&
+    buffers.size > 0 &&
+    lossRecords.length > 0 &&
+    observations.length > 0
+    ? node
+    : null;
 }
 
 function isObservationEmission(node) {
