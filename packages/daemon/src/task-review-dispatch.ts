@@ -785,7 +785,10 @@ export async function spawnCutReviewDispatch(
           readTask: (taskId) => cell.projection.read(taskId).snapshot.task,
         });
         if (authorizationDecision.outcome !== "allowed")
-          throw cell.cellCodedError("authorization_denied", authorizationDecision.nextActions.join(" "));
+          throw cell.cellCodedError(
+            "authorization_denied",
+            `authorization_denied: ${authorizationDecision.nextActions.join(" ")}`,
+          );
         return (await effect(authorizationDecision)) as WriteReceiptDraft;
       };
       const receipt = await (input.enqueuePublication ? input.enqueuePublication(apply) : apply());

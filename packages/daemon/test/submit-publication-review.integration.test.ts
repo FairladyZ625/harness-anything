@@ -5,11 +5,16 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { classifyTextualArtifactPath, sha256Text } from "@harness-anything/kernel";
-import { executionId, fixture, taskId } from "./task-completion-review.fixture.ts";
+import { executionId, fixture, owner, taskId } from "./task-completion-review.fixture.ts";
 import { openRepoWriterCell } from "../src/repo-cell-open.ts";
 import { acquireWorkspaceLock } from "../src/repo-cell-lock.ts";
 import { fixtureFence, settleSettingsEvent } from "./repo-settings.fixture.ts";
-import { policyTestCenter, provisionPolicyTestRepository } from "./keycloak-policy.fixtures.ts";
+import {
+  grantTestPolicyGroups,
+  policyTestCenter,
+  provisionPolicyTestRepository,
+  revokeTestPolicyActions,
+} from "./keycloak-policy.fixtures.ts";
 
 async function openPublicationCell(input: Parameters<typeof openRepoWriterCell>[0]) {
   provisionPolicyTestRepository(input.repoId);
@@ -233,6 +238,19 @@ test(
     assert.match(JSON.stringify(receipt), /PR head.*does not match the frozen delivery/u);
   },
 );
+
+test("queued reviewer authorization preserves the failed step and warning", { timeout: 20_000 }, async (context) => {
+  const { f, cut, submit } = await publicationFixture(context);
+  cut();
+  revokeTestPolicyActions(owner.actor.principal.personId, "completion-review", ["runtime-spawn"]);
+  context.after(() => grantTestPolicyGroups([owner.actor.principal.personId], "maintainer"));
+  const receipt = await submit();
+  assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+  assert.equal(f.launches.length, 0);
+  assert.match(JSON.stringify(receipt.warnings), /dispatch failed: authorization_denied:/u);
+  assert.match(JSON.stringify((receipt as Record<string, unknown>).steps), /review_dispatch_failed/u);
+  assert.ok(f.events().some((event) => event.type === "execution_submitted"));
+});
 
 for (const mode of ["ordinary", "amend", "docChanges", "resume", "settle"] as const) {
   test(
