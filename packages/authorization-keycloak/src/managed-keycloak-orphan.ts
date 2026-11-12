@@ -366,7 +366,8 @@ function windowsManagedRuntime(commandLine: string, keycloakHome: string): boole
     boundary = javaLauncherBoundary(args);
   if (boundary === undefined) return false;
   const managedHome = normalizedWindowsPath(keycloakHome),
-    pathOwned = (candidate: string): boolean => windowsPathInside(managedHome, candidate);
+    pathOwned = (candidate: string): boolean =>
+      path.win32.isAbsolute(candidate) && windowsPathInside(managedHome, candidate);
   if (boundary.jarPath !== undefined) return pathOwned(boundary.jarPath);
   return boundary.classPathEntries.some(pathOwned);
 }
@@ -465,9 +466,10 @@ function parseWindowsCommandLine(commandLine: string): string[] {
 }
 
 function windowsPathInside(root: string, candidate: string): boolean {
-  const normalizedRoot = root.replace(/[\\/]+$/u, ""),
-    normalizedCandidate = normalizedWindowsPath(candidate).replace(/[\\/]+$/u, "");
-  return normalizedCandidate === normalizedRoot || normalizedCandidate.startsWith(`${normalizedRoot}\\`);
+  const normalizedRoot = normalizedWindowsPath(path.win32.resolve(root)),
+    normalizedCandidate = normalizedWindowsPath(path.win32.resolve(root, candidate)),
+    relative = normalizedWindowsPath(path.win32.relative(normalizedRoot, normalizedCandidate));
+  return relative === "" || (relative !== ".." && !relative.startsWith("..\\") && !path.win32.isAbsolute(relative));
 }
 
 function portInUse(port: number, root: string, owner: string): Error {

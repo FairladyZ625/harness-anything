@@ -64,6 +64,8 @@ test("Windows orphan ownership requires the exact Keycloak home property", async
     for (const commandLine of [
       `java.exe -Dnote="diagnostic -Dkc.home.dir=${keycloakHome} ignored" -jar "${keycloakHome}-tools\\diagnostic.jar"`,
       `java.exe -jar "${keycloakHome}-tools\\diagnostic.jar" -Dkc.home.dir=${keycloakHome}`,
+      `java.exe -Dkc.home.dir="${keycloakHome}" -jar "${keycloakHome}\\..\\keycloak-tools\\diagnostic.jar"`,
+      `java.exe -Dkc.home.dir="${keycloakHome}" -jar lib\\quarkus-run.jar`,
     ]) {
       taskkillCalls.length = 0;
       listeners.clear();
@@ -80,7 +82,11 @@ test("Windows orphan ownership requires the exact Keycloak home property", async
         }),
         (error: unknown) => (error as { readonly code?: string }).code === "rbac_port_in_use",
       );
-      assert.equal(taskkillCalls.length, 0, "application arguments and quoted text never authorize taskkill");
+      assert.equal(
+        taskkillCalls.length,
+        0,
+        "quoted text, application arguments, and traversal never authorize taskkill",
+      );
     }
   } finally {
     rmSync(parent, { recursive: true, force: true });
