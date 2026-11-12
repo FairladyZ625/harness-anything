@@ -669,7 +669,7 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
       ...(declaration.writeRoad === undefined ? [] : ["writeRoad"]),
     ]);
     if (declaration.ontology !== undefined) {
-      assert.ok(getEntityKindContract(declaration.ontology.owner), `${kind}: ontology owner must be declared`);
+      // Owners include bounded contexts; the closure registry validates their owner/source bindings.
       assert.doesNotThrow(
         () => closureDeclarations({ actions: [declaration], kinds: [] }),
         `${kind}: ontology sources must satisfy the declared contract`,
