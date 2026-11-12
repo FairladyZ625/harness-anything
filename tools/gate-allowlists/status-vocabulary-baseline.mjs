@@ -475,6 +475,4 @@ export const statusVocabularyBaseline = Object.freeze([
 // External status vocabularies that were registered before the ownership form became
 // mandatory (dec_499E4E98A3D4754132B3BCA1E6 CH1). Owning one later makes its entry
 // stale; a new external row without mirrorOf / ownerStore / view-local is refused.
-export const statusVocabularyUnownedRegister = Object.freeze([
-  { id: "dispatch.fallbackState", words: Object.freeze(["scheduled", "dispatched", "exhausted"]) },
-]);
+export const statusVocabularyUnownedRegister = Object.freeze([]);

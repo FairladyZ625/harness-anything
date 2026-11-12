@@ -54,7 +54,7 @@ test("domain judgment single-definition gate accepts the repository", () => {
   assert.equal(result.status, 0, result.stderr);
   assert.match(
     result.stdout,
-    /legacy and registry judgments resolve to their canonical domain services; authored-document reads use the projection port; dispatch observation ratchet is active/u,
+    /legacy and registry judgments resolve to their canonical domain services; authored-document reads use the projection port; dispatch observation boundary requires zero exemptions/u,
   );
 });
 
@@ -264,7 +264,7 @@ test("positive fixture: a daemon copy of the review reverify judgment is refused
   );
 });
 
-test("dispatch observation ratchet rejects admission and terminal judgments but accepts observations", (t) => {
+test("dispatch observation boundary rejects admission and terminal judgments but accepts observations", (t) => {
   const fixture = mkdtempSync(path.join(tmpdir(), "ha-dispatch-observation-fixture-"));
   t.after(() => rmSync(fixture, { recursive: true, force: true }));
   cpSync(path.join(repoRoot, "tools/fixtures/dispatch-lifecycle-observation"), fixture, { recursive: true });
@@ -279,41 +279,36 @@ test("dispatch observation ratchet rejects admission and terminal judgments but 
       entries: { observationSites: [] },
     });
   assert.deepEqual(sites.map(({ symbol, kind }) => `${symbol}:${kind}`).sort(), [
+    "admissionFromAliasedPid:runtimePidIsAlive",
     "admissionFromPid:runtimePidIsAlive",
     "adoptionFromProcessTable:process-table-probe",
     "capacityFromLocalTables:fallback-state-branch",
     "capacityFromLocalTables:liveness-comparison",
     "capacityFromLocalTables:process-table-probe",
+    "outcomeFromStream:stream-process-terminal-return",
     "rulingFromPhase:ruling-phase-branch",
+    "scheduleFromSpool:fallback-state-branch",
     "terminalFromProcessLost:process-lost-terminal-return",
   ]);
   // observeProcess reads the PID fact into the existing lifecycle event: no finding.
   assert.ok(!sites.some(({ symbol }) => symbol === "observeProcess"));
   assert.ok(!sites.some(({ symbol }) => symbol === "rulingFromPolicy"));
-  assert.equal(findings.length, 7);
+  assert.equal(findings.length, 10);
   assert.ok(findings.some((finding) => finding.includes("adoptionFromProcessTable")));
-  assert.ok(findings.every((finding) => finding.includes("new ")));
+  assert.ok(findings.every((finding) => finding.includes("forbidden ")));
 });
 
-test("dispatch observation baseline rejects additions and permits reductions", () => {
+test("dispatch observation boundary refuses even a matching nonempty baseline", () => {
   const entry = {
       path: "packages/daemon/src/legacy.ts",
       symbol: "admission",
       kind: "runtimePidIsAlive",
       fingerprint: "fingerprint-a",
     },
-    current = { schema: "harness-anything/gate-allowlist/v1", entries: { observationSites: [] } },
-    prior = [entry],
-    reduced = checkDispatchLifecycleObservationSites([], current, prior),
-    expanded = checkDispatchLifecycleObservationSites(
-      [entry],
-      { ...current, entries: { observationSites: [entry] } },
-      [],
-    ),
-    stale = checkDispatchLifecycleObservationSites([], { ...current, entries: { observationSites: [entry] } });
-  assert.deepEqual(reduced, []);
-  assert.ok(expanded.some((finding) => finding.includes("baseline may only shrink")));
-  assert.ok(stale.some((finding) => finding.includes("stale baseline entry should be removed")));
+    baseline = { schema: "harness-anything/gate-allowlist/v1", entries: { observationSites: [entry] } };
+  const findings = checkDispatchLifecycleObservationSites([entry], baseline);
+  assert.ok(findings.some((finding) => finding.includes("zero exemptions")));
+  assert.ok(findings.some((finding) => finding.includes("forbidden runtimePidIsAlive")));
 });
 
 test("positive fixture: a second forwarding intent judgment is refused", (t) => {

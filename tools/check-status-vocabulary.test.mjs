@@ -698,13 +698,13 @@ test("register shape: a row carrying two ownership forms is refused", () => {
 });
 
 test("registered inline anchors still have to declare their registered words", () => {
-  const module = "packages/daemon/src/dispatch-stream.ts";
+  const module = "packages/kernel/src/domain/agent-runtime.ts";
   const overrides = [
     [
       module,
       (sources.get(module) ?? "").replace(
-        'readonly fallbackState: "scheduled" | "dispatched" | "exhausted" | null',
-        'readonly fallbackState: "scheduled" | "exhausted" | null',
+        'readonly fallbackState?: "scheduled" | "exhausted" | null',
+        'readonly fallbackState?: "scheduled" | null',
       ),
     ],
   ];
@@ -712,7 +712,9 @@ test("registered inline anchors still have to declare their registered words", (
     baseline: statusVocabularyBaseline,
   });
   assert.ok(
-    findings.some((finding) => finding.includes("dispatch.fallbackState") && finding.includes("no longer declares")),
+    findings.some(
+      (finding) => finding.includes("runtime-session.fallbackState") && finding.includes("no longer declares"),
+    ),
     findings.join("\n"),
   );
 });

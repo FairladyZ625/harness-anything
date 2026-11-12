@@ -1,8 +1,7 @@
 import { childProcessErrorCode } from "./runtime-process-signals.ts";
 
-/** Whether one runtime worker process is still around, asked of the operating system rather than of
- * any record the daemon keeps. Adoption, cancel, the dispatch read face and the shutdown drain all
- * settle liveness here, so none of them can outlive the process it is speaking for. */
+/** OS observation for lifecycle producers and process-tree stop proofs. Business readers use
+ * readDispatchLifecycle; this probe cannot decide admission, capacity, recovery or settlement. */
 export function runtimePidIsAlive(pid: number): boolean {
   // POSIX kill(0, sig) addresses the caller's own process group and kill(negative, sig) a group by
   // id, so either would answer "alive" for a runtime that has no process at all. A runtime pid is a

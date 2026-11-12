@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { tokenUsageProjection } from "../../../daemon/test/token-usage-lifecycle.fixtures.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -112,7 +113,10 @@ try {
     now: "2026-10-10T00:02:00.000Z",
     range: "today",
     cut: { status: "ready", watermark: 0, sourceRevision: 0 },
-    projection: { readRuntimeDispatchPage: () => ({ rows, nextCursor: null, done: true }) },
+    projection: {
+      ...tokenUsageProjection(rootDir),
+      readRuntimeDispatchPage: () => ({ rows, nextCursor: null, done: true }),
+    },
     entityLabel: () => null,
     taskOf: () => undefined,
   });

@@ -14,7 +14,7 @@ import ts from "typescript";
 import { loadOntologyClosureSnapshot } from "./gates/ontology-gate-lib.mjs";
 import { judgmentImportResolver } from "./domain-judgment-consumers.mjs";
 import { authoredReadinessFindings } from "./domain-judgment-authored-readiness.mjs";
-import { git, listWorktreeFiles, pathExistsAt, pullRequestBase } from "./gates/git.mjs";
+import { listWorktreeFiles } from "./gates/git.mjs";
 
 const DISPATCH_OBSERVATION_BASELINE = "tools/gate-allowlists/dispatch-lifecycle-observation.json",
   OBSERVATION_BASELINE_SCHEMA = "harness-anything/gate-allowlist/v1";
@@ -194,11 +194,12 @@ export function checkDomainJudgmentSingleDefinition(
       "packages/daemon/src/protocol/daemon-protocol-commands-task-surface.ts: projects cancellation eligibility into the CLI",
     );
   findings.push(...authoredReadinessFindings(root));
-  const baseline = readDispatchObservationBaseline(root),
-    dispatchSites = scanDispatchLifecycleObservationSites(root),
-    // Without a baseline at this cut there is nothing to ratchet: every site is a finding.
-    priorBaseline = baseline === null ? null : readPreviousDispatchObservationEntries(root);
-  findings.push(...checkDispatchLifecycleObservationSites(dispatchSites, baseline, priorBaseline));
+  findings.push(
+    ...checkDispatchLifecycleObservationSites(
+      scanDispatchLifecycleObservationSites(root),
+      readDispatchObservationBaseline(root),
+    ),
+  );
   return findings;
 }
 
@@ -216,6 +217,13 @@ export function scanDispatchLifecycleObservationSites(root = process.cwd()) {
   for (const rel of files) {
     const body = readFileSync(path.join(root, rel), "utf8"),
       source = ts.createSourceFile(rel, body, ts.ScriptTarget.Latest, true, scriptKind(rel));
+    const pidProbes = new Set(["runtimePidIsAlive"]);
+    for (const statement of source.statements) {
+      const bindings = ts.isImportDeclaration(statement) ? statement.importClause?.namedBindings : undefined;
+      if (bindings && ts.isNamedImports(bindings))
+        for (const binding of bindings.elements)
+          if ((binding.propertyName ?? binding.name).text === "runtimePidIsAlive") pidProbes.add(binding.name.text);
+    }
     const add = (node, symbol, kind) => {
       const fingerprint = createHash("sha256")
         .update(`${rel}\0${symbol}\0${kind}\0${node.getText(source).replace(/\s+/gu, " ").trim()}`)
@@ -225,8 +233,7 @@ export function scanDispatchLifecycleObservationSites(root = process.cwd()) {
     const visit = (node) => {
       if (
         ts.isCallExpression(node) &&
-        ts.isIdentifier(node.expression) &&
-        node.expression.text === "runtimePidIsAlive" &&
+        pidProbes.has(trailingName(node.expression)) &&
         !insideDispatchObservationPayload(node)
       )
         add(judgmentContextNode(node), enclosingSymbol(node), "runtimePidIsAlive");
@@ -237,6 +244,18 @@ export function scanDispatchLifecycleObservationSites(root = process.cwd()) {
         trailingName(node.expression.expression) === "processes"
       )
         add(judgmentContextNode(node), enclosingSymbol(node), "process-table-probe");
+      if (
+        ts.isBinaryExpression(node) &&
+        [
+          ts.SyntaxKind.QuestionQuestionToken,
+          ts.SyntaxKind.BarBarToken,
+          ts.SyntaxKind.AmpersandAmpersandToken,
+        ].includes(node.operatorToken.kind) &&
+        [trailingName(node.left), trailingName(node.right)].some(
+          (name) => name === "fallbackState" || name === "fallbackSchedule",
+        )
+      )
+        add(judgmentContextNode(node), enclosingSymbol(node), "fallback-state-branch");
       if (ts.isBinaryExpression(node) && equalityOperators.has(node.operatorToken.kind)) {
         const names = [trailingName(node.left), trailingName(node.right)];
         if (names.includes("liveness") && !insideDispatchObservationPayload(node))
@@ -252,6 +271,11 @@ export function scanDispatchLifecycleObservationSites(root = process.cwd()) {
       if (ts.isReturnStatement(node) && node.expression) {
         const text = node.expression.getText(source),
           fnText = enclosingFunction(node)?.getText(source) ?? text;
+        if (
+          /\bprocess(?:\?\.|\.)exited\b/u.test(text) &&
+          /["'](?:running|unknown|succeeded|failed|cancelled)["']/u.test(text)
+        )
+          add(node, enclosingSymbol(node), "stream-process-terminal-return");
         if (/(?:process[_-]lost|processLost)/u.test(text) && /(?:terminal|outcome|closed)/iu.test(`${text} ${fnText}`))
           add(node, enclosingSymbol(node), "process-lost-terminal-return");
       }
@@ -262,60 +286,31 @@ export function scanDispatchLifecycleObservationSites(root = process.cwd()) {
   return sites.sort(compareObservationSite);
 }
 
-export function checkDispatchLifecycleObservationSites(sites, baseline, priorBaseline = null) {
+/** dec_AEB05951 CH4/CH6 slice 7: the retired debt inventory can never authorize a judgment. */
+export function checkDispatchLifecycleObservationSites(sites, baseline) {
   const findings = [],
-    baselineEntries = observationEntries(baseline) ?? [],
-    allowed = countEntries(baselineEntries);
-  if (observationEntries(baseline) === null)
+    entries = observationEntries(baseline);
+  if (entries === null)
     findings.push(`${DISPATCH_OBSERVATION_BASELINE}: invalid or missing dispatch observation baseline`);
-  for (const site of sites) {
-    const key = observationKey(site),
-      remaining = allowed.get(key) ?? 0;
-    if (remaining === 0)
-      findings.push(
-        `${site.path}#${site.symbol}: new ${site.kind} judgment (${site.fingerprint}); remove the business judgment or obtain a governance decision`,
-      );
-    else allowed.set(key, remaining - 1);
-  }
-  for (const [key, count] of allowed)
-    if (count > 0) findings.push(`${DISPATCH_OBSERVATION_BASELINE}: stale baseline entry should be removed: ${key}`);
-  if (priorBaseline !== null) {
-    const prior = countEntries(priorBaseline),
-      current = countEntries(baselineEntries);
-    for (const [key, count] of current)
-      if (count > (prior.get(key) ?? 0))
-        findings.push(`${DISPATCH_OBSERVATION_BASELINE}: baseline may only shrink; added ${key}`);
-  }
+  else if (entries.length !== 0)
+    findings.push(`${DISPATCH_OBSERVATION_BASELINE}: zero exemptions required; remove every baseline entry`);
+  for (const site of sites)
+    findings.push(
+      `${site.path}#${site.symbol}: forbidden ${site.kind} judgment (${site.fingerprint}); consume readDispatchLifecycle`,
+    );
   return findings;
 }
 
-/** The baseline is a B13-classified gate allowlist; its one section lists the remaining sites. */
+/** Keep the B13-classified inventory present and permanently empty. */
 function observationEntries(baseline) {
   return baseline?.schema === OBSERVATION_BASELINE_SCHEMA && Array.isArray(baseline.entries?.observationSites)
     ? baseline.entries.observationSites
     : null;
 }
 
-function countEntries(entries) {
-  const counts = new Map();
-  for (const entry of entries) {
-    const key = observationKey(entry);
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  return counts;
-}
-
 function readDispatchObservationBaseline(root) {
   const file = path.join(root, DISPATCH_OBSERVATION_BASELINE);
   return existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null;
-}
-
-/** The base cut's entries bound this cut's baseline; null before the baseline existed at base. */
-function readPreviousDispatchObservationEntries(root) {
-  const base = process.env.PR_BASE_SHA || pullRequestBase(root);
-  if (!pathExistsAt(root, base, DISPATCH_OBSERVATION_BASELINE)) return null;
-  const previous = JSON.parse(git(root, ["show", `${base}:${DISPATCH_OBSERVATION_BASELINE}`]));
-  return observationEntries(previous) ?? [];
 }
 
 function insideDispatchObservationPayload(node) {
@@ -418,33 +413,6 @@ function read(root, rel) {
   }
 }
 async function main() {
-  if (process.argv.includes("--print-dispatch-observation-baseline")) {
-    const sliceOf = new Map(
-      (observationEntries(readDispatchObservationBaseline(process.cwd())) ?? []).map((entry) => [
-        observationKey(entry),
-        entry.slice,
-      ]),
-    );
-    console.log(
-      JSON.stringify(
-        {
-          schema: OBSERVATION_BASELINE_SCHEMA,
-          authority: "decision/dec_AEB05951C69E47FCE53E53C341#CH4",
-          policy: "entries may only be removed; each site is keyed by path, symbol, kind, and source fingerprint",
-          // Regeneration keeps each surviving entry's reviewed migration slice; new sites stay unassigned.
-          entries: {
-            observationSites: scanDispatchLifecycleObservationSites().map((site) => ({
-              ...site,
-              slice: sliceOf.get(observationKey(site)) ?? "unassigned",
-            })),
-          },
-        },
-        null,
-        2,
-      ),
-    );
-    return;
-  }
   const findings = checkDomainJudgmentSingleDefinition();
   if (findings.length) {
     console.error("Domain judgment single-definition check failed:");
@@ -452,7 +420,7 @@ async function main() {
     process.exit(1);
   }
   console.log(
-    "Domain judgment single-definition check passed (legacy and registry judgments resolve to their canonical domain services; authored-document reads use the projection port; dispatch observation ratchet is active).",
+    "Domain judgment single-definition check passed (legacy and registry judgments resolve to their canonical domain services; authored-document reads use the projection port; dispatch observation boundary requires zero exemptions).",
   );
 }
 const invokedDirectly =

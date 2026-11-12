@@ -1,5 +1,5 @@
 import type { TaskProjection } from "@harness-anything/kernel";
-import { runtimeSessionOutcomeFromEvidence } from "@harness-anything/kernel";
+import { dispatchLifecycleSummary, type DispatchLifecycleSummary } from "@harness-anything/kernel";
 import { agentRuntimeTokenUsageRangeWords } from "./protocol/daemon-protocol-schema-ids.ts";
 import { dispatchStreamRelativePath, readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
 import type { DispatchStreamHeader, DispatchStreamSummary } from "./dispatch-stream.ts";
@@ -259,10 +259,14 @@ function planWindow(
  * (bounded head/tail windows, cached by mtime+size) is the whole read cost — no full-file scan. */
 function windowDispatches(
   rootDir: string,
-  projection: Pick<TaskProjection, "readRuntimeDispatchPage">,
+  projection: Pick<TaskProjection, "readRuntimeDispatchPage" | "readDispatchLifecycle">,
   sinceMs: number,
   pick: (header: DispatchStreamHeader) => boolean,
-): { readonly header: DispatchStreamHeader; readonly summary: DispatchStreamSummary | null }[] {
+): {
+  readonly header: DispatchStreamHeader;
+  readonly summary: DispatchStreamSummary | null;
+  readonly lifecycle: DispatchLifecycleSummary;
+}[] {
   const selected = new Map<
     string,
     { readonly header: DispatchStreamHeader; readonly summary: DispatchStreamSummary | null }
@@ -290,7 +294,12 @@ function windowDispatches(
     if (selected.has(header.dispatchId) || Date.parse(header.startedAt) < sinceMs || !pick(header)) continue;
     selected.set(header.dispatchId, { header, summary: readDispatchStreamSummary(rootDir, header.dispatchId) });
   }
-  return [...selected.values()];
+  return [...selected.values()].map((entry) => ({
+    ...entry,
+    lifecycle: dispatchLifecycleSummary(
+      projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: [entry.header.dispatchId] }),
+    ),
+  }));
 }
 
 function projectedHeader(
@@ -331,7 +340,7 @@ export function readAgentRuntimeTokenUsage(input: {
   readonly range: AgentRuntimeTokenUsageRange;
   readonly entityLabel: (squadId: string) => string | null;
   readonly taskOf: (taskId: string) => WorkRuleTask | undefined;
-  readonly projection: Pick<TaskProjection, "readRuntimeDispatchPage">;
+  readonly projection: Pick<TaskProjection, "readRuntimeDispatchPage" | "readDispatchLifecycle">;
   readonly cut: {
     readonly status: "ready" | "pending";
     readonly watermark: number;
@@ -352,26 +361,36 @@ export function readAgentRuntimeTokenUsage(input: {
     buckets = bucketLadder(sinceMs, now.getTime(), bucketMs),
     facts: TokenUsageDispatchFact[] = [],
     startedMs = (header: DispatchStreamHeader): number => Date.parse(header.startedAt);
+  let pending = input.cut.status === "pending";
   // One walk covers both periods; the tail of the earlier window past `previousUntil` belongs
   // to neither, so its streams are never opened.
-  for (const { header, summary } of windowDispatches(
+  for (const { header, summary, lifecycle } of windowDispatches(
     input.rootDir,
     input.projection,
     previousSinceMs,
     (candidate) => startedMs(candidate) < previousUntilMs || startedMs(candidate) >= sinceMs,
   )) {
+    pending ||= lifecycle.status === "pending";
     if (startedMs(header) < sinceMs) {
-      accumulate(previous, "", "", header, summary);
+      accumulate(previous, "", "", header, summary, lifecycle);
       continue;
     }
-    accumulateBucket(buckets, header.startedAt, header.model ?? null, summary, sinceMs, bucketMs);
-    accumulate(fleet, "", "", header, summary);
-    if (header.agentId) accumulate(agents, header.agentId, header.agentName ?? header.agentId, header, summary);
+    accumulateBucket(buckets, header.startedAt, header.model ?? null, summary, sinceMs, bucketMs, lifecycle);
+    accumulate(fleet, "", "", header, summary, lifecycle);
+    if (header.agentId)
+      accumulate(agents, header.agentId, header.agentName ?? header.agentId, header, summary, lifecycle);
     if (header.squadId)
-      accumulate(squads, header.squadId, input.entityLabel(header.squadId) ?? header.squadId, header, summary);
-    if (header.model) accumulate(models, header.model, header.model, header, summary);
+      accumulate(
+        squads,
+        header.squadId,
+        input.entityLabel(header.squadId) ?? header.squadId,
+        header,
+        summary,
+        lifecycle,
+      );
+    if (header.model) accumulate(models, header.model, header.model, header, summary, lifecycle);
     facts.push({
-      ...sessionRowOf(header, summary),
+      ...sessionRowOf(header, summary, lifecycle),
       agentId: header.agentId ?? null,
       agentName: header.agentName ?? null,
       kindId: header.kindId ?? null,
@@ -391,7 +410,7 @@ export function readAgentRuntimeTokenUsage(input: {
     });
   return {
     ok: true,
-    status: input.cut.status,
+    status: pending ? "pending" : "ready",
     range: input.range,
     since: new Date(sinceMs).toISOString(),
     bucketMs,
@@ -426,7 +445,7 @@ export function readAgentRuntimeTokenUsageDetail(input: {
   readonly range: AgentRuntimeTokenUsageRange;
   readonly member: AgentRuntimeTokenUsageMemberIdentity;
   readonly entityLabel: (squadId: string) => string | null;
-  readonly projection: Pick<TaskProjection, "readRuntimeDispatchPage">;
+  readonly projection: Pick<TaskProjection, "readRuntimeDispatchPage" | "readDispatchLifecycle">;
   readonly cut: {
     readonly status: "ready" | "pending";
     readonly watermark: number;
@@ -443,15 +462,17 @@ export function readAgentRuntimeTokenUsageDetail(input: {
       member.kind === "agent"
         ? (header: DispatchStreamHeader) => header.agentId === member.agentId
         : (header: DispatchStreamHeader) => header.squadId === member.squadId;
+  let pending = input.cut.status === "pending";
   let memberName: string | null = null;
   const provenance = { unreported: 0, unitemized: 0 };
-  for (const { header, summary } of windowDispatches(input.rootDir, input.projection, sinceMs, pickMember)) {
+  for (const { header, summary, lifecycle } of windowDispatches(input.rootDir, input.projection, sinceMs, pickMember)) {
+    pending ||= lifecycle.status === "pending";
     if (memberName === null && member.kind === "agent") memberName = header.agentName ?? member.agentId;
-    sessions.push(sessionRowOf(header, summary));
+    sessions.push(sessionRowOf(header, summary, lifecycle));
     const cacheWrite = cacheWriteProvenanceOf(summary);
     if (cacheWrite === "unreported") provenance.unreported += 1;
     else if (cacheWrite === "unitemized") provenance.unitemized += 1;
-    accumulateBucket(buckets, header.startedAt, header.model ?? null, summary, sinceMs, bucketMs);
+    accumulateBucket(buckets, header.startedAt, header.model ?? null, summary, sinceMs, bucketMs, lifecycle);
   }
   sessions.sort(
     (left, right) =>
@@ -459,7 +480,7 @@ export function readAgentRuntimeTokenUsageDetail(input: {
   );
   return {
     ok: true,
-    status: input.cut.status,
+    status: pending ? "pending" : "ready",
     range: input.range,
     since: new Date(sinceMs).toISOString(),
     bucketMs,
@@ -488,7 +509,10 @@ export function readAgentRuntimeTokenUsageDetail(input: {
 export function agentRuntimeTokenUsageHandler(context: {
   readonly rootDir: string;
   readonly now: () => string;
-  readonly projection: Pick<TaskProjection, "readCut" | "getEntity" | "readRuntimeDispatchPage" | "readTaskIndex">;
+  readonly projection: Pick<
+    TaskProjection,
+    "readCut" | "getEntity" | "readRuntimeDispatchPage" | "readTaskIndex" | "readDispatchLifecycle"
+  >;
   readonly range: AgentRuntimeTokenUsageRange;
 }): AgentRuntimeTokenUsageResult {
   const cut = context.projection.readCut();
@@ -505,7 +529,10 @@ export function agentRuntimeTokenUsageHandler(context: {
 export function agentRuntimeTokenUsageDetailHandler(context: {
   readonly rootDir: string;
   readonly now: () => string;
-  readonly projection: Pick<TaskProjection, "readCut" | "getEntity" | "readRuntimeDispatchPage">;
+  readonly projection: Pick<
+    TaskProjection,
+    "readCut" | "getEntity" | "readRuntimeDispatchPage" | "readDispatchLifecycle"
+  >;
   readonly range: AgentRuntimeTokenUsageRange;
   readonly member: AgentRuntimeTokenUsageMemberIdentity;
 }): AgentRuntimeTokenUsageDetailResult {
@@ -544,7 +571,10 @@ export function agentRuntimeTokenUsageMemberOf(
 export function agentRuntimeTokenUsageReadHandlers(context: {
   readonly rootDir: string;
   readonly now: () => string;
-  readonly projection: Pick<TaskProjection, "readCut" | "getEntity" | "readRuntimeDispatchPage" | "readTaskIndex">;
+  readonly projection: Pick<
+    TaskProjection,
+    "readCut" | "getEntity" | "readRuntimeDispatchPage" | "readTaskIndex" | "readDispatchLifecycle"
+  >;
   readonly cellCodedError: (code: string, text: string) => Error;
 }): {
   readonly "repo.agentRuntime.tokenUsage": (payload: Readonly<Record<string, unknown>>) => AgentRuntimeTokenUsageResult;
@@ -646,6 +676,7 @@ function accumulateBucket(
   summary: DispatchStreamSummary | null,
   sinceMs: number,
   bucketMs: number,
+  lifecycle: DispatchLifecycleSummary,
 ): void {
   const metrics = summary?.runtimeMetrics,
     bucket = buckets[bucketIndexOf(buckets.length, startedAt, sinceMs, bucketMs)];
@@ -663,7 +694,7 @@ function accumulateBucket(
   const provenance = cacheWriteProvenanceOf(summary);
   if (provenance === "unreported") bucket.cacheWriteUnreportedDispatches += 1;
   else if (provenance === "unitemized") bucket.cacheWriteUnitemizedDispatches += 1;
-  const usage = usageOf(summary);
+  const usage = usageOf(summary, lifecycle);
   if (usage === "unavailable") bucket.usageUnavailableDispatches += 1;
   else if (usage === "reported") bucket.usageReportedDispatches += 1;
 }
@@ -674,6 +705,7 @@ function accumulate(
   name: string,
   header: DispatchStreamHeader,
   summary: DispatchStreamSummary | null,
+  lifecycle: DispatchLifecycleSummary,
 ): void {
   const metrics = summary?.runtimeMetrics;
   const accumulator = map.get(key) ?? { ...emptyAccumulator(), name };
@@ -689,7 +721,7 @@ function accumulate(
     accumulator.counters.costUsd += cost.costUsd;
     accumulator.counters.unpricedTokens += cost.unpricedTokens;
   }
-  const usage = usageOf(summary);
+  const usage = usageOf(summary, lifecycle);
   if (usage === "unavailable") accumulator.usageUnavailableDispatches += 1;
   else if (usage === "reported") accumulator.usageReportedDispatches += 1;
   const provenance = cacheWriteProvenanceOf(summary);
@@ -698,15 +730,19 @@ function accumulate(
   map.set(key, accumulator);
 }
 
-function usageOf(summary: DispatchStreamSummary | null): AgentRuntimeTokenUsageSessionRow["usage"] {
+function usageOf(
+  summary: DispatchStreamSummary | null,
+  lifecycle: DispatchLifecycleSummary,
+): AgentRuntimeTokenUsageSessionRow["usage"] {
   const metrics = summary?.runtimeMetrics;
   if (metrics) return metrics.usageUnavailable === true ? "unavailable" : "reported";
-  return summary?.process?.exited === true ? "unavailable" : "pending";
+  return lifecycle.policy?.attemptSettled ? "unavailable" : "pending";
 }
 
 function sessionRowOf(
   header: DispatchStreamHeader,
   summary: DispatchStreamSummary | null,
+  lifecycle: DispatchLifecycleSummary,
 ): AgentRuntimeTokenUsageSessionRow {
   const metrics = summary?.runtimeMetrics ?? null,
     endedAt = summary === null ? null : exitOccurredAt(summary),
@@ -723,34 +759,18 @@ function sessionRowOf(
     startedAt: header.startedAt,
     endedAt,
     durationMs,
-    outcome: dispatchOutcomeWord(summary),
+    // Previous-version analytics vocabulary projection; remove narrowing 2026-12-07.
+    outcome: tokenUsageOutcomeWords.includes(lifecycle.displayStatus as AgentRuntimeTokenUsageOutcome)
+      ? (lifecycle.displayStatus as AgentRuntimeTokenUsageOutcome)
+      : "unknown",
     inputTokens: metrics?.inputTokens ?? 0,
     cacheReadTokens: metrics?.cacheReadTokens ?? 0,
     cacheWriteTokens: metrics?.cacheWriteTokens ?? 0,
     outputTokens: metrics?.outputTokens ?? 0,
     totalTokens: metrics?.totalTokens ?? 0,
     toolCallCount: metrics?.toolCallCount ?? 0,
-    usage: usageOf(summary),
+    usage: usageOf(summary, lifecycle),
   };
-}
-/** The dispatch's session outcome is the accepted terminal verdict on the stream — the same
- * `runtime_session_outcome_observed` payload the kernel holds — narrowed by the kernel's own
- * evidence function, never re-judged here from exit codes: a zero exit is not success evidence
- * and a signal exit is not a cancellation. `running` is process liveness (not yet exited);
- * everything without an accepted terminal outcome stays `unknown`. */
-function dispatchOutcomeWord(summary: DispatchStreamSummary | null): AgentRuntimeTokenUsageOutcome {
-  const terminal = summary?.terminalOutcome ?? null;
-  if (terminal !== null) {
-    const outcome = runtimeSessionOutcomeFromEvidence({
-      outcome: terminal.payload.outcome,
-      exitCode: terminal.payload.exitCode,
-      resultRef: terminal.payload.resultRef,
-      ...(terminal.payload.reasonCode ? { reasonCode: terminal.payload.reasonCode } : {}),
-    });
-    return outcome ?? "unknown";
-  }
-  const process = summary?.process ?? null;
-  return process !== null && !process.exited ? "running" : "unknown";
 }
 /** Cache-write provenance of one dispatch, or null when its usage carries nothing to classify
  * (no metrics record, or a provider that reported no usage numbers at all). */

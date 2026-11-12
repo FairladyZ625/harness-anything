@@ -169,14 +169,6 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     note: "Content readiness only; candidate disposition and replica visibility are separate axes.",
   },
   {
-    id: "dispatch.fallbackState",
-    entity: "Dispatch",
-    field: "fallbackState",
-    module: "packages/daemon/src/dispatch-stream.ts",
-    anchor: "#fallbackState",
-    words: ["scheduled", "dispatched", "exhausted"],
-  },
-  {
     id: "dispatch.group-phase",
     entity: "Dispatch",
     field: "group phase",

@@ -1,7 +1,7 @@
 {
   "schema": "harness-anything/gate-allowlist/v1",
   "authority": "decision/dec_AEB05951C69E47FCE53E53C341#CH4",
-  "policy": "fixture: the added observation site below must be refused by the shrink-only dispatch lifecycle ratchet",
+  "policy": "fixture: even a matching observation site must be refused by the zero-exemption dispatch lifecycle boundary",
   "entries": {
     "observationSites": [
       {

@@ -1,3 +1,4 @@
+import { runtimePidIsAlive as localProbe } from "./runtime-process-liveness.ts";
 declare function runtimePidIsAlive(pid: number): boolean;
 declare function submitLifecycleEvent(event: Readonly<Record<string, unknown>>): unknown;
 
@@ -42,4 +43,17 @@ export function rulingFromPhase(group: { readonly groupPhase: string }): boolean
 
 export function rulingFromPolicy(group: { readonly policy: { readonly canResolveRuling: boolean } }): boolean {
   return group.policy.canResolveRuling;
+}
+
+export function scheduleFromSpool(lifecycle: { schedule: unknown }, stream: { fallbackSchedule: unknown }) {
+  return lifecycle.schedule ?? stream.fallbackSchedule;
+}
+
+export function outcomeFromStream(summary: { process: { exited: boolean } }) {
+  return summary.process.exited ? "unknown" : "running";
+}
+
+export function admissionFromAliasedPid(summary: { readonly pid: number }): boolean {
+  if (!localProbe(summary.pid)) return false;
+  return true;
 }

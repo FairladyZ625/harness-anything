@@ -113,8 +113,8 @@ export async function startDaemon(input: {
   const buildDrainStatus = (): DaemonBuildDrainStatus => {
     const repos = host?.status().repos ?? [];
     return {
-      // Informational only: it answers "how many live workers is the exit leaving behind for the
-      // next daemon to adopt", not "what is still holding the daemon".
+      // Previous-version protocol telemetry; remove 2026-12-07. Pure OS observation for the
+      // outgoing daemon notice, never a dispatch lifecycle or drain condition.
       liveRuntimeSessions: [...runtimeProcessPids.values()].filter(runtimePidIsAlive).length,
       pendingWrites: repos.reduce((total, repo) => total + (repo.queueDepth ?? 0), 0),
       attachingRepositories: repos.filter((repo) => repo.state === "warming").length,

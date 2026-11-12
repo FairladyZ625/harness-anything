@@ -27,7 +27,6 @@ import type { RuntimeResumeHeader } from "./runtime-resume-contract.ts";
 import { readLatestLineInTail } from "./dispatch-stream-tail.ts";
 import { writeFileDurably } from "../../storage/src/durable-file.ts";
 import { scrubProviderValue } from "./secret-scrub.ts";
-import { isFallbackProvider } from "./dispatch-stream-value.ts";
 import { dispatchProviderActivity, type DispatchProviderActivity } from "./dispatch-activity.ts";
 import { providerReconnectFromFrame } from "./runtime-provider-fault.ts";
 
@@ -660,13 +659,6 @@ export function readDispatchStream(
   readonly terminalOutcome: DispatchTerminalOutcome | null;
   /** The latest evidence-copy disposition; absent streams settle and compact as before. */
   readonly evidenceState: "pending" | "stored" | null;
-  readonly fallbackState: "scheduled" | "dispatched" | "exhausted" | null;
-  readonly fallbackSchedule: {
-    readonly notBeforeAt: string;
-    readonly waitStartedAt?: string;
-    readonly nextProvider: { readonly instance: string; readonly model?: string };
-  } | null;
-  readonly nextDispatchId: string | null;
   readonly runtimeMetrics: RuntimeMetrics | null;
   /** The latest runtime-incident disposition record this stream carries, still unvalidated: the
    * record vocabulary (option ids, statuses) belongs to the decision module, not the stream
@@ -953,9 +945,6 @@ function summarizeDispatch(
     attemptOutcome: RuntimeAttemptOutcome | null = null,
     terminalOutcome: DispatchTerminalOutcome | null = null,
     evidenceState: "pending" | "stored" | null = null,
-    fallbackState: "scheduled" | "dispatched" | "exhausted" | null = null,
-    fallbackSchedule: DispatchStreamSummary["fallbackSchedule"] = null,
-    nextDispatchId: string | null = null,
     runtimeMetrics: RuntimeMetrics | null = null,
     decisionActionRecord: DispatchStreamRecord | null = null;
   for (const record of records) {
@@ -982,20 +971,6 @@ function summarizeDispatch(
       };
     if (record.kind === "evidence_state" && (record.state === "pending" || record.state === "stored"))
       evidenceState = record.state;
-    if (record.kind === "fallback_state" && ["scheduled", "dispatched", "exhausted"].includes(String(record.state))) {
-      fallbackState = record.state as typeof fallbackState;
-      fallbackSchedule =
-        record.state === "scheduled" &&
-        typeof record.notBeforeAt === "string" &&
-        isFallbackProvider(record.nextProvider)
-          ? {
-              notBeforeAt: record.notBeforeAt,
-              ...(typeof record.waitStartedAt === "string" ? { waitStartedAt: record.waitStartedAt } : {}),
-              nextProvider: record.nextProvider,
-            }
-          : null;
-      nextDispatchId = typeof record.nextDispatchId === "string" ? record.nextDispatchId : nextDispatchId;
-    }
     if (record.kind === "decision_action") decisionActionRecord = record;
     if (record.kind === "runtime_metrics" && isRuntimeMetrics(record)) runtimeMetrics = record;
   }
@@ -1012,9 +987,6 @@ function summarizeDispatch(
     attemptOutcome,
     terminalOutcome,
     evidenceState,
-    fallbackState,
-    fallbackSchedule,
-    nextDispatchId,
     runtimeMetrics,
     decisionActionRecord,
     lastProviderActivity,

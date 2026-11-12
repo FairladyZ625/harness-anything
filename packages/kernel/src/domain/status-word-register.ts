@@ -14,21 +14,6 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
   ...dispatchStatusWordRegister,
   {
     word: "scheduled",
-    entity: "Dispatch",
-    field: "fallbackState",
-    meaning:
-      "The accepted terminal attempt has scheduled a provider continuation; its successor dispatch proves launch.",
-    divergence: "entity-scoped",
-  },
-  {
-    word: "dispatched",
-    entity: "Dispatch",
-    field: "fallbackState",
-    meaning: "The accepted terminal attempt has launched a successor dispatch for its continuation.",
-    divergence: "entity-scoped",
-  },
-  {
-    word: "scheduled",
     entity: "RuntimeSession",
     field: "attempt.fallbackState",
     meaning: "The historical terminal attempt scheduled a provider continuation.",
@@ -39,13 +24,6 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
     entity: "RuntimeSession",
     field: "outcome",
     meaning: "The worker exited normally with a final message but no submitted delivery cut.",
-    divergence: "entity-scoped",
-  },
-  {
-    word: "exhausted",
-    entity: "Dispatch",
-    field: "fallbackState",
-    meaning: "The accepted terminal attempt has no remaining eligible provider or its continuation could not launch.",
     divergence: "entity-scoped",
   },
   {

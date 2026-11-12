@@ -386,9 +386,7 @@ export async function scheduleFallbackContinuation(args: {
   };
   // Replay durable event bytes first; only the center decides whether they close the group.
   if (stream.terminalOutcome && (await publishTerminal(stream.terminalOutcome))) return;
-  // Previous-version outcomes did not carry the plan. Decode their launch data from the spool
-  // during the current/previous protocol window (expires 2026-12-07); state still comes from the reducer.
-  const plan = lifecycle.successor.schedule ?? stream.fallbackSchedule;
+  const plan = lifecycle.successor.schedule;
   if (!plan) throw runtimeSpawnError("runtime_event_missing", `Fallback ${args.dispatchId} has no schedule data.`);
   const notBeforeMs = Date.parse(plan.notBeforeAt);
   const timer = setTimeout(
