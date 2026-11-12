@@ -70,7 +70,9 @@ export interface DaemonHost {
     action: RepoTaskAction,
     auth: DaemonAuthenticationContext,
   ) => ReturnType<RepoCell["presetRun"]>;
-  readonly replica: (repoId: string) => RepoCell["replica"];
+  readonly replica: (repoId: string) => RepoCell["replica"] & {
+    readonly backup: NonNullable<RepoCell["fleetBackup"]>;
+  };
   /** Replication-log retention for a center repository, on its single writer. */
   readonly pruneReplicationLog: (repoId: string, beforeSequence: number) => Promise<void>;
   readonly settleMaterialization: (repoId: string, context: string) => Promise<void>;

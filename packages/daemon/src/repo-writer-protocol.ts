@@ -73,6 +73,7 @@ export interface RepoWriterRequestV1 {
     | "settlePendingMaterialization"
     | "backup"
     | "pruneReplicationLog"
+    | "fleetBackup"
     | "catalog";
   readonly payload: unknown;
   readonly binding?: SerializableRepoCellBindingV1;
