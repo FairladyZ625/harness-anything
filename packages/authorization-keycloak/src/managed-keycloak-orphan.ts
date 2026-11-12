@@ -22,7 +22,7 @@ export async function stopManagedKeycloakOrphan(input: {
 
   const managed = new Set<number>();
   for (const pid of pids) {
-    if (!(await isManagedKeycloakProcess(input, pid))) {
+    if (!(await matchesManagedKeycloakProcess(input, pid))) {
       const port = listenerPorts.find(([, owners]) => owners.has(pid))?.[0] ?? input.ports[0]!;
       throw portInUse(port, input.root, `owned by process ${pid}, which does not belong to this rbacRoot`);
     }
@@ -44,7 +44,7 @@ export async function stopManagedKeycloakOrphan(input: {
   }
   for (const [port, owners] of remaining.byPort) {
     for (const pid of owners) {
-      if (!(await isManagedKeycloakProcess(input, pid)))
+      if (!(await matchesManagedKeycloakProcess(input, pid)))
         throw portInUse(port, input.root, `owned by process ${pid}, which does not belong to this rbacRoot`);
       throw Object.assign(new Error(`Managed Keycloak orphan ${pid} still holds port ${port}.`), {
         code: "rbac_keycloak_orphan_stop_failed",
@@ -172,7 +172,7 @@ function readLinuxListenerInodes(ports: readonly number[]): Map<number, Set<stri
   return inodesByPort;
 }
 
-async function isManagedKeycloakProcess(
+async function matchesManagedKeycloakProcess(
   input: {
     readonly host: ManagedRbacHost;
     readonly java: string;
@@ -260,7 +260,8 @@ async function isManagedKeycloakProcess(
       commandLine = observed.commandLine ?? "";
     return (
       normalizedWindowsPath(observed.path ?? "") === normalizedWindowsPath(java) &&
-      windowsJavaProperty(commandLine, "kc.home.dir", keycloakHome)
+      windowsJavaProperty(commandLine, "kc.home.dir", keycloakHome) &&
+      windowsManagedRuntime(commandLine, keycloakHome)
     );
   }
   return false;
@@ -341,21 +342,132 @@ function normalizedWindowsPath(value: string): string {
   return value.replaceAll("/", "\\").toLowerCase();
 }
 
-/**
- * Match one JVM system property as an argument, including Windows' optional quoting forms.
- * Substring checks are unsafe here: a sibling directory such as `keycloak-tools` must not be
- * treated as the managed Keycloak home merely because it contains the expected path text.
- */
+/** Match one JVM system property in the real JVM option prefix of a Windows command line. */
 function windowsJavaProperty(commandLine: string, property: string, value: string): boolean {
-  const escapedValue = escapeRegExp(normalizedWindowsPath(value)),
-    escapedProperty = escapeRegExp(property);
-  return new RegExp(`(?:^|\\s)"?-D${escapedProperty}=(?:"${escapedValue}"|${escapedValue})"?(?=\\s|$)`, "iu").test(
-    normalizedWindowsPath(commandLine),
-  );
+  const args = parseWindowsCommandLine(commandLine),
+    boundary = javaLauncherBoundary(args);
+  if (boundary === undefined) return false;
+  const expected = normalizedWindowsPath(value),
+    prefix = args.slice(1, boundary.jvmOptionsEnd);
+  return prefix.some((arg) => {
+    const marker = `-D${property}=`;
+    if (!arg.toLowerCase().startsWith(marker.toLowerCase())) return false;
+    return normalizedWindowsPath(arg.slice(marker.length)) === expected;
+  });
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+/**
+ * Keycloak's Java launcher is either a jar or a classpath entry rooted in the managed runtime.
+ * Checking the launcher path separately prevents an unrelated Java process in a sibling such as
+ * `keycloak-tools` from becoming eligible merely by copying the managed system property.
+ */
+function windowsManagedRuntime(commandLine: string, keycloakHome: string): boolean {
+  const args = parseWindowsCommandLine(commandLine),
+    boundary = javaLauncherBoundary(args);
+  if (boundary === undefined) return false;
+  const managedHome = normalizedWindowsPath(keycloakHome),
+    pathOwned = (candidate: string): boolean => windowsPathInside(managedHome, candidate);
+  if (boundary.jarPath !== undefined) return pathOwned(boundary.jarPath);
+  return boundary.classPathEntries.some(pathOwned);
+}
+
+interface WindowsJavaBoundary {
+  readonly jvmOptionsEnd: number;
+  readonly jarPath?: string;
+  readonly classPathEntries: readonly string[];
+}
+
+/**
+ * Parse the Windows command-line grammar used by CommandLineToArgvW, then identify the point at
+ * which java stops consuming JVM options. Quoted whitespace and escaped quotes therefore cannot
+ * manufacture a `-D` option, and arguments after `-jar` are never treated as JVM options.
+ */
+function javaLauncherBoundary(args: readonly string[]): WindowsJavaBoundary | undefined {
+  if (args.length < 2) return undefined;
+  const classPathEntries: string[] = [];
+  for (let index = 1; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (arg === "-jar") {
+      const jarPath = args[index + 1];
+      return jarPath === undefined ? undefined : { jvmOptionsEnd: index, jarPath, classPathEntries };
+    }
+    if (arg === "-cp" || arg === "-classpath" || arg === "--class-path") {
+      const classPath = args[index + 1];
+      if (classPath === undefined) return undefined;
+      classPathEntries.push(...classPath.split(";"));
+      index += 1;
+      continue;
+    }
+    if (arg === "-p" || arg === "--module-path" || arg === "--upgrade-module-path") {
+      if (args[index + 1] === undefined) return undefined;
+      index += 1;
+      continue;
+    }
+    if (arg === "--") return { jvmOptionsEnd: index, classPathEntries };
+    if (arg.startsWith("-")) continue;
+    return { jvmOptionsEnd: index, classPathEntries };
+  }
+  return undefined;
+}
+
+function parseWindowsCommandLine(commandLine: string): string[] {
+  const args: string[] = [];
+  let argument = "",
+    inQuotes = false,
+    started = false;
+  for (let index = 0; index < commandLine.length; ) {
+    const character = commandLine[index]!;
+    if (character === "\\") {
+      let slashes = 0;
+      while (commandLine[index + slashes] === "\\") slashes += 1;
+      if (commandLine[index + slashes] === '"') {
+        argument += "\\".repeat(Math.floor(slashes / 2));
+        if (slashes % 2 === 1) {
+          argument += '"';
+          started = true;
+        } else if (inQuotes && commandLine[index + slashes + 1] === '"') {
+          argument += '"';
+          started = true;
+          index += 1;
+        } else {
+          inQuotes = !inQuotes;
+          started = true;
+        }
+        index += slashes + 1;
+        continue;
+      }
+      argument += "\\".repeat(slashes);
+      started = true;
+      index += slashes;
+      continue;
+    }
+    if (character === '"') {
+      inQuotes = !inQuotes;
+      started = true;
+      index += 1;
+      continue;
+    }
+    if ((character === " " || character === "\t") && !inQuotes) {
+      if (started) {
+        args.push(argument);
+        argument = "";
+        started = false;
+      }
+      index += 1;
+      continue;
+    }
+    argument += character;
+    started = true;
+    index += 1;
+  }
+  if (started) args.push(argument);
+  return args;
+}
+
+function windowsPathInside(root: string, candidate: string): boolean {
+  const normalizedRoot = root.replace(/[\\/]+$/u, ""),
+    normalizedCandidate = normalizedWindowsPath(candidate).replace(/[\\/]+$/u, "");
+  return normalizedCandidate === normalizedRoot || normalizedCandidate.startsWith(`${normalizedRoot}\\`);
 }
 
 function portInUse(port: number, root: string, owner: string): Error {

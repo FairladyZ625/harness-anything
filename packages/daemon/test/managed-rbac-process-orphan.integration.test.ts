@@ -47,7 +47,7 @@ test("Windows orphan ownership requires the exact Keycloak home property", async
     listeners.add(732);
     const managedHost = windowsOrphanHost({
       java,
-      commandLine: `java.exe -Dkc.home.dir="${keycloakHome}" -Dkc.http-port=62413`,
+      commandLine: managedWindowsCommandLine(keycloakHome),
       listeners,
       taskkillCalls,
     });
@@ -60,6 +60,28 @@ test("Windows orphan ownership requires the exact Keycloak home property", async
       platform: "win32",
     });
     assert.equal(taskkillCalls.length, 1, "the exact managed Keycloak process is eligible for tree cleanup");
+
+    for (const commandLine of [
+      `java.exe -Dnote="diagnostic -Dkc.home.dir=${keycloakHome} ignored" -jar "${keycloakHome}-tools\\diagnostic.jar"`,
+      `java.exe -jar "${keycloakHome}-tools\\diagnostic.jar" -Dkc.home.dir=${keycloakHome}`,
+    ]) {
+      taskkillCalls.length = 0;
+      listeners.clear();
+      listeners.add(734);
+      const unrelatedHost = windowsOrphanHost({ java, commandLine, listeners, taskkillCalls });
+      await assert.rejects(
+        stopManagedKeycloakOrphan({
+          host: unrelatedHost,
+          root: parent,
+          java,
+          keycloakHome,
+          ports: [62413],
+          platform: "win32",
+        }),
+        (error: unknown) => (error as { readonly code?: string }).code === "rbac_port_in_use",
+      );
+      assert.equal(taskkillCalls.length, 0, "application arguments and quoted text never authorize taskkill");
+    }
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }
@@ -97,7 +119,7 @@ test("Windows stop reaps a Keycloak descendant after its launcher exits", async 
   let keycloakChild: ReturnType<typeof fakeChild> | undefined;
   const host = windowsOrphanHost({
       java,
-      commandLine: `java.exe -Dkc.home.dir="${keycloakHome}" -Dkc.http-port=62413`,
+      commandLine: managedWindowsCommandLine(keycloakHome),
       listeners,
       taskkillCalls,
     }),
@@ -134,6 +156,78 @@ test("Windows stop reaps a Keycloak descendant after its launcher exits", async 
   }
 });
 
+test("Windows stop rechecks an orphan when the launcher exits during taskkill", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-rbac-keycloak-windows-stop-race-")),
+    root = path.join(parent, "rbac"),
+    java = path.join(root, "runtime", "java", "bin", "java.exe"),
+    keycloakHome = path.join(root, "runtime", "keycloak"),
+    postgres = path.join(root, "runtime", "postgres", "bin", "postgres.exe"),
+    keycloakLauncher = path.join(keycloakHome, "bin", "kc.bat"),
+    listeners = new Set<number>(),
+    taskkillCalls: string[][] = [];
+  mkdirSync(path.dirname(java), { recursive: true });
+  mkdirSync(path.dirname(postgres), { recursive: true });
+  mkdirSync(path.dirname(keycloakLauncher), { recursive: true });
+  writeFileSync(java, "fixture");
+  writeFileSync(postgres, "fixture");
+  writeFileSync(keycloakLauncher, "fixture");
+  writeFileSync(
+    path.join(root, "config.json"),
+    `${JSON.stringify({
+      schema: "harness-managed-rbac/v1",
+      mode: "managed",
+      url: "http://127.0.0.1:62413",
+      realm: "harness",
+      clientId: "harness-center",
+      versions: managedRbacVersions,
+      postgresPort: 62414,
+      managementPort: 62415,
+    })}\n`,
+  );
+  let keycloakChild: ReturnType<typeof fakeChild> | undefined,
+    taskkillAttempt = 0;
+  const host = windowsOrphanHost({
+      java,
+      commandLine: managedWindowsCommandLine(keycloakHome),
+      listeners,
+      taskkillCalls,
+      onTaskkill: () => {
+        taskkillAttempt += 1;
+        if (taskkillAttempt === 1) {
+          listeners.add(735);
+          keycloakChild?.emit("exit", 0, null);
+        }
+      },
+      failTreeTermination: true,
+    }),
+    service = new ManagedRbacService(parent, host, {
+      platform: "win32",
+      arch: "x64",
+      spawn: ((command: string) => {
+        const name = path.basename(command),
+          child = fakeChild();
+        if (name === "kc.bat" || name === "powershell.exe") keycloakChild = child;
+        setImmediate(() =>
+          child.stdout.emit(
+            "data",
+            name === "postgres.exe" ? "database system is ready to accept connections" : "Keycloak 26 started in 1s",
+          ),
+        );
+        return child;
+      }) as typeof import("node:child_process").spawn,
+    });
+  try {
+    await service.start();
+    assert.ok(keycloakChild);
+    await service.stop();
+    assert.equal(taskkillCalls.length, 2, "stop retries through the orphan scan after the first tree failure");
+    assert.equal(listeners.size, 0, "the descendant listener is reaped before stop reports success");
+  } finally {
+    await service.stop();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("Windows orphan cleanup reports a failed tree termination", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-rbac-keycloak-windows-failed-stop-")),
     java = path.join(parent, "runtime", "java", "bin", "java.exe"),
@@ -145,7 +239,7 @@ test("Windows orphan cleanup reports a failed tree termination", async () => {
   writeFileSync(java, "fixture");
   const host = windowsOrphanHost({
     java,
-    commandLine: `java.exe -Dkc.home.dir=${keycloakHome}`,
+    commandLine: managedWindowsCommandLine(keycloakHome),
     listeners,
     taskkillCalls,
     failTreeTermination: true,
@@ -268,6 +362,14 @@ interface ManagedServiceFixture {
   }[];
 }
 
+function managedWindowsCommandLine(keycloakHome: string): string {
+  return `java.exe -Dkc.home.dir="${keycloakHome}" -Dkc.http-port=62413 -cp "${path.join(
+    keycloakHome,
+    "lib",
+    "quarkus-run.jar",
+  )}" io.quarkus.runner.GeneratedMain`;
+}
+
 function fakeChild(): ChildProcess {
   const child = Object.assign(new EventEmitter(), {
     stdout: new EventEmitter(),
@@ -291,6 +393,7 @@ function windowsOrphanHost(input: {
   readonly listeners: Set<number>;
   readonly taskkillCalls: string[][];
   readonly failTreeTermination?: boolean;
+  readonly onTaskkill?: () => void;
 }): ManagedRbacHost {
   return {
     runProcessText: () => "",
@@ -298,8 +401,13 @@ function windowsOrphanHost(input: {
     runProcessExitAsync: async (command, args) => {
       if (command === "taskkill.exe") {
         input.taskkillCalls.push([...args]);
-        if (!input.failTreeTermination) input.listeners.clear();
-        return { exitCode: input.failTreeTermination ? 1 : 0, stdout: "", stderr: "" };
+        input.onTaskkill?.();
+        if (!input.failTreeTermination || input.taskkillCalls.length > 1) input.listeners.clear();
+        return {
+          exitCode: input.failTreeTermination && input.taskkillCalls.length === 1 ? 1 : 0,
+          stdout: "",
+          stderr: "",
+        };
       }
       if (command !== "powershell.exe") return { exitCode: 0, stdout: "", stderr: "" };
       const script = args.at(-1) ?? "";

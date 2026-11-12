@@ -936,12 +936,12 @@
     "contracts": [
       {
         "id": "managed-runtime-process-identity",
-        "symbol": "packages/authorization-keycloak/src/managed-keycloak-orphan.ts#isManagedKeycloakProcess",
+        "symbol": "packages/authorization-keycloak/src/managed-keycloak-orphan.ts#matchesManagedKeycloakProcess",
         "explain": "Host process inspection boundary: verify the configured executable, managed runtime home and process arguments before signaling a listener. This is operating-system identity evidence, not a domain authorization verdict.",
         "sources": [
           {
-            "candidateId": "judgment:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-keycloak-orphan.ts#isManagedKeycloakProcess:819c2ed8b377ab8e7e28c3b4fd472bc1",
-            "route": "packages/authorization-keycloak/src/managed-keycloak-orphan.ts#isManagedKeycloakProcess"
+            "candidateId": "judgment:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-keycloak-orphan.ts#matchesManagedKeycloakProcess:819c2ed8b377ab8e7e28c3b4fd472bc1",
+            "route": "packages/authorization-keycloak/src/managed-keycloak-orphan.ts#matchesManagedKeycloakProcess"
           }
         ]
       },

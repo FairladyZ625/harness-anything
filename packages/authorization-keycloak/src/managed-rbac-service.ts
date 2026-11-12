@@ -296,16 +296,40 @@ export class ManagedRbacService {
     }
     const processGroup = name === "keycloak" && this.#ports.platform !== "win32" ? child.pid : undefined;
     if (name === "keycloak" && this.#ports.platform === "win32" && child.pid !== undefined) {
-      const result = await this.#host.runProcessExitAsync(
-        "taskkill.exe",
-        ["/PID", String(child.pid), "/T", "/F"],
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        { timeoutMs: managedIdentityPolicy.defaultValue.timeoutMs },
-      );
-      if (result.exitCode !== 0 && child.exitCode == null && child.signalCode == null)
+      let launcherExitedDuringTreeStop = child.exitCode != null || child.signalCode != null;
+      const markLauncherExited = () => {
+        launcherExitedDuringTreeStop = true;
+      };
+      child.once("exit", markLauncherExited);
+      child.once("error", markLauncherExited);
+      let result: Awaited<ReturnType<ManagedRbacHost["runProcessExitAsync"]>>;
+      try {
+        result = await this.#host.runProcessExitAsync(
+          "taskkill.exe",
+          ["/PID", String(child.pid), "/T", "/F"],
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          { timeoutMs: managedIdentityPolicy.defaultValue.timeoutMs },
+        );
+      } finally {
+        child.removeListener("exit", markLauncherExited);
+        child.removeListener("error", markLauncherExited);
+      }
+      // The launcher can emit exit while taskkill is still awaited, leaving its Java descendant
+      // outside #children. Preserve that cleanup obligation and re-scan the owned ports before
+      // accepting either a successful or a failed tree termination result.
+      if (launcherExitedDuringTreeStop) {
+        const config = this.#readConfigIfPresent();
+        if (config?.mode !== "managed")
+          throw managedRbacError(
+            "rbac_process_stop_failed",
+            "The managed Keycloak launcher exited before its process tree could be verified.",
+          );
+        await this.#stopKeycloakOrphan(config);
+      }
+      if (result.exitCode !== 0 && !launcherExitedDuringTreeStop && child.exitCode == null && child.signalCode == null)
         throw managedRbacError("rbac_process_stop_failed", "The managed Keycloak process tree could not be stopped.");
     }
     await new Promise<void>((resolve, reject) => {
