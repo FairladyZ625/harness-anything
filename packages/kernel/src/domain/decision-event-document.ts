@@ -1,6 +1,7 @@
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
+import { isIndependentFrom } from "./actor-domain-services.ts";
 import { attributeEntityActionCriterion } from "./entity-action-criterion.ts";
 import {
   DECISION_ACCEPT_REVIEW_CRITERION_REF,
@@ -20,11 +21,12 @@ import {
 import { type EntityRelationRecord } from "./entity-relation.ts";
 import { parseEntityRef } from "./entity-ref.ts";
 import { describeReviewConsentConflicts, reviewConsentConflicts } from "./review-consent-validity.ts";
-import type { DecisionReviewRequirement } from "./settings-field-declarations.ts";
+import type { DecisionReviewRequirement, ReviewIndependence } from "./settings-field-declarations.ts";
 import { assertTransitionDocumentReady, requireTransitionDocumentKind } from "./transition-document-readiness.ts";
 import {
   freezeDeclaredWritePlan,
   isFrozenWritePlan,
+  type ActorIdentity,
   type FrozenWritePlan,
   type WriteTarget,
 } from "./write-chain.contract.ts";
@@ -667,6 +669,24 @@ export function decisionAcceptReviewReadiness(
     blocker: null,
     next: { action: "accept", actor: "proposer", reason: "No current-content review blocks acceptance." },
   };
+}
+export function assertDecisionReviewerIndependent(
+  decision: DecisionDocumentState | null,
+  reviewer: ActorIdentity,
+  independence: ReviewIndependence,
+): void {
+  const proposalActor = decision?.proposer;
+  if (
+    proposalActor === undefined ||
+    !isIndependentFrom(proposalActor, reviewer, independence) ||
+    decision?.amendments?.some((amendment) => !isIndependentFrom(amendment.actor, reviewer, independence))
+  ) {
+    const error = new Error(
+      "A Decision review must be independent from the proposal and current content authors.",
+    ) as Error & { code: string };
+    error.code = "actor_unauthorized";
+    throw error;
+  }
 }
 export function assertDecisionAcceptReview(
   current: DecisionDocumentState,

@@ -14,6 +14,7 @@ import {
   type TaskRiskTierAdviceV1,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
+import { TaskLifecycleContractError } from "@harness-anything/kernel/internal/domain/task-lifecycle-event.ts";
 import { actionCriterionFailure, attributeCellCriterion } from "./repo-cell-errors.ts";
 import { retireTaskAwaitsAtTerminalStatus } from "./terminal-awaits-retirement.ts";
 import { actorHint, runtimeSessionDispatchRole } from "./repo-cell-proof.ts";
@@ -324,7 +325,7 @@ export async function runTaskActionCatalogRuntime(
       ? await cell.service.executeWithDocuments(command, authorityProof, reviewerArtifacts)
       : await cell.service.execute(command, authorityProof);
   } catch (error) {
-    if (!isTaskLifecycleContractError(error) || !contract) throw error;
+    if (!(error instanceof TaskLifecycleContractError) || !contract) throw error;
     const rejection = taskActionFailure(
       cell,
       action,
@@ -579,15 +580,10 @@ function attributeInvocationFailure(error: unknown, contract: EntityActionContra
     : attributeCellCriterion(error, contract.id, declared);
 }
 
-function isTaskLifecycleContractError(error: unknown): error is Error & { readonly issues: readonly unknown[] } {
-  if (!(error instanceof Error) || error.name !== "TaskLifecycleContractError") return false;
-  return Array.isArray((error as Error & { readonly issues?: unknown }).issues);
-}
-
 // The kernel cancel rule is the single source: it emits `missing_field` for an empty reason and
 // `force_reason_required` once execution has started. The handler only names the field.
 function cancellationMissingField(action: RepoTaskAction, error: unknown): "reason" | "force" | null {
-  if (action.kind !== "task-transition" || !isTaskLifecycleContractError(error)) return null;
+  if (action.kind !== "task-transition" || !(error instanceof TaskLifecycleContractError)) return null;
   const codes = new Set(
     error.issues.map((issue) => (issue && typeof issue === "object" && "code" in issue ? String(issue.code) : "")),
   );

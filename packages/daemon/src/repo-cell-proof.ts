@@ -10,6 +10,7 @@ import {
   gateResults,
   heldLeaseForExecutionActor,
   getTaskActionForTransition,
+  isIndependentFrom,
   isNativeExecution,
   isSameExecution,
   isSamePerson,
@@ -40,7 +41,7 @@ import { reviewDispatchKey } from "./review-dispatch-key.ts";
 import { presetSnapshotReader, taskWorktreeBinding, taskOutputShape } from "./task-worktree.ts";
 import type { PublicPublication, RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { leaseTtlMs } from "./repo-cell-types.ts";
-import { reviewActorsIndependent } from "./decision-review-authorization.ts";
+import { isCutReturningRework } from "@harness-anything/kernel/internal/domain/task-lifecycle-command-transitions.ts";
 import { readCompletionDeliveryStatus } from "./task-completion-read.ts";
 import { readEffectiveCloseoutGates, readEffectiveReviewReturnBudget } from "./repo-cell-settings-state.ts";
 import { latestPremiseReview, PREMISE_REVIEW_SOURCE, premiseReviewCommand } from "./premise-review.ts";
@@ -339,11 +340,11 @@ export async function proofFor(
         );
     }
     const independentActor =
-        execution !== undefined && reviewActorsIndependent(execution.actor, command.actor, settings.reviewIndependence),
+        execution !== undefined && isIndependentFrom(execution.actor, command.actor, settings.reviewIndependence),
       principalIndependenceRequired =
         settings.reviewIndependence === "principal" &&
         execution !== undefined &&
-        !reviewActorsIndependent(execution.actor, command.actor, settings.reviewIndependence),
+        !isIndependentFrom(execution.actor, command.actor, settings.reviewIndependence),
       externalCompletionEvidence = independentActor
         ? false
         : validExternalCompletionEvidence(command, projection, rootDir),
@@ -507,18 +508,7 @@ function assertPremiseReviewedPastBudget(
   snapshot: Snapshot,
   projection: ReturnType<typeof makeTaskProjection>,
 ): void {
-  const task = snapshot.task,
-    // Same split as the kernel reduce: a handoff or a takeover of an already-returned round only
-    // arranges the next round; every other rework returns the current cut.
-    returnsCut =
-      command.handoffId === undefined &&
-      (command.takeover !== true ||
-        (task?.currentNode === "review" &&
-          (task.status === "submitted" ||
-            snapshot.reviews.some(
-              (review) =>
-                review.executionId === command.executionId && review.submissionDigest === command.submissionDigest,
-            )))),
+  const returnsCut = isCutReturningRework(snapshot, command),
     returned = snapshot.executions.filter((execution) => execution.state === "changes_requested"),
     budget = readEffectiveReviewReturnBudget(projection);
   if (!returnsCut || returned.length <= budget) return;

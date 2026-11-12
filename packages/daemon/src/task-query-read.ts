@@ -26,7 +26,6 @@ import {
   workspaceTaskStatus,
   resolveHarnessLayout,
   reviewsForExecution,
-  submissionDigest,
   type FreshnessReason,
   type FreshnessReasonInput,
   type ProjectionPage,
@@ -38,6 +37,7 @@ import {
   type TaskRelationNeighborhoodQuery,
   type TaskRelationQuery,
 } from "@harness-anything/kernel";
+import { hasApprovedReviewForExecution } from "@harness-anything/kernel/internal/domain/review.ts";
 import {
   decisionReviewAwaitRationale,
   decisionReviewState,
@@ -1465,7 +1465,11 @@ function unsubmittedDeliveryAttentionRows(
 function awaitingExecutionRows(rows: readonly AgendaSourceRow[]): AgendaExecutionRow[] {
   return rows.flatMap((row) =>
     row.snapshot.executions
-      .filter((execution) => execution.state === "submitted" && !hasCurrentApprovedReview(row, execution))
+      .filter(
+        (execution) =>
+          execution.state === "submitted" &&
+          !hasApprovedReviewForExecution(row.snapshot.reviews, execution, row.snapshot.reviewDispositions ?? []),
+      )
       .map((execution) => ({
         taskId: row.taskId,
         title: row.snapshot.task?.title ?? row.taskId,
@@ -1475,22 +1479,6 @@ function awaitingExecutionRows(rows: readonly AgendaSourceRow[]): AgendaExecutio
         submittedAt: execution.submittedAt ?? row.updatedAt,
         blockingAssessment: row.blockingAssessment,
       })),
-  );
-}
-
-function hasCurrentApprovedReview(row: AgendaSourceRow, execution: ProjectedExecution): boolean {
-  if (!execution.submission) return false;
-  const currentReviews = reviewsForExecution(row.snapshot.reviews, execution),
-    approved = currentReviews.some((review) => review.verdict === "approved"),
-    digest = submissionDigest(execution.submission),
-    disposed = new Set(
-      (row.snapshot.reviewDispositions ?? [])
-        .filter((value) => value.submissionDigest === digest && value.rationale.trim().length > 0)
-        .flatMap((value) => value.disposedReviewIds),
-    );
-  return (
-    approved &&
-    !currentReviews.some((review) => review.verdict === "changes_requested" && !disposed.has(review.reviewId))
   );
 }
 function compareAgendaTasks(left: AgendaTaskRow, right: AgendaTaskRow): number {

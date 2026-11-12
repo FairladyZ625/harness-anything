@@ -946,3 +946,67 @@ test("queryPayloadValidation and receiptAcceptance are canonical judgments with 
     findings.join("\n"),
   );
 });
+
+// dec_7E44897ECDCAEF2B92EC66A260 CH1 (S2h): converged daemon runtime/repo-cell/query judgments
+// resolve to canonical kernel authorities with live consumers; deleted duplicate helpers never
+// appear in sourceContracts, and manual daemon re-implementations are refused.
+test("S2h converged review, decision-independence, submitted-cut, and rework-cut judgments enforce single-source authority", (t) => {
+  const kinds = loadOntologyClosureSnapshot(repoRoot).kinds,
+    judgments = kinds.flatMap((kind) => kind.judgments ?? []),
+    contracts = kinds.flatMap((kind) => kind.sourceContracts ?? []);
+
+  const expectedJudgments = [
+    [
+      "packages/kernel/src/domain/decision-event-document.ts#assertDecisionReviewerIndependent",
+      ["packages/daemon/src/entity-action-catalog-executor.ts"],
+    ],
+    ["packages/kernel/src/domain/review.ts#hasApprovedReviewForExecution", ["packages/daemon/src/task-query-read.ts"]],
+    [
+      "packages/kernel/src/domain/task-bound-runtime-authority.ts#isSubmittedExecutionCutOpen",
+      [
+        "packages/daemon/src/runtime-execution-scope.ts",
+        "packages/kernel/src/domain/task-lifecycle-command-transitions.ts",
+      ],
+    ],
+    [
+      "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#isCutReturningRework",
+      ["packages/daemon/src/repo-cell-proof.ts", "packages/kernel/src/domain/task-lifecycle-command-transitions.ts"],
+    ],
+  ];
+
+  for (const [symbol, consumers] of expectedJudgments) {
+    const found = judgments.find((item) => item.symbol === symbol);
+    assert.ok(found, `${symbol} must be registered as a canonical judgment`);
+    assert.deepEqual([...found.consumers].sort(), [...consumers].sort(), symbol);
+  }
+
+  for (const forbidden of [
+    "decision-review-authorization.ts",
+    "#hasCurrentApprovedReview",
+    "#isTaskLifecycleContractError",
+  ]) {
+    assert.ok(
+      contracts.every((contract) => !contract.symbol.includes(forbidden)),
+      `${forbidden} must not be hidden in sourceContracts`,
+    );
+  }
+
+  const findings = fixtureFindings(t, kinds);
+  for (const symbol of [
+    "assertDecisionReviewerIndependent",
+    "hasApprovedReviewForExecution",
+    "isSubmittedExecutionCutOpen",
+    "isCutReturningRework",
+  ]) {
+    assert.ok(
+      findings.some((item) => item.includes(`one definition of ${symbol}`) && item.includes("judgment-copies.ts")),
+      `expected duplicate ${symbol} finding:\n${findings.join("\n")}`,
+    );
+    assert.ok(
+      findings.some(
+        (item) => item.includes("duplicate-judgments.ts") && item.includes(`consume the kernel ${symbol} verdict`),
+      ),
+      `expected consumerRule finding for ${symbol}:\n${findings.join("\n")}`,
+    );
+  }
+});

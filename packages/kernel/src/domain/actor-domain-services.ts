@@ -1,3 +1,4 @@
+import type { ReviewIndependence } from "./settings-field-declarations.ts";
 import type { ActorIdentity } from "./write-chain.contract.ts";
 
 export function isSamePerson(left: ActorIdentity, right: ActorIdentity): boolean {
@@ -12,7 +13,12 @@ export function isSameExecution(left: ActorIdentity, right: ActorIdentity): bool
   );
 }
 
-export function isIndependentFrom(author: ActorIdentity, reviewer: ActorIdentity): boolean {
+export function isIndependentFrom(
+  author: ActorIdentity,
+  reviewer: ActorIdentity,
+  independence: ReviewIndependence = "execution",
+): boolean {
+  if (independence !== "execution") return !isSamePerson(author, reviewer);
   if (author.executor === null || reviewer.executor === null) {
     return author.executor === null && reviewer.executor === null ? !isSamePerson(author, reviewer) : true;
   }

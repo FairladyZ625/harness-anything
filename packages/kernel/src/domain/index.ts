@@ -344,13 +344,7 @@ export {
   writeGatesFacet,
   writeRepositorySettingsFacet,
 } from "./settings.ts";
-export type {
-  DecisionReviewRequirement,
-  LocalSettingsV1,
-  RepositorySettingsV1,
-  ReviewIndependence,
-  SettingsV1,
-} from "./settings.ts";
+export type { DecisionReviewRequirement, LocalSettingsV1, RepositorySettingsV1, SettingsV1 } from "./settings.ts";
 export { SettingsDeclarationError } from "./settings.ts";
 export { DEFAULT_CLOSEOUT_SETTINGS, effectiveCloseoutGates } from "./settings-closeout.ts";
 export type { CloseoutGate, CloseoutSettingsV1 } from "./settings-closeout.ts";
