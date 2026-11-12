@@ -2989,6 +2989,72 @@
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker.relayFleetBackupTrace:0105d380172ef5b9747fb0554d6c0f73",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#WeakMap.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker.handleRequest:cc9c981ddd6e5674ff0735abd116cc15",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/async_hooks.d.ts#async_hooks.AsyncLocalStorage.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.supervisor.request.publishFleetBackupTrace:ab204b255ca0ec0fe00ab13fb8c27e3d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/diagnostics_channel.d.ts#diagnostics_channel.Channel.publish"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.supervisor.request.publishFleetBackupTrace:f172a99fc1ee66012a9a22c227b6712c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/diagnostics_channel.d.ts#diagnostics_channel.Channel.publish"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.supervisor.request.publishFleetBackupTrace:7fa06943c9fef8a596361573b978d903",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/diagnostics_channel.d.ts#diagnostics_channel.Channel.publish"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.supervisor.request.publishFleetBackupTrace:5eed2d8fa169b2eeff020ee72beff85e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.startWriterWorker:13b70cecc0a56311c87f24ce3bccf0b1",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.fleetBackupTraces.publish"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.closeFleetBackupTrace:a88f035267e8b38f4c8e40fce8b61e78",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.fleetBackupTraces.publish"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.closeFleetBackupTrace:1f2e82bb84db5ba61a3de39092cfd80a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.closeFleetBackupTrace:29b9a53d5433ec4154329566fe05e806",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.fleetBackupTraces.publish"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.closeFleetBackupTrace:2a3d41a1a7490baba69ef0c099cbacd8",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
       }
     ],
     "technical": true

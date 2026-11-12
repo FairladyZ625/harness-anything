@@ -201,7 +201,17 @@ export type RepoWriterCapabilityName =
   | "runtimeOutcome"
   | "runtimeSignal"
   | "attemptTerminal"
-  | "lifecycle";
+  | "lifecycle"
+  | "fleetBaseBackupTrace";
+
+export interface RepoWriterFleetBaseBackupTraceV1 {
+  readonly requestId: string;
+  readonly phase: RepoWriterFleetBaseBackupTraceKind;
+  readonly repoId: string | null;
+}
+
+/** Diagnostics channel lifecycle markers, not a persisted domain status vocabulary. */
+export type RepoWriterFleetBaseBackupTraceKind = "start" | "asyncStart" | "end";
 
 export interface RepoWriterCapabilityCallV1 {
   readonly schema: "harness-repo-writer-capability-call/v1";

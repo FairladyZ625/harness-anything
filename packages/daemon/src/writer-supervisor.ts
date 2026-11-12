@@ -1,6 +1,7 @@
 import { labelWorkerMemory } from "./daemon-diagnostics-memory.ts";
 import { writerLifecyclePolicy } from "@harness-anything/kernel/internal/domain/writer-lifecycle-policy.ts";
-import { prepareStorageWorkerContext } from "@harness-anything/storage";
+import { fleetBaseBackupTrace, prepareStorageWorkerContext } from "@harness-anything/storage";
+import { AsyncResource } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,6 +25,7 @@ import {
   type RepoWriterReceiptV1,
   type RepoWriterRequestV1,
   type RepoWriterStatusV1,
+  type RepoWriterFleetBaseBackupTraceV1,
   type RuntimeProcessEventV1,
 } from "./repo-writer-protocol.ts";
 import { launchNative } from "./runtime-spawn-process.ts";
@@ -126,7 +128,11 @@ export async function openWriterSupervisor(
       }
     >(),
     runtimeProcesses = new Map<string, RuntimeProcess>(),
-    sessionTokens = new Map<string, { readonly resolve: () => Promise<string>; references: number }>();
+    sessionTokens = new Map<string, { readonly resolve: () => Promise<string>; references: number }>(),
+    fleetBackupTraces = new Map<
+      string,
+      { readonly publish: (message: RepoWriterFleetBaseBackupTraceV1) => void; span?: { repoId: string | null } }
+    >();
 
   ready = startWriterWorker();
   await ready;
@@ -140,6 +146,26 @@ export async function openWriterSupervisor(
       binding?: RepoCellBinding,
       signal?: AbortSignal,
     ) => {
+      const publishFleetBackupTrace =
+        method === "fleetBackup"
+          ? AsyncResource.bind((message: RepoWriterFleetBaseBackupTraceV1) => {
+              const trace = fleetBackupTraces.get(message.requestId);
+              if (!trace) return;
+              if (message.phase === "start") {
+                if (trace.span) return;
+                trace.span = { repoId: message.repoId };
+                fleetBaseBackupTrace.start.publish(trace.span);
+              } else if (message.phase === "asyncStart") {
+                if (!trace.span) return;
+                trace.span.repoId = message.repoId;
+                fleetBaseBackupTrace.asyncStart.publish(trace.span);
+              } else {
+                if (!trace.span) return;
+                fleetBaseBackupTrace.end.publish(trace.span);
+                fleetBackupTraces.delete(message.requestId);
+              }
+            }, "harness-repo-writer-fleet-backup")
+          : undefined;
       await acquireWriter();
       if (closed || !worker) throw new Error("RepoWriterCell is closed");
       if (signal?.aborted) throw abortError(signal);
@@ -172,6 +198,7 @@ export async function openWriterSupervisor(
         signal?.addEventListener("abort", cancel, { once: true });
         const currentAccessToken = binding?.keycloakAuthorization?.session?.currentAccessToken;
         if (currentAccessToken) sessionTokens.set(requestId, { resolve: currentAccessToken, references: 1 });
+        if (publishFleetBackupTrace) fleetBackupTraces.set(requestId, { publish: publishFleetBackupTrace });
         pending.set(requestId, {
           resolve: resolve as (value: unknown) => void,
           reject,
@@ -190,6 +217,7 @@ export async function openWriterSupervisor(
           consumeKnownError(error);
           pending.delete(requestId);
           sessionTokens.delete(requestId);
+          closeFleetBackupTrace(requestId);
           cleanup();
           status = { ...status, queueDepth: Math.max(0, (status.queueDepth ?? 1) - 1) };
           reject(error instanceof Error ? error : new Error(String(error)));
@@ -224,6 +252,7 @@ export async function openWriterSupervisor(
       } finally {
         const active = worker;
         worker = null;
+        closeFleetBackupTrace();
         if (active) await active.terminate();
         for (const operation of pending.values()) {
           operation.cleanup();
@@ -322,6 +351,7 @@ export async function openWriterSupervisor(
           const operation = pending.get(message.requestId);
           if (!operation) return;
           pending.delete(message.requestId);
+          if (message.outcome !== "ok") closeFleetBackupTrace(message.requestId);
           if (
             !operation.retainSessionToken ||
             message.outcome !== "ok" ||
@@ -390,7 +420,12 @@ export async function openWriterSupervisor(
           }
           return;
         }
-        if (isCapabilityCall(message)) void handleCapability(candidate, message);
+        if (isCapabilityCall(message)) {
+          if (message.capability === "fleetBaseBackupTrace") {
+            const trace = message.payload as RepoWriterFleetBaseBackupTraceV1;
+            fleetBackupTraces.get(trace.requestId)?.publish(trace);
+          } else void handleCapability(candidate, message);
+        }
       });
       candidate.once("error", (error) => {
         if (worker !== candidate) return;
@@ -411,6 +446,7 @@ export async function openWriterSupervisor(
           if (!opened) closed = true;
           reject(error);
         }
+        closeFleetBackupTrace();
         if (expectedExits.has(candidate)) return;
         failActive(error);
         if (!closed) {
@@ -511,6 +547,7 @@ export async function openWriterSupervisor(
   }
 
   function failActive(error: Error): void {
+    closeFleetBackupTrace();
     for (const operation of pending.values()) {
       operation.storeAbort?.abort(error);
       operation.cleanup();
@@ -518,6 +555,19 @@ export async function openWriterSupervisor(
     }
     pending.clear();
     sessionTokens.clear();
+  }
+
+  function closeFleetBackupTrace(requestId?: string): void {
+    if (requestId !== undefined) {
+      const trace = fleetBackupTraces.get(requestId);
+      if (trace?.span) trace.publish({ requestId, phase: "end", repoId: trace.span.repoId });
+      fleetBackupTraces.delete(requestId);
+      return;
+    }
+    for (const [id, trace] of fleetBackupTraces) {
+      if (trace.span) trace.publish({ requestId: id, phase: "end", repoId: trace.span.repoId });
+      fleetBackupTraces.delete(id);
+    }
   }
 
   async function handleCapability(active: Worker, call: RepoWriterCapabilityCallV1): Promise<void> {
