@@ -102,6 +102,7 @@ import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import { withWriterEpochFenceDescriptor } from "@harness-anything/storage";
 import { repoCellLatchedMessage } from "./repo-cell-latched-message.ts";
 import { backupRepo, drillRepoBackup } from "./repo-all-purge.ts";
+import { makeRepoCellFleetBackup } from "./repo-cell-fleet-backup.ts";
 import { reviewerArtifactsFromCarriedReview } from "./reviewer-artifact-publication.ts";
 
 export function publicPublication(value: Pick<CanonicalEventAppendReceipt, "commitSha" | "cut">): PublicPublication {
@@ -1054,8 +1055,10 @@ export async function openRepoWriterCell(
     },
     lock,
   };
-  return Object.assign(createRepoCellApi(apiContext), {
+  return {
+    ...createRepoCellApi(apiContext),
     backup,
     pruneReplicationLog,
-  });
+    fleetBackup: makeRepoCellFleetBackup(apiContext, input.storage),
+  };
 }
