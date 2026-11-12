@@ -257,10 +257,17 @@ export async function prepareSubmissionDelivery(
   const publicPullRequest = Boolean(await detectHostingProvider(cell.rootDir, undefined, true));
   return finish(facts, root, riskBaseSha, commitSha, publicPullRequest, async () => {
     const currentRef = await repositoryBaseRefAsync(root),
-      currentSha = currentRef ? (await gitRead(root, ["rev-parse", `${currentRef}^{commit}`])).stdout : null;
+      currentSha = currentRef ? (await gitRead(root, ["rev-parse", `${currentRef}^{commit}`])).stdout : null,
+      // An unrelated default-branch advance does not change this immutable delivery's fork.
+      // Recheck the comparison cut rather than rejecting concurrent document publications.
+      sameComparisonCut =
+        currentSha === defaultSha ||
+        (currentSha !== null &&
+          mergeBase.ok &&
+          (await gitRead(root, ["merge-base", currentSha, commitSha])).stdout === mergeBase.stdout);
     if (
       currentRef !== defaultBranch ||
-      currentSha !== defaultSha ||
+      !sameComparisonCut ||
       (taskRoot && (await gitRead(taskRoot, ["rev-parse", "--show-toplevel", "HEAD"])).stdout !== boundHead?.stdout)
     )
       throw cell.cellCodedError(

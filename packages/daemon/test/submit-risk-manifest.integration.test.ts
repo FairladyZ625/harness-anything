@@ -6,11 +6,12 @@ import path from "node:path";
 import test from "node:test";
 import {
   compileTaskLifecycleWrite,
+  applyTransition,
   lifecycleDocumentPaths,
+  normalizeTaskLifecycleCommand,
   sha256Text,
   submissionDigest,
 } from "@harness-anything/kernel";
-import { submissionId } from "@harness-anything/kernel/internal/domain/execution.ts";
 import { openSqliteEventStore } from "@harness-anything/storage";
 import { executionId, fixture, taskId } from "./task-completion-review.fixture.ts";
 
@@ -43,17 +44,30 @@ async function seedLegacyCut(f: Awaited<ReturnType<typeof fixture>>) {
     fence = { repoId: "completion-review", holder: "direct-store", epoch: (store.writerFence()?.epoch ?? 0) + 1 };
   try {
     store.claimWriter(fence);
-    const execution = { ...original.payload.execution, submission: legacy },
-      event = {
-        ...original,
+    const command = {
+        ...normalizeTaskLifecycleCommand(
+          {
+            workspaceId: "completion-review",
+            actor: original.actor,
+            source: "local",
+            expectedRevision: snapshot.revision,
+          },
+          { type: "SubmitExecution", taskId, executionId, submission: legacy, amend: true },
+        ),
         eventId: sha256Text("historical-risk-less-submission"),
         opId: "historical-risk-less-submission",
         workspaceRevision: store.revision() + 1,
-        payload: { task: snapshot.task, execution, supersedesSubmissionId: submissionId(frozen) },
+        occurredAt: new Date().toISOString(),
       },
+      changed = applyTransition(snapshot, command, {
+        actorBinding: original.actor,
+        leaseVersion: null,
+        sessionDisposition: "unavailable",
+      }),
+      event = changed.event,
       written = compileTaskLifecycleWrite({
         event,
-        snapshot: { ...snapshot, executions: [execution], revision: event.workspaceRevision },
+        snapshot: changed.snapshot,
         packagePath: f.packagePath,
         currentDocuments: lifecycleDocumentPaths(event, f.packagePath).flatMap((target) => {
           const head = store.documentHead(target);
@@ -72,7 +86,7 @@ async function seedLegacyCut(f: Awaited<ReturnType<typeof fixture>>) {
     // Every resume below still traverses the actual RepoCell command runner and lifecycle writer.
     store.appendCommand({
       fence,
-      intent: { opId: event.opId, intentDigest: sha256Text(event.opId), summary: "historical cut" },
+      intent: { opId: event.opId, intentDigest: command.commandDigest, summary: "historical cut" },
       events: [written.event],
       blobs: written.blobs,
     });

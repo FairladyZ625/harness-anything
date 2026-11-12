@@ -241,3 +241,24 @@ test("a prepared assessment is refused when its manifest changes", { timeout: 20
     await submitting;
   }
 });
+
+test("an unrelated default-branch advance keeps the prepared comparison cut", { timeout: 20_000 }, async (t) => {
+  const { f, entered, release, baseSha, headSha } = await preparationFixture(t, "risk"),
+    submitting = f.run({ kind: "task-submit", taskId, executionId });
+  try {
+    await entered.promise;
+    git(f.root, "commit", "--allow-empty", "-qm", "test: unrelated default advance");
+    const nextDefault = git(f.root, "rev-parse", "HEAD");
+    assert.equal(git(f.root, "merge-base", nextDefault, headSha), baseSha);
+    git(f.root, "update-ref", "refs/remotes/origin/main", nextDefault);
+    release.resolve();
+    const accepted = await submitting;
+    assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
+    const event = f.events().findLast((event) => event.type === "execution_submitted");
+    assert.ok(event?.type === "execution_submitted");
+    assert.equal(event.payload.execution.submission?.productionDelta?.baseSha, baseSha);
+  } finally {
+    release.resolve();
+    await submitting;
+  }
+});
