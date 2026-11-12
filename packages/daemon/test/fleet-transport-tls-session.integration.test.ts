@@ -68,7 +68,7 @@ test("version metadata stays outside the closed dispatch read result", async (t)
   assert.equal(Object.hasOwn(response.result, "versionWarning"), false);
 });
 test("previous Fleet edges retain closed dispatch rows; current edges join bounded central lifecycle batches", async (t) => {
-  const fixture = await fleetFixture(t, [], [], "local", undefined, undefined, false);
+  const fixture = await fleetFixture(t, [], "standard", false);
   t.after(() => fixture.close());
   const entries = Array.from({ length: 101 }, (_, index) => ({
       dispatchId: `dispatch-${index}`,
@@ -121,6 +121,7 @@ test("previous Fleet edges retain closed dispatch rows; current edges join bound
       servername: "localhost",
       nodeId: fixture.subject.nodeId,
       credential: "machine-secret",
+      readAccessToken: fixture.owners.readAccessToken(fixture.subject.nodeId),
       repoId: fixture.subject.repoId,
       method: "repo.task.dispatches",
       payload: { taskId: fixture.subject.taskId },
