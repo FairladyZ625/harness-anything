@@ -2121,6 +2121,732 @@
             "route": "packages/gui/src/renderer/components/agent-ui/ApprovalCard.tsx#ApprovalCard.decide"
           }
         ]
+      },
+      {
+        "id": "tools/check-docs-release-map.mjs#validateReadmePrivateBoundary",
+        "symbol": "tools/check-docs-release-map.mjs#validateReadmePrivateBoundary",
+        "explain": "Rejects browsable private-harness paths and excess private-path mentions in the public README.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/check-docs-release-map.mjs#validateReadmePrivateBoundary:1c7ae1814fc13d78834f982209b854e0",
+            "route": "tools/check-docs-release-map.mjs#validateReadmePrivateBoundary"
+          }
+        ]
+      },
+      {
+        "id": "tools/check-docs-release-map.mjs#validateLocalLinks",
+        "symbol": "tools/check-docs-release-map.mjs#validateLocalLinks",
+        "explain": "Resolves relative Markdown links and reports missing or escaping release-document targets.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/check-docs-release-map.mjs#validateLocalLinks:6206d1d73687f556337864e159580d58",
+            "route": "tools/check-docs-release-map.mjs#validateLocalLinks"
+          }
+        ]
+      },
+      {
+        "id": "tools/check-fallback-boundaries.mjs#isFullHistoryCall",
+        "symbol": "tools/check-fallback-boundaries.mjs#isFullHistoryCall",
+        "explain": "Recognizes AST call forms that read an unbounded event history so fallback paths cannot silently expand to full-history scans.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/check-fallback-boundaries.mjs#isFullHistoryCall:6cc09f85c2ba48e55f83c8d6c0937683",
+            "route": "tools/check-fallback-boundaries.mjs#isFullHistoryCall"
+          }
+        ]
+      },
+      {
+        "id": "tools/check-gate-manifest-invariants.mjs#checkProtectedSurfaceCoverage",
+        "symbol": "tools/check-gate-manifest-invariants.mjs#checkProtectedSurfaceCoverage",
+        "explain": "Checks that every governance-protected surface declared by a gate is covered by the manifest inventory.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/check-gate-manifest-invariants.mjs#checkProtectedSurfaceCoverage:c3b68ccf23fcd873b78fc1533a2b8905",
+            "route": "tools/check-gate-manifest-invariants.mjs#checkProtectedSurfaceCoverage"
+          }
+        ]
+      },
+      {
+        "id": "tools/check-import-boundaries.mjs#checkOrphanPackageModules",
+        "symbol": "tools/check-import-boundaries.mjs#checkOrphanPackageModules",
+        "explain": "Finds production package modules re-exported by a barrel but otherwise orphaned from package imports.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/check-import-boundaries.mjs#checkOrphanPackageModules:55f5060778fd9cf995dd8d9284f067c0",
+            "route": "tools/check-import-boundaries.mjs#checkOrphanPackageModules"
+          }
+        ]
+      },
+      {
+        "id": "tools/check-integration-test-shards.mjs#validateIntegrationShardWorkflowMatrix",
+        "symbol": "tools/check-integration-test-shards.mjs#validateIntegrationShardWorkflowMatrix",
+        "explain": "Requires the workflow shard matrix to enumerate the configured integration shard indices exactly.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/check-integration-test-shards.mjs#validateIntegrationShardWorkflowMatrix:f09821df367c7ab3513aa89e0dac72a2",
+            "route": "tools/check-integration-test-shards.mjs#validateIntegrationShardWorkflowMatrix"
+          }
+        ]
+      },
+      {
+        "id": "tools/check-integration-test-shards.mjs#validateIntegrationShardRequiredContexts",
+        "symbol": "tools/check-integration-test-shards.mjs#validateIntegrationShardRequiredContexts",
+        "explain": "Checks required gate contexts contain the configured integration-shard context names.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/check-integration-test-shards.mjs#validateIntegrationShardRequiredContexts:9cbb9142d8468247e9600bbd3218f908",
+            "route": "tools/check-integration-test-shards.mjs#validateIntegrationShardRequiredContexts"
+          }
+        ]
+      },
+      {
+        "id": "tools/check-integration-test-shards.mjs#validateIntentionalTestDeletions",
+        "symbol": "tools/check-integration-test-shards.mjs#validateIntentionalTestDeletions",
+        "explain": "Compares intentional integration-test deletion declarations with the baseline and current test-file inventory.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/check-integration-test-shards.mjs#validateIntentionalTestDeletions:a9c7238e2cc2415caea07e1a910f3cde",
+            "route": "tools/check-integration-test-shards.mjs#validateIntentionalTestDeletions"
+          }
+        ]
+      },
+      {
+        "id": "tools/check-kernel-dead-exports.mjs#isKernelImport",
+        "symbol": "tools/check-kernel-dead-exports.mjs#isKernelImport",
+        "explain": "Resolves package, internal, and relative import specifiers to identify kernel imports for dead-export analysis.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/check-kernel-dead-exports.mjs#isKernelImport:b94e840ed5b4100e811ee260ac782546",
+            "route": "tools/check-kernel-dead-exports.mjs#isKernelImport"
+          }
+        ]
+      },
+      {
+        "id": "tools/check-locale-content.mjs#hasFiles",
+        "symbol": "tools/check-locale-content.mjs#hasFiles",
+        "explain": "Recursively detects any remaining files under the retired localized-content directory.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/check-locale-content.mjs#hasFiles:d8b4e1266c541a947591e0049d090ce9",
+            "route": "tools/check-locale-content.mjs#hasFiles"
+          }
+        ]
+      },
+      {
+        "id": "tools/check-schema-field-coverage.mjs#checkEntityFieldCoverage",
+        "symbol": "tools/check-schema-field-coverage.mjs#checkEntityFieldCoverage",
+        "explain": "Compares entity field declarations against the independent expected-field inventory and reports missing or extra fields.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/check-schema-field-coverage.mjs#checkEntityFieldCoverage:93a90c685758c20b158f7c24de400bbf",
+            "route": "tools/check-schema-field-coverage.mjs#checkEntityFieldCoverage"
+          }
+        ]
+      },
+      {
+        "id": "tools/check-status-vocabulary.mjs#checkInlineFieldCoverage",
+        "symbol": "tools/check-status-vocabulary.mjs#checkInlineFieldCoverage",
+        "explain": "Checks inline status-field literals against their declared vocabulary and frozen inline baseline.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/check-status-vocabulary.mjs#checkInlineFieldCoverage:0f89353e5a32849f8a8b2e3aca4cda37",
+            "route": "tools/check-status-vocabulary.mjs#checkInlineFieldCoverage"
+          }
+        ]
+      },
+      {
+        "id": "tools/check-status-vocabulary.mjs#checkStatusVocabularyCoverage",
+        "symbol": "tools/check-status-vocabulary.mjs#checkStatusVocabularyCoverage",
+        "explain": "Matches scanned status declarations to canonical vocabulary declarations and frozen migration entries.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/check-status-vocabulary.mjs#checkStatusVocabularyCoverage:6c858c8e4bddd02b6fb2349d096cdb3e",
+            "route": "tools/check-status-vocabulary.mjs#checkStatusVocabularyCoverage"
+          }
+        ]
+      },
+      {
+        "id": "tools/check-status-vocabulary.mjs#isAnchorImportedElsewhere",
+        "symbol": "tools/check-status-vocabulary.mjs#isAnchorImportedElsewhere",
+        "explain": "Uses source and re-export indexes to determine whether a declared status anchor is imported by another module.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/check-status-vocabulary.mjs#isAnchorImportedElsewhere:5f910eb70db47701022b86ba29961630",
+            "route": "tools/check-status-vocabulary.mjs#isAnchorImportedElsewhere"
+          }
+        ]
+      },
+      {
+        "id": "tools/check-status-vocabulary.mjs#hasPersistentWrite",
+        "symbol": "tools/check-status-vocabulary.mjs#hasPersistentWrite",
+        "explain": "Recognizes filesystem write APIs in source so status vocabularies cannot be declared for persistent-write sites.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/check-status-vocabulary.mjs#hasPersistentWrite:6e4e7540622aaae288b53a985268a3a3",
+            "route": "tools/check-status-vocabulary.mjs#hasPersistentWrite"
+          }
+        ]
+      },
+      {
+        "id": "tools/check-supply-chain.mjs#validatePackageMetadata",
+        "symbol": "tools/check-supply-chain.mjs#validatePackageMetadata",
+        "explain": "Checks workspace package presence, license, version, and release-boundary metadata from the supply-chain policy.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/check-supply-chain.mjs#validatePackageMetadata:95b437d1ade7772b96d447d0affb4d38",
+            "route": "tools/check-supply-chain.mjs#validatePackageMetadata"
+          }
+        ]
+      },
+      {
+        "id": "tools/check-supply-chain.mjs#validatePublicReadyPackageMetadata",
+        "symbol": "tools/check-supply-chain.mjs#validatePublicReadyPackageMetadata",
+        "explain": "Checks public-ready package fields required by the npm publish dry-run preflight.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/check-supply-chain.mjs#validatePublicReadyPackageMetadata:3e174f9105b5a39c4171b4e325a9fde3",
+            "route": "tools/check-supply-chain.mjs#validatePublicReadyPackageMetadata"
+          }
+        ]
+      },
+      {
+        "id": "tools/check-supply-chain.mjs#validatePackageLock",
+        "symbol": "tools/check-supply-chain.mjs#validatePackageLock",
+        "explain": "Checks lockfile version, workspace package entries, and release metadata needed by audit and SBOM tooling.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/check-supply-chain.mjs#validatePackageLock:846b7ad85981aa0863c7bd9b6c048465",
+            "route": "tools/check-supply-chain.mjs#validatePackageLock"
+          }
+        ]
+      },
+      {
+        "id": "tools/check-supply-chain.mjs#validateDependabot",
+        "symbol": "tools/check-supply-chain.mjs#validateDependabot",
+        "explain": "Checks Dependabot ecosystem and directory coverage against the declared workspace matrix.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/check-supply-chain.mjs#validateDependabot:86887c6b516dc176fe5d174952416daa",
+            "route": "tools/check-supply-chain.mjs#validateDependabot"
+          }
+        ]
+      },
+      {
+        "id": "tools/check-supply-chain.mjs#validateDocsAndWorkflow",
+        "symbol": "tools/check-supply-chain.mjs#validateDocsAndWorkflow",
+        "explain": "Checks supply-chain release documentation and workflow references against the declared scan commands and evidence locations.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/check-supply-chain.mjs#validateDocsAndWorkflow:eb4d4eb3b3771cdd28069963ee89fa45",
+            "route": "tools/check-supply-chain.mjs#validateDocsAndWorkflow"
+          }
+        ]
+      },
+      {
+        "id": "tools/check-supply-chain.mjs#validateSbom",
+        "symbol": "tools/check-supply-chain.mjs#validateSbom",
+        "explain": "Parses generated SBOM JSON and checks its format, version, and component inventory shape.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/check-supply-chain.mjs#validateSbom:d0043c6fb20e4a6c523480699a00392a",
+            "route": "tools/check-supply-chain.mjs#validateSbom"
+          }
+        ]
+      },
+      {
+        "id": "tools/check-supply-chain.mjs#isAllowedDependencyLicense",
+        "symbol": "tools/check-supply-chain.mjs#isAllowedDependencyLicense",
+        "explain": "Matches a dependency license against the allowed set or an exact reviewed package/license election.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/check-supply-chain.mjs#isAllowedDependencyLicense:7373b5eed290460f6dd1550d6e45c491",
+            "route": "tools/check-supply-chain.mjs#isAllowedDependencyLicense"
+          }
+        ]
+      },
+      {
+        "id": "tools/check-template-command-surface.mjs#hasFiles",
+        "symbol": "tools/check-template-command-surface.mjs#hasFiles",
+        "explain": "Recursively detects files left under the retired seeded-template directory.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/check-template-command-surface.mjs#hasFiles:d8b4e1266c541a947591e0049d090ce9",
+            "route": "tools/check-template-command-surface.mjs#hasFiles"
+          }
+        ]
+      },
+      {
+        "id": "tools/check-write-road-registry.mjs#hasWritableSqliteConstructionSite",
+        "symbol": "tools/check-write-road-registry.mjs#hasWritableSqliteConstructionSite",
+        "explain": "Finds SQLite constructor calls whose parsed arguments do not opt into read-only mode.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/check-write-road-registry.mjs#hasWritableSqliteConstructionSite:fa28757ec4468e080b39d6fd7f47b83b",
+            "route": "tools/check-write-road-registry.mjs#hasWritableSqliteConstructionSite"
+          }
+        ]
+      },
+      {
+        "id": "tools/ci/electron-runtime.mjs#hasZipMagic",
+        "symbol": "tools/ci/electron-runtime.mjs#hasZipMagic",
+        "explain": "Checks the first four bytes for ZIP local-file or empty-archive signatures before treating an artifact as a ZIP.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/ci/electron-runtime.mjs#hasZipMagic:1fe08a7e2358f6719628d5b90b54f82a",
+            "route": "tools/ci/electron-runtime.mjs#hasZipMagic"
+          }
+        ]
+      },
+      {
+        "id": "tools/gate-allowlists/load-gate-allowlist.mjs#validateEntryTree",
+        "symbol": "tools/gate-allowlists/load-gate-allowlist.mjs#validateEntryTree",
+        "explain": "Recursively validates allowlist section containers and counts their leaf entries.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/gate-allowlists/load-gate-allowlist.mjs#validateEntryTree:fc6f8e2358d3ff304ab36cd844302572",
+            "route": "tools/gate-allowlists/load-gate-allowlist.mjs#validateEntryTree"
+          }
+        ]
+      },
+      {
+        "id": "tools/gate-allowlists/load-gate-allowlist.mjs#validateEntry",
+        "symbol": "tools/gate-allowlists/load-gate-allowlist.mjs#validateEntry",
+        "explain": "Validates shared allowlist entry references, identity fields, and required metadata shape.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/gate-allowlists/load-gate-allowlist.mjs#validateEntry:235bced2ea119d1773ece827a3689e29",
+            "route": "tools/gate-allowlists/load-gate-allowlist.mjs#validateEntry"
+          }
+        ]
+      },
+      {
+        "id": "tools/gates/authorization-flow-trace.mjs#makeAuthorizationTracer.derived",
+        "symbol": "tools/gates/authorization-flow-trace.mjs#makeAuthorizationTracer.derived",
+        "explain": "Tracks whether an authorization-derived value flows through identifiers, property reads, conditionals, and expressions in the static AST trace.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/gates/authorization-flow-trace.mjs#makeAuthorizationTracer.derived:82d6a563eb5977f127bfd66b3bfeee25",
+            "route": "tools/gates/authorization-flow-trace.mjs#makeAuthorizationTracer.derived"
+          }
+        ]
+      },
+      {
+        "id": "tools/gates/canonical-event-compat.mjs#validateCanonicalFixtureChanges",
+        "symbol": "tools/gates/canonical-event-compat.mjs#validateCanonicalFixtureChanges",
+        "explain": "Checks changed frozen canonical-event fixtures for the required compatibility-review treatment.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/gates/canonical-event-compat.mjs#validateCanonicalFixtureChanges:9afc32a55ae6943fd668a894332b3b1c",
+            "route": "tools/gates/canonical-event-compat.mjs#validateCanonicalFixtureChanges"
+          }
+        ]
+      },
+      {
+        "id": "tools/gates/canonical-event-compat.mjs#validateFrozenCanonicalEvents",
+        "symbol": "tools/gates/canonical-event-compat.mjs#validateFrozenCanonicalEvents",
+        "explain": "Requires frozen event fixtures relevant to registered schemas to exist and parse through the supplied canonical parser.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/gates/canonical-event-compat.mjs#validateFrozenCanonicalEvents:2582637f1b90aac672a331c73402f7e5",
+            "route": "tools/gates/canonical-event-compat.mjs#validateFrozenCanonicalEvents"
+          }
+        ]
+      },
+      {
+        "id": "tools/gates/canonical-event-compat.mjs#validateProjectedDaemonResponses",
+        "symbol": "tools/gates/canonical-event-compat.mjs#validateProjectedDaemonResponses",
+        "explain": "Runs each named daemon response validator against its corresponding frozen projection sample.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/gates/canonical-event-compat.mjs#validateProjectedDaemonResponses:e6d4158eebcb5cf4cf32e4dd62e449f6",
+            "route": "tools/gates/canonical-event-compat.mjs#validateProjectedDaemonResponses"
+          }
+        ]
+      },
+      {
+        "id": "tools/gates/canonical-event-compat.mjs#validateFrozenDaemonReadside",
+        "symbol": "tools/gates/canonical-event-compat.mjs#validateFrozenDaemonReadside",
+        "explain": "Rebuilds historical daemon read-side samples and reports compatibility-validator failures for the frozen set.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/gates/canonical-event-compat.mjs#validateFrozenDaemonReadside:42645a4e56c1b426dd674804bd2489eb",
+            "route": "tools/gates/canonical-event-compat.mjs#validateFrozenDaemonReadside"
+          }
+        ]
+      },
+      {
+        "id": "tools/gates/cost-budget.mjs#validateMetricMap",
+        "symbol": "tools/gates/cost-budget.mjs#validateMetricMap",
+        "explain": "Requires a cost-budget metric object to use the complete fixed metric key set and valid non-negative measurements.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/gates/cost-budget.mjs#validateMetricMap:24db0398026749da2291e98b7235b171",
+            "route": "tools/gates/cost-budget.mjs#validateMetricMap"
+          }
+        ]
+      },
+      {
+        "id": "tools/gates/cost-budget.mjs#validateG1OperationMap",
+        "symbol": "tools/gates/cost-budget.mjs#validateG1OperationMap",
+        "explain": "Validates each named G1 operation's metric map against the same tooling metric contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/gates/cost-budget.mjs#validateG1OperationMap:6e99fb9031d1b407a40c4949dea43c8e",
+            "route": "tools/gates/cost-budget.mjs#validateG1OperationMap"
+          }
+        ]
+      },
+      {
+        "id": "tools/gates/dependency-policy.mjs#validateLockfile",
+        "symbol": "tools/gates/dependency-policy.mjs#validateLockfile",
+        "explain": "Checks package-lock workspace and dependency metadata against the repository dependency policy.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/gates/dependency-policy.mjs#validateLockfile:626c9d6e20e6171b50a45409c3f9e525",
+            "route": "tools/gates/dependency-policy.mjs#validateLockfile"
+          }
+        ]
+      },
+      {
+        "id": "tools/gates/derived-contracts.mjs#validateCliCommandInputs",
+        "symbol": "tools/gates/derived-contracts.mjs#validateCliCommandInputs",
+        "explain": "Validates derived CLI command input declarations, names, and option metadata for internal consistency.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/gates/derived-contracts.mjs#validateCliCommandInputs:12bae5335aaad1e762accb54debd9841",
+            "route": "tools/gates/derived-contracts.mjs#validateCliCommandInputs"
+          }
+        ]
+      },
+      {
+        "id": "tools/gates/derived-contracts.mjs#assertPhaseAppendOnly",
+        "symbol": "tools/gates/derived-contracts.mjs#assertPhaseAppendOnly",
+        "explain": "Rejects removals or reordering from the prior derived-contract phase list.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/gates/derived-contracts.mjs#assertPhaseAppendOnly:40df835dd01780ba602a16cfd96dd2b3",
+            "route": "tools/gates/derived-contracts.mjs#assertPhaseAppendOnly"
+          }
+        ]
+      },
+      {
+        "id": "tools/gates/derived-contracts.mjs#validateWorkflowProjection",
+        "symbol": "tools/gates/derived-contracts.mjs#validateWorkflowProjection",
+        "explain": "Checks a declared workflow projection path exists and matches the derived contract projection.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/gates/derived-contracts.mjs#validateWorkflowProjection:74665fa3f2d46fa861e12ddcfe243fcb",
+            "route": "tools/gates/derived-contracts.mjs#validateWorkflowProjection"
+          }
+        ]
+      },
+      {
+        "id": "tools/gates/derived-contracts.mjs#validateDerivedContracts",
+        "symbol": "tools/gates/derived-contracts.mjs#validateDerivedContracts",
+        "explain": "Validates derived contract object shape, IDs, uniqueness, and linked declarations across the tool inventory.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/gates/derived-contracts.mjs#validateDerivedContracts:5003a82cf18883bca104bc9d5d8b2dfe",
+            "route": "tools/gates/derived-contracts.mjs#validateDerivedContracts"
+          }
+        ]
+      },
+      {
+        "id": "tools/gates/entity-id-links.mjs#isActivatableElement",
+        "symbol": "tools/gates/entity-id-links.mjs#isActivatableElement",
+        "explain": "Recognizes JSX controls and sanctioned activatable components by tag and interactive props for the entity-link gate.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/gates/entity-id-links.mjs#isActivatableElement:edd84a8d6d44b4c570f3258b1b2345a2",
+            "route": "tools/gates/entity-id-links.mjs#isActivatableElement"
+          }
+        ]
+      },
+      {
+        "id": "tools/gates/entity-id-links.mjs#hasActivatableAncestor",
+        "symbol": "tools/gates/entity-id-links.mjs#hasActivatableAncestor",
+        "explain": "Walks JSX ancestors to avoid flagging entity links nested inside an interactive element.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/gates/entity-id-links.mjs#hasActivatableAncestor:c1b40639ff110c5a92c54b65a7d350c8",
+            "route": "tools/gates/entity-id-links.mjs#hasActivatableAncestor"
+          }
+        ]
+      },
+      {
+        "id": "tools/gates/evidence-contract.mjs#validateEvidenceBody",
+        "symbol": "tools/gates/evidence-contract.mjs#validateEvidenceBody",
+        "explain": "Parses PR evidence claims and checks their CI/performance fields and run-reference syntax.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/gates/evidence-contract.mjs#validateEvidenceBody:aac26dfc4f24f079537888136ae8a3e1",
+            "route": "tools/gates/evidence-contract.mjs#validateEvidenceBody"
+          }
+        ]
+      },
+      {
+        "id": "tools/gates/import-cycle-graph.mjs#isValueDeclaration",
+        "symbol": "tools/gates/import-cycle-graph.mjs#isValueDeclaration",
+        "explain": "Classifies TypeScript declarations that create runtime values for import-cycle graph edges.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/gates/import-cycle-graph.mjs#isValueDeclaration:89969ee81be240bbd6cee0e592c55922",
+            "route": "tools/gates/import-cycle-graph.mjs#isValueDeclaration"
+          }
+        ]
+      },
+      {
+        "id": "tools/gates/import-cycle-graph.mjs#isTypePosition",
+        "symbol": "tools/gates/import-cycle-graph.mjs#isTypePosition",
+        "explain": "Distinguishes type-only AST references from runtime references, including class extends expressions.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/gates/import-cycle-graph.mjs#isTypePosition:f34229b2ef904a1253fb554a9ade0d45",
+            "route": "tools/gates/import-cycle-graph.mjs#isTypePosition"
+          }
+        ]
+      },
+      {
+        "id": "tools/gates/import-cycle-graph.mjs#isMemberNamePosition",
+        "symbol": "tools/gates/import-cycle-graph.mjs#isMemberNamePosition",
+        "explain": "Excludes identifiers used as property, binding, import, or declaration names from value-reference graph edges.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/gates/import-cycle-graph.mjs#isMemberNamePosition:395e5e049e45ae6fe41e534f7d0adc61",
+            "route": "tools/gates/import-cycle-graph.mjs#isMemberNamePosition"
+          }
+        ]
+      },
+      {
+        "id": "tools/gates/ontology-closure-audit.mjs#validateClosureBaseline",
+        "symbol": "tools/gates/ontology-closure-audit.mjs#validateClosureBaseline",
+        "explain": "Validates ontology candidate category, status, owner, unique identity, and status-specific migration fields.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/gates/ontology-closure-audit.mjs#validateClosureBaseline:98729e36f7c0f6446d0ae042374c6aec",
+            "route": "tools/gates/ontology-closure-audit.mjs#validateClosureBaseline"
+          }
+        ]
+      },
+      {
+        "id": "tools/gates/ontology-kind-authority.mjs#validateOperationalStore",
+        "symbol": "tools/gates/ontology-kind-authority.mjs#validateOperationalStore",
+        "explain": "Checks that operational-store declarations use the host owner and an allowed host purpose and shape.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/gates/ontology-kind-authority.mjs#validateOperationalStore:2128d9ae91f4c52cf9e702c2d1df384d",
+            "route": "tools/gates/ontology-kind-authority.mjs#validateOperationalStore"
+          }
+        ]
+      },
+      {
+        "id": "tools/gates/receipt-verify.mjs#validateReceiptSchema",
+        "symbol": "tools/gates/receipt-verify.mjs#validateReceiptSchema",
+        "explain": "Validates the external governance decision-receipt JSON shape, scope, expiry, signature encoding, and decision fields.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/gates/receipt-verify.mjs#validateReceiptSchema:863e6ec3989af726604da9100ea9ed74",
+            "route": "tools/gates/receipt-verify.mjs#validateReceiptSchema"
+          }
+        ]
+      },
+      {
+        "id": "tools/gates/schema-closure.mjs#validateSchemaClosure",
+        "symbol": "tools/gates/schema-closure.mjs#validateSchemaClosure",
+        "explain": "Checks derived schema/parser/writer/error exports resolve and that legacy readers are absent from the rebuild line.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/gates/schema-closure.mjs#validateSchemaClosure:d57d377296c0e1ac2dbe97dd31b0cb2b",
+            "route": "tools/gates/schema-closure.mjs#validateSchemaClosure"
+          }
+        ]
+      },
+      {
+        "id": "tools/gates/syntax-boundary-utils.mjs#isProductionSource",
+        "symbol": "tools/gates/syntax-boundary-utils.mjs#isProductionSource",
+        "explain": "Selects production source files in package source trees and non-test gate modules for static syntax scans.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/gates/syntax-boundary-utils.mjs#isProductionSource:6e022cc1a822529bfb9e33b124433034",
+            "route": "tools/gates/syntax-boundary-utils.mjs#isProductionSource"
+          }
+        ]
+      },
+      {
+        "id": "tools/integration-test-shards.mjs#validateIntegrationTestShards",
+        "symbol": "tools/integration-test-shards.mjs#validateIntegrationTestShards",
+        "explain": "Checks shard assignment, override coverage, per-shard budget, and wall-time spread for the integration manifest.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/integration-test-shards.mjs#validateIntegrationTestShards:4b4a5203e7f04764be9f0c627b94cd85",
+            "route": "tools/integration-test-shards.mjs#validateIntegrationTestShards"
+          }
+        ]
+      },
+      {
+        "id": "tools/node-test-failure-reporter.mjs#isTestFailureWrapper",
+        "symbol": "tools/node-test-failure-reporter.mjs#isTestFailureWrapper",
+        "explain": "Recognizes Node test-runner assertion/subtest wrappers so the reporter can unwrap causes consistently.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/node-test-failure-reporter.mjs#isTestFailureWrapper:69ff4ed259540cc2efe2560fd81217bd",
+            "route": "tools/node-test-failure-reporter.mjs#isTestFailureWrapper"
+          }
+        ]
+      },
+      {
+        "id": "tools/node-test-runner-lib.mjs#coverageReporterArgs",
+        "symbol": "tools/node-test-runner-lib.mjs#coverageReporterArgs",
+        "explain": "Builds Node test-runner coverage flags only when a coverage destination was requested.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/node-test-runner-lib.mjs#coverageReporterArgs:888649c2ac0eb8dbec9cdca11df53152",
+            "route": "tools/node-test-runner-lib.mjs#coverageReporterArgs"
+          }
+        ]
+      },
+      {
+        "id": "tools/node-test-runner-lib.mjs#validateManifest",
+        "symbol": "tools/node-test-runner-lib.mjs#validateManifest",
+        "explain": "Checks test-tier manifest paths exist, are unique across tiers, and cover the discovered test-file inventory.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/node-test-runner-lib.mjs#validateManifest:75f37cb6e1f0f09b5c820e512ee8b7e6",
+            "route": "tools/node-test-runner-lib.mjs#validateManifest"
+          }
+        ]
+      },
+      {
+        "id": "tools/public-workspaces.mjs#assertPublicDependencyClosure",
+        "symbol": "tools/public-workspaces.mjs#assertPublicDependencyClosure",
+        "explain": "Rejects public workspaces whose runtime dependency sections point at unpublished private workspaces.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/public-workspaces.mjs#assertPublicDependencyClosure:ca9fd04ccbf53ae46e8a5aaea1aa3578",
+            "route": "tools/public-workspaces.mjs#assertPublicDependencyClosure"
+          }
+        ]
+      },
+      {
+        "id": "tools/run-manifest-gates.mjs#validateLocalPathGlobs",
+        "symbol": "tools/run-manifest-gates.mjs#validateLocalPathGlobs",
+        "explain": "Requires local gate-selection globs to be non-empty repository-relative strings.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/run-manifest-gates.mjs#validateLocalPathGlobs:4edea96400e14262a47a383aedf9a6f6",
+            "route": "tools/run-manifest-gates.mjs#validateLocalPathGlobs"
+          }
+        ]
+      },
+      {
+        "id": "tools/scale/cli-entity-bench.report.mjs#coverage",
+        "symbol": "tools/scale/cli-entity-bench.report.mjs#coverage",
+        "explain": "Compares CLI command registry entries with client-local commands and shapes the benchmark coverage matrix.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/scale/cli-entity-bench.report.mjs#coverage:a16f3aa9c966c84b6b1ffddf3de4e4d0",
+            "route": "tools/scale/cli-entity-bench.report.mjs#coverage"
+          }
+        ]
+      },
+      {
+        "id": "tools/smoke-cli-package.mjs#assertUnstartableDaemonFailedClosed",
+        "symbol": "tools/smoke-cli-package.mjs#assertUnstartableDaemonFailedClosed",
+        "explain": "Requires an unstartable packaged CLI daemon to return a classified failure receipt without creating a harness tree.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/smoke-cli-package.mjs#assertUnstartableDaemonFailedClosed:c628c4232ddf6700ae43ecffa6a691fa",
+            "route": "tools/smoke-cli-package.mjs#assertUnstartableDaemonFailedClosed"
+          }
+        ]
+      },
+      {
+        "id": "tools/stress/core/oracles.mjs#validateAcceptedRange",
+        "symbol": "tools/stress/core/oracles.mjs#validateAcceptedRange",
+        "explain": "Checks stress-run accepted command outcomes have a revision interval matching the exact expected event set, including empty commands.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/stress/core/oracles.mjs#validateAcceptedRange:60e63358ff29fdd49d16fdc8b4d6e647",
+            "route": "tools/stress/core/oracles.mjs#validateAcceptedRange"
+          }
+        ]
+      },
+      {
+        "id": "tools/stress/core/receipt-log.mjs#assertOutside",
+        "symbol": "tools/stress/core/receipt-log.mjs#assertOutside",
+        "explain": "Rejects stress receipt-log paths equal to or nested beneath any campaign target root.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/stress/core/receipt-log.mjs#assertOutside:096407304ffa72d84cf86ae0e943681c",
+            "route": "tools/stress/core/receipt-log.mjs#assertOutside"
+          }
+        ]
+      },
+      {
+        "id": "tools/sync-runtime-skills.mjs#assertSkillTarget",
+        "symbol": "tools/sync-runtime-skills.mjs#assertSkillTarget",
+        "explain": "Allows a runtime skill target only when absent or already a symlink to the exact source directory.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/sync-runtime-skills.mjs#assertSkillTarget:e633b226d2a5011ed4d885e05a3c832f",
+            "route": "tools/sync-runtime-skills.mjs#assertSkillTarget"
+          }
+        ]
+      },
+      {
+        "id": "tools/task-risk-floor.mjs#isProductionPath",
+        "symbol": "tools/task-risk-floor.mjs#isProductionPath",
+        "explain": "Selects changed package-source and root-level tool scripts for task risk sizing; this is narrower than kernel production-delta path classification.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/task-risk-floor.mjs#isProductionPath:7e6008d5955ba06b8b4b4c1bba00ae7f",
+            "route": "tools/task-risk-floor.mjs#isProductionPath"
+          }
+        ]
+      },
+      {
+        "id": "tools/test-quarantine.mjs#validateTestQuarantine",
+        "symbol": "tools/test-quarantine.mjs#validateTestQuarantine",
+        "explain": "Validates quarantine document schema, unique test identities, expiry, and owning task references.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/test-quarantine.mjs#validateTestQuarantine:b4fc84b8e390d087e862d76bbb6d66fb",
+            "route": "tools/test-quarantine.mjs#validateTestQuarantine"
+          }
+        ]
+      },
+      {
+        "id": "tools/tool-command-contract.mjs#validateNonNegativeInteger",
+        "symbol": "tools/tool-command-contract.mjs#validateNonNegativeInteger",
+        "explain": "Rejects malformed, fractional, or negative numeric values for test-runner count and duration flags.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/tool-command-contract.mjs#validateNonNegativeInteger:d55563b5984088fbd27a4a34d83cfb11",
+            "route": "tools/tool-command-contract.mjs#validateNonNegativeInteger"
+          }
+        ]
+      },
+      {
+        "id": "tools/tool-command-contract.mjs#validateTestPrefix",
+        "symbol": "tools/tool-command-contract.mjs#validateTestPrefix",
+        "explain": "Requires --prefix values to be POSIX repository-relative paths without traversal or backslashes.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/tool-command-contract.mjs#validateTestPrefix:3b961934dca71ba82463044b559f9c75",
+            "route": "tools/tool-command-contract.mjs#validateTestPrefix"
+          }
+        ]
+      },
+      {
+        "id": "tools/tool-command-contract.mjs#validateTestFile",
+        "symbol": "tools/tool-command-contract.mjs#validateTestFile",
+        "explain": "Requires --file values to be POSIX repository-relative test/spec paths without traversal.",
+        "sources": [
+          {
+            "candidateId": "judgment:tools:tools/tool-command-contract.mjs#validateTestFile:e06045b5f7ae3593c7899f004b138537",
+            "route": "tools/tool-command-contract.mjs#validateTestFile"
+          }
+        ]
       }
     ]
   },
