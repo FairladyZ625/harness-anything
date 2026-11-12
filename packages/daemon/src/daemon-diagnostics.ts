@@ -1,4 +1,4 @@
-import { openDaemonMemoryLedger } from "./daemon-diagnostics-memory.ts";
+import { openDaemonMemoryLedger, labelWorkerMemory } from "./daemon-diagnostics-memory.ts";
 import { Worker } from "node:worker_threads";
 import { createDaemonOperationTable } from "./daemon-operation-table.ts";
 import { createDaemonTraceCompletions } from "./daemon-trace-completions.ts";
@@ -34,20 +34,23 @@ export async function openDaemonDiagnostics(options: DaemonDiagnosticsOptions) {
     completions = createDaemonTraceCompletions(),
     histogram = monitorEventLoopDelay({ resolution: 20 }),
     extension = path.extname(fileURLToPath(import.meta.url)),
-    worker = new Worker(new URL(`./daemon-diagnostics-worker${extension}`, import.meta.url), {
-      name: "diagnostics",
-      workerData: {
-        userRoot: options.userRoot,
-        daemonId: options.daemonId,
-        endpoint: options.endpoint,
-        heartbeatMs: options.heartbeatMs,
-        stallThresholdMs: options.stallThresholdMs,
-        metricsIntervalMs: options.metricsIntervalMs,
-        heartbeat: heartbeat.buffer,
-        operations: operations.buffer,
-        completions: completions.buffer,
-      },
-    });
+    worker = labelWorkerMemory(
+      new Worker(new URL(`./daemon-diagnostics-worker${extension}`, import.meta.url), {
+        name: "diagnostics",
+        workerData: {
+          userRoot: options.userRoot,
+          daemonId: options.daemonId,
+          endpoint: options.endpoint,
+          heartbeatMs: options.heartbeatMs,
+          stallThresholdMs: options.stallThresholdMs,
+          metricsIntervalMs: options.metricsIntervalMs,
+          heartbeat: heartbeat.buffer,
+          operations: operations.buffer,
+          completions: completions.buffer,
+        },
+      }),
+      "diagnostics",
+    );
   let closed = false,
     heartbeatDelayMax = 0;
   const stallWindows: EventLoopStallWindow[] = [];

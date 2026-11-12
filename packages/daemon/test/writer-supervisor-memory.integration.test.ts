@@ -118,7 +118,16 @@ test("five attached writers report comparable mount and post-write working sets"
     for (const [index, supervisor] of supervisors.entries()) {
       const receipt = await supervisor.request<{ outcome: string }>(
         "run",
-        { action: { kind: "fact-record", statement: `memory write ${index}`, source: "memory-test" } },
+        {
+          action: {
+            kind: "fact-record",
+            statement: `memory write ${index}`,
+            evidenceSource: "test:writer-memory",
+            confidence: "high",
+            memoryClass: "semantic",
+            memoryTags: [],
+          },
+        },
         bindings[index],
       );
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));

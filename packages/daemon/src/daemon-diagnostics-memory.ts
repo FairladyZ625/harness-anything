@@ -1,6 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { BroadcastChannel, getEnvironmentData, setEnvironmentData, threadId, type Worker } from "node:worker_threads";
 
+const workerRoles = new WeakMap<Worker, string>();
+
+/** Role metadata works throughout Node 24, before Worker.threadName was introduced. */
+export function labelWorkerMemory(worker: Worker, role: string): Worker {
+  workerRoles.set(worker, role);
+  return worker;
+}
+
 const channelKey = "harness-daemon-memory-ledger";
 type Heap = { heapTotal: number; heapUsed: number; external: number };
 type Isolate = {
@@ -24,6 +32,7 @@ export function observeWorkerMemory(channelName = getEnvironmentData(channelKey)
   let closed = false;
   const sendInventory = (): void => {
     if (closed) return;
+    for (const [worker, row] of children) row.role = workerRoles.get(worker) ?? row.role;
     const inventory: Inventory = { parent: threadId, isolates: [...children.values()] };
     inventories.set(threadId, inventory.isolates);
     channel?.postMessage(inventory);
@@ -60,7 +69,7 @@ export function observeWorkerMemory(channelName = getEnvironmentData(channelKey)
   const created = (worker: Worker): void => {
     children.set(worker, {
       threadId: worker.threadId,
-      role: worker.threadName ?? "worker",
+      role: workerRoles.get(worker) ?? worker.threadName ?? "worker",
       sampledAt: null,
       heap: null,
       sampleError: null,

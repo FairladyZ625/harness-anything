@@ -1,3 +1,4 @@
+import { labelWorkerMemory } from "./daemon-diagnostics-memory.ts";
 import {
   prepareStorageWorkerContext,
   requiresStorageWorkerContext,
@@ -208,6 +209,7 @@ function pump(): void {
           context.close();
           throw error;
         }
+        labelWorkerMemory(worker, "repo-reader");
         worker.once("exit", context.close);
         // Only transferred physical capabilities bind a worker to its creating client.
         // Other readers already close/reopen their query runtime when config changes.

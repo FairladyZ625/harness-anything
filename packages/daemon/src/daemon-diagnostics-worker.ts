@@ -1,4 +1,4 @@
-import { observeWorkerMemory } from "./daemon-diagnostics-memory.ts";
+import { observeWorkerMemory, labelWorkerMemory } from "./daemon-diagnostics-memory.ts";
 import { Worker, parentPort, workerData } from "node:worker_threads";
 import path from "node:path";
 import { createUnixSocketTransportServer } from "./transport/unix-socket.ts";
@@ -112,6 +112,7 @@ function captureStack(stall: Record<string, JsonValue>): void {
   const collector = new Worker(new URL(`./daemon-stack-worker${path.extname(import.meta.filename)}`, import.meta.url), {
     name: "stack-collector",
   });
+  labelWorkerMemory(collector, "stack-collector");
   let finished = false;
   const finish = (status: string, stack: JsonValue = []): void => {
     if (finished) return;

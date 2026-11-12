@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 import type { Worker } from "node:worker_threads";
-import { openDaemonMemoryLedger } from "../src/daemon-diagnostics-memory.ts";
+import { openDaemonMemoryLedger, labelWorkerMemory } from "../src/daemon-diagnostics-memory.ts";
 
 test("memory ledger sums isolate heaps and external without adding its arrayBuffers subset", async () => {
   const ledger = openDaemonMemoryLedger(),
@@ -14,11 +14,12 @@ test("memory ledger sums isolate heaps and external without adding its arrayBuff
     };
   Object.assign(child, {
     threadId: 42,
-    threadName: "repo-writer",
+    threadName: "native-name",
     getHeapStatistics: async () => ({ total_heap_size: 50, used_heap_size: 30, external_memory: 11 }),
   });
   const main = { rss: 500, heapTotal: 100, heapUsed: 60, external: 20, arrayBuffers: 15 };
   try {
+    labelWorkerMemory(child as unknown as Worker, "repo-writer");
     process.emit("worker", child as unknown as Worker);
     await Promise.resolve();
     const snapshot = ledger.snapshot(main);

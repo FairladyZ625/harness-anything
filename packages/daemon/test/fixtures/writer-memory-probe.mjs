@@ -1,3 +1,4 @@
+import { getHeapSpaceStatistics } from "node:v8";
 import { registerHooks } from "node:module";
 import { parentPort } from "node:worker_threads";
 const modules = new Set();
@@ -20,5 +21,6 @@ parentPort.on("message", (message) => {
     deliveryModules: [...modules].filter((url) => /\/packages\/(?:cli|gui)\//u.test(url)),
     sourceBytes,
     memory: process.memoryUsage(),
+    heapSpaces: getHeapSpaceStatistics(),
   });
 });

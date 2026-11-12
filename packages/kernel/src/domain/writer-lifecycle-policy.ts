@@ -5,8 +5,9 @@ export const writerLifecyclePolicy = {
   id: "writer-idle-retirement",
   ownerRef: "host",
   unit: "milliseconds / indexed rows",
-  bounds: "Retire after 30000ms without admitted work; inspect at most one active dispatch row.",
-  defaultValue: { idleTimeoutMs: 30_000, activeProbeLimit: 1 },
+  bounds:
+    "Retire after 30000ms without admitted work; inspect one active dispatch row; cap the young generation at 8 MiB without capping the old generation.",
+  defaultValue: { idleTimeoutMs: 30_000, activeProbeLimit: 1, maxYoungGenerationSizeMb: 8 },
   version: 1,
   scope: "daemon process repository writer lifecycle",
   reason:

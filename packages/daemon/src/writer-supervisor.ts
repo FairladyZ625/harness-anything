@@ -1,3 +1,4 @@
+import { labelWorkerMemory } from "./daemon-diagnostics-memory.ts";
 import { writerLifecyclePolicy } from "@harness-anything/kernel/internal/domain/writer-lifecycle-policy.ts";
 import { prepareStorageWorkerContext } from "@harness-anything/storage";
 import { randomUUID } from "node:crypto";
@@ -72,6 +73,7 @@ export async function openWriterSupervisor(
       workerOptions: {
         readonly execArgv: readonly string[];
         readonly name?: string;
+        readonly resourceLimits?: import("node:worker_threads").ResourceLimits;
         readonly workerData: RepoWriterBootstrapV1;
         readonly transferList?: readonly import("node:worker_threads").MessagePort[];
       },
@@ -259,6 +261,7 @@ export async function openWriterSupervisor(
         context = prepareStorageWorkerContext(input.storage, input.repoId),
         workerOptions = {
           name: "repo-writer",
+          resourceLimits: { maxYoungGenerationSizeMb: writerLifecyclePolicy.defaultValue.maxYoungGenerationSizeMb },
           execArgv: process.execArgv.filter(
             (argument) => argument === "--experimental-strip-types" || argument === "--enable-source-maps",
           ),
@@ -281,8 +284,10 @@ export async function openWriterSupervisor(
         };
       let candidate: Worker;
       try {
-        candidate =
-          options.createWorker?.(writerWorkerUrl(), workerOptions) ?? new Worker(writerWorkerUrl(), workerOptions);
+        candidate = labelWorkerMemory(
+          options.createWorker?.(writerWorkerUrl(), workerOptions) ?? new Worker(writerWorkerUrl(), workerOptions),
+          "repo-writer",
+        );
       } catch (error) {
         context.close();
         throw error;
