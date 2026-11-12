@@ -281,13 +281,39 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       closeDaemonWriterEpoch,
       daemonWriterBinding,
     } = openDaemonWriterEpochs({ userRoot: input.userRoot, daemonId: input.daemonId, now, storage: input.storage });
-  let rbacResumed: Promise<void> = Promise.resolve();
+  let rbacResumeSucceeded = false,
+    rbacResumeInFlight: Promise<void> | null = null;
+  // host/managed-identity-lifecycle: a later request retries a failed resume; concurrent requests share it.
+  const ensureRbacResumed = (): Promise<void> => {
+    if (rbacResumeSucceeded) return Promise.resolve();
+    if (rbacResumeInFlight) return rbacResumeInFlight;
+    const attempt = Promise.resolve().then(() => managedRbac.resume());
+    const inFlight = attempt
+      .then(() => {
+        rbacResumeSucceeded = true;
+      })
+      .finally(() => {
+        if (rbacResumeInFlight === inFlight) rbacResumeInFlight = null;
+      });
+    rbacResumeInFlight = inFlight;
+    void inFlight
+      .then(
+        () => input.recordLifecycle?.({ event: "identity_ready" }),
+        (error: unknown) =>
+          input.recordLifecycle?.({
+            event: "rbac_resume_failed",
+            error: error instanceof Error ? error.message : String(error),
+          }),
+      )
+      .catch(consumeKnownError);
+    return inFlight;
+  };
   const keycloakCenter: KeycloakCenterAuthority = async (rejectedAccessToken) => {
-    await rbacResumed;
+    await ensureRbacResumed();
     return { ...(await oidc.center(rejectedAccessToken)), clientId: "harness-center" };
   };
   const keycloakSession = async (rootDir: string) => {
-    await rbacResumed;
+    await ensureRbacResumed();
     const principal = (await oidc.bind({ transportKind: "unix-socket" }, rootDir)).oidcPrincipal;
     if (!principal) throw hostCodedError("authentication_required", "Sign in before continuing a runtime.");
     return {
@@ -310,7 +336,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     writerRepoId,
     replicaRead = false,
   ) => {
-    await rbacResumed;
+    await ensureRbacResumed();
     const replicaPrincipal = auth.fleetReplicaPrincipal;
     if (replicaPrincipal) {
       if (
@@ -1114,17 +1140,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   });
   accessAdminRef.current = accessAdmin;
   const lifecycle = createDaemonHostLifecycleApi(hostContext);
-  const resumed = managedRbac.resume();
-  rbacResumed = resumed;
-  void resumed.then(
-    () => input.recordLifecycle?.({ event: "identity_ready" }),
-    (error: unknown) => {
-      input.recordLifecycle?.({
-        event: "rbac_resume_failed",
-        error: error instanceof Error ? error.message : String(error),
-      });
-    },
-  );
+  void ensureRbacResumed().catch(consumeKnownError);
   const edgeJoinProgress = createEdgeJoinProgressTap();
   const host: DaemonHost = {
     skillEvalRunner: skillEvalProduction.runner,
@@ -1155,7 +1171,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     home,
     identityCenter: keycloakCenter,
     sessionPrincipal: async (auth, method, params) => {
-      await rbacResumed;
+      await ensureRbacResumed();
       if (
         isDaemonSocketOwner(auth) &&
         [
@@ -1393,7 +1409,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         [
           "rbac-resume-and-access-admin.close",
           async () => {
-            await rbacResumed.catch(consumeKnownError);
+            await rbacResumeInFlight?.catch(consumeKnownError);
             await accessAdmin.close();
           },
         ],

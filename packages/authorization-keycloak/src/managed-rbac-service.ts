@@ -18,6 +18,7 @@ import { connect, createServer, type Server } from "node:net";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { consumeKnownError } from "@harness-anything/kernel";
+import { managedIdentityPolicy } from "@harness-anything/kernel/internal/domain/managed-identity-policy.ts";
 import type { ManagedRbacHost } from "./managed-host.ts";
 import type { ManagedRbacRequest, ManagedRbacListener, CertificateMode } from "@harness-anything/kernel";
 import { KeycloakPolicyAdapter, type KeycloakLegacyRoleMigrationReceipt } from "./keycloak-policy-adapter.ts";
@@ -39,6 +40,7 @@ import {
   validateListenerInput,
 } from "./managed-rbac-listener-certificate.ts";
 import { stopManagedPostgresOrphan } from "./managed-postgres-orphan.ts";
+import { stopManagedKeycloakOrphan } from "./managed-keycloak-orphan.ts";
 
 export const managedRbacVersions = Object.freeze({
   keycloak: "26.7.3",
@@ -277,33 +279,73 @@ export class ManagedRbacService {
   async #stopChild(name: ManagedChild): Promise<boolean> {
     const child = this.#children.get(name);
     if (!child) return false;
-    await new Promise<void>((resolve) => {
+    const processGroup = name === "keycloak" && this.#ports.platform !== "win32" ? child.pid : undefined;
+    if (name === "keycloak" && this.#ports.platform === "win32" && child.pid !== undefined) {
+      const result = await this.#host.runProcessExitAsync(
+        "taskkill.exe",
+        ["/PID", String(child.pid), "/T", "/F"],
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { timeoutMs: managedIdentityPolicy.defaultValue.timeoutMs },
+      );
+      if (result.exitCode !== 0 && child.exitCode == null && child.signalCode == null)
+        throw managedRbacError("rbac_process_stop_failed", "The managed Keycloak process tree could not be stopped.");
+    }
+    await new Promise<void>((resolve, reject) => {
       let settled = false;
+      const completionEvent = processGroup === undefined ? "exit" : "close";
       const timers: { hard?: ReturnType<typeof setTimeout>; force?: ReturnType<typeof setTimeout> } = {},
+        fail = (error: unknown) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timers.hard);
+          clearTimeout(timers.force);
+          child.removeListener(completionEvent, finish);
+          reject(error);
+        },
         finish = () => {
           if (settled) return;
           settled = true;
           clearTimeout(timers.hard);
           clearTimeout(timers.force);
-          child.removeListener("exit", finish);
+          child.removeListener(completionEvent, finish);
           resolve();
         };
       // A child that never emits exit (a spawn error leaves no live pid) must not hang the stop.
       timers.hard = setTimeout(() => {
-        child.kill("SIGKILL");
-        timers.force = setTimeout(finish, 1_000);
+        void Promise.resolve()
+          .then(() => signalChild(child, "SIGKILL", processGroup, this.#ports.platform))
+          .then(() => {
+            timers.force = setTimeout(finish, 1_000);
+          }, fail);
       }, 4_000);
       timers.hard.unref();
-      child.once("exit", finish);
+      child.once(completionEvent, finish);
       if (
         (child.exitCode !== null && child.exitCode !== undefined) ||
         (child.signalCode !== null && child.signalCode !== undefined)
       ) {
+        if (processGroup !== undefined) {
+          void Promise.resolve()
+            .then(() => {
+              signalProcessGroup(processGroup, "SIGTERM");
+              signalProcessGroup(processGroup, "SIGKILL");
+            })
+            .then(undefined, fail);
+          return;
+        }
         finish();
         return;
       }
-      child.kill("SIGTERM");
+      if (!(name === "keycloak" && this.#ports.platform === "win32" && child.pid !== undefined)) {
+        void Promise.resolve()
+          .then(() => signalChild(child, "SIGTERM", processGroup, this.#ports.platform))
+          .then(undefined, fail);
+      }
     });
+    if (processGroup !== undefined) signalProcessGroup(processGroup, "SIGKILL");
     this.#children.delete(name);
     this.#readiness.delete(name);
     return true;
@@ -690,8 +732,18 @@ export class ManagedRbacService {
       { listener } = config,
       httpPort = new URL(config.url).port,
       javaHome = javaHomePath(this.#root, this.#ports.platform),
+      java = path.join(javaHome, "bin", this.#ports.platform === "win32" ? "java.exe" : "java"),
+      keycloakHome = path.join(this.#root, "runtime", "keycloak"),
       kc = managedExecutable(this.#root, "runtime/keycloak/bin/kc.sh", this.#ports.platform);
     if (listener) requirePrivateKeyFile(listener.certificateKeyFile);
+    await stopManagedKeycloakOrphan({
+      host: this.#host,
+      root: this.#root,
+      java,
+      keycloakHome,
+      ports: [Number(httpPort), config.managementPort],
+      platform: process.platform,
+    });
     const httpsPort = listener ? (await availableLoopbackPorts())[0] : undefined,
       passthrough = listener ? await listenPassthrough(listener, httpsPort!) : undefined;
     if (this.#stopping) {
@@ -838,10 +890,12 @@ export class ManagedRbacService {
         env: { ...process.env, ...env },
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
+        ...(name === "keycloak" && this.#ports.platform !== "win32" ? { detached: true } : {}),
         ...(cwd ? { cwd } : {}),
       }),
+      processGroup = name === "keycloak" && this.#ports.platform !== "win32" ? child.pid : undefined,
       timer = setTimeout(() => {
-        child.kill("SIGTERM");
+        signalChild(child, "SIGTERM", processGroup, this.#ports.platform);
         settleError?.(managedRbacError("rbac_start_timeout", `${name} was not ready within ${timeoutMs}ms.`));
       }, timeoutMs),
       observe = (chunk: Buffer | string) => {
@@ -862,6 +916,10 @@ export class ManagedRbacService {
         if (terminated) return;
         terminated = true;
         clearTimeout(timer);
+        if (processGroup !== undefined) {
+          signalProcessGroup(processGroup, "SIGTERM");
+          signalProcessGroup(processGroup, "SIGKILL");
+        }
         log.end();
         onTerminate?.();
         this.#children.delete(name);
@@ -1441,6 +1499,26 @@ function run(command: string, args: readonly string[], execute: ManagedRbacHost[
       "rbac_process_failed",
       `${command} failed: ${error instanceof Error ? error.message : String(error)}`,
     );
+  }
+}
+
+function signalChild(
+  child: ChildProcess,
+  signal: NodeJS.Signals,
+  processGroup: number | undefined,
+  platform: NodeJS.Platform,
+): void {
+  if (processGroup !== undefined && platform !== "win32") signalProcessGroup(processGroup, signal);
+  else child.kill(signal);
+}
+
+function signalProcessGroup(processGroup: number, signal: NodeJS.Signals): boolean {
+  try {
+    process.kill(-processGroup, signal);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+    throw error;
   }
 }
 

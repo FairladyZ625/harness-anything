@@ -935,6 +935,17 @@
     ],
     "contracts": [
       {
+        "id": "managed-runtime-process-identity",
+        "symbol": "packages/authorization-keycloak/src/managed-keycloak-orphan.ts#isManagedKeycloakProcess",
+        "explain": "Host process inspection boundary: verify the configured executable, managed runtime home and process arguments before signaling a listener. This is operating-system identity evidence, not a domain authorization verdict.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-keycloak-orphan.ts#isManagedKeycloakProcess:0695cc4bc60e7f6a05ee51325ccfea31",
+            "route": "packages/authorization-keycloak/src/managed-keycloak-orphan.ts#isManagedKeycloakProcess"
+          }
+        ]
+      },
+      {
         "id": "authorization-builtin/src/builtin-policy-adapter.ts#AuthorizationPolicyAdministrationPort",
         "symbol": "packages/authorization-builtin/src/builtin-policy-adapter.ts#BuiltinPolicyAdapter.validatePolicyGroups",
         "explain": "AuthorizationPolicyAdministrationPort: Provider inventory adapter and provider-specific scope error rendering; cycle/scope judgment is kernel-owned.",

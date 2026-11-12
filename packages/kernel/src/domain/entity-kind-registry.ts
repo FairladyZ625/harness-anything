@@ -86,6 +86,7 @@ import { gateMappingPolicy, gateMappingPolicyJudgments } from "./gate-mapping-po
 import { storageReplayPolicy, storageReplayJudgments } from "./storage-replay-policy.ts";
 import { completionGateOverridePolicy, completionGateOverrideJudgment } from "./completion-gate-policy.ts";
 import { writerLifecyclePolicy } from "./writer-lifecycle-policy.ts";
+import { managedIdentityPolicy } from "./managed-identity-policy.ts";
 import { guiQueryPacing } from "./gui-query-pacing.ts";
 import { taskLeaseGuidancePolicy, returnToPlannedJudgment } from "./task-lease-guidance.ts";
 import sourceContractFacets from "./source-contract-facets.json" with { type: "json" };
@@ -1478,6 +1479,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     policies: [
       cliOperationalPolicy, cliContractPolicy,
       writerLifecyclePolicy,
+      managedIdentityPolicy,
       guiQueryPacing,
       guiInteractionPolicy,
       guiAdmissionPolicy,
