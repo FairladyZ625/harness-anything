@@ -3,7 +3,12 @@ import {
   executionArrangementAllows,
 } from "@harness-anything/kernel/internal/domain/task-execution-arrangement.ts";
 import type { SquadDispatchContext } from "@harness-anything/kernel";
-import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS, dispatchOwnerForNode, sha256Text } from "@harness-anything/kernel";
+import {
+  DEFAULT_RUNTIME_STALL_TIMEOUT_MS,
+  dispatchOwnerForNode,
+  dispatchAdmissionBlocker,
+  sha256Text,
+} from "@harness-anything/kernel";
 import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -76,7 +81,7 @@ import { publishRuntimeEvent as publishRuntimeEventImpl } from "./runtime-spawn-
 import { runtimeProcessTreeStopped } from "./runtime-spawn-settlement.ts";
 import * as runtimeSpawnerDelegates from "./runtime-spawner-delegates.ts";
 import { runtimeBindingForDispatch } from "./runtime-spawn-types.ts";
-import { assertDispatchAdmission } from "./runtime-dispatch-admission.ts";
+import { readActiveDispatchLifecycle } from "./runtime-dispatch-admission.ts";
 import { configureWorkerGitIdentity } from "./runtime-worker-push.ts";
 import type {
   ActiveRuntime,
@@ -454,7 +459,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         taskPackageRoot,
       );
     const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
-      [localRuntimeSessions, runtimeInstances, allowedInstanceIds, providerHealth] =
+      [localRuntimeSessions, runtimeInstances, allowedInstanceIds, providerHealth, capacity] =
         await resolveRuntimeDispatchResources(input, input.remote, projection!, providerSessionId ?? undefined),
       { squad, delegatedBy, agent, resolvedSkills, preset } = resolveDispatchAgent(
         input,
@@ -523,13 +528,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       });
       modelSlotHeld = true;
     }
-    const assertDispatchAdmissible = (runtimeInstanceId: string) =>
-      assertDispatchAdmission(
-        (query) =>
-          input.remote ? input.remote.readDispatchLifecycle(query) : projection!.readDispatchLifecycle(query),
-        { instanceId: runtimeInstanceId, owner: dispatchOwnerForNode(input.runtimeNode?.nodeId) },
-        runtimeSpawnError,
-      );
     const selectRuntime = () =>
       prepareRuntimeInstance(
         {
@@ -540,11 +538,25 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           instances: runtimeInstances,
           allowedInstanceIds,
           sessions: localRuntimeSessions,
+          capacity,
           health: providerHealth,
           now: input.now(),
         },
         async (runtimeInstanceId) => {
-          if (!dryRun) await assertDispatchAdmissible(runtimeInstanceId);
+          if (!dryRun) {
+            const rows = await readActiveDispatchLifecycle(
+                (query) =>
+                  input.remote ? input.remote.readDispatchLifecycle(query) : projection!.readDispatchLifecycle(query),
+                runtimeSpawnError,
+                runtimeInstanceId,
+              ),
+              refusal = dispatchAdmissionBlocker(rows, {
+                instanceId: runtimeInstanceId,
+                owner: dispatchOwnerForNode(input.runtimeNode?.nodeId),
+                capacity: input.runtimeInstanceCapacities?.[runtimeInstanceId],
+              });
+            if (refusal) throw runtimeSpawnError(refusal.code, refusal.message);
+          }
           const initialFallback =
               inheritedFallback ??
               initialFallbackAttempt(
@@ -876,6 +888,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     }
     const streamStartedAt = input.now();
     let process: RuntimeProcess | undefined;
+    let active: ActiveRuntime | undefined = undefined;
     let resumeObservation: ResumeProcessObservation | undefined;
     let stream: DispatchStreamWriter | undefined;
     // Freeze the provider directory this launch's environment actually resolved (explicit
@@ -1001,7 +1014,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       if (callbackRelay) removeRuntimeCallbackRelay(newDispatchId);
     };
     const cleanupFailedLaunch = async (error: unknown): Promise<void> => {
-      processes.get(runtimeSessionId)?.releaseAuthorization?.();
+      active?.releaseAuthorization?.();
       process?.terminate();
       process?.release?.();
       releaseModelSlot();
@@ -1217,7 +1230,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         void cloudRelay?.close();
       },
     };
-    const active = createActiveRuntime({
+    active = createActiveRuntime({
       process: releasedRuntimeProcess,
       dispatchId: newDispatchId,
       runtimeSessionId,
@@ -1476,8 +1489,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       input.schedule(() => sweepSettledRuntimeTempDirectories(extracted));
       return adoptRuntimes(extracted, onProgress);
     },
-    /** Whether this spawner still owns a launched process for the runtime session. */
-    ownsLiveProcess: (runtimeSessionId: string) => processes.has(runtimeSessionId),
     cancel: (payload: JsonObject, binding: RuntimeBinding) => cancelRuntime(extracted, payload, binding),
     steer: (payload: JsonObject, binding: RuntimeBinding) => steerRuntime(extracted, payload, binding),
     close: () => {

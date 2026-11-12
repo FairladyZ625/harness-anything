@@ -192,3 +192,38 @@ test("handoff claim rejects a self-consistent packet bound to another runtime", 
     (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_handoff_payload_invalid",
   );
 });
+
+test("a closed lifecycle does not substitute missing canonical handoff result evidence", (t) => {
+  const rootDir = mkdtempSync(path.join(os.tmpdir(), "handoff-incomplete-result-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const binding = { actor: { principal: { personId: "owner" }, executor: null }, source: "local" as const };
+  const cell = {
+    rootDir,
+    requiredCellText: (value: unknown) => String(value),
+    projection: {
+      readRuntimeDispatchById: () => ({
+        event: {
+          ...binding,
+          payload: {
+            handoffEnabled: true,
+            kindId: "codex",
+            taskId: "task",
+            executionId: "execution",
+            agentId: "agent",
+            runtimeSessionId: "session",
+          },
+        },
+      }),
+      readRuntimeSession: () => ({
+        providerSessionId: "native-session",
+        outcome: "unknown",
+        exitCode: null,
+        resultRef: null,
+      }),
+      readDispatchLifecycle: () => ({ status: "ready", rows: [{ policy: { canHandoff: true } }] }),
+    },
+  };
+  assert.throws(() => runRuntimeHandoffAction(cell as never, { kind: "runtime-handoff-export", dispatchId }, binding), {
+    code: "runtime_handoff_ineligible",
+  });
+});

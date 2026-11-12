@@ -192,7 +192,6 @@ export function makeRepoReadRuntime(
         adopt: unsupportedWrite,
         cancel: unsupportedWrite,
         steer: unsupportedWrite,
-        ownsLiveProcess: unsupportedWrite,
         close: unsupportedWrite,
       },
       actionContext = createRepoCellActionContext({
@@ -232,11 +231,12 @@ export function makeRepoReadRuntime(
         sessionIdentity: unsupportedWrite,
         readSettings: () => settings.readRepository(),
       }),
-      operationalContext = Object.assign(runtimeContext, {
-        settings,
-        settleRuntimeExecutionLease: unsupportedWrite,
-      });
-    operationalContext satisfies RepoCellOperationalContext;
+      operationalContext = Object.defineProperty(runtimeContext, "settings", {
+        value: settings,
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      }) as RepoCellOperationalContext;
     actionRuntimes = Object.freeze({
       entity: Object.freeze({
         agent: makeAgentActionRuntime(runtimeContext),

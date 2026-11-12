@@ -1,5 +1,5 @@
 import type { PoolClient } from "pg";
-import { assertPgReadIndexReady } from "./pg-read-index-migration.ts";
+import { assertPgReadIndexReady, pgRuntimeObservedAtSql } from "./pg-read-index-migration.ts";
 import { assertPgEventReadIndexReady } from "./pg-event-read-index-migration.ts";
 import type { RuntimeSession, RuntimeSessionReadQuery } from "@harness-anything/kernel";
 import { runtimeSessionInActivityWindow } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
@@ -102,14 +102,7 @@ export async function getPgProjectionValue<Value>(
 export function pgRuntimeSessionReadStatement(
   scope: PgProjectionScope,
   repoId: string,
-  query: {
-    readonly runtimeSessionId?: string;
-    readonly providerSessionId?: string;
-    readonly unsettledOnly?: boolean;
-    readonly inFlightOnly?: boolean;
-    readonly nonExitedOnly?: boolean;
-    readonly executionOwnerNodeId?: string;
-  } = {},
+  query: RuntimeSessionReadQuery = {},
 ): { readonly text: string; readonly values: readonly unknown[] } {
   const values: unknown[] = [scope.tenantId, scope.projectId, scope.policyEpoch, [...(scope.readers ?? [])]];
   if (query.inFlightOnly)
@@ -140,6 +133,13 @@ export function pgRuntimeSessionReadStatement(
   if (query.nonExitedOnly) where.push("v.runtime_liveness <> 'exited'");
   if (query.providerSessionId !== undefined)
     where.push(`ha_read_index_json(v.value)->>'providerSessionId'=${bind(query.providerSessionId)}`);
+  const observed = pgRuntimeObservedAtSql("v.value");
+  for (const [boundary, operator] of [
+    [query.observedAfter, ">="],
+    [query.observedBefore, "<="],
+  ] as const)
+    if (boundary !== undefined)
+      where.push(`${observed}${operator}${bind(new Date(boundary).toISOString().slice(0, -1))}`);
   if (query.executionOwnerNodeId !== undefined) {
     const repoParameter = bind(repoId),
       nodeParameter = bind(query.executionOwnerNodeId);
@@ -161,6 +161,17 @@ export function pgRuntimeSessionReadStatement(
       values,
     };
   }
+  if (query.activitySince !== undefined) {
+    const since = bind(new Date(query.activitySince).toISOString().slice(0, -1)),
+      selected = `SELECT v.entity_id,v.value FROM ha_projection_values v WHERE ${where.join(" AND ")}`;
+    // Separate indexed arms keep old live sessions and recent closed sessions without walking
+    // the settled history in id order. UNION removes sessions that satisfy both arms.
+    return {
+      text: `SELECT value FROM (${selected} AND v.runtime_liveness='live'
+        UNION ${selected} AND ${observed}>=${since}) selected ORDER BY entity_id`,
+      values,
+    };
+  }
   return {
     text: `SELECT v.value FROM ha_projection_values v WHERE ${where.join(" AND ")} ORDER BY v.entity_id, v.owner_id`,
     values,
@@ -173,12 +184,12 @@ export async function listPgRuntimeSessions(
   repoId: string,
   query: RuntimeSessionReadQuery = {},
 ): Promise<readonly RuntimeSession[]> {
-  if (query.unsettledOnly || query.nonExitedOnly) await assertPgReadIndexReady(client, scope, "runtime-session");
+  if (query.unsettledOnly || query.nonExitedOnly || query.activitySince !== undefined)
+    await assertPgReadIndexReady(client, scope, "runtime-session");
   if (query.executionOwnerNodeId !== undefined) await assertPgEventReadIndexReady(client, scope, repoId);
   const statement = pgRuntimeSessionReadStatement(scope, repoId, query),
     result = await client.query<{ value: string }>(statement.text, [...statement.values]);
-  // These intents share the canonical port with SQLite. PG's window index is a separate
-  // expansion; retain exact result semantics while that expansion is delivered.
+  // inFlightOnly uses the bounded current-set table; all other ranges are indexed in SQL.
   return result.rows
     .map(({ value }) => JSON.parse(value) as RuntimeSession)
     .filter(

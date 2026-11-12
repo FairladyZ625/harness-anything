@@ -12,6 +12,17 @@ import {
 import { READ_PROBES, measureReadScale } from "./fixtures/g38-read-cost.mjs";
 import { sqliteWorkProbeUnavailableReason } from "./fixtures/g38-sqlite-work.mjs";
 
+test("G38 settled dispatch history keeps lifecycle in-flight results fixed", async (t) => {
+  const pair = {};
+  for (const size of [2, 20]) {
+    const result = await measureReadScale("sqlite", "dispatches", size, { probeIds: ["in-flight-work"] });
+    pair[size] = result["in-flight-work"];
+  }
+  assert.equal(pair[2].resultSize, pair[20].resultSize, "completed history must not manufacture reservations");
+  assert.equal(pair[2].firstResultSize, pair[20].firstResultSize);
+  t.diagnostic(JSON.stringify({ lifecycleHistory: pair }));
+});
+
 if (process.env.FLEET_STRESS_G38_LEGACY_BENCH === "1") {
   test("G38 existing lane runs unchanged before read-scale integration", async () => {
     assert.equal(await main(["--phase", "legacy"]), 0);

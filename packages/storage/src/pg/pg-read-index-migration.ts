@@ -2,6 +2,13 @@ import { POSTGRES_SCOPE_COLUMNS_SQL } from "../postgres/scope-schema.ts";
 import type { PoolClient } from "pg";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 
+/** Validated UTC instants, normalized to Date.parse's millisecond precision without a
+ * timezone-dependent cast. The same expression is used by the index and range query. */
+export function pgRuntimeObservedAtSql(column = "value"): string {
+  const time = `(ha_read_index_json(${column})->>'lastObservedAt')`;
+  return `(left(${time},19)||'.'||rpad(left(split_part(split_part(${time},'.',2),'Z',1),3),3,'0'))`;
+}
+
 /** Additive v5 expansion. Current and previous writers share these materialization triggers.
  * Keep them after the previous-binary window (2026-11-18): current writes still require them.
  * Backfill runs as bounded management transactions; canonical text is never converted to JSONB.
@@ -88,6 +95,11 @@ export function readIndexDdl(): readonly string[] {
     `CREATE INDEX IF NOT EXISTS ha_projection_runtime_provider_session ON ha_projection_values
       (tenant_id,project_id,policy_epoch,(ha_read_index_json(value)->>'providerSessionId'),entity_id)
       WHERE model='runtime-session' AND owner_id=''`,
+    `CREATE INDEX IF NOT EXISTS ha_projection_runtime_observed ON ha_projection_values
+      (tenant_id,project_id,policy_epoch,${pgRuntimeObservedAtSql()},entity_id)
+      WHERE model='runtime-session' AND owner_id=''`,
+    `CREATE INDEX IF NOT EXISTS ha_projection_runtime_live ON ha_projection_values
+      (tenant_id,project_id,policy_epoch,entity_id) WHERE model='runtime-session' AND owner_id='' AND runtime_liveness='live'`,
     `CREATE INDEX IF NOT EXISTS ha_projection_pin_order ON ha_projection_values
       (tenant_id,project_id,policy_epoch,order_at DESC,entity_id) WHERE model='pin'`,
     `CREATE INDEX IF NOT EXISTS ha_projection_interval_order ON ha_projection_values

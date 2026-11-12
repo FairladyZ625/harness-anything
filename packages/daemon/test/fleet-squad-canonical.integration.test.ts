@@ -588,6 +588,9 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   const coldKills: string[] = [],
     coldCancel = (personId: string) =>
       makeFleetSquadCoordinator({
+        readDispatchLifecycle: async () => {
+          throw new Error("Cold owner cancellation must stop transport before reading lifecycle.");
+        },
         request: {
           ...configuration,
           workspaceRoot: a.edgeRoot,

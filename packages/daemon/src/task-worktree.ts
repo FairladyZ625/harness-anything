@@ -1,3 +1,4 @@
+import type { DispatchLifecycleReader } from "./runtime-dispatch-admission.ts";
 import {
   existsSync,
   lstatSync,
@@ -168,6 +169,7 @@ export interface TaskWorktreeCheckout {
  * setup. An existing checkout at another commit is preserved and refused.
  */
 export interface TaskWorktreeCheckoutOptions {
+  readonly readDispatchLifecycle?: DispatchLifecycleReader;
   /**
    * The exact commit a reviewer must inspect. The checkout is created at this commit when absent, and an existing
    * checkout at any other commit is refused instead of being advanced: a review must never run on bytes other than
@@ -279,7 +281,18 @@ export async function checkoutTaskWorktree(
       throw worktreeBaseUnavailableError(rootDir, taskId, binding, reason);
     }
     // A runtime that stopped mid-rebase or mid-merge leaves conflict residue; clear it before judging the branch.
-    if (!fresh) await abortInterruptedWorktreeOperation(rootDir, cwd);
+    if (!fresh)
+      await abortInterruptedWorktreeOperation(
+        rootDir,
+        cwd,
+        options.readDispatchLifecycle ??
+          (() => {
+            throw cellCodedError(
+              "dispatch_lifecycle_pending",
+              "Workspace ownership requires a canonical lifecycle read.",
+            );
+          }),
+      );
     // The delivery branch is the one the checkout holds; the task id only names the branch a fresh checkout is cut
     // as. A worker may move a task to another delivery branch, and judging it against origin/<task id> then measures
     // the abandoned branch.
@@ -449,6 +462,7 @@ export function taskWorktreeCheckoutNote(checkout: TaskWorktreeCheckout): string
 }
 
 export interface TaskWorktreeLifecycleInput {
+  readonly readDispatchLifecycle?: DispatchLifecycleReader;
   readonly rootDir: string;
   readonly readTask: (taskId: string) => TaskV2 | null | undefined;
   readonly readPresetSnapshot: PresetSnapshotRead;
@@ -770,6 +784,7 @@ async function checkoutOnStart(
       input.readWorktree(),
       undefined,
       stackedCommit,
+      { readDispatchLifecycle: input.readDispatchLifecycle },
     );
   } catch (error) {
     // A start is not a provider launch and must not block the lifecycle write on a workspace it did not get: an

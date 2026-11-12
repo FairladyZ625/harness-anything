@@ -1,7 +1,7 @@
 import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import type { TaskV2 } from "@harness-anything/kernel";
+import type { DispatchLifecycleView, TaskV2 } from "@harness-anything/kernel";
 import { liveDispatchIn } from "./live-dispatch-worktree.ts";
 import { runProcessText } from "./process-port.ts";
 import { taskWorktreeBinding, type PresetSnapshotRead } from "./task-worktree.ts";
@@ -20,6 +20,7 @@ export function renameLegacyTaskWorktrees(
   tasks: readonly (TaskV2 | null | undefined)[],
   readPresetSnapshot: PresetSnapshotRead,
   apply: boolean,
+  lifecycle: readonly DispatchLifecycleView[],
 ): readonly LegacyWorktreeRow[] {
   const rows: LegacyWorktreeRow[] = [];
   for (const task of tasks) {
@@ -43,7 +44,7 @@ export function renameLegacyTaskWorktrees(
     else if (git(from, "branch", "--show-current") !== `codex/${legacy}`)
       rows.push(blocked("worktree_branch_unexpected"));
     else if (git(from, "status", "--porcelain")) rows.push(blocked("worktree_uncommitted_changes"));
-    else if (liveDispatchIn(rootDir, from)) rows.push(blocked("worktree_in_use_by_live_dispatch"));
+    else if (liveDispatchIn(lifecycle, from)) rows.push(blocked("worktree_in_use_by_live_dispatch"));
     else if (!apply) rows.push({ taskId: task.taskId, status: "worktree-rename", from });
     else {
       git(rootDir, "worktree", "move", from, to);

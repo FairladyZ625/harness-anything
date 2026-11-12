@@ -1,3 +1,4 @@
+import { readActiveDispatchLifecycleSync } from "./runtime-dispatch-admission.ts";
 import { createHash } from "node:crypto";
 import { renameLegacyTaskWorktrees } from "./task-worktree-legacy-rename.ts";
 import { presetSnapshotReader } from "./task-worktree.ts";
@@ -359,6 +360,10 @@ export function migrateTaskContracts(
             candidates.map((taskId) => migrationReads.get(taskId)?.snapshot.task ?? null),
             presetSnapshotReader(cell.projection),
             action.mode === "apply",
+            readActiveDispatchLifecycleSync(
+              (query) => cell.projection.readDispatchLifecycle(query),
+              cell.cellCodedError,
+            ),
           )
         : []),
     ];

@@ -1,10 +1,9 @@
 import { globSync, readFileSync, existsSync } from "node:fs";
 import path from "node:path";
-import { runtimeSessionMissingOutcomeEvidence } from "@harness-anything/kernel";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { readDispatchStream } from "./dispatch-stream.ts";
-import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
+
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { writeFileDurably } from "../../storage/src/durable-file.ts";
 
@@ -40,18 +39,6 @@ export async function prepareRuntimeHandoff(rootDir: string, dispatchId: string)
     stream.header.role === "reviewer"
   )
     throw runtimeSpawnError("runtime_handoff_ineligible", "Export requires a new opted-in task-bound Codex dispatch.");
-  if (
-    !stream.process?.exited ||
-    runtimePidIsAlive(stream.process.pid) ||
-    !stream.terminalOutcome ||
-    // Handoff continues work whose delivery was never witnessed, so eligibility is settledness
-    // (complete exit/result evidence), not a success verdict the stream never declared.
-    runtimeSessionMissingOutcomeEvidence(stream.terminalOutcome.payload) !== null
-  )
-    throw runtimeSpawnError(
-      "runtime_handoff_source_active",
-      "The source process and its stream must be settled on this node.",
-    );
   const cwd = stream.header.cwd;
   const runGit = async (args: string[]) =>
     (

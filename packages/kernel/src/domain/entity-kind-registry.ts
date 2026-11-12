@@ -1,3 +1,4 @@
+import { dispatchLifecyclePolicies } from "./dispatch-lifecycle-ontology.ts";
 import { todoSchema } from "./todo.ts";
 import { createTodoActionCatalog } from "./todo-action-contract.ts";
 import { AGENT_DECLARATION_V1_SCHEMA, SQUAD_DECLARATION_V1_SCHEMA } from "./agent-squad-schema.ts";
@@ -991,6 +992,16 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
       }],
     }],
     policies: [taskLeasePolicy, completionGateOverridePolicy, {
+      id: "runtime-dispatch-mutation", ownerRef: "task/release", unit: "task lease generation",
+      bounds: "claimOpId must identify the same task, execution and lease version; held/reserving leases fence mutations except contract migration and parent-only amendment.",
+      defaultValue: null, version: 1, scope: "center task mutation",
+      reason: "Runtime settlement cannot release a later holder or bypass the existing mutation fence.",
+      fixtures: ["packages/daemon/test/runtime-spawn-lifecycle-settlement.integration.test.ts"],
+      sources: [
+      { candidateId: "policy:packages/daemon:packages/daemon/src/repo-cell-task-mutation.ts#taskMutation:4254517165b44213a35c3638508ba56d", route: "packages/daemon/src/repo-cell-task-mutation.ts#taskMutation" },
+      { candidateId: "policy:packages/daemon:packages/daemon/src/repo-cell-task-mutation.ts#taskMutation:c2a07f207dff3812d7cd929fca87048e", route: "packages/daemon/src/repo-cell-task-mutation.ts#taskMutation" },
+      ],
+    }, {
       id: "submit-lease-proof", ownerRef: "task", unit: "SubmitExecution proof",
       bounds: "A normal submit owns the held execution lease and source; an amendment binds the unleased submitted execution. Session disposition is complete, partial or unavailable.",
       defaultValue: null, version: 1, scope: "task submission and amendment authority",
@@ -1336,6 +1347,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
       },
     ],
     actionCatalog: runtimeSessionCatalog,
+    policies: dispatchLifecyclePolicies,
     entityStore: null,
     authoring: { kind: "agent-runtime-event", contractRef: "agent-runtime-event/v1" },
     sdkExposure: noSdkExposure,

@@ -5,6 +5,7 @@ import { runProcessTextAsync } from "./process-port.ts";
 import { reclaimManagedWorktree, type WorktreeReclaim } from "./schedule-occurrence-workspace.ts";
 import { checkoutTaskWorktree, openTaskWorktreeBinding, presetSnapshotReader } from "./task-worktree.ts";
 import { worktreeSetupFailure, type WorktreeSetupSettings } from "./worktree-setup.ts";
+import type { DispatchLifecycleReader } from "./runtime-dispatch-admission.ts";
 
 /** Where a squad worker runs: the run cwd, or its own worktree and branch cut at the run baseline. */
 export type WorkerCheckout = { readonly cwd: string; readonly branch: string; readonly baseSha: string };
@@ -16,10 +17,14 @@ export async function resolveSquadCwd(
   query: <T>(read: (projection: TaskProjection) => T) => T,
   taskId: string,
   worktree: WorktreeSetupSettings,
+  readDispatchLifecycle: DispatchLifecycleReader = (lifecycleQuery) =>
+    query((projection) => projection.readDispatchLifecycle(lifecycleQuery)),
 ): Promise<string> {
   if (value !== undefined) return resolveCwd(rootDir, value);
   const binding = query((read) => openTaskWorktreeBinding(read.read(taskId).snapshot.task, presetSnapshotReader(read))),
-    checkout = binding ? await checkoutTaskWorktree(rootDir, taskId, binding, worktree) : null;
+    checkout = binding
+      ? await checkoutTaskWorktree(rootDir, taskId, binding, worktree, undefined, undefined, { readDispatchLifecycle })
+      : null;
   if (checkout && !checkout.setup.ok)
     throw new Error(worktreeSetupFailure(checkout.cwd, checkout.setup, `start the Squad run for ${taskId} again`));
   return checkout?.cwd ?? rootDir;

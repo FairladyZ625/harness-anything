@@ -1,12 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import type { TaskV2 } from "@harness-anything/kernel";
-import { dispatchStreamPath, openDispatchStream } from "../src/dispatch-stream.ts";
+import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 import { renameLegacyTaskWorktrees } from "../src/task-worktree-legacy-rename.ts";
 import { checkoutTaskWorktree } from "../src/task-worktree.ts";
 import { noWorktreeSetup } from "../src/worktree-setup.ts";
@@ -22,12 +22,12 @@ test("migrate renames an old-name worktree and its branch to the task id, and th
     commit(legacy, "work.txt");
     const head = git(legacy, "rev-parse", "HEAD");
 
-    assert.deepEqual(renameLegacyTaskWorktrees(fixture.root, [task], repositoryDiff, false), [
+    assert.deepEqual(renameLegacyTaskWorktrees(fixture.root, [task], repositoryDiff, false, []), [
       { taskId: task.taskId, status: "worktree-rename", from: legacy },
     ]);
     assert.equal(existsSync(legacy), true, "a dry run moves nothing");
 
-    assert.deepEqual(renameLegacyTaskWorktrees(fixture.root, [task], repositoryDiff, true), [
+    assert.deepEqual(renameLegacyTaskWorktrees(fixture.root, [task], repositoryDiff, true, []), [
       { taskId: task.taskId, status: "worktree-renamed", from: legacy },
     ]);
     const renamed = path.join(fixture.root, ".worktrees", task.taskId);
@@ -44,7 +44,7 @@ test("migrate renames an old-name worktree and its branch to the task id, and th
     );
     assert.deepEqual(checkout, { cwd: renamed, branch: task.taskId, baseRef: null, setup: { ok: true, ran: [] } });
     // Nothing is left to rename.
-    assert.deepEqual(renameLegacyTaskWorktrees(fixture.root, [task], repositoryDiff, true), []);
+    assert.deepEqual(renameLegacyTaskWorktrees(fixture.root, [task], repositoryDiff, true, []), []);
   } finally {
     rmSync(fixture.base, { recursive: true, force: true });
   }
@@ -60,9 +60,9 @@ test("migrate leaves an old-name worktree with uncommitted work or a live worker
     git(fixture.root, "worktree", "add", "-q", "-b", "codex/dirty-11111111", dirtyTree, "main");
     writeFileSync(path.join(dirtyTree, "draft.txt"), "draft\n");
     git(fixture.root, "worktree", "add", "-q", "-b", "codex/busy-55555555", busyTree, "main");
-    liveDispatch(fixture.root, busyTree);
+    const lifecycle = liveDispatch(busyTree);
 
-    assert.deepEqual(renameLegacyTaskWorktrees(fixture.root, [dirty, busy], repositoryDiff, true), [
+    assert.deepEqual(renameLegacyTaskWorktrees(fixture.root, [dirty, busy], repositoryDiff, true, lifecycle), [
       { taskId: dirty.taskId, status: "manual", reason: "worktree_uncommitted_changes", worktree: dirtyTree },
       { taskId: busy.taskId, status: "manual", reason: "worktree_in_use_by_live_dispatch", worktree: busyTree },
     ]);
@@ -74,30 +74,13 @@ test("migrate leaves an old-name worktree with uncommitted work or a live worker
   }
 });
 
-/** A dispatch whose worker (this test process) is running with its cwd inside the worktree. */
-function liveDispatch(rootDir: string, cwd: string): void {
-  const dispatchId = "dispatch_0123456789abcdef01234567";
-  openDispatchStream(rootDir, {
-    dispatchId,
-    taskId: null,
-    executionId: null,
-    runtimeSessionId: "runtime_legacy_rename",
-    instanceId: "instance-1",
-    startedAt: "2026-09-28T00:00:00.000Z",
-    dispatchOpId: "legacy-rename-op",
-    kindId: "codex",
-    permissionMode: null,
-    binding: { actor: { principal: { personId: "person-1" }, executor: null }, source: "local" },
-    cwd,
-    prompt: "work in the old worktree",
-    model: "gpt-5.6-sol",
-    reasoningEffort: null,
-    fast: false,
-  } as Parameters<typeof openDispatchStream>[1]);
-  appendFileSync(
-    dispatchStreamPath(rootDir, dispatchId),
-    `${JSON.stringify({ schema: "runtime-dispatch-stream/v1", kind: "process_started", pid: process.pid })}\n`,
-  );
+/** Ownership is canonical; no local process or stream is required. */
+function liveDispatch(cwd: string) {
+  const event = lifecycleEvent("R", "runtime-legacy", { source: "local", instanceId: "worker" });
+  const read = dispatchLifecycleReadOf(() => [{ ...event, payload: { ...event.payload, cwd } } as never]);
+  const page = read({ by: "active", limit: 100 });
+  assert.equal(page.status, "ready");
+  return page.status === "ready" ? page.rows : [];
 }
 
 function legacyTask(taskId: string, slug = "renamed"): TaskV2 {

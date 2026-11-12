@@ -1,12 +1,7 @@
 import path from "node:path";
 import { statSync, watch } from "node:fs";
 import { makeTaskProjectionReader } from "@harness-anything/storage";
-import {
-  type DispatchLifecycleQuery,
-  type DispatchLifecycleRead,
-  type EdgeReadFreshness,
-  type TaskProjectionQueries,
-} from "@harness-anything/kernel";
+import { type EdgeReadFreshness, type TaskProjectionQueries } from "@harness-anything/kernel";
 import { locateFleetMirrorView, fleetMirrorViewAtProjection, type FleetMirrorView } from "./fleet-edge-mirror.ts";
 import { withReplicaGeneration } from "./fleet/replica-generation.ts";
 import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
@@ -67,22 +62,6 @@ export function withEdgeReadModel<T>(
       reader.close();
     }
   });
-}
-/**
- * The edge's dispatch lifecycle read: a replica that is stale or lags the center cannot vouch for
- * admission, so it answers pending (admission fails closed) instead of its last folded rows.
- */
-export function readEdgeDispatchLifecycle(
-  projection: Pick<TaskProjectionQueries, "readDispatchLifecycle">,
-  frame: Pick<RepositoryReadFrame, "cut" | "freshness">,
-  query: DispatchLifecycleQuery,
-): DispatchLifecycleRead {
-  if (frame.freshness.state === "fresh") return projection.readDispatchLifecycle(query);
-  return {
-    status: "pending",
-    watermark: frame.cut.revision,
-    sourceRevision: frame.cut.revision + (frame.freshness.lagRevisions ?? 0),
-  };
 }
 class EdgeReadError extends Error {
   readonly code: string;

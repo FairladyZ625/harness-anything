@@ -89,38 +89,45 @@ const projectionOf = (history: ReturnType<typeof sessionHistory>) =>
 
 test("dispatch reads active lifecycle pages, not the 12,995-session history", async () => {
   const history = sessionHistory();
-  const [local, , allowed] = await resolveRuntimeDispatchResources({}, undefined, projectionOf(history));
+  const [local, , allowed, , capacity] = await resolveRuntimeDispatchResources({}, undefined, projectionOf(history));
   assert.deepEqual(allowed, ["instance-a", "instance-b"]);
   assert.deepEqual(
-    local.map(({ runtimeSessionId }) => runtimeSessionId),
+    capacity.map(({ attempt }) => attempt.runtimeSessionId),
     ["runtime-open-a", "runtime-open-b", "runtime-open-c"],
   );
-  assert.equal(local.length, 3);
+  assert.equal(capacity.length, 3);
+  assert.deepEqual(local, [], "ordinary dispatch never needs session rows for its capacity ranking");
   assert.deepEqual(history.reads, []);
   assert.deepEqual(history.lifecycleQueries, [{ by: "active", limit: 100 }]);
 });
 
 test("a resume additionally point-reads its native session, settled or not, in id order", async () => {
   const history = sessionHistory();
-  const [local] = await resolveRuntimeDispatchResources({}, undefined, projectionOf(history), "native-resumed");
-  // Same order the full history read produced, so `find(providerSessionId)` picks the same row.
+  const [local, , , , capacity] = await resolveRuntimeDispatchResources(
+    {},
+    undefined,
+    projectionOf(history),
+    "native-resumed",
+  );
+  // The named session query retains the same resume choice; capacity travels in its own receipt.
   assert.deepEqual(
     local.map(({ runtimeSessionId }) => runtimeSessionId),
-    ["runtime-open-a", "runtime-open-b", "runtime-open-c", "runtime-settled-00007"],
+    ["runtime-open-c", "runtime-settled-00007"],
   );
   assert.equal(local.find((row) => row.providerSessionId === "native-resumed")?.runtimeSessionId, "runtime-open-c");
+  assert.equal(capacity.length, 3);
   // The session point read contributes resume metadata; active load comes from the lifecycle view.
   assert.deepEqual(
     local.map(({ liveness }) => liveness),
-    ["live", "unknown", "live", "exited"],
+    ["live", "exited"],
   );
   assert.deepEqual(history.reads, [{ query: { providerSessionId: "native-resumed" }, returned: 2 }]);
   assert.deepEqual(history.lifecycleQueries, [{ by: "active", limit: 100 }]);
 });
 
-test("remote dispatch sends the same bounded queries to its replica", async () => {
+test("remote dispatch sends the same bounded queries to its canonical read port", async () => {
   const history = sessionHistory();
-  const [local] = await resolveRuntimeDispatchResources(
+  const [local, , , , capacity] = await resolveRuntimeDispatchResources(
     {},
     {
       readRuntimeSessions: async (query) => history.readRuntimeSessions(query),
@@ -129,7 +136,8 @@ test("remote dispatch sends the same bounded queries to its replica", async () =
     null,
     "native-resumed",
   );
-  assert.equal(local.length, 4);
+  assert.equal(local.length, 2);
+  assert.equal(capacity.length, 3);
   assert.deepEqual(
     history.reads.map(({ query }) => query),
     [{ providerSessionId: "native-resumed" }],

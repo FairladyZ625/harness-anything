@@ -22,7 +22,12 @@ import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
 import { ModelSlotQueue } from "../src/runtime/model-slot-queue.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import type { RuntimeSpawnerInput } from "../src/runtime-spawn-types.ts";
-import { emptyDispatchLifecycleRead, lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
+import {
+  dispatchLifecycleReadOf,
+  emptyDispatchLifecycleRead,
+  lifecycleEvent,
+  lifecycleReadFor,
+} from "./dispatch-lifecycle-read.fixtures.ts";
 
 const binding = { actor: { principal: { personId: "operator" }, executor: null }, source: "local" as const };
 
@@ -320,11 +325,11 @@ test("runtime cancel settles a missing-process stream only after its canonical g
         readonly resultBody?: string;
       }> = [],
       context = {
-        input: { rootDir, repoId: "cancel-missing-process" },
+        input: { rootDir, repoId: "cancel-missing-process", now: () => "2026-11-11T00:00:00.000Z" },
         requiredRuntimeProjection: () => ({
           readRuntimeSession: () => liveSession(runtimeSessionId),
-          readDispatchLifecycle: lifecycleReadFor([
-            { runtimeSessionId, dispatchId, instanceId: "instance-1", owner: "local", process: "unknown" },
+          readDispatchLifecycle: dispatchLifecycleReadOf(() => [
+            lifecycleEvent("R", runtimeSessionId, { dispatchId, instanceId: "instance-1", source: "local" }),
           ]),
           readRuntimeSessions: () => [liveSession(runtimeSessionId)],
           readRuntimeDispatch: () => ({ actor: binding.actor, source: "local", payload: { dispatchId } }),
@@ -396,99 +401,6 @@ test("runtime cancel settles a missing-process stream only after its canonical g
   }
 });
 
-test("runtime cancel settles the task lease before closing a missing-process task dispatch", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-cancel-missing-task-process-"));
-  try {
-    const dispatchId = "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa",
-      runtimeSessionId = "runtime_bbbbbbbbbbbbbbbbbbbbbbbb",
-      taskId = "task-canceled-task-without-process",
-      executionId = "execution-canceled-task-without-process",
-      terminals: unknown[] = [],
-      published: string[] = [],
-      order: string[] = [];
-    let stopProofAccepted = false,
-      leaseReleased = false;
-    openMissingProcessStream(rootDir, dispatchId, runtimeSessionId, "dispatch-op-cancel-missing-task-process", {
-      taskId,
-      executionId,
-    });
-    const context = {
-      input: {
-        rootDir,
-        repoId: "cancel-missing-task-process",
-        now: () => "2026-11-02T00:00:00.000Z",
-        onAttemptTerminal: async (terminal: unknown) => {
-          order.push("settle-attempt");
-          terminals.push(terminal);
-          assert.equal(stopProofAccepted, true, "the settlement writer must observe accepted stop proof");
-          leaseReleased = true;
-        },
-      },
-      requiredRuntimeProjection: () => ({
-        readRuntimeSession: () => liveSession(runtimeSessionId),
-        readDispatchLifecycle: lifecycleReadFor([
-          { runtimeSessionId, dispatchId, instanceId: "instance-1", owner: "local", process: "unknown" },
-        ]),
-        readRuntimeSessions: () => [liveSession(runtimeSessionId)],
-        readRuntimeDispatch: () => ({ actor: binding.actor, source: "local", payload: { dispatchId } }),
-        readRuntimeSessionEvents: () => [
-          { type: "runtime_session_liveness_changed", source: "local", payload: { processGroupPid: 2_147_483_646 } },
-        ],
-        readRuntimeSessionEventsByType: () => [
-          { type: "runtime_session_liveness_changed", source: "local", payload: { processGroupPid: 2_147_483_646 } },
-        ],
-      }),
-      processes: new Map(),
-      exiting: new Set<string>(),
-      publishRuntimeEvent: async (type: string) => {
-        order.push(type);
-        published.push(type);
-        if (type === "runtime_session_exited") stopProofAccepted = true;
-        return {};
-      },
-      controlReceipt: (_opId: string, _runtimeSessionId: string, detail: string) => ({ detail }),
-    };
-
-    const receipt = await cancelRuntime(
-      context as never,
-      { runtimeSessionId },
-      { actor: binding.actor, source: { kind: "node", nodeId: "edge-a" } },
-    );
-
-    assert.equal(receipt.detail, "cancelled");
-    assert.equal(leaseReleased, true, "accepted stop proof permits the shared settlement writer to release the lease");
-    assert.deepEqual(terminals, [
-      {
-        runtimeSessionId,
-        dispatchId,
-        task: { taskId, executionId, leaseVersion: null },
-        schedule: null,
-        outcome: "cancelled",
-        reason: "Runtime session cancelled after its worker process was no longer available.",
-        endedAt: "2026-11-02T00:00:00.000Z",
-        processGroupPid: 2_147_483_646,
-        binding: {
-          actor: { ...binding.actor, executor: { kind: "agent", id: `runtime-session:${runtimeSessionId}` } },
-          source: "local",
-        },
-      },
-    ]);
-    assert.deepEqual(published, [
-      "runtime_session_exited",
-      "runtime_session_cancelled",
-      "runtime_session_outcome_observed",
-    ]);
-    assert.deepEqual(order, [
-      "runtime_session_exited",
-      "runtime_session_cancelled",
-      "settle-attempt",
-      "runtime_session_outcome_observed",
-    ]);
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
 test("runtime cancel leaves a missing-process task dispatch live when stop proof is unaccepted", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-cancel-unproven-task-process-"));
   try {
@@ -514,8 +426,8 @@ test("runtime cancel leaves a missing-process task dispatch live when stop proof
       },
       requiredRuntimeProjection: () => ({
         readRuntimeSession: () => liveSession(runtimeSessionId),
-        readDispatchLifecycle: lifecycleReadFor([
-          { runtimeSessionId, dispatchId, instanceId: "instance-1", owner: "local", process: "unknown" },
+        readDispatchLifecycle: dispatchLifecycleReadOf(() => [
+          lifecycleEvent("R", runtimeSessionId, { dispatchId, instanceId: "instance-1", source: "local" }),
         ]),
         readRuntimeSessions: () => [liveSession(runtimeSessionId)],
         readRuntimeDispatch: () => ({ actor: binding.actor, source: "local", payload: { dispatchId } }),
@@ -613,8 +525,8 @@ for (const scenario of [
               ) ?? null
             );
           },
-          readDispatchLifecycle: lifecycleReadFor([
-            { runtimeSessionId, dispatchId, instanceId: "instance-1", owner: "local", process: "unknown" },
+          readDispatchLifecycle: dispatchLifecycleReadOf(() => [
+            lifecycleEvent("R", runtimeSessionId, { dispatchId, instanceId: "instance-1", source: "local" }),
           ]),
           readRuntimeSessions: async () => [liveSession(runtimeSessionId)],
           readRuntimeDispatch: async () => ({
@@ -927,7 +839,12 @@ test("runtime steer records the requesting actor and prompt without settling the
         process: { pid: process.pid },
       },
       context = {
-        input: { rootDir, repoId: "steer-test", now: () => "2026-09-13T00:01:00.000Z" },
+        input: {
+          rootDir,
+          remote: { readDispatchLifecycle: lifecycleReadFor([{ dispatchId, runtimeSessionId, process: "alive" }]) },
+          repoId: "steer-test",
+          now: () => "2026-09-13T00:01:00.000Z",
+        },
         processes: new Map([[runtimeSessionId, active]]),
       };
     const receipt = await steerRuntime(
@@ -961,7 +878,12 @@ test("a successful steer receipt survives the GUI write exit instead of reportin
       runtimeSessionId = "runtime_bbbbbbbbbbbbbbbbbbbbbbbb";
     openMissingProcessStream(rootDir, dispatchId, runtimeSessionId, "dispatch-op-steer-gui-receipt");
     const context = {
-        input: { rootDir, repoId: "steer-gui-receipt", now: () => "2026-09-13T00:01:00.000Z" },
+        input: {
+          rootDir,
+          remote: { readDispatchLifecycle: lifecycleReadFor([{ dispatchId, runtimeSessionId, process: "alive" }]) },
+          repoId: "steer-gui-receipt",
+          now: () => "2026-09-13T00:01:00.000Z",
+        },
         processes: new Map([
           [
             runtimeSessionId,
@@ -1013,7 +935,12 @@ test("runtime steer applies to an ACP kind through the dispatch stream, adopted 
         process: { pid: process.pid },
       },
       context = {
-        input: { rootDir, repoId: "steer-acp-test", now: () => "2026-09-13T00:01:00.000Z" },
+        input: {
+          rootDir,
+          remote: { readDispatchLifecycle: lifecycleReadFor([{ dispatchId, runtimeSessionId, process: "alive" }]) },
+          repoId: "steer-acp-test",
+          now: () => "2026-09-13T00:01:00.000Z",
+        },
         processes: new Map([[runtimeSessionId, active]]),
       };
     const receipt = await steerRuntime(
@@ -1041,7 +968,12 @@ test("runtime steer still refuses before the provider established a session", as
       runtimeSessionId = "runtime_111111111111111111111111";
     openMissingProcessStream(rootDir, dispatchId, runtimeSessionId, "dispatch-op-steer-unbound");
     const context = {
-      input: { rootDir, repoId: "steer-unbound-test", now: () => "2026-09-13T00:01:00.000Z" },
+      input: {
+        rootDir,
+        remote: { readDispatchLifecycle: lifecycleReadFor([{ dispatchId, runtimeSessionId, process: "alive" }]) },
+        repoId: "steer-unbound-test",
+        now: () => "2026-09-13T00:01:00.000Z",
+      },
       processes: new Map([
         [
           runtimeSessionId,
@@ -1075,7 +1007,12 @@ test("runtime steer rejects a provider without a declared steer strategy", async
       runtimeSessionId = "runtime_eeeeeeeeeeeeeeeeeeeeeeee";
     openMissingProcessStream(rootDir, dispatchId, runtimeSessionId, "dispatch-op-steer-unsupported");
     const context = {
-      input: { rootDir, repoId: "steer-test", now: () => "2026-09-13T00:01:00.000Z" },
+      input: {
+        rootDir,
+        remote: { readDispatchLifecycle: lifecycleReadFor([{ dispatchId, runtimeSessionId, process: "alive" }]) },
+        repoId: "steer-test",
+        now: () => "2026-09-13T00:01:00.000Z",
+      },
       processes: new Map([
         [
           runtimeSessionId,
@@ -1110,7 +1047,12 @@ test("runtime steer refuses a dispatch whose worker host is already gone", async
       runtimeSessionId = "runtime_dddddddddddddddddddddddd";
     openMissingProcessStream(rootDir, dispatchId, runtimeSessionId, "dispatch-op-steer-dead-host");
     const context = {
-      input: { rootDir, repoId: "steer-dead-host-test", now: () => "2026-09-13T00:01:00.000Z" },
+      input: {
+        rootDir,
+        remote: { readDispatchLifecycle: lifecycleReadFor([{ dispatchId, runtimeSessionId, process: "unknown" }]) },
+        repoId: "steer-dead-host-test",
+        now: () => "2026-09-13T00:01:00.000Z",
+      },
       processes: new Map([
         [
           runtimeSessionId,

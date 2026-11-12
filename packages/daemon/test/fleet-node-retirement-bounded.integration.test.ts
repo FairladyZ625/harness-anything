@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
+import { projectDispatchLifecycleEvent } from "../../storage/src/projection/dispatch-lifecycle-projection.ts";
+import { lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 import { createNodeRetirement } from "../src/fleet/node-retirement.ts";
 import { withTempStoreAsync } from "../../storage/test/store/helpers.ts";
 import { initRepo } from "../../storage/test/store/task-event-store.fixtures.ts";
@@ -10,27 +12,7 @@ import { initRepo } from "../../storage/test/store/task-event-store.fixtures.ts"
 const settledCount = 2_000;
 const foreignUnsettledCount = 300;
 
-function session(runtimeSessionId: string, liveness: "live" | "exited", outcome: string | null): string {
-  return JSON.stringify({
-    runtimeSessionId,
-    instanceId: "deepseek-worker",
-    installationId: "installation-deepseek",
-    kindId: "deepseek-harness",
-    definitionSnapshotRef: "artifact:runtime-definitions/deepseek/v1",
-    providerSessionId: null,
-    transcriptRef: null,
-    launchGeneration: 1,
-    liveness,
-    attachable: liveness === "live",
-    taskBindings: [],
-    outcome,
-    exitCode: outcome === null ? null : 0,
-    resultRef: null,
-    lastObservedAt: "2026-11-01T00:00:00.000Z",
-  });
-}
-
-test("node retirement reports only that node's live executions in a large session history", async () => {
+test("node retirement reports only that node's held lifecycle reservations in a large history", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
     const store = makeTaskEventStore({ repoId: "node-retirement-bounded", rootDir }),
@@ -39,26 +21,23 @@ test("node retirement reports only that node's live executions in a large sessio
     const projectionPath = projection.path;
     projection.close();
 
-    // Deployed-shape history: 2,000 settled sessions owned by the retiring node, 300 unsettled
-    // sessions owned by another node, and only two live sessions the retirement actually needs.
+    // Fold the canonical reducer into the real projection: 2,000 closed groups, 300 foreign
+    // active groups, two held slots for this node, and one stop-proven slot awaiting outcome.
     const db = new DatabaseSync(projectionPath);
-    const insert = db.prepare(
-      "INSERT INTO runtime_session(runtime_session_id, workspace_revision, value_json, execution_node_id) " +
-        "VALUES (?, ?, ?, ?)",
-    );
-    let revision = store.read().revision + 1;
-    for (let index = 0; index < settledCount; index += 1) {
-      const runtimeSessionId = `runtime-settled-${String(index).padStart(5, "0")}`;
-      insert.run(runtimeSessionId, revision++, session(runtimeSessionId, "exited", "succeeded"), "node-a");
-    }
-    for (let index = 0; index < foreignUnsettledCount; index += 1) {
-      const runtimeSessionId = `runtime-foreign-${String(index).padStart(5, "0")}`;
-      insert.run(runtimeSessionId, revision++, session(runtimeSessionId, "live", null), "node-b");
-    }
-    for (const runtimeSessionId of ["runtime-open-node-a-1", "runtime-open-node-a-2"])
-      insert.run(runtimeSessionId, revision++, session(runtimeSessionId, "live", null), "node-a");
-    // An exit recorded before its outcome event is not in-flight work, exactly as before the fix.
-    insert.run("runtime-exited-open-node-a", revision, session("runtime-exited-open-node-a", "exited", null), "node-a");
+    const add = (runtimeSessionId: string, nodeId: string, terminal?: "X" | "O") => {
+      const options = { source: { kind: "node" as const, nodeId }, instanceId: "deepseek-worker" };
+      projectDispatchLifecycleEvent(db, lifecycleEvent("R", runtimeSessionId, options));
+      projectDispatchLifecycleEvent(db, lifecycleEvent("S", runtimeSessionId, options));
+      if (terminal) projectDispatchLifecycleEvent(db, lifecycleEvent(terminal, runtimeSessionId, options));
+    };
+    db.exec("BEGIN");
+    for (let index = 0; index < settledCount; index += 1)
+      add(`runtime-settled-${String(index).padStart(5, "0")}`, "node-a", "O");
+    for (let index = 0; index < foreignUnsettledCount; index += 1)
+      add(`runtime-foreign-${String(index).padStart(5, "0")}`, "node-b");
+    for (const runtimeSessionId of ["runtime-open-node-a-1", "runtime-open-node-a-2"]) add(runtimeSessionId, "node-a");
+    add("runtime-exited-open-node-a", "node-a", "X");
+    db.exec("COMMIT");
     db.close();
 
     const retirement = createNodeRetirement({

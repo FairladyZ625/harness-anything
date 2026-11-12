@@ -536,7 +536,19 @@ export const actionDeclarations = Object.freeze([
   canonical("task-declare-executor", "task/declare-executor", "repo-write"),
   canonical("task-delete", "task/delete", "repo-write"),
   canonical("task-dispatch-review", "task/dispatch-review", "repo-write", "none"),
-  canonical("task-escalate", "task/escalate", "repo-write"),
+  {
+    ...canonical("task-escalate", "task/escalate", "repo-write"),
+    ontology: {
+      owner: "task",
+      sources: [
+        {
+          candidateId:
+            "action:packages/daemon:packages/daemon/src/runtime-spawn-control.ts#cancelRuntime.stopOwnedRuntime:a48ffbebb821cbbf655b0d95183d27dd",
+          route: "task-escalate",
+        },
+      ],
+    },
+  },
   closure("task-escalation-resolve", "task/escalation-resolve"),
   canonical("task-rematerialize", "task/rematerialize", "repo-write"),
   canonical("task-progress-append", "task/progress-append", "repo-write"),

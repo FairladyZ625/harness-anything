@@ -172,7 +172,12 @@ export function assertResumeAgent(
  * authorize a provider launch (issue #4431).
  */
 export async function prepareDispatchWorktree(
-  input: { readonly rootDir: string; readonly readSettings?: () => SettingsV1 },
+  input: {
+    readonly rootDir: string;
+    readonly readSettings?: () => SettingsV1;
+    readonly remote?: import("./runtime-spawn-types.ts").RemoteRuntimePersistence;
+    readonly projection?: () => TaskProjection;
+  },
   payload: {
     readonly cwd?: unknown;
     readonly role?: unknown;
@@ -210,7 +215,15 @@ export async function prepareDispatchWorktree(
     input.readSettings?.().worktree ?? noWorktreeSetup(),
     payload.acceptedCommit,
     undefined,
-    payload.role === "reviewer" ? (pinnedCommit === null ? { followPublishedBranch: false } : { pinnedCommit }) : {},
+    {
+      readDispatchLifecycle: (query) =>
+        input.remote ? input.remote.readDispatchLifecycle(query) : input.projection!().readDispatchLifecycle(query),
+      ...(payload.role === "reviewer"
+        ? pinnedCommit === null
+          ? { followPublishedBranch: false }
+          : { pinnedCommit }
+        : {}),
+    },
   );
   if (checkout && !checkout.setup.ok)
     throw runtimeSpawnError(

@@ -72,6 +72,7 @@ export function taskWorktreeInput(
     readTask: (taskId) => cell.projection.read(taskId).snapshot.task,
     readPresetSnapshot: presetSnapshotReader(cell.projection),
     readWorktree: () => cell.settings.read().worktree,
+    readDispatchLifecycle: (query) => cell.projection.readDispatchLifecycle(query),
     readLeaseAcquiredRevision: (taskId, executionId) => taskLeaseAcquiredRevision(cell.projection, taskId, executionId),
   };
 }

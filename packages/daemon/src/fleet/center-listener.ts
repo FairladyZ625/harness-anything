@@ -1,3 +1,4 @@
+import { validDispatchLifecycleQuery } from "../runtime-dispatch-admission.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
   beginDaemonOperation,
@@ -1378,7 +1379,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       markDaemonOperationPhase("repository-admission");
       let result;
       try {
-        if (frame.method === "repo.agentRuntime.sessions.await") {
+        if (frame.method === "repo.agentRuntime.lifecycle.read") {
+          const query = frame.payload as unknown as import("@harness-anything/kernel").DispatchLifecycleQuery;
+          if (!validDispatchLifecycleQuery(query))
+            throw new FleetFault("invalid_field", "Invalid dispatch lifecycle query.");
+          result = await options.host.readDispatchLifecycle(a.repoId, query, binding);
+        } else if (frame.method === "repo.agentRuntime.sessions.await") {
           markDaemonOperationPhase("projection-read");
           result = await options.host.awaitRuntimeSessions(a.repoId, frame.payload as JsonObject, binding);
         } else if (frame.method === "repo.tasks.autoClaimCandidates") {

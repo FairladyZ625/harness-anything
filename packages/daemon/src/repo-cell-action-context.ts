@@ -1,6 +1,5 @@
 import type { RepoCellCore } from "./repo-cell.ts";
 import type { makeTaskLifecycleService } from "@harness-anything/application/internal/task-lifecycle-service";
-import type { DispatchRecordLeaseSettlement } from "@harness-anything/storage";
 import {
   resolveHarnessLayout,
   type CanonicalEventAppendReceipt,
@@ -146,6 +145,7 @@ export interface RepoCellActionContext extends TaskQueryCell {
     readonly killpoint?: (point: EventPublicationKillpoint) => void;
     readonly shouldStop?: () => boolean;
     readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
+    readonly runtimeInstanceCapacities?: Readonly<Record<string, number>>;
     readonly prepareDaemonGitEnvironment?: (
       instanceId: string,
       provider: "github" | "gitlab",
@@ -240,10 +240,6 @@ export interface RepoCellRuntimeContext extends RepoCellActionContext {
 
 export interface RepoCellOperationalContext extends RepoCellRuntimeContext {
   readonly settings: RepoCellSettingsState;
-  readonly settleRuntimeExecutionLease: (
-    settlement: DispatchRecordLeaseSettlement,
-    binding: RepoCellBinding,
-  ) => Promise<void>;
 }
 
 export function createRepoCellActionContext(bindings: {
@@ -253,6 +249,7 @@ export function createRepoCellActionContext(bindings: {
     readonly killpoint?: (point: EventPublicationKillpoint) => void;
     readonly shouldStop?: () => boolean;
     readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
+    readonly runtimeInstanceCapacities?: Readonly<Record<string, number>>;
   };
   readonly rootDir: string;
   readonly now: () => string;

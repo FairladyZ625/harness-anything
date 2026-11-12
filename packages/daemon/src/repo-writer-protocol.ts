@@ -30,6 +30,7 @@ export interface RepoWriterBootstrapV1 {
     readonly mode?: DaemonRepoMode;
     readonly authoredBranch?: string;
     readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
+    readonly runtimeInstanceCapacities?: Readonly<Record<string, number>>;
     readonly bootstrap?: Omit<RepoBootstrapInput, "keycloakAuthorization"> & {
       readonly keycloakAuthorization?: SerializableKeycloakAuthorization;
     };

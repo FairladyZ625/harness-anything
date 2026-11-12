@@ -805,6 +805,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
   };
   const handoffRuntime: RepoCell["handoffRuntime"] = (payload, binding, queueObservation) =>
     runRuntimeHandoff({
+      readDispatchLifecycle: (query) => context.projection.readDispatchLifecycle(query),
       rootDir: context.rootDir,
       payload,
       command: async (action, body) => {

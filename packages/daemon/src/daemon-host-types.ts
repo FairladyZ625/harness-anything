@@ -80,6 +80,11 @@ export interface DaemonHost {
     payload: Readonly<Record<string, unknown>>,
     auth: DaemonAuthenticationContext,
   ) => Promise<DaemonGuiReadResultMap[M]>;
+  readonly readDispatchLifecycle: (
+    repoId: string,
+    query: import("@harness-anything/kernel").DispatchLifecycleQuery,
+    auth: DaemonAuthenticationContext,
+  ) => Promise<import("@harness-anything/kernel").DispatchLifecycleRead>;
   readonly readNodeAutoClaimCandidates: (
     repoId: string,
     auth: DaemonAuthenticationContext,

@@ -382,7 +382,7 @@ export function bindVerifiedExecutorClaim(input: {
   readonly binding: RepoCellBinding;
   readonly projection: Pick<
     TaskProjection,
-    "read" | "readRuntimeSession" | "readRuntimeDispatch" | "currentLease" | "readDocument"
+    "read" | "readRuntimeSession" | "readRuntimeDispatch" | "readDispatchLifecycle" | "currentLease" | "readDocument"
   >;
   readonly now: string;
   readonly executionDelegations?: readonly ExecutionDelegationRecord[];

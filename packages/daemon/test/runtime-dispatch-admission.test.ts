@@ -8,7 +8,6 @@ import type { AgentRuntimeEventV1, DispatchLifecycleRead } from "@harness-anythi
 import { makeRuntimeSpawner } from "../src/runtime-spawn.ts";
 import { definition, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
-import { readEdgeDispatchLifecycle } from "../src/fleet-edge-task-read.ts";
 
 const nodeA = { kind: "node", nodeId: "node-a" } as const,
   nodeB = { kind: "node", nodeId: "node-b" } as const,
@@ -19,7 +18,12 @@ const nodeA = { kind: "node", nodeId: "node-a" } as const,
  * deliberately disagrees with it (every session looks unsettled and unobservable), and no local
  * process table or dispatch stream exists, so a pass or refusal can only come from the aggregate.
  */
-function admission(t: test.TestContext, events: AgentRuntimeEventV1[], read = dispatchLifecycleReadOf(() => events)) {
+function admission(
+  t: test.TestContext,
+  events: AgentRuntimeEventV1[],
+  read = dispatchLifecycleReadOf(() => events),
+  capacity?: number,
+) {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-dispatch-admission-"));
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   const prepared = Object.assign(new Error("admission reached the launch port"), { code: "fixture_prepared" }),
@@ -31,6 +35,7 @@ function admission(t: test.TestContext, events: AgentRuntimeEventV1[], read = di
       now: () => new Date().toISOString(),
       stream: { publish: () => ({}) as never },
       runtimeInstances: scheduleRuntimePorts().runtimeInstances,
+      ...(capacity === undefined ? {} : { runtimeInstanceCapacities: { [definition.instanceId]: capacity } }),
       readSettings: () => ({ runtime: { allowedInstances: [definition.instanceId] } }) as never,
       prepareLaunch: async () => {
         throw prepared;
@@ -78,6 +83,19 @@ function admission(t: test.TestContext, events: AgentRuntimeEventV1[], read = di
 
 const on = (source: AgentRuntimeEventV1["source"], instanceId = definition.instanceId) => ({ source, instanceId });
 
+test("spawn preflight rejects a full lifecycle instance and admits it after accepted stop", async (t) => {
+  const events = [lifecycleEvent("R", "first", on(nodeA)), lifecycleEvent("S", "first", on(nodeA))],
+    probe = admission(
+      t,
+      events,
+      dispatchLifecycleReadOf(() => events),
+      1,
+    );
+  await assert.rejects(probe.spawn(), { code: "runtime_capacity_exhausted" });
+  events.push(lifecycleEvent("X", "first", on(nodeA)));
+  await assert.rejects(probe.spawn(), probe.prepared);
+});
+
 test("an attempt whose owner cannot observe its process blocks only that owner's admission", async (t) => {
   const events = [
     lifecycleEvent("R", "unobservable", on(nodeA)),
@@ -91,9 +109,9 @@ test("an attempt whose owner cannot observe its process blocks only that owner's
   await assert.rejects(blocked.spawn(), blocked.prepared);
 });
 
-test("running, exited, foreign and undispatched sessions never block admission", async (t) => {
+test("spare capacity admits running and foreign attempts; stopped and undispatched sessions consume no slot", async (t) => {
   const events = [
-    // Running on this node (the restart-adoption gap): capacity is held, admission still proceeds.
+    // Running on this node: its reservation counts, but the default capacity of 64 is not full.
     lifecycleEvent("R", "running", on(nodeA)),
     lifecycleEvent("S", "running", on(nodeA)),
     // Exited without a settled outcome: the owner observed the stop, so the slot is free.
@@ -125,25 +143,4 @@ test("an attempt whose owner the center cannot verify fails every launcher's adm
   const events = [lifecycleEvent("R", "imported", on("migration-import/v1"))];
   const probe = admission(t, events);
   await assert.rejects(probe.spawn(), { code: "dispatch_owner_unverified" });
-});
-
-test("a stale edge replica answers pending, so edge admission fails closed", async (t) => {
-  const fresh = { state: "fresh", ageMs: 0, lagRevisions: 0, maxAgeMs: 60_000, maxLagRevisions: 32, confirmedAt: "x" },
-    projection = {
-      readDispatchLifecycle: () => ({ status: "ready", watermark: 7, sourceRevision: 7, rows: [], nextCursor: null }),
-    },
-    query = { by: "active", limit: 100 } as const,
-    cut = { revision: 7, headDigest: "sha256:x" };
-  assert.equal(
-    readEdgeDispatchLifecycle(projection as never, { cut, freshness: fresh } as never, query).status,
-    "ready",
-  );
-  const stale = readEdgeDispatchLifecycle(
-    projection as never,
-    { cut, freshness: { ...fresh, state: "stale", ageMs: 120_000, lagRevisions: 3 } } as never,
-    query,
-  );
-  assert.deepEqual(stale, { status: "pending", watermark: 7, sourceRevision: 10 });
-  const probe = admission(t, [], async () => stale);
-  await assert.rejects(probe.spawn(), { code: "dispatch_lifecycle_pending" });
 });

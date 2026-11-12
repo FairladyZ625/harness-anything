@@ -9,6 +9,7 @@ import { deriveTaskWorktreeBinding } from "@harness-anything/kernel";
 import { repositoryBaseRef } from "../src/schedule-occurrence-workspace.ts";
 import { prepareWorkerWorktree, resolveSquadCwd } from "../src/squad-worker-checkout.ts";
 import { noWorktreeSetup } from "../src/worktree-setup.ts";
+import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 
 test("each squad assignment uses its own child task binding and preserves the Commander baseline", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-squad-worker-checkout-"));
@@ -193,3 +194,65 @@ function childBinding(taskId: string) {
 function noSetup(rootDir: string, taskId = "task_child") {
   return { rootDir, taskId, ...noWorktreeSetup() };
 }
+
+test("a squad checkout preserves a backoff group's Git conflict and aborts it only after closure", async (t) => {
+  {
+    const rootDir = mkdtempSync(path.join(tmpdir(), "squad-conflict-owner-"));
+    t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync("git", args, { cwd, encoding: "utf8", stdio: "pipe" }).trim();
+    git(rootDir, "init", "-q", "-b", "main");
+    git(rootDir, "config", "user.name", "Fixture");
+    git(rootDir, "config", "user.email", "fixture@example.com");
+    const commit = (cwd: string, text: string) => {
+      writeFileSync(path.join(cwd, "conflict.txt"), text);
+      git(cwd, "add", "conflict.txt");
+      git(cwd, "commit", "-qm", text);
+    };
+    commit(rootDir, "base");
+    const base = git(rootDir, "rev-parse", "HEAD"),
+      taskId = "task_conflict_run",
+      binding = childBinding(taskId)!,
+      worker = (await prepareWorkerWorktree(base, binding, noSetup(rootDir, taskId)))!;
+    commit(worker.cwd, "worker");
+    commit(rootDir, "commander");
+    assert.throws(() => git(worker.cwd, "merge", "main"));
+    const mergeHead = path.resolve(worker.cwd, git(worker.cwd, "rev-parse", "--git-path", "MERGE_HEAD")),
+      options = { source: "local" as const, instanceId: "instance" },
+      admitted = lifecycleEvent("R", "owner", options),
+      outcome = lifecycleEvent("O", "owner", options);
+    let waiting = true,
+      reads = 0;
+    const read = dispatchLifecycleReadOf(() => [
+      { ...admitted, payload: { ...admitted.payload, cwd: worker.cwd } } as never,
+      {
+        ...outcome,
+        payload: {
+          ...outcome.payload,
+          outcome: "failed",
+          ...(waiting ? { attempt: { fallbackState: "scheduled" } } : {}),
+        },
+      } as never,
+    ]);
+    const canonicalRead: typeof read = (query) => {
+      reads++;
+      return read(query);
+    };
+    const reopen = () =>
+      resolveSquadCwd(
+        rootDir,
+        undefined,
+        (() => binding) as unknown as Parameters<typeof resolveSquadCwd>[2],
+        taskId,
+        noWorktreeSetup(),
+        canonicalRead,
+      );
+    await reopen();
+    assert.equal(existsSync(mergeHead), true, "a stopped backoff attempt still owns the workspace");
+    waiting = false;
+    await reopen();
+    assert.equal(existsSync(mergeHead), false);
+    assert.equal(readFileSync(path.join(worker.cwd, "conflict.txt"), "utf8"), "worker");
+    assert.equal(reads, 2, "both decisions use the supplied canonical port");
+  }
+});

@@ -1,3 +1,4 @@
+import { readActiveDispatchLifecycle } from "./runtime-dispatch-admission.ts";
 import { forward } from "./fleet/forwarding-port.ts";
 import { forwardingIntentForAction } from "./fleet/forwarding-intent.ts";
 import { runFleetEdgeRepositoryRead } from "./fleet-edge-task.ts";
@@ -107,10 +108,19 @@ export function createDaemonHostRepositoryApi(
   | "settleMaterialization"
   | "presetRun"
   | "read"
+  | "readDispatchLifecycle"
   | "readNodeAutoClaimCandidates"
   | "readNodeAutoDispatchCandidates"
 > {
   return {
+    readDispatchLifecycle: async (repoId, query, auth) => {
+      const cell = context.cells.get(repoId);
+      if (!cell || cell.status().mode === "remote-edge")
+        throw context.hostCodedError("repo_unavailable", `Center repository ${repoId} is unavailable.`);
+      const binding = await context.binding(cell.status().rootDir, auth);
+      await cell.read("repo.settings.read", {}, binding);
+      return cell.readDispatchLifecycle(query);
+    },
     readNodeAutoDispatchCandidates: async (repoId, auth) => {
       if (auth.transportKind !== "fleet-tls" || !auth.nodePrincipal)
         throw context.hostCodedError(
@@ -183,17 +193,17 @@ export function createDaemonHostRepositoryApi(
             };
           }),
       );
-      const overview = await cell.read("repo.agentRuntime.overview", {}, binding),
-        activeTaskIds = new Set<string>();
-      for (const session of overview.sessions) {
-        if (session.liveness === "exited") continue;
-        for (const association of session.associations) {
-          const taskId = association.taskId;
-          if (!taskId) continue;
-          const task = await cell.read("repo.tasks.runtimeContext.read", { taskId }, binding),
-            key = nodeAutoClaimLeaseKey({ repoId, taskId, nodeId, lease: task.snapshot.lease });
-          if (key) activeTaskIds.add(taskId);
-        }
+      const activeTaskIds = new Set<string>();
+      const active = await readActiveDispatchLifecycle(
+        (query) => cell.readDispatchLifecycle(query),
+        context.hostCodedError,
+      );
+      for (const { attempt, policy } of active) {
+        if (policy.capacity === "released" || !attempt.task) continue;
+        const taskId = attempt.task.taskId,
+          task = await cell.read("repo.tasks.runtimeContext.read", { taskId }, binding),
+          key = nodeAutoClaimLeaseKey({ repoId, taskId, nodeId, lease: task.snapshot.lease });
+        if (key) activeTaskIds.add(taskId);
       }
       return { schema: "node-auto-claim-candidates/v2", candidates, activeTaskIds: [...activeTaskIds] };
     },

@@ -14,7 +14,7 @@ import {
 import { readEdgeRuntimeRepository } from "./fleet-edge-runtime-read.ts";
 import { repositoryRuntimeReads } from "./repository-runtime-reads.ts";
 import { repositoryReadData } from "./protocol/repository-read-frame.ts";
-import { readEdgeDispatchLifecycle, withEdgeReadModel } from "./fleet-edge-task-read.ts";
+import { withEdgeReadModel } from "./fleet-edge-task-read.ts";
 import { makeFleetSquadCoordinator } from "./fleet-squad-coordinator.ts";
 import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
 import { readEdgeViewBlob, readEdgeRuntimeResult } from "./runtime-result-read.ts";
@@ -65,7 +65,6 @@ import { readScheduleAction, dispatchClaimedSchedule } from "./schedule-action-r
 import { orchestrateRuntimeSessionsAwait } from "./runtime-orchestration.ts";
 import { prepareScheduleOccurrenceWorkspace, scheduleSettlementDetail } from "./schedule-occurrence-workspace.ts";
 import { taskMissionSections, taskPlanSection, runtimeMissionName } from "./runtime-spawn-mission.ts";
-import { reconcileProcessGroup } from "./runtime/process-group-reconciler.ts";
 import { readRuntimeDispatchOwnerEvidence } from "./runtime-spawn-control.ts";
 import { runtimeForwardingContext } from "./fleet/forwarding-port.ts";
 import type { FleetEdgeConfig } from "./client/fleet-edge-config.ts";
@@ -504,6 +503,16 @@ export function openFleetEdgeRuntime(input: {
         `Center did not accept Review ${`review-${review.dispatchId}`}: ${String(result.code ?? receiptOutcome)}.`,
       );
   };
+  const readDispatchLifecycle: import("./runtime-spawn-types.ts").RemoteRuntimePersistence["readDispatchLifecycle"] =
+    async (query) => {
+      const { runtimeReadPeer, request } = context();
+      return (await readFleetOperationalClient({
+        ...runtimeReadPeer,
+        repoId: request.repoId,
+        method: "repo.agentRuntime.lifecycle.read",
+        payload: query,
+      })) as unknown as import("@harness-anything/kernel").DispatchLifecycleRead;
+    };
   const spawner = makeRuntimeSpawner({
     get repoId() {
       return input.resolveLocation().repoId;
@@ -834,10 +843,7 @@ export function openFleetEdgeRuntime(input: {
           })),
         );
       },
-      readDispatchLifecycle: (query) =>
-        readRuntimeProjection(input.resolveLocation(), (projection, frame) =>
-          readEdgeDispatchLifecycle(projection, frame, query),
-        ),
+      readDispatchLifecycle,
       readRuntimeDispatch: (runtimeSessionId) =>
         readRuntimeProjection(input.resolveLocation(), (projection) =>
           readRuntimeDispatchOwnerEvidence(projection, runtimeSessionId),
@@ -977,73 +983,8 @@ export function openFleetEdgeRuntime(input: {
       });
     },
     onAttemptTerminal: async (terminal) => {
-      const { request, centerWriteWaitMs, writePeer } = context();
+      const { request, writePeer } = context();
 
-      if (terminal.task) {
-        const { taskId, executionId } = terminal.task,
-          processGroupPid = terminal.processGroupPid;
-        if (
-          Number.isSafeInteger(processGroupPid) &&
-          Number(processGroupPid) > 1 &&
-          reconcileProcessGroup({
-            pid: Number(processGroupPid),
-            pgid: Number(processGroupPid),
-            dispatch: { rootDir: request.workspaceRoot, dispatchId: terminal.dispatchId },
-          }) !== "proven_stopped"
-        )
-          throw edgeRuntimeError(
-            "runtime_lease_release_failed",
-            `Runtime process group ${String(processGroupPid)} was not proven stopped on the edge.`,
-          );
-        await pullRuntimeReplica();
-        const leasePhase = withEdgeReadModel(
-          { ...request, principalId: replicaOwner, includeEntries: false },
-          (projection) => projection.currentLease(taskId)?.phase ?? null,
-        );
-        const settled =
-          leasePhase === null || leasePhase === "released"
-            ? { outcome: "no_changes" as const, code: undefined }
-            : await runFleetEdgeWrite({
-                viewRoot: request.viewRoot,
-                repoId: request.repoId,
-                nodeId: request.nodeId,
-                timeoutMs: centerWriteWaitMs,
-                write: () =>
-                  runFleetTaskCommandClient({
-                    ...writePeer,
-                    repoId: request.repoId,
-                    taskId,
-                    opId: randomUUID(),
-                    waitMs: centerWriteWaitMs,
-                    action: {
-                      kind: "task-release",
-                      taskId,
-                      terminalExecutionId: executionId,
-                      terminalRuntimeSessionId: terminal.runtimeSessionId,
-                      ...(Number.isSafeInteger(processGroupPid) && Number(processGroupPid) > 1
-                        ? { terminalProcessGroupPid: Number(processGroupPid) }
-                        : {}),
-                      reason: `Runtime session ${terminal.runtimeSessionId} reached a terminal dispatch state.`,
-                    },
-                  }),
-              });
-        if (
-          settled.outcome !== "applied" &&
-          settled.outcome !== "no_changes" &&
-          settled.code !== "lease_not_found" &&
-          settled.code !== "runtime_terminal_superseded"
-        )
-          throw edgeRuntimeError(
-            settled.code === "lease_conflict"
-              ? "lease_conflict"
-              : settled.code === "runtime_process_group_unproven"
-                ? "runtime_process_group_unproven"
-                : settled.code === "execution_credential_rejected"
-                  ? "execution_credential_rejected"
-                  : "runtime_lease_release_failed",
-            `Center rejected Runtime terminal lease settlement: ${String(settled.code ?? settled.outcome)}.`,
-          );
-      }
       await squad.reconcile();
       const scheduled = terminal.schedule;
       if (!scheduled) return;
@@ -1094,6 +1035,7 @@ export function openFleetEdgeRuntime(input: {
     schedule,
   });
   const squad = makeFleetSquadCoordinator({
+    readDispatchLifecycle,
     get request() {
       return input.resolveLocation();
     },
@@ -1208,6 +1150,7 @@ export function openFleetEdgeRuntime(input: {
       if (method === "repo.schedule.run") return runSchedule(action);
       if (method === "repo.agentRuntime.handoff")
         return runRuntimeHandoff({
+          readDispatchLifecycle,
           rootDir: request.workspaceRoot,
           payload: action,
           command: async (command, body) => {

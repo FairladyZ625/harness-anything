@@ -9,6 +9,8 @@ import {
   type TaskProjection,
   type TaskV2,
 } from "@harness-anything/kernel";
+import { readyDispatchLifecycle } from "./runtime-dispatch-admission.ts";
+import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { actionForDaemonMethod } from "./protocol/daemon-protocol.contract.ts";
 import { commandClassForAction } from "./protocol/daemon-protocol-commands.ts";
 import { isJsonObject, type JsonObject } from "./protocol/json-rpc-types.ts";
@@ -229,7 +231,10 @@ export function requireExecutionDocumentSelection(
 export function requireCurrentExecutionScope(input: {
   readonly action: RepoTaskAction;
   readonly binding: RepoCellBinding;
-  readonly projection: Pick<TaskProjection, "read" | "readRuntimeSession" | "readRuntimeDispatch" | "currentLease">;
+  readonly projection: Pick<
+    TaskProjection,
+    "read" | "readRuntimeSession" | "readRuntimeDispatch" | "readDispatchLifecycle" | "currentLease"
+  >;
   readonly now: string;
 }): void {
   const p = input.binding.executionPrincipal;
@@ -271,6 +276,10 @@ export function requireCurrentExecutionScope(input: {
     (ingress?.type === "runtime_session_outcome_observed" &&
       isJsonObject(ingress.payload) &&
       (ingress.payload.outcome === "failed" || ingress.payload.outcome === "cancelled"));
+  const [lifecycle] = readyDispatchLifecycle(
+    input.projection.readDispatchLifecycle({ by: "session", runtimeSessionId: p.runtimeSessionId }),
+    runtimeSpawnError,
+  );
   const session = input.projection.readRuntimeSession(p.runtimeSessionId),
     dispatch = input.projection.readRuntimeDispatch(p.runtimeSessionId),
     actor = runtimeExecutionActor(p);
@@ -295,8 +304,7 @@ export function requireCurrentExecutionScope(input: {
   // A submitted cut has released its implementation lease, but the worker that produced it may
   // still need to publish a CI fix and amend that same cut. Keep this exception on the exact
   // task/execution and current submission; every other worker write remains lease-bound.
-  const exitedPostSubmitWorkerWrite =
-    postSubmitWorkerWrite && session?.liveness === "exited" && session.outcome === "succeeded";
+  const exitedPostSubmitWorkerWrite = postSubmitWorkerWrite && lifecycle?.policy.canPublish === true;
   if (Date.parse(p.expiresAt) <= Date.parse(input.now)) throw executionCredentialRejected("expired");
   if (
     (!isSameExecution(actor, input.binding.actor) &&
@@ -313,9 +321,9 @@ export function requireCurrentExecutionScope(input: {
           ))
       )) ||
     !session ||
-    (session.liveness === "exited" && !settling && !exitedPostSubmitWorkerWrite) ||
-    (session.outcome !== null && !settling && !exitedPostSubmitWorkerWrite) ||
-    (session.outcome === "cancelled" && !negativeTerminal) ||
+    !lifecycle ||
+    (!lifecycle.policy.canWrite && !settling && !exitedPostSubmitWorkerWrite) ||
+    (lifecycle.attempt.outcome === "cancelled" && !negativeTerminal) ||
     dispatch?.payload.dispatchId !== p.dispatchId ||
     dispatch.actor.principal.personId !== p.personId ||
     stableStringify(dispatch.source) !== stableStringify(p.source) ||

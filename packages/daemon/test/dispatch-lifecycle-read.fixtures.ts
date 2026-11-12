@@ -59,28 +59,16 @@ export function lifecycleReadFor(
         admittedRevision: 1,
         eventIds: [],
       };
-    return {
+    return dispatchLifecycleView({
       attemptGroupId: entry.dispatchId,
-      controlLeafDispatchId: entry.dispatchId,
-      groupDispatchIds: [entry.dispatchId],
-      groupPhase: groupSettled ? "closed" : phase === "running" ? "running" : "starting",
-      attempt,
+      currentDispatchId: entry.dispatchId,
+      phase: groupSettled ? "closed" : attemptSettled ? "waiting_backoff" : "running",
+      attempts: [attempt],
       successor: { admissible: !groupSettled, dueAt: null },
       ruling: null,
       delivery: { status: "unregistered", targetRef: null, targetDigest: null, registeredRevision: null },
       revision: 1,
-      policy: {
-        attemptSettled,
-        groupSettled,
-        fallbackPending: false,
-        capacity: attemptSettled ? "released" : "held",
-        capacityDisposition: attemptSettled ? "free" : "recovering",
-        successorAdmissible: !groupSettled,
-        canResolveRuling: false,
-        canRecover: attemptSettled && stopProof === "proven_stopped",
-        blockerCode: attemptSettled ? null : "runtime_recovery_pending",
-      },
-    } as DispatchLifecycleView;
+    } as DispatchLifecycleGroup);
   });
   return async (query: DispatchLifecycleQuery): Promise<DispatchLifecycleRead> => {
     let rows: readonly DispatchLifecycleView[];

@@ -88,6 +88,7 @@ export function makeSquadCoordinator(input: {
   /** Settings `worktree.setup`: what the Squad's task worktree and each worker worktree run once. */
   readonly readWorktreeSetup: () => WorktreeSetupSettings;
   readonly query: <T>(read: (projection: TaskProjection) => T) => T;
+  readonly readDispatchLifecycle?: import("./runtime-dispatch-admission.ts").DispatchLifecycleReader;
   readonly readResult: (ref: string) => string;
   readonly reacquireTaskLease: (
     taskId: string,
@@ -165,6 +166,8 @@ export function makeSquadCoordinator(input: {
     readonly cancel: (payload: JsonObject, binding: RuntimeBinding) => Promise<JsonObject>;
   };
 }) {
+  const readDispatchLifecycle =
+    input.readDispatchLifecycle ?? ((query) => input.query((projection) => projection.readDispatchLifecycle(query)));
   // Dispatch archives can contain gigabytes of historical JSONL. Restore only projection-owned
   // recovery streams during attach so retention sees their true state before it prunes archives.
   const states = new Map<string, SquadState>(),
@@ -202,7 +205,7 @@ export function makeSquadCoordinator(input: {
       states,
       publicationAcks,
       subjectCurrent: (state) => subjectCurrent(state),
-      query: input.query,
+      readDispatchLifecycle,
       publishObservation: input.publishObservation,
       settleScheduleOccurrence: input.settleScheduleOccurrence,
       runtimeSpawner: input.runtimeSpawner,
@@ -237,7 +240,14 @@ export function makeSquadCoordinator(input: {
       );
     const squadId = requiredSquadText(action.squadId, "squadId"),
       runtimeInstanceId = requiredSquadText(action.runtimeInstanceId, "runtimeInstanceId"),
-      cwd = await resolveSquadCwd(input.rootDir, action.cwd, input.query, taskId, input.readWorktreeSetup()),
+      cwd = await resolveSquadCwd(
+        input.rootDir,
+        action.cwd,
+        input.query,
+        taskId,
+        input.readWorktreeSetup(),
+        readDispatchLifecycle,
+      ),
       squad = squadForRun(squadId),
       baseSha = localGitObjectRefStore.headCommit(cwd);
     let mission: string;
