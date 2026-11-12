@@ -82,11 +82,11 @@ test("the full repository passes the classified closure gate", (t) => {
   );
   assert.ok(owned.length > 0);
   assert.ok(owned.every((row) => row.status === "registered"));
-  // dec_7E44897E CH1 / S2b-S2c: syntax candidates must resolve to the real semantic owner.
+  // dec_7E44897ECDCAEF2B92EC66A260/CH1 S2b-S2e: syntax candidates must resolve to the real semantic owner.
   const judgments = result.classified.filter(
     (row) =>
       row.category === "judgment" &&
-      /^packages\/(?:kernel|storage|preset|cli|application|authorization-[^/]+|dsh-plugin)\//u.test(row.file),
+      /^packages\/(?:kernel|storage|gui|preset|cli|application|authorization-[^/]+|dsh-plugin)\//u.test(row.file),
   );
   assert.ok(judgments.length > 0);
   assert.deepEqual(
@@ -495,6 +495,34 @@ test("storage judgment candidates leave the migration baseline", () => {
   assert.deepEqual(
     baseline.filter((row) => row.category === "judgment" && row.path.startsWith("packages/storage/")),
     [],
+  );
+});
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1 S2e: GUI IPC trust/payload validators, wire shape
+// guards and viewport presentation helpers keep their exact source owner, with no frozen
+// judgment debt and fail-closed rejection on undeclared or re-allowlisted GUI judgments.
+test("gui judgment candidates leave the migration baseline", () => {
+  const baseline = loadGateAllowlist("ontology-closure", {
+    allowlistRoot: path.join(repoRoot, "tools/gate-allowlists"),
+    report: false,
+  }).candidates;
+  assert.deepEqual(
+    baseline.filter((row) => row.category === "judgment" && row.path.startsWith("packages/gui/")),
+    [],
+  );
+  const snapshot = loadOntologyClosureSnapshot(repoRoot);
+  const undeclared = scanOntologyText(
+    "packages/gui/src/renderer/unregistered-guard.ts",
+    "export function isUnregisteredGuiRow(v: unknown): boolean { if (!v || typeof v !== 'object') return false; return 'ok' in v; }\n",
+  );
+  assert.equal(undeclared.length, 1);
+  assert.deepEqual(
+    audit(undeclared, { snapshot }).findings.map((row) => row.code),
+    ["ONTOLOGY_JUDGMENT_UNDECLARED"],
+  );
+  assert.deepEqual(
+    audit(undeclared, { snapshot, baseline: [debt(undeclared[0])], previous: [] }).findings.map((row) => row.code),
+    ["ONTOLOGY_BASELINE_GROWTH"],
   );
 });
 
