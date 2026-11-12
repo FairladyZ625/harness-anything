@@ -564,7 +564,7 @@
         "explain": "replayTaskLifecycleEvent: Replay input consistency and atomic bundle validation.",
         "sources": [
           {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-replay.ts#assertReplay:556eb98adeea09f380f82e26facaa560",
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-replay.ts#assertReplay:688b85ddbad15e2ee282930efdfeada8",
             "route": "packages/kernel/src/domain/task-lifecycle-replay.ts#assertReplay"
           }
         ]

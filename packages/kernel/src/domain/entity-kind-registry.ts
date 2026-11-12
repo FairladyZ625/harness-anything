@@ -1029,6 +1029,16 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
         route: "taskMutationDraft → createTaskEvent",
       }],
     }, {
+      id: "lease-release-replay-atomicity", ownerRef: "task", unit: "lease_released event",
+      bounds: "An absent lease only accepts an unpublished reserving lease for the event execution without a status mutation; otherwise the current lease and execution must match, and any status mutation must be an allowed block. Both paths preserve the expected task and leave no lease.",
+      defaultValue: null, version: 1, scope: "task lease release replay",
+      reason: "Historical Squad reservation releases replay as no-ops without admitting mismatched leases, executions or task mutations.",
+      fixtures: ["packages/kernel/test/contracts/task-lifecycle-replay.test.ts"],
+      sources: [{
+        candidateId: "policy:packages/kernel:packages/kernel/src/domain/task-lifecycle-replay.ts#assertReplay:e8a815183d5178e3286a6601795565f3",
+        route: "replayTaskLifecycleEvent → assertReplay lease_released atomicity",
+      }],
+    }, {
       id: "runtime-lease-release", ownerRef: "task", unit: "task lifecycle transition",
       bounds: "Release requires the current task, execution, lease version, person, write source and a nonempty reason.",
       defaultValue: "release", version: 1, scope: "runtime settlement of the current task lease",
