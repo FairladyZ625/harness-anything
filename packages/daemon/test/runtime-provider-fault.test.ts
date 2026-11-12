@@ -555,7 +555,7 @@ test("attempt-bound classification falls back only for recognized provider fault
 });
 
 test("agy print timeout makes an exit-zero partial turn a provider fault", () => {
-  const stderr = "[agy] print timeout after 5m0s with turn in progress; returning partial output\n",
+  const stderr = "[agy] print timeout after 2h0m0s with turn in progress; returning partial output\n",
     runtime = active({
       kindId: "agy",
       providerOutcome: "succeeded",

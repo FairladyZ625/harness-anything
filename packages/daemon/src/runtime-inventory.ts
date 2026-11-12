@@ -487,7 +487,7 @@ export const runtimeKinds = [
         "--output-format",
         "stream-json",
         "--print-timeout",
-        "30m",
+        "120m",
         "--model",
         "$model",
         "$permission",
