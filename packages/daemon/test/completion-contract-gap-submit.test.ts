@@ -89,7 +89,7 @@ function fixture(t: TestContext) {
     readCloseoutSubmission(cell, "task-1", "execution-1", snapshot, {
       facts: null,
       publicPullRequest: false,
-      risk: { ok: true, assessment: undefined },
+      risk: { ok: true, assessment: undefined, manifest: { scripts: [] } },
       assertCurrent: async () => {},
     });
 }

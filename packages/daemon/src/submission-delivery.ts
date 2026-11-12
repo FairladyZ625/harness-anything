@@ -12,7 +12,12 @@ import type { Snapshot } from "./repo-cell-types.ts";
 import { runProcessExitAsync, runProcessTextAsync } from "./process-port.ts";
 import { repositoryBaseRefAsync } from "./schedule-occurrence-workspace.ts";
 import { presetSnapshotReader, taskOutputShape, taskWorktreeBinding } from "./task-worktree.ts";
-import { assessTaskRiskTier, type TaskRiskTierScriptInput } from "./task-risk-tier.ts";
+import {
+  assessTaskRiskTier,
+  readTaskRiskManifest,
+  type TaskRiskManifest,
+  type TaskRiskTierScriptInput,
+} from "./task-risk-tier.ts";
 import { assertNoIgnoredLedgerDelivery } from "./ignored-ledger-delivery.ts";
 import { detectHostingProvider } from "./hosting-provider.ts";
 
@@ -25,9 +30,15 @@ export interface PreparedSubmissionDelivery {
   readonly facts: DeliveryFacts | null;
   readonly publicPullRequest: boolean;
   readonly risk:
-    | { readonly ok: true; readonly assessment: SubmissionV1["riskTierAssessment"] }
+    | {
+        readonly ok: true;
+        readonly assessment: SubmissionV1["riskTierAssessment"];
+        readonly manifest: TaskRiskManifest;
+      }
     | { readonly ok: false; readonly error: unknown };
   readonly assertCurrent: () => Promise<void>;
+  /** A concurrent identical amendment may reuse its new frozen cut; fresh candidates must reprepare. */
+  readonly assertFresh?: () => void;
 }
 
 /** All process work finishes before the publication turn; only constant-size ref checks run there. */
@@ -267,12 +278,14 @@ export async function prepareSubmissionDelivery(
     assertCurrent: () => Promise<void>,
   ): Promise<PreparedSubmissionDelivery> {
     try {
-      const delivery =
-        baseSha === null || headSha === null
-          ? { baseSha, headSha, files: [] }
-          : await readDeliveryRiskDiff(rootDir, baseSha, headSha);
+      const manifest = readTaskRiskManifest(cell.rootDir),
+        delivery =
+          baseSha === null || headSha === null
+            ? { baseSha, headSha, files: [] }
+            : await readDeliveryRiskDiff(rootDir, baseSha, headSha);
       const risk: PreparedSubmissionDelivery["risk"] = {
         ok: true,
+        manifest,
         assessment: await assessTaskRiskTier({
           rootDir: cell.rootDir,
           task: taskRiskIdentity(snapshot, taskId),

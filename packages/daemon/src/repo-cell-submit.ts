@@ -7,6 +7,7 @@ import {
   submissionFromCloseout,
   submissionDigest,
   sha256Text,
+  stableStringify,
   type DocEventChange,
   type ExecutionV1,
   type SubmissionV1,
@@ -31,6 +32,7 @@ import { publishSubmittedCut } from "./submitted-cut-publication.ts";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { taskExecutionPlacement } from "./task-execution-placement.ts";
 import { taskPrBodyRenderer } from "./task-pr-body-render.ts";
+import { readTaskRiskManifest } from "./task-risk-tier.ts";
 
 import type { PreparedSubmissionDelivery } from "./submission-delivery.ts";
 import { preparedSubmission, type PreparedSubmissionAction } from "./submission-preparation.ts";
@@ -771,6 +773,14 @@ export function readCloseoutSubmission(
           : (() => {
               const risk = deriveArgs[4].risk;
               if (!risk.ok) throw risk.error;
+              deriveArgs[4].assertFresh?.();
+              // Current configuration belongs only to a new assessment. Frozen modern/legacy
+              // resumes must not parse it or invalidate their already accepted risk conclusion.
+              if (stableStringify(readTaskRiskManifest(cell.rootDir)) !== stableStringify(risk.manifest))
+                throw cell.cellCodedError(
+                  "invalid_transition",
+                  "Risk manifest changed during submission preparation; retry task submit.",
+                );
               return risk.assessment;
             })(),
       submission: SubmissionV1 = submissionForRiskTierRetry(

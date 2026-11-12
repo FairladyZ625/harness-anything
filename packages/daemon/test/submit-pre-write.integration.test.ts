@@ -217,3 +217,27 @@ test("a mismatched lease refuses submit with zero Git children and document even
   assert.equal(f.events().filter((event) => event.type === "documents_written").length, before);
   console.log(`[submit-preflight:lease] git=0 document-events=0 code=${receipt.code}`);
 });
+
+test("a prepared assessment is refused when its manifest changes", { timeout: 20_000 }, async (t) => {
+  const { f, entered, release } = await preparationFixture(t, "risk"),
+    submitting = f.run({ kind: "task-submit", taskId, executionId });
+  try {
+    await entered.promise;
+    writeFileSync(
+      path.join(f.root, "tools", "task-risk-manifest.json"),
+      JSON.stringify({ schema: "task-risk-manifest/v1", scripts: [] }),
+    );
+    release.resolve();
+    const rejected = await submitting;
+    assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
+    assert.equal(rejected.code, "invalid_transition");
+    assert.match(String(rejected.rejectionExplanation), /Risk manifest changed during submission preparation/u);
+    assert.equal(
+      f.events().some((event) => event.type === "execution_submitted"),
+      false,
+    );
+  } finally {
+    release.resolve();
+    await submitting;
+  }
+});

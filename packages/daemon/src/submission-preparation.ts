@@ -10,7 +10,6 @@ import type { RepoCellApiContext } from "./repo-cell-api.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { readSubmissionAdmission, submissionSnapshotIssues, startTaskSettlement } from "./submission-admission.ts";
 import { prepareSubmissionDelivery, type PreparedSubmissionDelivery } from "./submission-delivery.ts";
-import { readTaskRiskManifest } from "./task-risk-tier.ts";
 
 /** Writer-local capability: action JSON cannot provide or replay a preparation. */
 export const preparedSubmission = Symbol("preparedSubmission");
@@ -89,12 +88,16 @@ export async function prepareTaskSubmission(
       return stableStringify({
         task: current.task,
         execution: execution && isNativeExecution(execution) ? execution.deliveryBaseline : undefined,
-        priorDeliveries: current.executions.map((execution) => execution.submission?.commitSha ?? null),
-        // This immutable event owns the selected manifest, contract and previous effective tier.
-        submissionOpId: context.projection.readTaskSubmissionOperation(taskId, admission.executionId),
       });
     },
     taskCut = taskInputs(snapshot),
+    submissionInputs = (current: Snapshot) =>
+      stableStringify({
+        priorDeliveries: current.executions.map((execution) => execution.submission?.commitSha ?? null),
+        // This immutable event owns the selected manifest, contract and previous effective tier.
+        submissionOpId: context.projection.readTaskSubmissionOperation(taskId, admission.executionId),
+      }),
+    submissionCut = submissionInputs(snapshot),
     settings = stableStringify(context.settings.readRepository()),
     dispatches = () =>
       context.projection
@@ -102,8 +105,7 @@ export async function prepareTaskSubmission(
         .map(({ event }) => event.payload)
         .filter((dispatch) => dispatch.role !== "reviewer" && dispatch.cwd)
         .map((dispatch) => dispatch.cwd),
-    dispatchCut = stableStringify(dispatches()),
-    riskManifest = stableStringify(readTaskRiskManifest(context.rootDir));
+    dispatchCut = stableStringify(dispatches());
   const result = await prepareSubmissionDelivery(
     context.extracted,
     taskId,
@@ -112,7 +114,18 @@ export async function prepareTaskSubmission(
     typeof action.commitSha === "string" ? action.commitSha : undefined,
     binding.source,
   ).then(
-    (delivery) => ({ delivery }),
+    (delivery) => ({
+      delivery: {
+        ...delivery,
+        assertFresh: () => {
+          if (submissionInputs(context.projection.read(taskId).snapshot) !== submissionCut)
+            throw context.cellCodedError(
+              "invalid_transition",
+              "Frozen submission inputs changed during submission preparation; retry task submit.",
+            );
+        },
+      },
+    }),
     (error: unknown) => ({ error }),
   );
   prepared = {
@@ -121,8 +134,7 @@ export async function prepareTaskSubmission(
       if (
         taskInputs(current) !== taskCut ||
         stableStringify(context.settings.readRepository()) !== settings ||
-        stableStringify(dispatches()) !== dispatchCut ||
-        stableStringify(readTaskRiskManifest(context.rootDir)) !== riskManifest
+        stableStringify(dispatches()) !== dispatchCut
       )
         throw context.cellCodedError(
           "invalid_transition",

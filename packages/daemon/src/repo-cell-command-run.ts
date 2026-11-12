@@ -538,12 +538,14 @@ export function makeRepoCellCommandRunner(
               return warnings.length ? { ...receipt, warnings: [...(receipt.warnings ?? []), ...warnings] } : receipt;
             };
           })
-        : readBeforeWriteQueue(
-            context,
-            action,
-            binding,
-            async (execute) => (await enqueuePublication(execute, undefined, false)) as WriteReceiptDraft,
-          );
+        : action.kind === "task-submit" || action.kind === "task-settle"
+          ? readBeforeWriteQueue(
+              context,
+              action,
+              binding,
+              async (execute) => (await enqueuePublication(execute, undefined, false)) as WriteReceiptDraft,
+            )
+          : readBeforeWriteQueue(context, action, binding);
     if (externalRead)
       return externalRead
         .then((publish) =>
