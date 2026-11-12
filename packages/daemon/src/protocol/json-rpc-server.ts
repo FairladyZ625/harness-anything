@@ -119,8 +119,8 @@ export function createJsonRpcProtocolServer(options: {
 }): JsonRpcProtocolServer {
   let handshaken = false,
     lifecycleReadsEnabled = false;
-  // Hello and its next frame are one admitted exchange. A host status callback can request
-  // supersession in the wire gap between them, so retain the work until the frame or disconnect.
+  // Hello, lifecycle negotiation and the first business frame are one admitted exchange.
+  // Retain its reservation across negotiation so build drain cannot strand the business frame.
   let helloPending = false,
     helloReservationHeld = false,
     helloContinuationAdmitted = false;
@@ -893,10 +893,11 @@ export function createJsonRpcProtocolServer(options: {
       return response === parkedWaitAbandoned ? undefined : response;
     }
     // Transfer the reservation without a zero-work interval before dispatching the next frame.
-    const admittedHelloContinuation = helloPending && helloContinuationAdmitted,
+    const negotiatingHello = method === "protocol.dispatchLifecycle.enable" && helloPending,
+      admittedHelloContinuation = helloPending && helloContinuationAdmitted,
       admitted = !drainActive() || admittedHelloContinuation;
-    if (admitted) options.onRequestStarted?.(method);
-    releaseHello();
+    if (admitted && !negotiatingHello) options.onRequestStarted?.(method);
+    if (!negotiatingHello) releaseHello();
     try {
       return await run(
         request,
@@ -907,7 +908,7 @@ export function createJsonRpcProtocolServer(options: {
         writeResponse === undefined ? undefined : { writeResponse },
       );
     } finally {
-      if (admitted) options.onRequestSettled?.(method);
+      if (admitted && !negotiatingHello) options.onRequestSettled?.(method);
     }
   };
   return {

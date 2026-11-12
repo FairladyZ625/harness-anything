@@ -8,6 +8,7 @@ import { READ_PROBES } from "./fixtures/g38-read-cost.mjs";
 
 const rootDir = fileURLToPath(new URL("../../../", import.meta.url)),
   probeIds = [
+    "protocol-lifecycle-enable",
     "cli-schedule-reckon",
     "dispatch-point",
     "runtime-overview-default",

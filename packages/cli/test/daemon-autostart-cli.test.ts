@@ -720,6 +720,7 @@ const runtimeAttachWhileBlockedTest = async (context: TestContext) => {
       2_000,
       30_000,
     );
+    assert.equal(ready.ok, true, JSON.stringify(ready));
     assert.equal((ready.session as Record<string, unknown>).runtimeSessionId, runtimeSessionId, JSON.stringify(ready));
     const idle = await probeRuntimeAttach(endpoint, repoId, runtimeSessionId);
 

@@ -927,6 +927,11 @@
     "schema": "read-cost-scaling-budget/v1",
     "readCoverage": {
       "measured": {
+        "method:protocol.dispatchLifecycle.enable": {
+          "measurements": [
+            "protocol-lifecycle-enable"
+          ]
+        },
         "background:projection-recovery": {
           "measurements": [
             "projection-recovery"

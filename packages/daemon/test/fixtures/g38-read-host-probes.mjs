@@ -12,10 +12,45 @@ import { readEntityAssignmentDirectory } from "../../src/entity-assignment-direc
 import { readRepoInFlightWork } from "../../src/repo-in-flight-work.ts";
 import { makeScheduleScheduler } from "../../src/schedule-scheduler.ts";
 import { READ_TASK_ID } from "./g38-read-ledger.mjs";
+import assert from "node:assert/strict";
+import { createJsonRpcProtocolServer } from "../../src/protocol/json-rpc-server.ts";
+import { daemonHelloParams } from "../../src/client/daemon-hello.ts";
 const now = () => "2026-11-05T00:00:00.000Z";
 
 export const HOST_READ_PROBES = {
   ...ARCHIVE_READ_PROBES,
+  "protocol-lifecycle-enable": {
+    reads: ["method:protocol.dispatchLifecycle.enable"],
+    run: async () => {
+      const server = createJsonRpcProtocolServer({
+        host: new Proxy(
+          {},
+          {
+            get: () => {
+              throw new Error("Negotiation must not access repository state");
+            },
+          },
+        ),
+        build: { loadedBuildId: null, commit: null, builtAt: null },
+        authContext: { transportKind: "unix-socket" },
+        emit: async () => undefined,
+      });
+      try {
+        await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: daemonHelloParams() });
+        const response = await server.handle({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "protocol.dispatchLifecycle.enable",
+          params: {},
+        });
+        assert.equal(response.result.ok, true);
+        return response.result;
+      } finally {
+        server.close();
+      }
+    },
+    size: () => 1,
+  },
   "agent-rollback": {
     reads: ["command:agent-rollback"],
     run: readRollback,

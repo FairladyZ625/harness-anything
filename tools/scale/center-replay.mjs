@@ -13,6 +13,7 @@ export function syntheticParams(row, fixture, serial = 0, bindings = {}) {
   const custom = bindings[`${row.method}:${row.command}`] ?? bindings[row.method];
   if (custom) return structuredClone(custom);
   if (row.method === "protocol.hello") return daemonHelloParams({ reportStaleBuild: true });
+  if (row.method === "protocol.dispatchLifecycle.enable") return {};
   if (
     [
       "daemon.status",
@@ -108,6 +109,7 @@ export async function replayTraffic({
   const traceTag = `center-bench-trace-${++nextReplayId}`;
   let serial = 0,
     implicitHellos = 0,
+    implicitNegotiations = 0,
     highWater = 0;
   const releaseFinished = async (key, session) => {
     if (!session || session.active || !session.lastIssued) return;
@@ -134,6 +136,7 @@ export async function replayTraffic({
             ...syntheticParams({ ...row, method: "protocol.hello" }, fixture, number),
             invokingCommand: traceTag,
           });
+          if (session.helloResult.methods?.includes("protocol.dispatchLifecycle.enable")) implicitNegotiations++;
           return client;
         });
         sessions.set(key, session);
@@ -231,6 +234,7 @@ export async function replayTraffic({
       traceTag,
       elapsedMs,
       implicitHellos,
+      implicitNegotiations,
       observeArrivals,
       maxInFlightObserved: highWater,
       plannedMethods: Object.fromEntries(

@@ -163,3 +163,41 @@ test("lifecycle reads require an advertised connection opt-in; previous peers ke
   await call("protocol.hello", daemonHelloParams());
   assert.equal(((await call("repo.agentRuntime.sessions.read", params)).session as JsonObject).lifecycle, undefined);
 });
+
+test("lifecycle negotiation retains hello admission until the business frame or disconnect", async () => {
+  const { createJsonRpcProtocolServer } = await import("../src/protocol/json-rpc-server.ts");
+  let draining = false,
+    held = 0;
+  const server = createJsonRpcProtocolServer({
+    host: { read: async () => ({ ok: true }) } as never,
+    build: { loadedBuildId: null, commit: null, builtAt: null },
+    authContext: { transportKind: "unix-socket" },
+    emit: async () => undefined,
+    buildDraining: () => draining,
+    onRequestStarted: () => held++,
+    onRequestSettled: () => held--,
+  });
+  const call = async (method: string, params: JsonObject = {}) => {
+    const response = await server.handle({ jsonrpc: "2.0", id: 1, method, params });
+    assert.ok(response && "result" in response);
+    return response.result as JsonObject;
+  };
+  try {
+    await call("protocol.hello", daemonHelloParams());
+    assert.equal(held, 1);
+    draining = true;
+    assert.equal((await call("protocol.dispatchLifecycle.enable")).ok, true);
+    assert.equal(held, 1, "capability negotiation must retain the hello reservation");
+    const params = { repo: { repoId: "repo-test" }, payload: { runtimeSessionId: "runtime-test" } };
+    assert.equal((await call("repo.agentRuntime.sessions.read", params)).ok, true);
+    assert.equal(held, 0, "the first business frame releases the exchange");
+    assert.equal((await call("repo.agentRuntime.sessions.read", params)).code, "daemon_stopping");
+    draining = false;
+    await call("protocol.hello", daemonHelloParams());
+    await call("protocol.dispatchLifecycle.enable");
+    assert.equal(held, 1);
+  } finally {
+    server.close();
+  }
+  assert.equal(held, 0, "disconnect releases an abandoned negotiated exchange");
+});
