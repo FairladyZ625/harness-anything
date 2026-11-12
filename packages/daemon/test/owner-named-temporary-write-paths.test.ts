@@ -47,7 +47,6 @@ test("a temporary named after its writer exists only where it was judged", () =>
     "kernel/src/daemon/registry.ts: `${registryPath}.${process.pid}.${Date.now()}.tmp`",
     "kernel/src/local/local-layout-file-system.ts: `${entry.path}.${process.pid}.tmp`",
     "storage/src/durable-file.ts: `${file}.${process.pid}.${randomUUID()}.tmp`",
-    "storage/src/store/local-version-control-system.ts: `${target}.tmp-${process.pid}`",
     "storage/src/store/local-version-control-system.ts: `.ha-visible-${process.pid}-${index}`",
   ]);
 });
@@ -55,19 +54,23 @@ test("a temporary named after its writer exists only where it was judged", () =>
 // Reclaiming by pid liveness answers "is this owner still running" against the local process
 // table. A write path whose temporary can reach a second machine cannot ask that question:
 // harness/ is its own git repository and does not ignore *.tmp, so a leftover there travels.
-// Both write paths below reach a repository worktree, so neither may probe a pid.
+// The conflict-preservation caller and its durable port reach a repository worktree,
+// so neither may probe a pid.
 test("a write path that reaches a repository worktree mounts no pid-liveness reclaim", () => {
-  const durableWrite = readFileSync(
+  const preserveConflict = readFileSync(
     path.join(packagesRoot, "storage/src/store/local-version-control-system.ts"),
     "utf8",
   )
-    .split("function durableWrite(")[1]
+    .split("function preserveConflict(")[1]
     ?.split("\nfunction ")[0];
-  assert.ok(durableWrite, "durableWrite must still be a top-level function in the store");
-  assert.equal(durableWrite.includes("sweepStaleSettlementMarkers"), false);
-  assert.equal(durableWrite.includes("processMayBeAlive"), false);
+  assert.ok(preserveConflict, "preserveConflict must still be a top-level function in the store");
+  assert.equal(preserveConflict.includes("durableWrite"), false);
+  assert.equal(preserveConflict.includes("sweepStaleSettlementMarkers"), false);
+  assert.equal(preserveConflict.includes("processMayBeAlive"), false);
   const durableFile = readFileSync(path.join(packagesRoot, "storage/src/durable-file.ts"), "utf8");
   assert.equal(durableFile.includes("process.kill"), false);
+  assert.equal(durableFile.includes("sweepStaleSettlementMarkers"), false);
+  assert.equal(durableFile.includes("processMayBeAlive"), false);
   // The mirror's cross-process lock (and its pid probe) retired with the old pull machinery
   // (dec_9284BD61): the replica generation is installed atomically and needs no stale-round
   // reclaim, so nothing in the mirror may probe a pid at all.

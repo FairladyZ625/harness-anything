@@ -20,6 +20,7 @@ import {
   sourceSite,
   sourceWitnesses,
   intrinsicSupport,
+  technicalPortEvidence,
   processOwnedOutput,
   processEntry,
   moduleEntry,
@@ -138,6 +139,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
         .filter(
           (source) =>
             source.role !== "support" &&
+            source.role !== "technical-port" &&
             (!route || (source.role !== "script" && source.route === route)) &&
             witnesses.has(source.candidateId),
         )
@@ -268,6 +270,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       const node = witnesses.get(source.candidateId);
       const proof = source.role === "support" && node && intrinsicSupport(graph, node);
       const trace = sourceResults.get(source.candidateId);
+      const port = node && technicalPortEvidence(graph, node, source, action);
       const output =
         node &&
         action.ontology.authority === "local-process" &&
@@ -275,22 +278,25 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
         action.residency.writer === "caller-process" &&
         processOwnedOutput(graph, node);
       const within = action.ontology.authority !== "package-script" || (node && buildOutputWithinPackage(graph, node));
-      const ok = Boolean(node && within && (proof || output || (trace?.seen && trace.ok)));
+      const ok = Boolean(node && within && (proof || port || output || (trace?.seen && trace.ok)));
       return {
         id: source.candidateId,
         kind: action.kind,
-        authority:
-          source.role === "support"
+        authority: port
+          ? "technical-port"
+          : source.role === "support"
             ? "intrinsic-support"
             : output
               ? "process-stdio"
               : (action.ontology.authority ?? "authorization-port"),
         ok,
-        evidence: proof
-          ? ["typed process-local intrinsic; no external effect"]
-          : output
-            ? ["Node process-owned stdout/stderr; caller-process residency"]
-            : (trace?.evidence ?? []),
+        evidence:
+          port ??
+          (proof
+            ? ["typed process-local intrinsic; no external effect"]
+            : output
+              ? ["Node process-owned stdout/stderr; caller-process residency"]
+              : (trace?.evidence ?? [])),
         violations: ok
           ? []
           : [!within ? "build output escapes package dist" : "source has no verified owner/authority chain"],

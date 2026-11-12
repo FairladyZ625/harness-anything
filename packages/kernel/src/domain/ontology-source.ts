@@ -2,7 +2,9 @@
 export interface OntologySourceBinding {
   readonly candidateId: string;
   readonly route: string;
-  readonly role?: "effect" | "support" | "script";
+  readonly role?: "effect" | "support" | "script" | "technical-port";
+  /** Exact compiler-resolved declaration (file#qualified member) of a shared technical port. */
+  readonly port?: string;
 }
 
 export interface OntologyActionSources {
