@@ -167,7 +167,9 @@ export function openDaemonRequestLog(options: DaemonRequestLogOptions): DaemonRe
   }
 
   async function openSink(logPath: string): Promise<{ handle: FileHandle; bytes: number }> {
-    await /* @gate-identity state-store/legacy.3dd8b1ca6b76b91c */ mkdir(path.dirname(logPath), { recursive: true });
+    await /* @gate-identity non-state/environment-io.3dd8b1ca6b76b91c */ mkdir(path.dirname(logPath), {
+      recursive: true,
+    });
     const handle = await openFile(logPath, "a");
     const sink = { handle, bytes: (await handle.stat()).size };
     sinks.set(logPath, sink);
@@ -221,7 +223,7 @@ export function openDaemonRequestLog(options: DaemonRequestLogOptions): DaemonRe
       try {
         const age = (await stat(path.join(directory, name))).mtimeMs;
         if (age < cutoff)
-          await /* @gate-identity state-store/legacy.69b1169ea4d01ff3 */ rm(path.join(directory, name), {
+          await /* @gate-identity non-state/environment-io.69b1169ea4d01ff3 */ rm(path.join(directory, name), {
             force: true,
           });
       } catch (error) {
@@ -286,7 +288,7 @@ function escapeRegExp(value: string): string {
 }
 
 function renameIfExists(from: string, to: string): Promise<void> {
-  return /* @gate-identity state-store/legacy.b99cb7e864440348 */ rename(from, to).catch((error: unknown) => {
+  return /* @gate-identity non-state/environment-io.b99cb7e864440348 */ rename(from, to).catch((error: unknown) => {
     if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
       consumeKnownError(error);
       return;

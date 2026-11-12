@@ -47,10 +47,10 @@ export async function acquireDaemonAutostartFlight(input: {
   const { processLockHolderDead } = await import("./process-port.ts");
   const pid = input.pid ?? process.pid,
     lockPath = daemonAutostartLockPath(input.userRoot, input.daemonId);
-  /* @gate-identity state-store/legacy.913e71a0b5196881 */ mkdirSync(input.userRoot, { recursive: true });
+  /* @gate-identity state-store/runtime-instance.daemon-singleton */ mkdirSync(input.userRoot, { recursive: true });
   for (let attempt = 0; attempt < 8; attempt += 1) {
     try {
-      /* @gate-identity state-store/legacy.39e2d10937d2a348 */ writeFileSync(lockPath, `${pid}\n`, {
+      /* @gate-identity state-store/runtime-instance.daemon-singleton */ writeFileSync(lockPath, `${pid}\n`, {
         flag: "wx",
         mode: 0o600,
       });
@@ -63,7 +63,7 @@ export async function acquireDaemonAutostartFlight(input: {
       const owner = readPidFile(lockPath);
       if (owner !== null && !processLockHolderDead(lockPath, owner)) return { owner: false, release: () => undefined };
       try {
-        /* @gate-identity state-store/legacy.67ff9d7e8c15d9f9 */ unlinkSync(lockPath);
+        /* @gate-identity state-store/runtime-instance.daemon-singleton */ unlinkSync(lockPath);
       } catch (cleanup) {
         if (!isCode(cleanup, "ENOENT")) throw cleanup;
         consumeKnownError(cleanup);
@@ -85,14 +85,14 @@ export async function acquireDaemonSingleton(input: {
   const pid = input.pid ?? process.pid,
     probe = input.probe ?? daemonSocketProbe,
     lockPath = daemonSingletonLockPath(input.userRoot, input.daemonId);
-  /* @gate-identity state-store/legacy.c6b322ced1814a23 */ mkdirSync(input.userRoot, { recursive: true });
+  /* @gate-identity state-store/runtime-instance.daemon-singleton */ mkdirSync(input.userRoot, { recursive: true });
   // A socket that accepts connections is a live incumbent even when the lock
   // bookkeeping is absent (a daemon started by an older build holds no lock).
   if (await probe(input.endpoint))
     return { claim: "incumbent", pid: readDaemonPid(input.userRoot, input.daemonId), witness: "unix-socket" };
   for (let attempt = 0; attempt < 8; attempt += 1) {
     try {
-      /* @gate-identity state-store/legacy.26c2874c52baacea */ writeFileSync(lockPath, `${pid}\n`, {
+      /* @gate-identity state-store/runtime-instance.daemon-singleton */ writeFileSync(lockPath, `${pid}\n`, {
         flag: "wx",
         mode: 0o600,
       });
@@ -104,7 +104,7 @@ export async function acquireDaemonSingleton(input: {
       if (holder !== null && !processLockHolderDead(lockPath, holder))
         return { claim: "incumbent", pid: holder, witness: "singleton-lock" };
       try {
-        /* @gate-identity state-store/legacy.389e15e83afcfdc4 */ unlinkSync(lockPath);
+        /* @gate-identity state-store/runtime-instance.daemon-singleton */ unlinkSync(lockPath);
       } catch (cleanup) {
         if (!isCode(cleanup, "ENOENT")) throw cleanup;
         consumeKnownError(cleanup);
@@ -145,7 +145,7 @@ function readPidFile(target: string): number | null {
 function releaseIfHeld(lockPath: string, pid: number): void {
   if (readPidFile(lockPath) === pid)
     try {
-      /* @gate-identity state-store/legacy.2a9e7468ab003e72 */ unlinkSync(lockPath);
+      /* @gate-identity state-store/runtime-instance.daemon-singleton */ unlinkSync(lockPath);
     } catch (error) {
       if (!isCode(error, "ENOENT")) throw error;
       consumeKnownError(error);

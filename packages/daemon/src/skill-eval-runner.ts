@@ -428,7 +428,10 @@ export class SkillEvalRunner {
     const relative = path.relative(root, candidate);
     if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
       throw skillEvalRunnerError("VALIDATION_ERROR", "evaluation sandbox escaped its run root");
-    await /* @gate-identity state-store/legacy.def6ae045029d530 */ mkdir(candidate, { recursive: true, mode: 0o700 });
+    await /* @gate-identity non-state/environment-io.def6ae045029d530 */ mkdir(candidate, {
+      recursive: true,
+      mode: 0o700,
+    });
     return candidate;
   }
 }

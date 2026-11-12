@@ -30,14 +30,14 @@ export function openRuntimeProviderHealthStore(userRoot: string) {
     return JSON.parse(readFileSync(target, "utf8")) as Record<string, RuntimeProviderHealth>;
   };
   const persist = (next: Record<string, RuntimeProviderHealth>): void => {
-    /* @gate-identity state-store/legacy.b26f260c36631b30 */ mkdirSync(userRoot, { recursive: true });
+    /* @gate-identity state-store/runtime-instance.provider-health */ mkdirSync(userRoot, { recursive: true });
     const temporary = `${target}.${process.pid}.tmp`;
-    /* @gate-identity state-store/legacy.735050309afa42f1 */ writeFileSync(
+    /* @gate-identity state-store/runtime-instance.provider-health */ writeFileSync(
       temporary,
       `${JSON.stringify(next, null, 2)}\n`,
       { mode: 0o600 },
     );
-    /* @gate-identity state-store/legacy.73f34ff53ed796f0 */ renameSync(temporary, target);
+    /* @gate-identity state-store/runtime-instance.provider-health */ renameSync(temporary, target);
   };
   const get = (instanceId: string): RuntimeProviderHealth => read()[instanceId] ?? empty(instanceId);
   const list = (): readonly RuntimeProviderHealth[] => Object.values(read());

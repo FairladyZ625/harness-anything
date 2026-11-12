@@ -90,7 +90,7 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
         // lets any local user pre-create the name, and binding inside their directory hands
         // every hello credential to them.
         mkdirSecurely(path.dirname(endpoint));
-        /* @gate-identity state-store/legacy.e0963dd729d80e07 */ rmSync(endpoint, { force: true });
+        /* @gate-identity non-state/environment-io.e0963dd729d80e07 */ rmSync(endpoint, { force: true });
       }
       await new Promise<void>((resolve, reject) => {
         server.once("error", reject);
@@ -115,7 +115,7 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
       await Promise.all(closing.map(async ({ connection, closed }) => Promise.all([connection.close(), closed])));
       await serverClosed;
       if (process.platform !== "win32")
-        /* @gate-identity state-store/legacy.961cdcaa9a92cbbe */ rmSync(endpoint, { force: true });
+        /* @gate-identity non-state/environment-io.961cdcaa9a92cbbe */ rmSync(endpoint, { force: true });
     },
   };
 }

@@ -280,13 +280,13 @@ export function openDispatchStream(
 ): DispatchStreamWriter {
   const ref = dispatchStreamRef(rootDir, header.dispatchId),
     target = dispatchStreamPath(rootDir, header.dispatchId);
-  /* @gate-identity state-store/legacy.878c1cd5cc602c80 */ mkdirSync(path.dirname(target), {
+  /* @gate-identity state-store/execution.dispatch-stream */ mkdirSync(path.dirname(target), {
     recursive: true,
     mode: 0o700,
   });
   if (!existsSync(target)) {
     const record = { schema: streamSchema, kind: "dispatch", ...header, eventStreamRef: ref };
-    /* @gate-identity state-store/legacy.1e655699c18be656 */ writeFileSync(target, `${JSON.stringify(record)}\n`, {
+    /* @gate-identity state-store/execution.dispatch-stream */ writeFileSync(target, `${JSON.stringify(record)}\n`, {
       encoding: "utf8",
       mode: 0o600,
     });
@@ -298,7 +298,7 @@ export function openDispatchStream(
           runtimeSessionId: header.runtimeSessionId,
         });
       } catch (error) {
-        /* @gate-identity state-store/legacy.2d5e5cb5c3c6c351 */ unlinkSync(target);
+        /* @gate-identity state-store/execution.dispatch-stream */ unlinkSync(target);
         throw error;
       }
     }
@@ -395,7 +395,7 @@ export function removeDispatchStream(rootDir: string, dispatchId: string): void 
     header = readDispatchStreamHeader(rootDir, dispatchId);
   readLimitWarnings.delete(target);
   writeLimitWarnings.delete(target);
-  if (existsSync(target)) /* @gate-identity state-store/legacy.6ba1d50b31baabb9 */ unlinkSync(target);
+  if (existsSync(target)) /* @gate-identity state-store/execution.dispatch-stream */ unlinkSync(target);
   if (header?.taskId)
     removeDispatchLiveIndexEntries(rootDir, [
       { dispatchId, taskId: header.taskId, runtimeSessionId: header.runtimeSessionId },
@@ -470,7 +470,7 @@ function readDispatchStreamHeaderAt(target: string, dispatchId: string): Dispatc
       if (newline !== -1) break;
     }
   } finally {
-    /* @gate-identity state-store/legacy.5c373b91b06b3466 */ closeSync(descriptor);
+    /* @gate-identity state-store/execution.dispatch-stream */ closeSync(descriptor);
   }
   const first = parseRecord(Buffer.concat(chunks).toString("utf8").replace(/\r$/u, ""));
   return isHeader(first) && first.dispatchId === dispatchId ? first : null;
@@ -486,7 +486,7 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
   const descriptor = openDispatchStreamForRead(target);
   if (descriptor === null) return null;
   const stat = fstatSync(descriptor);
-  /* @gate-identity state-store/legacy.1a4e503b4df96177 */ closeSync(descriptor);
+  /* @gate-identity state-store/execution.dispatch-stream */ closeSync(descriptor);
   if (!stat.isFile()) return null;
   const header = readDispatchStreamHeaderAt(target, dispatchId);
   if (!header) return null;
@@ -678,11 +678,11 @@ export function readDispatchStream(
   if (descriptor === null) return null;
   const stat = fstatSync(descriptor);
   if (!stat.isFile()) {
-    /* @gate-identity state-store/legacy.7ce8c0adecefda0f */ closeSync(descriptor);
+    /* @gate-identity state-store/execution.dispatch-stream */ closeSync(descriptor);
     return null;
   }
   if (stat.size > dispatchStreamReadLimitBytes) {
-    /* @gate-identity state-store/legacy.403a9727fb87e455 */ closeSync(descriptor);
+    /* @gate-identity state-store/execution.dispatch-stream */ closeSync(descriptor);
     warnOnce(readLimitWarnings, target, `skipping full read of ${path.basename(target)} at ${String(stat.size)} bytes`);
     return null;
   }
@@ -690,7 +690,7 @@ export function readDispatchStream(
   try {
     body = readFileSync(descriptor, "utf8");
   } finally {
-    /* @gate-identity state-store/legacy.94ab318dd3de4162 */ closeSync(descriptor);
+    /* @gate-identity state-store/execution.dispatch-stream */ closeSync(descriptor);
   }
   const lines = body.split(/\r?\n/u).filter(Boolean),
     first = parseRecord(lines[0]);
@@ -744,7 +744,7 @@ export function readDispatchStreamIncrement(
     const read = readSync(descriptor, bytes, 0, bytes.length, offset);
     return { bytes: bytes.subarray(0, read), size };
   } finally {
-    /* @gate-identity state-store/legacy.a2d05e6d66f5d428 */ closeSync(descriptor);
+    /* @gate-identity state-store/execution.dispatch-stream */ closeSync(descriptor);
   }
 }
 
@@ -758,7 +758,7 @@ export function readRuntimeWorkerChunk(target: string, offset: number, limit = 1
     const read = readSync(descriptor, bytes, 0, bytes.length, offset);
     return bytes.subarray(0, read);
   } finally {
-    /* @gate-identity state-store/legacy.415b367a70ea14aa */ closeSync(descriptor);
+    /* @gate-identity state-store/execution.dispatch-stream */ closeSync(descriptor);
   }
 }
 
@@ -783,7 +783,7 @@ function openStreamAppender(
       const owned = descriptor !== null,
         handle =
           descriptor ??
-          /* @gate-identity state-store/legacy.8a2cc436788b3c56 */ openSync(
+          /* @gate-identity state-store/execution.dispatch-stream */ openSync(
             target,
             fsConstants.O_APPEND | fsConstants.O_WRONLY,
           );
@@ -793,10 +793,10 @@ function openStreamAppender(
           // The disk-footprint cap wins over log retention here: unbounded provider output is
           // dropped rather than letting one transcript grow without bound on the daemon disk.
           input.warnDroppedOutput();
-          if (!owned) /* @gate-identity state-store/legacy.e870393efb9e208e */ closeSync(handle);
+          if (!owned) /* @gate-identity state-store/execution.dispatch-stream */ closeSync(handle);
           return;
         }
-        /* @gate-identity state-store/legacy.36f252ab4440df72 */ writeFileSync(
+        /* @gate-identity state-store/execution.dispatch-stream */ writeFileSync(
           handle,
           `${JSON.stringify(input.scrub({ schema: streamSchema, ...value }))}\n`,
           "utf8",
@@ -804,7 +804,7 @@ function openStreamAppender(
       } catch (error) {
         // Drop the held descriptor; a close failure surfaces like the finally-close did before the split.
         descriptor = null;
-        /* @gate-identity state-store/legacy.ec8edf447af0e193 */ closeSync(handle);
+        /* @gate-identity state-store/execution.dispatch-stream */ closeSync(handle);
         throw error;
       }
       descriptor = handle;
@@ -813,7 +813,7 @@ function openStreamAppender(
       if (descriptor === null) return;
       const handle = descriptor;
       descriptor = null;
-      /* @gate-identity state-store/legacy.a730384d3b0fb6cb */ closeSync(handle);
+      /* @gate-identity state-store/execution.dispatch-stream */ closeSync(handle);
     },
   };
 }
@@ -885,7 +885,7 @@ function upsertDispatchLiveIndex(rootDir: string, entry: DispatchLiveIndexEntry)
 // threads share process.pid, so the shared durable write gives each write its own temporary.
 function writeDispatchLiveIndex(rootDir: string, taskId: string, index: DispatchLiveIndex): void {
   const target = dispatchLiveIndexPath(rootDir, taskId);
-  /* @gate-identity state-store/legacy.ea4604c4d5dd004b */ mkdirSync(path.dirname(target), {
+  /* @gate-identity state-store/execution.dispatch-stream */ mkdirSync(path.dirname(target), {
     recursive: true,
     mode: 0o700,
   });
@@ -1130,7 +1130,7 @@ function readBoundedStreamWindows(
       return { offset, text: bytes.subarray(0, read).toString("utf8") };
     });
   } finally {
-    /* @gate-identity state-store/legacy.cfd5a6049b66e210 */ closeSync(descriptor);
+    /* @gate-identity state-store/execution.dispatch-stream */ closeSync(descriptor);
   }
 }
 
@@ -1148,7 +1148,7 @@ function firstLineEndOffset(target: string, size: number): number {
     }
     return size;
   } finally {
-    /* @gate-identity state-store/legacy.84e7034e31ab4bac */ closeSync(descriptor);
+    /* @gate-identity state-store/execution.dispatch-stream */ closeSync(descriptor);
   }
 }
 
@@ -1217,7 +1217,7 @@ function readStreamRecordOfKindForward(
       offset += length - (marker.length - 1);
     }
   } finally {
-    /* @gate-identity state-store/legacy.8b402ec3c424fe89 */ closeSync(descriptor);
+    /* @gate-identity state-store/execution.dispatch-stream */ closeSync(descriptor);
   }
   return null;
 }
@@ -1240,7 +1240,7 @@ export function readLatestStreamRecord<T>(
       return record === null ? null : select(record);
     });
   } finally {
-    /* @gate-identity state-store/legacy.f80bd5054cf96b5a */ closeSync(descriptor);
+    /* @gate-identity state-store/execution.dispatch-stream */ closeSync(descriptor);
   }
 }
 
@@ -1256,7 +1256,7 @@ export function openDispatchStreamForRead(target: string): number | null {
 function openDispatchStreamPath(target: string): { readonly descriptor: number | null } {
   try {
     return {
-      descriptor: /* @gate-identity state-store/legacy.1b235320edc40569 */ openSync(target, fsConstants.O_RDONLY),
+      descriptor: /* @gate-identity state-store/execution.dispatch-stream */ openSync(target, fsConstants.O_RDONLY),
     };
   } catch (error) {
     if (fsErrorCode(error) !== "ENOENT") throw error;

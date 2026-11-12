@@ -54,7 +54,7 @@ export function purgeRepoCache(rootDir: string): readonly string[] {
         if (!pendingEvidence.has(dispatchId)) removeDispatchStream(canonicalRoot, dispatchId);
       continue;
     }
-    /* @gate-identity state-store/legacy.a4b2ae42a0d210f8 */ rmSync(target, {
+    /* @gate-identity non-state/environment-io.a4b2ae42a0d210f8 */ rmSync(target, {
       recursive: true,
       force: true,
       maxRetries: 5,
@@ -94,7 +94,7 @@ export function removeRepoHarnessRoots(rootDir: string): readonly string[] {
     [layout.authoredRoot, path.relative(layout.rootDir, layout.authoredRoot)],
   ] as const) {
     if (!existsSync(target)) continue;
-    /* @gate-identity state-store/legacy.9bc5b49b9a770b83 */ rmSync(target, {
+    /* @gate-identity non-state/environment-io.9bc5b49b9a770b83 */ rmSync(target, {
       recursive: true,
       force: true,
       maxRetries: 5,

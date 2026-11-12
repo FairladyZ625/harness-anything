@@ -52,9 +52,9 @@ export function createProbeLogSink(options: ProbeLogSinkOptions): ProbeLogSink {
     try {
       if (handle === null || day !== openDay) {
         await closeHandle();
-        await /* @gate-identity state-store/legacy.9be0f8fbd8c5f109 */ mkdir(options.dir, { recursive: true });
+        await /* @gate-identity non-state/environment-io.9be0f8fbd8c5f109 */ mkdir(options.dir, { recursive: true });
         openDay = day;
-        handle = await /* @gate-identity state-store/legacy.f2d57822d6b3d560 */ open(
+        handle = await /* @gate-identity non-state/environment-io.f2d57822d6b3d560 */ open(
           probeTimelinePath(options.dir, options.daemonId, day),
           "a",
         );
@@ -89,14 +89,14 @@ export function createProbeLogSink(options: ProbeLogSinkOptions): ProbeLogSink {
 
 /** Create a capture directory before a tool that writes into it runs. */
 export async function ensureProbeDirectory(dir: string): Promise<void> {
-  await /* @gate-identity state-store/legacy.690433e47117a394 */ mkdir(dir, { recursive: true });
+  await /* @gate-identity non-state/environment-io.690433e47117a394 */ mkdir(dir, { recursive: true });
 }
 
 /** Write one capture artifact and return its path; the caller records that path in the timeline. */
 export async function writeProbeFile(dir: string, name: string, body: string): Promise<string> {
   await ensureProbeDirectory(dir);
   const file = path.join(dir, name);
-  await /* @gate-identity state-store/legacy.b71e5d2d09de6e06 */ writeFile(file, body, "utf8");
+  await /* @gate-identity non-state/environment-io.b71e5d2d09de6e06 */ writeFile(file, body, "utf8");
   return file;
 }
 
@@ -112,7 +112,7 @@ async function pruneOldDays(dir: string, daemonId: string, keptDays: number): Pr
   for (const name of names) {
     const day = pattern.exec(name)?.[1];
     if (day !== undefined && !keep.includes(day))
-      await /* @gate-identity state-store/legacy.3ed3a8e5f168e3da */ rm(path.join(dir, name), { force: true });
+      await /* @gate-identity non-state/environment-io.3ed3a8e5f168e3da */ rm(path.join(dir, name), { force: true });
   }
 }
 
