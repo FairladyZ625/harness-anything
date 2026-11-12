@@ -10,6 +10,7 @@ import {
   sha256Text,
 } from "@harness-anything/kernel";
 import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
+import { readyDispatchLifecycle } from "./runtime-dispatch-admission.ts";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { type AgentRuntimeEventV1, type CanonicalEventStore } from "@harness-anything/kernel";
@@ -967,7 +968,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             }
           : {}),
       }));
-    let requested: Awaited<ReturnType<typeof publishRuntimeEvent>> | undefined;
+    let requested: Awaited<ReturnType<typeof publishRuntimeEvent>> | undefined,
+      dispatchRequestSent = false;
     const requestDispatch = () =>
       publishRuntimeEvent(
         "runtime_dispatch_requested",
@@ -1031,7 +1033,18 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           console.error(`[review-worktree] ${newDispatchId} could not be reclaimed: ${reviewCleanupFailure.message}`);
       }
       if (process && !(await runtimeProcessTreeStopped(input.rootDir, newDispatchId, process))) return;
-      if (!requested) {
+      // A lost receipt (including credential issuance after commit) does not undo admission.
+      // Center reads must be ready; an unavailable read preserves the stream and claim for recovery.
+      const admitted =
+        requested ||
+        (dispatchRequestSent &&
+          (input.remote
+            ? readyDispatchLifecycle(
+                await input.remote.readDispatchLifecycle({ by: "dispatch", dispatchIds: [newDispatchId] }),
+                runtimeSpawnError,
+              ).length > 0
+            : input.store!().readEvent(dispatchOpId) !== null));
+      if (!admitted) {
         await releaseUnadmittedLease?.();
         if (stream) removeDispatchStream(input.rootDir, newDispatchId);
         return;
@@ -1181,6 +1194,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     try {
       openStream();
       onPrepared?.(newDispatchId, runtimeSessionId);
+      dispatchRequestSent = true;
       requested = await requestDispatch();
     } catch (error) {
       await cleanupFailedLaunch(error);
