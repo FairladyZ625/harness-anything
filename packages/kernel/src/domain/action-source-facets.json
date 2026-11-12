@@ -2986,8 +2986,9 @@
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-open.ts#openRepoWriterCell:ab98770cb40cde7a97777d58f1eb9012",
-        "route": "daemon:bin",
-        "role": "support"
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
       }
     ],
     "technical": true
