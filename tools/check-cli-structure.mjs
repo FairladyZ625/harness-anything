@@ -10,6 +10,7 @@ const cliFiles = listWorktreeFiles(root, ["packages/cli/src"]).filter(
 );
 const workspacePackages = readWorkspacePackages();
 const allowedStaticGraph = new Set([
+  "packages/kernel/src/domain/cli-operational-policy.ts",
   "packages/daemon/src/offline-storage-command.ts",
   "packages/daemon/src/client/local-daemon-target.ts",
   "packages/daemon/src/protocol/daemon-protocol.contract.ts",

@@ -21,6 +21,45 @@ test("thin CLI structure accepts the bounded production surface on the dist stat
   assert.match(result.stdout, /CLI structure check passed/u);
 });
 
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: CLI reads the declared Policy data leaf;
+// the exception must not admit its transitive runtime dependencies or the kernel barrel.
+test("thin CLI structure accepts the declared CLI Policy data leaf", async () => {
+  const root = await cliPolicyFixture();
+  const result = run(root);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /CLI structure check passed/u);
+});
+
+for (const dependency of ["index.ts", "domain/other-policy.ts"]) {
+  test(`thin CLI structure rejects CLI Policy runtime dependency ${dependency}`, async () => {
+    const root = await cliPolicyFixture();
+    write(
+      root,
+      "packages/kernel/src/domain/cli-operational-policy.ts",
+      `export { cliOperationalPolicy } from '${dependency === "index.ts" ? "../index.ts" : "./other-policy.ts"}';\n`,
+    );
+    write(root, `packages/kernel/src/${dependency}`, "export const cliOperationalPolicy = {};\n");
+    const result = run(root);
+    assert.notEqual(result.status, 0);
+    assert.ok(result.stderr.includes(`: packages/kernel/src/${dependency}`), result.stderr);
+  });
+}
+
+test("daemon transport still rejects the CLI Policy leaf", async () => {
+  const root = await cliPolicyFixture();
+  write(
+    root,
+    "packages/daemon/src/client/local-json-rpc-client.ts",
+    "export { cliOperationalPolicy } from '@harness-anything/kernel/internal/domain/cli-operational-policy';\n",
+  );
+  const result = run(root);
+  assert.notEqual(result.status, 0);
+  assert.match(
+    result.stderr,
+    /daemon transport import graph reached module is outside the daemon transport allowlist: packages\/kernel\/src\/domain\/cli-operational-policy\.ts/u,
+  );
+});
+
 test("thin CLI structure rejects a kernel public barrel reachable from the dist entry", async () => {
   const root = await fixture();
   write(
@@ -260,6 +299,25 @@ test("daemon transport graph rejects even a kernel leaf import reachable from th
     ),
   );
 });
+
+async function cliPolicyFixture() {
+  const root = await fixture();
+  write(
+    root,
+    "packages/cli/src/index.ts",
+    entrySource([
+      "import { cliOperationalPolicy } from '@harness-anything/kernel/internal/domain/cli-operational-policy';",
+      "void cliOperationalPolicy;",
+    ]),
+  );
+  write(
+    root,
+    "packages/kernel/src/domain/cli-operational-policy.ts",
+    "import type { OntologyPolicyDeclaration } from './ontology-source.ts';\n" +
+      "export const cliOperationalPolicy = { defaultValue: { waitMaximumMs: 60000 } } satisfies OntologyPolicyDeclaration;\n",
+  );
+  return root;
+}
 
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), "harness-thin-cli-structure-"));
