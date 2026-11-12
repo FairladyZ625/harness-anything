@@ -20,6 +20,7 @@ import { spawnCli } from "./fixtures/runtime-ingress.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
 import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
+import { waitForLocalIdentityRetirement } from "./fixtures/fleet-settled-identity/local-identity.ts";
 
 // Real provider process, child CLI, edge socket, Fleet TLS, center writer and isolated realm.
 // The edge has neither a center admin config nor a center secret.
@@ -976,18 +977,26 @@ test(
     signInAt(path.join(f.root, "user"), "person-owner");
     assert.ok((await show()).reviews.some((review) => review.reviewId === `review-${reviewDispatch}`));
     t.diagnostic("Fresh S2 reviewer read, fixed receipt and honest stopped settlement passed after logout.");
-    // The settled execution's edge-local identity is no longer available, so the write is refused.
     // A relayed command whose worker host is gone reports the transport failure of its fixed relay:
     // it neither starts a daemon nor falls back to the edge user socket.
     const relayedAfter = await cli(["task", "progress", "append", taskId, "--text", "After settlement."]);
     assert.equal(relayedAfter.code, "daemon_unavailable", JSON.stringify(relayedAfter));
     assert.match(JSON.stringify(relayedAfter), /connect ENOENT \/tmp\/harness-anything-\d+\/r-[a-f0-9]{24}\.sock/u);
-    // Canonical settlement precedes local archive compaction, which retires the edge identity.
-    await waitForArrival(
-      async () => (readRuntimeExecutionPrincipal(edgeRoot, secret) === null ? true : null),
-      watchDirectoryArrival(f.root),
+    // Canonical terminal visibility precedes local identity retirement. Pending evidence remains
+    // observable until the real archive completes; credential expiry cannot satisfy this premise.
+    t.diagnostic(`Settlement archive receipts: ${JSON.stringify(f.runtimeArchiveReceipts)}`);
+    const retired = await waitForLocalIdentityRetirement(
+      {
+        rootDir: edgeRoot,
+        dispatchId: String(spawned.dispatchId),
+        credential: secret,
+        expiresAt: env.HARNESS_EXECUTION_EXPIRES_AT!,
+      },
+      (state) => t.diagnostic(`Logout identity retirement: ${JSON.stringify(state)}`),
     );
-    // A direct caller now meets the center's settled-identity refusal.
+    assert.equal(retired.evidenceSidecar, "stored");
+    assert.equal(retired.evidenceSummary, "stored");
+    // The unexpired credential is absent from the edge's live identity carrier.
     const directAfter = await spawnCli(
       ["--root", worktree, "--json", "task", "progress", "append", taskId, "--text", "After settlement."],
       {

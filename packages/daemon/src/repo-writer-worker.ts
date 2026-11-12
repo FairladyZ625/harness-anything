@@ -1,8 +1,10 @@
 import { observeWorkerMemory } from "./daemon-diagnostics-memory.ts";
 import { createAuthorizationProvider } from "./authorization-provider.ts";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
 import { consumeKnownError } from "@harness-anything/kernel";
+import { fleetBaseBackupTrace } from "@harness-anything/storage";
 import type { RepoCellOpenInput } from "./repo-cell-open.ts";
 import { openRepoWriterCell } from "./repo-cell-open.ts";
 import type {
@@ -27,6 +29,7 @@ import {
   type RepoWriterReceiptV1,
   type RepoWriterRequestV1,
   type RepoWriterStatusV1,
+  type RepoWriterFleetBaseBackupTraceV1,
   type RuntimeProcessEventV1,
   type SerializableRepoCellBindingV1,
   type SerializableKeycloakAuthorization,
@@ -70,7 +73,9 @@ async function startRepoWriterWorker(): Promise<void> {
     runtimeProcesses = new Map<string, RuntimeProcessListeners>(),
     activeRequests = new Map<string, AbortController>(),
     activeStoreRequests = new Set<Promise<void>>(),
-    activePresets = new Set<string>();
+    activePresets = new Set<string>(),
+    fleetBackupRequestContext = new AsyncLocalStorage<string>(),
+    fleetBackupSpans = new WeakMap<object, string>();
   let draining = false;
   let cell: Awaited<ReturnType<typeof openRepoWriterCell>> | null = null;
   let publishedHead: { generation: number | null; revision: number | undefined } | undefined;
@@ -83,6 +88,25 @@ async function startRepoWriterWorker(): Promise<void> {
   postStatus({ kind: "attach-progress", status: openingStatus });
   const heartbeat = setInterval(() => postStatus({ kind: "status", status: openingStatus }), 4_000);
   heartbeat.unref?.();
+  const relayFleetBackupTrace = (phase: RepoWriterFleetBaseBackupTraceV1["phase"], message: unknown): void => {
+    const span = message as { readonly repoId: string | null };
+    let requestId = fleetBackupSpans.get(span);
+    if (phase === "start") {
+      requestId = fleetBackupRequestContext.getStore();
+      if (!requestId) return;
+      fleetBackupSpans.set(span, requestId);
+    }
+    if (!requestId) return;
+    notify("fleetBaseBackupTrace", {
+      requestId,
+      phase,
+      repoId: span.repoId,
+    } satisfies RepoWriterFleetBaseBackupTraceV1);
+    if (phase === "end") fleetBackupSpans.delete(span);
+  };
+  fleetBaseBackupTrace.start.subscribe((message) => relayFleetBackupTrace("start", message));
+  fleetBaseBackupTrace.asyncStart.subscribe((message) => relayFleetBackupTrace("asyncStart", message));
+  fleetBaseBackupTrace.end.subscribe((message) => relayFleetBackupTrace("end", message));
 
   parentPort.on("message", (message: unknown) => {
     if (isCapabilityResult(message)) {
@@ -303,8 +327,8 @@ async function startRepoWriterWorker(): Promise<void> {
     const markExecutionStart = (): void => {
       executionStartedAtMs ??= monotonicMs();
     };
-    // Only the two socket write families append to the cell's single-write chain; the queue copies
-    // the live head into this object at that append, before the request waits.
+    // The single-write chain copies its live head into this object when the request appends,
+    // before the request waits.
     const queueObservation = writeQueueObservationFor(request);
     activeRequests.set(request.requestId, abort);
     if (!cell || draining) {
@@ -417,6 +441,13 @@ async function startRepoWriterWorker(): Promise<void> {
         case "pruneReplicationLog":
           value = await cell.pruneReplicationLog!(Number(request.payload), queueObservation);
           break;
+        case "fleetBackup": {
+          const fleetBackup = cell.fleetBackup!;
+          value = await fleetBackupRequestContext.run(request.requestId, () =>
+            fleetBackup(request.payload as Parameters<typeof fleetBackup>[0], abort.signal, queueObservation),
+          );
+          break;
+        }
         case "catalog": {
           const payload = request.payload as { method: keyof typeof cell.catalog; args: unknown[] };
           value = await (cell.catalog[payload.method] as (...args: unknown[]) => unknown)(...payload.args);
@@ -700,6 +731,7 @@ const writeQueueCommandForMethod: Partial<Record<RepoWriterRequestV1["method"], 
   steerRuntime: "runtime-steer",
   runtimeIngress: "runtime-run",
   pruneReplicationLog: "replication-prune",
+  fleetBackup: "replication-snapshot",
 };
 
 function monotonicMs(): number {

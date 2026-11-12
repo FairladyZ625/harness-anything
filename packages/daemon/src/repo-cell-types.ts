@@ -132,6 +132,11 @@ export interface ReplicaCutSource {
   readonly ledgerCut: () => { readonly repoId: string; readonly revision: number; readonly headDigest: string } | null;
 }
 
+export interface RepoCellFleetBackupInput {
+  readonly directory: string;
+  readonly writerEpochFence: NonNullable<RepoCellBinding["writerEpochFence"]>;
+}
+
 export type TaskCreateReceipt = WriteReceiptDraft & {
   readonly summary: string;
   readonly taskId: string;
@@ -359,6 +364,12 @@ export interface RepoCell {
   >;
   /** Replication-log retention, run on this repository's single write chain. */
   readonly pruneReplicationLog?: (beforeSequence: number, queueObservation?: RepoCellQueueObservation) => Promise<void>;
+  /** Pins the replication snapshot on the write chain; waits for its archive outside that chain. */
+  readonly fleetBackup?: (
+    input: RepoCellFleetBackupInput,
+    signal?: AbortSignal,
+    queueObservation?: RepoCellQueueObservation,
+  ) => Promise<import("@harness-anything/storage").BaseBackupArchive>;
   /** Internal idle retirement; false leaves background work running. */
   readonly hibernate?: () => Promise<boolean>;
   readonly close: () => Promise<void>;

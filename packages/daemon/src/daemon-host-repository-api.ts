@@ -918,7 +918,10 @@ export function createDaemonHostRepositoryApi(
         );
       }
     },
-    replica: (repoId) => context.requiredCell(context.cells, context.warming, context.unavailable, repoId).replica,
+    replica: (repoId) => {
+      const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
+      return { ...cell.replica, backup: cell.fleetBackup! };
+    },
     pruneReplicationLog: (repoId, beforeSequence) =>
       context.requiredCell(context.cells, context.warming, context.unavailable, repoId).pruneReplicationLog!(
         beforeSequence,
