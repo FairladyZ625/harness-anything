@@ -13,6 +13,58 @@ import { parseReplicationCommit, type ReplicationFrame } from "../src/fleet/prot
 const position = { history: "history", sequence: 1, revision: 0 };
 const commit = { position, events: [], outcome: null, writer: null };
 
+test("stream parsing retains claimed and retired paths without replaying staged rows", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-commit-paths-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const digest = `sha256:${"a".repeat(64)}`,
+    claim = { sha256: "a".repeat(64), size: 1, mediaType: "text/markdown" },
+    row = {
+      revision: 1,
+      opId: "op",
+      eventJson: JSON.stringify({
+        schema: "doc-event/v1",
+        type: "documents_written",
+        payload: {
+          changes: [
+            { path: "new.md", candidate: claim, baseBlobSha256: null },
+            { path: "new.md", candidate: claim, baseBlobSha256: null },
+            { path: "old.md", candidate: null, baseBlobSha256: claim.sha256 },
+          ],
+        },
+      }),
+      occurredAt: "now",
+      recordedAt: "now",
+      digest,
+    },
+    staged = openReplicationCommitFile(path.join(root, "rows"), 64);
+  try {
+    staged.write(
+      Buffer.from(
+        JSON.stringify({
+          ...commit,
+          position: { ...position, revision: 1 },
+          events: [row],
+          outcome: {
+            opId: "op",
+            status: "accepted_durable",
+            firstRevision: 1,
+            lastRevision: 1,
+            intentDigest: digest,
+            summary: "paths",
+            rejectionCode: null,
+            recordedAt: "now",
+            memberOpIds: ["op"],
+          },
+        }),
+      ),
+    );
+    assert.deepEqual(staged.changedPaths(), ["new.md", "old.md"]);
+    assert.deepEqual([...staged.finish().events], [row]);
+  } finally {
+    staged.close();
+  }
+});
+
 test("record-wise encoding preserves the N-1 envelope byte for byte; staging accepts arbitrary byte boundaries", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-commit-file-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -40,7 +92,9 @@ test("record-wise encoding preserves the N-1 envelope byte for byte; staging acc
     assert.deepEqual([...decoded.events], [...decoded.events], "staged rows are replayable");
   } finally {
     staged.close();
+    staged.close();
   }
+  assert.deepEqual(readdirSync(root), [], "closing staging twice is harmless and leaves no file");
 });
 
 test("staged envelopes retain the protocol shape boundary", (t) => {

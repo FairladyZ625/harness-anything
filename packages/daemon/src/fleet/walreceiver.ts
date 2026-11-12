@@ -8,11 +8,7 @@ import {
   type ReplicationPosition,
   type SqliteEventRow,
 } from "@harness-anything/storage";
-import {
-  canonicalDocumentClaims,
-  canonicalDocumentRetirements,
-  TASK_EVENT_SHAPE_COMPAT_VERSION,
-} from "@harness-anything/kernel";
+import { TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel";
 import { openReplicationCommitFile } from "./commit-file.ts";
 import { daemonBuildStamp } from "../build-identity.ts";
 import { ReplicationError, type ReplicationPeer } from "./protocol.ts";
@@ -208,12 +204,6 @@ export async function runWalReceiver(input: {
         try {
           await receiveBytes(peer, frame.size, signal, async (bytes) => stagedCommit.write(bytes));
           const commit = stagedCommit.finish();
-          const changedPaths = new Set<string>();
-          for (const row of commit.events) {
-            const event = JSON.parse(row.eventJson) as import("@harness-anything/kernel").PersistedCanonicalEventV1;
-            for (const claim of canonicalDocumentClaims(event)) changedPaths.add(claim.path);
-            for (const retirement of canonicalDocumentRetirements(event)) changedPaths.add(retirement.path);
-          }
           let staged = frame.size;
           for (;;) {
             const object = await peer.receive(signal);
@@ -246,7 +236,20 @@ export async function runWalReceiver(input: {
             }
           }
           try {
-            target.apply(commit);
+            target.apply({
+              ...commit,
+              events: (function* () {
+                try {
+                  yield* commit.events;
+                } finally {
+                  // Iteration ends inside the accepting SQLite transaction, before COMMIT exposes
+                  // its revision to another process. The outer finally covers unconsumed commits.
+                  stagedCommit.close();
+                }
+              })(),
+            });
+            // Replayed prefixes may return without consuming events.
+            stagedCommit.close();
           } catch (error) {
             await reportFailure(error);
             throw error;
@@ -257,7 +260,7 @@ export async function runWalReceiver(input: {
             await reportFailure(error);
             throw error;
           }
-          target.changedPaths?.([...changedPaths]);
+          target.changedPaths?.(stagedCommit.changedPaths());
           target.updatePosition?.(commit.position);
         } finally {
           stagedCommit.close();

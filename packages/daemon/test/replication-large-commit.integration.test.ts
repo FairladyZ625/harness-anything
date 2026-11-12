@@ -134,7 +134,21 @@ async function streamEnvelope(
         position: replica.position,
         apply: (commit) => {
           stagedIterator = !Array.isArray(commit.events);
-          replica.apply(commit, []);
+          replica.apply(
+            {
+              ...commit,
+              events: {
+                *[Symbol.iterator]() {
+                  yield* commit.events;
+                  assert.ok(
+                    !readdirSync(root).some((name) => name.endsWith(".commit")),
+                    "consuming the last event removed staging before SQLite COMMIT",
+                  );
+                },
+              },
+            },
+            [],
+          );
         },
         project: async () => {
           try {

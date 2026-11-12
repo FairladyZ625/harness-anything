@@ -1,5 +1,10 @@
 import { JSONParser, TokenType } from "@streamparser/json";
 import { openTemporaryFile, type ReplicationCommit, type SqliteEventRow } from "@harness-anything/storage";
+import {
+  canonicalDocumentClaims,
+  canonicalDocumentRetirements,
+  type PersistedCanonicalEventV1,
+} from "@harness-anything/kernel";
 import { ReplicationError, validateReplicationCommit } from "./protocol.ts";
 
 /** Transient, replayable rows. Memory is bounded by one event/outcome, not the transaction. */
@@ -7,12 +12,14 @@ export function openReplicationCommitFile(file: string, bufferBytes: number) {
   const filePort = openTemporaryFile(file),
     metadata: Record<string, unknown> = {},
     fields = new Set<string>(),
+    changedPaths = new Set<string>(),
     parser = new JSONParser({
       paths: ["$.position", "$.outcome", "$.writer", "$.events.*"],
       keepStack: false,
       stringBufferSize: bufferBytes,
     });
-  let depth = 0,
+  let closed = false,
+    depth = 0,
     key = "",
     expectKey = false,
     expectValue = false,
@@ -44,6 +51,10 @@ export function openReplicationCommitFile(file: string, bufferBytes: number) {
   };
   parser.onValue = ({ value, stack, key }) => {
     if (stack.length === 2 && stack[1]?.key === "events") {
+      const row = value as unknown as SqliteEventRow,
+        event = JSON.parse(row.eventJson) as PersistedCanonicalEventV1;
+      for (const claim of canonicalDocumentClaims(event)) changedPaths.add(claim.path);
+      for (const retirement of canonicalDocumentRetirements(event)) changedPaths.add(retirement.path);
       const bytes = Buffer.from(JSON.stringify(value)),
         header = Buffer.alloc(4);
       header.writeUInt32BE(bytes.length);
@@ -93,6 +104,11 @@ export function openReplicationCommitFile(file: string, bufferBytes: number) {
       validateReplicationCommit(commit);
       return commit;
     },
-    close: filePort.close,
+    changedPaths: (): readonly string[] => [...changedPaths],
+    close: (): void => {
+      if (closed) return;
+      closed = true;
+      filePort.close();
+    },
   };
 }
