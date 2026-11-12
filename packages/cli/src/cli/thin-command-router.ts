@@ -1,6 +1,6 @@
 import {
   cliContractPolicy,
-  cliOperationalPolicy,
+  cliOperationalPolicy as cliPolicy,
 } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -254,10 +254,7 @@ export function parseRouted(
     if (!f.ok) return rejected(f.code, f.nextAction, json);
     const wait = f.one.get("--wait"),
       timeout = f.one.get("--timeout-ms");
-    if (
-      timeout !== undefined &&
-      (!/^[0-9]+$/u.test(timeout) || Number(timeout) > cliOperationalPolicy.defaultValue.waitMaximumMs)
-    )
+    if (timeout !== undefined && (!/^[0-9]+$/u.test(timeout) || Number(timeout) > cliPolicy.defaultValue.waitMaximumMs))
       return rejected("invalid_field", "--timeout-ms must be between 0 and 60000.", json);
     return accepted(
       rootDir,
