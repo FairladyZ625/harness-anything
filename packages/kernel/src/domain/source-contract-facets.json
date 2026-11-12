@@ -114,7 +114,7 @@
         "consumerRules": [
           {
             "pathPattern": "^packages/daemon/",
-            "pattern": "decision\\?\\.amendments\\?\\.some\\([^)]*(?:isIndependentFrom|reviewActorsIndependent)",
+            "pattern": "decision\\?\\.amendments\\?\\.some\\([\\s\\S]{0,160}?(?:isIndependentFrom|reviewActorsIndependent)",
             "reason": "consume the kernel assertDecisionReviewerIndependent verdict",
             "flags": "u"
           }
