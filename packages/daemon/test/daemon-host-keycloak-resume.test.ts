@@ -185,6 +185,100 @@ test("a failed resume refuses repository writes with the resume's real cause", a
   }
 });
 
+test("a rejected startup resume is retried on demand and concurrent callers share the recovery", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-rbac-resume-recovery-")),
+    userRoot = path.join(parent, "user"),
+    rootDir = path.join(parent, "repo"),
+    center = await gatedCenter((await policyTestCenter()).url),
+    failure = Object.assign(new Error("managed Keycloak port is still occupied"), { code: "rbac_port_in_use" });
+  let portOccupied = true,
+    attempts = 0,
+    releaseRecovery!: () => void,
+    releaseRecoveryStarted!: () => void,
+    releaseResumeFailure!: () => void;
+  const recoveryGate = new Promise<void>((resolve) => {
+      releaseRecovery = resolve;
+    }),
+    recoveryStarted = new Promise<void>((resolve) => {
+      releaseRecoveryStarted = resolve;
+    }),
+    resumeFailure = new Promise<void>((resolve) => {
+      releaseResumeFailure = resolve;
+    }),
+    records: Record<string, unknown>[] = [];
+  rosterRepo(rootDir, "rbac-resume-recovery");
+  registerDaemonRepo({
+    canonicalRoot: rootDir,
+    repoId: "rbac-resume-recovery",
+    userRoot,
+    createConvenienceLinks: false,
+  });
+  signInPolicyTestUser(userRoot, "writer", ["rbac-resume-recovery"], "admin");
+  writeFileSync(path.join(userRoot, "rbac", "config.json"), JSON.stringify({ url: center.url, realm: "harness" }));
+  const host = await openDaemonHost({
+    daemonId: "rbac-resume-recovery",
+    userRoot,
+    recordLifecycle: (record) => {
+      records.push(record);
+      if (record.event === "rbac_resume_failed") releaseResumeFailure();
+    },
+    managedRbac: {
+      run: async () => ({ ok: true }),
+      resume: () => {
+        attempts += 1;
+        if (portOccupied) return Promise.reject(failure);
+        releaseRecoveryStarted();
+        return recoveryGate;
+      },
+      stop: async () => ({ ok: true }),
+    },
+  });
+  try {
+    await host.attachmentsSettled();
+    center.release();
+    await withHangGuard(resumeFailure);
+    assert.ok(attempts >= 1, "opening starts a managed resume attempt");
+    assert.equal(
+      records.some((record) => record.event === "rbac_resume_failed"),
+      true,
+      "the first start failure must settle before the simulated port is released",
+    );
+    const failedResumes = records.filter((record) => record.event === "rbac_resume_failed").length,
+      attemptsBeforeRecovery = attempts;
+
+    portOccupied = false;
+    const recoveries = [
+      host.run("rbac-resume-recovery", { kind: "task-list" }, auth),
+      host.run("rbac-resume-recovery", { kind: "task-list" }, auth),
+    ];
+    await withHangGuard(recoveryStarted);
+    assert.equal(attempts, attemptsBeforeRecovery + 1, "the first request after release starts a new resume");
+    releaseRecovery();
+    const results = await withHangGuard(Promise.all(recoveries));
+    assert.equal(attempts, attemptsBeforeRecovery + 1, "concurrent requests share one recovery attempt");
+    assert.deepEqual(
+      results.map((receipt) => receipt.outcome),
+      ["applied", "applied"],
+    );
+    assert.equal(
+      records.filter((record) => record.event === "rbac_resume_failed").length,
+      failedResumes,
+      "the failed launch remains observable while the successful recovery records readiness",
+    );
+    assert.equal(
+      records.some((record) => record.event === "identity_ready"),
+      true,
+    );
+  } finally {
+    portOccupied = false;
+    releaseRecovery();
+    center.release();
+    await host.close();
+    await center.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 /** The realm's address behind a gate: connections are refused until the center "finishes resuming". */
 async function gatedCenter(upstreamUrl: string): Promise<{
   readonly url: string;

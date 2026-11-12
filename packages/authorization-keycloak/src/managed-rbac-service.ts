@@ -18,6 +18,7 @@ import { connect, createServer, type Server } from "node:net";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { consumeKnownError } from "@harness-anything/kernel";
+import { managedIdentityPolicy } from "@harness-anything/kernel/internal/domain/managed-identity-policy.ts";
 import type { ManagedRbacHost } from "./managed-host.ts";
 import type { ManagedRbacRequest, ManagedRbacListener, CertificateMode } from "@harness-anything/kernel";
 import { KeycloakPolicyAdapter, type KeycloakLegacyRoleMigrationReceipt } from "./keycloak-policy-adapter.ts";
@@ -39,6 +40,7 @@ import {
   validateListenerInput,
 } from "./managed-rbac-listener-certificate.ts";
 import { stopManagedPostgresOrphan } from "./managed-postgres-orphan.ts";
+import { stopManagedKeycloakOrphan } from "./managed-keycloak-orphan.ts";
 
 export const managedRbacVersions = Object.freeze({
   keycloak: "26.7.3",
@@ -138,6 +140,8 @@ export class ManagedRbacService {
   readonly #readiness = new Map<ManagedChild, Promise<void>>();
   /** Children that reached readiness: only these are restarted when they exit. */
   readonly #supervised = new Set<ManagedChild>();
+  /** Windows has no portable process-group handle; retain a cleanup obligation after kc.bat exits. */
+  #keycloakCleanupPending = false;
   #lifecycle: Promise<unknown> = Promise.resolve();
   /** Set while an operator or the daemon is stopping the services; exit supervision stays quiet. */
   #stopping = false;
@@ -276,34 +280,112 @@ export class ManagedRbacService {
 
   async #stopChild(name: ManagedChild): Promise<boolean> {
     const child = this.#children.get(name);
-    if (!child) return false;
-    await new Promise<void>((resolve) => {
+    if (!child) {
+      // A Windows launcher can exit while the Java descendant remains alive. The launcher handle is
+      // then gone, but the ownership-verified port scan still gives stop() one last safe cleanup
+      // route. Do not clear the obligation unless that scan completes successfully.
+      if (name === "keycloak" && this.#keycloakCleanupPending) {
+        const config = this.#readConfigIfPresent();
+        if (config?.mode === "managed") {
+          await this.#stopKeycloakOrphan(config);
+          return true;
+        }
+        this.#keycloakCleanupPending = false;
+      }
+      return false;
+    }
+    const processGroup = name === "keycloak" && this.#ports.platform !== "win32" ? child.pid : undefined;
+    if (name === "keycloak" && this.#ports.platform === "win32" && child.pid !== undefined) {
+      let launcherExitedDuringTreeStop = child.exitCode != null || child.signalCode != null;
+      const markLauncherExited = () => {
+        launcherExitedDuringTreeStop = true;
+      };
+      child.once("exit", markLauncherExited);
+      child.once("error", markLauncherExited);
+      let result: Awaited<ReturnType<ManagedRbacHost["runProcessExitAsync"]>>;
+      try {
+        result = await this.#host.runProcessExitAsync(
+          "taskkill.exe",
+          ["/PID", String(child.pid), "/T", "/F"],
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          { timeoutMs: managedIdentityPolicy.defaultValue.timeoutMs },
+        );
+      } finally {
+        child.removeListener("exit", markLauncherExited);
+        child.removeListener("error", markLauncherExited);
+      }
+      // The launcher can emit exit while taskkill is still awaited, leaving its Java descendant
+      // outside #children. Preserve that cleanup obligation and re-scan the owned ports before
+      // accepting either a successful or a failed tree termination result.
+      if (launcherExitedDuringTreeStop) {
+        const config = this.#readConfigIfPresent();
+        if (config?.mode !== "managed")
+          throw managedRbacError(
+            "rbac_process_stop_failed",
+            "The managed Keycloak launcher exited before its process tree could be verified.",
+          );
+        await this.#stopKeycloakOrphan(config);
+      }
+      if (result.exitCode !== 0 && !launcherExitedDuringTreeStop && child.exitCode == null && child.signalCode == null)
+        throw managedRbacError("rbac_process_stop_failed", "The managed Keycloak process tree could not be stopped.");
+    }
+    await new Promise<void>((resolve, reject) => {
       let settled = false;
+      const completionEvent = processGroup === undefined ? "exit" : "close";
       const timers: { hard?: ReturnType<typeof setTimeout>; force?: ReturnType<typeof setTimeout> } = {},
+        fail = (error: unknown) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timers.hard);
+          clearTimeout(timers.force);
+          child.removeListener(completionEvent, finish);
+          reject(error);
+        },
         finish = () => {
           if (settled) return;
           settled = true;
           clearTimeout(timers.hard);
           clearTimeout(timers.force);
-          child.removeListener("exit", finish);
+          child.removeListener(completionEvent, finish);
           resolve();
         };
       // A child that never emits exit (a spawn error leaves no live pid) must not hang the stop.
       timers.hard = setTimeout(() => {
-        child.kill("SIGKILL");
-        timers.force = setTimeout(finish, 1_000);
+        void Promise.resolve()
+          .then(() => signalChild(child, "SIGKILL", processGroup, this.#ports.platform))
+          .then(() => {
+            timers.force = setTimeout(finish, 1_000);
+          }, fail);
       }, 4_000);
       timers.hard.unref();
-      child.once("exit", finish);
+      child.once(completionEvent, finish);
       if (
         (child.exitCode !== null && child.exitCode !== undefined) ||
         (child.signalCode !== null && child.signalCode !== undefined)
       ) {
+        if (processGroup !== undefined) {
+          void Promise.resolve()
+            .then(() => {
+              signalProcessGroup(processGroup, "SIGTERM");
+              signalProcessGroup(processGroup, "SIGKILL");
+            })
+            .then(undefined, fail);
+          return;
+        }
         finish();
         return;
       }
-      child.kill("SIGTERM");
+      if (!(name === "keycloak" && this.#ports.platform === "win32" && child.pid !== undefined)) {
+        void Promise.resolve()
+          .then(() => signalChild(child, "SIGTERM", processGroup, this.#ports.platform))
+          .then(undefined, fail);
+      }
     });
+    if (processGroup !== undefined) signalProcessGroup(processGroup, "SIGKILL");
+    if (name === "keycloak" && this.#ports.platform === "win32") this.#keycloakCleanupPending = false;
     this.#children.delete(name);
     this.#readiness.delete(name);
     return true;
@@ -692,6 +774,7 @@ export class ManagedRbacService {
       javaHome = javaHomePath(this.#root, this.#ports.platform),
       kc = managedExecutable(this.#root, "runtime/keycloak/bin/kc.sh", this.#ports.platform);
     if (listener) requirePrivateKeyFile(listener.certificateKeyFile);
+    await this.#stopKeycloakOrphan(config);
     const httpsPort = listener ? (await availableLoopbackPorts())[0] : undefined,
       passthrough = listener ? await listenPassthrough(listener, httpsPort!) : undefined;
     if (this.#stopping) {
@@ -747,6 +830,26 @@ export class ManagedRbacService {
   /** Registers the live child; #spawnUntilReady's terminate() owns every exit/error cleanup. */
   #track(name: ManagedChild, child: ChildProcess): void {
     this.#children.set(name, child);
+    if (name === "keycloak" && this.#ports.platform === "win32") this.#keycloakCleanupPending = true;
+  }
+
+  async #stopKeycloakOrphan(config: ManagedRbacConfig): Promise<void> {
+    const httpPort = Number(new URL(config.url).port),
+      managementPort = Number(config.managementPort);
+    if (!Number.isSafeInteger(httpPort) || !Number.isSafeInteger(managementPort))
+      throw managedRbacError("rbac_config_invalid", "Managed Keycloak is missing its configured listener ports.");
+    const javaHome = javaHomePath(this.#root, this.#ports.platform),
+      java = path.join(javaHome, "bin", this.#ports.platform === "win32" ? "java.exe" : "java"),
+      keycloakHome = path.join(this.#root, "runtime", "keycloak");
+    await stopManagedKeycloakOrphan({
+      host: this.#host,
+      root: this.#root,
+      java,
+      keycloakHome,
+      ports: [httpPort, managementPort],
+      platform: this.#ports.platform,
+    });
+    this.#keycloakCleanupPending = false;
   }
 
   /**
@@ -838,10 +941,12 @@ export class ManagedRbacService {
         env: { ...process.env, ...env },
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
+        ...(name === "keycloak" && this.#ports.platform !== "win32" ? { detached: true } : {}),
         ...(cwd ? { cwd } : {}),
       }),
+      processGroup = name === "keycloak" && this.#ports.platform !== "win32" ? child.pid : undefined,
       timer = setTimeout(() => {
-        child.kill("SIGTERM");
+        signalChild(child, "SIGTERM", processGroup, this.#ports.platform);
         settleError?.(managedRbacError("rbac_start_timeout", `${name} was not ready within ${timeoutMs}ms.`));
       }, timeoutMs),
       observe = (chunk: Buffer | string) => {
@@ -862,6 +967,10 @@ export class ManagedRbacService {
         if (terminated) return;
         terminated = true;
         clearTimeout(timer);
+        if (processGroup !== undefined) {
+          signalProcessGroup(processGroup, "SIGTERM");
+          signalProcessGroup(processGroup, "SIGKILL");
+        }
         log.end();
         onTerminate?.();
         this.#children.delete(name);
@@ -1441,6 +1550,26 @@ function run(command: string, args: readonly string[], execute: ManagedRbacHost[
       "rbac_process_failed",
       `${command} failed: ${error instanceof Error ? error.message : String(error)}`,
     );
+  }
+}
+
+function signalChild(
+  child: ChildProcess,
+  signal: NodeJS.Signals,
+  processGroup: number | undefined,
+  platform: NodeJS.Platform,
+): void {
+  if (processGroup !== undefined && platform !== "win32") signalProcessGroup(processGroup, signal);
+  else child.kill(signal);
+}
+
+function signalProcessGroup(processGroup: number, signal: NodeJS.Signals): boolean {
+  try {
+    process.kill(-processGroup, signal);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+    throw error;
   }
 }
 

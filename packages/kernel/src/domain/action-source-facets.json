@@ -805,6 +805,41 @@
         "candidateId": "action:packages/cli:packages/cli/src/daemon/client.ts#bootstrapParams:5f3db8fae8c00a71f7c602a62be61bbf",
         "route": "edge-join",
         "role": "support"
+      },
+      {
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-keycloak-orphan.ts#stopManagedKeycloakOrphan:dc09a0ed8053d8128f8604d698177512",
+        "route": "rbac-bootstrap",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-keycloak-orphan.ts#findListenerProcesses:2a0a8bdbcd03b3da8a39cf43ffc59736",
+        "route": "rbac-bootstrap",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-keycloak-orphan.ts#findListenerProcesses:a258e70e4422d4b04a3da3f18fcad58f",
+        "route": "rbac-bootstrap",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-keycloak-orphan.ts#findListenerProcesses:a258e70e4422d4b04a3da3f18fcad58f:2",
+        "route": "rbac-bootstrap",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-keycloak-orphan.ts#findLinuxListenerProcesses:4ecd9cf25c0a0602b61005889581c490",
+        "route": "rbac-bootstrap",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-keycloak-orphan.ts#signalProcess:1944550bb122f5031e51f8094cb95834",
+        "route": "rbac-bootstrap",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-keycloak-orphan.ts#portInUse:9aea25281468b57b75ff313233156344",
+        "route": "rbac-bootstrap",
+        "role": "support"
       }
     ],
     "concurrency": {
@@ -3055,6 +3090,12 @@
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-service.ts#ManagedRbacService.child:447ed3f44ea09caee31d3e26711673e5",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn"
       }
     ],
     "technical": true

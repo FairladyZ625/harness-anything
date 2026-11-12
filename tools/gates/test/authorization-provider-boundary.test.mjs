@@ -89,6 +89,71 @@ test("permits future Keycloak provider packages and neutral admin client names",
   );
 });
 
+test("registered ActionDeclaration sources are data while unregistered references and implementation stay forbidden", () => {
+  const candidateId =
+      "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-keycloak-orphan.ts#stopManagedKeycloakOrphan:dc09a0ed8053d8128f8604d698177512",
+    route = "rbac-bootstrap",
+    port = "packages/authorization-keycloak/src/managed-rbac-service.ts#ManagedRbacPorts.spawn",
+    fixture = "packages/daemon/test/daemon-host-keycloak-resume.test.ts",
+    refs = new Set([candidateId, route, port, fixture]);
+  assert.deepEqual(
+    findProviderBoundaryViolations(
+      `+++ b/packages/kernel/src/domain/action-source-facets.json\n+"candidateId": "${candidateId}",\n+"route": "${route}"`,
+      [],
+      refs,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    findProviderBoundaryViolations(
+      `+++ b/packages/kernel/src/domain/action-source-facets.json\n+"port": "${port}"`,
+      [],
+      refs,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    findProviderBoundaryViolations(
+      `+++ b/packages/kernel/src/domain/managed-identity-policy.ts\n+"${fixture}"`,
+      [],
+      refs,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    findProviderBoundaryViolations(
+      `+++ b/packages/kernel/src/domain/action-source-facets.json\n+"candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/unknown.ts#unknown"\n+"port": "packages/authorization-keycloak/src/managed-rbac-service.ts#Unregistered.port"\n+"explain": "Keycloak-specific implementation behavior"`,
+      [],
+      refs,
+    ),
+    [
+      'packages/kernel/src/domain/action-source-facets.json: Keycloak-specific symbol, error, or REST path: "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/unknown.ts#unknown"',
+      'packages/kernel/src/domain/action-source-facets.json: Keycloak-specific symbol, error, or REST path: "port": "packages/authorization-keycloak/src/managed-rbac-service.ts#Unregistered.port"',
+      'packages/kernel/src/domain/action-source-facets.json: Keycloak-specific symbol, error, or REST path: "explain": "Keycloak-specific implementation behavior"',
+    ],
+  );
+  assert.deepEqual(
+    findProviderBoundaryViolations(
+      `+++ b/packages/kernel/src/domain/managed-identity-policy.ts\n+"packages/daemon/test/daemon-host-keycloak-unknown.test.ts"`,
+      [],
+      refs,
+    ),
+    [
+      'packages/kernel/src/domain/managed-identity-policy.ts: Keycloak-specific symbol, error, or REST path: "packages/daemon/test/daemon-host-keycloak-unknown.test.ts"',
+    ],
+  );
+  assert.deepEqual(
+    findProviderBoundaryViolations(
+      `+++ b/packages/kernel/src/domain/authorization.ts\n+const source = "${candidateId}";`,
+      [],
+      refs,
+    ),
+    [
+      `packages/kernel/src/domain/authorization.ts: Keycloak-specific symbol, error, or REST path: const source = "${candidateId}";`,
+    ],
+  );
+});
+
 test("keeps builtin provider shapes inside the tracked remediation boundary", () => {
   assert.deepEqual(
     findProviderBoundaryViolations(

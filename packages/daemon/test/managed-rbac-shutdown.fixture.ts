@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
 import { createServer, type Server } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,7 +27,7 @@ export function managedShutdownFixture(root: string, fixtureOptions: ManagedShut
     calls: Record<FixtureChild, number> = { postgres: 0, keycloak: 0 };
   const service = createIdentityManagement(root, {
     ...(fixtureOptions.recordLifecycle ? { recordLifecycle: fixtureOptions.recordLifecycle } : {}),
-    spawn: ((command: string, _args: string[], spawnOptions: { env: NodeJS.ProcessEnv }) => {
+    spawn: ((command: string, _args: string[], spawnOptions: Parameters<typeof spawn>[2]) => {
       const name: FixtureChild = path.basename(command) === "postgres" ? "postgres" : "keycloak",
         call = (calls[name] += 1);
       fixtureOptions.onSpawn?.(name, call);
@@ -51,7 +52,8 @@ export function managedShutdownFixture(root: string, fixtureOptions: ManagedShut
           process.execPath,
           [fileURLToPath(import.meta.url), "server", root, name, fixtureOptions.ignoreSigterm ?? "", mode, gateFile],
           {
-            env: spawnOptions.env,
+            env: spawnOptions?.env,
+            detached: spawnOptions?.detached,
             stdio: ["ignore", "pipe", "pipe"],
           },
         );
@@ -72,20 +74,39 @@ if (process.argv[2] === "server") {
     pidFile = path.join(root, "rbac", "data", "postgres", "postmaster.pid");
   if (mode === "exit-before-ready") process.exit(0);
   if (name === "postgres" && existsSync(pidFile)) process.exit(1);
-  let server: Server | null = null;
+  let server: Server | null = null,
+    healthServer: HttpServer | null = null;
   const listen = () => {
-    server = createServer((socket) => socket.on("data", (chunk) => socket.end(`tls:${chunk}`)));
-    server.listen(name === "postgres" ? config.postgresPort : Number(process.env.KC_HTTPS_PORT), "127.0.0.1", () => {
+    const ready = () => {
       if (name === "postgres") writeFileSync(pidFile, `${process.pid}\n`);
       console.log(name === "postgres" ? "database system is ready to accept connections" : "Keycloak 26 started in 1s");
-    });
+    };
+    server = createServer((socket) => socket.on("data", (chunk) => socket.end(`tls:${chunk}`)));
+    if (name === "postgres") server.listen(config.postgresPort, "127.0.0.1", ready);
+    else {
+      let listening = 0;
+      const endpointReady = () => {
+        listening += 1;
+        if (listening === 2) ready();
+      };
+      healthServer = createHttpServer((_request, response) => {
+        response.writeHead(200);
+        response.end("{}");
+      });
+      healthServer.listen(Number(new URL(config.url).port), "127.0.0.1", endpointReady);
+      server.listen(Number(process.env.KC_HTTPS_PORT), "127.0.0.1", endpointReady);
+    }
   };
   if (name === ignoreSigterm) process.on("SIGTERM", () => {});
   else
     process.once("SIGTERM", () => {
-      if (server === null) process.exit(0);
-      else
-        server.close(() => {
+      const openServers = [server, healthServer].filter((item): item is Server | HttpServer => item?.listening);
+      if (openServers.length === 0) process.exit(0);
+      let remaining = openServers.length;
+      for (const item of openServers)
+        item.close(() => {
+          remaining -= 1;
+          if (remaining !== 0) return;
           if (name === "postgres") rmSync(pidFile, { force: true });
           process.exit(0);
         });

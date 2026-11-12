@@ -38,8 +38,7 @@ export function findProviderBoundaryViolations(diffText, waivedFingerprints = []
     if (isProviderPackage || EXEMPTED_TEST_PATH.test(file)) continue;
     const sourceLine = line.slice(1);
     // A registered source location is an ontology reference, never a provider implementation.
-    const reference =
-      file.endsWith(".json") && /^\s*(?:"(?:symbol|candidateId|route)":\s*)?"([^"\n]+)"[,]?\s*$/u.exec(sourceLine);
+    const reference = /^\s*(?:"(?:symbol|candidateId|route|port)":\s*)?"([^"\n]+)"[,]?\s*$/u.exec(sourceLine);
     if (reference && sourceReferences.has(reference[1])) continue;
     if (waivedFingerprints.includes(providerLineFingerprint(file, sourceLine))) continue;
     const reason = providerMarkerReason(sourceLine);
@@ -85,16 +84,33 @@ export function checkAuthorizationProviderBoundary(rootDir) {
   const allowlist = JSON.parse(readFileSync(path.join(rootDir, WAIVER_PATH), "utf8"));
   const today = new Date().toISOString().slice(0, 10);
   const fingerprints = allowlist.entries.lineFingerprints ?? [];
-  const sourceReferences = new Set(
-    loadOntologyClosureSnapshot(rootDir).kinds.flatMap((kind) =>
-      [...(kind.judgments ?? []), ...(kind.sourceContracts ?? [])].flatMap((row) => [
+  const snapshot = loadOntologyClosureSnapshot(rootDir);
+  const actionSourceFacets = JSON.parse(
+    readFileSync(path.join(rootDir, "packages/kernel/src/domain/action-source-facets.json"), "utf8"),
+  );
+  const sourceReferences = new Set([
+    ...snapshot.kinds.flatMap((kind) => [
+      ...(kind.judgments ?? []).flatMap((row) => [
         row.symbol,
         row.contractRef,
         ...(row.consumers ?? []),
         ...row.sources.flatMap((source) => [source.candidateId, source.route]),
       ]),
+      ...(kind.sourceContracts ?? []).flatMap((row) => [
+        row.symbol,
+        row.contractRef,
+        ...(row.consumers ?? []),
+        ...row.sources.flatMap((source) => [source.candidateId, source.route]),
+      ]),
+      ...(kind.policies ?? []).flatMap((policy) => policy.fixtures ?? []),
+    ]),
+    ...snapshot.actions.flatMap((action) =>
+      (action.ontology?.sources ?? []).flatMap((source) => [source.candidateId, source.route]),
     ),
-  );
+    ...Object.values(actionSourceFacets).flatMap((facet) =>
+      (facet.sources ?? []).filter((source) => source.role === "technical-port").map((source) => source.port),
+    ),
+  ]);
   return [
     ...findProviderBoundaryViolations(diff, fingerprints, sourceReferences),
     ...(fingerprints.length ? findStaleFingerprints(fingerprints, governedSourceFiles(rootDir)) : []),
