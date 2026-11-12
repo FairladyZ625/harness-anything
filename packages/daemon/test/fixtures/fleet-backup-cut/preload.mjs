@@ -17,7 +17,12 @@ export function installAdapter(config) {
   if (restore) throw new Error("backup cut adapter already installed");
   const channel = new BroadcastChannel(config.channel);
   channel.unref();
-  const emit = (event) => channel.postMessage({ ...event, order: Atomics.add(new Int32Array(config.shared), 1, 1) });
+  const emit = (event) =>
+    channel.postMessage({
+      ...event,
+      producerThreadId: threadId,
+      order: Atomics.add(new Int32Array(config.shared), 1, 1),
+    });
   class ObservedWorker extends NativeWorker {
     constructor(url, options = {}) {
       const filename = String(url);
@@ -25,12 +30,20 @@ export function installAdapter(config) {
       const writer = /\/repo-writer-worker\.(?:ts|js)$/u.test(filename);
       const ports = backup ? new MessageChannel() : null;
       const extra = backup ? { [probeKey]: { ...config, port: ports.port2 } } : {};
-      super(url, {
-        ...options,
-        execArgv: [...(options.execArgv ?? process.execArgv), `--import=${import.meta.url}`],
-        workerData: { ...options.workerData, ...extra },
-        transferList: [...(options.transferList ?? []), ...(ports ? [ports.port2] : [])],
-      });
+      try {
+        super(url, {
+          ...options,
+          // Node's test child includes process-only flags; they are invalid when explicitly
+          // passed to a Worker. Keep the caller's explicit flags plus this test preload.
+          execArgv: [...(options.execArgv ?? []), `--import=${import.meta.url}`],
+          workerData: { ...options.workerData, ...extra },
+          transferList: [...(options.transferList ?? []), ...(ports ? [ports.port2] : [])],
+        });
+      } catch (error) {
+        ports?.port1.close();
+        ports?.port2.close();
+        throw error;
+      }
       const targetThreadId = this.threadId;
       if (ports) {
         emit({ event: "backup-created", parentThreadId: threadId, targetThreadId });
@@ -81,7 +94,8 @@ if (inherited) installAdapter(inherited);
 const probe = workerData?.[probeKey];
 if (probe) {
   const cells = new Int32Array(probe.shared);
-  const emit = (event) => probe.port.postMessage({ ...event, order: Atomics.add(cells, 1, 1), threadId });
+  const emit = (event) =>
+    probe.port.postMessage({ ...event, producerThreadId: threadId, order: Atomics.add(cells, 1, 1), threadId });
   const prepare = DatabaseSync.prototype.prepare;
   DatabaseSync.prototype.prepare = function (sql) {
     const statement = prepare.call(this, sql);

@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import path from "node:path";
 import tls from "node:tls";
-import { BroadcastChannel, setEnvironmentData } from "node:worker_threads";
+import { BroadcastChannel, setEnvironmentData, threadId } from "node:worker_threads";
 import type { TestContext } from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { fleetReplicationFixture, replicationRepoId } from "../../fleet-replication.fixture.ts";
@@ -21,7 +22,8 @@ export async function runCut(t: TestContext, schedule: Schedule): Promise<void> 
   const entries: Entry[] = [];
   const pending = new Set<() => void>();
   const record = (event: string, detail: Record<string, unknown> = {}) => {
-    const entry = { event, ...detail, order: Atomics.add(cells, 1, 1) };
+    // Sequence numbers are assigned by the producer, not by the receiving channel.
+    const entry = { event, ...detail, producerThreadId: threadId, order: Atomics.add(cells, 1, 1) };
     accept(entry);
   };
   const accept = (entry: Entry) => {
@@ -108,6 +110,7 @@ export async function runCut(t: TestContext, schedule: Schedule): Promise<void> 
     nativeDestroy = tls.TLSSocket.prototype.destroy;
   t.mock.method(tls, "connect", (...args: any[]) => {
     const socket = (nativeConnect as any)(...args);
+    let localPort: number | undefined, remotePort: number | undefined;
     const write = socket.write;
     socket.write = function (chunk: any, ...rest: any[]) {
       if (typeof chunk === "string")
@@ -125,10 +128,12 @@ export async function runCut(t: TestContext, schedule: Schedule): Promise<void> 
         }
       return (write as any).call(this, chunk, ...rest);
     };
-    socket.once("secureConnect", () =>
-      record("client-connected", { localPort: socket.localPort, remotePort: socket.remotePort }),
-    );
-    socket.once("close", () => record("client-close", { localPort: socket.localPort, remotePort: center.port }));
+    socket.once("secureConnect", () => {
+      localPort = socket.localPort;
+      remotePort = socket.remotePort;
+      record("client-connected", { localPort, remotePort });
+    });
+    socket.once("close", () => record("client-close", { localPort, remotePort }));
     return socket;
   });
   t.mock.method(tls.TLSSocket.prototype, "destroy", function (this: tls.TLSSocket, error?: Error) {
@@ -141,6 +146,12 @@ export async function runCut(t: TestContext, schedule: Schedule): Promise<void> 
     t.mock.restoreAll();
     syncBuiltinESMExports();
   });
+  t.after(() =>
+    record("cleanup-observed", {
+      fixtureRootExists: existsSync(f.root),
+      tlsConnectRestored: tls.connect === nativeConnect,
+    }),
+  );
   const replica = catchUpReplica({
     hostname: "127.0.0.1",
     port: center.port,
