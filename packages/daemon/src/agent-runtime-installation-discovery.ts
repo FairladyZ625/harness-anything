@@ -37,21 +37,31 @@ export async function discoverRuntimeInstallations(
     // directly launchable by Node, so only inspect executable suffixes here;
     // test and real installations expose the command through a .cmd/.exe entry.
     suffixes = platform === "win32" ? [".cmd", ".exe"] : [""];
-  for (const directory of (env.PATH ?? "").split(path.delimiter).filter(Boolean))
-    for (const { kindId, executable } of runtimeKinds)
-      for (const suffix of suffixes) {
-        const executableEntryPath = path.resolve(directory, `${executable.command}${suffix}`),
-          key = `${kindId}\0${executableEntryPath}`;
-        try {
-          accessSync(executableEntryPath, constants.X_OK);
-          if (seen.has(key)) continue;
-          seen.add(key);
-          const executablePath = realpathSync.native(executableEntryPath);
-          candidates.push({ kindId, executableEntryPath, executablePath, key });
-        } catch (error) {
-          consumeKnownError(error);
-        }
+  const directories = (env.PATH ?? "").split(path.delimiter).filter(Boolean);
+  for (const { kindId, executable } of runtimeKinds) {
+    const declaration: RuntimeProviderDeclaration["executable"] = executable,
+      entries = [
+        ...directories.flatMap((directory) =>
+          suffixes.map((suffix) => path.resolve(directory, `${executable.command}${suffix}`)),
+        ),
+        ...(declaration.bundledEntries?.[platform] ?? []),
+      ];
+    for (const executableEntryPath of entries) {
+      const key = `${kindId}\0${executableEntryPath}`;
+      try {
+        accessSync(executableEntryPath, constants.X_OK);
+        const executablePath = realpathSync.native(executableEntryPath),
+          targetKey = `${kindId}\0${executablePath}`;
+        // PATH wins when a bundle and a command entry resolve to the same executable.
+        // Identity still uses the entry path so upgrades behind it keep the same ID.
+        if (seen.has(targetKey)) continue;
+        seen.add(targetKey);
+        candidates.push({ kindId, executableEntryPath, executablePath, key });
+      } catch (error) {
+        consumeKnownError(error);
       }
+    }
+  }
   const discovered = await Promise.all(
       candidates.map(async ({ kindId, executableEntryPath, executablePath, key }) => {
         try {

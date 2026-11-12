@@ -8,6 +8,7 @@ import {
   realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -20,6 +21,7 @@ import {
 } from "../src/agent-runtime-instances.ts";
 import { codedAs, observed } from "./agent-runtime-instance-environment.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { runtimeKindForId } from "../src/runtime-inventory.ts";
 
 test("Claude effort defaults and per-launch overrides reach the Claude Code CLI", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-claude-effort-")),
@@ -512,6 +514,158 @@ test("credential references accept the backend-agnostic grammar and legacy keych
     rmSync(userRoot, { recursive: true, force: true });
   }
 });
+
+test("DeepSeek Harness is discovered from PATH without a desktop App", async () => {
+  const bin = mkdtempSync(path.join(tmpdir(), "ha-dsh-path-"));
+  try {
+    const executablePath = writeProviderExecutable(path.join(bin, "dsh"), 'console.log("dsh 0.2.1");\n'),
+      installations = await discoverRuntimeInstallations({
+        env: { PATH: `${bin}${path.delimiter}${bin}` },
+        platform: process.platform === "win32" ? "win32" : "linux",
+      });
+    assert.equal(installations.length, 1, `temporary PATH dsh witnesses: ${JSON.stringify(installations)}`);
+    assert.equal(installations[0]!.kindId, "deepseek-harness");
+    assert.equal(installations[0]!.executablePath, realpathSync(executablePath));
+    assert.equal(installations[0]!.version, "dsh 0.2.1");
+    assert.equal(installations[0]!.models, undefined, "DSH has no CLI model catalog");
+  } finally {
+    rmSync(bin, { recursive: true, force: true });
+  }
+});
+
+test("win32 discovery finds DeepSeek Harness dsh.cmd and forwards version argv", async () => {
+  const bin = mkdtempSync(path.join(tmpdir(), "ha-dsh-cmd-")),
+    witness = path.join(bin, "argv.json");
+  try {
+    const executablePath = writeProviderExecutable(
+      path.join(bin, process.platform === "win32" ? "dsh" : "dsh.cmd"),
+      `require("node:fs").writeFileSync(${JSON.stringify(witness)}, JSON.stringify(process.argv.slice(2))); console.log("dsh 0.2.1");\n`,
+    );
+    // On POSIX, a controlled cmd.exe fixture exercises the production .cmd wrapper.
+    // Windows uses its real cmd.exe and the shared fixture's native .cmd shim.
+    if (process.platform !== "win32")
+      writeProviderExecutable(
+        path.join(bin, "cmd.exe"),
+        'const assert = require("node:assert/strict"); assert.deepEqual(process.argv.slice(2, 5), ["/d", "/s", "/c"]); const match = /^"([^"]+)" --version$/.exec(process.argv[5]); assert.ok(match); require("node:child_process").execFileSync(process.execPath, [match[1], "--version"], { stdio: "inherit" });\n',
+      );
+    const installations = await discoverRuntimeInstallations({ env: { PATH: bin }, platform: "win32" });
+    assert.equal(installations.length, 1, JSON.stringify(installations));
+    assert.equal(installations[0]!.kindId, "deepseek-harness");
+    assert.equal(installations[0]!.executablePath, realpathSync(executablePath));
+    assert.equal(installations[0]!.version, "dsh 0.2.1");
+    assert.deepEqual(JSON.parse(readFileSync(witness, "utf8")), ["--version"]);
+  } finally {
+    rmSync(bin, { recursive: true, force: true });
+  }
+});
+
+test("DeepSeek Harness bundle discovery works with empty PATH and is scoped to darwin", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-dsh-bundle-")),
+    witness = path.join(root, "argv.json");
+  try {
+    const bundle = writeProviderExecutable(
+      path.join(root, "dsh"),
+      `require("node:fs").writeFileSync(${JSON.stringify(witness)}, JSON.stringify(process.argv.slice(2))); console.log("dsh-bundled");\n`,
+    );
+    await withDshBundle(bundle, async () => {
+      for (const platform of ["linux", "win32"] as const) {
+        assert.deepEqual(await discoverRuntimeInstallations({ env: { PATH: "" }, platform }), [], platform);
+        assert.equal(existsSync(witness), false, `${platform} must not execute the macOS bundle`);
+      }
+      const installations = await discoverRuntimeInstallations({ env: { PATH: "" }, platform: "darwin" });
+      assert.equal(installations.length, 1);
+      assert.equal(installations[0]!.kindId, "deepseek-harness");
+      assert.equal(installations[0]!.executableEntryPath, bundle);
+      assert.equal(installations[0]!.executablePath, realpathSync(bundle));
+      assert.equal(installations[0]!.version, "dsh-bundled");
+      assert.deepEqual(JSON.parse(readFileSync(witness, "utf8")), ["--version"]);
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("DeepSeek Harness ignores missing bundles and bundles whose version probe fails", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-dsh-bundle-invalid-"));
+  try {
+    for (const entry of [
+      path.join(root, "missing-dsh"),
+      writeProviderExecutable(path.join(root, "dsh"), "process.exit(7);\n"),
+    ])
+      await withDshBundle(entry, async () => {
+        assert.deepEqual(await discoverRuntimeInstallations({ env: { PATH: "" }, platform: "darwin" }), []);
+      });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("DeepSeek Harness retains distinct PATH and bundle installations", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-dsh-coexist-")),
+    bin = path.join(root, "bin");
+  try {
+    mkdirSync(bin);
+    const entry = writeProviderExecutable(path.join(bin, "dsh"), 'console.log("dsh-path");\n'),
+      bundle = writeProviderExecutable(path.join(root, "dsh"), 'console.log("dsh-bundle");\n');
+    await withDshBundle(bundle, async () => {
+      const installations = await discoverRuntimeInstallations({
+        env: { PATH: bin },
+        // Windows uses native PATH suffixes; the bundle is only considered on darwin.
+        platform: process.platform === "win32" ? "win32" : "darwin",
+      });
+      assert.deepEqual(
+        installations.map(({ executablePath }) => executablePath).sort(),
+        (process.platform === "win32" ? [entry] : [entry, bundle]).map((file) => realpathSync(file)).sort(),
+      );
+      assert.equal(new Set(installations.map(({ installationId }) => installationId)).size, installations.length);
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test(
+  "DeepSeek Harness deduplicates a PATH symlink to its bundle and keeps the PATH identity",
+  { skip: process.platform === "win32" ? "requires POSIX file-symbolic-link semantics" : false },
+  async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "ha-dsh-bundle-link-")),
+      bin = path.join(root, "bin"),
+      witness = path.join(root, "probes");
+    try {
+      mkdirSync(bin);
+      const bundle = writeProviderExecutable(
+        path.join(root, "dsh"),
+        `require("node:fs").appendFileSync(${JSON.stringify(witness)}, "x"); console.log("dsh-bundle");\n`,
+      );
+      const entry = path.join(bin, "dsh");
+      symlinkSync(bundle, entry);
+      await withDshBundle(bundle, async () => {
+        const installations = await discoverRuntimeInstallations({ env: { PATH: bin }, platform: "darwin" });
+        assert.equal(installations.length, 1);
+        assert.equal(installations[0]!.executableEntryPath, entry, "PATH takes priority over the bundle entry");
+        assert.equal(installations[0]!.executablePath, realpathSync(bundle));
+        assert.equal(readFileSync(witness, "utf8"), "x", "the shared target is probed only once");
+        const pathOnly = await discoverRuntimeInstallations({ env: { PATH: bin }, platform: "linux" });
+        assert.equal(installations[0]!.installationId, pathOnly[0]!.installationId);
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+// Replace only the declaration's candidate path, then exercise real filesystem and
+// subprocess probes. Never create or modify an App in the operator's /Applications.
+async function withDshBundle(entry: string, run: () => Promise<void>): Promise<void> {
+  const executable = runtimeKindForId("deepseek-harness").executable,
+    original = executable.bundledEntries;
+  Object.defineProperty(executable, "bundledEntries", { value: { darwin: [entry] } });
+  try {
+    await run();
+  } finally {
+    Object.defineProperty(executable, "bundledEntries", { value: original });
+  }
+}
 
 // The PATHEXT suffix enumeration is observable from any host: a POSIX host
 // witnesses the argv-direct `.exe`-suffixed probe directly, while a real

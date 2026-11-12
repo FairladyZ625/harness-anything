@@ -9,6 +9,13 @@ import { launchArgs } from "../src/agent-runtime-launch-config.ts";
 import { providerConfigDirectory } from "../src/agent-runtime-instance-storage.ts";
 import { runtimeAuthArgs, runtimeKinds } from "../src/runtime-inventory.ts";
 
+test("runtime executable commands are bare names; platform paths belong in bundledEntries", () => {
+  for (const { kindId, executable } of runtimeKinds) {
+    assert.notEqual(executable.command, "", `${kindId} executable.command`);
+    assert.doesNotMatch(executable.command, /[/\\]/u, `${kindId} executable.command must resolve through PATH`);
+  }
+});
+
 /**
  * Launch-config bearing assertions for the 12 ACP providers introduced in PR #2779.
  * Until now catalog coverage only asserted kind membership: the executable command, the
@@ -427,15 +434,18 @@ test("Claude Code declares its minimum CLI version and no other kind invents one
   );
 });
 
-// DeepSeek Harness 0.2.1-rc.2 (2026-10-18): the desktop App's bundled CLI is the only entry
-// (nothing on PATH), `dsh --profile acp` takes no flags, and the sandbox/approval policy is
+// DeepSeek Harness: standalone CLIs resolve through PATH, with a macOS App bundle entry.
+// `dsh --profile acp` takes no flags, and the sandbox/approval policy is
 // the DSH_PERMISSION_MODE environment variable (asar acp profile: sandbox-policy.mode and
 // user-approval.policy both read it; only danger-full-access turns approval off).
 test("the DeepSeek Harness launch contract keeps subscription shared and enables isolated API overrides", () => {
   const kind = runtimeKinds.find((entry) => entry.kindId === "deepseek-harness")!;
   assert.ok(kind);
   assert.equal(kind.protocolFamily, "acp");
-  assert.equal(kind.executable.command, "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh");
+  assert.equal(kind.executable.command, "dsh");
+  assert.deepEqual(kind.executable.bundledEntries, {
+    darwin: ["/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"],
+  });
   assert.equal(kind.executable.configHomeEnvironment, "DSH_HOME");
   assert.equal(kind.executable.authFile, null);
   assert.deepEqual(kind.launch.argumentTemplate, ["--profile", "acp"]);
