@@ -12699,61 +12699,6 @@
         "removalSlice": "S3"
       },
       {
-        "id": "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-commands.ts#fleetProtocolMethods.params.payload.quotaBytes:6ee226975efe9d400b66020a67b74729:3",
-        "category": "policy",
-        "path": "packages/daemon/src/protocol/daemon-protocol-commands.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic policy candidate, semantic ownership to be resolved in S3: policy-shaped quotaBytes has literal configuration",
-        "replacementRef": "EntityKindContract.policies",
-        "removalSlice": "S3"
-      },
-      {
-        "id": "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-commands.ts#fleetProtocolMethods.params.payload.waitTimeoutMs:06f2bfdb2f1e0f1491f7a537835b2873",
-        "category": "policy",
-        "path": "packages/daemon/src/protocol/daemon-protocol-commands.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic policy candidate, semantic ownership to be resolved in S3: policy-shaped waitTimeoutMs has literal configuration",
-        "replacementRef": "EntityKindContract.policies",
-        "removalSlice": "S3"
-      },
-      {
-        "id": "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-commands.ts#fleetProtocolMethods.params.payload.quotaBytes:6ee226975efe9d400b66020a67b74729:4",
-        "category": "policy",
-        "path": "packages/daemon/src/protocol/daemon-protocol-commands.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic policy candidate, semantic ownership to be resolved in S3: policy-shaped quotaBytes has literal configuration",
-        "replacementRef": "EntityKindContract.policies",
-        "removalSlice": "S3"
-      },
-      {
-        "id": "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-commands.ts#fleetProtocolMethods.params.payload.timeoutMs:d02b1e232b41987e44ddd45121bbdb3a",
-        "category": "policy",
-        "path": "packages/daemon/src/protocol/daemon-protocol-commands.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic policy candidate, semantic ownership to be resolved in S3: policy-shaped timeoutMs has literal configuration",
-        "replacementRef": "EntityKindContract.policies",
-        "removalSlice": "S3"
-      },
-      {
-        "id": "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-commands.ts#fleetProtocolMethods.params.payload.quotaBytes:6ee226975efe9d400b66020a67b74729:5",
-        "category": "policy",
-        "path": "packages/daemon/src/protocol/daemon-protocol-commands.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic policy candidate, semantic ownership to be resolved in S3: policy-shaped quotaBytes has literal configuration",
-        "replacementRef": "EntityKindContract.policies",
-        "removalSlice": "S3"
-      },
-      {
         "id": "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-gui-actions.ts#daemonGuiActionMethods.limit:01756949446e0e6666f8f2734b5d34fc",
         "category": "policy",
         "path": "packages/daemon/src/protocol/daemon-protocol-gui-actions.ts",
@@ -13689,94 +13634,6 @@
         "removalSlice": "S2"
       },
       {
-        "id": "action:packages/daemon:packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer.run.dispatchForwardedIntent:9b74fdd5a05e3f2e1f46581fb5e547df",
-        "category": "action",
-        "path": "packages/daemon/src/protocol/json-rpc-server.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic action candidate, semantic ownership to be resolved in S1: assign() may change state or trigger execution",
-        "replacementRef": "ActionDeclaration.ontology",
-        "removalSlice": "S1"
-      },
-      {
-        "id": "action:packages/daemon:packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer.run.dispatchForwardedIntent:053645f4a3ccfeaaaa998dbfabc62a74",
-        "category": "action",
-        "path": "packages/daemon/src/protocol/json-rpc-server.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic action candidate, semantic ownership to be resolved in S1: assign() may change state or trigger execution",
-        "replacementRef": "ActionDeclaration.ontology",
-        "removalSlice": "S1"
-      },
-      {
-        "id": "action:packages/daemon:packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer.run.dispatchForwardedIntent:23aba8a4f49708631eb294954fd170c1",
-        "category": "action",
-        "path": "packages/daemon/src/protocol/json-rpc-server.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic action candidate, semantic ownership to be resolved in S1: assign() may change state or trigger execution",
-        "replacementRef": "ActionDeclaration.ontology",
-        "removalSlice": "S1"
-      },
-      {
-        "id": "action:packages/daemon:packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer.run.dispatchForwardedIntent:cabd683533628e3e6e7db111a0c7f7b9",
-        "category": "action",
-        "path": "packages/daemon/src/protocol/json-rpc-server.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic action candidate, semantic ownership to be resolved in S1: assign() may change state or trigger execution",
-        "replacementRef": "ActionDeclaration.ontology",
-        "removalSlice": "S1"
-      },
-      {
-        "id": "action:packages/daemon:packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer.run.dispatchForwardedIntent:d208648ab66785a897b663b98df53925",
-        "category": "action",
-        "path": "packages/daemon/src/protocol/json-rpc-server.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic action candidate, semantic ownership to be resolved in S1: assign() may change state or trigger execution",
-        "replacementRef": "ActionDeclaration.ontology",
-        "removalSlice": "S1"
-      },
-      {
-        "id": "action:packages/daemon:packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer.run.dispatchForwardedIntent:70060745648fbbfb5586ae9da71dca64",
-        "category": "action",
-        "path": "packages/daemon/src/protocol/json-rpc-server.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic action candidate, semantic ownership to be resolved in S1: assign() may change state or trigger execution",
-        "replacementRef": "ActionDeclaration.ontology",
-        "removalSlice": "S1"
-      },
-      {
-        "id": "action:packages/daemon:packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer.run.dispatchForwardedIntent:da0f8e02fd6f9007adbd3a1ecd9cbe87",
-        "category": "action",
-        "path": "packages/daemon/src/protocol/json-rpc-server.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic action candidate, semantic ownership to be resolved in S1: assign() may change state or trigger execution",
-        "replacementRef": "ActionDeclaration.ontology",
-        "removalSlice": "S1"
-      },
-      {
-        "id": "action:packages/daemon:packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer.run.dispatchForwardedIntent.result:2afcdbab2ab27741b4c612bc152f3c8c",
-        "category": "action",
-        "path": "packages/daemon/src/protocol/json-rpc-server.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic action candidate, semantic ownership to be resolved in S1: run() may change state or trigger execution",
-        "replacementRef": "ActionDeclaration.ontology",
-        "removalSlice": "S1"
-      },
-      {
         "id": "action:packages/daemon:packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer.run:aa3eef058d5a0ad5dfd2b36ef2aedc15",
         "category": "action",
         "path": "packages/daemon/src/protocol/json-rpc-server.ts",
@@ -13844,28 +13701,6 @@
       },
       {
         "id": "action:packages/daemon:packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer.run:5ea3b7c716b1e15b4366193d89530c02",
-        "category": "action",
-        "path": "packages/daemon/src/protocol/json-rpc-server.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic action candidate, semantic ownership to be resolved in S1: assign() may change state or trigger execution",
-        "replacementRef": "ActionDeclaration.ontology",
-        "removalSlice": "S1"
-      },
-      {
-        "id": "action:packages/daemon:packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer.run:62040bd1eedd23de3e9557159276072a",
-        "category": "action",
-        "path": "packages/daemon/src/protocol/json-rpc-server.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic action candidate, semantic ownership to be resolved in S1: assign() may change state or trigger execution",
-        "replacementRef": "ActionDeclaration.ontology",
-        "removalSlice": "S1"
-      },
-      {
-        "id": "action:packages/daemon:packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer.run:62040bd1eedd23de3e9557159276072a:2",
         "category": "action",
         "path": "packages/daemon/src/protocol/json-rpc-server.ts",
         "status": "legacy-to-remove",
@@ -20378,17 +20213,6 @@
       },
       {
         "id": "action:packages/daemon:packages/daemon/src/runtime.ts#startDaemon.createProtocolServer.executionPrincipal:60477ceb6aa0daab6ef9b627b03596ac",
-        "category": "action",
-        "path": "packages/daemon/src/runtime.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic action candidate, semantic ownership to be resolved in S1: assign() may change state or trigger execution",
-        "replacementRef": "ActionDeclaration.ontology",
-        "removalSlice": "S1"
-      },
-      {
-        "id": "action:packages/daemon:packages/daemon/src/runtime.ts#startDaemon.createProtocolServer.edgeExecutionPrincipal:60477ceb6aa0daab6ef9b627b03596ac",
         "category": "action",
         "path": "packages/daemon/src/runtime.ts",
         "status": "legacy-to-remove",
@@ -42196,54 +42020,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: write() may change state or trigger execution",
         "exemptionId": "action:tools:tools/flaky-rerun-ledger.mjs#main:35f85624d336a935f34e52f1fbab3986",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gate-allowlists/fleet-forwarding-boundary-baseline.mjs#fleetForwardingBoundaryBaseline.packages/daemon/src/fleet-edge-workspace-migration.ts.migrateFleetEdgeWorkspace:77739dabece067530966c2d934bdf6f5",
-        "category": "policy",
-        "path": "tools/gate-allowlists/fleet-forwarding-boundary-baseline.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped migrateFleetEdgeWorkspace has literal configuration",
-        "exemptionId": "policy:tools:tools/gate-allowlists/fleet-forwarding-boundary-baseline.mjs#fleetForwardingBoundaryBaseline.packages/daemon/src/fleet-edge-workspace-migration.ts.migrateFleetEdgeWorkspace:77739dabece067530966c2d934bdf6f5",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gate-allowlists/fleet-forwarding-boundary-baseline.mjs#fleetForwardingBoundaryBaseline.packages/daemon/src/fleet-center-admission.ts:136ec2fba92446b685529f5d00940b4d",
-        "category": "policy",
-        "path": "tools/gate-allowlists/fleet-forwarding-boundary-baseline.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped packages/daemon/src/fleet-center-admission.ts has literal configuration",
-        "exemptionId": "policy:tools:tools/gate-allowlists/fleet-forwarding-boundary-baseline.mjs#fleetForwardingBoundaryBaseline.packages/daemon/src/fleet-center-admission.ts:136ec2fba92446b685529f5d00940b4d",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gate-allowlists/fleet-forwarding-boundary-baseline.mjs#fleetForwardingBoundaryBaseline.packages/daemon/src/task-claimable-read.ts.readClaimableTasks:8d4114bf724a6f3a40dd2d3535fb6100",
-        "category": "policy",
-        "path": "tools/gate-allowlists/fleet-forwarding-boundary-baseline.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped readClaimableTasks has literal configuration",
-        "exemptionId": "policy:tools:tools/gate-allowlists/fleet-forwarding-boundary-baseline.mjs#fleetForwardingBoundaryBaseline.packages/daemon/src/task-claimable-read.ts.readClaimableTasks:8d4114bf724a6f3a40dd2d3535fb6100",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gate-allowlists/fleet-forwarding-boundary-baseline.mjs#fleetForwardingBoundaryBaseline.packages/daemon/src/task-claimable-read.ts:d586831bc282abad2a52c82758b2224a",
-        "category": "policy",
-        "path": "tools/gate-allowlists/fleet-forwarding-boundary-baseline.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped packages/daemon/src/task-claimable-read.ts has literal configuration",
-        "exemptionId": "policy:tools:tools/gate-allowlists/fleet-forwarding-boundary-baseline.mjs#fleetForwardingBoundaryBaseline.packages/daemon/src/task-claimable-read.ts:d586831bc282abad2a52c82758b2224a",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },

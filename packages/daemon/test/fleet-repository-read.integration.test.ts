@@ -316,9 +316,10 @@ test(
     const cli = await rpc.handle({
       jsonrpc: "2.0",
       id: 10,
-      method: "daemon.fleet.task.run",
+      method: "repo.task.read",
       params: {
-        payload: { ...cliConfig, workspaceRoot: edgeRoot, action: { kind: "work-show", taskId: "task-read-000" } },
+        repo: { repoId: cliConfig.repoId },
+        payload: { action: { kind: "work-show", taskId: "task-read-000" } },
       },
     });
     assert.ok(cli && !Array.isArray(cli) && "result" in cli, JSON.stringify(cli));
@@ -445,8 +446,8 @@ test(
     const revokedCli = await rpc.handle({
       jsonrpc: "2.0",
       id: 9,
-      method: "daemon.fleet.task.run",
-      params: { payload: { ...edgePayload, workspaceRoot: edgeRoot, action: { kind: "task-list" } } },
+      method: "repo.task.read",
+      params: { repo: { repoId: edgePayload.repoId }, payload: { action: { kind: "task-list" } } },
     });
     assert.ok(revokedCli && !Array.isArray(revokedCli) && "result" in revokedCli, JSON.stringify(revokedCli));
     assert.equal((revokedCli.result as { ok?: boolean }).ok, false);

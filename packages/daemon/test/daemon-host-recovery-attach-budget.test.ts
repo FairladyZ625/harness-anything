@@ -266,7 +266,7 @@ test("an attach that lands after its registration changed mode is discarded and 
     assert.equal(
       (await host.run("mode-attach", { kind: "task-create", taskId: "task_mode_attach", title: "Mode attach" }, auth))
         .code,
-      "repo_mode_read_only",
+      "fleet_edge_config_invalid",
     );
   } finally {
     await host.close();

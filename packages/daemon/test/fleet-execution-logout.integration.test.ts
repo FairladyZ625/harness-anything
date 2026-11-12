@@ -203,22 +203,8 @@ test(
       for (const runtimeSessionId of live) {
         await requestDaemonJsonRpcAt(
           daemon.endpoint,
-          "daemon.fleet.task.run",
-          {
-            payload: {
-              host: config.host,
-              port: config.port,
-              caPath: config.caPath,
-              servername: config.servername,
-              nodeId: config.nodeId,
-              credential: config.credential,
-              repoId,
-              viewRoot,
-              quotaBytes: config.quotaBytes,
-              workspaceRoot: edgeRoot,
-              action: { kind: "fleet-runtime", method: "repo.agentRuntime.cancel", payload: { runtimeSessionId } },
-            },
-          },
+          "repo.agentRuntime.cancel",
+          { repo: { repoId: repoId }, payload: { runtimeSessionId } },
           1000,
           30_000,
         );
@@ -247,28 +233,13 @@ test(
       },
     });
     assert.equal(created.ok, true, JSON.stringify(created));
-    const spawned = await rpc("daemon.fleet.task.run", {
+    const spawned = await rpc("repo.agentRuntime.spawn", {
+      repo: { repoId: repoId },
       payload: {
-        host: config.host,
-        port: config.port,
-        caPath: config.caPath,
-        servername: config.servername,
-        nodeId: config.nodeId,
-        credential: config.credential,
-        repoId,
-        viewRoot,
-        quotaBytes: config.quotaBytes,
-        workspaceRoot: edgeRoot,
-        action: {
-          kind: "fleet-runtime",
-          method: "repo.agentRuntime.spawn",
-          payload: {
-            runtimeInstanceId: "edge-worker",
-            taskId,
-            prompt: "Verify edge credential",
-            dispatchKey: "edge-credential",
-          },
-        },
+        runtimeInstanceId: "edge-worker",
+        taskId,
+        prompt: "Verify edge credential",
+        dispatchKey: "edge-credential",
       },
     });
     assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
@@ -568,12 +539,9 @@ test(
       firstCleanup = cleanup;
     cleanup = async () => {
       for (const runtimeSessionId of reviewLive)
-        await reviewRpc("daemon.fleet.task.run", {
-          payload: {
-            ...reviewRoute,
-            workspaceRoot: reviewRoot,
-            action: { kind: "fleet-runtime", method: "repo.agentRuntime.cancel", payload: { runtimeSessionId } },
-          },
+        await reviewRpc("repo.agentRuntime.cancel", {
+          repo: { repoId: reviewRoute.repoId },
+          payload: { runtimeSessionId },
         });
       await reviewDaemon.stop();
       await firstCleanup();
@@ -600,22 +568,15 @@ test(
       true,
     );
     const spawnReviewer = (dispatchKey: string) =>
-      reviewRpc("daemon.fleet.task.run", {
+      reviewRpc("repo.agentRuntime.spawn", {
+        repo: { repoId: reviewRoute.repoId },
         payload: {
-          ...reviewRoute,
-          workspaceRoot: reviewRoot,
-          action: {
-            kind: "fleet-runtime",
-            method: "repo.agentRuntime.spawn",
-            payload: {
-              runtimeInstanceId: "edge-worker",
-              taskId,
-              role: "reviewer",
-              cwd: { scope: "repo-root" },
-              prompt: "Review the submitted cut.",
-              dispatchKey,
-            },
-          },
+          runtimeInstanceId: "edge-worker",
+          taskId,
+          role: "reviewer",
+          cwd: { scope: "repo-root" },
+          prompt: "Review the submitted cut.",
+          dispatchKey,
         },
       });
     const cancelSpawn = await spawnReviewer("edge-review-s1-cancel");
@@ -887,16 +848,9 @@ test(
     assert.equal(staleStream?.terminalOutcome?.payload.reasonCode, "runtime_archive_failed");
     assert.match(staleStream?.terminalOutcome?.body ?? "", /execution_credential_rejected/u);
     reviewLive.delete(reviewRuntime);
-    const cancelled = await reviewRpc("daemon.fleet.task.run", {
-      payload: {
-        ...reviewRoute,
-        workspaceRoot: reviewRoot,
-        action: {
-          kind: "fleet-runtime",
-          method: "repo.agentRuntime.cancel",
-          payload: { runtimeSessionId: cancelRuntime },
-        },
-      },
+    const cancelled = await reviewRpc("repo.agentRuntime.cancel", {
+      repo: { repoId: reviewRoute.repoId },
+      payload: { runtimeSessionId: cancelRuntime },
     });
     assert.equal(cancelled.outcome, "applied", JSON.stringify(cancelled));
     // Cancellation acknowledgement can race the provider exit callback. Observe the

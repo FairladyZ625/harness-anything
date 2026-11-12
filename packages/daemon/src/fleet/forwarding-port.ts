@@ -55,8 +55,7 @@ export async function forward(input: {
           ? input.intent.inputs.requiredNodeId
           : undefined,
     config = runtimeLocation(edge, input.repoId, requiredNodeId);
-  // Unbound commands retain repo-mode rejection; node-bound and runtime requests require a valid edge.
-  if (!config) return input.intent.kind === "command" && requiredNodeId === undefined ? null : invalidRuntimeLocation();
+  if (!config) invalidRuntimeLocation();
   const { workspaceRoot } = config;
   const signal =
       input.signal && input.auth.connectionSignal
@@ -128,7 +127,7 @@ export async function forward(input: {
     personId = input.auth.executionPrincipal?.personId ?? localDefaultBinding(bound).actor.principal.personId;
   if (input.auth.executionPrincipal && personId !== localDefaultBinding(bound).actor.principal.personId)
     throw executionCredentialRejected();
-  return runFleetEdgeTask(
+  const receipt = await runFleetEdgeTask(
     {
       ...(signal ? { signal } : {}),
       payload: {
@@ -141,6 +140,25 @@ export async function forward(input: {
     readAccessToken,
     "domain",
   );
+  if (
+    action.kind === "task-escalate" &&
+    input.auth.executionPrincipal &&
+    (receipt.outcome === "applied" || receipt.outcome === "no_changes")
+  ) {
+    const edgeCancellation = await input.runRuntime(
+      {
+        ...config,
+        method: "repo.agentRuntime.cancel",
+        action: {
+          runtimeSessionId: input.auth.executionPrincipal.runtimeSessionId,
+          escalation: true,
+        },
+      },
+      runtimeAuth,
+    );
+    return { ...receipt, edgeCancellation };
+  }
+  return receipt;
 }
 
 export function resolveRuntimeLocation(userRoot: string | undefined, repoId: string, requiredNodeId?: string) {

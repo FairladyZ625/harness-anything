@@ -145,8 +145,8 @@ export function createDaemonHostLifecycleApi(
           } finally {
             context.closeDaemonWriterEpoch();
           }
-          for (const runtime of context.fleetEdgeRuntimes.values()) runtime.close();
-          context.fleetEdgeRuntimes.clear();
+          for (const runtime of context.edgeRuntimeOwners.values()) runtime.close();
+          context.edgeRuntimeOwners.clear();
           context.remoteProxy.close();
         })(),
       ]);

@@ -267,7 +267,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     now = input.now ?? (() => new Date().toISOString()),
     initialRegistry = readDaemonRegistry({ userRoot: input.userRoot }),
     buildObserver = observeDaemonBuild(input.runtimeFile),
-    fleetEdgeRuntimes = new Map<string, ReturnType<typeof openFleetEdgeRuntime>>(),
+    // Process/adoption owners only: location and identity are resolved per operation.
+    edgeRuntimeOwners = new Map<string, ReturnType<typeof openFleetEdgeRuntime>>(),
     fleetVersionWarnings = new Map<string, FleetVersionWarning>(),
     runtimeRecoveryWatch = openRuntimeRecoveryWatch();
   const oidc = input.oidc ?? createIdentitySession(input.userRoot),
@@ -590,11 +591,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     const location = () => resolveRuntimeLocation(input.userRoot, repoId, nodeId),
       key = JSON.stringify([repoId, nodeId]),
       runtime =
-        fleetEdgeRuntimes.get(key) ??
+        edgeRuntimeOwners.get(key) ??
         openFleetEdgeRuntime({
-          get request() {
-            return location();
-          },
+          resolveLocation: location,
           readBinding: async (request = location()) => {
             const binding = await hostBinding(
               request.workspaceRoot,
@@ -648,7 +647,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           ...(input.runtimeLaunch ? { launch: input.runtimeLaunch } : {}),
           now,
         });
-    fleetEdgeRuntimes.set(key, runtime);
+    edgeRuntimeOwners.set(key, runtime);
     return runtime;
   }
   function forwardRuntime(request: RuntimeForwardingRequest): Promise<JsonObject | null> {
@@ -1051,7 +1050,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     set fleetCenter(value) {
       fleetCenter = value;
     },
-    fleetEdgeRuntimes,
+    edgeRuntimeOwners,
     fleetVersionWarnings,
     runtimeRecoveryWatch,
     runtimeDaemonRoute,
@@ -1190,7 +1189,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           payload?.action !== null &&
           typeof payload?.action === "object" &&
           typeof (payload.action as Record<string, unknown>).kind === "string" &&
-          !["fleet-runtime", "fleet-schedule"].includes(String((payload.action as Record<string, unknown>).kind)) &&
           commandDescriptorForAction(String((payload.action as Record<string, unknown>).kind)).admission[
             "remote-edge"
           ] === "edge-replica";

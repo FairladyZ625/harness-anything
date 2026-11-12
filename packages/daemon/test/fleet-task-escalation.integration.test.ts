@@ -178,7 +178,7 @@ test(
         host: edgeHost,
         build: { commit: null },
         authContext: localAuth,
-        edgeExecutionPrincipal: async (candidate) => {
+        executionPrincipal: async (candidate) => {
           const principal = readRuntimeExecutionPrincipal(edgeRoot, candidate);
           if (!principal)
             throw Object.assign(new Error("Execution credential is unavailable."), {
@@ -202,21 +202,8 @@ test(
         const response = await rpc.handle({
           jsonrpc: "2.0",
           id: 1,
-          method: "daemon.fleet.task.run",
-          params: {
-            payload: {
-              host: "127.0.0.1",
-              port: center.port,
-              caPath: fixture.certFile,
-              nodeId: fixture.subject.nodeId,
-              credential: "machine-secret",
-              repoId: fixture.subject.repoId,
-              viewRoot,
-              quotaBytes: replicaQuota,
-              workspaceRoot: edgeRoot,
-              action: taskAction,
-            },
-          },
+          method: "repo.task.run",
+          params: { repo: { repoId: fixture.subject.repoId }, payload: { action: taskAction } },
         });
         assert.ok(response && !Array.isArray(response) && "result" in response, JSON.stringify(response));
         return response.result as Record<string, unknown>;

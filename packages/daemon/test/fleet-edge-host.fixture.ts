@@ -212,14 +212,6 @@ export async function fleetEdgeHostFixture(
           requireExecutionRequestScope(principal, method, params);
           return principal;
         },
-        edgeExecutionPrincipal: async (credential) => {
-          const principal = readRuntimeExecutionPrincipal(edgeRoot, credential);
-          if (!principal)
-            throw Object.assign(new Error("Execution credential is unknown or expired on this edge runtime."), {
-              code: "authorization_denied",
-            });
-          return principal;
-        },
         emit: async () => undefined,
       });
       rpcServers.add(rpc);

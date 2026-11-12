@@ -129,7 +129,7 @@ test("edge write round trips wait out a briefly stalled center", { timeout: 120_
     await catchUpReplica(replicaOptions);
     replicaSync = startResidentReplicaSync(replicaOptions);
     edge = openFleetEdgeRuntime({
-      request: {
+      resolveLocation: () => ({
         host: "127.0.0.1",
         port: center.port,
         caPath: certFile,
@@ -142,7 +142,7 @@ test("edge write round trips wait out a briefly stalled center", { timeout: 120_
         workspaceRoot,
         method: "repo.schedule.run",
         action: {},
-      },
+      }),
       readBinding: () => owners!.binding(nodeId),
       readAccessToken: owners!.readAccessToken(nodeId),
       controlBinding: () => owners!.binding(nodeId),

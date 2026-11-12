@@ -110,7 +110,7 @@ test(
       readBinding: () => f.owners.binding(nodeId),
       readAccessToken: f.owners.readAccessToken(nodeId),
       controlBinding: () => f.owners.binding(nodeId),
-      request: { ...channel, method: "repo.agentRuntime.spawn", action: {} },
+      resolveLocation: () => ({ ...channel, method: "repo.agentRuntime.spawn", action: {} }),
       daemonGeneration: 1,
       daemonRoute: {
         userRoot: path.join(f.root, "edge-user"),
@@ -573,7 +573,7 @@ test(
       readBinding: () => f.owners.binding(nodeId),
       readAccessToken: f.owners.readAccessToken(nodeId),
       controlBinding: () => f.owners.binding(nodeId),
-      request: { ...channel, method: "repo.agentRuntime.spawn", action: {} },
+      resolveLocation: () => ({ ...channel, method: "repo.agentRuntime.spawn", action: {} }),
       daemonGeneration: 1,
       daemonRoute: {
         userRoot: path.join(f.root, "edge-user"),

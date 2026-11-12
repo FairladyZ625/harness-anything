@@ -41,9 +41,6 @@ const expectedFleetMethods = Object.freeze([
   { method: "daemon.fleet.center.external-address.read" },
   { method: "daemon.fleet.center.external-address.set" },
   { method: "daemon.fleet.edge.sync" },
-  { method: "daemon.fleet.task.run" },
-  { method: "daemon.fleet.doc.sync" },
-  { method: "daemon.fleet.conflict.exit" },
 ]);
 const retiredAuthorities = [
   "packages/application/src/task-write-route-policy.ts",

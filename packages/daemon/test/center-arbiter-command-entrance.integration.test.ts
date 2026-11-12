@@ -9,7 +9,7 @@ import { makeTaskEventReader } from "@harness-anything/storage";
 
 import { realizeTaskPlanFixture, realizedDecisionBody } from "../../../tools/fixtures/task-plan.mjs";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, commandDescriptorForAction, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
@@ -375,7 +375,11 @@ test("the center admits no unauthenticated arbiter and the edge admits no local 
       };
     for (const action of commands) {
       const onEdge = (await host.run("edge", action as never, auth)) as Receipt;
-      assert.deepEqual([onEdge.outcome, onEdge.code], ["op_rejected", "repo_mode_read_only"], action.kind);
+      const code =
+        commandDescriptorForAction(action.kind).admission["remote-edge"] === "via-center-forward"
+          ? "fleet_edge_config_invalid"
+          : "repo_mode_read_only";
+      assert.deepEqual([onEdge.outcome, onEdge.code], ["op_rejected", code], action.kind);
       signOutAt(userRoot);
       const unknown = (await host.run("center", action as never, stranger)) as Receipt;
       assert.deepEqual([unknown.outcome, unknown.code], ["op_rejected", "authentication_required"], action.kind);

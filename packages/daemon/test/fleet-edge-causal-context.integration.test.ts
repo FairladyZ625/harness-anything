@@ -509,7 +509,7 @@ for (const probe of [
       readBinding: () => fixture.owners.binding(fixture.subject.nodeId),
       readAccessToken: fixture.owners.readAccessToken(fixture.subject.nodeId),
       controlBinding: () => fixture.owners.binding(fixture.subject.nodeId),
-      request: {
+      resolveLocation: () => ({
         host: "127.0.0.1",
         port: center.port,
         caPath: fixture.certFile,
@@ -521,7 +521,7 @@ for (const probe of [
         workspaceRoot,
         method: "repo.agentRuntime.spawn",
         action: {},
-      },
+      }),
       daemonGeneration: 1,
       daemonRoute: {
         userRoot: path.join(fixture.root, "counterexample-user"),

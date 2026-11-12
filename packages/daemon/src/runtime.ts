@@ -342,18 +342,6 @@ export async function startDaemon(input: {
                 : undefined;
             return host!.status().repos.some((repo) => repo.repoId === repoId && repo.mode === "remote-edge");
           },
-          edgeExecutionPrincipal: async (credential) => {
-            const principal = host!
-              .status()
-              .repos.filter((repo) => repo.mode === "remote-edge")
-              .map((repo) => readRuntimeExecutionPrincipal(repo.rootDir, credential))
-              .find((entry) => entry !== null);
-            if (!principal)
-              throw Object.assign(new Error("Execution credential is unknown or expired on this edge runtime."), {
-                code: "authorization_denied",
-              });
-            return principal;
-          },
           sessionPrincipal: (method, params) =>
             host!.sessionPrincipal(
               {

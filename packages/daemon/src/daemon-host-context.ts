@@ -178,7 +178,7 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
   readonly recoverableRunId: typeof import("./daemon-host-errors.ts").recoverableRunId;
   readonly requireHostMode: (repoId: string, command: CommandTopology, auth: DaemonAuthenticationContext) => void;
   fleetCenter: FleetTlsCenter | null;
-  readonly fleetEdgeRuntimes: Map<string, ReturnType<typeof import("./fleet-edge-runtime.ts").openFleetEdgeRuntime>>;
+  readonly edgeRuntimeOwners: Map<string, ReturnType<typeof import("./fleet-edge-runtime.ts").openFleetEdgeRuntime>>;
   readonly runtimeDaemonRoute: RuntimeDaemonRoute;
   readonly scheduleScheduler: ReturnType<typeof makeScheduleScheduler>;
   readonly forwardRuntime: DaemonHostRegistryContext["forwardRuntime"];
