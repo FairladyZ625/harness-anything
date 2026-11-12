@@ -778,17 +778,20 @@ export function openFleetEdgeRuntime(input: {
             implementationSession = executorId?.startsWith("runtime-session:")
               ? executorId.slice("runtime-session:".length)
               : null,
-            publication = await readRuntimeProjection(request, async (projection) => ({
+            publication = await readRuntimeProjection(request, (projection) => ({
               instanceId: implementationSession
                 ? projection.readRuntimeDispatch(implementationSession)?.payload.instanceId
                 : undefined,
-              renderBody: await taskPrBodyRenderer({
+              renderBody: taskPrBodyRenderer({
                 rootDir: request.workspaceRoot,
                 projection: projection as TaskProjection,
                 taskId,
                 submission,
               }),
-            }));
+            })),
+            // The renderer captures projection inputs synchronously; await Git reads after
+            // the replica's synchronous SQLite reader session has closed.
+            renderBody = await publication.renderBody;
           await publishSubmittedCut({
             rootDir: request.workspaceRoot,
             repoId: request.repoId,
@@ -797,7 +800,7 @@ export function openFleetEdgeRuntime(input: {
             submission,
             ...(typeof publication.instanceId === "string" ? { instanceId: publication.instanceId } : {}),
             prepareDaemonGitEnvironment: input.ports.prepareDaemonGitEnvironment,
-            ...(publication.renderBody ? { renderBody: publication.renderBody } : {}),
+            ...(renderBody ? { renderBody } : {}),
           });
         }
         return {

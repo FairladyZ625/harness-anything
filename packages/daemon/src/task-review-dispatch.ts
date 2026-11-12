@@ -609,7 +609,8 @@ export async function spawnCutReviewDispatch(
   | { readonly outcome: "failed"; readonly error: string }
 > {
   const cutReviewKey = reviewDispatchKey(input.taskId, input.execution, input.reviewerId),
-    submission = input.execution.submission!;
+    submission = input.execution.submission!,
+    submissionOpId = cell.projection.readTaskSubmissionOperation(input.taskId, input.execution.executionId);
   let key = input.dispatchKey ?? cutReviewKey,
     ids = reviewDispatchIds(cell.input.repoId, key),
     alreadyDispatched = false;
@@ -647,29 +648,6 @@ export async function spawnCutReviewDispatch(
       };
     key = attempt.key;
     ids = attempt.ids;
-  }
-  if (input.dispatchKey === undefined || key === cutReviewKey) {
-    const inFlight = activeCutReviewDispatches(cell, input.taskId, input.execution).at(-1)?.event ?? null;
-    if (inFlight !== null) {
-      const holdingReviewer = typeof inFlight.payload.agentId === "string" ? inFlight.payload.agentId : null;
-      if (holdingReviewer === input.reviewerId)
-        return {
-          outcome: "already_dispatched",
-          ids: {
-            dispatchId: inFlight.payload.dispatchId,
-            runtimeSessionId: inFlight.payload.runtimeSessionId,
-            dispatchOpId: inFlight.opId,
-          },
-        };
-      if (input.dispatchKey === undefined)
-        return {
-          outcome: "failed",
-          error:
-            `Task ${input.taskId}'s submitted cut already holds review dispatch ${inFlight.payload.dispatchId} by agent ` +
-            `${holdingReviewer ?? "with no recorded agent"} (runtime session ${inFlight.payload.runtimeSessionId}); ` +
-            `reviewer ${input.reviewerId} was not dispatched. Retry after that review session ends.`,
-        };
-    }
   }
   let resolved;
   try {
@@ -766,17 +744,37 @@ export async function spawnCutReviewDispatch(
           current.task.iteration !== input.execution.iteration ||
           execution?.state !== "submitted" ||
           !execution.submission ||
-          submissionDigest(execution.submission) !== submissionDigest(submission)
+          cell.projection.readTaskSubmissionOperation(input.taskId, execution.executionId) !== submissionOpId
         )
           throw cell.cellCodedError("execution_scope_mismatch", "The submitted review cut was superseded.");
         const existing = cell.projection.readRuntimeDispatchByDispatchKey(attemptPayload.dispatchKey)?.event;
-        if (existing) return { outcome: "no_changes", opId: existing.opId } as WriteReceiptDraft;
-        const holding = activeCutReviewDispatches(cell, input.taskId, execution).at(-1)?.event;
-        if (holding && holding.payload.dispatchKey !== attemptPayload.dispatchKey)
-          throw cell.cellCodedError(
-            "review_dispatch_failed",
-            "The submitted cut already holds another review dispatch.",
-          );
+        if (existing) {
+          ids = {
+            dispatchId: existing.payload.dispatchId,
+            runtimeSessionId: existing.payload.runtimeSessionId,
+            dispatchOpId: existing.opId,
+          };
+          return { outcome: "no_changes", opId: existing.opId } as WriteReceiptDraft;
+        }
+        if (input.dispatchKey === undefined || key === cutReviewKey) {
+          const holding = activeCutReviewDispatches(cell, input.taskId, execution).at(-1)?.event;
+          if (holding?.payload.agentId === input.reviewerId) {
+            ids = {
+              dispatchId: holding.payload.dispatchId,
+              runtimeSessionId: holding.payload.runtimeSessionId,
+              dispatchOpId: holding.opId,
+            };
+            return { outcome: "no_changes", opId: holding.opId } as WriteReceiptDraft;
+          }
+          if (holding && input.dispatchKey === undefined)
+            throw cell.cellCodedError(
+              "review_dispatch_failed",
+              `Task ${input.taskId}'s submitted cut already holds review dispatch ${holding.payload.dispatchId} by agent ` +
+                `${holding.payload.agentId ?? "with no recorded agent"} (runtime session ${holding.payload.runtimeSessionId}); ` +
+                `reviewer ${input.reviewerId} was not dispatched. ` +
+                "Retry after that review session ends.",
+            );
+        }
         const authorizationDecision = await evaluateRepoCellAction({
           action: { kind: "runtime-spawn", ...attemptPayload },
           repoId: cell.input.repoId,
@@ -834,7 +832,10 @@ export async function spawnCutReviewDispatch(
           error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
         };
       }
-      return { outcome: alreadyDispatched ? "already_dispatched" : "dispatched", ids: fallbackIds };
+      return {
+        outcome: alreadyDispatched ? "already_dispatched" : "dispatched",
+        ids: alreadyDispatched ? ids : fallbackIds,
+      };
     } else {
       consumeKnownError(error);
       return { outcome: "failed", error: error instanceof Error ? error.message : String(error) };
@@ -885,7 +886,7 @@ export async function dispatchInReviewCutReview(
   binding: RepoCellBinding,
   receipt: WriteReceiptDraft,
   enqueuePublication?: ReturnWrite,
-  submitted?: ExecutionV1,
+  submissionOpId?: string,
 ): Promise<{
   readonly seat?: ReviewSeat;
   readonly step: WriteReceiptDraft;
@@ -897,12 +898,7 @@ export async function dispatchInReviewCutReview(
     (value) => value.iteration === current.snapshot.task?.iteration && value.state === "submitted",
   );
   if (!execution?.submission || !current.packagePath) return null;
-  if (
-    submitted &&
-    (execution.executionId !== submitted.executionId ||
-      !submitted.submission ||
-      submissionDigest(execution.submission) !== submissionDigest(submitted.submission))
-  )
+  if (submissionOpId && cell.projection.readTaskSubmissionOperation(taskId, execution.executionId) !== submissionOpId)
     return null;
   const reverify = cutReverifyRoute(current.snapshot, execution);
   // dec_BEFCF7D0484E901F187C2C8EC6 CH2: a resubmission whose previous blocking findings are all

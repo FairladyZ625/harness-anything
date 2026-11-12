@@ -813,8 +813,7 @@ async function submittedCutReview(
     );
   if (
     !execution?.submission ||
-    !submitted.submission ||
-    submissionDigest(execution.submission) !== submissionDigest(submitted.submission)
+    cell.projection.readTaskSubmissionOperation(taskId, execution.executionId) !== receipt.opId
   )
     return { steps: [], warnings: [] };
   if (
@@ -867,7 +866,7 @@ async function submittedCutReview(
       { ...principalBinding, actor: { principal: binding.actor.principal, executor: null } },
       receipt,
       enqueuePublication,
-      submitted,
+      receipt.opId,
     );
   return dispatched ? { steps: [dispatched.step], warnings: dispatched.warnings } : { steps: [], warnings: [] };
 }
