@@ -1,3 +1,4 @@
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type { TaskV2 } from "@harness-anything/kernel";
@@ -10,7 +11,7 @@ import { taskWorktreeBinding, type PresetSnapshotRead } from "./task-worktree.ts
 // once; nothing at run time knows the old name. This file goes away once no node holds an old-name worktree.
 
 export type LegacyWorktreeRow =
-  | { readonly taskId: string; readonly status: "worktree-rename" | "worktree-renamed"; readonly from: string }
+  | { readonly taskId: string; readonly status: OperationalStatus.LegacyWorktreeStatus; readonly from: string }
   | { readonly taskId: string; readonly status: "manual"; readonly reason: string; readonly worktree: string };
 
 /** Old-name worktrees of the given tasks: renamed on apply, listed on a dry run, left alone when not safe to move. */

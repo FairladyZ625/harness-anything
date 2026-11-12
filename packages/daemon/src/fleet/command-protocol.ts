@@ -1,3 +1,4 @@
+import { edgeJoinStateWords } from "@harness-anything/kernel/internal/domain/access-status.ts";
 // dec_9284BD6119D453EEECEED62450: command frames only; replica frames live in protocol.ts.
 import { TextDecoder } from "node:util";
 import {
@@ -779,7 +780,7 @@ const schemas: Readonly<Record<string, Check>> = {
     {
       ...reply,
       joinId: id,
-      state: (value) => ["pending", "consumed", "expired", "revoked"].includes(String(value)),
+      state: (value) => (edgeJoinStateWords as readonly string[]).includes(String(value)),
       nodeId: id,
     },
     ["schema", "messageId", "inReplyTo", "joinId", "state"],

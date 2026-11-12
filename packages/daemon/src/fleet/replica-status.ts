@@ -1,19 +1,9 @@
+import type * as AccessStatus from "@harness-anything/kernel/internal/domain/access-status.ts";
 import type { ReplicationPosition } from "@harness-anything/storage";
 import type { FleetReplicaStatus } from "./center-types.ts";
 import { replicationSlotKey, type ReplicationSlotKey, type ReplicationSlots } from "@harness-anything/storage";
 
-export type ReplicaSyncPhase =
-  | "preparing_replica"
-  | "authorizing"
-  | "waiting_backup"
-  | "backup_queued"
-  | "building_backup"
-  | "waiting_shared_backup"
-  | "sending_backup"
-  | "sending_commits"
-  | "awaiting_ack"
-  | "waiting_for_commit"
-  | "waiting_socket_drain";
+export type ReplicaSyncPhase = AccessStatus.ReplicaSyncPhase;
 export interface ReplicaSyncActivity {
   readonly phase: ReplicaSyncPhase;
   readonly since: string;

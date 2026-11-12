@@ -107,3 +107,5 @@ export type TerminalRestartState = (typeof terminalRestartStateWords)[number];
 
 export const dispatchActivityStatusWords = ["thinking", "tool", "waiting", "silent", "stalled", "unknown"] as const;
 export type DispatchActivityStatus = (typeof dispatchActivityStatusWords)[number];
+
+export const entityContentReadOutcomes = ["file", "directory", "missing", "too-large", "binary"] as const;

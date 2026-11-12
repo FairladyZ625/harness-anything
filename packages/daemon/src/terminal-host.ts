@@ -1,3 +1,4 @@
+import type * as ClientStatus from "@harness-anything/kernel/internal/domain/client-view-status.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -43,7 +44,6 @@ type Frame = JsonObject & {
   readonly droppedThrough: number | null;
   readonly occurredAt: string;
 };
-type TerminalSessionStatus = "running" | "exited" | "unknown";
 type Session = {
   readonly sessionId: string;
   readonly idempotencyKey: string;
@@ -58,7 +58,7 @@ type Session = {
   readonly createdAt: string;
   child: pty.IPty | null;
   childExited: Promise<void> | null;
-  status: TerminalSessionStatus;
+  status: ClientStatus.TerminalTabState;
   attachable: boolean;
   warning: TerminalBackendWarningCode | null;
   lastActivityAt: string;
@@ -524,7 +524,7 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
     const spawnCwd = restoreTerminalCwd(input.rootDir, stored.cwd);
     const canProbe = tmuxProbe.available && Boolean(tmuxProbe.executable);
     const exists = canProbe && tmux.hasSession(tmuxProbe.executable!, stored.tmuxNamespace);
-    const status: TerminalSessionStatus = !canProbe ? "unknown" : exists ? "running" : "exited";
+    const status: ClientStatus.TerminalTabState = !canProbe ? "unknown" : exists ? "running" : "exited";
     return {
       sessionId: stored.sessionId,
       idempotencyKey: stored.idempotencyKey,
@@ -669,7 +669,7 @@ function terminalSessionRow(session: Session): TerminalSessionRow {
     attachable: session.attachable,
   };
 }
-function terminalState(session: Session): TerminalSessionStatus {
+function terminalState(session: Session): ClientStatus.TerminalTabState {
   return session.status;
 }
 function isRunningSession(session: Session): boolean {

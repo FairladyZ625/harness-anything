@@ -1,7 +1,8 @@
+import type * as AccessStatus from "@harness-anything/kernel/internal/domain/access-status.ts";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { normalizeRootCaCertificate } from "../tls-ca-certificate.ts";
 
-export type EdgeJoinState = "pending" | "consumed" | "expired" | "revoked";
+export type EdgeJoinState = AccessStatus.EdgeJoinState;
 /** The operating systems a fleet edge node can register from. */
 export const edgeJoinPlatforms = ["darwin", "linux", "win32"] as const;
 export type EdgeJoinPlatform = (typeof edgeJoinPlatforms)[number];
@@ -71,7 +72,7 @@ export interface EdgeJoinStatusResult {
   readonly nodeId?: string;
 }
 export interface EdgeJoinSummary extends EdgeJoinStatusResult {
-  readonly tunnelState?: "connecting" | "connected" | "reconnecting" | "stopped";
+  readonly tunnelState?: AccessStatus.EdgeJoinTunnelState;
   readonly personId: string;
   readonly repoIds: readonly string[];
   readonly groupIds: readonly string[];

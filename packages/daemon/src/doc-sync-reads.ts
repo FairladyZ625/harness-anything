@@ -1,3 +1,4 @@
+import type * as DocumentStatus from "@harness-anything/kernel/internal/domain/authored-document-status.ts";
 import { existsSync, lstatSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import {
@@ -436,7 +437,7 @@ export type ProjectedDocumentSource = "canonical" | "authored-copy" | "execution
 /** Whether the returned cut is known to match the accepted canonical cut. `unobservable` is not
  * `false`: a missing authored copy or an unreadable workspace is an absence of evidence, never a
  * claim that the workspace is clean. */
-export type ProjectedDocumentSyncState = "synced" | "unsynced" | "unobservable" | "derived";
+export type ProjectedDocumentSyncState = DocumentStatus.ProjectedDocumentSyncState;
 
 export interface CanonicalDocumentVersion {
   readonly workspaceRevision: number;
@@ -671,13 +672,13 @@ function canonicalCutAndSync(
   authored: ObservedDocumentRow | null,
   binary: boolean,
   requested: string,
-): { readonly cut: DocumentCut; readonly syncState: "synced" | "unsynced" | "unobservable" } {
+): { readonly cut: DocumentCut; readonly syncState: DocumentStatus.ObservedDocumentSyncState } {
   const canonicalBytes =
       binary && Number(document.size) <= TASK_DOCUMENT_INLINE_BYTES_MAX
         ? context.store.readContentBlob(document.blobSha256)
         : null,
     cut = cutOfCanonical(document, binary, canonicalBytes, requested),
-    syncState: "synced" | "unsynced" | "unobservable" =
+    syncState: DocumentStatus.ObservedDocumentSyncState =
       authored === null ? "unobservable" : authored.blobSha256 === document.blobSha256 ? "synced" : "unsynced";
   return { cut, syncState };
 }
@@ -724,7 +725,10 @@ function cutOfWorktree(row: ObservedDocumentRow, requested: string, binary: bool
   };
 }
 
-function syncStateOf(cut: DocumentCut, canonicalVersion: CanonicalDocumentVersion | null): "synced" | "unsynced" {
+function syncStateOf(
+  cut: DocumentCut,
+  canonicalVersion: CanonicalDocumentVersion | null,
+): Exclude<DocumentStatus.ObservedDocumentSyncState, "unobservable"> {
   return canonicalVersion !== null && cut.blobSha256 === canonicalVersion.blobSha256 ? "synced" : "unsynced";
 }
 

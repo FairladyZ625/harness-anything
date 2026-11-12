@@ -38,50 +38,6 @@ export const statusVocabularyBaseline = Object.freeze([
     words: Object.freeze(["pending", "stored", "not-required"]),
   },
   {
-    key: "packages/daemon/src/entity-content-read.ts#EntityContentOutcome",
-    words: Object.freeze(["file", "directory", "missing", "too-large", "binary"]),
-  },
-  {
-    key: "packages/daemon/src/entity-locator-read.ts#EntityLocatorOutcome",
-    words: Object.freeze(["file", "directory", "missing", "unsupported", "too-large", "binary"]),
-  },
-  {
-    key: "packages/daemon/src/fleet/edge-join-ssh-tunnel.ts#EdgeJoinTunnelState",
-    words: Object.freeze(["connecting", "connected", "reconnecting", "stopped"]),
-  },
-  {
-    key: "packages/daemon/src/fleet/edge-join.ts#EdgeJoinState",
-    words: Object.freeze(["pending", "consumed", "expired", "revoked"]),
-  },
-  {
-    key: "packages/daemon/src/fleet/replica-status.ts#ReplicaSyncPhase",
-    words: Object.freeze([
-      "preparing_replica",
-      "authorizing",
-      "waiting_backup",
-      "backup_queued",
-      "building_backup",
-      "waiting_shared_backup",
-      "sending_backup",
-      "sending_commits",
-      "awaiting_ack",
-      "waiting_for_commit",
-      "waiting_socket_drain",
-    ]),
-  },
-  {
-    key: "packages/daemon/src/migration-import-types.ts#AuthoredDisposition",
-    words: Object.freeze(["migrated", "excluded", "required"]),
-  },
-  {
-    key: "packages/daemon/src/repo-cell-doctor.ts#DoctorCheckStatus",
-    words: Object.freeze(["ok", "warn", "fail", "indeterminate"]),
-  },
-  {
-    key: "packages/daemon/src/review-prompt-guidance.ts#ReviewPromptPhase",
-    words: Object.freeze(["first", "re-review"]),
-  },
-  {
     key: "packages/daemon/src/runtime-permissions.ts#RuntimeIsolationState",
     words: Object.freeze(["enforced", "operator-environment"]),
   },
@@ -106,34 +62,12 @@ export const statusVocabularyBaseline = Object.freeze([
     words: Object.freeze(["running", "succeeded", "failed", "unknown", "cancelled", "stopped", "lost"]),
   },
   {
-    key: "packages/daemon/src/terminal-host.ts#TerminalSessionStatus",
-    words: Object.freeze(["running", "exited", "unknown"]),
-  },
-  {
-    key: "packages/daemon/src/work-topology-read.ts#TopologyState",
-    words: Object.freeze([
-      "done",
-      "cancelled",
-      "in-flight",
-      "awaiting-ruling",
-      "blocked",
-      "ready",
-      "unknown",
-      "boundary",
-    ]),
-  },
-  {
     key: "packages/daemon/src/protocol/schedules-gui-contract.ts#ScheduleExecutionAvailability",
     words: Object.freeze(["local", "claimed-elsewhere", "not-on-this-node"]),
   },
   {
     key: "packages/daemon/src/runtime-inventory-types.ts#RuntimeEndpointAvailability",
     words: Object.freeze(["none", "optional", "required"]),
-  },
-  {
-    key: "packages/daemon/src/access-admin-service.ts##PermissionRequest.state",
-    inline: true,
-    words: Object.freeze(["pending", "approved", "rejected", "withdrawn"]),
   },
   {
     key: "packages/daemon/src/agent-declaration-migration.ts##AgentDeclarationMigrationEntry.outcome",
@@ -246,51 +180,6 @@ export const statusVocabularyBaseline = Object.freeze([
     words: Object.freeze(["ready", "pending"]),
   },
   {
-    key: "packages/daemon/src/daemon-host-types.ts##DaemonHost.state",
-    inline: true,
-    words: Object.freeze(["enabled", "disabled"]),
-  },
-  {
-    key: "packages/daemon/src/daemon-operation.ts##DaemonOperation.outcome",
-    inline: true,
-    words: Object.freeze(["ok", "error"]),
-  },
-  {
-    key: "packages/daemon/src/daemon-operation.ts##DaemonOperationTrace.outcome",
-    inline: true,
-    words: Object.freeze(["ok", "error"]),
-  },
-  {
-    key: "packages/daemon/src/decision-annotations.ts##DecisionActionRecord.status",
-    inline: true,
-    words: Object.freeze(["applied", "failed"]),
-  },
-  {
-    key: "packages/daemon/src/decision-annotations.ts##DecisionAnnotationEntry.status",
-    inline: true,
-    words: Object.freeze(["pending", "succeeded", "failed"]),
-  },
-  {
-    key: "packages/daemon/src/decision-incident-action.ts##IncidentDecisionFields.headStatus",
-    inline: true,
-    words: Object.freeze(["unchanged", "changed", "unavailable", "no-previous-run"]),
-  },
-  {
-    key: "packages/daemon/src/decision-incident-action.ts##IncidentActionOutcome.status",
-    inline: true,
-    words: Object.freeze(["applied", "failed"]),
-  },
-  {
-    key: "packages/daemon/src/decision-incident-receipt.ts##SettledIncidentAction.status",
-    inline: true,
-    words: Object.freeze(["applied", "failed"]),
-  },
-  {
-    key: "packages/daemon/src/decision-surface-actions.ts##DecisionReadService.status",
-    inline: true,
-    words: Object.freeze(["ready", "pending"]),
-  },
-  {
     key: "packages/daemon/src/dispatch-read.ts##RuntimeSessionActivityEvidence.outcome",
     inline: true,
     words: Object.freeze(["succeeded", "failed", "cancelled", "unknown", "stopped"]),
@@ -309,51 +198,6 @@ export const statusVocabularyBaseline = Object.freeze([
     key: "packages/daemon/src/dispatch-stream.ts##DispatchStreamSummary.evidenceState",
     inline: true,
     words: Object.freeze(["pending", "stored"]),
-  },
-  {
-    key: "packages/daemon/src/doc-sync-publication.ts##RuntimeDispatchArchive.outcome",
-    inline: true,
-    words: Object.freeze(["succeeded", "failed", "unknown", "cancelled", "stopped"]),
-  },
-  {
-    key: "packages/daemon/src/entity-action-catalog-receipts.ts##WriteReceiptDraft.status",
-    inline: true,
-    words: Object.freeze(["ready", "pending"]),
-  },
-  {
-    key: "packages/daemon/src/fleet-edge-mirror.ts##FleetConflictRecord.state",
-    inline: true,
-    words: Object.freeze(["staged", "resolved"]),
-  },
-  {
-    key: "packages/daemon/src/fleet-edge-mirror.ts##FleetMirrorApplyResult.outcome",
-    inline: true,
-    words: Object.freeze(["applied", "pull_blocked", "no_view"]),
-  },
-  {
-    key: "packages/daemon/src/fleet-edge-runtime.ts##RuntimePorts.liveness",
-    inline: true,
-    words: Object.freeze(["live", "stale", "unknown", "exited"]),
-  },
-  {
-    key: "packages/daemon/src/fleet-edge-runtime.ts##RuntimePorts.outcome",
-    inline: true,
-    words: Object.freeze(["succeeded", "failed", "unknown", "cancelled", "stopped"]),
-  },
-  {
-    key: "packages/daemon/src/fleet/edge-join-client.ts##EdgeJoinRepositoryProgress.phase",
-    inline: true,
-    words: Object.freeze(["workspace", "register", "sync", "synced", "failed"]),
-  },
-  {
-    key: "packages/daemon/src/fleet/edge-join.ts##EdgeJoinSummary.tunnelState",
-    inline: true,
-    words: Object.freeze(["connecting", "connected", "reconnecting", "stopped"]),
-  },
-  {
-    key: "packages/daemon/src/fleet/fleet-overview-read.ts##FleetLinkRow.state",
-    inline: true,
-    words: Object.freeze(["fresh", "lag", "unsynced"]),
   },
   {
     key: "packages/daemon/src/gui-s3-control.ts##DaemonControlReceipt.outcome",
@@ -394,36 +238,6 @@ export const statusVocabularyBaseline = Object.freeze([
     key: "packages/daemon/src/home/home-overview-types.ts##DaemonHomeRepoOverview.status",
     inline: true,
     words: Object.freeze(["online", "warming", "unavailable", "offline"]),
-  },
-  {
-    key: "packages/daemon/src/migration-import-authored-classification.ts##?.disposition",
-    inline: true,
-    words: Object.freeze(["excluded", "required"]),
-  },
-  {
-    key: "packages/daemon/src/migration-import-legacy.ts##LegacyExecutionV2.disposition",
-    inline: true,
-    words: Object.freeze(["excluded", "required"]),
-  },
-  {
-    key: "packages/daemon/src/migration-import-task-restatement.ts##RestatedTaskContract.disposition",
-    inline: true,
-    words: Object.freeze(["retired-preset-to-standard-task", "renamed-preset", "preset-task-class-aligned"]),
-  },
-  {
-    key: "packages/daemon/src/migration-import-types.ts##MigrationDisposition.disposition",
-    inline: true,
-    words: Object.freeze(["archived", "retired"]),
-  },
-  {
-    key: "packages/daemon/src/observe-jsonl-tail.ts##JsonlTailPage.status",
-    inline: true,
-    words: Object.freeze(["ready", "pending"]),
-  },
-  {
-    key: "packages/daemon/src/observe-tail.ts##EventTailPage.status",
-    inline: true,
-    words: Object.freeze(["ready", "pending"]),
   },
   {
     key: "packages/daemon/src/protocol/artifacts-gui-contract.ts##ArtifactsListResult.status",
@@ -566,56 +380,6 @@ export const statusVocabularyBaseline = Object.freeze([
     words: Object.freeze(["succeeded", "failed", "unknown", "cancelled", "stopped"]),
   },
   {
-    key: "packages/daemon/src/repo-bootstrap.ts##BootstrapDocument.disposition",
-    inline: true,
-    words: Object.freeze(["created", "preserved", "updated"]),
-  },
-  {
-    key: "packages/daemon/src/repo-bootstrap.ts##RepoBootstrapReceipt.outcome",
-    inline: true,
-    words: Object.freeze(["applied", "noop", "partial", "indeterminate"]),
-  },
-  {
-    key: "packages/daemon/src/repo-cell-status.ts##?.status",
-    inline: true,
-    words: Object.freeze(["none", "indeterminate"]),
-  },
-  {
-    key: "packages/daemon/src/repo-cell-task-create.ts##TaskMetadataV1.status",
-    inline: true,
-    words: Object.freeze(["ready", "pending"]),
-  },
-  {
-    key: "packages/daemon/src/repo-cell-task-query.ts##TaskQueryCell.status",
-    inline: true,
-    words: Object.freeze(["ready", "pending"]),
-  },
-  {
-    key: "packages/daemon/src/repo-cell-types.ts##RepoCellStatus.state",
-    inline: true,
-    words: Object.freeze(["warming", "attached", "unavailable", "closed"]),
-  },
-  {
-    key: "packages/daemon/src/repo-cell.ts##RepoCellCore.status",
-    inline: true,
-    words: Object.freeze(["none", "indeterminate"]),
-  },
-  {
-    key: "packages/daemon/src/repo-local-root-residue.ts##EntryClass.status",
-    inline: true,
-    words: Object.freeze(["ok", "warn", "fail"]),
-  },
-  {
-    key: "packages/daemon/src/repo-writer-protocol.ts##RepoWriterReceiptV1.outcome",
-    inline: true,
-    words: Object.freeze(["ok", "error"]),
-  },
-  {
-    key: "packages/daemon/src/repo-writer-protocol.ts##RepoWriterCapabilityResultV1.outcome",
-    inline: true,
-    words: Object.freeze(["ok", "error"]),
-  },
-  {
     key: "packages/daemon/src/runtime-continuation-context.ts##RuntimeContinuationContext.headStatus",
     inline: true,
     words: Object.freeze(["unchanged", "changed", "unavailable", "no-previous-run"]),
@@ -681,11 +445,6 @@ export const statusVocabularyBaseline = Object.freeze([
     words: Object.freeze(["invalid", "missing"]),
   },
   {
-    key: "packages/daemon/src/skill-eval-runner.ts##SkillEvalSkill.status",
-    inline: true,
-    words: Object.freeze(["draft", "published"]),
-  },
-  {
     key: "packages/daemon/src/squad-control-result.ts##SquadControlResult.outcome",
     inline: true,
     words: Object.freeze(["completed", "op_rejected"]),
@@ -715,36 +474,6 @@ export const statusVocabularyBaseline = Object.freeze([
     inline: true,
     words: Object.freeze(["dispatched", "already_dispatched"]),
   },
-  {
-    key: "packages/daemon/src/task-risk-tier.ts##TaskRiskTierScriptInput.status",
-    inline: true,
-    words: Object.freeze(["added", "modified", "deleted", "renamed", "copied", "type-changed"]),
-  },
-  {
-    key: "packages/daemon/src/task-worktree-legacy-rename.ts##LegacyWorktreeRow.status",
-    inline: true,
-    words: Object.freeze(["worktree-rename", "worktree-renamed"]),
-  },
-  {
-    key: "packages/daemon/src/work-briefs-read.ts##WorkBriefsReadResult.status",
-    inline: true,
-    words: Object.freeze(["ready", "pending"]),
-  },
-  {
-    key: "packages/daemon/src/work-topology-read.ts##WorkTopologyRead.status",
-    inline: true,
-    words: Object.freeze(["ready", "pending"]),
-  },
-  {
-    key: "packages/daemon/src/workspace-link-integrity.ts##WorkspaceLinkCheck.status",
-    inline: true,
-    words: Object.freeze(["ok", "fail"]),
-  },
-  {
-    key: "packages/daemon/src/workspace-scope-read.ts##WorkspaceScopeRead.status",
-    inline: true,
-    words: Object.freeze(["ready", "pending"]),
-  },
 ]);
 
 // External status vocabularies that were registered before the ownership form became
@@ -752,10 +481,4 @@ export const statusVocabularyBaseline = Object.freeze([
 // stale; a new external row without mirrorOf / ownerStore / view-local is refused.
 export const statusVocabularyUnownedRegister = Object.freeze([
   { id: "dispatch.fallbackState", words: Object.freeze(["scheduled", "dispatched", "exhausted"]) },
-  {
-    id: "docCandidate.state",
-    words: Object.freeze(["clean", "eligible", "inapplicable", "blocked", "deletion", "conflict"]),
-  },
-  { id: "documentReplica.syncState", words: Object.freeze(["synced", "unsynced", "unobservable", "derived"]) },
-  { id: "documentReplica.syncState-observed", words: Object.freeze(["synced", "unsynced", "unobservable"]) },
 ]);

@@ -1,3 +1,4 @@
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { TaskMetadataV1, TaskRiskTierAssessmentV1 } from "@harness-anything/kernel";
@@ -30,7 +31,7 @@ export interface TaskRiskTierScriptInput {
     readonly headSha: string | null;
     readonly files: readonly {
       readonly path: string;
-      readonly status: "added" | "modified" | "deleted" | "renamed" | "copied" | "type-changed";
+      readonly status: OperationalStatus.DeliveryFileStatus;
       readonly additions: number;
       readonly deletions: number;
       readonly binary: boolean;

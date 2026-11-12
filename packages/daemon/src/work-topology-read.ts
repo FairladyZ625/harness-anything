@@ -1,3 +1,5 @@
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
+import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import {
   blockingOf,
   isDomainStatus,
@@ -10,22 +12,13 @@ import {
 const TASK_INDEX_PAGE_LIMIT = 500;
 const TASK_REF = /^task\/([^/]+)$/u;
 
-type TopologyState =
-  | "done"
-  | "cancelled"
-  | "in-flight"
-  | "awaiting-ruling"
-  | "blocked"
-  | "ready"
-  | "unknown"
-  | "boundary";
 type BlockingAssessment = ReturnType<typeof blockingOf>[number];
 
 export interface WorkTopologyNode {
   readonly taskId: string;
   readonly title: string;
   readonly canonicalStatus: TaskIndexProjectionRow["status"] | null;
-  readonly topologyState: TopologyState;
+  readonly topologyState: OperationalStatus.WorkTopologyState;
   readonly parentTaskId: string | null;
   readonly pinned: boolean;
   readonly boundary: boolean;
@@ -46,7 +39,7 @@ export interface WorkTopologyEdge {
 export interface WorkTopologyRead {
   readonly schema: "daemon.work-topology/v1";
   readonly ok: true;
-  readonly status: "ready" | "pending";
+  readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
   readonly workRootTaskId: string;
   readonly members: readonly WorkTopologyNode[];
   /** Direct prerequisite task endpoints outside the subtree; never expanded recursively. */
@@ -210,7 +203,7 @@ function topologyNode(
   const status = isDomainStatus(row.status) ? row.status : null,
     blockers = assessment?.blockers ?? [],
     warnings = assessment?.warnings ?? [];
-  let topologyState: TopologyState;
+  let topologyState: OperationalStatus.WorkTopologyState;
   if (boundary) topologyState = status === null ? "unknown" : "boundary";
   else if (status === "done") topologyState = "done";
   else if (status === "cancelled") topologyState = "cancelled";

@@ -1,3 +1,4 @@
+import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import { consumeKnownError } from "@harness-anything/kernel";
 import {
   decisionMachineDigest,
@@ -13,13 +14,13 @@ import {
 
 interface DecisionReadService {
   readonly show: (selector: string) => {
-    readonly status: "ready" | "pending";
+    readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
     readonly watermark: number;
     readonly sourceRevision: number;
     readonly decision: DecisionProjectionRow;
   };
   readonly list: (filters: DecisionListFilters) => {
-    readonly status: "ready" | "pending";
+    readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
     readonly watermark: number;
     readonly sourceRevision: number;
     readonly decisions: readonly DecisionProjectionRow[];

@@ -27,3 +27,27 @@ export type LegacyRoleMigrationOutcome = Exclude<AccessReceiptOutcome, "version_
 
 export const legacyRoleGrantOutcomeWords = ["written", "already_present", "skipped"] as const;
 export type LegacyRoleGrantOutcome = (typeof legacyRoleGrantOutcomeWords)[number];
+
+export const replicaSyncPhaseWords = [
+  "preparing_replica",
+  "authorizing",
+  "waiting_backup",
+  "backup_queued",
+  "building_backup",
+  "waiting_shared_backup",
+  "sending_backup",
+  "sending_commits",
+  "awaiting_ack",
+  "waiting_for_commit",
+  "waiting_socket_drain",
+] as const;
+export type ReplicaSyncPhase = (typeof replicaSyncPhaseWords)[number];
+
+export const fleetConflictStateWords = ["staged", "resolved"] as const;
+export type FleetConflictState = (typeof fleetConflictStateWords)[number];
+
+export const fleetMirrorApplyOutcomeWords = ["applied", "pull_blocked", "no_view"] as const;
+export type FleetMirrorApplyOutcome = (typeof fleetMirrorApplyOutcomeWords)[number];
+
+export const fleetLinkStateWords = ["fresh", "lag", "unsynced"] as const;
+export type FleetLinkState = (typeof fleetLinkStateWords)[number];

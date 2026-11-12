@@ -1,3 +1,4 @@
+import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import path from "node:path";
 import type { DaemonRepoMode, TaskProjection } from "@harness-anything/kernel";
 import { daemonConnLogFileStem } from "./conn-log.ts";
@@ -265,7 +266,7 @@ function observeError(code: string, message: string): Error {
 
 type EventTailPage =
   | Pick<
-      Extract<ObserveTailResult, { readonly status: "ready" | "pending" }>,
+      Extract<ObserveTailResult, { readonly status: ProjectionStatus.ReadSetProjectionCut["status"] }>,
       "status" | "items" | "historyCursor" | "liveCursor" | "sourceCursor" | "done"
     >
   | Pick<

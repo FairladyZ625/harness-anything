@@ -1,3 +1,4 @@
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import type { DaemonHomeOverviewResult } from "./home/home-overview-types.ts";
 import type { SquadControlResult } from "./squad-control-result.ts";
 import {
@@ -205,7 +206,7 @@ export interface DaemonHost {
           readonly mode?: DaemonRepoMode;
           readonly endpoint?: string;
           readonly connectionId?: string;
-          readonly state?: "enabled" | "disabled";
+          readonly state?: OperationalStatus.RepoRegistrationState;
         }
       | { readonly kind: "unbind"; readonly repoId: string }
       | { readonly kind: "backup"; readonly rootDir: string; readonly backupDir: string }
@@ -233,7 +234,7 @@ export interface DaemonHost {
           readonly connectionId: string;
           readonly displayName?: string;
           readonly endpoint?: string;
-          readonly state?: "enabled" | "disabled";
+          readonly state?: OperationalStatus.RepoRegistrationState;
         }
       | { readonly kind: "connection-unregister"; readonly connectionId: string }
       | { readonly kind: "connection-probe"; readonly endpoint: string },
@@ -260,7 +261,7 @@ export interface DaemonHost {
       readonly id: string;
       readonly kind: "local" | "remote-endpoint" | "fleet-center";
       readonly displayName: string;
-      readonly state: "enabled" | "disabled";
+      readonly state: OperationalStatus.RepoRegistrationState;
       readonly endpoint?: string;
     }[];
     readonly repos: readonly RepoCellStatus[];

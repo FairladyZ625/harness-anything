@@ -1,3 +1,4 @@
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import type { CanonicalEventStore, TaskProjection } from "@harness-anything/kernel";
 import { ProjectionIdentityMismatchError } from "@harness-anything/storage";
 import type { RepoCellStatus } from "./repo-cell-types.ts";
@@ -13,7 +14,7 @@ export function repoCellStatus(context: {
   readonly projection: TaskProjection;
   readonly lastError: string | null;
   readonly causeClass: RepoCellStatus["causeClass"];
-  readonly recovery: { readonly elapsedMs: number; readonly status: "none" | "indeterminate" };
+  readonly recovery: { readonly elapsedMs: number; readonly status: OperationalStatus.RepoRecoveryStatus };
   readonly recoveryUncertain: boolean;
 }): RepoCellStatus {
   const read = readStatusCut(context);

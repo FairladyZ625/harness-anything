@@ -1,3 +1,4 @@
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { fleetBaseBackupTrace } from "@harness-anything/storage";
@@ -31,7 +32,7 @@ export interface DaemonOperation {
   readonly nodeId: string | null;
   readonly requestBytes: number;
   readonly replyBytes: number;
-  readonly outcome: "ok" | "error" | null;
+  readonly outcome: OperationalStatus.DaemonOperationOutcome | null;
 }
 export type DaemonOperationUpdate = Partial<
   Pick<DaemonOperation, "phase" | "actor" | "repoId" | "nodeId" | "requestBytes" | "replyBytes" | "outcome">
@@ -60,7 +61,7 @@ export interface DaemonOperationTrace {
   readonly nodeId: string | null;
   readonly requestBytes: number;
   readonly replyBytes: number;
-  readonly outcome: "ok" | "error" | null;
+  readonly outcome: OperationalStatus.DaemonOperationOutcome | null;
   readonly startedAtMs: number;
   readonly endedAtMs: number | null;
   readonly phases: readonly DaemonOperationPhaseSpan[];
@@ -260,7 +261,7 @@ class OperationTrackerImpl implements OperationTracker {
   private nodeId: string | null;
   private requestBytes: number;
   private replyBytes: number;
-  private outcome: "ok" | "error" | null;
+  private outcome: OperationalStatus.DaemonOperationOutcome | null;
   private endedAtMs: number | null = null;
   private ended = false;
   private queueHead: DaemonOperationQueueHead | null = null;

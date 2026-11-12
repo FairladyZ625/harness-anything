@@ -1,3 +1,4 @@
+import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import { taskPresentationReads } from "./task-presentation-read.ts";
 import { type TaskProjection, type TaskIndexProjectionRow, type TaskV2 } from "@harness-anything/kernel";
 import type { CanonicalEventSummary } from "@harness-anything/kernel";
@@ -27,7 +28,7 @@ export interface WorkspaceScopeTaskRow {
 export interface WorkspaceScopeRead {
   readonly schema: "daemon.workspace-scope/v1";
   readonly ok: true;
-  readonly status: "ready" | "pending";
+  readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
   readonly root: WorkspaceScopeTaskRow;
   readonly ancestors: readonly WorkspaceScopeTaskRow[];
   readonly goalMaterial: { readonly taskId: string; readonly path: string } | null;

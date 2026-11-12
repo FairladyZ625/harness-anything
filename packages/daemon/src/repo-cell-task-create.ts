@@ -1,3 +1,4 @@
+import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import { createHash } from "node:crypto";
 import {
   compileRelationCreatedEvent,
@@ -26,7 +27,11 @@ export function readResult(
   value: object,
   revision: number,
   worktreeVisible: boolean | null,
-  projectedCut?: { readonly status: "ready" | "pending"; readonly watermark: number; readonly sourceRevision: number },
+  projectedCut?: {
+    readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
+    readonly watermark: number;
+    readonly sourceRevision: number;
+  },
 ): WriteReceipt {
   const cut = projectedCut ?? cell.projection.readCut(),
     ready = cut.status === "ready",

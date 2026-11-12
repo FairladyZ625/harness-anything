@@ -1,3 +1,5 @@
+import { entityLocatorReadOutcomeWords } from "@harness-anything/kernel/internal/domain/client-view-status.ts";
+import type * as ClientStatus from "@harness-anything/kernel/internal/domain/client-view-status.ts";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { normalizeRelativeDocumentPath } from "@harness-anything/kernel";
@@ -30,7 +32,7 @@ export class EntityLocatorReadContractError extends Error {
   }
 }
 
-export type EntityLocatorOutcome = "file" | "directory" | "missing" | "unsupported" | "too-large" | "binary";
+export type EntityLocatorOutcome = ClientStatus.EntityLocatorReadOutcome;
 
 export interface EntityLocatorEntryV1 {
   readonly path: string;
@@ -95,14 +97,7 @@ function locatorResult(outcome: EntityLocatorOutcome, locatorPath: string): Enti
   };
 }
 
-const outcomes: readonly EntityLocatorOutcome[] = [
-  "file",
-  "directory",
-  "missing",
-  "unsupported",
-  "too-large",
-  "binary",
-];
+const outcomes: readonly EntityLocatorOutcome[] = entityLocatorReadOutcomeWords;
 
 export function validateEntityLocatorRead(value: unknown): readonly string[] {
   if (!isJsonObject(value) || value.schema !== ENTITY_LOCATOR_READ_SCHEMA || value.ok !== true)

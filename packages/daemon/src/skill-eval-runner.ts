@@ -1,3 +1,4 @@
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { createHash } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
@@ -35,7 +36,7 @@ export interface SkillEvalSkill extends SkillEvalDraftContract {
   readonly version: string;
   readonly digest?: string;
   readonly versionDigest?: string;
-  readonly status: "draft" | "published";
+  readonly status: OperationalStatus.SkillPublicationStatus;
   readonly createdBy: string;
   readonly name?: string;
   /** Rendered skill text mounted into the evaluation context. */

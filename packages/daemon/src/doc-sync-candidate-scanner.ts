@@ -1,3 +1,4 @@
+import type * as DocumentStatus from "@harness-anything/kernel/internal/domain/authored-document-status.ts";
 import {
   /* @gate-identity check-sync-subprocess/sync-subprocess-006 */
   execFileSync,
@@ -35,7 +36,7 @@ import { blockedCandidateNextAction } from "./doc-sync-details.ts";
 import { docSyncError } from "./doc-sync-files.ts";
 import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 
-export type DocCandidateState = "clean" | "eligible" | "inapplicable" | "blocked" | "deletion" | "conflict";
+export type DocCandidateState = DocumentStatus.DocCandidateState;
 export interface DocCandidateRow {
   readonly path: string;
   readonly state: DocCandidateState;

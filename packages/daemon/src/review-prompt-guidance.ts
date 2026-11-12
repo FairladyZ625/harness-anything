@@ -1,3 +1,4 @@
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import {
   ownerVerifiableFindingCategories,
   reviewFindingCategories,
@@ -5,7 +6,7 @@ import {
 } from "@harness-anything/kernel";
 
 /** Which round of review one mission is: a fresh cut review, or the continuation after a return. */
-export type ReviewPromptPhase = "first" | "re-review";
+export type ReviewPromptPhase = OperationalStatus.ReviewPromptPhase;
 
 /**
  * The finding-scope guidance every reviewer mission carries, in one place. The cut prompt and the

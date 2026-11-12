@@ -1,3 +1,4 @@
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -47,7 +48,7 @@ interface BootstrapDocument {
   readonly body: string;
   readonly contentSha256: string;
   readonly existingSha256: string | null;
-  readonly disposition: "created" | "preserved" | "updated";
+  readonly disposition: OperationalStatus.BootstrapDocumentDisposition;
   readonly updatedRef?: string;
 }
 export interface RepoBootstrapInput {
@@ -62,7 +63,7 @@ export interface RepoBootstrapInput {
 }
 export interface RepoBootstrapReceipt {
   readonly authoredBranch: string;
-  readonly outcome: "applied" | "noop" | "partial" | "indeterminate";
+  readonly outcome: OperationalStatus.RepoBootstrapOutcome;
   readonly summary: string;
   readonly created: readonly string[];
   readonly updated: readonly string[];

@@ -1,3 +1,4 @@
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import {
   type CanonicalWriteBundle,
   type MigrationDestinationPreimage,
@@ -47,7 +48,7 @@ export interface MigrationDisposition {
   readonly entityType: MigrationOracleKind;
   readonly entityId: string;
   readonly sourcePath: string;
-  readonly disposition: "archived" | "retired";
+  readonly disposition: OperationalStatus.MigrationDisposition;
   readonly reason: "truth_gap";
 }
 
@@ -102,7 +103,7 @@ export interface MigrationBackfillRow {
   readonly sourceAnchor: string;
 }
 
-export type AuthoredDisposition = "migrated" | "excluded" | "required";
+export type AuthoredDisposition = OperationalStatus.AuthoredDisposition;
 
 export type ResolutionChoice = "destination" | "source";
 

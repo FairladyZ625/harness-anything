@@ -1,3 +1,4 @@
+import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import { readdirSync, statSync, type BigIntStats } from "node:fs";
 import { open, type FileHandle } from "node:fs/promises";
 import path from "node:path";
@@ -25,7 +26,7 @@ export type JsonlRecordSelector = (
 ) => Readonly<Record<string, unknown>> | null;
 export type JsonlTailPage =
   | Pick<
-      Extract<ObserveTailResult, { readonly status: "ready" | "pending" }>,
+      Extract<ObserveTailResult, { readonly status: ProjectionStatus.ReadSetProjectionCut["status"] }>,
       "status" | "items" | "historyCursor" | "liveCursor" | "sourceCursor" | "done"
     >
   | Pick<

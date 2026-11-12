@@ -374,15 +374,17 @@ test("bypass fixture: an external register row without an ownership form is refu
 });
 
 test("unowned-register baseline: owning a frozen external row makes the entry stale", () => {
-  const owned = {
-    ...register,
-    statusVocabularies: register.statusVocabularies.map((vocabulary) =>
-      vocabulary.id === "docCandidate.state" ? { ...vocabulary, ownerStore: "document.events" } : vocabulary,
-    ),
+  const vocabulary = {
+    id: "probe.state",
+    module: "packages/daemon/src/probe.ts",
+    words: ["ready", "pending"],
   };
-  const findings = checkExternalOwnership(owned, statusVocabularyUnownedRegister);
+  const owned = {
+    statusVocabularies: [{ ...vocabulary, ownerStore: "document.events" }],
+  };
+  const findings = checkExternalOwnership(owned, [vocabulary]);
   assert.ok(
-    findings.some((finding) => finding.includes("docCandidate.state") && finding.includes("now owned")),
+    findings.some((finding) => finding.includes("probe.state") && finding.includes("now owned")),
     findings.join("\n"),
   );
 });
@@ -719,9 +721,9 @@ test("registered inline anchors still have to declare their registered words", (
 // now covered by the generic scan; the old token-family/path special case is gone.
 test("authored-document vocabularies are covered by the generic scan", () => {
   const expected = [
-    "packages/daemon/src/doc-sync-candidate-scanner.ts#DocCandidateState",
-    "packages/daemon/src/doc-sync-reads.ts#ProjectedDocumentSyncState",
-    "packages/daemon/src/doc-sync-reads.ts##syncState",
+    "packages/kernel/src/domain/authored-document-status.ts#docCandidateStates",
+    "packages/kernel/src/domain/authored-document-status.ts#projectedDocumentSyncStates",
+    "packages/kernel/src/domain/authored-document-status.ts#observedDocumentSyncStates",
     "packages/daemon/src/protocol/daemon-protocol-gui-types.ts##syncState",
   ];
   for (const key of expected) {
@@ -777,6 +779,62 @@ test("the deleted fixed-file and authored-document special cases cannot reappear
 test("only daemon declarations remain in the status vocabulary baseline", () => {
   assert.deepEqual(
     statusVocabularyBaseline.filter(({ key }) => !key.startsWith("packages/daemon/")),
+    [],
+  );
+});
+
+// dec_499E4E98A3D4754132B3BCA1E6: daemon batches 3+4 retire their declaration debt.
+test("fleet/access and repository/document/operations have no status vocabulary debt", () => {
+  const retiredModules = new Set([
+    "packages/daemon/src/access-admin-service.ts",
+    "packages/daemon/src/daemon-host-types.ts",
+    "packages/daemon/src/daemon-operation.ts",
+    "packages/daemon/src/decision-annotations.ts",
+    "packages/daemon/src/decision-incident-action.ts",
+    "packages/daemon/src/decision-incident-receipt.ts",
+    "packages/daemon/src/decision-surface-actions.ts",
+    "packages/daemon/src/doc-sync-publication.ts",
+    "packages/daemon/src/entity-action-catalog-receipts.ts",
+    "packages/daemon/src/entity-content-read.ts",
+    "packages/daemon/src/entity-locator-read.ts",
+    "packages/daemon/src/fleet-edge-mirror.ts",
+    "packages/daemon/src/fleet-edge-runtime.ts",
+    "packages/daemon/src/fleet/edge-join-client.ts",
+    "packages/daemon/src/fleet/edge-join-ssh-tunnel.ts",
+    "packages/daemon/src/fleet/edge-join.ts",
+    "packages/daemon/src/fleet/fleet-overview-read.ts",
+    "packages/daemon/src/fleet/replica-status.ts",
+    "packages/daemon/src/migration-import-authored-classification.ts",
+    "packages/daemon/src/migration-import-legacy.ts",
+    "packages/daemon/src/migration-import-task-restatement.ts",
+    "packages/daemon/src/migration-import-types.ts",
+    "packages/daemon/src/observe-jsonl-tail.ts",
+    "packages/daemon/src/observe-tail.ts",
+    "packages/daemon/src/repo-bootstrap.ts",
+    "packages/daemon/src/repo-cell-doctor.ts",
+    "packages/daemon/src/repo-cell-status.ts",
+    "packages/daemon/src/repo-cell-task-create.ts",
+    "packages/daemon/src/repo-cell-task-query.ts",
+    "packages/daemon/src/repo-cell-types.ts",
+    "packages/daemon/src/repo-cell.ts",
+    "packages/daemon/src/repo-local-root-residue.ts",
+    "packages/daemon/src/repo-writer-protocol.ts",
+    "packages/daemon/src/review-prompt-guidance.ts",
+    "packages/daemon/src/skill-eval-runner.ts",
+    "packages/daemon/src/task-risk-tier.ts",
+    "packages/daemon/src/task-worktree-legacy-rename.ts",
+    "packages/daemon/src/terminal-host.ts",
+    "packages/daemon/src/work-briefs-read.ts",
+    "packages/daemon/src/work-topology-read.ts",
+    "packages/daemon/src/workspace-link-integrity.ts",
+    "packages/daemon/src/workspace-scope-read.ts",
+  ]);
+  assert.deepEqual(
+    statusVocabularyBaseline.filter(({ key }) => retiredModules.has(key.split("#")[0])),
+    [],
+  );
+  assert.deepEqual(
+    statusVocabularyUnownedRegister.filter(({ id }) => /^(?:docCandidate|documentReplica)\./u.test(id)),
     [],
   );
 });

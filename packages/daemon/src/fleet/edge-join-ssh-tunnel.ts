@@ -1,7 +1,8 @@
+import type * as AccessStatus from "@harness-anything/kernel/internal/domain/access-status.ts";
 import { spawn, type ChildProcess } from "node:child_process";
 import { consumeKnownError } from "@harness-anything/kernel";
 
-export type EdgeJoinTunnelState = "connecting" | "connected" | "reconnecting" | "stopped";
+export type EdgeJoinTunnelState = AccessStatus.EdgeJoinTunnelState;
 
 export interface EdgeJoinTunnelPorts {
   readonly fleet: number;
