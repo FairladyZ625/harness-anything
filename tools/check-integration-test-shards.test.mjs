@@ -549,6 +549,16 @@ test("the repository vocabulary scan weight refuses the pre-fix 84s regression",
   }
 });
 
+test("the submit risk manifest weight covers its measured historical recovery scope", () => {
+  // Jobs 131271222267, 131298370421, 131308412429, 131310504878, and 131295823595 had no
+  // assertion failures. Historical submission recovery expanded the scope while its weight
+  // remained unregistered. The declaration uses the runner's rounded median of these five samples.
+  const file = "packages/daemon/test/submit-risk-manifest.integration.test.ts";
+  for (const durationMs of [69_192, 76_929, 81_469, 93_663, 105_104]) {
+    assert.deepEqual(integrationWeightOverruns(new Map([[file, durationMs]])), []);
+  }
+});
+
 // Every derived shard must hold a file, so a fixture tree needs at least one file per shard
 // beside the files a test is about.
 function writeShardPadding(testRoot) {
