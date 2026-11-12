@@ -420,7 +420,7 @@ function scanLocalObservationJudgments(source, pidProbes, add) {
       if (
         (!returnSinkOnly ||
           kind === "fallback-state-branch" ||
-          (kind !== "liveness-comparison" && hasReturnStatementAncestor(node))) &&
+          (kind !== "liveness-comparison" && returnStatementAncestor(node) !== null)) &&
         (kind !== "stream-process-terminal-return" ||
           !ts.isConditionalExpression(node) ||
           dependencies(node.whenTrue)
@@ -622,10 +622,10 @@ function observationShapeWords(node, symbolOf) {
   return [...new Set(words)].sort();
 }
 
-function hasReturnStatementAncestor(node) {
+function returnStatementAncestor(node) {
   for (let parent = node.parent; parent && !ts.isFunctionLike(parent); parent = parent.parent)
-    if (ts.isReturnStatement(parent)) return true;
-  return false;
+    if (ts.isReturnStatement(parent)) return parent;
+  return null;
 }
 
 function protocolFallbackProjection(node) {
