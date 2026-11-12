@@ -260,8 +260,7 @@ async function isManagedKeycloakProcess(
       commandLine = observed.commandLine ?? "";
     return (
       normalizedWindowsPath(observed.path ?? "") === normalizedWindowsPath(java) &&
-      normalizedWindowsPath(commandLine).includes(normalizedWindowsPath(javaHome)) &&
-      normalizedWindowsPath(commandLine).includes(normalizedWindowsPath(keycloakHome))
+      windowsJavaProperty(commandLine, "kc.home.dir", keycloakHome)
     );
   }
   return false;
@@ -340,6 +339,23 @@ function pathInside(root: string, candidate: string): boolean {
 
 function normalizedWindowsPath(value: string): string {
   return value.replaceAll("/", "\\").toLowerCase();
+}
+
+/**
+ * Match one JVM system property as an argument, including Windows' optional quoting forms.
+ * Substring checks are unsafe here: a sibling directory such as `keycloak-tools` must not be
+ * treated as the managed Keycloak home merely because it contains the expected path text.
+ */
+function windowsJavaProperty(commandLine: string, property: string, value: string): boolean {
+  const escapedValue = escapeRegExp(normalizedWindowsPath(value)),
+    escapedProperty = escapeRegExp(property);
+  return new RegExp(`(?:^|\\s)"?-D${escapedProperty}=(?:"${escapedValue}"|${escapedValue})"?(?=\\s|$)`, "iu").test(
+    normalizedWindowsPath(commandLine),
+  );
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 function portInUse(port: number, root: string, owner: string): Error {

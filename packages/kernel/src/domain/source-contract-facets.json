@@ -940,7 +940,7 @@
         "explain": "Host process inspection boundary: verify the configured executable, managed runtime home and process arguments before signaling a listener. This is operating-system identity evidence, not a domain authorization verdict.",
         "sources": [
           {
-            "candidateId": "judgment:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-keycloak-orphan.ts#isManagedKeycloakProcess:0695cc4bc60e7f6a05ee51325ccfea31",
+            "candidateId": "judgment:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-keycloak-orphan.ts#isManagedKeycloakProcess:819c2ed8b377ab8e7e28c3b4fd472bc1",
             "route": "packages/authorization-keycloak/src/managed-keycloak-orphan.ts#isManagedKeycloakProcess"
           }
         ]

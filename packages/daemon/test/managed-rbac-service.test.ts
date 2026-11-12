@@ -7,7 +7,12 @@ import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { artifactManifest, managedRbacVersions } from "@harness-anything/authorization-keycloak/managed-rbac-service";
+import {
+  artifactManifest,
+  ManagedRbacService,
+  managedRbacVersions,
+} from "@harness-anything/authorization-keycloak/managed-rbac-service";
+import type { ManagedRbacHost } from "../../authorization-keycloak/src/managed-host.ts";
 import { createIdentityManagement } from "../src/authorization-provider.ts";
 import { validateCertificateNames } from "../src/tls-listener-admission.ts";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
@@ -361,7 +366,7 @@ function managedFixture(
       2,
     )}\n`,
   );
-  const service = createIdentityManagement(root, {
+  const managedPorts = {
     fetch: fetchPort,
     platform,
     arch: platform === "win32" ? "x64" : "arm64",
@@ -381,7 +386,11 @@ function managedFixture(
       );
       return child;
     }) as unknown as typeof import("node:child_process").spawn,
-  });
+  };
+  const service =
+    platform === "win32"
+      ? new ManagedRbacService(root, windowsFixtureHost(), managedPorts)
+      : createIdentityManagement(root, managedPorts);
   return {
     root,
     service,
@@ -403,6 +412,16 @@ function managedFixture(
       await service.stop();
       rmSync(root, { recursive: true, force: true });
     },
+  };
+}
+
+function windowsFixtureHost(): ManagedRbacHost {
+  return {
+    runProcessText: () => "",
+    runProcessTextAsync: async () => "",
+    runProcessExitAsync: async () => ({ exitCode: 0, stdout: "[]", stderr: "" }),
+    validateCertificateNames: () => undefined,
+    mapListenerBindError: (error: unknown) => (error instanceof Error ? error : new Error(String(error))),
   };
 }
 

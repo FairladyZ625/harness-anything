@@ -140,6 +140,8 @@ export class ManagedRbacService {
   readonly #readiness = new Map<ManagedChild, Promise<void>>();
   /** Children that reached readiness: only these are restarted when they exit. */
   readonly #supervised = new Set<ManagedChild>();
+  /** Windows has no portable process-group handle; retain a cleanup obligation after kc.bat exits. */
+  #keycloakCleanupPending = false;
   #lifecycle: Promise<unknown> = Promise.resolve();
   /** Set while an operator or the daemon is stopping the services; exit supervision stays quiet. */
   #stopping = false;
@@ -278,7 +280,20 @@ export class ManagedRbacService {
 
   async #stopChild(name: ManagedChild): Promise<boolean> {
     const child = this.#children.get(name);
-    if (!child) return false;
+    if (!child) {
+      // A Windows launcher can exit while the Java descendant remains alive. The launcher handle is
+      // then gone, but the ownership-verified port scan still gives stop() one last safe cleanup
+      // route. Do not clear the obligation unless that scan completes successfully.
+      if (name === "keycloak" && this.#keycloakCleanupPending) {
+        const config = this.#readConfigIfPresent();
+        if (config?.mode === "managed") {
+          await this.#stopKeycloakOrphan(config);
+          return true;
+        }
+        this.#keycloakCleanupPending = false;
+      }
+      return false;
+    }
     const processGroup = name === "keycloak" && this.#ports.platform !== "win32" ? child.pid : undefined;
     if (name === "keycloak" && this.#ports.platform === "win32" && child.pid !== undefined) {
       const result = await this.#host.runProcessExitAsync(
@@ -346,6 +361,7 @@ export class ManagedRbacService {
       }
     });
     if (processGroup !== undefined) signalProcessGroup(processGroup, "SIGKILL");
+    if (name === "keycloak" && this.#ports.platform === "win32") this.#keycloakCleanupPending = false;
     this.#children.delete(name);
     this.#readiness.delete(name);
     return true;
@@ -732,18 +748,9 @@ export class ManagedRbacService {
       { listener } = config,
       httpPort = new URL(config.url).port,
       javaHome = javaHomePath(this.#root, this.#ports.platform),
-      java = path.join(javaHome, "bin", this.#ports.platform === "win32" ? "java.exe" : "java"),
-      keycloakHome = path.join(this.#root, "runtime", "keycloak"),
       kc = managedExecutable(this.#root, "runtime/keycloak/bin/kc.sh", this.#ports.platform);
     if (listener) requirePrivateKeyFile(listener.certificateKeyFile);
-    await stopManagedKeycloakOrphan({
-      host: this.#host,
-      root: this.#root,
-      java,
-      keycloakHome,
-      ports: [Number(httpPort), config.managementPort],
-      platform: process.platform,
-    });
+    await this.#stopKeycloakOrphan(config);
     const httpsPort = listener ? (await availableLoopbackPorts())[0] : undefined,
       passthrough = listener ? await listenPassthrough(listener, httpsPort!) : undefined;
     if (this.#stopping) {
@@ -799,6 +806,26 @@ export class ManagedRbacService {
   /** Registers the live child; #spawnUntilReady's terminate() owns every exit/error cleanup. */
   #track(name: ManagedChild, child: ChildProcess): void {
     this.#children.set(name, child);
+    if (name === "keycloak" && this.#ports.platform === "win32") this.#keycloakCleanupPending = true;
+  }
+
+  async #stopKeycloakOrphan(config: ManagedRbacConfig): Promise<void> {
+    const httpPort = Number(new URL(config.url).port),
+      managementPort = Number(config.managementPort);
+    if (!Number.isSafeInteger(httpPort) || !Number.isSafeInteger(managementPort))
+      throw managedRbacError("rbac_config_invalid", "Managed Keycloak is missing its configured listener ports.");
+    const javaHome = javaHomePath(this.#root, this.#ports.platform),
+      java = path.join(javaHome, "bin", this.#ports.platform === "win32" ? "java.exe" : "java"),
+      keycloakHome = path.join(this.#root, "runtime", "keycloak");
+    await stopManagedKeycloakOrphan({
+      host: this.#host,
+      root: this.#root,
+      java,
+      keycloakHome,
+      ports: [httpPort, managementPort],
+      platform: this.#ports.platform,
+    });
+    this.#keycloakCleanupPending = false;
   }
 
   /**
