@@ -17,7 +17,7 @@ import { reduceTaskEvent } from "@harness-anything/kernel/internal/domain/task-l
 import { openSqliteEventStore } from "@harness-anything/storage";
 import { executionId, fixture, taskId } from "./task-completion-review.fixture.ts";
 
-async function deliveryFixture(t: test.TestContext) {
+async function deliveryFixture(t: test.TestContext, artifactOnly = false) {
   const f = await fixture(false, false, false, false, false, {
     autoSubmit: false,
     create: { presetId: "standard-task" },
@@ -25,9 +25,11 @@ async function deliveryFixture(t: test.TestContext) {
   t.after(() => f.close());
   await f.cell().settlePendingMaterialization("risk manifest fixture");
   const worktree = path.join(f.root, ".worktrees", taskId);
-  writeFileSync(path.join(worktree, "delivery.txt"), "Manifest retry delivery.\n");
-  execFileSync("git", ["-C", worktree, "add", "delivery.txt"]);
-  execFileSync("git", ["-C", worktree, "commit", "-qm", "test: manifest retry delivery"]);
+  if (!artifactOnly) {
+    writeFileSync(path.join(worktree, "delivery.txt"), "Manifest retry delivery.\n");
+    execFileSync("git", ["-C", worktree, "add", "delivery.txt"]);
+    execFileSync("git", ["-C", worktree, "commit", "-qm", "test: manifest retry delivery"]);
+  }
   const closeout = path.join(f.root, "harness", f.packagePath, "closeout.md");
   writeFileSync(closeout, "## Summary\nFrozen delivery.\n## Verification\nDirected test.\n## Residual Risk\nNone.\n");
   return { f, closeout };
@@ -163,47 +165,50 @@ test("an invalid manifest refuses a first submission", async (t) => {
   );
 });
 
-for (const legacy of [false, true]) {
-  test(`${legacy ? "legacy" : "assessed"} historical anchor outputs resume exactly and disappear on amendment`, async (t) => {
-    const { f } = await deliveryFixture(t);
-    const submitted = await f.run({ kind: "task-submit", taskId, executionId });
-    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-    await seedHistoricalCut(f, legacy);
-    const cuts = () => f.events().filter((event) => event.type === "execution_submitted"),
-      frozen = cuts().at(-1)!,
-      original = frozen.payload.execution.submission!,
-      bytes = JSON.stringify(original),
-      digest = submissionDigest(original),
-      count = cuts().length;
-    assert.ok(original.outputs.some((output) => output.startsWith("Artifact-Anchor: ")));
-    for (const kind of ["task-submit", "task-settle", "task-submit"] as const) {
-      const resumed = await f.run({ kind, taskId, executionId });
-      assert.equal(resumed.outcome, "applied", JSON.stringify(resumed));
-      assert.equal(resumed.opId, frozen.opId);
-      assert.equal(cuts().length, count);
-      assert.equal(JSON.stringify(cuts().at(-1)!.payload.execution.submission), bytes);
-      assert.equal(submissionDigest(cuts().at(-1)!.payload.execution.submission!), digest);
-    }
-    const amended = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
-    assert.equal(amended.outcome, "applied", JSON.stringify(amended));
-    assert.notEqual(amended.opId, frozen.opId);
-    const current = cuts().at(-1)!.payload.execution.submission!;
-    assert.deepEqual(current.outputs, []);
-    assert.deepEqual(current.artifacts, original.artifacts);
-    assert.notEqual(submissionDigest(current), digest);
-    const artifact = current.artifacts![0]!,
-      artifactFile = path.join(f.root, "harness", artifact.path);
-    writeFileSync(artifactFile, `${readFileSync(artifactFile, "utf8")}\nUpdated accepted artifact.\n`);
-    const docs = await f.run({ kind: "doc-submit", taskId });
-    assert.equal(docs.outcome, "applied", JSON.stringify(docs));
-    const driftedResume = await f.run({ kind: "task-submit", taskId, executionId });
-    assert.equal(driftedResume.outcome, "op_rejected", JSON.stringify(driftedResume));
-    assert.match(JSON.stringify(driftedResume), /anchored artifacts differ/u);
-    const driftedAmend = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
-    assert.equal(driftedAmend.outcome, "applied", JSON.stringify(driftedAmend));
-    assert.match(JSON.stringify(driftedAmend), /Anchored artifact deliveries changed/u);
-    const changed = cuts().at(-1)!.payload.execution.submission!;
-    assert.deepEqual(changed.outputs, []);
-    assert.notDeepEqual(changed.artifacts, current.artifacts);
-  });
+for (const artifactOnly of [false, true]) {
+  for (const legacy of [false, true]) {
+    test(`${artifactOnly ? "artifact-only" : "code"} ${legacy ? "legacy" : "assessed"} historical anchor outputs resume exactly and disappear on amendment`, async (t) => {
+      const { f } = await deliveryFixture(t, artifactOnly);
+      const submitted = await f.run({ kind: "task-submit", taskId, executionId });
+      assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+      await seedHistoricalCut(f, legacy);
+      const cuts = () => f.events().filter((event) => event.type === "execution_submitted"),
+        frozen = cuts().at(-1)!,
+        original = frozen.payload.execution.submission!,
+        bytes = JSON.stringify(original),
+        digest = submissionDigest(original),
+        count = cuts().length;
+      assert.equal(original.commitSha === null, artifactOnly);
+      assert.ok(original.outputs.some((output) => output.startsWith("Artifact-Anchor: ")));
+      for (const kind of ["task-submit", "task-settle", "task-submit"] as const) {
+        const resumed = await f.run({ kind, taskId, executionId });
+        assert.equal(resumed.outcome, "applied", JSON.stringify(resumed));
+        assert.equal(resumed.opId, frozen.opId);
+        assert.equal(cuts().length, count);
+        assert.equal(JSON.stringify(cuts().at(-1)!.payload.execution.submission), bytes);
+        assert.equal(submissionDigest(cuts().at(-1)!.payload.execution.submission!), digest);
+      }
+      const amended = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
+      assert.equal(amended.outcome, "applied", JSON.stringify(amended));
+      assert.notEqual(amended.opId, frozen.opId);
+      const current = cuts().at(-1)!.payload.execution.submission!;
+      assert.deepEqual(current.outputs, []);
+      assert.deepEqual(current.artifacts, original.artifacts);
+      assert.notEqual(submissionDigest(current), digest);
+      const artifact = current.artifacts![0]!,
+        artifactFile = path.join(f.root, "harness", artifact.path);
+      writeFileSync(artifactFile, `${readFileSync(artifactFile, "utf8")}\nUpdated accepted artifact.\n`);
+      const docs = await f.run({ kind: "doc-submit", taskId });
+      assert.equal(docs.outcome, "applied", JSON.stringify(docs));
+      const driftedResume = await f.run({ kind: "task-submit", taskId, executionId });
+      assert.equal(driftedResume.outcome, "op_rejected", JSON.stringify(driftedResume));
+      assert.match(JSON.stringify(driftedResume), /anchored artifacts differ/u);
+      const driftedAmend = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
+      assert.equal(driftedAmend.outcome, "applied", JSON.stringify(driftedAmend));
+      assert.match(JSON.stringify(driftedAmend), /Anchored artifact deliveries changed/u);
+      const changed = cuts().at(-1)!.payload.execution.submission!;
+      assert.deepEqual(changed.outputs, []);
+      assert.notDeepEqual(changed.artifacts, current.artifacts);
+    });
+  }
 }
