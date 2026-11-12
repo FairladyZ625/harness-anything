@@ -1,5 +1,6 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { consumeKnownError, validateAgentDeclarationV1, type AgentDeclarationV1 } from "@harness-anything/kernel";
 import { agentRuntimeSelectionIssue, type AgentRuntimeInstanceView } from "./agent-entities.ts";
 import { daemonUserRoot } from "./client/local-daemon-target.ts";
@@ -7,7 +8,7 @@ import { daemonUserRoot } from "./client/local-daemon-target.ts";
 export interface AgentDeclarationMigrationEntry {
   readonly file: string;
   readonly id?: string;
-  readonly outcome: "converted" | "current" | "rejected";
+  readonly outcome: OperationalStatus.AgentDeclarationMigrationOutcome;
   readonly issues?: readonly string[];
 }
 
@@ -33,7 +34,11 @@ export interface AgentDeclarationMigrationReceipt {
 }
 
 type ConvertedDeclaration =
-  | { readonly outcome: "current" | "converted"; readonly declaration: AgentDeclarationV1; readonly body: string }
+  | {
+      readonly outcome: Exclude<OperationalStatus.AgentDeclarationMigrationOutcome, "rejected">;
+      readonly declaration: AgentDeclarationV1;
+      readonly body: string;
+    }
   | { readonly outcome: "rejected"; readonly issues: readonly string[] };
 
 /**

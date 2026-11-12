@@ -1,5 +1,6 @@
 import { readBundledAgentDeclaration } from "@harness-anything/preset";
 import { openEntityStore } from "@harness-anything/storage";
+import type { AgentState } from "@harness-anything/kernel/internal/domain/agent-squad-schema.ts";
 import {
   consumeKnownError,
   entitySlug,
@@ -8,7 +9,7 @@ import {
 } from "@harness-anything/kernel";
 
 export type ProjectedAgentDeclaration = AgentDeclarationV1 & {
-  readonly lifecycleState?: "configured" | "active" | "retired";
+  readonly lifecycleState?: AgentState;
   readonly retirement?: { readonly retiredAt: string; readonly reason: string; readonly successor?: string };
 };
 

@@ -5,6 +5,7 @@
 // append, and refuses with the current target instead of re-selecting it. Callers that state no
 // expectation keep the selector-only behaviour of the previous protocol window.
 import { StringDecoder } from "node:string_decoder";
+import type { RuntimeSteerLiveness } from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { isJsonObject, unknownFieldViolation, type JsonObject } from "./protocol/json-rpc-types.ts";
 import {
   dispatchStreamPath,
@@ -29,7 +30,7 @@ export interface RuntimeSteerExpectation {
 
 export type RuntimeSteerSelector = { readonly dispatchId: string } | { readonly runtimeSessionId: string };
 
-export type RuntimeSteerLiveness = "running" | "starting" | "stopped";
+export type { RuntimeSteerLiveness };
 
 /** What the daemon currently sees at the steer target; returned on every refusal so the caller can re-read. */
 export interface RuntimeSteerTarget {

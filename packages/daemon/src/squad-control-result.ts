@@ -2,6 +2,7 @@ import { isJsonObject } from "./protocol/json-rpc-types.ts";
 import { isSquadControlResult } from "./protocol/daemon-protocol-validate-results.ts";
 export { isSquadControlResult };
 import type { WriteReceiptDraft } from "@harness-anything/kernel";
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { RepoCellRuntimeContext } from "./repo-cell-action-context.ts";
 
@@ -22,7 +23,7 @@ type AcceptanceKeys =
 export type SquadControlResult = Partial<Omit<WriteReceiptDraft, AcceptanceKeys | "outcome">> & {
   readonly schema: "squad-control-result/v1";
   readonly command: SquadControlCommand;
-  readonly outcome: "completed" | "op_rejected";
+  readonly outcome: OperationalStatus.SquadControlOutcome;
   readonly squadRunId?: string;
   readonly leaderRuntimeSessionId?: string;
   readonly phase?: string;

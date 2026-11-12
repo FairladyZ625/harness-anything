@@ -19,6 +19,7 @@ import {
   type TaskReviewDispatchIntentV1,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { derivedTaskActionProtocolCommands } from "./protocol/daemon-protocol-commands-task.ts";
 import { decisionLifecycleProtocolCommands } from "./protocol/daemon-protocol-commands-decision-lifecycle.ts";
 import { isAgentDeclarationInvalid, readAgentDeclarationResolution } from "./agent-entities.ts";
@@ -571,7 +572,7 @@ type DispatchStep = {
   readonly agentId?: string;
   /** The runtime instance the dispatch actually landed on, from its dispatch request. */
   readonly instanceId?: string;
-  readonly outcome: "dispatched" | "already_dispatched" | "already_reviewed" | "pending" | "failed";
+  readonly outcome: OperationalStatus.ReviewDispatchStepOutcome;
   readonly error?: string;
 };
 
@@ -604,7 +605,10 @@ export async function spawnCutReviewDispatch(
     readonly promptFor?: (dispatchId: string) => string;
   },
 ): Promise<
-  | { readonly outcome: "dispatched" | "already_dispatched"; readonly ids: ReturnType<typeof reviewDispatchIds> }
+  | {
+      readonly outcome: Extract<OperationalStatus.ReviewDispatchStepOutcome, "dispatched" | "already_dispatched">;
+      readonly ids: ReturnType<typeof reviewDispatchIds>;
+    }
   | { readonly outcome: "failed"; readonly error: string }
 > {
   const cutReviewKey = reviewDispatchKey(input.taskId, input.execution, input.reviewerId),

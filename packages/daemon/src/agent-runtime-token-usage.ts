@@ -1,3 +1,4 @@
+import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import type { TaskProjection } from "@harness-anything/kernel";
 import { dispatchLifecycleSummary, type DispatchLifecycleSummary } from "@harness-anything/kernel";
 import { agentRuntimeTokenUsageRangeWords } from "./protocol/daemon-protocol-schema-ids.ts";
@@ -116,7 +117,7 @@ export interface AgentRuntimeTokenUsageBucket
 }
 export type AgentRuntimeTokenUsageResult = {
   readonly ok: true;
-  readonly status: "ready" | "pending";
+  readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
   readonly range: AgentRuntimeTokenUsageRange;
   /** Inclusive lower bound of the window: local midnight on the daemon's clock. */
   readonly since: string;
@@ -175,7 +176,7 @@ export interface AgentRuntimeTokenUsageSessionRow {
 }
 export type AgentRuntimeTokenUsageDetailResult = {
   readonly ok: true;
-  readonly status: "ready" | "pending";
+  readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
   readonly range: AgentRuntimeTokenUsageRange;
   readonly since: string;
   readonly bucketMs: number;
@@ -342,7 +343,7 @@ export function readAgentRuntimeTokenUsage(input: {
   readonly taskOf: (taskId: string) => WorkRuleTask | undefined;
   readonly projection: Pick<TaskProjection, "readRuntimeDispatchPage" | "readDispatchLifecycle">;
   readonly cut: {
-    readonly status: "ready" | "pending";
+    readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
     readonly watermark: number;
     readonly sourceRevision: number;
   };
@@ -447,7 +448,7 @@ export function readAgentRuntimeTokenUsageDetail(input: {
   readonly entityLabel: (squadId: string) => string | null;
   readonly projection: Pick<TaskProjection, "readRuntimeDispatchPage" | "readDispatchLifecycle">;
   readonly cut: {
-    readonly status: "ready" | "pending";
+    readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
     readonly watermark: number;
     readonly sourceRevision: number;
   };

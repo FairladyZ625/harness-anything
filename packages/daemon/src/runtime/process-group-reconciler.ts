@@ -1,4 +1,5 @@
 import type { RuntimeKind } from "@harness-anything/kernel";
+import type { ProviderGroupSweepVerdict } from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { childProcessErrorCode, terminateRuntimePid } from "../runtime-process-signals.ts";
 import { appendRuntimeWorkerRecord, readDispatchStreamSummary } from "../dispatch-stream.ts";
 import {
@@ -8,7 +9,7 @@ import {
 } from "./windows-process-group-port.ts";
 
 /** The only terminal proof accepted for a detached runtime lease. */
-export type ProviderGroupSweepVerdict = "running" | "proven_stopped" | "unknown_unreachable";
+export type { ProviderGroupSweepVerdict };
 
 export interface ProcessGroupIdentity {
   readonly pid?: number;

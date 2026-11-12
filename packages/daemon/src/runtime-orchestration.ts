@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { consumeKnownError } from "@harness-anything/kernel";
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import type { AgentRuntimeSessionResult, AgentRuntimeSettlement } from "./agent-runtime-contract.ts";
 import { taskDispatchRowsSettled } from "./dispatch-read.ts";
 import { daemonProtocolCommands } from "./protocol/daemon-protocol-commands.ts";
@@ -203,7 +204,7 @@ type BatchRow = {
   readonly instance: string;
   readonly agent: string | null;
   readonly to: string | null;
-  readonly status: "succeeded" | "failed" | "unknown" | "stopped" | "rejected";
+  readonly status: OperationalStatus.RuntimeBatchStatus;
   readonly outcome: string | null;
   readonly dispatchId: string | null;
   readonly runtimeSessionId: string | null;

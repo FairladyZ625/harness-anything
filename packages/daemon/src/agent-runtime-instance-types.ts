@@ -1,3 +1,4 @@
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import type { SettingsV1, AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import type { AgentRuntimeInstanceDto } from "./agent-runtime-contract.ts";
 import { type RuntimeIsolationState, type RuntimePermissionMode } from "./runtime-permissions.ts";
@@ -104,7 +105,7 @@ export type RecordedRuntimeInstallation = Pick<
 >;
 
 export interface RuntimeAuthReadiness {
-  readonly status: "ready" | "not-ready";
+  readonly status: OperationalStatus.RuntimeAuthReadinessStatus;
   readonly code: string | null;
   readonly hint: string | null;
   /**

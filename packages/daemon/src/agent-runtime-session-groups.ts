@@ -1,3 +1,4 @@
+import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import {
   compareRuntimeActivity,
   latestRuntimeActivityAt,
@@ -56,7 +57,7 @@ export function buildAgentRuntimeSessionGroups(input: {
   readonly entityLabel: (kind: "agent" | "squad", id: string) => string | null;
   readonly query: AgentRuntimeSessionGroupsQuery;
   readonly cut: {
-    readonly status: "ready" | "pending";
+    readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
     readonly watermark: number;
     readonly sourceRevision: number;
   };

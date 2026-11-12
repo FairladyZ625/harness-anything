@@ -1,3 +1,7 @@
+import {
+  tokenUsageOutcomeWords,
+  type AgentRuntimeTokenUsageOutcome,
+} from "@harness-anything/kernel/internal/domain/client-view-status.ts";
 import type { AgentRuntimeTokenUsageSessionRow } from "./agent-runtime-token-usage.ts";
 import type { WorkRuleTask } from "./workspace-scope-read.ts";
 import { modelPriceOf, usageCostUsd } from "./agent-runtime-model-pricing.ts";
@@ -32,15 +36,7 @@ export const tokenUsageSessionBinCeilings: readonly (number | null)[] = Object.f
 ]);
 /** Previous-version analytics vocabulary (remove narrowing 2026-12-07). The display outcome
  * is projected from readDispatchLifecycle; streams supply usage observations only. */
-export const tokenUsageOutcomeWords = Object.freeze([
-  "succeeded",
-  "failed",
-  "cancelled",
-  "stopped",
-  "running",
-  "unknown",
-] as const);
-export type AgentRuntimeTokenUsageOutcome = (typeof tokenUsageOutcomeWords)[number];
+export { tokenUsageOutcomeWords, type AgentRuntimeTokenUsageOutcome };
 
 /** How the sessions a row covers ended. A session's outcome is that of its latest dispatch. */
 export interface AgentRuntimeTokenUsageSessionOutcomes {

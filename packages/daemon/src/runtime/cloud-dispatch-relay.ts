@@ -9,6 +9,7 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { request as httpsRequest } from "node:https";
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { modelPriceOf, modelPricingVersion, type ModelPrice } from "../agent-runtime-model-pricing.ts";
 import { RuntimeBoundaryError } from "./model-slot-queue.ts";
 
@@ -81,7 +82,7 @@ export interface RelayUsage {
 
 export interface RelaySettlement {
   readonly actualMicros: string;
-  readonly costStatus: "reported" | "estimated";
+  readonly costStatus: OperationalStatus.RelayCostStatus;
 }
 
 export class CloudDispatchRelayError extends RuntimeBoundaryError {

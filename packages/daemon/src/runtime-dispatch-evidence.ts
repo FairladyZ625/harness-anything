@@ -1,6 +1,7 @@
 import { existsSync, globSync, readFileSync, readSync, statSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
+import type { DispatchAttemptOutcome } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 import { withReadOnlyFile } from "../../storage/src/durable-file.ts";
 import { dispatchStreamPath } from "./dispatch-stream.ts";
 import { readDeepSeekSessionTranscript } from "./runtime-spawn-deepseek-session.ts";
@@ -47,7 +48,7 @@ export interface DispatchForensicsInput {
   readonly kindId: RuntimeInstanceKind;
   readonly providerSessionId: string | null;
   readonly resolvedProviderDirectory: string | null;
-  readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped";
+  readonly outcome: DispatchAttemptOutcome;
   readonly classification: DispatchExitClassification;
   readonly reason: string;
   readonly endedAt: string;

@@ -10,6 +10,7 @@ import {
   type ScheduleActiveRunV1,
 } from "@harness-anything/kernel";
 import type { ScheduleTriggerV1 } from "@harness-anything/kernel";
+import type { ScheduleMissedSettlementOutcome as MissedOutcome } from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import type { AgentRuntimeSessionResult } from "./agent-runtime-contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import {
@@ -512,8 +513,6 @@ function occurrenceAt(trigger: ScheduleTriggerV1, first: string, offset: number)
   for (let index = 0; index < offset; index += 1) occurrence = nextScheduleOccurrence(trigger, occurrence);
   return occurrence;
 }
-
-type MissedOutcome = "settled" | "rejected" | "human-blocked";
 
 function missedKey(input: MissedOccurrences): string {
   return [input.target.repoId, input.scheduleId, input.definitionRevision].join(":");

@@ -5,6 +5,7 @@ import {
   sameWriteSource,
   type DispatchLifecycleView,
 } from "@harness-anything/kernel";
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import type { ActiveRuntime, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import {
   appendRuntimeWorkerRecord,
@@ -40,7 +41,7 @@ import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 export interface RuntimeRecoveryResult {
   readonly runtimeSessionId: string;
   readonly dispatchId: string | null;
-  readonly outcome: "ready" | "settled" | "failed" | "foreign";
+  readonly outcome: OperationalStatus.RuntimeRecoveryOutcome;
   readonly error?: unknown;
 }
 

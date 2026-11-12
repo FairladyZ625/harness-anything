@@ -1,4 +1,5 @@
 import type { TaskProjection } from "@harness-anything/kernel";
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { runProcessExitAsync } from "./process-port.ts";
 
 /** The bounded context a later dispatch needs from a stopped provider session. */
@@ -7,7 +8,7 @@ export interface RuntimeContinuationContext {
   readonly lastConclusion: string | null;
   readonly exitHead: string | null;
   readonly currentHead: string | null;
-  readonly headStatus: "unchanged" | "changed" | "unavailable" | "no-previous-run";
+  readonly headStatus: OperationalStatus.IncidentHeadStatus;
 }
 
 export interface RuntimeContinuationSeed {

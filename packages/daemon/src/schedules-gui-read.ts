@@ -7,6 +7,8 @@ import {
   type ScheduleV1,
   type TaskProjection,
 } from "@harness-anything/kernel";
+import type * as ClientStatus from "@harness-anything/kernel/internal/domain/client-view-status.ts";
+import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import type { AgentRuntimeInstanceDto } from "./agent-runtime-contract.ts";
 import { storedAgentDeclarationOutcome } from "./agent-entities.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
@@ -51,12 +53,12 @@ export interface SchedulesGuiReadContext {
       readonly freshness?: "current" | "orphaned" | "unknown";
     }[];
     readonly readTaskStatuses: (taskIds?: readonly string[]) => {
-      readonly status: "ready" | "pending";
+      readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
       readonly watermark: number;
       readonly sourceRevision: number;
     };
     readonly readScheduleEvents: () => {
-      readonly status: "ready" | "pending";
+      readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
       readonly events: readonly CanonicalEventV1[];
       readonly watermark: number;
       readonly sourceRevision: number;
@@ -158,7 +160,7 @@ function deleteFacet(
 
 function runNowFacet(input: {
   readonly mode: DaemonRepoMode;
-  readonly state: "armed" | "paused";
+  readonly state: ScheduleV1["state"];
   readonly availability: ScheduleExecutionAvailability;
   readonly active: { readonly occurrenceId: string; readonly nodeId: string } | null;
   readonly targetKind: "agent" | "agent-unconfigured" | "squad" | "builtin";
@@ -178,7 +180,7 @@ function runNowFacet(input: {
 function stateFacet(
   actionKind: "schedule-enable" | "schedule-disable",
   mode: DaemonRepoMode,
-  state: "armed" | "paused",
+  state: ScheduleV1["state"],
   targetKind?: ScheduleV1["spec"]["target"]["kind"],
 ): ScheduleGuiActionFacet {
   const admission = admissionFacet(actionKind, mode);
@@ -411,7 +413,7 @@ function projectedAgentId(value: unknown): string {
 function scheduleTargetProjection(
   agentId: string,
   option: ScheduleGuiAgentOptionDto | undefined,
-): Extract<ScheduleGuiAgentOptionDto, { readonly state: "invalid" | "missing" }> | null {
+): Extract<ScheduleGuiAgentOptionDto, { readonly state: ClientStatus.DegradedEntityState }> | null {
   if (option === undefined)
     return {
       agentId,
