@@ -9,8 +9,18 @@ const cliFiles = listWorktreeFiles(root, ["packages/cli/src"]).filter(
   (file) => file.endsWith(".ts") && !file.endsWith(".d.ts"),
 );
 const workspacePackages = readWorkspacePackages();
+const pureKernelProtocolLeaves = [
+  "packages/kernel/src/domain/contract-validation.ts",
+  "packages/kernel/src/domain/lifecycle-status.ts",
+  "packages/kernel/src/domain/query-payload-validation.ts",
+  "packages/kernel/src/domain/receipt-acceptance.ts",
+  "packages/kernel/src/domain/relation-state.ts",
+  "packages/kernel/src/domain/timestamp.ts",
+  "packages/kernel/src/domain/todo-action-contract.ts",
+];
 const allowedStaticGraph = new Set([
   "packages/kernel/src/domain/cli-operational-policy.ts",
+  ...pureKernelProtocolLeaves,
   "packages/daemon/src/offline-storage-command.ts",
   "packages/daemon/src/client/local-daemon-target.ts",
   "packages/daemon/src/protocol/daemon-protocol.contract.ts",
@@ -31,7 +41,6 @@ const allowedStaticGraph = new Set([
   "packages/daemon/src/protocol/daemon-protocol-commands-task-surface.ts",
   "packages/daemon/src/protocol/daemon-protocol-commands-task.ts",
   "packages/daemon/src/protocol/daemon-protocol-commands-todo.ts",
-  "packages/kernel/src/domain/todo-action-contract.ts",
   "packages/daemon/src/protocol/daemon-protocol-gui-todo.ts",
   "packages/daemon/src/protocol/daemon-protocol-gui-actions.ts",
   "packages/daemon/src/protocol/daemon-protocol-gui-actions-entity.ts",
@@ -168,7 +177,7 @@ function checkDaemonTransportImportGraph() {
     "packages/daemon/src/protocol/daemon-protocol-commands-task-surface.ts",
     "packages/daemon/src/protocol/daemon-protocol-commands-task.ts",
     "packages/daemon/src/protocol/daemon-protocol-commands-todo.ts",
-    "packages/kernel/src/domain/todo-action-contract.ts",
+    ...pureKernelProtocolLeaves,
     "packages/daemon/src/protocol/daemon-protocol-gui-todo.ts",
     "packages/daemon/src/protocol/daemon-protocol-gui-actions.ts",
     "packages/daemon/src/protocol/daemon-protocol-gui-actions-entity.ts",

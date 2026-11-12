@@ -2,11 +2,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { validateReceiptAcceptance } from "@harness-anything/kernel";
-import { validateReceiptAcceptanceWire } from "../src/protocol/daemon-protocol-validate-entities.ts";
 import { validateDaemonGuiCommandReceipt } from "../src/protocol/daemon-protocol-validate-results.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
 
-test("wire acceptance agrees with domain acceptance for committed receipts and negative controls", () => {
+test("GUI command receipt wire validation delegates receipt acceptance to kernel validateReceiptAcceptance", () => {
   const cut = { repoId: "repo", generation: 1, revision: 2, headDigest: `sha256:${"a".repeat(64)}` };
   const receipt: JsonObject = {
     opId: "op-2",
@@ -27,11 +26,52 @@ test("wire acceptance agrees with domain acceptance for committed receipts and n
     replica: { state: "not_configured", cut: null },
     wait: { state: "timed_out", unsatisfied: ["worktree_visible"] },
   };
+  const guiEnvelope = (value: Readonly<Record<string, unknown>>): JsonObject => {
+    const outcome = value.outcome,
+      ok = outcome === "applied" || outcome === "pending" || outcome === "no_changes",
+      accepted = value.acceptance !== null && value.acceptance !== undefined;
+    return {
+      schema: "command-receipt/v2",
+      command: "task-start",
+      ok,
+      ...(ok
+        ? {
+            visibility: "center",
+            evidence: "event-object:op-2",
+            ...(accepted
+              ? {
+                  revision: 2,
+                  proof: {
+                    committedRevision: 2,
+                    appliedCut: 2,
+                    durable: true,
+                    canonicalVisible: true,
+                    worktreeVisible: false,
+                  },
+                }
+              : {}),
+          }
+        : {
+            code: "op_rejected",
+            origin: "daemon",
+            error: { code: "op_rejected" },
+          }),
+      ...(outcome === "no_changes" ? { code: "no_changes", origin: "daemon" } : {}),
+      ...value,
+    };
+  };
   const check = (value: Readonly<Record<string, unknown>>, valid: boolean) => {
     const domain = validateReceiptAcceptance(value),
-      wire = validateReceiptAcceptanceWire(value);
+      wire = validateDaemonGuiCommandReceipt(guiEnvelope(value));
     assert.equal(domain.length === 0, valid, JSON.stringify(value));
-    assert.deepEqual(wire, domain);
+    if (valid) {
+      assert.deepEqual(wire, [], JSON.stringify(value));
+    } else {
+      assert.equal(wire.length, domain.length, JSON.stringify({ value, domain, wire }));
+      for (const [index, expected] of domain.entries()) {
+        assert.ok(wire[index]?.includes(expected), `expected ${JSON.stringify(wire[index])} to include ${expected}`);
+      }
+    }
   };
   check(receipt, true);
   for (const status of ["rejected", "unknown"])

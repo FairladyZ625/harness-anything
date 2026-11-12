@@ -843,3 +843,50 @@ test("explicit tool constant sources retain technical reads and observations of 
     }
   }
 });
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1 S2g: daemon protocol wire validators, local client
+// socket/handshake checks, home overview shape validation and Fleet transport/preflight
+// contracts keep their exact source owner, with zero frozen judgment debt in those paths.
+test("daemon protocol, client, home and fleet judgment candidates leave the migration baseline", () => {
+  const s2gPath =
+    /^packages\/daemon\/src\/(?:protocol\/|gui-s3-control\.ts$|client\/|home\/|fleet\/|fleet-edge-git-preflight\.ts$|fleet-task-delivery\.ts$)/u;
+  const baseline = loadGateAllowlist("ontology-closure", {
+    allowlistRoot: path.join(repoRoot, "tools/gate-allowlists"),
+    report: false,
+  }).candidates;
+  assert.deepEqual(
+    baseline.filter((row) => row.category === "judgment" && s2gPath.test(row.path)),
+    [],
+  );
+
+  const result = evaluateOntologyClosure({ rootDir: repoRoot, base: "HEAD" });
+  const registeredInSlice = result.classified.filter((row) => row.category === "judgment" && s2gPath.test(row.file));
+  assert.ok(registeredInSlice.length >= 100);
+  assert.deepEqual(
+    registeredInSlice.filter((row) => row.status !== "registered"),
+    [],
+  );
+
+  const snapshot = loadOntologyClosureSnapshot(repoRoot);
+  for (const target of [
+    "packages/daemon/src/protocol/unregistered-wire-guard.ts",
+    "packages/daemon/src/client/unregistered-socket-guard.ts",
+    "packages/daemon/src/fleet/unregistered-frame-guard.ts",
+  ]) {
+    const undeclared = scanOntologyText(
+      target,
+      "export function validateUnregisteredFrame(v: unknown): boolean { if (!v || typeof v !== 'object') return false; return 'ok' in v; }\n",
+    );
+    assert.equal(undeclared.length, 1, target);
+    assert.deepEqual(
+      audit(undeclared, { snapshot }).findings.map((row) => row.code),
+      ["ONTOLOGY_JUDGMENT_UNDECLARED"],
+      target,
+    );
+    assert.deepEqual(
+      audit(undeclared, { snapshot, baseline: [debt(undeclared[0])], previous: [] }).findings.map((row) => row.code),
+      ["ONTOLOGY_BASELINE_GROWTH"],
+      target,
+    );
+  }
+});

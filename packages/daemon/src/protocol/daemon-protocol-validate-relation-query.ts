@@ -1,5 +1,9 @@
 import type { DispatchLifecycleSummary } from "@harness-anything/kernel";
 import {
+  queryPayloadValidation,
+  type QueryPayloadValidationIssue,
+} from "@harness-anything/kernel/internal/domain/query-payload-validation.ts";
+import {
   dispatchAttemptPhaseWords,
   dispatchGroupPhaseWords,
   dispatchReservationStateWords,
@@ -366,6 +370,18 @@ function dispatchText(value: unknown): value is string {
 function dispatchInteger(value: unknown): value is number {
   return Number.isInteger(value) && Number(value) >= 0;
 }
+const queryPayloadIssueMessages: Record<
+  QueryPayloadValidationIssue,
+  (method: "repo.tasks.list" | "repo.triadic.relationGraph" | "repo.artifacts.list") => string
+> = {
+  payload_not_object: () => "query payload must be an object",
+  status_invalid: (method) => `${method}.payload.status is invalid`,
+  changed_after_revision_invalid: (method) => `${method}.payload.changedAfterRevision is invalid`,
+  time_window_invalid: (method) => `${method}.payload time window is invalid`,
+  limit_invalid: (method) => `${method}.payload.limit is invalid`,
+  cursor_invalid: (method) => `${method}.payload.cursor is invalid`,
+};
+
 // Absent facets keep the unparameterized full-result contract.
 export function validateDaemonQueryPayload(
   method: "repo.tasks.list" | "repo.triadic.relationGraph" | "repo.artifacts.list",
@@ -389,33 +405,9 @@ export function validateDaemonQueryPayload(
     const unknown = unknownFieldViolation(value, ["status", "updatedAfter", "updatedBefore", "limit", "cursor"]);
     if (unknown) return [`repo.triadic.relationGraph.payload contains an ${unknown}`];
   }
-  const errors: string[] = [],
-    status = value.status,
-    changedAfterRevision = value.changedAfterRevision,
-    after = value.updatedAfter,
-    before = value.updatedBefore,
-    limit = value.limit,
-    cursor = value.cursor,
-    stateError =
-      status !== undefined && !statusWord(method === "repo.tasks.list" ? taskStatusWords : relationStateWords, status)
-        ? `${method}.payload.status is invalid`
-        : null;
-  if (stateError) errors.push(stateError);
-  if (
-    method === "repo.tasks.list" &&
-    changedAfterRevision !== undefined &&
-    (!integer(changedAfterRevision) || Number(changedAfterRevision) < 0)
-  )
-    errors.push(`${method}.payload.changedAfterRevision is invalid`);
-  if (
-    [after, before].some((item) => item !== undefined && !isUtcTimestamp(item)) ||
-    (typeof after === "string" && typeof before === "string" && after > before)
-  )
-    errors.push(`${method}.payload time window is invalid`);
-  if (limit !== undefined && (!integer(limit) || Number(limit) < 1 || Number(limit) > 500))
-    errors.push(`${method}.payload.limit is invalid`);
-  if (cursor !== undefined && !nonEmpty(cursor)) errors.push(`${method}.payload.cursor is invalid`);
-  return errors;
+  return queryPayloadValidation(method === "repo.tasks.list" ? "task-list" : "relation-graph", value).map((issue) =>
+    queryPayloadIssueMessages[issue](method),
+  );
 }
 
 function validateRelationFacetPayload(value: JsonObject): string[] {

@@ -721,26 +721,7 @@ export function lease(value: unknown): boolean {
   );
 }
 
-// Wire validation deliberately owns no kernel runtime dependency. The differential
-// receipt tests keep its SQLite acceptance contract aligned with the domain validator.
-const wireWaitPredicates = [
-  "accepted_durable",
-  "projection_visible",
-  "git_verified",
-  "worktree_visible",
-  "replica_verified",
-] as const;
 const wireText = (value: unknown): value is string => nonEmpty(value) && value.trim().length > 0;
-const wireRevision = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
-function wireConsumerCut(value: unknown): value is JsonObject {
-  return (
-    exactRecord(value, ["repoId", "generation", "revision", "headDigest"]) &&
-    wireText(value.repoId) &&
-    (value.generation === 1 || value.generation === 2 || value.generation === 3) &&
-    wireRevision(value.revision) &&
-    digest(value.headDigest)
-  );
-}
 export function wireUnmetCriterion(value: unknown): boolean {
   return (
     exactRecord(value, ["ref", "failureCode", "explain"]) &&
@@ -802,70 +783,6 @@ export function validSquadControlAuthorization(value: unknown): boolean {
     (!denied || (value.reasonCodes.length > 0 && value.nextActions.length > 0)) &&
     wireText(value.evaluatedAtCut)
   );
-}
-
-export function validateReceiptAcceptanceWire(value: Readonly<Record<string, unknown>>): readonly string[] {
-  const errors: string[] = [];
-  if (!["accepted_durable", "rejected", "settled_no_write", "unknown"].includes(String(value.status)))
-    errors.push("receipt status is invalid");
-  if (value.status === "settled_no_write" && value.outcome !== "no_changes" && value.outcome !== "applied")
-    errors.push("settled_no_write requires no_changes or applied");
-  if (value.outcome === "no_changes" && value.status === "unknown")
-    errors.push("no_changes requires accepted_durable, rejected, or settled_no_write");
-  if (value.status === "accepted_durable") {
-    const a = value.acceptance;
-    if (
-      !isJsonObject(a) ||
-      !exactRecord(a, ["storage", "durability", "recordedAt", "revisionFrom", "revisionTo", "memberOpIds", "cut"]) ||
-      a.storage !== "sqlite" ||
-      a.durability !== "local_fsync" ||
-      !wireText(a.recordedAt) ||
-      !Number.isFinite(Date.parse(a.recordedAt)) ||
-      !wireRevision(a.revisionFrom) ||
-      a.revisionFrom < 1 ||
-      !wireRevision(a.revisionTo) ||
-      a.revisionTo < a.revisionFrom ||
-      !wireConsumerCut(a.cut) ||
-      a.cut.revision !== a.revisionTo ||
-      !Array.isArray(a.memberOpIds) ||
-      a.memberOpIds.length !== a.revisionTo - a.revisionFrom + 1 ||
-      !a.memberOpIds.every(wireText) ||
-      new Set(a.memberOpIds).size !== a.memberOpIds.length ||
-      typeof value.opId !== "string" ||
-      !a.memberOpIds.includes(value.opId)
-    )
-      errors.push("accepted_durable requires a committed acceptance interval");
-  } else if (value.acceptance !== null) errors.push("unaccepted receipt requires acceptance:null");
-  for (const name of ["projection", "git", "worktree", "replica"] as const) {
-    const facet = value[name],
-      fields = ["state", "cut", ...(name === "git" ? ["commitSha"] : [])];
-    if (
-      !isJsonObject(facet) ||
-      !exactRecord(facet, [...fields, ...("reason" in facet ? ["reason"] : [])]) ||
-      !["pending", "verified", ...(name === "replica" ? ["not_configured"] : [])].includes(String(facet.state)) ||
-      (facet.state === "verified" ? !wireConsumerCut(facet.cut) : facet.cut !== null) ||
-      ("reason" in facet && !wireText(facet.reason)) ||
-      (name === "git" &&
-        (facet.state === "verified"
-          ? typeof facet.commitSha !== "string" || !/^[0-9a-f]{40}$/u.test(facet.commitSha)
-          : facet.commitSha !== null))
-    )
-      errors.push(`${name} must report an independent verified cut or pending state`);
-  }
-  // An applied receipt either carries its committed interval or settles as a determinate no-write.
-  if (value.outcome === "applied" && value.status !== "accepted_durable" && value.status !== "settled_no_write")
-    errors.push("applied requires accepted_durable or settled_no_write");
-  if (
-    "wait" in value &&
-    (!isJsonObject(value.wait) ||
-      !exactRecord(value.wait, ["state", "unsatisfied"]) ||
-      !["satisfied", "timed_out"].includes(String(value.wait.state)) ||
-      !Array.isArray(value.wait.unsatisfied) ||
-      !value.wait.unsatisfied.every((item) => (wireWaitPredicates as readonly unknown[]).includes(item)) ||
-      (value.wait.state === "satisfied") !== (value.wait.unsatisfied.length === 0))
-  )
-    errors.push("receipt wait result is invalid");
-  return errors;
 }
 
 export function validateTaskAssignmentDirectory(value: unknown): readonly string[] {

@@ -3668,28 +3668,6 @@
         "removalSlice": "S3"
       },
       {
-        "id": "judgment:packages/daemon:packages/daemon/src/client/daemon-autostart.ts#ensureLocalDaemonRunning:93f81fbbf103bda34dfbfc93ce4be37b",
-        "category": "judgment",
-        "path": "packages/daemon/src/client/daemon-autostart.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped ensureLocalDaemonRunning; branches=23; booleanReturns=2",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/client/daemon-hello.ts#assertDaemonHello:ab4adf5dc5fa81ff1ccb518101b8f57c",
-        "category": "judgment",
-        "path": "packages/daemon/src/client/daemon-hello.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped assertDaemonHello; branches=4; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
         "id": "policy:packages/daemon:packages/daemon/src/client/daemon-service.ts#runDaemonServiceCommand.result.timeoutSignal:a0ffb54437f00b213319ed2bd17e59c2",
         "category": "policy",
         "path": "packages/daemon/src/client/daemon-service.ts",
@@ -3789,28 +3767,6 @@
         "removalSlice": "S1"
       },
       {
-        "id": "judgment:packages/daemon:packages/daemon/src/client/local-daemon-target.ts#assertOwnedSocketDirectory:543a84fc444df1780d292bd09af2df87",
-        "category": "judgment",
-        "path": "packages/daemon/src/client/local-daemon-target.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped assertOwnedSocketDirectory; branches=3; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/client/local-daemon-target.ts#assertDaemonSocketDirectory:e3b1d630b824e1a4cae9071e546b4ce7",
-        "category": "judgment",
-        "path": "packages/daemon/src/client/local-daemon-target.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped assertDaemonSocketDirectory; branches=2; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
         "id": "action:packages/daemon:packages/daemon/src/client/local-daemon-target.ts#assertRuntimeCredentialEndpoint:d4cf8dd198d0a8afde3e4f8b4c483070",
         "category": "action",
         "path": "packages/daemon/src/client/local-daemon-target.ts",
@@ -3820,17 +3776,6 @@
         "reason": "Frozen syntactic action candidate, semantic ownership to be resolved in S1: assign() may change state or trigger execution",
         "replacementRef": "ActionDeclaration.ontology",
         "removalSlice": "S1"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/client/local-daemon-target.ts#assertRuntimeCredentialEndpoint:dcb83551fd3bc9873cf663c0e952c0e2",
-        "category": "judgment",
-        "path": "packages/daemon/src/client/local-daemon-target.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped assertRuntimeCredentialEndpoint; branches=2; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
       },
       {
         "id": "action:packages/daemon:packages/daemon/src/client/local-json-rpc-client.ts#JsonRpcLineClient.request:8b0895fb33e86f2995fb64148e75be6e",
@@ -3875,17 +3820,6 @@
         "reason": "Frozen syntactic action candidate, semantic ownership to be resolved in S1: assign() may change state or trigger execution",
         "replacementRef": "ActionDeclaration.ontology",
         "removalSlice": "S1"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/client/local-json-rpc-client.ts#assertDaemonAdvertisesMethod:a45c832d87980075200923fb940c2fdf",
-        "category": "judgment",
-        "path": "packages/daemon/src/client/local-json-rpc-client.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped assertDaemonAdvertisesMethod; branches=3; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
       },
       {
         "id": "action:packages/daemon:packages/daemon/src/client/local-json-rpc-client.ts#responseDeadline:b5d283b5722bcd6b031f52468ce0e6fc",
@@ -6572,28 +6506,6 @@
         "removalSlice": "S3"
       },
       {
-        "id": "judgment:packages/daemon:packages/daemon/src/fleet-edge-git-preflight.ts#isSupportedFleetGitRemote:de80f1db038384d8b4c46d6aa38fd00a",
-        "category": "judgment",
-        "path": "packages/daemon/src/fleet-edge-git-preflight.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped isSupportedFleetGitRemote; branches=4; booleanReturns=4",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/fleet-edge-git-preflight.ts#assertFleetEdgeRepositoryGit:43a07166ee556c4b395044ead6205b2e",
-        "category": "judgment",
-        "path": "packages/daemon/src/fleet-edge-git-preflight.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped assertFleetEdgeRepositoryGit; branches=1; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
         "id": "policy:packages/daemon:packages/daemon/src/fleet-edge-runtime-read.ts#readEdgeRuntimeRepository.selector:89b25555fb25353fed758c96a141a15a",
         "category": "policy",
         "path": "packages/daemon/src/fleet-edge-runtime-read.ts",
@@ -7045,17 +6957,6 @@
         "removalSlice": "S3"
       },
       {
-        "id": "judgment:packages/daemon:packages/daemon/src/fleet-task-delivery.ts#assertFleetDeliveryHolder:3e4c2d9088a73d7ddd963a23655b4478",
-        "category": "judgment",
-        "path": "packages/daemon/src/fleet-task-delivery.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped assertFleetDeliveryHolder; branches=1; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
         "id": "action:packages/daemon:packages/daemon/src/fleet-task-delivery.ts#prepareEdgeTaskDelivery.head:55979061df9b782f3729a8e75ecffd06",
         "category": "action",
         "path": "packages/daemon/src/fleet-task-delivery.ts",
@@ -7320,17 +7221,6 @@
         "removalSlice": "S1"
       },
       {
-        "id": "judgment:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.isRecoverableReceipt:8ffcceb2bc79d89ef80c8ae321a4a0e7",
-        "category": "judgment",
-        "path": "packages/daemon/src/fleet/center-listener.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped isRecoverableReceipt; branches=1; booleanReturns=1",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
         "id": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls:c3afea6da008ab09aa7769e5ab0dbec0",
         "category": "action",
         "path": "packages/daemon/src/fleet/center-listener.ts",
@@ -7417,17 +7307,6 @@
         "reason": "Frozen syntactic policy candidate, semantic ownership to be resolved in S3: policy-shaped released has literal configuration",
         "replacementRef": "EntityKindContract.policies",
         "removalSlice": "S3"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.assertFrameEpoch:7705f0ee8fcf2b88d922c95b2b57b57e",
-        "category": "judgment",
-        "path": "packages/daemon/src/fleet/center-listener.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped assertFrameEpoch; branches=1; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
       },
       {
         "id": "policy:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.admitReplica:89abda51ae346ee745663c7b0c55471b",
@@ -7914,17 +7793,6 @@
         "removalSlice": "S1"
       },
       {
-        "id": "judgment:packages/daemon:packages/daemon/src/fleet/command-protocol.ts#validateFleetFrame:b8a102f972c022d61c6867c1adfa15c0",
-        "category": "judgment",
-        "path": "packages/daemon/src/fleet/command-protocol.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateFleetFrame; branches=8; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
         "id": "action:packages/daemon:packages/daemon/src/fleet/command-protocol.ts#measureFleetTransferPayload.count:8b72c96f7861d8ea23311416e19f2829",
         "category": "action",
         "path": "packages/daemon/src/fleet/command-protocol.ts",
@@ -8167,17 +8035,6 @@
         "removalSlice": "S3"
       },
       {
-        "id": "judgment:packages/daemon:packages/daemon/src/fleet/edge-join-client.ts#validateFleetOriginAddress:d5cc6492ca4e3ede427a6af1dc86eafe",
-        "category": "judgment",
-        "path": "packages/daemon/src/fleet/edge-join-client.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateFleetOriginAddress; branches=2; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
         "id": "action:packages/daemon:packages/daemon/src/fleet/edge-join-client.ts#probeLoginAddress:5b8ab03cec73a50069106c7ddc399ecd",
         "category": "action",
         "path": "packages/daemon/src/fleet/edge-join-client.ts",
@@ -8233,28 +8090,6 @@
         "removalSlice": "S1"
       },
       {
-        "id": "judgment:packages/daemon:packages/daemon/src/fleet/edge-join-ssh-tunnel.ts#validateSshTarget:009b3dec21e0d95b8a567c76cb1919d8",
-        "category": "judgment",
-        "path": "packages/daemon/src/fleet/edge-join-ssh-tunnel.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateSshTarget; branches=1; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/fleet/edge-join-ssh-tunnel.ts#assertSameServicePorts:1c324fc7acdf923bd6f7ef6a047f74f4",
-        "category": "judgment",
-        "path": "packages/daemon/src/fleet/edge-join-ssh-tunnel.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped assertSameServicePorts; branches=1; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
         "id": "action:packages/daemon:packages/daemon/src/fleet/edge-join-ssh-tunnel.ts#tunnelError:b981b04940193f9d9da670c32e50ddc8",
         "category": "action",
         "path": "packages/daemon/src/fleet/edge-join-ssh-tunnel.ts",
@@ -8277,28 +8112,6 @@
         "removalSlice": "S1"
       },
       {
-        "id": "judgment:packages/daemon:packages/daemon/src/fleet/edge-join.ts#createEdgeJoinStore.assertConsumable:1cc8e14b900489721f29c2a2c49a4d93",
-        "category": "judgment",
-        "path": "packages/daemon/src/fleet/edge-join.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped assertConsumable; branches=7; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/fleet/fleet-overview-read.ts#authorizedOrThrow:be5f0b3a8978c026b699607a0247e306",
-        "category": "judgment",
-        "path": "packages/daemon/src/fleet/fleet-overview-read.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped authorizedOrThrow; branches=1; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
         "id": "policy:packages/daemon:packages/daemon/src/fleet/fleet-overview-read.ts#leaseRows.runtimeSessionId:b50e578b4c4037af9205216797c42a25",
         "category": "policy",
         "path": "packages/daemon/src/fleet/fleet-overview-read.ts",
@@ -8310,17 +8123,6 @@
         "removalSlice": "S3"
       },
       {
-        "id": "judgment:packages/daemon:packages/daemon/src/fleet/fleet-overview-read.ts#validateFleetOverview:241f7726cc2e858ee843159bb1875545",
-        "category": "judgment",
-        "path": "packages/daemon/src/fleet/fleet-overview-read.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateFleetOverview; branches=22; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
         "id": "policy:packages/daemon:packages/daemon/src/fleet/fleet-overview-read.ts#validateNodeRow:a1113d2bf0742179c00b5a062ab5cb00",
         "category": "policy",
         "path": "packages/daemon/src/fleet/fleet-overview-read.ts",
@@ -8330,28 +8132,6 @@
         "reason": "Frozen syntactic policy candidate, semantic ownership to be resolved in S3: policy-shaped condition contains a literal: row.leases === null ||\n    typeof row.leases !== \"object\" ||\n    typeof (row.leases as Record<string, unknown>).redacted !== \"string\"",
         "replacementRef": "EntityKindContract.policies",
         "removalSlice": "S3"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/fleet/fleet-overview-read.ts#validateNodeRow:8307570223771bb447223790fbb75012",
-        "category": "judgment",
-        "path": "packages/daemon/src/fleet/fleet-overview-read.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateNodeRow; branches=12; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/fleet/fleet-overview-read.ts#validateFieldState:3203c868de43021a5845c9433df39ee2",
-        "category": "judgment",
-        "path": "packages/daemon/src/fleet/fleet-overview-read.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateFieldState; branches=4; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
       },
       {
         "id": "policy:packages/daemon:packages/daemon/src/fleet/fleet-overview-read.ts#EVENT_PAGE_LIMIT:ed4924a88b6116eeae88c9bd215c192f",
@@ -8409,17 +8189,6 @@
         "removalSlice": "S3"
       },
       {
-        "id": "judgment:packages/daemon:packages/daemon/src/fleet/fleet-overview-read.ts#readFleetOverviewFromHost.leaseFacts:61e9ca9cf6699d1de0b1cda0c4a5ae87",
-        "category": "judgment",
-        "path": "packages/daemon/src/fleet/fleet-overview-read.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped authorizedOrThrow; branches=4; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
         "id": "policy:packages/daemon:packages/daemon/src/fleet/forwarding-intent.ts#forwardingIntentIssue:16800eef7e7892d4fe4742af8daee7b5",
         "category": "policy",
         "path": "packages/daemon/src/fleet/forwarding-intent.ts",
@@ -8451,17 +8220,6 @@
         "reason": "Frozen syntactic policy candidate, semantic ownership to be resolved in S3: policy-shaped condition contains a literal: lease &&\n                lease.phase !== \"released\" &&\n                typeof lease.source === \"object\" &&\n                lease.source.kind === \"node\" &&\n     ",
         "replacementRef": "EntityKindContract.policies",
         "removalSlice": "S3"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/fleet/node-retirement.ts#createNodeRetirementAdmission.assertOpen:33d4bfeb3ab038c8a5ab1ec849245a81",
-        "category": "judgment",
-        "path": "packages/daemon/src/fleet/node-retirement.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped assertOpen; branches=1; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
       },
       {
         "id": "action:packages/daemon:packages/daemon/src/fleet/node-retirement.ts#createNodeRetirementAdmission.run:e6d1f636c1a3fdb18bd955bceb27898c",
@@ -9091,17 +8849,6 @@
         "removalSlice": "S3"
       },
       {
-        "id": "judgment:packages/daemon:packages/daemon/src/fleet/resource-budget.ts#assertAmount:d4126af4fd5b3bd85390b9760aeaaa73",
-        "category": "judgment",
-        "path": "packages/daemon/src/fleet/resource-budget.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped assertAmount; branches=1; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
         "id": "policy:packages/daemon:packages/daemon/src/fleet/resource-budget.ts#createResourceBudget.reserve.released:c634ea4f4d8960a8ac39fbdbce66e15c",
         "category": "policy",
         "path": "packages/daemon/src/fleet/resource-budget.ts",
@@ -9256,17 +9003,6 @@
         "removalSlice": "S1"
       },
       {
-        "id": "judgment:packages/daemon:packages/daemon/src/fleet/walsender.ts#runWalSender.assertOwner:b08ff06eb004108778b11395e68a89c3",
-        "category": "judgment",
-        "path": "packages/daemon/src/fleet/walsender.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped assertOwner; branches=1; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
         "id": "action:packages/daemon:packages/daemon/src/gui-catalog.ts#catalogRereadReceipt.operationId:3e500c47330ee1e309b8f2144a8bccff",
         "category": "action",
         "path": "packages/daemon/src/gui-catalog.ts",
@@ -9331,149 +9067,6 @@
         "reason": "Frozen syntactic policy candidate, semantic ownership to be resolved in S3: policy-shaped allowedAgentIds has literal configuration",
         "replacementRef": "EntityKindContract.policies",
         "removalSlice": "S3"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/gui-s3-control.ts#validateSystemStatus:e2909e4bd50cb9b1d740feb09e6cfa89",
-        "category": "judgment",
-        "path": "packages/daemon/src/gui-s3-control.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateSystemStatus; branches=11; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/gui-s3-control.ts#validateDaemonControlReceipt:e288720b61559300e6a38057e7f58f4d",
-        "category": "judgment",
-        "path": "packages/daemon/src/gui-s3-control.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateDaemonControlReceipt; branches=2; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/gui-s3-control.ts#validateRuntimeSpawnReceipt:42c49c8d3785f380c1830f285a65ed3e",
-        "category": "judgment",
-        "path": "packages/daemon/src/gui-s3-control.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateRuntimeSpawnReceipt; branches=4; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/gui-s3-control.ts#validateAgentDispatchPreview:607dbc6f63a432f731a59c9d37530697",
-        "category": "judgment",
-        "path": "packages/daemon/src/gui-s3-control.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateAgentDispatchPreview; branches=2; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/gui-s3-control.ts#validateTerminalSessionList:5b63966d24e72a77a6fc8975fe5e6950",
-        "category": "judgment",
-        "path": "packages/daemon/src/gui-s3-control.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateTerminalSessionList; branches=4; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/gui-s3-control.ts#validateTerminalControlReceipt:179689fd4b6116a41ad915f23a3591da",
-        "category": "judgment",
-        "path": "packages/daemon/src/gui-s3-control.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateTerminalControlReceipt; branches=2; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/gui-s3-control.ts#validateTerminalInputAck:472d496919409d51be6653b7a9228d2f",
-        "category": "judgment",
-        "path": "packages/daemon/src/gui-s3-control.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateTerminalInputAck; branches=1; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/gui-s3-control.ts#validateTerminalDetachAck:74371c66d6e68ac6ee2b2f36cb26098b",
-        "category": "judgment",
-        "path": "packages/daemon/src/gui-s3-control.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateTerminalDetachAck; branches=1; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/gui-s3-control.ts#validateTerminalAttach:99d05a1e11347cfdbf1f922e8971c01f",
-        "category": "judgment",
-        "path": "packages/daemon/src/gui-s3-control.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateTerminalAttach; branches=1; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/gui-s3-control.ts#validateTerminalAttachEvent:0a9677deea7f19d141d4a1a3f52276af",
-        "category": "judgment",
-        "path": "packages/daemon/src/gui-s3-control.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateTerminalAttachEvent; branches=1; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/gui-s3-control.ts#validateCatalogSnapshot:9cd7cc3ed6c63056bf30cd085245f332",
-        "category": "judgment",
-        "path": "packages/daemon/src/gui-s3-control.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateCatalogSnapshot; branches=24; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/gui-s3-control.ts#validateCatalogPreset:54014e0d0d736fa553a9195c0a6a43cd",
-        "category": "judgment",
-        "path": "packages/daemon/src/gui-s3-control.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateCatalogPreset; branches=5; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/gui-s3-control.ts#validateCatalogRereadReceipt:1abd650bba5081c1df251b2c1d10b195",
-        "category": "judgment",
-        "path": "packages/daemon/src/gui-s3-control.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateCatalogRereadReceipt; branches=2; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
       },
       {
         "id": "action:packages/daemon:packages/daemon/src/gui-s3-control.ts#writeSystemStatus:98936bae2ace6c2e991ad491fc87be11",
@@ -9606,17 +9199,6 @@
         "reason": "Frozen syntactic policy candidate, semantic ownership to be resolved in S3: policy-shaped limit has literal configuration",
         "replacementRef": "EntityKindContract.policies",
         "removalSlice": "S3"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/home/home-overview-validation.ts#validateHomeOverviewResult:86eb9b8948ed5bdd835e971fddd2d94f",
-        "category": "judgment",
-        "path": "packages/daemon/src/home/home-overview-validation.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateHomeOverviewResult; branches=10; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
       },
       {
         "id": "action:packages/daemon:packages/daemon/src/host-action-authorization.ts#requireAuthorizedHostAction:3c36ab4d3afd3bfc0fe33a55bdd84e2f",
@@ -10807,50 +10389,6 @@
         "removalSlice": "S3"
       },
       {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/agent-entity-gui-contract.ts#validateAgentSkillCatalog:c8952cf905385d23698d954f77fae3af",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/agent-entity-gui-contract.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateAgentSkillCatalog; branches=2; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/agent-entity-gui-contract.ts#validateAgentHistory:a7669440c8927bf2961fb83e3f011854",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/agent-entity-gui-contract.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateAgentHistory; branches=8; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/agent-entity-gui-contract.ts#validateAgentVersion:f971795d3e93746a09cf3364503e5f3a",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/agent-entity-gui-contract.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateAgentVersion; branches=5; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/artifacts-gui-contract.ts#validateArtifactsList:731156e8f7290086421340784e03733e",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/artifacts-gui-contract.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateArtifactsList; branches=3; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
         "id": "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-commands-agent.ts#agentHistoryLimit:075abffb0f3c07df85b8fcc6df0b29c0",
         "category": "policy",
         "path": "packages/daemon/src/protocol/daemon-protocol-commands-agent.ts",
@@ -11313,50 +10851,6 @@
         "removalSlice": "S3"
       },
       {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-gui-types.ts#validateShape:7e60241439577922c08f81812dd0a0f7",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-gui-types.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateShape; branches=15; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-gui-types.ts#validateObserveTailPayload:c915311c3d0efa655b852d8e65065771",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-gui-types.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateObserveTailPayload; branches=11; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-gui-types.ts#validateObserveTailResult:871750abee6bd0addd102373b25d6f0a",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-gui-types.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateObserveTailResult; branches=2; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-gui-types.ts#validateObserveTailCursor:96f34b1827c597fde81eafaa85d7819f",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-gui-types.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateObserveTailCursor; branches=2; booleanReturns=1",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
         "id": "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-repository-reads.ts#validateReckoningRead:f33a5cdd4f195ff160f9ba63da6b2cb8",
         "category": "policy",
         "path": "packages/daemon/src/protocol/daemon-protocol-repository-reads.ts",
@@ -11366,17 +10860,6 @@
         "reason": "Frozen syntactic policy candidate, semantic ownership to be resolved in S3: policy-shaped condition contains a literal: isJsonObject(value) &&\n    value.schema === \"reckoning-signals/v1\" &&\n    value.ok === true &&\n    typeof value.generatedAt === \"string\" &&\n    Number.isFinite(",
         "replacementRef": "EntityKindContract.policies",
         "removalSlice": "S3"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-repository-reads.ts#validateReckoningRead:09ae4900a8a380a17a696ef5c82c9465",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-repository-reads.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateReckoningRead; branches=1; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
       },
       {
         "id": "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-repository-reads.ts#validatePolicyMetadataRead:e892d9c9b9f1cfa95daa0960e1bbd3ab",
@@ -11390,94 +10873,6 @@
         "removalSlice": "S3"
       },
       {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-repository-reads.ts#validatePolicyMetadataRead:cfe69c5eaea21a78dcc5ec8db1c8e72f",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-repository-reads.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validatePolicyMetadataRead; branches=1; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateDaemonWorkTopologyPayload:a5849717628266fd45d379e00cfca674",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateDaemonWorkTopologyPayload; branches=2; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateDaemonRpcCall:fd8f357b2154ffcd4bc602edb40a3112",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateDaemonRpcCall; branches=24; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateReckoningQuery:7e09126e3e9dc5a6086ba27969f01086",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateReckoningQuery; branches=3; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateAgentRuntimeQuoteParams:a881c5a2fcba4280e1750cb06214ed7d",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateAgentRuntimeQuoteParams; branches=5; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateRuntimeSessionReadPayload:bc325fe526272c21db7e933b85193f1f",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateRuntimeSessionReadPayload; branches=3; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateRuntimeSteerPayload:cdf089eeacfe0abc4c5d1a6e9598e6ac",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateRuntimeSteerPayload; branches=2; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateUseCaseProjectionPayload:f00c2bd06d7f747eacf82afcabd71970",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateUseCaseProjectionPayload; branches=4; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
         "id": "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateRuntimeSessionGroupsPayload:8a3faa70835380737c28d6e123ee56b9",
         "category": "policy",
         "path": "packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts",
@@ -11487,17 +10882,6 @@
         "reason": "Frozen syntactic policy candidate, semantic ownership to be resolved in S3: policy-shaped condition contains a literal: (value.since !== undefined && !Number.isFinite(Date.parse(String(value.since)))) ||\n    (value.agentId !== undefined && !nonEmpty(value.agentId)) ||\n    (value.",
         "replacementRef": "EntityKindContract.policies",
         "removalSlice": "S3"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateRuntimeSessionGroupsPayload:3b4773bdd6f4c01b9baeac489afd2e45",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateRuntimeSessionGroupsPayload; branches=2; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
       },
       {
         "id": "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateSquadRunListPayload:34a28521d5382e1856120133c9716dfd",
@@ -11511,28 +10895,6 @@
         "removalSlice": "S3"
       },
       {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateSquadRunListPayload:ba2ff5a0489ade2a95d04ef061474784",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateSquadRunListPayload; branches=2; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateSquadRunReadPayload:f2b8442eac28d7c6154f3afa31ab63b0",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateSquadRunReadPayload; branches=2; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
         "id": "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateAgendaQueryPayload:9d497038a11c02c733bdb06047b3a178",
         "category": "policy",
         "path": "packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts",
@@ -11544,17 +10906,6 @@
         "removalSlice": "S3"
       },
       {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateAgendaQueryPayload:ef901afca19da244eb20a1e316c5b9cd",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateAgendaQueryPayload; branches=5; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
         "id": "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateTaskDispatchesPayload:2e7fec41ec0eb76b4ef0d96616a18cd8",
         "category": "policy",
         "path": "packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts",
@@ -11564,17 +10915,6 @@
         "reason": "Frozen syntactic policy candidate, semantic ownership to be resolved in S3: policy-shaped condition contains a literal: value.taskId !== undefined ||\n    !Array.isArray(taskIds) ||\n    taskIds.length === 0 ||\n    taskIds.length > 500 ||\n    taskIds.some((taskId) => !nonEmpty(task",
         "replacementRef": "EntityKindContract.policies",
         "removalSlice": "S3"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateTaskDispatchesPayload:4be722d8c2d33c11df0fa0d68f2b6719",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateTaskDispatchesPayload; branches=6; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
       },
       {
         "id": "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateGuiActionPayload:cf88a413616e032301357bbe6ccba6f3",
@@ -11597,17 +10937,6 @@
         "reason": "Frozen syntactic policy candidate, semantic ownership to be resolved in S3: policy-shaped condition contains a literal: ![value.riskTier, value.urgency].every((field) => [\"low\", \"medium\", \"high\"].includes(String(field))) ||\n      ![\"ordinary\", \"standing_policy\"].includes(String(v",
         "replacementRef": "EntityKindContract.policies",
         "removalSlice": "S3"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateGuiActionPayload:bb50483826b12e61cc9fcdf718371028",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateGuiActionPayload; branches=21; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
       },
       {
         "id": "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-schema-ids.ts#daemonUseCaseProjectionPayloadShape.limit:01756949446e0e6666f8f2734b5d34fc",
@@ -11687,72 +11016,6 @@
         "removalSlice": "S3"
       },
       {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-task-completion.ts#validateDaemonTaskCompletion:b6d76c9dcc3ae08205fcada2b65c586b",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-task-completion.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateDaemonTaskCompletion; branches=8; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-task-delivery-diff.ts#validateDaemonTaskDeliveryDiff:40c9f13b10e0f54029c46cc86ea4727f",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-task-delivery-diff.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateDaemonTaskDeliveryDiff; branches=2; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-use-case-projection.ts#validateDaemonUseCaseProjection:4018ddc23cddb0ac90e6b0981e791f3f",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-use-case-projection.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateDaemonUseCaseProjection; branches=9; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-entities.ts#validateGuiSubmission:7eb617c00722dbc2ae0e5bb5cf7b2d0d",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-validate-entities.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateGuiSubmission; branches=17; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-entities.ts#validateReceiptAcceptanceWire:59fce29c4f0e5dd24dfc41b461f93833",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-validate-entities.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateReceiptAcceptanceWire; branches=14; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-entities.ts#validateTaskAssignmentDirectory:e1bb400efd9bab4b0cfc5d0345275342",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-validate-entities.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateTaskAssignmentDirectory; branches=1; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
         "id": "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-entities.ts#validateTaskClaimableResult:48e00cf5d8e0133ec4ff5b25db2e7302",
         "category": "policy",
         "path": "packages/daemon/src/protocol/daemon-protocol-validate-entities.ts",
@@ -11762,182 +11025,6 @@
         "reason": "Frozen syntactic policy candidate, semantic ownership to be resolved in S3: policy-shaped condition contains a literal: isJsonObject(value) &&\n    Object.keys(value).length === 3 &&\n    value.schema === \"task-claimable/v1\" &&\n    [\"node\", \"reserved\", \"startable\"].includes(String(",
         "replacementRef": "EntityKindContract.policies",
         "removalSlice": "S3"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-entities.ts#validateTaskClaimableResult:edcd584a565e5f3b5bd33b3209ddcfe6",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-validate-entities.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateTaskClaimableResult; branches=1; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-projections.ts#validateDaemonAgenda:bcf4b4d5250fd49cb8cd1f2810373060",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-validate-projections.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateDaemonAgenda; branches=18; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-projections.ts#validateDaemonRelationGraph:08dcdbd01feee38bfd6a0149acc993a2",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-validate-projections.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateDaemonRelationGraph; branches=18; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-projections.ts#readiness:83e1f908e3c636af6d6d9bb7ea1a3766",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-validate-projections.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped readiness; branches=1; booleanReturns=2",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-projections.ts#validateDaemonDecisionList:9ae6ed1f3fdcba40919b9e4ca0f09b7f",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-validate-projections.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateDaemonDecisionList; branches=14; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-relation-query.ts#validateRelationNeighborhoodPayload:9bd5f31b58f0e41fcb8f0f94f25117b7",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-validate-relation-query.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateRelationNeighborhoodPayload; branches=9; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-relation-query.ts#validateRelationEntityPagePayload:a6b37312f7c2c8c9647bd805b195d2b6",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-validate-relation-query.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateRelationEntityPagePayload; branches=5; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-relation-query.ts#validateDaemonWorkspaceSummary:3594b74d6aff219e037380344036fea6",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-validate-relation-query.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateDaemonWorkspaceSummary; branches=23; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-relation-query.ts#validateDaemonQueryPayload:ec896d991d08bfb812c866e4607b4f4d",
-        "category": "policy",
-        "path": "packages/daemon/src/protocol/daemon-protocol-validate-relation-query.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic policy candidate, semantic ownership to be resolved in S3: policy-shaped condition contains a literal: limit !== undefined && (!integer(limit) || Number(limit) < 1 || Number(limit) > 500)",
-        "replacementRef": "EntityKindContract.policies",
-        "removalSlice": "S3"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-relation-query.ts#validateDaemonQueryPayload:488fcccf0e88587cb3ac4d2fefa8962e",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-validate-relation-query.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateDaemonQueryPayload; branches=14; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-relation-query.ts#validateRelationFacetPayload:b56962e9834788a450cf11e6edf0f64d",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-validate-relation-query.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateRelationFacetPayload; branches=10; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-results.ts#validateDaemonDocumentRead:08af87109b1ec98b04d0cd3b29f83c63",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-validate-results.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateDaemonDocumentRead; branches=4; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-results.ts#validateDaemonTaskDocumentList:0d798d599029a13a162d928b568be4ff",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-validate-results.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateDaemonTaskDocumentList; branches=6; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-results.ts#validateDaemonTaskDispatches:76f0e25194cccbe844fe3931ae0d3736",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-validate-results.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateDaemonTaskDispatches; branches=9; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-results.ts#validateDaemonProtocolError:693da8716e7c4d74c922f9cb6eec6d25",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-validate-results.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateDaemonProtocolError; branches=10; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-results.ts#validateRuntimeHandoffCheckpoint:349b6a245e3f9557c3c735f6bf34d2d0",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-validate-results.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateRuntimeHandoffCheckpoint; branches=13; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
       },
       {
         "id": "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-results.ts#writeReceipt:c829de6b1cc9cc83ba7fc87034003f7b",
@@ -11951,127 +11038,6 @@
         "removalSlice": "S3"
       },
       {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-results.ts#validateDaemonGuiCommandReceipt:1cc2daac1f7e8541fa106a8b80677a7a",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-validate-results.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateDaemonGuiCommandReceipt; branches=17; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-results.ts#validateSquadControlReceipt:b88c13711a3be2e69a539ba8ca546f66",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-validate-results.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateSquadControlReceipt; branches=16; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-task.ts#validateCatalogActionPayload:0d39a23eaca268f9a381d21c5c7ec779",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-validate-task.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateCatalogActionPayload; branches=6; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-task.ts#validateProjectedTaskActionInput:4ec420f4fed9adc112bf09ef9709b595",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-validate-task.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateProjectedTaskActionInput; branches=9; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-task.ts#validateSessionEnvironment:d87662e7b3e492a14e15a989db89c183",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-validate-task.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateSessionEnvironment; branches=5; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-task.ts#blockingAssessment:5e8a58f36fdaa8aacb79da0f3046e091",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-validate-task.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped blockingAssessment; branches=2; booleanReturns=1",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-task.ts#validateDaemonTaskSnapshotList:927b0dcc02b0801eb58c72c119538367",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-validate-task.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateDaemonTaskSnapshotList; branches=2; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-task.ts#validateDaemonTaskSnapshotListServed:eb645fc9d5547525587f81039c374869",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-validate-task.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateDaemonTaskSnapshotListServed; branches=5; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-work-topology.ts#validateDaemonWorkTopology:e73b06924f0d0572f9c9696c19e6167a",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/daemon-protocol-work-topology.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateDaemonWorkTopology; branches=3; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/gui-result-validation.ts#validateDaemonSettingsRead:0b5136d2937e60cb2aa4dbf6ee21e05a",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/gui-result-validation.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateDaemonSettingsRead; branches=1; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/gui-result-validation.ts#validateDaemonSettingsReadForClient:9932ba754067707122cc903f2c29cc5e",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/gui-result-validation.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateDaemonSettingsReadForClient; branches=1; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
         "id": "policy:packages/daemon:packages/daemon/src/protocol/gui-result-validation.ts#validateTaskRuntimeContextRead:2e43f537ef1583d90d9cb5e7a2db6462",
         "category": "policy",
         "path": "packages/daemon/src/protocol/gui-result-validation.ts",
@@ -12083,50 +11049,6 @@
         "removalSlice": "S3"
       },
       {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/gui-result-validation.ts#validateTaskRuntimeContextRead:9e72a287cef3d57e768262ff74d33ce4",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/gui-result-validation.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateTaskRuntimeContextRead; branches=1; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/gui-result-validation.ts#validateDaemonWorkspaceScope:903f2cfd05c0becf14bdc76194a763b0",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/gui-result-validation.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateDaemonWorkspaceScope; branches=2; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/gui-result-validation.ts#validateDaemonWorkIndex:c7fd326c2b2ac40ae1ae054202deb663",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/gui-result-validation.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateDaemonWorkIndex; branches=2; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/gui-result-validation.ts#validateDaemonWorkBriefs:4326860fc05ff624a6ed9baaea854208",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/gui-result-validation.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateDaemonWorkBriefs; branches=2; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
         "id": "policy:packages/daemon:packages/daemon/src/protocol/gui-result-validation.ts#validateDaemonTaskWip:e61e19aa284460df35e9b0bebc08d1d4",
         "category": "policy",
         "path": "packages/daemon/src/protocol/gui-result-validation.ts",
@@ -12136,17 +11058,6 @@
         "reason": "Frozen syntactic policy candidate, semantic ownership to be resolved in S3: policy-shaped condition contains a literal: value.ok === true &&\n    positive(value.limit) &&\n    typeof value.limitLabel === \"string\" &&\n    value.limitLabel.length > 0 &&\n    positive(value.threshold) &",
         "replacementRef": "EntityKindContract.policies",
         "removalSlice": "S3"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/gui-result-validation.ts#validateDaemonTaskWip:95074cce0edfb0376de4f4ace29abf5b",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/gui-result-validation.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateDaemonTaskWip; branches=3; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
       },
       {
         "id": "action:packages/daemon:packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer.run:aa3eef058d5a0ad5dfd2b36ef2aedc15",
@@ -12292,28 +11203,6 @@
         "removalSlice": "S1"
       },
       {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/json-rpc-types.ts#isUtcTimestamp:3fb0b34382702b4b22dcf373f19d020c",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/json-rpc-types.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped isUtcTimestamp; branches=2; booleanReturns=2",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/json-rpc-types.ts#hasSensitiveKey:fdc02ad766b461f4caa430061e1d97ca",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/json-rpc-types.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped hasSensitiveKey; branches=2; booleanReturns=1",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
         "id": "policy:packages/daemon:packages/daemon/src/protocol/json-rpc-types.ts#validationValueLimit:885a82ea197f869c903181ad7328ac0d",
         "category": "policy",
         "path": "packages/daemon/src/protocol/json-rpc-types.ts",
@@ -12358,28 +11247,6 @@
         "removalSlice": "S3"
       },
       {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/repository-read-frame.ts#validateRepositoryReadFrame:8c6cfc57ad8697e8af9297299aac4757",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/repository-read-frame.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateRepositoryReadFrame; branches=2; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/schedule-runs-contract.ts#validateScheduleRuns:ccc8901cbeae0d89fd3e9cd214029357",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/schedule-runs-contract.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateScheduleRuns; branches=1; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
         "id": "policy:packages/daemon:packages/daemon/src/protocol/schedules-gui-contract.ts#validateSchedulesList:7062238218b82b4dcbe411b9e762f76e",
         "category": "policy",
         "path": "packages/daemon/src/protocol/schedules-gui-contract.ts",
@@ -12389,17 +11256,6 @@
         "reason": "Frozen syntactic policy candidate, semantic ownership to be resolved in S3: policy-shaped condition contains a literal: !isJsonObject(row) ||\n      Object.keys(row).some(\n        (field) => !scheduleGuiRowFields.includes(field as (typeof scheduleGuiRowFields)[number]),\n      ) ||",
         "replacementRef": "EntityKindContract.policies",
         "removalSlice": "S3"
-      },
-      {
-        "id": "judgment:packages/daemon:packages/daemon/src/protocol/schedules-gui-contract.ts#validateSchedulesList:cdf2ef740e860e7a68f735666355c3c8",
-        "category": "judgment",
-        "path": "packages/daemon/src/protocol/schedules-gui-contract.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped validateSchedulesList; branches=4; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
       },
       {
         "id": "action:packages/daemon:packages/daemon/src/protocol/skill-eval-rpc.ts#dispatchSkillEvalCall.evaluation:58c3cba212769f326f89d9faefa0aef2",
