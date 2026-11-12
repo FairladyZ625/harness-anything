@@ -115,24 +115,22 @@ export function readTaskDispatches(
         )
       : new Map();
   const dispatches = dispatchEvents
-      .map((event) =>
-        canonicalDispatchRow(
-          projection,
-          event,
-          projection.readRuntimeSession(event.payload.runtimeSessionId) ?? undefined,
-          rootDir,
-          annotations.get(event.payload.dispatchId) ?? [],
-        ),
-      )
-      .sort((left, right) => left.startedAt.localeCompare(right.startedAt)),
-    terminal = taskDispatchesOutcome(dispatches);
+    .map((event) =>
+      canonicalDispatchRow(
+        projection,
+        event,
+        projection.readRuntimeSession(event.payload.runtimeSessionId) ?? undefined,
+        rootDir,
+        annotations.get(event.payload.dispatchId) ?? [],
+      ),
+    )
+    .sort((left, right) => left.startedAt.localeCompare(right.startedAt));
   return {
     ok: true,
     status:
       cut.status === "pending" || dispatches.some((row) => row.lifecycle?.status === "pending") ? "pending" : "ready",
     dispatches,
-    outcome: terminal.outcome,
-    exitCode: terminal.exitCode,
+    ...taskDispatchesOutcome(dispatches),
     watermark: cut.watermark,
     sourceRevision: cut.sourceRevision,
     ...(rootDir === undefined ? {} : { workspacePathPrefix: documentWorkspacePath(rootDir, "") }),
@@ -236,14 +234,12 @@ function readLatestTaskDispatches(input: {
         (left, right) =>
           left.startedAt.localeCompare(right.startedAt) || left.dispatchId.localeCompare(right.dispatchId),
       ),
-    terminal = taskDispatchesOutcome(dispatches),
     cut = projection.readCut();
   return {
     ok: true,
     status: cut.status,
     dispatches,
-    outcome: terminal.outcome,
-    exitCode: terminal.exitCode,
+    ...taskDispatchesOutcome(dispatches),
     watermark: cut.watermark,
     sourceRevision: cut.sourceRevision,
     taskIds,
@@ -304,13 +300,11 @@ function readMemberTaskDispatches(input: {
     },
     cut,
   });
-  const terminal = taskDispatchesOutcome(dispatches);
-  const result: DaemonTaskDispatchesResult = {
+  return {
     ok: true,
     status: cut.status,
     dispatches,
-    outcome: terminal.outcome,
-    exitCode: terminal.exitCode,
+    ...taskDispatchesOutcome(dispatches),
     watermark: cut.watermark,
     sourceRevision: cut.sourceRevision,
     ...(input.agentId !== undefined ? { agentId: input.agentId } : { squadId: input.squadId! }),
@@ -319,7 +313,6 @@ function readMemberTaskDispatches(input: {
     totals: agentRuntimeSessionGroupTotals(member.sessions),
     truncated: member.truncated,
   };
-  return result;
 }
 
 /** The aggregate terminal verdict for a task's dispatch list, computed once beside the rows so

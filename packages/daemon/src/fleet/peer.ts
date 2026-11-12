@@ -23,7 +23,14 @@ import {
   updateReplicaGenerationPosition,
 } from "./replica-generation.ts";
 import type { BaseBackupMetadata } from "@harness-anything/storage";
-import { consumeKnownError, type LedgerCutIdentity } from "@harness-anything/kernel";
+import {
+  consumeKnownError,
+  DISPATCH_LIFECYCLE_PAGE_LIMIT,
+  dispatchLifecycleSummary,
+  type DispatchLifecycleRead,
+  type LedgerCutIdentity,
+} from "@harness-anything/kernel";
+import type { DaemonTaskDispatchesResult } from "../protocol/daemon-protocol.contract.ts";
 import {
   FleetUtf8LineDecoder,
   currentFleetProtocolVersion,
@@ -589,14 +596,7 @@ export async function runFleetRuntimeArchiveClient(
 export async function readFleetOperationalClient(
   options: FleetPeerOptions & {
     readonly repoId: string;
-    readonly method:
-      | "repo.agentRuntime.lifecycle.read"
-      | "repo.agentRuntime.sessions.await"
-      | "repo.task.dispatches"
-      | "repo.fleet.overview.read"
-      | "repo.policy.metadata.read"
-      | "repo.tasks.autoClaimCandidates"
-      | "repo.tasks.autoDispatchCandidates";
+    readonly method: Extract<FleetFrameV1, { schema: "fleet.operational.read/v1" }>["method"];
     readonly connectionSignal?: AbortSignal;
     readonly payload: Readonly<Record<string, unknown>>;
   },
@@ -619,9 +619,39 @@ export async function readFleetOperationalClient(
       options.method === "repo.agentRuntime.sessions.await" ? null : (options.timeoutMs ?? 5_000),
     );
     if (response.schema !== "fleet.operational.read.result/v1") throw new Error("repository read result expected");
-    // Operational read payloads are closed per method. Keep the warning in the
-    // session metadata; command receipts add it at their shared outer boundary.
-    return response.result;
+    // The previous edge's closed dispatch decoder cannot accept nested extensions. Fleet keeps
+    // that wire shape; current edges join the already deployed central lifecycle read port.
+    if (options.method !== "repo.task.dispatches") return response.result;
+    const result = response.result as unknown as DaemonTaskDispatchesResult,
+      dispatches = [...result.dispatches];
+    for (let offset = 0; offset < dispatches.length; offset += DISPATCH_LIFECYCLE_PAGE_LIMIT) {
+      const batch = dispatches.slice(offset, offset + DISPATCH_LIFECYCLE_PAGE_LIMIT),
+        reply = await session.request({
+          schema: "fleet.operational.read/v1",
+          messageId: session.messageId(),
+          repoId: options.repoId,
+          method: "repo.agentRuntime.lifecycle.read",
+          payload: { by: "dispatch", dispatchIds: batch.map((row) => row.dispatchId) },
+        });
+      if (reply.schema !== "fleet.operational.read.result/v1") throw new Error("lifecycle read result expected");
+      const read = reply.result as unknown as DispatchLifecycleRead,
+        views = new Map(read.status === "ready" ? read.rows.map((view) => [view.attempt.dispatchId, view]) : []);
+      batch.forEach((row, index) => {
+        const view = views.get(row.dispatchId),
+          lifecycle = dispatchLifecycleSummary(
+            read.status === "pending" ? read : { ...read, rows: view ? [view] : [] },
+          );
+        dispatches[offset + index] = { ...row, lifecycle, status: lifecycle.displayStatus };
+      });
+    }
+    return {
+      ...result,
+      dispatches,
+      status:
+        result.status === "pending" || dispatches.some((row) => row.lifecycle?.status === "pending")
+          ? "pending"
+          : "ready",
+    } as unknown as Readonly<Record<string, unknown>>;
   } finally {
     options.connectionSignal?.removeEventListener("abort", close);
     session.close();

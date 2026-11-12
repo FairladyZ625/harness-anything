@@ -15,6 +15,7 @@ import {
   readFleetRepositoryMetadataClient,
   runFleetWriteClient,
   openPeer,
+  readFleetOperationalClient,
   type FleetWriteClientOptions,
 } from "../src/fleet/peer.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
@@ -28,6 +29,7 @@ import { fleetFixture, rawPeer, replicaQuota, splitWrite, waitForReceiptCommit }
 import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
 import { fleetMirrorCutFile, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
+import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
 type RoundTripOptions = FleetWriteClientOptions & { readonly viewRoot: string };
 test("Fleet sessions stay connected across build identities and return an upgrade warning", async (t) => {
   const fixture = await fleetFixture(t);
@@ -64,6 +66,77 @@ test("version metadata stays outside the closed dispatch read result", async (t)
   assert.match(response.versionWarning ?? "", /build differs/u);
   assert.doesNotThrow(() => parseDaemonGuiReadResult("repo.task.dispatches", response.result));
   assert.equal(Object.hasOwn(response.result, "versionWarning"), false);
+});
+test("previous Fleet edges retain closed dispatch rows; current edges join bounded central lifecycle batches", async (t) => {
+  const fixture = await fleetFixture(t, [], [], "local", undefined, undefined, false);
+  t.after(() => fixture.close());
+  const entries = Array.from({ length: 101 }, (_, index) => ({
+      dispatchId: `dispatch-${index}`,
+      runtimeSessionId: `runtime-${index}`,
+      process: "alive" as const,
+    })),
+    read = lifecycleReadFor(entries),
+    batchSizes: number[] = [];
+  let pending = false;
+  Object.defineProperty(fixture.host, "read", {
+    value: async () => ({
+      ok: true,
+      status: "ready",
+      dispatches: entries.map((entry) => ({
+        dispatchId: entry.dispatchId,
+        status: "unknown",
+        lifecycle: { status: "ready" },
+      })),
+    }),
+  });
+  Object.defineProperty(fixture.host, "readDispatchLifecycle", {
+    value: async (_repo: string, query: import("@harness-anything/kernel").DispatchLifecycleQuery) => {
+      assert.equal(query.by, "dispatch");
+      if (query.by !== "dispatch") throw new Error("point batch expected");
+      batchSizes.push(query.dispatchIds.length);
+      return pending ? { status: "pending", watermark: 1, sourceRevision: 2 } : read(query);
+    },
+  });
+  const center = await fixture.center(),
+    peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret"),
+    previous = await peer.request({
+      schema: "fleet.operational.read/v1",
+      messageId: "previous-dispatches",
+      repoId: fixture.subject.repoId,
+      method: "repo.task.dispatches",
+      payload: { taskId: fixture.subject.taskId },
+    });
+  assert.equal(previous.schema, "fleet.operational.read.result/v1");
+  if (previous.schema !== "fleet.operational.read.result/v1") throw new Error("dispatch result expected");
+  for (const row of previous.result.dispatches as Record<string, unknown>[]) {
+    assert.deepEqual(Object.keys(row).sort(), ["dispatchId", "status"]);
+  }
+  assert.deepEqual(batchSizes, [], "previous edges do not issue lifecycle queries");
+  for (const expected of ["ready", "pending"]) {
+    pending = expected === "pending";
+    batchSizes.length = 0;
+    const current = await readFleetOperationalClient({
+      port: center.port,
+      ca: fixture.cert,
+      servername: "localhost",
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      repoId: fixture.subject.repoId,
+      method: "repo.task.dispatches",
+      payload: { taskId: fixture.subject.taskId },
+    });
+    assert.equal(current.status, expected);
+    assert.deepEqual(batchSizes, [100, 1]);
+    assert.equal((current.dispatches as Record<string, unknown>[]).length, 101);
+    for (const row of current.dispatches as {
+      status: string;
+      lifecycle: { status: string; policy: { canSteer: boolean } | null };
+    }[]) {
+      assert.equal(row.lifecycle.status, expected);
+      assert.equal(row.status, pending ? "unknown" : "running");
+      assert.equal(row.lifecycle.policy?.canSteer ?? false, !pending);
+    }
+  }
 });
 test("malformed transfer on a real TLS peer closes only that session", async (t) => {
   const fixture = await fleetFixture(t),

@@ -15,37 +15,21 @@ export function readRuntimeAttemptChain(
     attempts: projection
       .readRuntimeDispatchesByAttemptGroup(groupId)
       .map(({ event }) => readTaskDispatchRow(projection, event))
-      .map(
-        ({
-          dispatchId,
-          runtimeSessionId,
-          attemptIndex,
-          provider,
-          classification,
-          reason,
-          faultClass,
-          resetAt,
-          resume,
-          nextAction,
-          fallbackState,
-          lifecycle,
-          nextDispatchId,
-        }) => ({
-          dispatchId,
-          runtimeSessionId,
-          attemptIndex,
-          provider,
-          classification,
-          reason,
-          ...(faultClass ? { faultClass } : {}),
-          ...(resetAt ? { resetAt } : {}),
-          ...(resume ? { resume } : {}),
-          ...(nextAction ? { nextAction } : {}),
-          fallbackState,
-          lifecycle,
-          nextDispatchId,
-        }),
-      )
+      .map((row) => ({
+        dispatchId: row.dispatchId,
+        runtimeSessionId: row.runtimeSessionId,
+        attemptIndex: row.attemptIndex,
+        provider: row.provider,
+        classification: row.classification,
+        reason: row.reason,
+        ...(row.faultClass ? { faultClass: row.faultClass } : {}),
+        ...(row.resetAt ? { resetAt: row.resetAt } : {}),
+        ...(row.resume ? { resume: row.resume } : {}),
+        ...(row.nextAction ? { nextAction: row.nextAction } : {}),
+        fallbackState: row.fallbackState,
+        lifecycle: row.lifecycle,
+        nextDispatchId: row.nextDispatchId,
+      }))
       .sort((a, b) => a.attemptIndex - b.attemptIndex),
   };
 }
