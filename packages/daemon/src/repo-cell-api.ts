@@ -187,7 +187,6 @@ export interface RepoCellApiContext {
   readonly appendAuxiliaryRuntimeIngress: RepoCellOperationalContext["appendAuxiliaryRuntimeIngress"];
   bootstrapReceipt: RepoBootstrapReceipt | undefined;
   readonly catalog: RepoCell["catalog"];
-  readonly terminal: RepoCell["terminal"];
   readonly runtimeStream: AgentRuntimeStreamHub;
   readonly canHibernate?: () => boolean;
   readonly generation: number;
@@ -222,7 +221,9 @@ function agendaViewerContext(binding: RepoCellBinding): {
   return { principalId: binding.actor.principal.personId, ...(nodeId === undefined ? {} : { nodeId }), teamIds: [] };
 }
 
-export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & RepoCellSynchronousRead {
+export function createRepoCellApi(
+  apiContext: RepoCellApiContext,
+): Omit<RepoCell, "terminal"> & RepoCellSynchronousRead {
   // Backup lifetimes serialize independently of ledger writes: retention cannot remove
   // another builtin's in-progress snapshot. A replay shares the same claim's execution.
   const builtinRuns = new Map<string, Promise<WriteReceipt>>();
@@ -1110,7 +1111,6 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     while (builtinRuns.size > 0) await Promise.allSettled([...builtinRuns.values()]);
     context.state = "closed";
     context.runtimeSpawner.close();
-    await context.terminal.close();
     context.runtimeStream.close();
     await context.presetProcess.close();
     await context.tail;
@@ -1138,7 +1138,6 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     awaitRuntimeSignal: context.awaitRuntimeSignal,
     runtimeIngress,
     catalog: context.catalog,
-    terminal: context.terminal,
     read,
     readDispatchLifecycle: async (query) => context.projection.readDispatchLifecycle(query),
     readEventWitness: async (revision) => context.projection.readEventWitness(revision),

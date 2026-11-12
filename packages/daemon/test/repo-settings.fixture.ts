@@ -211,7 +211,11 @@ export const openFencedRepoCell: typeof openProductRepoCell = async (input) => {
   return openProductRepoCell({ keycloakCenter: policyTestCenter, ...input, defaultWriterEpochFence });
 };
 
-export async function waitForFixturePublication(cell: RepoCell, opId: string, binding: RepoCellBinding): Promise<void> {
+export async function waitForFixturePublication(
+  cell: Pick<RepoCell, "run">,
+  opId: string,
+  binding: RepoCellBinding,
+): Promise<void> {
   const receipt = await cell.run(
     { kind: "receipt-show", opId, waitFor: ["git_verified", "worktree_visible"], timeoutMs: 5000 },
     binding,

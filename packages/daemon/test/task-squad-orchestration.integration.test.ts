@@ -22,12 +22,7 @@ import {
   readDispatchStreamHeader,
   readDispatchStreamSummary,
 } from "../src/dispatch-stream.ts";
-import {
-  type openBootstrappedRepoCell,
-  fixtureFence,
-  settleSettingsEvent,
-  waitForFixturePublication,
-} from "./repo-settings.fixture.ts";
+import { fixtureFence, settleSettingsEvent, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { evidence, git } from "./task-surface.fixtures.ts";
 import { realizedTaskPlan, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
@@ -791,7 +786,7 @@ test(
 
 // Exercise the real single writer and durable storage directly. Supervisor/reader RPC and
 // their cold worker imports have separate integration coverage; this suite owns orchestration.
-const openOrchestrationCell: typeof openBootstrappedRepoCell = async (input) => {
+const openOrchestrationCell = async (input: Parameters<typeof openRepoWriterCell>[0]) => {
   await identityProvider.claimRepositoryOwner(centerToken, input.repoId, owner.personId);
   const fence = fixtureFence(
     input.repoId,

@@ -23,7 +23,6 @@ import {
   type WriterGeneration,
 } from "@harness-anything/kernel";
 import { createPresetProcessService, presetUserRoot } from "@harness-anything/preset";
-import { nodeLocalWriteCommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
 import {
   prepareAgentEntityDelete,
   prepareAgentEntityInstall,
@@ -81,12 +80,10 @@ import type {
   RepoCellAttachProgress,
   RepoCellBinding,
   RepoCellStatus,
-  RepoCellTerminal,
   RepoCellWriteQueueState,
   RepoTaskAction,
 } from "./repo-cell-types.ts";
 import type { EntityActionCatalogPreparer, EntityActionCatalogRuntimes } from "./entity-action-catalog-executor.ts";
-import { admitRepoMode } from "./repo-mode.ts";
 import {
   makeRuntimeSpawner,
   type RuntimeAttemptTerminal,
@@ -94,7 +91,6 @@ import {
   type RuntimeLauncher,
 } from "./runtime-spawn.ts";
 import { withOnlineRuntimeSession, type RuntimeOperatorSession } from "./runtime-online-binding.ts";
-import { openTerminalHost } from "./terminal-host.ts";
 import { makeRepoCellSquadCoordinator } from "./repo-cell-squad-coordinator.ts";
 import { reconcileAbandonedTaskWorktrees } from "./task-worktree.ts";
 import { makeAgentActionRuntime, makeSquadActionRuntime } from "./squad-action-runtime.ts";
@@ -166,10 +162,11 @@ export async function openRepoCell(input: RepoCellOpenInput): Promise<RepoCell> 
   return openRepoCellProxy(input);
 }
 
+// The host proxy owns terminal sessions and their registry across writer isolate replacement.
 export async function openRepoWriterCell(
   input: RepoCellOpenInput,
   lock: Awaited<ReturnType<typeof acquireWorkspaceLock>>,
-): Promise<RepoCell> {
+): Promise<Omit<RepoCell, "terminal">> {
   const rootDir = input.rootDir,
     mode = input.mode ?? "local",
     now = input.now ?? (() => new Date().toISOString());
@@ -683,46 +680,9 @@ export async function openRepoWriterCell(
       openGuiCatalog({ repoId: input.repoId, rootDir, readSettings: () => readSettings(), now }),
     ));
   const catalog: RepoCell["catalog"] = {
-      snapshot: async () => (await getCatalog()).snapshot(),
-      preset: async (payload) => (await getCatalog()).preset(payload),
-      reread: async (payload) => (await getCatalog()).reread(payload),
-    },
-    terminalHost = openTerminalHost({
-      repoId: input.repoId,
-      rootDir,
-      daemonGeneration: generation,
-      now,
-    });
-  const admitTerminalWrite = (binding: RepoCellBinding): void => {
-    const admission = admitRepoMode(mode, nodeLocalWriteCommandTopology, binding.source);
-    if (!admission.ok) throw cellCodedError(admission.code, admission.nextAction);
-    if (state !== "attached") throw cellCodedError("repo_unavailable", latched());
-  };
-  const terminal: RepoCellTerminal = {
-    list: terminalHost.list,
-    attach: terminalHost.attach,
-    detach: terminalHost.detach,
-    close: terminalHost.close,
-    spawn: (payload, binding) => {
-      admitTerminalWrite(binding);
-      return terminalHost.spawn(payload);
-    },
-    spawnTrusted: (launch, binding) => {
-      admitTerminalWrite(binding);
-      return terminalHost.spawnTrusted(launch);
-    },
-    input: (payload, binding) => {
-      admitTerminalWrite(binding);
-      return terminalHost.input(payload);
-    },
-    resize: (payload, binding) => {
-      admitTerminalWrite(binding);
-      return terminalHost.resize(payload);
-    },
-    terminate: (payload, binding) => {
-      admitTerminalWrite(binding);
-      return terminalHost.terminate(payload);
-    },
+    snapshot: async () => (await getCatalog()).snapshot(),
+    preset: async (payload) => (await getCatalog()).preset(payload),
+    reread: async (payload) => (await getCatalog()).reread(payload),
   };
   const extracted = createRepoCellActionContext({
     input,
@@ -1071,7 +1031,6 @@ export async function openRepoWriterCell(
       bootstrapReceipt = value;
     },
     catalog,
-    terminal,
     runtimeStream,
     generation,
     get recovery() {
