@@ -1,4 +1,5 @@
 // harness-test-tier: contract
+import { lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentRuntimeEventV1, RuntimeSession, TaskProjection } from "@harness-anything/kernel";
@@ -274,6 +275,14 @@ test("stopped session semantics pass overview contracts while unknown words rema
     ]),
     projection = {
       ...projectionFixture(),
+      readDispatchLifecycle: lifecycleReadForSync([
+        {
+          runtimeSessionId: stopped.runtimeSessionId,
+          dispatchId: "dispatch-stopped",
+          attemptSettled: true,
+          outcome: "stopped",
+        },
+      ]),
       readRuntimeSessions: () => [stopped],
       readRuntimeSessionsForTask: () => [stopped],
       readRuntimeSessionEvents: () => [],
@@ -311,7 +320,17 @@ test("session groups preserve stopped runtime session status in the projection c
     reads = makeAgentRuntimeReadModel({
       projection,
       store: {} as never,
-      readDispatches: () => [],
+      readDispatches: () => [
+        dispatch(
+          "dispatch-stopped",
+          stopped.runtimeSessionId,
+          "task-stopped",
+          stopped.instanceId,
+          stopped.lastObservedAt,
+          "stopped",
+          {},
+        ),
+      ],
     }),
     result = reads.sessionGroups({ groupBy: "task" });
 
@@ -356,6 +375,18 @@ function projectionFixture(): TaskProjection {
       (session) => query?.activitySince === undefined || runtimeSessionInActivityWindow(session, query.activitySince),
     );
   return {
+    readDispatchLifecycle: lifecycleReadForSync(
+      sessions.map((session) => ({
+        runtimeSessionId: session.runtimeSessionId,
+        dispatchId: `dispatch-${session.runtimeSessionId}`,
+        outcome: session.outcome,
+        attemptSettled: session.outcome !== null,
+        process: session.outcome === null ? "alive" : "exited",
+      })),
+    ),
+    readRuntimeSession: (id: string) => sessions.find(({ runtimeSessionId }) => runtimeSessionId === id) ?? null,
+    readRuntimeSessionEventsByType: () => [],
+    readRuntimeInstallation: () => null,
     readCut: () => ({ status: "ready", watermark: 40, sourceRevision: 40 }),
     readTaskStatuses: () => ({ status: "ready", rows: [], watermark: 40, sourceRevision: 40 }),
     readRuntimeSessions: selected,
@@ -598,7 +629,18 @@ test("status narrowing selects members, not the group's latestStatus", () => {
     } as unknown as TaskProjection,
     store: {} as never,
     now: () => "2026-08-26T12:00:00.000Z",
-    readDispatches: () => [],
+    readDispatches: () =>
+      mixed.map((session) =>
+        dispatch(
+          `dispatch-${session.runtimeSessionId}`,
+          session.runtimeSessionId,
+          "task-m",
+          session.instanceId,
+          session.lastObservedAt,
+          session.outcome!,
+          {},
+        ),
+      ),
   });
   assert.equal(reads.sessionGroups({}).groups.find(({ key }) => key === "task-m")?.latestStatus, "succeeded");
   const failedMembers = reads.sessionGroups({ status: ["failed"] });

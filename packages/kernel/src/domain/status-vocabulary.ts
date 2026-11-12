@@ -101,6 +101,7 @@ import {
   dispatchGroupPhases,
   dispatchReservationStates,
   dispatchDeliveryStatuses,
+  dispatchDisplayStatuses,
 } from "./dispatch-lifecycle.ts";
 
 export { statusWordRegister } from "./status-word-register.ts";
@@ -630,16 +631,34 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     subsetOf: "runtime.semantic-state",
     note: "The pre-validation const array behind the exported semantic-state judgment.",
   },
+  ...(
+    [
+      ["dispatch.attempt-phase", "dispatchAttemptPhaseWords", dispatchAttemptPhases],
+      ["dispatch.group-phase", "dispatchGroupPhaseWords", dispatchGroupPhases],
+      ["dispatch.reservation-state", "dispatchReservationStateWords", dispatchReservationStates],
+      ["dispatch.capacity-disposition", "dispatchCapacityDispositionWords", dispatchCapacityDispositions],
+      ["wire.dispatch-status", "dispatchDisplayStatusWords", dispatchDisplayStatuses],
+    ] as const
+  ).map(([mirrorOf, anchor, words]) => ({
+    id: `wire.${anchor}`,
+    entity: "DaemonWire" as const,
+    field: "lifecycle",
+    module: "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts",
+    anchor,
+    words,
+    mirrorOf,
+    note: "Generated wire words; runtime and browser decoders do not import the kernel runtime graph.",
+  })),
   {
     id: "wire.dispatch-status",
     entity: "DaemonWire",
     field: "status",
-    module: "packages/daemon/src/protocol/task-dispatch-contract.ts",
-    anchor: "#status",
-    words: ["running", "succeeded", "failed", "unknown", "cancelled", "stopped", "blocked", "lost"],
+    module: "packages/kernel/src/domain/dispatch-lifecycle.ts",
+    anchor: "dispatchDisplayStatuses",
+    words: dispatchDisplayStatuses,
     mirrorOf: "runtime.outcome",
     plusWords: ["running", "blocked", "lost"],
-    note: 'TaskDispatchRow.status is the session outcome plus "running" while a dispatch is in flight.',
+    note: "TaskDispatchRow and session lifecycle receipts serialize the kernel lifecycle display status.",
   },
   {
     id: "runtime.transcript-reachability",

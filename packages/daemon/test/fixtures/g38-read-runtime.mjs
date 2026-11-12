@@ -18,7 +18,6 @@ import { dispatchRead } from "../../src/repo-cell-command.ts";
 import { requiredCellText } from "../../src/repo-cell-settlement.ts";
 import { cellCodedError } from "../../src/repo-cell-errors.ts";
 import { makeAgentRuntimeStreamHub } from "../../src/agent-runtime-stream.ts";
-import { readObservedRuntimeSession } from "../../src/agent-runtime-read.ts";
 import { repositoryRuntimeReads } from "../../src/repository-runtime-reads.ts";
 
 export async function createReadFixtureRuntime({ projection, store, rootDir }, now) {
@@ -75,7 +74,7 @@ export async function createReadFixtureRuntime({ projection, store, rootDir }, n
     },
   };
   const runtimeStream = makeAgentRuntimeStreamHub({
-    readSession: (id) => readObservedRuntimeSession(projection, rootDir, id),
+    readSession: (id) => projection.readRuntimeSession(id),
     canAttach: (session) => {
       // A known live fixture worker supplies the process grant; both metadata reads stay real.
       if (session.liveness === "exited") return false;
@@ -99,7 +98,7 @@ export async function createReadFixtureRuntime({ projection, store, rootDir }, n
     now,
     settings,
     runtimeStream,
-    runtimeReads: repositoryRuntimeReads(projection, store, now, rootDir, false),
+    runtimeReads: repositoryRuntimeReads(projection, store, now, rootDir),
     dispatchRead,
     requiredCellText,
     cellCodedError,

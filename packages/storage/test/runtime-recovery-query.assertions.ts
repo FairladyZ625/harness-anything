@@ -92,13 +92,12 @@ export function assertRecoveryQueryContract(queries: TaskProjectionQueries): voi
   ]);
   assert.deepEqual(ids({ runtimeSessionId: "recovery-query-c", executionOwnerNodeId: "node-query-b" }), []);
   assert.deepEqual(ids({ runtimeSessionId: "recovery-query-c", unsettledOnly: true }), []);
-  assert.deepEqual(ids({ runtimeSessionId: "recovery-query-b", nonExitedOnly: true }), []);
-  assert.deepEqual(ids({ runtimeSessionId: "recovery-query-c", nonExitedOnly: true }), ["recovery-query-c"]);
-  assert.deepEqual(ids({ executionOwnerNodeId: "node-query-a", nonExitedOnly: true }), [
-    "recovery-query-a",
-    "recovery-query-c",
-  ]);
-  assert.deepEqual(ids({ executionOwnerNodeId: "node-query-b", nonExitedOnly: true }), []);
+  // The deprecated nonExitedOnly query now means the center lifecycle active set:
+  // accepted exit without outcome remains pending; an accepted terminal outcome closes the group.
+  assert.deepEqual(ids({ runtimeSessionId: "recovery-query-b", nonExitedOnly: true }), ["recovery-query-b"]);
+  assert.deepEqual(ids({ runtimeSessionId: "recovery-query-c", nonExitedOnly: true }), []);
+  assert.deepEqual(ids({ executionOwnerNodeId: "node-query-a", nonExitedOnly: true }), ["recovery-query-a"]);
+  assert.deepEqual(ids({ executionOwnerNodeId: "node-query-b", nonExitedOnly: true }), ["recovery-query-b"]);
   assert.deepEqual(ids({ runtimeSessionId: "recovery-query-a", observedAfter: "2025-11-05T00:00:00.001Z" }), []);
   assert.deepEqual(ids({ runtimeSessionId: "recovery-query-c", observedBefore: "2025-11-04T23:59:59.999Z" }), []);
   assert.deepEqual(

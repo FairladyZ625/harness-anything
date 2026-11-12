@@ -1,8 +1,9 @@
 // harness-test-tier: fast
+import { lifecycleSummaryFor } from "./dispatch-lifecycle-read.fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentRuntimeSessionResult } from "../src/agent-runtime-contract.ts";
-import { taskDispatchRowSettled, taskDispatchRowsSettled } from "../src/dispatch-read.ts";
+import { taskDispatchRowsSettled } from "../src/dispatch-read.ts";
 import type { DaemonTaskDispatchesResult, TaskDispatchRow } from "../src/protocol/daemon-protocol.contract.ts";
 import { orchestrateRuntimeSessionsAwait, type RuntimeAwaitContext } from "../src/runtime-orchestration.ts";
 
@@ -29,6 +30,13 @@ function sessionResult(
 
 function dispatchRow(overrides: Partial<TaskDispatchRow>): TaskDispatchRow {
   return {
+    lifecycle: lifecycleSummaryFor({
+      runtimeSessionId: "session",
+      dispatchId: overrides.dispatchId ?? "dispatch-1",
+      attemptSettled: overrides.outcome !== undefined && overrides.outcome !== null,
+      outcome: overrides.outcome ?? null,
+      process: overrides.status === "running" ? "alive" : undefined,
+    }),
     dispatchId: "dispatch-1",
     taskId: "task-1",
     status: "running",
@@ -221,7 +229,7 @@ test("sessions.await preserves stopped as a terminal verdict without reporting s
     assert.equal(signals.waits, 0);
   }
   for (const status of ["stopped", "blocked"] as const) {
-    assert.equal(taskDispatchRowSettled(dispatchRow({ status, outcome: "stopped" }), ["dispatch-1"]), true);
+    assert.equal(taskDispatchRowsSettled([dispatchRow({ status, outcome: "stopped" })]), true);
   }
 });
 
@@ -264,83 +272,25 @@ test("sessions.await on taskIds keeps waiting while the projection reports pendi
   assert.equal(receipt.outcome, "succeeded");
 });
 
-test("taskDispatchRowSettled honours fallback chains and the unknown-outcome grace", () => {
-  const running = dispatchRow({ status: "running" }),
-    scheduled = dispatchRow({ fallbackState: "scheduled" }),
-    dispatchedTo = dispatchRow({
-      status: "failed",
+test("dispatch awaits use the group policy and ignore obsolete fallback markers", () => {
+  const waiting = lifecycleSummaryFor({
+      runtimeSessionId: "session",
+      dispatchId: "dispatch-1",
+      attemptSettled: true,
+      groupSettled: false,
       outcome: "failed",
-      fallbackState: "dispatched",
-      nextDispatchId: "dispatch-2",
     }),
-    dispatchedAway = dispatchRow({
-      status: "failed",
+    exhausted = lifecycleSummaryFor({
+      runtimeSessionId: "session",
+      dispatchId: "dispatch-1",
+      attemptSettled: true,
       outcome: "failed",
-      fallbackState: "dispatched",
-      nextDispatchId: "dispatch-elsewhere",
-    }),
-    scheduledProviderFailure = dispatchRow({
-      status: "failed",
-      outcome: "failed",
-      fallbackState: "scheduled",
-      classification: "provider_fault",
-    }),
-    failedFallbackLaunch = dispatchRow({
-      status: "failed",
-      outcome: "failed",
-      fallbackState: "dispatched",
-      nextDispatchId: "dispatch-missing",
-      reason: "Provider process disconnected before completing the attempt.",
-      classification: "provider_fault",
-    }),
-    failedNonProvider = dispatchRow({
-      status: "failed",
-      outcome: "failed",
-      fallbackState: "dispatched",
-      nextDispatchId: "dispatch-missing",
-      classification: "gate_red",
-    }),
-    exhausted = dispatchRow({ fallbackState: "exhausted", status: "failed", outcome: "failed" }),
-    justExited = dispatchRow({ status: "unknown", outcome: null }),
-    unknownTerminal = dispatchRow({ status: "unknown", outcome: "unknown" }),
-    succeeded = dispatchRow({ status: "succeeded", outcome: "succeeded" });
-  const ids = ["dispatch-1", "dispatch-2"];
-  assert.equal(taskDispatchRowSettled(running, ids), false);
-  assert.equal(taskDispatchRowSettled(scheduled, ids), false);
+    });
+  assert.equal(taskDispatchRowsSettled([dispatchRow({ lifecycle: waiting, fallbackState: "exhausted" })]), false);
+  assert.equal(taskDispatchRowsSettled([dispatchRow({ lifecycle: exhausted, fallbackState: "scheduled" })]), true);
   assert.equal(
-    taskDispatchRowSettled(dispatchedTo, ids),
-    true,
-    "a dispatched row is terminal once its successor row is projected",
-  );
-  assert.equal(taskDispatchRowSettled(dispatchedAway, ids), false);
-  assert.equal(
-    taskDispatchRowSettled(scheduledProviderFailure, ids),
+    taskDispatchRowsSettled([dispatchRow({ lifecycle: exhausted }), dispatchRow({ lifecycle: waiting })]),
     false,
-    "a scheduled provider failure may still have a live fallback waiting for its backoff",
-  );
-  assert.equal(
-    taskDispatchRowSettled(failedFallbackLaunch, ids),
-    true,
-    "a failed predecessor with no projected successor is terminal",
-  );
-  assert.equal(
-    taskDispatchRowSettled(failedNonProvider, ids),
-    false,
-    "non-provider failures still await their successor",
-  );
-  assert.equal(taskDispatchRowSettled(exhausted, ids), true);
-  assert.equal(taskDispatchRowSettled(justExited, ids), false, "status=unknown without outcome is still projecting");
-  assert.equal(taskDispatchRowSettled(unknownTerminal, ids), true);
-  assert.equal(taskDispatchRowSettled(succeeded, ids), true);
-  assert.equal(taskDispatchRowsSettled([succeeded, unknownTerminal]), true);
-  assert.equal(taskDispatchRowsSettled([succeeded, running]), false);
-  assert.equal(
-    taskDispatchRowsSettled([
-      dispatchedTo,
-      dispatchRow({ dispatchId: "dispatch-2", status: "running", outcome: null }),
-    ]),
-    false,
-    "a queued or running fallback successor still blocks settlement",
   );
 });
 

@@ -138,11 +138,13 @@ test(
       await until(() => existsSync(ready));
       const live = await cell.attach(runtimeSessionId, "stream:0");
       assert.equal(live.initial.ok, true);
-      live.detach();
       let returned = false;
       const wait = cell.awaitRuntimeOutcome(runtimeSessionId).then(() => {
         returned = true;
       });
+      // The original promise is still awaited below; observe cleanup rejection so a
+      // primary assertion cannot be replaced by an unhandled waiter after cell.close().
+      void wait.catch(() => undefined);
       assert.equal(returned, false);
       revokeTestPolicyGroup("proxy-owner", "admin");
       writeFileSync(release, "exit");
@@ -152,6 +154,12 @@ test(
       assert.equal(stream.process?.exitCode, 0);
       assert.equal(stream.terminalOutcome?.payload.outcome, "failed");
       assert.match(stream.terminalOutcome!.body, /Runtime archive publication failed:/);
+      // The process stream crosses IPC independently of the local archive file. Observe
+      // its public EOF, rather than treating a filesystem marker as the host stream cut.
+      let frame = await live.next();
+      while (frame !== null && frame.type !== "exit") frame = await live.next();
+      assert.equal(frame?.type, "exit", "a denied publication must still end the physical stream");
+      live.detach();
       const stopped = await cell.attach(runtimeSessionId, "stream:0");
       stopped.detach();
       assert.equal(stopped.initial.ok, false);

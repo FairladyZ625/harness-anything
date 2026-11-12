@@ -1,3 +1,11 @@
+import type { DispatchLifecycleSummary } from "@harness-anything/kernel";
+import {
+  dispatchAttemptPhaseWords,
+  dispatchGroupPhaseWords,
+  dispatchReservationStateWords,
+  dispatchCapacityDispositionWords,
+  dispatchDisplayStatusWords,
+} from "./daemon-protocol-vocabulary.ts";
 import {
   statusWord,
   stringArray,
@@ -191,7 +199,7 @@ const dispatchAttemptRequired = [
     "fallbackState",
     "nextDispatchId",
   ] as const,
-  dispatchAttemptOptional = ["resume", "faultClass", "resetAt", "nextAction"] as const;
+  dispatchAttemptOptional = ["resume", "faultClass", "resetAt", "nextAction", "lifecycle"] as const;
 
 export function validTaskDispatchAttempt(value: unknown): value is TaskDispatchAttempt {
   return (
@@ -303,7 +311,9 @@ function validTaskDispatchAttemptValues(value: Record<string, unknown>): boolean
     (value.faultClass === undefined || ["quota_exhausted", "rate_limited"].includes(String(value.faultClass))) &&
     (value.resetAt === undefined || (typeof value.resetAt === "string" && !Number.isNaN(Date.parse(value.resetAt)))) &&
     (value.nextAction === undefined || dispatchText(value.nextAction)) &&
-    (value.fallbackState === null || ["scheduled", "dispatched", "exhausted"].includes(String(value.fallbackState))) &&
+    // Previous-version decode only, removed 2026-12-07. Never drives business state.
+    [null, "scheduled", "dispatched", "exhausted"].includes(value.fallbackState as never) &&
+    (value.lifecycle === undefined || validDispatchLifecycleSummary(value.lifecycle)) &&
     (value.nextDispatchId === null || dispatchText(value.nextDispatchId))
   );
 }
@@ -455,5 +465,42 @@ function validTaskDispatchDecisionAction(value: unknown): boolean {
         Number(value.budget.used) >= 0 &&
         Number(value.budget.limit) >= 0 &&
         ["task", "repository", "daemon"].includes(String(value.budget.source))))
+  );
+}
+
+/** Wire validation only: all judgments are produced by the kernel lifecycle read port. */
+export function validDispatchLifecycleSummary(value: unknown): value is DispatchLifecycleSummary {
+  if (!isJsonObject(value)) return false;
+  const { policy } = value;
+  return (
+    ["ready", "pending"].includes(String(value.status)) &&
+    [value.watermark, value.sourceRevision].every((n) => Number.isSafeInteger(n) && Number(n) >= 0) &&
+    [value.dispatchId, value.nextDispatchId].every((id) => id === null || typeof id === "string") &&
+    (value.groupPhase === null || (dispatchGroupPhaseWords as readonly unknown[]).includes(value.groupPhase)) &&
+    (value.attemptPhase === null || (dispatchAttemptPhaseWords as readonly unknown[]).includes(value.attemptPhase)) &&
+    [null, "succeeded", "failed", "cancelled", "stopped", "unknown"].includes(value.outcome as never) &&
+    (dispatchDisplayStatusWords as readonly unknown[]).includes(value.displayStatus) &&
+    (policy === null ||
+      (isJsonObject(policy) &&
+        [
+          "attemptSettled",
+          "groupSettled",
+          "consentBlocked",
+          "fallbackPending",
+          "successorAdmissible",
+          "canResolveRuling",
+          "canRecover",
+          "canSteer",
+          "canAdoptProcess",
+          "canHandoff",
+          "canWrite",
+          "canPublish",
+          "ownsWorkspace",
+        ].every((key) => typeof policy[key] === "boolean") &&
+        (dispatchReservationStateWords as readonly unknown[]).includes(policy.capacity) &&
+        (dispatchCapacityDispositionWords as readonly unknown[]).includes(policy.capacityDisposition) &&
+        [null, "runtime_recovery_pending", "dispatch_owner_unverified", "runtime_capacity_exhausted"].includes(
+          policy.blockerCode as never,
+        )))
   );
 }

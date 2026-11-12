@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { lifecycleFixture } from "./lifecycle.fixtures.ts";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -366,19 +367,23 @@ describe("agent runtime renderer", () => {
     });
     expect(markup).toContain("Missing exit code and result artifact");
   });
-  it("renders live, stale, unknown, and exited as distinct session states", () => {
-    for (const state of ["live", "stale", "unknown", "exited"] as const)
-      expect(detailView({ session: { ...session, liveness: state } })).toContain(`>${state}<`);
+  it("renders the center lifecycle phase independently of historical liveness", () => {
+    for (const liveness of ["live", "stale", "unknown", "exited"] as const)
+      expect(detailView({ session: { ...session, liveness, lifecycle: lifecycleFixture("stopped") } })).toContain(
+        "closed",
+      );
   });
   it("shows the session result text once the daemon projects one, and drops the block when it has not", () => {
     expect(detailView({ result: "Provider final report text." })).toContain("Provider final report text.");
     expect(detailView()).not.toContain("Output / result");
   });
   it("shows the cancel control only while a session is live", () => {
-    expect(detailView({ session: { ...session, liveness: "live" } })).toContain('data-testid="agent-runtime-cancel"');
-    expect(detailView({ session: { ...session, liveness: "exited" } })).not.toContain(
+    expect(detailView({ session: { ...session, liveness: "unknown", lifecycle: lifecycleFixture() } })).toContain(
       'data-testid="agent-runtime-cancel"',
     );
+    expect(
+      detailView({ session: { ...session, liveness: "live", lifecycle: lifecycleFixture("stopped") } }),
+    ).not.toContain('data-testid="agent-runtime-cancel"');
   });
   it("contains no renderer repo read, private WebSocket, or polling path", async () => {
     const { readFile } = await import("node:fs/promises"),

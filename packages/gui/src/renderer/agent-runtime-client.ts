@@ -16,13 +16,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import { readUseCaseProjection } from "./use-case-projection-client.ts";
 import { invoke } from "./api-client-invoke.ts";
-import {
-  applyLifecycleEventsToSession,
-  applyLifecycleEventsToSessionGroups,
-  sessionEventTimeline,
-  type SessionEventTimeline,
-  type SessionLifecycleEvent,
-} from "./sessions-model.ts";
+import { sessionEventTimeline, type SessionEventTimeline } from "./sessions-model.ts";
 
 type RepoScope = { readonly repoId: string };
 /** The `runtime-session-groups` projection selector: grouping, range and text query are daemon-side. */
@@ -222,72 +216,16 @@ export async function pollSessionEventsOnce(
   if (cached !== undefined && page.cursor === cached.cursor && page.events.length === 0) return cached;
   const merged = mergeAgentRuntimeEventPages(cached, page);
   queryClient.setQueryData(key, merged);
-  patchSessionCaches(queryClient, repoId, page.events);
+  if (page.events.length > 0)
+    await Promise.all(
+      [
+        runtimeQueryKeys.sessionAll(repoId),
+        runtimeQueryKeys.overviewAll(repoId),
+        runtimeQueryKeys.sessionGroupsAll(repoId),
+        runtimeQueryKeys.dispatchesAll(repoId),
+      ].map((queryKey) => queryClient.invalidateQueries({ queryKey })),
+    );
   return merged;
-}
-
-/** 就地补丁依赖该会话的读缓存:只改命中对象,未命中的缓存保持原引用。 */
-function patchSessionCaches(queryClient: QueryClient, repoId: string, events: readonly SessionLifecycleEvent[]): void {
-  if (events.length === 0) return;
-  const sessionKey = runtimeQueryKeys.session(repoId, events[0]!.runtimeSessionId),
-    cachedSession = queryClient.getQueryData<AgentRuntimeSessionResult>(sessionKey);
-  if (cachedSession !== undefined)
-    queryClient.setQueryData(sessionKey, {
-      ...cachedSession,
-      session: applyLifecycleEventsToSession(cachedSession.session, events),
-    });
-  const overviewAllKey = runtimeQueryKeys.overviewAll(repoId),
-    cachedOverview = queryClient.getQueryData<AgentRuntimeOverviewResult>(overviewAllKey);
-  if (cachedOverview !== undefined) {
-    const sessions = applyLifecycleEventsToSessionList(cachedOverview.sessions, events);
-    if (sessions !== cachedOverview.sessions) queryClient.setQueryData(overviewAllKey, { ...cachedOverview, sessions });
-    for (const taskId of taskIdsOfPatchedSessions(cachedOverview.sessions, events))
-      patchTaskOverview(queryClient, repoId, taskId, events);
-  }
-  const groupsKey = runtimeQueryKeys.sessionGroupsAll(repoId),
-    cachedGroups = queryClient.getQueryData<AgentRuntimeSessionGroupsResult>(groupsKey);
-  if (cachedGroups !== undefined) {
-    const groups = applyLifecycleEventsToSessionGroups(cachedGroups.groups, events);
-    if (groups !== cachedGroups.groups) queryClient.setQueryData(groupsKey, { ...cachedGroups, groups });
-  }
-}
-
-function applyLifecycleEventsToSessionList(
-  sessions: AgentRuntimeOverviewResult["sessions"],
-  events: readonly SessionLifecycleEvent[],
-): AgentRuntimeOverviewResult["sessions"] {
-  let changed = false;
-  const next = sessions.map((session) => {
-    const patched = applyLifecycleEventsToSession(session, events);
-    changed ||= patched !== session;
-    return patched;
-  });
-  return changed ? next : sessions;
-}
-
-function taskIdsOfPatchedSessions(
-  sessions: AgentRuntimeOverviewResult["sessions"],
-  events: readonly SessionLifecycleEvent[],
-): readonly string[] {
-  const touched = new Set(events.map((event) => event.runtimeSessionId)),
-    taskIds = new Set<string>();
-  for (const session of sessions)
-    if (touched.has(session.runtimeSessionId))
-      for (const association of session.associations) taskIds.add(association.taskId);
-  return [...taskIds];
-}
-
-function patchTaskOverview(
-  queryClient: QueryClient,
-  repoId: string,
-  taskId: string,
-  events: readonly SessionLifecycleEvent[],
-): void {
-  const key = runtimeQueryKeys.overview(repoId, taskId),
-    cached = queryClient.getQueryData<AgentRuntimeOverviewResult>(key);
-  if (cached === undefined) return;
-  const sessions = applyLifecycleEventsToSessionList(cached.sessions, events);
-  if (sessions !== cached.sessions) queryClient.setQueryData(key, { ...cached, sessions });
 }
 
 /** 从缓存中的增量事件流读注意力时间线(无缓存返回空时间线,不虚构)。 */

@@ -293,17 +293,39 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
           }),
         };
       }),
-    readRuntimeDispatchPage: ({ startedAtGte, cursor, limit }) =>
+    readRuntimeDispatchPage: ({ taskIds, startedAtGte, cursor, limit }) =>
       transaction(async (client) => {
         if (!validateStorageReadWindow(limit, storageReadPolicy.defaultValue.pageSizes.standard))
           throw new Error("runtime dispatch page requires a limit from 1 to 500");
-        const rows = await readDispatchRows(
-          client,
-          "dispatch_started_at>=$6 AND (dispatch_started_at,dispatch_id)>($7::text,$8::text)",
-          [startedAtGte, cursor?.startedAt ?? "", cursor?.dispatchId ?? ""],
-          "dispatch_started_at, dispatch_id",
-          limit + 1,
-        );
+        const rows =
+          taskIds === undefined
+            ? await readDispatchRows(
+                client,
+                "dispatch_started_at>=$6 AND (dispatch_started_at,dispatch_id)>($7::text,$8::text)",
+                [startedAtGte, cursor?.startedAt ?? "", cursor?.dispatchId ?? ""],
+                "dispatch_started_at, dispatch_id",
+                limit + 1,
+              )
+            : (
+                await Promise.all(
+                  taskIds.map((taskId) =>
+                    readDispatchRows(
+                      client,
+                      "payload_task_id=$6 AND COALESCE(dispatch_started_at,occurred_at)>=$9 AND (COALESCE(dispatch_started_at,occurred_at),dispatch_id)>($7::text,$8::text)",
+                      [taskId, cursor?.startedAt ?? "", cursor?.dispatchId ?? "", startedAtGte],
+                      "COALESCE(dispatch_started_at,occurred_at),dispatch_id",
+                      limit + 1,
+                    ),
+                  ),
+                )
+              )
+                .flat()
+                .sort(
+                  (a, b) =>
+                    (a.payload.startedAt ?? a.occurredAt).localeCompare(b.payload.startedAt ?? b.occurredAt) ||
+                    a.payload.dispatchId.localeCompare(b.payload.dispatchId),
+                )
+                .slice(0, limit + 1);
         const selected = rows.slice(0, limit),
           last = selected.at(-1),
           done = rows.length <= limit;
@@ -311,7 +333,9 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
           rows: await Promise.all(selected.map((event) => projected(client, event))),
           done,
           nextCursor:
-            !done && last ? { startedAt: last.payload.startedAt!, dispatchId: last.payload.dispatchId } : null,
+            !done && last
+              ? { startedAt: last.payload.startedAt ?? last.occurredAt, dispatchId: last.payload.dispatchId }
+              : null,
         };
       }),
   };

@@ -16,12 +16,13 @@ import { makeAgentRuntimeReadModel } from "../src/agent-runtime-read.ts";
 import { readEdgeRuntimeSessions } from "../src/fleet-edge-runtime.ts";
 import { validateAgentRuntimeOverview } from "../src/agent-runtime-contract.ts";
 import { readTaskDispatches } from "../src/dispatch-read.ts";
+import { withLocalDispatchStreamEvidence } from "../src/dispatch-activity-read.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream, readDispatchStreamSummary } from "../src/dispatch-stream.ts";
 import { noteProviderProgress, noteProviderReconnect } from "../src/runtime-provider-connectivity.ts";
 import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
 import { isStructuredSuccessResult, parseProviderFrame } from "../src/runtime-spawn-provider-frames.ts";
 import { consumeProviderLine } from "../src/runtime-spawn-provider-stream.ts";
-import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
+import { lifecycleReadFor, lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
 
@@ -104,6 +105,7 @@ function projection(startedAt: string, providerUnreachable: RuntimeProviderUnrea
     event = dispatchEvent(startedAt),
     installationRow = installation(startedAt);
   return {
+    readDispatchLifecycle: lifecycleReadForSync([{ runtimeSessionId, dispatchId, process: "alive" }]),
     readCut: () => ({ status: "ready", watermark: 1, sourceRevision: 1 }),
     readTaskIndex(this: TaskProjection, query: { readonly taskIds?: readonly string[] } = {}) {
       return {
@@ -147,6 +149,14 @@ function projection(startedAt: string, providerUnreachable: RuntimeProviderUnrea
     readCanonicalEvents: () => ({ events: [] }),
     readEventWitness: () => null,
   } as unknown as TaskProjection;
+}
+
+/** The executing-node activity surface joins its stream onto a canonical lifecycle row. */
+function localDispatchActivity(rootDir: string, startedAt: string, nowMs: number) {
+  return withLocalDispatchStreamEvidence(readTaskDispatches({ projection: projection(startedAt), taskId }).dispatches, {
+    rootDir,
+    nowMs,
+  })[0]!;
 }
 
 test("provider reconnect frames surface as stalled, keep last progress and the raw error, and clear on recovery", (t) => {
@@ -201,10 +211,14 @@ test("provider reconnect frames surface as stalled, keep last progress and the r
       lastError: reconnectError,
     };
     assert.equal(overview.sessions[0]?.liveness, "live");
-    assert.deepEqual(overview.sessions[0]?.activity.providerUnreachable, unreachable);
+    assert.equal(
+      overview.sessions[0]?.activity.providerUnreachable,
+      undefined,
+      "the center never infers connectivity from a local stream",
+    );
     assert.deepEqual(validateAgentRuntimeOverview(overview), []);
 
-    const dispatch = readTaskDispatches({ projection: projection(startedAt), taskId, rootDir }).dispatches[0]!;
+    const dispatch = localDispatchActivity(rootDir, startedAt, now + 1_000);
     assert.equal(dispatch.activityStatus, "stalled");
     assert.equal(dispatch.activityObservedAt, progressAt);
     assert.deepEqual(dispatch.providerUnreachable, unreachable);
@@ -217,10 +231,7 @@ test("provider reconnect frames surface as stalled, keep last progress and the r
       event: { type: "item.completed", item: { type: "agent_message", text: "resumed" } },
     });
     assert.equal(reads().overview({}).sessions[0]?.activity.providerUnreachable, undefined);
-    assert.equal(
-      readTaskDispatches({ projection: projection(startedAt), taskId, rootDir }).dispatches[0]?.activityStatus,
-      "thinking",
-    );
+    assert.equal(localDispatchActivity(rootDir, startedAt, now + 1_000).activityStatus, "thinking");
   } finally {
     fs.rmSync(rootDir, { recursive: true, force: true });
   }
@@ -276,17 +287,11 @@ test("bounded summary keeps the exact last real progress when reconnect frames o
     const summary = readDispatchStreamSummary(rootDir, dispatchId)!;
     assert.equal(summary.lastProgressAt, recentProgressAt);
 
-    const reads = (at: number) =>
-      makeAgentRuntimeReadModel({
-        store: { readContentBlob: () => null },
-        projection: projection(startedAt),
-        rootDir,
-        now: () => new Date(at).toISOString(),
-      });
+    const reads = (at: number) => localDispatchActivity(rootDir, startedAt, at);
     // The true stall is one minute: the classification must not fire merely because the progress
     // record fell outside the tail window.
-    assert.equal(reads(now).overview({}).sessions[0]?.activity.providerUnreachable, undefined);
-    assert.deepEqual(reads(now + 5 * 60_000).overview({}).sessions[0]?.activity.providerUnreachable, {
+    assert.equal(reads(now).providerUnreachable, undefined);
+    assert.deepEqual(reads(now + 5 * 60_000).providerUnreachable, {
       state: "provider_unreachable",
       lastProgressAt: recentProgressAt,
       lastErrorAt: lastReconnectAt,
@@ -342,13 +347,7 @@ test("legacy reconnect tails without a progress stamp use a conservative bound a
     }
     const summary = readDispatchStreamSummary(rootDir, dispatchId)!;
     assert.ok(Date.parse(summary.lastProgressAt) >= Date.parse(recentProgressAt));
-    const overview = makeAgentRuntimeReadModel({
-      store: { readContentBlob: () => null },
-      projection: projection(startedAt),
-      rootDir,
-      now: () => new Date(now).toISOString(),
-    }).overview({});
-    assert.equal(overview.sessions[0]?.activity.providerUnreachable, undefined);
+    assert.equal(localDispatchActivity(rootDir, startedAt, now).providerUnreachable, undefined);
   } finally {
     fs.rmSync(rootDir, { recursive: true, force: true });
   }
@@ -752,16 +751,10 @@ test("an old head marker does not mask a newer tail progress stamp", (t) => {
     const summary = readDispatchStreamSummary(rootDir, dispatchId)!;
     assert.equal(summary.lastProgressAt, newerProgressAt);
 
-    const reads = (at: number) =>
-      makeAgentRuntimeReadModel({
-        store: { readContentBlob: () => null },
-        projection: projection(startedAt),
-        rootDir,
-        now: () => new Date(at).toISOString(),
-      });
+    const reads = (at: number) => localDispatchActivity(rootDir, startedAt, at);
     // P2 is only two minutes old: the old P1 marker must not trigger the classification.
-    assert.equal(reads(now).overview({}).sessions[0]?.activity.providerUnreachable, undefined);
-    assert.deepEqual(reads(now + 4 * 60_000).overview({}).sessions[0]?.activity.providerUnreachable, {
+    assert.equal(reads(now).providerUnreachable, undefined);
+    assert.deepEqual(reads(now + 4 * 60_000).providerUnreachable, {
       state: "provider_unreachable",
       lastProgressAt: newerProgressAt,
       lastErrorAt: new Date(now - 90_000 + 19 * 1_000).toISOString(),

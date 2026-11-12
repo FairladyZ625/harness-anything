@@ -1,15 +1,5 @@
 import type * as DomainStatus from "../../api/renderer-dto.ts";
-/**
- * 会话详情「先给做成了什么」的纯派生(task_6bc70402):结局裁决、耗时、产出清单。
- *
- * 三个量各有唯一来源,不在视图里再猜:
- * - 结局:daemon 的 `settlement`(终局裁决)优先;没有 settlement 时退回会话读面的
- *   `semanticState`/`activity.outcome`;仍在跑(live)就没有结局词。
- * - 耗时:起止都取台账时间(派工行 startedAt/endedAt);缺一端不编造,返回 null。
- * - 产出:提交 sha 与交付文件来自任务投影的执行记录(`submission`),结果报告来自派工行的
- *   `reportPath`(daemon 只在文档真实存在时才给该字段)。PR 号没有读面来源
- *   (`repo.works.briefs.read` 的 pullRequests 依赖 ciRuns,daemon 当前未传),这里不造。
- */
+/** Session presentation: lifecycle verdict, ledger duration, and accepted submission outputs. */
 import type { AgentRuntimeSessionResult } from "@harness-anything/daemon/protocol";
 import type { TaskDispatchProjectionRow, TaskSnapshotProjectionRow } from "../../api/renderer-dto.ts";
 import { epochMsOf } from "../sessions-model.ts";
@@ -20,31 +10,18 @@ export type SessionSettlement = NonNullable<AgentRuntimeSessionResult["settlemen
 /** 首屏结局词:成功 / 失败 / 取消 / 停手 / 无法判定 / 无法确认 / 运行中。 */
 export type SessionVerdict = DomainStatus.SessionVerdict;
 
-/**
- * 结局的唯一判定:settlement 是 daemon 的终局裁决,先认它;没有再按语义状态/结局词退。
- * live 会话无论有没有旧结局都算「运行中」——正在发生的会话不该被上一轮结局抢先命名。
- */
+/** Render the kernel lifecycle verdict. Missing or pending receipts never claim running. */
 export function sessionVerdict(input: {
-  readonly liveness: string;
-  readonly semanticState?: string;
-  readonly outcome?: string | null;
-  readonly settlement: Pick<SessionSettlement, "outcome"> | null | undefined;
+  readonly lifecycle: import("@harness-anything/daemon/protocol").AgentRuntimeSessionDto["lifecycle"];
 }): SessionVerdict {
-  if (input.liveness === "live") return "running";
-  const word = input.settlement?.outcome ?? input.semanticState ?? input.outcome ?? null;
-  switch (word) {
+  const status = input.lifecycle?.displayStatus;
+  switch (status) {
+    case "running":
     case "succeeded":
     case "failed":
     case "cancelled":
     case "stopped":
-      return word;
-    case "unknown":
-      return "unknown";
-    // 语义状态里的这两个词都是「结束了但结论不成立」:ended-indeterminate 有退出但判不出结果,
-    // unavailable 连结局证据都没有。首屏都按「无法确认」说,细节留给缺证据行。
-    case "ended-indeterminate":
-    case "unavailable":
-      return "indeterminate";
+      return status;
     default:
       return "unknown";
   }

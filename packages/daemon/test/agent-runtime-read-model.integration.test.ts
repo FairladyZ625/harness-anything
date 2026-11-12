@@ -16,12 +16,8 @@ import {
   type FrozenWritePlan,
   type RuntimeSession,
 } from "@harness-anything/kernel";
-import { makeAgentRuntimeReadModel, sessionWithActivityEvidence } from "../src/agent-runtime-read.ts";
-import {
-  readRuntimeSessionActivityEvidence,
-  readSessionGroupDispatches,
-  readTaskDispatches,
-} from "../src/dispatch-read.ts";
+import { makeAgentRuntimeReadModel } from "../src/agent-runtime-read.ts";
+import { readSessionGroupDispatches, readTaskDispatches } from "../src/dispatch-read.ts";
 import { validateAgentRuntimeOverview } from "../src/agent-runtime-contract.ts";
 import { makeAgentRuntimeStreamHub } from "../src/agent-runtime-stream.ts";
 import { readFleetRuntimeSessionsPaged } from "../src/fleet-edge-runtime.ts";
@@ -47,7 +43,7 @@ import type { DaemonHost } from "../src/daemon-host.ts";
 import { parseProviderFrame } from "../src/runtime-spawn-provider-frames.ts";
 import { consumeProviderLine } from "../src/runtime-spawn-provider-stream.ts";
 import { validateAgentRuntimeSession } from "../src/agent-runtime-contract.ts";
-import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
+import { appendRuntimeWorkerRecord, openDispatchStream, readDispatchStreamSummary } from "../src/dispatch-stream.ts";
 
 const actor = { principal: { personId: "person-runtime" }, executor: null } as const;
 test("runtime read facets expose safe overview/session/events through the shared contract registry", () =>
@@ -141,7 +137,7 @@ test("historical runtime sessions with no snapshot event degrade without failing
     assert.deepEqual(validateAgentRuntimeOverview(overview), []);
   }));
 
-test("runtime status reports unknown without local process evidence, for local and remote owners", (t) =>
+test("runtime lifecycle ignores local process evidence for local and remote owners", (t) =>
   withRuntime(({ rootDir, store, projection }) => {
     const dispatchId = "dispatch_abcdefabcdefabcdefabcdef",
       projectionForDispatch = (source?: { readonly kind: "node"; readonly nodeId: string }) =>
@@ -172,8 +168,12 @@ test("runtime status reports unknown without local process evidence, for local a
         projection: projectionForDispatch({ kind: "node", nodeId: "another-edge" }),
         rootDir,
       });
-    assert.equal(localReads.overview({}).sessions[0]?.liveness, "unknown");
-    assert.equal(remoteReads.session({ runtimeSessionId: "runtime-session" }).session.liveness, "unknown");
+    const lifecycle = localReads.overview({}).sessions[0]?.lifecycle;
+    assert.equal(lifecycle?.displayStatus, "running");
+    assert.equal(
+      remoteReads.session({ runtimeSessionId: "runtime-session" }).session.lifecycle?.displayStatus,
+      "running",
+    );
 
     openDispatchStream(rootDir, {
       dispatchId,
@@ -186,14 +186,15 @@ test("runtime status reports unknown without local process evidence, for local a
     const worker = fixtureRuntimeProcess(t);
     appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: worker.pid });
     assert.equal(
-      readRuntimeSessionActivityEvidence(rootDir, dispatchId)?.workerHostAlive,
-      true,
+      readDispatchStreamSummary(rootDir, dispatchId)?.process?.pid,
+      worker.pid,
       "the fixture must contain live process evidence",
     );
     assert.equal(localReads.overview({}).sessions[0]?.liveness, "live");
+    assert.deepEqual(localReads.overview({}).sessions[0]?.lifecycle, lifecycle);
   }));
 
-test("unscoped overview hides exited history and short session ids resolve or list candidates", () =>
+test("unscoped overview includes lifecycle settling while short session ids remain bounded", () =>
   withRuntime(({ store, projection }) => {
     // The shared event() builder stamps seconds from the revision digit, which breaks past 9;
     // this fixture appends past that, so it stamps its own occurredAt.
@@ -267,7 +268,7 @@ test("unscoped overview hides exited history and short session ids resolve or li
         .overview({})
         .sessions.map(({ runtimeSessionId }) => runtimeSessionId)
         .sort(),
-      ["runtime-live-second", "runtime-live-third", "runtime-session"],
+      ["runtime-exited-old", "runtime-live-second", "runtime-live-third", "runtime-session"],
     );
     fullSessionReads = 0;
     // A unique short-id prefix reads that session (git-style).
@@ -363,7 +364,7 @@ test("runtime overview reads one dispatch per session while a single-session rea
     reads.session({ runtimeSessionId: "runtime-session" });
     assert.deepEqual(
       { fullTaskListReads, taskStatusReads, cutReads, singleDispatchReads },
-      { fullTaskListReads: 0, taskStatusReads: 0, cutReads: 2, singleDispatchReads: 2 },
+      { fullTaskListReads: 0, taskStatusReads: 0, cutReads: 1, singleDispatchReads: 2 },
     );
   }));
 
@@ -1014,6 +1015,7 @@ test("runtime overview pages at the server before DTO and dispatch expansion", (
     exactDispatchReads = 0,
     pageQuery: unknown;
   const projection = {
+    readDispatchLifecycle: () => ({ status: "ready", watermark: 1, sourceRevision: 1, rows: [], nextCursor: null }),
     readCut: () => ({ status: "ready", watermark: 1 }),
     readRuntimeSessionPage: (query: { includeRemainingCount?: boolean }) => (
       (pageQuery = query),
@@ -1152,59 +1154,43 @@ test("runtime reads retain a session whose installation witness is missing", (t)
     t.diagnostic(JSON.stringify({ status: overview.status, session }));
   }));
 
-test("an installation-backed session DTO remains byte-for-byte unchanged", () =>
+test("an installation-backed session DTO extends the previous wire shape with a lifecycle receipt", () =>
   withMissingInstallationRuntime(true, ({ reads }) => {
     const session = reads.overview({}).sessions[0]!;
-    assert.equal(
-      JSON.stringify(session),
-      JSON.stringify({
-        runtimeSessionId: "runtime-historical",
-        providerSessionId: null,
-        instanceId: "instance-historical",
-        installationId: "installation-present",
-        kindId: "claude",
-        definitionSnapshotRef: "artifact:runtime-definition/test",
-        definitionSnapshot: historicalDefinition("installation-present"),
-        definitionSnapshotPersisted: true,
-        liveness: "live",
-        semanticState: "running",
-        attachCapability: "unsupported",
-        streamCursor: null,
-        associations: [],
-        activity: {
-          lastObservedAt: "2026-09-03T00:00:03.000Z",
-          outcome: null,
-          exitCode: null,
-          resultRef: null,
-          missingEvidence: null,
-        },
-      }),
-    );
+    assert.deepEqual(session, {
+      lifecycle: session.lifecycle,
+      runtimeSessionId: "runtime-historical",
+      providerSessionId: null,
+      instanceId: "instance-historical",
+      installationId: "installation-present",
+      kindId: "claude",
+      definitionSnapshotRef: "artifact:runtime-definition/test",
+      definitionSnapshot: historicalDefinition("installation-present"),
+      definitionSnapshotPersisted: true,
+      liveness: "live",
+      semanticState: "running",
+      attachCapability: "unsupported",
+      streamCursor: null,
+      associations: [],
+      activity: {
+        lastObservedAt: "2026-09-03T00:00:03.000Z",
+        outcome: null,
+        exitCode: null,
+        resultRef: null,
+        missingEvidence: null,
+      },
+    });
     assert.equal(Object.hasOwn(session, "installationState"), false);
     assert.equal(Object.hasOwn(session, "installationError"), false);
   }));
 
-test("local activity evidence cannot rewrite a public session and missing local proof disables attach", () =>
+test("public session lifecycle does not depend on local process evidence", () =>
   withMissingInstallationRuntime(true, ({ reads, projection }) => {
-    const canonical = projection.readRuntimeSession("runtime-historical")!;
-    const localUnknown = sessionWithActivityEvidence(canonical, undefined);
-    assert.equal(localUnknown.liveness, "unknown");
-    assert.equal(localUnknown.attachable, false);
-    const live = sessionWithActivityEvidence(
-      { ...canonical, liveness: "unknown" },
-      {
-        lastObservedAt: "2026-09-06T01:45:42.460Z",
-        workerHostAlive: true,
-        process: null,
-        terminalOutcome: null,
-        runtimeMetrics: null,
-      },
-    );
-    assert.equal(live.liveness, "live");
-    const publicSession = reads.session({ runtimeSessionId: canonical.runtimeSessionId }).session;
-    assert.equal(publicSession.liveness, canonical.liveness);
-    assert.equal(publicSession.activity.lastObservedAt, canonical.lastObservedAt);
-    assert.equal(publicSession.attachCapability, "unsupported");
+    const canonical = projection.readRuntimeSession("runtime-historical")!,
+      session = reads.session({ runtimeSessionId: canonical.runtimeSessionId }).session;
+    assert.equal(session.lifecycle?.status, "ready");
+    assert.equal(session.activity.lastObservedAt, canonical.lastObservedAt);
+    assert.equal(session.attachCapability, "unsupported");
   }));
 
 test("public runtime overview and detail ignore local provider telemetry and expose accepted outcome metrics", () =>

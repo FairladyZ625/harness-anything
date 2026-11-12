@@ -27,7 +27,7 @@ import { useDecisionProviderCatalog, useDecisionProviderMutations } from "../dec
 
 // Provider 入口(W6 IA 拆分):承运者(Runtime 实例)的完整工作区——目录 rail、
 // 实例卡片(编辑/auth/self-test/权限/删除)与右栏 health。live 计数取 overview 的
-// session liveness(daemon 自己的在跑投影),这一页不读 dispatch 台账。跨页出口:
+// session lifecycle(中心派工投影),这一页不读 dispatch 台账。跨页出口:
 // 兼容 Agent chips → Agent 入口,相关会话 → 会话入口;均为可寻址路由。
 //
 // 功能体是 ProvidersWorkspace(task_48fe291624e06a2e9ad9496c81 起与工作台 Provider

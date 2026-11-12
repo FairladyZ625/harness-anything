@@ -6055,28 +6055,6 @@
         "removalSlice": "S1"
       },
       {
-        "id": "policy:packages/daemon:packages/daemon/src/dispatch-read.ts#taskHasStructuredBlock:5906130bcff2a26e584245f03508d07c",
-        "category": "policy",
-        "path": "packages/daemon/src/dispatch-read.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic policy candidate, semantic ownership to be resolved in S3: policy-shaped condition contains a literal: interval !== leases.at(-1) || interval.releasedRevision === null",
-        "replacementRef": "EntityKindContract.policies",
-        "removalSlice": "S3"
-      },
-      {
-        "id": "policy:packages/daemon:packages/daemon/src/dispatch-read.ts#taskHasStructuredBlock:5de8ac7e4ce2d6a754a56a4c246238bd",
-        "category": "policy",
-        "path": "packages/daemon/src/dispatch-read.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic policy candidate, semantic ownership to be resolved in S3: policy-shaped condition contains a literal: release?.schema === \"task-event/v1\" &&\n        release.type === \"lease_released\" &&\n        release.payload.task.status === \"blocked\" &&\n        release.payload",
-        "replacementRef": "EntityKindContract.policies",
-        "removalSlice": "S3"
-      },
-      {
         "id": "policy:packages/daemon:packages/daemon/src/dispatch-stream-archive.ts#pruneDispatchStreamArchive:829f90656a01b1725598e915545ac02e",
         "category": "policy",
         "path": "packages/daemon/src/dispatch-stream-archive.ts",
@@ -20630,17 +20608,6 @@
         "removalSlice": "S1"
       },
       {
-        "id": "judgment:packages/daemon:packages/daemon/src/task-query-read.ts#hasLiveWorker:2efaf7241c78669ef73c9909f76922f8",
-        "category": "judgment",
-        "path": "packages/daemon/src/task-query-read.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped hasLiveWorker; branches=3; booleanReturns=2",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
         "id": "policy:packages/daemon:packages/daemon/src/task-query-read.ts#unsubmittedDeliveryAttentionRows:f7063f5a94745e5c7a036f2b015da0c4",
         "category": "policy",
         "path": "packages/daemon/src/task-query-read.ts",
@@ -27446,17 +27413,6 @@
         "owner": "packages/kernel",
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Frozen syntactic policy candidate, semantic ownership to be resolved in S3: policy-shaped condition contains a literal: capacityDisposition !== \"recovering\"",
-        "replacementRef": "EntityKindContract.policies",
-        "removalSlice": "S3"
-      },
-      {
-        "id": "policy:packages/kernel:packages/kernel/src/domain/dispatch-lifecycle.ts#dispatchLifecycleView.policy:465efc704e7dd9753f8bd845eb53f911",
-        "category": "policy",
-        "path": "packages/kernel/src/domain/dispatch-lifecycle.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/kernel",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic policy candidate, semantic ownership to be resolved in S3: policy-shaped policy has literal configuration",
         "replacementRef": "EntityKindContract.policies",
         "removalSlice": "S3"
       },

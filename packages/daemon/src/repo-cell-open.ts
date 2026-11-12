@@ -1,4 +1,5 @@
 import { writerLifecyclePolicy } from "@harness-anything/kernel/internal/domain/writer-lifecycle-policy.ts";
+import { readRuntimeCanAttach } from "./agent-runtime-read.ts";
 import { continueReviewRework } from "./task-return-dispatch.ts";
 import { makeRuntimeRecoveryWork } from "./runtime-recovery-work.ts";
 import { localOperatorBinding } from "./daemon-host-binding.ts";
@@ -6,7 +7,6 @@ import { scheduleOccurrenceSettlementOwner } from "./schedule-runtime-outcome.ts
 import { dispatchTaskReview } from "./task-review-dispatch.ts";
 import { reviewDispatchKey } from "./review-dispatch-key.ts";
 import { resolveAgentRuntimeDeclaration } from "./agent-declaration-resolution.ts";
-import { readObservedRuntimeSession } from "./agent-runtime-read.ts";
 import { createEntityStore, makeTaskEventStore } from "@harness-anything/storage";
 import type { DaemonStorageConfig } from "@harness-anything/storage";
 import {
@@ -198,20 +198,10 @@ export async function openRepoWriterCell(
     userRoot: presetUserRoot(rootDir),
     readSettings: () => readSettings(),
   });
-  const readSession = (runtimeSessionId: string) => readObservedRuntimeSession(projection, rootDir, runtimeSessionId);
+  const readSession = (runtimeSessionId: string) => projection.readRuntimeSession(runtimeSessionId);
   const workerRuntimeStream = makeAgentRuntimeStreamHub({
       readSession,
-      canAttach: (session) => {
-        const lifecycle = projection.readDispatchLifecycle({
-          by: "session",
-          runtimeSessionId: session.runtimeSessionId,
-        });
-        return (
-          lifecycle.status === "ready" &&
-          lifecycle.rows.some(({ attempt, policy }) => !policy.attemptSettled && attempt.process === "alive") &&
-          Boolean(projection.readRuntimeInstallation(session.installationId)?.effectiveCapabilities.includes("attach"))
-        );
-      },
+      canAttach: (session) => readRuntimeCanAttach(projection, session),
       now: () => new Date(now()),
     }),
     runtimeStream: AgentRuntimeStreamHub = {

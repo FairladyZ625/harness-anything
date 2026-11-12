@@ -1,5 +1,6 @@
 // harness-test-tier: fast
 // @vitest-environment happy-dom
+import { lifecycleFixture } from "./lifecycle.fixtures.ts";
 import { describe, expect, it } from "vitest";
 import {
   agentLanesOf,
@@ -179,6 +180,7 @@ describe("总览派生(纯函数)", () => {
           runtimeSessionId: "rs_pr",
           kindId: "codex",
           liveness: "live",
+          lifecycle: lifecycleFixture(),
           definitionSnapshot: { model: "gpt-6.1-sol" },
           associations: [{ taskId: "task_m_pr" }],
           activity: { lastObservedAt: "2026-10-14T09:30:00.000Z" },
@@ -187,6 +189,7 @@ describe("总览派生(纯函数)", () => {
           runtimeSessionId: "rs_rr",
           kindId: "zcode",
           liveness: "live",
+          lifecycle: lifecycleFixture(),
           definitionSnapshot: { model: "glm-5.3" },
           associations: [{ taskId: "task_m_rr" }],
           activity: { lastObservedAt: "2026-10-14T09:00:00.000Z" },
@@ -195,6 +198,7 @@ describe("总览派生(纯函数)", () => {
           runtimeSessionId: "rs_stale",
           kindId: "codex",
           liveness: "live",
+          lifecycle: lifecycleFixture(),
           definitionSnapshot: { model: "gpt-6.1-sol" },
           associations: [{ taskId: "task_m_stale_running" }],
           activity: { lastObservedAt: "2026-10-14T08:30:00.000Z" },
@@ -519,6 +523,7 @@ describe("总览派生(纯函数)", () => {
           runtimeSessionId: "rs_r",
           kindId: "codex",
           liveness: "live",
+          lifecycle: lifecycleFixture(),
           definitionSnapshot: { model: "gpt-6.1-sol" },
           associations: [{ taskId: "task_running_m" }],
           activity: { lastObservedAt: "2026-10-14T11:00:00.000Z" },
@@ -590,6 +595,7 @@ describe("关注的工作处理者:模型元组不上屏(X2)", () => {
         runtimeSessionId: "rs_tuple",
         kindId: "deepseek-harness",
         liveness: "live",
+        lifecycle: lifecycleFixture(),
         definitionSnapshot: { model: '["deepseek-official","DeepSeek-V4.1-Flash","DeepSeek-V3.2"]' },
         associations: [{ taskId: "task_m1" }],
         activity: { lastObservedAt: AT },

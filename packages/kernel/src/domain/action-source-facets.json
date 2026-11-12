@@ -2957,6 +2957,12 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.armIdle:bfbdc7e9953b081a0638bee0bec5c87a",
         "route": "daemon:bin",
         "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-settlement.ts#publishExit:6e33d92c4e1ae12e9babebfc18cc28c6",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/agent-runtime-stream.ts#AgentRuntimeStreamHub.publish"
       }
     ],
     "technical": true

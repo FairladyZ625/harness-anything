@@ -29,6 +29,7 @@ import {
 } from "./daemon-protocol.contract.ts";
 import { daemonStreamFacetByMethod } from "./daemon-protocol-gui-actions.ts";
 import {
+  previousDispatchLifecycleReadResult,
   declaredExecutorOrNull,
   daemonRequestLogEntry,
   isDaemonParkedWaitMethod,
@@ -116,9 +117,10 @@ export function createJsonRpcProtocolServer(options: {
   readonly onRequestSettled?: (method: string) => void;
   readonly onBuildDriftObserved?: () => void;
 }): JsonRpcProtocolServer {
-  let handshaken = false;
-  // Hello and its next frame are one admitted exchange. A host status callback can request
-  // supersession in the wire gap between them, so retain the work until the frame or disconnect.
+  let handshaken = false,
+    lifecycleReadsEnabled = false;
+  // Hello, lifecycle negotiation and the first business frame are one admitted exchange.
+  // Retain its reservation across negotiation so build drain cannot strand the business frame.
   let helloPending = false,
     helloReservationHeld = false,
     helloContinuationAdmitted = false;
@@ -187,6 +189,7 @@ export function createJsonRpcProtocolServer(options: {
       result: DaemonRpcResult<Method>,
     ): JsonRpcResponse | undefined => {
       markDaemonOperationPhase("serialization");
+      if (!lifecycleReadsEnabled) result = previousDispatchLifecycleReadResult(method, result);
       const response = request.id === undefined ? undefined : { jsonrpc: "2.0" as const, id, result },
         replyBytes = response === undefined ? 0 : encodeAndAttach(response);
       // The reply stage starts after serialization and includes the transport's socket write; the
@@ -227,7 +230,10 @@ export function createJsonRpcProtocolServer(options: {
       );
       return response;
     };
-    if (request.method === "protocol.hello") handshaken = false;
+    if (request.method === "protocol.hello") {
+      handshaken = false;
+      lifecycleReadsEnabled = false;
+    }
     const parsed = parseDaemonRpcParams(request.method, request.params);
     if (!parsed.ok) return reply(request.method, invalidParamsReceipt(request.method, parsed.errors));
     const call = parsed.call,
@@ -269,6 +275,12 @@ export function createJsonRpcProtocolServer(options: {
       });
     }
     if (!handshaken) return reply(method, daemonProtocolError(method, "hello_required", "Call protocol.hello first."));
+    // Advertised by hello, so a new client never sends this method to the previous daemon.
+    // Previous clients do not opt in and receive their original closed DTO shape.
+    if (method === "protocol.dispatchLifecycle.enable") {
+      lifecycleReadsEnabled = true;
+      return reply(method, { ok: true });
+    }
     const stoppingRefusal = daemonStoppingRefusal(
       method,
       options.stopping?.() === true || (options.buildDraining?.() === true && !admittedBeforeBuildDrain),
@@ -881,10 +893,11 @@ export function createJsonRpcProtocolServer(options: {
       return response === parkedWaitAbandoned ? undefined : response;
     }
     // Transfer the reservation without a zero-work interval before dispatching the next frame.
-    const admittedHelloContinuation = helloPending && helloContinuationAdmitted,
+    const negotiatingHello = method === "protocol.dispatchLifecycle.enable" && helloPending,
+      admittedHelloContinuation = helloPending && helloContinuationAdmitted,
       admitted = !drainActive() || admittedHelloContinuation;
-    if (admitted) options.onRequestStarted?.(method);
-    releaseHello();
+    if (admitted && !negotiatingHello) options.onRequestStarted?.(method);
+    if (!negotiatingHello) releaseHello();
     try {
       return await run(
         request,
@@ -895,7 +908,7 @@ export function createJsonRpcProtocolServer(options: {
         writeResponse === undefined ? undefined : { writeResponse },
       );
     } finally {
-      if (admitted) options.onRequestSettled?.(method);
+      if (admitted && !negotiatingHello) options.onRequestSettled?.(method);
     }
   };
   return {

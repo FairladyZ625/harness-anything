@@ -1,3 +1,4 @@
+import { readRuntimeAttemptChain } from "./runtime-attempt-read.ts";
 import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { makeTaskLifecycleService } from "@harness-anything/application/internal/task-lifecycle-service";
 import {
@@ -16,7 +17,7 @@ import {
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
-import { readRuntimeAttemptChain, readSessionGroupDispatches, readTaskDispatchSession } from "./dispatch-read.ts";
+import { readSessionGroupDispatches, readTaskDispatchSession } from "./dispatch-read.ts";
 import { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
 import { cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
 import { readEffectiveCloseoutGates, readRepositorySettings } from "./repo-cell-settings-state.ts";
@@ -235,7 +236,6 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
         projection,
         store,
         rootDir: context.rootDir,
-        activityEvidence: false,
         now: context.now,
       }),
       service = makeTaskLifecycleService({

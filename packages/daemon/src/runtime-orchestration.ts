@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { consumeKnownError } from "@harness-anything/kernel";
 import type { AgentRuntimeSessionResult, AgentRuntimeSettlement } from "./agent-runtime-contract.ts";
-import { taskDispatchRowSettled, taskDispatchRowsSettled } from "./dispatch-read.ts";
+import { taskDispatchRowsSettled } from "./dispatch-read.ts";
 import { daemonProtocolCommands } from "./protocol/daemon-protocol-commands.ts";
 import type { DaemonTaskDispatchesResult } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
@@ -488,8 +488,7 @@ async function awaitTaskDispatches(
     const read = await context.readTaskDispatches(taskIds);
     if (read.ok !== true) return read as unknown as JsonObject;
     const rows = read.dispatches,
-      dispatchIds = rows.map((row) => row.dispatchId),
-      settled = rows.filter((row) => taskDispatchRowSettled(row, dispatchIds)),
+      settled = rows.filter((row) => row.lifecycle?.policy?.groupSettled === true),
       // The batch projection reporting "pending" is still catching up; keep waiting for it.
       projectionReady = read.status === "ready",
       done =

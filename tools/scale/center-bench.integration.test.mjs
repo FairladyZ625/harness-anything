@@ -130,7 +130,12 @@ test(
       if (!full || row.nodes === 1) {
         assert.deepEqual(
           row.wireObservedMethods,
-          row.plannedMethods,
+          {
+            ...row.plannedMethods,
+            "protocol.hello": (row.plannedMethods["protocol.hello"] ?? 0) + row.implicitHellos,
+            "protocol.dispatchLifecycle.enable":
+              (row.plannedMethods["protocol.dispatchLifecycle.enable"] ?? 0) + row.implicitNegotiations,
+          },
           "daemon connection log confirms actual method composition",
         );
         assert.equal(row.replication.recovered, row.nodes, JSON.stringify(row.replication));

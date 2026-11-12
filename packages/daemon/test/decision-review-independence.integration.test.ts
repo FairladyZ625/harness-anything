@@ -1021,6 +1021,24 @@ test("the in-progress agenda row names each running reviewer and the findings it
           proposer,
         );
         assert.equal(ingress.outcome, "applied", JSON.stringify(ingress));
+        const started = await cell.runtimeIngress(
+          {
+            kind: "event",
+            type: "runtime_session_started",
+            opId: `runtime-start-${hash.slice(0, 32)}`,
+            payload: {
+              runtimeSessionId,
+              instanceId: "instance-1",
+              installationId: "installation-1",
+              kindId: "codex",
+              definitionSnapshotRef: `artifact:runtime-definition/${agentId}`,
+              launchGeneration: 1,
+              attachable: false,
+            },
+          },
+          proposer,
+        );
+        assert.equal(started.outcome, "applied", JSON.stringify(started));
         openDispatchStream(rootDir, {
           dispatchId,
           taskId: null,

@@ -277,6 +277,8 @@ export interface TaskProjection {
   readonly readRuntimeDispatchesByAttemptGroup: (attemptGroupId: string) => readonly RuntimeDispatchProjectionRow[];
   readonly readRuntimeDispatchesByDecision: (decisionId: string) => readonly RuntimeDispatchProjectionRow[];
   readonly readRuntimeDispatchPage: (query: {
+    /** Task-scoped history pages seek each task time index, never materialize its history. */
+    readonly taskIds?: readonly string[];
     readonly startedAtGte: string;
     readonly cursor?: { readonly startedAt: string; readonly dispatchId: string };
     readonly limit: number;

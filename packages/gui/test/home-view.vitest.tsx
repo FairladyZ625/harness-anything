@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 // @vitest-environment happy-dom
+import { lifecycleFixture } from "./lifecycle.fixtures.ts";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -67,7 +68,12 @@ const summary = (counts: Partial<Record<"active" | "submitted" | "in_review" | "
   tasks: { lastChangedAt: null, byStatus: { active: 0, submitted: 0, in_review: 0, blocked: 0, ...counts } },
   decisions: { inboxCount: inbox },
 });
-const sessions = (...liveness: string[]) => ({ sessions: liveness.map((value) => ({ liveness: value })) });
+const sessions = (...liveness: string[]) => ({
+  sessions: liveness.map((value) => ({
+    liveness: value,
+    lifecycle: lifecycleFixture(value === "live" ? "running" : "unknown"),
+  })),
+});
 const ready = (overrides: Partial<Extract<ProjectActivityRead, { state: "ready" }>>): ProjectActivityRead => ({
   state: "ready",
   lastChangedAt: null,

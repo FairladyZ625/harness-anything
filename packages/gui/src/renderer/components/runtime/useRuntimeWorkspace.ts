@@ -80,9 +80,7 @@ export function runtimeSelectionFromRef(ref: string | null): RuntimeSelection | 
   return type === null ? null : { type, id };
 }
 
-// Liveness maps, not point comparisons (dec_8DCD52E98BAB268B0194B1E399): the daemon's
-// liveness word decides "is this carrier running anything" through a table lookup alone.
-const LIVENESS_LIVE: Record<string, boolean> = { live: true };
+// Carrier counts present the canonical lifecycle display status.
 
 function saveWasRejected(saved: EntitySaveResult): boolean {
   return saved.outcome === "op_rejected";
@@ -578,7 +576,7 @@ export function useRelatedDispatches(
 }
 
 // Provider 入口:实例目录 + auth 探测 + 实例读写。live 计数取 overview 的 session
-// liveness(daemon 自己的在跑投影),不为此读 dispatch 台账;self-test 走与会话派工
+// lifecycle(中心派工投影),不为此读 dispatch 台账;self-test 走与会话派工
 // 同一条 spawn 收据链。agents 目录只为实例卡上的「兼容 Agents」区服务(跨页出口的
 // 数据面),与 Agent 入口共享缓存键。
 export function useProviderWorkspace(repoId: string, requestedInstanceId: string | null = null) {
@@ -646,7 +644,7 @@ export function useProviderWorkspace(repoId: string, requestedInstanceId: string
   });
   const liveByInstance = new Map<string, number>();
   for (const session of overview.data?.sessions ?? [])
-    if (LIVENESS_LIVE[session.liveness])
+    if (session.lifecycle?.displayStatus === "running")
       liveByInstance.set(session.instanceId, (liveByInstance.get(session.instanceId) ?? 0) + 1);
   const channel = useRuntimeChannel(repoId, async () => {
     await Promise.all([

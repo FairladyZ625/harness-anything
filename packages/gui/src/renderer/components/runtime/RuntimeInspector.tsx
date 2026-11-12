@@ -15,7 +15,7 @@ import { Empty } from "../primitives/Empty.tsx";
 // W6 IA 拆分:原四类通吃的 RuntimeInspector 拆成三个页级 inspector——右栏仍是
 // "同一个选中,从会话侧看过去:这东西最近在干什么",但跨页跳转(session/<id>、
 // agent/<id>)改走可寻址路由;同页的互跳(agent↔squad、sibling session)保持页内选择。
-// Provider 页的相关会话行取 overview 的 session DTO(liveness 投影),不为此读
+// Provider 页的相关会话行取 overview 的 session DTO(lifecycle 投影),不为此读
 // dispatch 台账——agent/task 归属在会话详情里,点行直达。
 // IdentityInspector 已随 Agent·Squad 页密度改造撤销(业主 2026-10-06):右栏与详情
 // 重复,相关会话段并入 AgentCard;此处只剩 ProviderInspector。
@@ -25,9 +25,7 @@ type OpenSession = (runtimeSessionId: string) => void;
 /** 会话段整行渲染的按需渲染类:离屏行跳过布局与绘制。 */
 const SESSION_ROW_CV = "cv-auto-2r";
 
-// Liveness maps, not point comparisons (dec_8DCD52E98BAB268B0194B1E399): the daemon's
-// liveness word decides the dot through a table lookup alone.
-const LIVENESS_DOT: Record<string, "live" | "idle"> = { live: "live" };
+// The overview carries the kernel lifecycle verdict used by each session dot.
 
 export function ProviderInspector({
   instance,
@@ -90,7 +88,10 @@ function LiveSessionRow({
         SESSION_ROW_CV,
       ].join(" ")}
     >
-      <LiveDot state={LIVENESS_DOT[session.liveness] ?? "idle"} tip={session.liveness} />
+      <LiveDot
+        state={session.lifecycle?.displayStatus === "running" ? "live" : "idle"}
+        tip={session.lifecycle?.groupPhase ?? "pending"}
+      />
       <span className="min-w-0 flex-1">
         <span className="block truncate ui-micro">{session.instanceId}</span>
         <span className="block truncate font-mono ui-micro text-text-faint">{session.runtimeSessionId}</span>

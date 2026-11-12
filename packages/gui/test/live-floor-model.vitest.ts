@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+import { lifecycleFixture } from "./lifecycle.fixtures.ts";
 import { describe, expect, it } from "vitest";
 import type { AgentRuntimeSessionDto } from "@harness-anything/daemon/protocol";
 import type { TaskDispatchProjectionRow } from "../src/api/renderer-dto.ts";
@@ -37,6 +38,7 @@ const session = (patch: Partial<AgentRuntimeSessionDto> = {}): AgentRuntimeSessi
   },
   definitionSnapshotPersisted: true,
   liveness: "live",
+  lifecycle: lifecycleFixture(),
   semanticState: "running",
   attachCapability: "supported",
   streamCursor: null,
@@ -108,7 +110,10 @@ const task = (patch: Partial<TaskRow>): TaskRow =>
 describe("live floor model", () => {
   it("keeps only live sessions and enriches them from the same dispatch row", () => {
     const rows = liveFloorRows({
-      sessions: [session(), session({ runtimeSessionId: "runtime-exited", liveness: "exited" })],
+      sessions: [
+        session(),
+        session({ runtimeSessionId: "runtime-exited", liveness: "exited", lifecycle: lifecycleFixture("stopped") }),
+      ],
       dispatches: [dispatch({ taskTitle: "修复现场页面" })],
       works,
     });

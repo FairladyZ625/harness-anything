@@ -474,6 +474,8 @@ export {
   dispatchLifecycleAddress,
   dispatchLifecycleEventTypes,
   dispatchLifecycleView,
+  dispatchLifecycleSummary,
+  dispatchLifecycleHasPendingWork,
   dispatchOwner,
   dispatchOwnerForNode,
   previewDispatchLifecycleOutcome,
@@ -481,5 +483,6 @@ export {
   type DispatchLifecycleGroup,
   type DispatchLifecycleQuery,
   type DispatchLifecycleRead,
+  type DispatchLifecycleSummary,
   type DispatchLifecycleView,
 } from "./dispatch-lifecycle.ts";

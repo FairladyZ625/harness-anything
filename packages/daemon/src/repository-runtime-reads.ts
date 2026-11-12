@@ -1,6 +1,7 @@
+import { readRuntimeAttemptChain } from "./runtime-attempt-read.ts";
 import type { CanonicalEventStore, TaskProjection } from "@harness-anything/kernel";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
-import { readRuntimeAttemptChain, readSessionGroupDispatches, readTaskDispatchSession } from "./dispatch-read.ts";
+import { readSessionGroupDispatches, readTaskDispatchSession } from "./dispatch-read.ts";
 
 /** Share the complete dispatch/attempt joins, not just the runtime session table. */
 export function repositoryRuntimeReads(
@@ -9,7 +10,6 @@ export function repositoryRuntimeReads(
   now?: () => string,
   /** Harness root holding dispatch streams; the only source of provider-reported context fill. */
   rootDir?: string,
-  activityEvidence = true,
   includeRemainingCount = false,
 ) {
   return makeAgentRuntimeReadModel({
@@ -20,7 +20,6 @@ export function repositoryRuntimeReads(
     projection,
     store,
     ...(rootDir === undefined ? {} : { rootDir }),
-    activityEvidence,
     includeRemainingCount,
     ...(now ? { now } : {}),
   });

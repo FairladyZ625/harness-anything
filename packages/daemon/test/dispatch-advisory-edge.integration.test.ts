@@ -10,6 +10,7 @@ import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
 import { openDecisionAnnotationStore } from "../src/decision-annotations.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
 import { decisionReadSurfaces } from "@harness-anything/kernel";
+import type { TaskDispatchRow } from "../src/protocol/daemon-protocol.contract.ts";
 
 // Real center projection + local-only annotations + authenticated edge JSON-RPC read.
 test(
@@ -61,6 +62,8 @@ test(
     );
     assert.equal(dispatched.outcome, "applied", JSON.stringify(dispatched));
     const e = await fleetEdgeHostFixture(t, f);
+    // This direct server fixture performs hello only; opt in as the current CLI client does.
+    await e.rpc.handle({ jsonrpc: "2.0", id: "lifecycle", method: "protocol.dispatchLifecycle.enable", params: {} });
     const read = async (payload: Record<string, unknown> = { taskId: "advice-task" }) => {
       const response = await e.rpc.handle({
         jsonrpc: "2.0",
@@ -69,7 +72,7 @@ test(
         params: { repo: { repoId: "lease-repo" }, payload },
       });
       assert.ok(response && "result" in response, JSON.stringify(response));
-      return response.result as { dispatches: readonly { dispatchId: string; advisories?: unknown }[] };
+      return response.result as { dispatches: readonly TaskDispatchRow[] };
     };
     const empty = await read();
     assert.equal(empty.dispatches[0]!.dispatchId, dispatchId);
@@ -239,13 +242,13 @@ test(
         await f.host.read("lease-repo", "repo.task.dispatches", { taskId: "advice-task" }, localAuthFixture())
       ).dispatches[0]!,
       edgeRow = (await read()).dispatches[0]!;
-    // The center only has the canonical session's last observation, so it shows the generic live
-    // state and cannot name a transcript it never received. The edge joins its own stream and
-    // reports the real tool activity plus the transcript ref the row was missing.
+    // The accepted provider binding names the transcript at both nodes. Only the edge has the
+    // local tool activity; that display evidence must not change the central lifecycle policy.
     assert.equal(centerRow.activityStatus, "thinking");
-    assert.equal(centerRow.eventStreamRef, null);
+    assert.equal(centerRow.eventStreamRef, transcriptRef);
     assert.equal(edgeRow.eventStreamRef, transcriptRef);
     assert.equal(edgeRow.activityStatus, "tool");
+    assert.deepEqual(edgeRow.lifecycle, centerRow.lifecycle);
 
     await store.remove(dispatchId);
     assert.equal((await read()).dispatches[0]!.advisories, undefined);

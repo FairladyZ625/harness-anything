@@ -1,10 +1,9 @@
 import {
   compareRuntimeActivity,
   latestRuntimeActivityAt,
-  runtimeSessionIsRunning,
-  runtimeSessionSemanticState,
   type AgentRuntimeEventV1,
   type RuntimeSession,
+  type TaskProjection,
 } from "@harness-anything/kernel";
 import {
   agentRuntimeUnattributedGroupKeys,
@@ -240,7 +239,7 @@ function membersForSession(
         },
         session,
         taskDispatch,
-        taskDispatch ? status : runtimeSessionSemanticState(session),
+        taskDispatch ? status : "unknown",
         taskDispatch?.startedAt ?? fallbackStartedAt,
         agentName,
         [...commonSearch, group.taskId, input.taskLabels.get(group.taskId)],
@@ -350,7 +349,7 @@ function finishGroup(group: GroupAccumulator): AgentRuntimeSessionGroupDto {
     ...group.identity,
     latestStatus: latest?.status ?? "unknown",
     latestActivityAt,
-    runningCount: members.filter((member) => runtimeSessionIsRunning(member.session)).length,
+    runningCount: members.filter((member) => member.status === "running").length,
     sessionCount: members.length,
     roundCount: rounds.length,
     latestRound:
@@ -386,8 +385,11 @@ function sessionsWithDispatch(
   return sessions.filter((session) => attributed.has(session.runtimeSessionId));
 }
 
-function sessionGroupStatus(session: RuntimeSession, dispatch: TaskDispatchRow | null): AgentRuntimeSessionGroupStatus {
-  return dispatch?.status ?? runtimeSessionSemanticState(session);
+function sessionGroupStatus(
+  _session: RuntimeSession,
+  dispatch: TaskDispatchRow | null,
+): AgentRuntimeSessionGroupStatus {
+  return dispatch?.status ?? "unknown";
 }
 
 function compareMembers(left: GroupMember, right: GroupMember): number {
@@ -406,4 +408,37 @@ function compareGroups(left: AgentRuntimeSessionGroupDto, right: AgentRuntimeSes
     compareRuntimeActivity(right.latestActivityAt, left.latestActivityAt) ||
     left.key.localeCompare(right.key)
   );
+}
+
+/** Task titles for dispatch-row and group labels, batched per 500 task ids. */
+export function runtimeTaskLabels(
+  projection: Pick<TaskProjection, "readTaskRuntimeBatch">,
+  taskIds: readonly string[],
+): ReadonlyMap<string, string> {
+  const result = new Map<string, string>();
+  for (let offset = 0; offset < taskIds.length; offset += 500)
+    for (const row of projection.readTaskRuntimeBatch({
+      taskIds: taskIds.slice(offset, offset + 500),
+      includeSessions: false,
+    }).rows)
+      result.set(row.taskId, row.title);
+  return result;
+}
+
+// getEntity semantics over a full listing: the highest-revision row wins, and only its name
+// labels the entity — an unnamed newer row shadows an older named one, matching the point query.
+export function latestEntityNames(
+  rows: readonly ReturnType<TaskProjection["listEntities"]>[number][],
+): ReadonlyMap<string, string> {
+  const latest = new Map<string, ReturnType<TaskProjection["listEntities"]>[number]>();
+  for (const row of rows) {
+    const known = latest.get(row.id);
+    if (known === undefined || row.workspaceRevision >= known.workspaceRevision) latest.set(row.id, row);
+  }
+  const names = new Map<string, string>();
+  for (const [id, row] of latest) {
+    const name = row.value.name;
+    if (typeof name === "string" && name) names.set(id, name);
+  }
+  return names;
 }

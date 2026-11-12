@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+import { lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
 import assert from "node:assert/strict";
 import { emptyCompletionContract } from "../../kernel/test/domain/completion.fixtures.ts";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -351,6 +352,13 @@ test("agenda groups a changes_requested return into awaiting rework, not the in-
     base = projectionStub({ taskRows }),
     projection = {
       ...base,
+      readDispatchLifecycle: lifecycleReadForSync([
+        {
+          runtimeSessionId: "runtime_resubmitted",
+          dispatchId: `dispatch_${createHash("sha256").update("resubmitted").digest("hex").slice(0, 24)}`,
+          process: "alive",
+        },
+      ]),
       readTaskStatuses: (taskIds: readonly string[]) => ({
         ...readyCut,
         rows: taskIds.map((taskId) => ({ taskId, status: "active" })),
@@ -494,6 +502,16 @@ test("agenda flags a stopped worker without delivery, but excludes leased, submi
     }),
     projection = {
       ...base,
+      readDispatchLifecycle: lifecycleReadForSync(
+        dispatches.map(({ event }) => ({
+          ...event.payload,
+          attemptSettled: true,
+          outcome: "stopped",
+          ...(event.payload.runtimeSessionId === "runtime_resumed"
+            ? { currentDispatchId: dispatchIdFor("dispatch_next") }
+            : {}),
+        })),
+      ),
       readTaskStatuses: (taskIds: readonly string[]) => ({
         ...readyCut,
         rows: taskIds.map((taskId) => ({ taskId, status: "active" as const })),
@@ -603,6 +621,14 @@ test("agenda keeps a leased or live-runtime execution in flight and names start 
     }),
     projection = {
       ...base,
+      readDispatchLifecycle: lifecycleReadForSync(
+        dispatches.map(({ event, outcome }) => ({
+          ...event.payload,
+          attemptSettled: outcome !== null,
+          outcome,
+          process: outcome === null ? "alive" : "exited",
+        })),
+      ),
       readTaskStatuses: (taskIds: readonly string[]) => ({
         ...readyCut,
         rows: taskIds.map((taskId) => ({ taskId, status: "active" as const })),
@@ -685,6 +711,13 @@ test("agenda restart rows take the complete completion next, including contract 
         rows: taskIds.map((taskId) => ({ taskId, status: "active" as const })),
       }),
       readRuntimeDispatchesByTaskExecution: (taskId: string) => [dispatch(taskId)],
+      readDispatchLifecycle: lifecycleReadForSync(
+        ["task_preset_gap", "task_closeout_missing"].map((taskId) => ({
+          ...dispatch(taskId).event.payload,
+          attemptSettled: true,
+          outcome: "stopped",
+        })),
+      ),
       readRuntimeSession: () => null,
       readRuntimeSessionEvents: () => [],
       readRuntimeSessionEventsByType: () => [],
@@ -802,6 +835,9 @@ test("agenda projects incident escalation receipts, including a rejected owner w
   const base = projectionStub({ taskRows: [taskWithExecution] }),
     projection = {
       ...base,
+      readDispatchLifecycle: lifecycleReadForSync(
+        [event, currentEvent].map(({ payload }) => ({ ...payload, attemptSettled: true, outcome: "stopped" })),
+      ),
       readDocuments: () => ({ documents: [] }),
       readRuntimeDispatchesByTaskExecution: () => [{ event }, { event: currentEvent }],
       readRuntimeDispatchByResumeSource: () => null,
@@ -898,6 +934,7 @@ test("agenda labels a guard escalation as needs-handling instead of an owner que
   const base = projectionStub({ taskRows: [taskWithExecution] }),
     projection = {
       ...base,
+      readDispatchLifecycle: lifecycleReadForSync([{ ...event.payload, attemptSettled: true, outcome: "stopped" }]),
       readDocuments: () => ({ documents: [] }),
       readRuntimeDispatchesByTaskExecution: () => [{ event }],
       readRuntimeDispatchByResumeSource: () => null,
@@ -1074,6 +1111,11 @@ test("terminal dispatch receipts leave the awaiting-ruling queue", (t) => {
           rowsFor("task_incident_live", [executionRow("execution_live", 0, "active", "task_incident_live")]),
         ],
       }),
+      readDispatchLifecycle: lifecycleReadForSync(
+        [...dispatchesByExecution.values()]
+          .flat()
+          .map(({ event }) => ({ ...event.payload, attemptSettled: true, outcome: "stopped" })),
+      ),
       readDocuments: () => ({ documents: [] }),
       readRuntimeDispatchesByTaskExecution: (_taskId: string, executionId: string) =>
         dispatchesByExecution.get(executionId) ?? [],

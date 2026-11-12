@@ -215,7 +215,14 @@ export class JsonRpcLineClient {
         rpcCode: response.error.code,
       });
     if (!jsonRpcRecord(response.result)) throw new Error(`daemon returned non-object result for ${method}`);
-    if (method === "protocol.hello") assertDaemonHello(response.result);
+    if (method === "protocol.hello") {
+      assertDaemonHello(response.result);
+      if (
+        Array.isArray(response.result.methods) &&
+        response.result.methods.includes("protocol.dispatchLifecycle.enable")
+      )
+        await this.request("protocol.dispatchLifecycle.enable", {}, responseTimeoutMs);
+    }
     return response.result;
   }
   close(): void {

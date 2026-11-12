@@ -20,7 +20,7 @@ import {
 
 /**
  * 增量事件流写缓存(dec_C0AF8CBBFFECF71F4F34FB76F9/CH3):游标只取新事件、按 cursor
- * 去重合并,并就地补丁 session/overview/groups 缓存——不 invalidate,未命中保持原引用。
+ * 去重合并,并失效 session/overview/groups 后读取中心投影 缓存——不 invalidate,未命中保持原引用。
  */
 
 const REPO = "repo-1",
@@ -147,7 +147,7 @@ describe("事件页纯合并", () => {
 });
 
 describe("pollSessionEventsOnce 增量写缓存", () => {
-  it("首轮从 lifecycle:0 拉全量,合并进 events 键,并就地补丁 session/overview/groups", async () => {
+  it("首轮从 lifecycle:0 拉全量,合并进 events 键,并失效 session/overview/groups 后读取中心投影", async () => {
     const queryClient = new QueryClient(),
       session = sessionResult(),
       overview = overviewResult(),
@@ -167,16 +167,12 @@ describe("pollSessionEventsOnce 增量写缓存", () => {
       afterCursor: "lifecycle:0",
     });
     expect(queryClient.getQueryData<AgentRuntimeEventsResult>(runtimeQueryKeys.events(REPO, RS))).toEqual(merged);
-    // 三个依赖缓存被就地补丁:started → running/live,时间戳推进
-    expect(
-      queryClient.getQueryData<AgentRuntimeSessionResult>(runtimeQueryKeys.session(REPO, RS))!.session.semanticState,
-    ).toBe("running");
-    const patchedOverview = queryClient.getQueryData<AgentRuntimeOverviewResult>(runtimeQueryKeys.overviewAll(REPO))!;
-    expect(patchedOverview.sessions[0]!.semanticState).toBe("running");
-    expect(
-      queryClient.getQueryData<AgentRuntimeSessionGroupsResult>(runtimeQueryKeys.sessionGroupsAll(REPO))!.groups[0]!
-        .latestActivityAt,
-    ).toBe("2026-10-20T11:01:00.000Z");
+    expect(queryClient.getQueryState(runtimeQueryKeys.session(REPO, RS))?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(runtimeQueryKeys.overviewAll(REPO))?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(runtimeQueryKeys.sessionGroupsAll(REPO))?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryData(runtimeQueryKeys.session(REPO, RS))).toBe(session);
+    expect(queryClient.getQueryData(runtimeQueryKeys.overviewAll(REPO))).toBe(overview);
+    expect(queryClient.getQueryData(runtimeQueryKeys.sessionGroupsAll(REPO))).toBe(groups);
   });
 
   it("无新事件且游标未推进时返回缓存原对象,不重写缓存", async () => {
@@ -238,9 +234,10 @@ describe("pollSessionEventsOnce 增量写缓存", () => {
 
     const patched = queryClient.getQueryData<AgentRuntimeSessionGroupsResult>(runtimeQueryKeys.sessionGroupsAll(REPO))!;
     expect(patched.groups[0]).toBe(groups.groups[0]); // 未命中:同一引用
-    expect(patched.groups[1]).not.toBe(groups.groups[1]); // 命中:新对象
-    expect(patched.groups[1]!.latestStatus).toBe("ended-indeterminate");
-    expect(patched.groups[1]!.runningCount).toBe(0);
+    expect(patched.groups[1]).toBe(groups.groups[1]); // 等中心投影回读
+    expect(patched.groups[1]!.latestStatus).toBe("running");
+    expect(queryClient.getQueryState(runtimeQueryKeys.sessionGroupsAll(REPO))?.isInvalidated).toBe(true);
+    expect(patched.groups[1]!.runningCount).toBe(1);
   });
 });
 

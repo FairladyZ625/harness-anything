@@ -15,9 +15,10 @@ test("task dispatch and runtime status renders expose provider attempt chains", 
       provider: { instance: "provider-a", model: "model-a" },
       classification: "provider_fault",
       fallbackState: "dispatched",
+      lifecycle: { groupPhase: "running" },
       reason: "429",
     }),
-    /attempt:0\tprovider:provider-a\tmodel:model-a\tclassification:provider_fault\tfallback:dispatched/u,
+    /attempt:0\tprovider:provider-a\tmodel:model-a\tclassification:provider_fault\tlifecycle:running/u,
   );
   assert.match(
     renderRuntimeStatus({
@@ -35,13 +36,14 @@ test("task dispatch and runtime status renders expose provider attempt chains", 
               provider: { instance: "provider-a", model: "model-a" },
               classification: "provider_fault",
               fallbackState: "dispatched",
+              lifecycle: { groupPhase: "running" },
               reason: "429",
             },
           ],
         },
       },
     }),
-    /ATTEMPT\tPROVIDER\tMODEL\tCLASSIFICATION\tFALLBACK\tREASON\n0\tprovider-a\tmodel-a\tprovider_fault\tdispatched\t429/u,
+    /ATTEMPT\tPROVIDER\tMODEL\tCLASSIFICATION\tLIFECYCLE\tREASON\n0\tprovider-a\tmodel-a\tprovider_fault\trunning\t429/u,
   );
 });
 
@@ -156,15 +158,16 @@ test("runtime status names an unreachable provider with last progress and the ra
       instanceId: "provider-a",
       providerSessionId: "thread-a",
       liveness: "live",
+      lifecycle: { groupPhase: "running" },
       activity: { outcome: null, resultRef: null, providerUnreachable: unreachable },
     };
   assert.match(
     renderRuntimeStatus({ session }),
-    /liveness: live\noutcome: -\nresult: -\nprovider: provider_unreachable\nlast-progress: 2026-11-04T07:28:00\.000Z\nprovider-error-at: 2026-11-04T07:30:00\.000Z\nprovider-error: Reconnecting\.\.\. 5\/5 \(failed to connect/u,
+    /lifecycle: running\noutcome: -\nresult: -\nprovider: provider_unreachable\nlast-progress: 2026-11-04T07:28:00\.000Z\nprovider-error-at: 2026-11-04T07:30:00\.000Z\nprovider-error: Reconnecting\.\.\. 5\/5 \(failed to connect/u,
   );
   assert.match(
     renderRuntimeStatus({ sessions: [session] }),
-    /SESSION\tINSTANCE\tLIVENESS\tACTIVITY\tOUTCOME\tRESULT\nruntime-stalled\tprovider-a\tlive\tprovider_unreachable\t-\t-/u,
+    /SESSION\tINSTANCE\tLIFECYCLE\tACTIVITY\tOUTCOME\tRESULT\nruntime-stalled\tprovider-a\trunning\tprovider_unreachable\t-\t-/u,
   );
 });
 

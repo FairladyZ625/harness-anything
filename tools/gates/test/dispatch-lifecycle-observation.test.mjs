@@ -24,7 +24,7 @@ test("dispatch lifecycle baseline matches the live tree and may only shrink", ()
 
   assert.equal(baseline.schema, "harness-anything/gate-allowlist/v1");
   assert.ok(Array.isArray(baseline.entries.observationSites));
-  assert.ok(baseline.entries.observationSites.length > 0);
+  assert.equal(baseline.entries.observationSites.length, 0, "slice 6 removes the last business observation sites");
   assert.equal(addedSites.length, 1);
 
   // The checked-in baseline is the exact debt inventory: every live site is declared and every

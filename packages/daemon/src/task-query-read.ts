@@ -15,7 +15,8 @@ import {
   parseAwaitsRequest,
   relationIsCurrent,
   releasedLeaseRestartNext,
-  runtimeSessionIsRunning,
+  dispatchLifecycleSummary,
+  dispatchLifecycleHasPendingWork,
   taskBoardPlacement,
   taskCapabilities,
   taskCompletionAction,
@@ -676,17 +677,10 @@ export function makeTaskQueryReadModel(input: {
         ? []
         : (() => {
             const rows = new Map<string, AgendaRulingRow>(),
-              isResumed = (dispatch: {
-                readonly payload: {
-                  readonly dispatchId: string;
-                  readonly attemptGroupId?: string | null;
-                  readonly attemptIndex?: number;
-                };
-              }) =>
-                projection.readRuntimeDispatchByResumeSource(dispatch.payload.dispatchId) !== null ||
-                projection
-                  .readRuntimeDispatchesByAttemptGroup(dispatch.payload.attemptGroupId ?? dispatch.payload.dispatchId)
-                  .some(({ event }) => (event.payload.attemptIndex ?? 0) > (dispatch.payload.attemptIndex ?? 0));
+              lifecycleOf = (dispatchId: string) =>
+                dispatchLifecycleSummary(
+                  projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatchId] }),
+                );
             for (const row of leaseReturnedRows([...(active?.rows ?? []), ...(blocked?.rows ?? [])]).filter(
               ({ taskId }) => assignmentFor(`task/${taskId}`),
             )) {
@@ -712,7 +706,7 @@ export function makeTaskQueryReadModel(input: {
                     ruling === null ||
                     dispatch === null ||
                     !dispatch.payload.executionId ||
-                    isResumed(dispatch)
+                    lifecycleOf(dispatchId).policy?.canResolveRuling !== true
                   )
                     continue;
                   rows.set(dispatchId, {
@@ -755,7 +749,8 @@ export function makeTaskQueryReadModel(input: {
                     receipt.attention === null ||
                     receipt.reason === null ||
                     !dispatch.payload.executionId ||
-                    isResumed(dispatch)
+                    lifecycleOf(dispatchId).policy?.groupSettled !== true ||
+                    lifecycleOf(dispatchId).nextDispatchId !== null
                   )
                     continue;
                   rows.set(dispatchId, {
@@ -1369,20 +1364,22 @@ function leaseReturnedRows(rows: readonly AgendaSourceRow[]): readonly AgendaSou
 }
 
 /**
- * An active execution has a live worker while any dispatch on it has not settled or its runtime
- * session is still running. Per row this reads only that task's execution dispatch index, never the
+ * The kernel lifecycle receipt determines whether an active execution still has pending work.
+ * Per row this reads only that task's execution dispatch index, never the
  * repository-wide dispatch table.
  */
 function hasLiveWorker(projection: TaskProjection, row: AgendaSourceRow): boolean {
-  for (const execution of row.snapshot.executions) {
-    if (execution.state !== "active") continue;
-    for (const dispatch of projection.readRuntimeDispatchesByTaskExecution(row.taskId, execution.executionId)) {
-      if (dispatch.outcome !== null) continue;
-      const session = projection.readRuntimeSession(dispatch.event.payload.runtimeSessionId);
-      if (session === null || runtimeSessionIsRunning(session)) return true;
-    }
-  }
-  return false;
+  return dispatchLifecycleHasPendingWork(
+    row.snapshot.executions
+      .filter(({ state }) => state === "active")
+      .flatMap(({ executionId }) =>
+        projection
+          .readRuntimeDispatchesByTaskExecution(row.taskId, executionId)
+          .map(({ event }) =>
+            projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: [event.payload.dispatchId] }),
+          ),
+      ),
+  );
 }
 
 /** The owner-action row for a lapsed-lease active execution, or null for every other shape. */
@@ -1432,10 +1429,14 @@ function unsubmittedDeliveryAttentionRows(
       latest = dispatches.at(-1);
     if (
       !latest ||
-      latest.outcome !== "stopped" ||
+      dispatchLifecycleSummary(
+        projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: [latest.event.payload.dispatchId] }),
+      ).outcome !== "stopped" ||
       latest.event.payload.role === "reviewer" ||
       latest.event.payload.squadId !== undefined ||
-      projection.readRuntimeDispatchByResumeSource(latest.event.payload.dispatchId)
+      dispatchLifecycleSummary(
+        projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: [latest.event.payload.dispatchId] }),
+      ).nextDispatchId !== null
     )
       return [];
     const outcome = projection

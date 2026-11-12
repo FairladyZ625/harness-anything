@@ -714,13 +714,13 @@ const runtimeSessionDoc: EntityKindDoc = {
   ...kernelContract("runtime-session"),
   storage: "agent 运行时事件流(runtime_session_*)",
   definition:
-    "provider 侧的一次真实会话(claude / codex / …)。存活与结果分开记录:semanticState 是对两者的派生判断,不采信单边自报。",
+    "provider 侧的一次真实会话(claude / codex / …)。历史活动与派工结论分开记录:当前状态和可用操作由中心 lifecycle 端口提供。",
   fields: [
     field("runtimeSessionId", true, "string", "会话稳定 ID(runtime_ 前缀)。"),
     field("taskBindings", true, "array", "认证交接后本会话执行的任务绑定。"),
     field("liveness", true, "enum", "进程存活:见状态词表。"),
     field("outcome", true, "enum", "provider 结果;未结算为 null。"),
-    field("semanticState", true, "enum", "派生语义态:liveness × outcome 的判定。"),
+    field("semanticState", true, "enum", "上一版协议兼容字段;2026-12-07 删除。"),
   ],
   nestedFields: noNested,
   edges: [

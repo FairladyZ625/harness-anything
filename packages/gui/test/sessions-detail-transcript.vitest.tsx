@@ -1,3 +1,4 @@
+import { lifecycleSummaryFor } from "../../daemon/test/dispatch-lifecycle-read.fixtures.ts";
 // harness-test-tier: integration
 // @vitest-environment happy-dom
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -249,3 +250,24 @@ describe("session detail transcript", () => {
     expect(container.querySelector('[data-testid="session-transcript-tool_call"]')).toBeNull();
   });
 });
+
+for (const ruling of [false, true])
+  it(`closed attempt in ${ruling ? "awaiting_ruling" : "waiting_backoff"} keeps checkpoint controls but refuses export`, async () => {
+    const lifecycle = lifecycleSummaryFor({
+      runtimeSessionId: sessionDto.runtimeSessionId,
+      dispatchId: "dispatch-backoff",
+      attemptSettled: true,
+      groupSettled: false,
+      ruling,
+      outcome: "failed",
+    });
+    expect(lifecycle.policy?.attemptSettled).toBe(true);
+    expect(lifecycle.policy?.canHandoff).toBe(false);
+    const { container } = await mountPanel(
+      { kind: "round", dispatchId: "dispatch-backoff", runtimeSessionId: sessionDto.runtimeSessionId } as SessionRow,
+      { ...sessionDto, kindId: "codex", lifecycle },
+    );
+    expect((container.querySelector('[data-testid="handoff-export"]') as HTMLButtonElement).disabled).toBe(true);
+    expect((container.querySelector('[data-testid="handoff-revoke"]') as HTMLButtonElement).disabled).toBe(false);
+    expect(container.querySelector('[data-testid="handoff-claim"]')).not.toBeNull();
+  });

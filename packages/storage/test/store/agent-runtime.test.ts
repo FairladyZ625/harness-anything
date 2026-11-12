@@ -5,7 +5,6 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
   runtimeEventContentClaims,
-  runtimeSessionSemanticState,
   runtimeTaskExecutionRelation,
   validateCurrentAgentRuntimeEvent,
   type AgentRuntimeEventType,
@@ -117,20 +116,6 @@ const canonicalRuntimeInputs: readonly ProviderWitnessV1[] = [
   { type: "heartbeat", payload: { runtimeSessionId: "runtime-session-claude" } },
 ];
 const claude = { witnesses: canonicalRuntimeInputs };
-test("runtime session semantics preserve the four judged liveness/outcome cases", () => {
-  assert.deepEqual(
-    [
-      runtimeSessionSemanticState({ liveness: "live", outcome: null }),
-      runtimeSessionSemanticState({ liveness: "exited", outcome: "succeeded" }),
-      runtimeSessionSemanticState({ liveness: "exited", outcome: "failed" }),
-      runtimeSessionSemanticState({ liveness: "exited", outcome: "cancelled" }),
-      runtimeSessionSemanticState({ liveness: "exited", outcome: "unknown" }),
-      runtimeSessionSemanticState({ liveness: "unknown", outcome: null }),
-    ],
-    ["running", "succeeded", "failed", "cancelled", "ended-indeterminate", "unavailable"],
-  );
-});
-
 test("legacy runtime session bindings are rebuilt in resumable batches only once", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
