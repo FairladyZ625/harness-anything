@@ -7,7 +7,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { completionSnapshot } from "../../kernel/test/domain/completion.fixtures.ts";
-import { readCloseoutSubmission, submitTask } from "../src/repo-cell-submit.ts";
+import { submitTask } from "../src/repo-cell-submit.ts";
+import { readCloseoutSubmission } from "./closeout-submission.fixture.ts";
+import { prepareSubmissionDelivery } from "../src/submission-delivery.ts";
+import { preparedSubmission } from "../src/submission-preparation.ts";
 import { judgeOldDataCopyReceipt, oldDataCopyReceiptPath } from "../src/submit-old-data-copy.ts";
 
 const packagePath = "tasks/task-1",
@@ -187,12 +190,26 @@ function fixture(t: TestContext, options: FixtureOptions) {
         head,
         "local",
       ),
-    submit: () =>
-      submitTask(
+    submit: async () => {
+      const delivery = await prepareSubmissionDelivery(
+        cell as unknown as Parameters<typeof prepareSubmissionDelivery>[0],
+        "task-1",
+        "execution-1",
+        snapshot,
+        head,
+        { kind: "node", nodeId: "node-1" },
+      );
+      return submitTask(
         cell as unknown as Parameters<typeof submitTask>[0],
-        { kind: "task-submit", taskId: "task-1", commitSha: head },
+        {
+          kind: "task-submit",
+          taskId: "task-1",
+          commitSha: head,
+          [preparedSubmission]: { delivery, assertCurrent: delivery.assertCurrent },
+        },
         { actor, source: { kind: "node", nodeId: "node-1" } } as unknown as Parameters<typeof submitTask>[2],
-      ),
+      );
+    },
   };
 }
 

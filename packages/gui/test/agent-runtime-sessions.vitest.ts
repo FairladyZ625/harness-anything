@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { lifecycleFixture } from "./lifecycle.fixtures.ts";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -45,6 +46,7 @@ const sessionDto = {
   definitionSnapshot: definition,
   definitionSnapshotPersisted: true,
   liveness: "live",
+  lifecycle: lifecycleFixture(),
   attachCapability: "supported",
   streamCursor: "stream:4",
   associations: [
@@ -357,14 +359,27 @@ describe("session detail achieved first", () => {
     // live 会话就是「正在跑」,不被上一轮结局抢先命名。
     expect(firstScreen).toContain("Running");
     // 终局裁决:settlement 是 daemon 的裁决,优先于会话语义状态(会话已退出才有终局)。
-    const ended = { ...sessionDto, liveness: "exited" } as typeof sessionDto;
-    expect(detailView({ session: ended, settlement: settlement("failed") })).toContain("Failed");
-    expect(detailView({ session: ended, settlement: settlement("succeeded") })).toContain("Delivered");
+    const ended = { ...sessionDto, liveness: "exited", lifecycle: lifecycleFixture("stopped") } as typeof sessionDto;
+    expect(
+      detailView({ session: { ...ended, lifecycle: lifecycleFixture("failed") }, settlement: settlement("failed") }),
+    ).toContain("Failed");
+    expect(
+      detailView({
+        session: { ...ended, lifecycle: lifecycleFixture("succeeded") },
+        settlement: settlement("succeeded"),
+      }),
+    ).toContain("Delivered");
     expect(detailView({ session: ended, settlement: settlement("stopped") })).toContain("Stopped");
     // 没有 settlement 时按会话语义状态退,不把「已结束但判不出」说成失败。
-    expect(detailView({ session: { ...ended, semanticState: "ended-indeterminate" } as typeof sessionDto })).toContain(
-      "Result unconfirmed",
-    );
+    expect(
+      detailView({
+        session: {
+          ...ended,
+          semanticState: "ended-indeterminate",
+          lifecycle: lifecycleFixture("unknown"),
+        } as typeof sessionDto,
+      }),
+    ).toContain("Outcome unknown");
   });
 
   it("shows the elapsed time from the dispatch row instead of inventing one", () => {
@@ -383,7 +398,7 @@ describe("session detail achieved first", () => {
     expect(markup).toContain('data-testid="session-conclusion"');
     expect(markup).toContain("Still running");
     const settled = detailView({
-      session: { ...sessionDto, liveness: "exited" } as typeof sessionDto,
+      session: { ...sessionDto, liveness: "exited", lifecycle: lifecycleFixture("stopped") } as typeof sessionDto,
     });
     expect(settled).toContain("no conclusion text");
   });
@@ -511,7 +526,7 @@ describe("session detail achieved first", () => {
 
   it("falls back to the settlement reason for a failed session, and strips narration from a raw result", () => {
     const failed = detailView({
-      session: { ...sessionDto, liveness: "exited" } as typeof sessionDto,
+      session: { ...sessionDto, liveness: "exited", lifecycle: lifecycleFixture("stopped") } as typeof sessionDto,
       settlement: {
         outcome: "failed",
         exitCode: 1,
@@ -525,7 +540,7 @@ describe("session detail achieved first", () => {
 
     // 没有 claim/评审时退回 result 原文,但过程叙述行不进首屏;结论段落保留。
     const raw = detailView({
-      session: { ...sessionDto, liveness: "exited" } as typeof sessionDto,
+      session: { ...sessionDto, liveness: "exited", lifecycle: lifecycleFixture("stopped") } as typeof sessionDto,
       result:
         "I'll start by loading the task plan.\n\nDelivered the session-detail rewrite: verdict head, wrapped conclusion, basename output paths, and the dispatch start time fallback. All 39 targeted tests pass.",
     });

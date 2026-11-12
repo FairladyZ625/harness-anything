@@ -543,6 +543,7 @@ function contextFor(
     fixture = {
       // Pre-queue reads resolve gate requirements from settings; this fixture declares no gates or workflows.
       extracted: {
+        requiredCellText: (value: unknown) => String(value),
         // executeAction below is an admission stub; it does not emit a submitted event to continue.
         store: { readTaskEvent: () => null },
         settings: {

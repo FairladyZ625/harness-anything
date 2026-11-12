@@ -2,10 +2,7 @@ import { isUtf8 } from "node:buffer";
 import { createHash } from "node:crypto";
 import { consumeKnownError } from "@harness-anything/kernel";
 import {
-  isDocEvent,
-  isTaskBootstrapEvent,
-  isTaskEvent,
-  isTaskProgressEvent,
+  canonicalDocumentClaims,
   normalizeRelativeDocumentPath,
   sha256Bytes,
   type ArtifactDelivery,
@@ -35,18 +32,9 @@ export function createSubmissionArtifactReader(cell: Pick<RepoCellOperationalCon
       const event = cell.store.readEventAtRevision?.(revision);
       if (!event || event.workspaceRevision !== revision) acceptances.set(revision, null);
       else {
-        const blobs = new Map<string, string | undefined>(),
-          claims = isDocEvent(event)
-            ? event.payload.changes
-            : isTaskEvent(event) || isTaskProgressEvent(event)
-              ? (event.payload.carriedDocumentClaims ?? [])
-              : [];
-        if (isTaskBootstrapEvent(event)) {
-          for (const claim of event.payload.initialDocumentClaims)
-            if (!blobs.has(claim.path)) blobs.set(claim.path, claim.sha256);
-        } else {
-          for (const claim of claims) if (!blobs.has(claim.path)) blobs.set(claim.path, claim.candidate?.sha256);
-        }
+        const blobs = new Map<string, string>();
+        for (const claim of canonicalDocumentClaims(event))
+          if (!blobs.has(claim.path)) blobs.set(claim.path, claim.sha256);
         acceptances.set(revision, { opId: event.opId, blobs });
       }
     }
@@ -228,14 +216,7 @@ function resolveSubmissionArtifact(
   if (!Number.isSafeInteger(revision) || revision < 1) invalid("revision must be a positive safe integer");
   const event = cell.store.readEventAtRevision?.(revision);
   if (!event || event.workspaceRevision !== revision) return invalid("revision is not a document acceptance");
-  const claims = isDocEvent(event)
-    ? event.payload.changes
-    : isTaskEvent(event) || isTaskProgressEvent(event)
-      ? (event.payload.carriedDocumentClaims ?? [])
-      : [];
-  const claim = isTaskBootstrapEvent(event)
-    ? event.payload.initialDocumentClaims.find((candidate) => candidate.path === artifact)
-    : claims.find((candidate) => candidate.path === artifact)?.candidate;
+  const claim = canonicalDocumentClaims(event).find((candidate) => candidate.path === artifact);
   const blobSha256 = claim?.sha256;
   if (!blobSha256) return invalid("revision did not accept this path");
   if (expectedBlob !== undefined && expectedBlob !== blobSha256)

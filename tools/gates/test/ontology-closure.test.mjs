@@ -497,3 +497,230 @@ test("storage judgment candidates leave the migration baseline", () => {
     [],
   );
 });
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1 S3c: technical tool settings are not domain defaults.
+test("tool technical syntax is classified without relaxing identical product policies", () => {
+  const cases = JSON.parse(
+    readFileSync(new URL("./fixtures/ontology-closure/tool-technical.json", import.meta.url), "utf8"),
+  );
+  for (const { label, text, target } of cases) {
+    const tool = scanOntologyText(target, text);
+    assert.deepEqual(
+      tool.filter((row) => row.category === "policy"),
+      [],
+      label,
+    );
+    const product = scanOntologyText("packages/daemon/src/tool-settings.ts", text);
+    assert.ok(
+      product.some((row) => row.category === "policy"),
+      label,
+    );
+    assert.ok(
+      audit(product).findings.some((row) => row.code === "ONTOLOGY_POLICY_UNDECLARED"),
+      label,
+    );
+    assert.deepEqual(
+      tool.filter((row) => row.category !== "policy").map(({ category, kind }) => ({ category, kind })),
+      product.filter((row) => row.category !== "policy").map(({ category, kind }) => ({ category, kind })),
+      label,
+    );
+    if (/^tools\/(?:perf|scale|soak|stress)\//u.test(target)) continue;
+    const realPolicy = scanOntologyText(
+      target,
+      "const approvalTimeoutMs = 500; const retryLimit = 3; if (retryCount > 3) returnValue('deny');",
+    );
+    assert.equal(realPolicy.filter((row) => row.category === "policy").length, 3, label);
+    assert.ok(
+      audit(realPolicy).findings.some((row) => row.code === "ONTOLOGY_POLICY_UNDECLARED"),
+      label,
+    );
+  }
+});
+
+test("tools Policy debt is cleared without adding exemptions", () => {
+  const result = evaluateOntologyClosure({ rootDir: repoRoot, base: "HEAD" });
+  assert.deepEqual(
+    result.classified.filter((row) => row.category === "policy" && row.file.startsWith("tools/")),
+    [],
+  );
+});
+
+test("technical neighbors cannot hide a new tool policy threshold or nested config", () => {
+  for (const text of [
+    "const allowDispatch = true; const maxConcurrent = 3; const eligibilityRequired = true;",
+    "if (admission.timeoutMs > 500) deny();",
+    "if (admission.limit > 3) deny();",
+    "if (concurrency > 3) deny();",
+    "if (timeoutMs > 500) deny();",
+    "if (attempt > 3) deny();",
+    "const DEFAULT_ATTEMPTS = { retryLimit: 3 };",
+    "if (approvalTimeoutMs > 500 || Date.now() >= deadline) deny();",
+  ]) {
+    for (const file of ["tools/ci/runner.mjs", "tools/gates/audit.mjs", "tools/new-command.mjs"]) {
+      assert.ok(
+        audit(scanOntologyText(file, text)).findings.some((row) => row.code === "ONTOLOGY_POLICY_UNDECLARED"),
+        `${file}: ${text}`,
+      );
+    }
+  }
+});
+
+test("audited load roots narrow only Policy, keeping actions and judgments and similar product paths", () => {
+  const text = "const newQuota = 7; function canDispatch() { if (newQuota > 3) return true; } dispatch();";
+  const product = scanOntologyText("packages/daemon/src/load.ts", text);
+  for (const root of ["perf", "scale", "soak", "stress"]) {
+    const rows = scanOntologyText(`tools/${root}/arbitrary.mjs`, text);
+    assert.deepEqual(
+      rows.filter((row) => row.category === "policy"),
+      [],
+    );
+    assert.deepEqual(
+      rows.map(({ category, kind }) => ({ category, kind })),
+      product.filter((row) => row.category !== "policy").map(({ category, kind }) => ({ category, kind })),
+    );
+    for (const target of [`packages/daemon/src/${root}/load.ts`, `tools/${root}-helper.mjs`])
+      assert.ok(
+        audit(scanOntologyText(target, text)).findings.some((row) => row.code === "ONTOLOGY_POLICY_UNDECLARED"),
+      );
+  }
+});
+
+test("tool syntax classification generalizes across counter, flag and constant names", () => {
+  for (const text of [
+    "const PARSER_RETRY_ATTEMPTS = 4; const CUSTOM_TIMEOUT_MS = 900;",
+    "const allowedParserDialects = new Set(['js']); if (!allowedParserDialects.has('mjs')) report();",
+    "for (let retryIndex = 0; retryIndex < 4; retryIndex++) { if (retryIndex === 3) throw problem; }",
+    "for (let attemptIndex = 0; attemptIndex < attempts; attemptIndex++) { if (attemptIndex + 1 < attempts) next(); }",
+    "if (cutoffDeadline <= Date.now() && pending > 0) throw problem;",
+    "if (typeof transport.retryable === 'boolean') returnValue();",
+    "const MIN_TOOL_TIMEOUT_MS = 17; if (!Number.isSafeInteger(input.timeoutMs) || input.timeoutMs < MIN_TOOL_TIMEOUT_MS) throw problem;",
+    "launchTool('compiler', ['--version'], { cwd: scratch, timeout: 2345 });",
+  ]) {
+    assert.deepEqual(
+      scanOntologyText("tools/ci/arbitrary.mjs", text).filter((row) => row.category === "policy"),
+      [],
+      text,
+    );
+    assert.ok(
+      audit(scanOntologyText(file, text)).findings.some((row) => row.code === "ONTOLOGY_POLICY_UNDECLARED"),
+      text,
+    );
+  }
+});
+
+test("tool process option classification cannot hide domain call options", () => {
+  for (const file of ["tools/ci/runner.mjs", "tools/gates/audit.mjs", "tools/new-command.mjs"]) {
+    for (const text of [
+      "dispatch({ timeoutMs: 500, limit: 3 });",
+      "const settings = { timeout: 500, limit: 3 };",
+      "const schema = { limit: { type: 'integer', default: 3 } };",
+      "const settings = { riskTier: 'high', retryLimit: 3 };",
+      "const approvalPolicy = 'strict';",
+      "const constraints = { retryOnFailure: false };",
+      "configure({ settings: { limit: 3 } });",
+      "const retryLimit = 0;",
+      "if (retryCount === 0) dispatch();",
+      "const config = { retryLimit: 0 };",
+      "if (receipt.limit >= 0) dispatch();",
+    ])
+      assert.ok(
+        audit(scanOntologyText(file, text)).findings.some((row) => row.code === "ONTOLOGY_POLICY_UNDECLARED"),
+        `${file}: ${text}`,
+      );
+  }
+});
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: syntax alone cannot prove technical semantics.
+const undeclaredPolicy = (text) => {
+  for (const target of ["tools/new-command.mjs", file])
+    assert.ok(
+      audit(scanOntologyText(target, text)).findings.some((row) => row.code === "ONTOLOGY_POLICY_UNDECLARED"),
+      `${target}: ${text}`,
+    );
+};
+
+test("unrelated and shadowing loop bindings cannot hide independent retry policies", () => {
+  for (const text of [
+    "for (let item = 0; item < batch.length; item++) { if (retryCount > 3) dispatch(); }",
+    "for (let item = 0; item < 2; item++) { for (let entry = 0; entry < 4; entry++) { if (retryCount > 3) dispatch(); } }",
+    "for (let retryCount = 0; retryCount < 4; retryCount++) { { const retryCount = externalCount; if (retryCount > 3) dispatch(); } }",
+    "for (let retryCount = 0; retryCount < 4; retryCount++) { { const { retryCount } = settings; if (retryCount > 3) dispatch(); } }",
+    "for (let retryCount = 0; retryCount < 4; retryCount++) { function run(retryCount) { if (retryCount > 3) dispatch(); } }",
+    "for (let retryCount = 0; retryCount < 4; retryCount++) { try { work(); } catch (retryCount) { if (retryCount > 3) dispatch(); } }",
+    "for (let retryCount = 0; retryCount < 4; retryCount++) { for (const retryCount of values) { if (retryCount > 3) dispatch(); } }",
+    "for (let retryCount = 0; retryCount < 4; retryCount++) { if (admission.retryCount > 3) dispatch(); }",
+    "for (let retryLimit = 3; running; tick()) { if (retryLimit > 3) dispatch(); }",
+  ])
+    undeclaredPolicy(text);
+});
+
+test("unknown call and constructor inputs retain Policy even behind effect wrappers", () => {
+  for (const text of [
+    "function configure(settings) { dispatch(settings); } configure({ limit: 3 });",
+    "function configure(settings) { dispatch(settings); } const settings = { limit: 3 }; configure(settings);",
+    "function readPage(settings) { dispatch(settings); } readPage({ limit: 3 });",
+    "class Request { constructor(settings) { dispatch(settings); } } new Request({ limit: 3 });",
+    "unknownCall({ limit: 3 });",
+    "new UnknownType({ limit: 3 });",
+  ])
+    undeclaredPolicy(text);
+});
+
+test("returned zero and nonzero retry settings are policies rather than assumed observations", () => {
+  for (const text of [
+    "function retryOptions() { return { retryLimit: 0 }; } dispatch(retryOptions());",
+    "function retryOptions() { return { retryLimit: 1 }; } dispatch(retryOptions());",
+    "function retryOptions() { return { attempts: 0 }; } dispatch(retryOptions());",
+    "function retryOptions() { return { settings: { retryLimit: 0 } }; } dispatch(retryOptions());",
+    "const retryOptions = () => ({ retryLimit: 0 }); dispatch(retryOptions());",
+  ])
+    undeclaredPolicy(text);
+});
+
+test("integer guards do not erase numeric admission and retry boundaries", () => {
+  for (const text of [
+    "if (Number.isInteger(admission.limit) && admission.limit > 3) dispatch();",
+    "if (!Number.isInteger(admission.limit) || admission.limit < 3) deny();",
+    "if (ready && (Number.isInteger(admission.limit) && admission.limit > 3)) dispatch();",
+    "if (Number.isSafeInteger(admission.timeoutMs) && admission.timeoutMs >= 500) dispatch();",
+    "if (Number.isInteger(admission.limit) && admission.limit >= 0) dispatch();",
+    "if (Number.isInteger(value.retryCount) && value.retryCount > 3) dispatch();",
+    "if (Number.isInteger(admission.limit) && admission.limit > Math.max(3, 0)) dispatch();",
+    "if (Number.isInteger(admission.limit) && checkLimit(admission.limit, 3)) dispatch();",
+    "if (admission.limit > configuredThreshold(3)) dispatch();",
+    "const errors = []; if (!(Number.isInteger(admission.limit) && admission.limit >= 0)) dispatch();",
+    "const errors = []; if (!(Number.isInteger(admission.limit) && admission.limit >= 3)) errors.push('denied');",
+    "if (!(Number.isInteger(admission.limit) && admission.limit >= 0)) unknownErrors.push('denied');",
+    "function validate(Number, value) { const errors = []; if (!(Number.isInteger(value.limit) && value.limit >= 0)) errors.push('denied'); return errors; }",
+    "const validate = function Number(value) { const errors = []; if (!(Number.isInteger(value.limit) && value.limit >= 0)) errors.push('denied'); return errors; };",
+    "const errors = []; try { work(); } catch (errors) { if (!(Number.isInteger(admission.limit) && admission.limit >= 0)) errors.push('denied'); }",
+    "const errors = []; if (!(Number.isInteger(admission.limit) && admission.limit >= 0) && permit()) errors.push('denied');",
+    "const errors = []; if (!(Number.isInteger(admission.limit) && admission.limit >= 0)) errors.push(message());",
+  ])
+    undeclaredPolicy(text);
+});
+
+test("primitive non-negative shape diagnostics do not configure an action", () => {
+  const text =
+    "function validate(value) { const diagnostics = []; if (!(Number.isInteger(value.limit) && value.limit >= 0)) diagnostics.push('invalid'); return diagnostics; }";
+  assert.deepEqual(
+    scanOntologyText("tools/new-command.mjs", text).filter((row) => row.category === "policy"),
+    [],
+  );
+  assert.ok(audit(scanOntologyText(file, text)).findings.some((row) => row.code === "ONTOLOGY_POLICY_UNDECLARED"));
+});
+
+test("explicit tool constant sources retain technical reads and observations of any count", () => {
+  for (const count of [0, 2]) {
+    for (const text of [
+      `const OBSERVED_ATTEMPTS = ${count}; function receipt() { return { attempts: OBSERVED_ATTEMPTS }; }`,
+      "const SNAPSHOT_LIMIT = 100; snapshot({ limit: SNAPSHOT_LIMIT });",
+    ]) {
+      assert.deepEqual(
+        scanOntologyText("tools/new-command.mjs", text).filter((row) => row.category === "policy"),
+        [],
+      );
+      assert.ok(audit(scanOntologyText(file, text)).findings.some((row) => row.code === "ONTOLOGY_POLICY_UNDECLARED"));
+    }
+  }
+});

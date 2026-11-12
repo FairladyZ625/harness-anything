@@ -275,9 +275,9 @@ test(
     // The receipt states the task's own projection revision at the top level — the exact value
     // --expected-version validates — and it is not the ledger cut sitting beside it.
     assert.equal(shown.expectedVersion, snapshot.revision);
-    assert.notEqual(shown.expectedVersion, shown.revision);
+    assert.equal(shown.expectedVersion, shown.revision);
     t.diagnostic(
-      `task-show ${taskId}: revision=${String(shown.revision)} (ledger cut) ` +
+      `task-show ${taskId}: revision=${String(shown.revision)} (task CAS revision) ` +
         `expectedVersion=${String(shown.expectedVersion)} (task projection revision)`,
     );
     const assigned = await f.command("node-one", {

@@ -30,7 +30,7 @@ const load = (rootDir, relative) => import(pathToFileURL(path.join(rootDir, rela
 // benchmark misses moving createSubmissionArtifactReader inside the per-artifact loop (#4207).
 export async function measureTaskSubmitArtifacts(rootDir, size) {
   const [{ deriveCloseoutSubmission }, { completionSnapshot }] = await Promise.all([
-    load(rootDir, "packages/daemon/src/repo-cell-submit.ts"),
+    load(rootDir, "packages/daemon/test/closeout-submission.fixture.ts"),
     load(rootDir, "packages/kernel/test/domain/completion.fixtures.ts"),
   ]);
   const packagePath = "tasks/task-artifact",
@@ -91,7 +91,7 @@ export async function measureTaskSubmitArtifacts(rootDir, size) {
         }),
       },
     },
-    submission = deriveCloseoutSubmission(cell, "task-artifact", "execution", {
+    submission = await deriveCloseoutSubmission(cell, "task-artifact", "execution", {
       task: { presetSnapshotDigest: completionSnapshot.digest, completionGateIds: [] },
       executions: [],
       reviews: [],

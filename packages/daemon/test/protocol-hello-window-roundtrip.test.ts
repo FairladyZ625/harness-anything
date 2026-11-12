@@ -63,3 +63,141 @@ test("a daemon rejection keeps its own code instead of becoming a version mismat
     (error: unknown) => (error as { readonly code?: string }).code === "unknown_field",
   );
 });
+
+test("lifecycle reads require an advertised connection opt-in; previous peers keep their closed DTO", async () => {
+  const { makeAgentRuntimeReadModel } = await import("../src/agent-runtime-read.ts"),
+    { createJsonRpcProtocolServer } = await import("../src/protocol/json-rpc-server.ts"),
+    { parseDaemonGuiReadResponse } = await import("../src/protocol/gui-result-validation.ts");
+  const session = {
+    runtimeSessionId: "runtime-test",
+    providerSessionId: null,
+    instanceId: "worker",
+    installationId: "installation-test",
+    kindId: "codex",
+    definitionSnapshotRef: "artifact:test",
+    taskBindings: [],
+    liveness: "live",
+    outcome: null,
+    exitCode: null,
+    resultRef: null,
+    lastObservedAt: "2026-11-12T00:00:00.000Z",
+  };
+  const projection = {
+    readCut: () => ({ status: "ready", watermark: 2, sourceRevision: 2 }),
+    readRuntimeSession: () => session,
+    readRuntimeDispatch: () => null,
+    readRuntimeInstallation: () => null,
+    readRuntimeSessionEventsByType: () => [],
+    readDispatchLifecycle: () => ({ status: "pending", watermark: 1, sourceRevision: 2 }),
+  };
+  const current = makeAgentRuntimeReadModel({ projection: projection as never, store: {} as never }).session({
+    runtimeSessionId: session.runtimeSessionId,
+  });
+  const server = createJsonRpcProtocolServer({
+    host: { read: async () => current } as never,
+    build: { loadedBuildId: null, commit: null, builtAt: null },
+    authContext: { transportKind: "unix-socket" },
+    emit: async () => undefined,
+  });
+  const call = async (method: string, params: JsonObject = {}) => {
+    const response = await server.handle({ jsonrpc: "2.0", id: 1, method, params });
+    assert.ok(response && "result" in response);
+    return response.result as JsonObject;
+  };
+  const hello = await call("protocol.hello", daemonHelloParams());
+  assert.ok((hello.methods as string[]).includes("protocol.dispatchLifecycle.enable"));
+  const params = { repo: { repoId: "repo-test" }, payload: { runtimeSessionId: session.runtimeSessionId } };
+  const previous = await call("repo.agentRuntime.sessions.read", params);
+  assert.equal((previous.session as JsonObject).lifecycle, undefined);
+  // Frozen previous closed shape: the actual prior decoder is also run in the task's cross-version probe.
+  const previousFields = new Set([
+    "runtimeSessionId",
+    "providerSessionId",
+    "instanceId",
+    "installationId",
+    "kindId",
+    "definitionSnapshotRef",
+    "definitionSnapshot",
+    "definitionSnapshotPersisted",
+    "liveness",
+    "attachCapability",
+    "streamCursor",
+    "associations",
+    "activity",
+    "installationState",
+    "installationError",
+    "semanticState",
+    "attemptChain",
+    "metrics",
+    "context",
+  ]);
+  assert.ok(Object.keys(previous.session as JsonObject).every((key) => previousFields.has(key)));
+  assert.doesNotThrow(() => parseDaemonGuiReadResponse("repo.agentRuntime.sessions.read", previous));
+  await call("protocol.dispatchLifecycle.enable");
+  const next = await call("repo.agentRuntime.sessions.read", params);
+  assert.deepEqual((next.session as JsonObject).lifecycle, current.session.lifecycle);
+  assert.doesNotThrow(() => parseDaemonGuiReadResponse("repo.agentRuntime.sessions.read", next));
+  const { PassThrough, Writable } = await import("node:stream"),
+    { JsonRpcLineClient } = await import("../src/client/local-json-rpc-client.ts"),
+    input = new PassThrough();
+  const sent: string[] = [];
+  const output = new Writable({
+    write(chunk, _encoding, done) {
+      const request = JSON.parse(String(chunk));
+      sent.push(request.method);
+      void server.handle(request).then((response) => {
+        input.write(`${JSON.stringify(response)}\n`);
+        done();
+      }, done);
+    },
+  });
+  const client = new JsonRpcLineClient(input, output);
+  try {
+    await client.request("protocol.hello", daemonHelloParams());
+    const result = await client.request("repo.agentRuntime.sessions.read", params);
+    assert.deepEqual((result.session as JsonObject).lifecycle, current.session.lifecycle);
+    assert.deepEqual(sent, ["protocol.hello", "protocol.dispatchLifecycle.enable", "repo.agentRuntime.sessions.read"]);
+  } finally {
+    client.close();
+  }
+  await call("protocol.hello", daemonHelloParams());
+  assert.equal(((await call("repo.agentRuntime.sessions.read", params)).session as JsonObject).lifecycle, undefined);
+});
+
+test("lifecycle negotiation retains hello admission until the business frame or disconnect", async () => {
+  const { createJsonRpcProtocolServer } = await import("../src/protocol/json-rpc-server.ts");
+  let draining = false,
+    held = 0;
+  const server = createJsonRpcProtocolServer({
+    host: { read: async () => ({ ok: true }) } as never,
+    build: { loadedBuildId: null, commit: null, builtAt: null },
+    authContext: { transportKind: "unix-socket" },
+    emit: async () => undefined,
+    buildDraining: () => draining,
+    onRequestStarted: () => held++,
+    onRequestSettled: () => held--,
+  });
+  const call = async (method: string, params: JsonObject = {}) => {
+    const response = await server.handle({ jsonrpc: "2.0", id: 1, method, params });
+    assert.ok(response && "result" in response);
+    return response.result as JsonObject;
+  };
+  try {
+    await call("protocol.hello", daemonHelloParams());
+    assert.equal(held, 1);
+    draining = true;
+    assert.equal((await call("protocol.dispatchLifecycle.enable")).ok, true);
+    assert.equal(held, 1, "capability negotiation must retain the hello reservation");
+    const params = { repo: { repoId: "repo-test" }, payload: { runtimeSessionId: "runtime-test" } };
+    assert.equal((await call("repo.agentRuntime.sessions.read", params)).ok, true);
+    assert.equal(held, 0, "the first business frame releases the exchange");
+    assert.equal((await call("repo.agentRuntime.sessions.read", params)).code, "daemon_stopping");
+    draining = false;
+    await call("protocol.hello", daemonHelloParams());
+    await call("protocol.dispatchLifecycle.enable");
+    assert.equal(held, 1);
+  } finally {
+    server.close();
+  }
+  assert.equal(held, 0, "disconnect releases an abandoned negotiated exchange");
+});

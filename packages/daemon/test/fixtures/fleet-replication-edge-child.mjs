@@ -190,7 +190,7 @@ async function runOneSession() {
       emit({
         event: "applied",
         position: commit.position,
-        events: commit.events.length,
+        events: commit.outcome?.memberOpIds.length ?? 0,
         outcomeStatus: commit.outcome === null ? null : commit.outcome.status,
         rejectionCode: commit.outcome === null ? null : commit.outcome.rejectionCode,
       });

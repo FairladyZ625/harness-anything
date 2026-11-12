@@ -9,4 +9,4 @@ parentPort!.on("message", (request: RepoWriterRequestV1) => {
   Atomics.notify(barrier, 1);
   Atomics.wait(barrier, 2, 0);
 });
-await import("../../src/repo-writer-worker.ts");
+await import("../../src/repo-reader-worker.ts");

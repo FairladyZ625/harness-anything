@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { lifecycleSummaryFor } from "../../daemon/test/dispatch-lifecycle-read.fixtures.ts";
 import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -281,11 +282,11 @@ test(
         dispatchId: null,
         runtimeSessionId,
         status: "running",
-        liveness: "live",
+        lifecyclePhase: "running",
         outcome: null,
         exitCode: null,
         classification: null,
-        fallbackState: null,
+        lifecycleStatus: "ready",
       });
     } finally {
       invocation.stop();
@@ -1443,6 +1444,13 @@ function runtimeStatus(terminal: boolean): Record<string, unknown> {
       definitionSnapshotRef: "fixture-definition",
       definitionSnapshot: {},
       liveness: terminal ? "exited" : "live",
+      lifecycle: lifecycleSummaryFor({
+        runtimeSessionId,
+        dispatchId: "dispatch-wait",
+        process: terminal ? "exited" : "alive",
+        attemptSettled: terminal,
+        outcome: terminal ? "succeeded" : null,
+      }),
       attachCapability: "supported",
       streamCursor: "stream:0",
       associations: [

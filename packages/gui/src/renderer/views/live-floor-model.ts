@@ -27,7 +27,7 @@ export interface LiveFloorRow {
 /** 派工通道:同任务的评审与决策评审两行靠它区分,不靠猜重复。 */
 export type LiveFloorChannel = "implementation" | "rework" | "review_task" | "review_decision" | "unknown";
 
-/** Keep the live-session count anchored to runtime liveness; dispatch rows only enrich each row. */
+/** Keep the live-session count anchored to the lifecycle receipt; dispatch rows only enrich each row. */
 export function liveFloorRows(input: {
   readonly sessions: readonly AgentRuntimeSessionDto[];
   readonly dispatches: readonly TaskDispatchProjectionRow[];
@@ -40,7 +40,7 @@ export function liveFloorRows(input: {
       dispatchBySession.set(dispatch.runtimeSessionId, dispatch);
   }
   return input.sessions
-    .filter((session) => session.liveness === "live")
+    .filter((session) => session.lifecycle?.displayStatus === "running")
     .map((session) => {
       const dispatch = dispatchBySession.get(session.runtimeSessionId) ?? null,
         taskId = dispatch?.taskId || session.associations[0]?.taskId || null,

@@ -512,6 +512,9 @@ export function TaskEvidenceTab({
   );
 }
 
+// Fact presentation only; dispatch lifecycle is unrelated to fact standing/retirement.
+const factTone: Readonly<Record<string, "done" | "neutral">> = { standing: "done" };
+
 function FactRow({
   fact,
   item,
@@ -532,7 +535,7 @@ function FactRow({
     <article className={`grid gap-3 py-5 lg:grid-cols-[8rem_minmax(0,1fr)_13rem] ${accent}`}>
       <div>
         <p className="font-mono ui-micro font-semibold text-text">{fact.factId}</p>
-        <StatusTag tone={fact.liveness === "standing" ? "done" : "neutral"} label={fact.liveness} mono />
+        <StatusTag tone={factTone[fact.liveness] ?? "neutral"} label={fact.liveness} mono />
         {fact.archived === true && (
           <span className="mt-1 inline-flex rounded bg-surface-raised px-1.5 py-0.5 font-mono ui-micro text-text-faint">
             已归档

@@ -1,3 +1,4 @@
+import { labelWorkerMemory } from "./daemon-diagnostics-memory.ts";
 import {
   prepareStorageWorkerContext,
   requiresStorageWorkerContext,
@@ -27,6 +28,7 @@ export type RepoReadWorkerFactory = (
   url: URL,
   options: {
     readonly execArgv: string[];
+    readonly name?: string;
     readonly transferList?: import("node:worker_threads").MessagePort[];
     readonly workerData: { readonly storageContext?: StorageWorkerContext } & {
       readonly schema: string;
@@ -187,8 +189,9 @@ function pump(): void {
         let worker: Worker;
         try {
           worker = (job.createWorker ?? ((url, options) => new Worker(url, options)))(
-            new URL(`./repo-writer-worker${path.extname(import.meta.filename)}`, import.meta.url),
+            new URL(`./repo-reader-worker${path.extname(import.meta.filename)}`, import.meta.url),
             {
+              name: "repo-reader",
               workerData: {
                 storageContext: context.context,
                 schema: "harness-repo-writer-bootstrap/v1",
@@ -206,6 +209,7 @@ function pump(): void {
           context.close();
           throw error;
         }
+        labelWorkerMemory(worker, "repo-reader");
         worker.once("exit", context.close);
         // Only transferred physical capabilities bind a worker to its creating client.
         // Other readers already close/reopen their query runtime when config changes.

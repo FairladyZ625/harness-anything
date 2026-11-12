@@ -6,7 +6,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { completionSnapshot } from "../../kernel/test/domain/completion.fixtures.ts";
-import { deriveCloseoutSubmission, readCloseoutSubmission } from "../src/repo-cell-submit.ts";
+import { readCloseoutSubmission } from "./closeout-submission.fixture.ts";
+import { deriveCloseoutSubmission } from "./closeout-submission.fixture.ts";
 
 function fixture(t: TestContext, ledgerRoot = "harness", leakedAtBaseline = false) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-ignored-ledger-submit-")),

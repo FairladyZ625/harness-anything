@@ -1,3 +1,4 @@
+import { readTaskDispatchRow } from "../../src/dispatch-read.ts";
 import assert from "node:assert/strict";
 import { createReadFixtureRuntime } from "./g38-read-runtime.mjs";
 import { adoptRuntimes, sweepSettledRuntimeTempDirectories } from "../../src/runtime-spawn-adoption.ts";
@@ -94,6 +95,20 @@ export const READ_PROBES = Object.freeze({
     run: ({ runtime }) =>
       runtime.read("repo.agentRuntime.events.read", { runtimeSessionId: READ_SESSION_ID, afterCursor: "lifecycle:0" }),
     size: (value) => value.events.length,
+  },
+  "dispatch-point": {
+    reads: ["command:task-dispatches", "method:repo.task.dispatches"],
+    run: ({ projection }) => {
+      const event = projection.readRuntimeDispatch(READ_SESSION_ID);
+      assert.ok(event, "point read fixture must contain a dispatch");
+      return { ok: true, dispatch: readTaskDispatchRow(projection, event) };
+    },
+    size: () => 1,
+  },
+  "task-dispatches-page": {
+    reads: ["command:task-dispatches", "method:repo.task.dispatches"],
+    run: ({ runtime }) => runtime.read("repo.task.dispatches", { taskIds: ["history-task"], limit: 1 }),
+    size: (value) => value.dispatches.length,
   },
   "task-dispatches": {
     reads: ["command:task-dispatches", "method:repo.task.dispatches"],

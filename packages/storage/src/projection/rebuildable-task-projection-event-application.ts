@@ -1,3 +1,4 @@
+import { requiresEventShapeReplay } from "./event-shape-replay.ts";
 import { DECISION_DOCUMENT_POLICY_ID } from "@harness-anything/kernel/internal/domain/decision-event.ts";
 import { storageReplayPolicy } from "@harness-anything/kernel/internal/domain/storage-replay-policy.ts";
 import { projectArtifactEntityState } from "./artifact-entity-state-projection.ts";
@@ -224,17 +225,7 @@ function applyEventProjection(
       );
     return;
   }
-  if (isLedgerLayoutMigrationEvent(event)) {
-    runSql(
-      db,
-      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
-      event.opId,
-      event.workspaceRevision,
-      eventJson,
-    );
-    return;
-  }
-  if (isEventShapeMigrationEvent(event)) {
+  if (isLedgerLayoutMigrationEvent(event) || isEventShapeMigrationEvent(event)) {
     runSql(
       db,
       "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
@@ -1007,6 +998,8 @@ export function applyTaskEvent(
 }
 
 // Incremental source scanning, deferred-event staging, and batch replay.
+// Keep a cold replay cold across bounded pages, then advance its origin at the completed cut.
+const replayStarts = new WeakMap<DatabaseSync, number>();
 const batchContentPrefetchers = new WeakMap<EventStreamPort, EventContentPrefetch>();
 const SCAN_STATE_SQL = "SELECT scan_cursor, scanned_revision FROM projection_meta WHERE singleton = 1",
   NEXT_DEFERRED_EVENT_SQL = [
@@ -1052,6 +1045,7 @@ export function catchUpRound(
   eventStore: EventStreamPort,
   limit: number,
 ): {
+  readonly replayRequired?: boolean;
   readonly sourceRevision: number;
   readonly watermark: number;
   readonly reducedItems: number;
@@ -1061,6 +1055,8 @@ export function catchUpRound(
   const head = eventStore.readHead();
   const sourceRevision = head?.revision ?? 0;
   const currentWatermark = watermark(db);
+  const replayStart = replayStarts.get(db) ?? currentWatermark;
+  replayStarts.set(db, replayStart);
   const state = prepareQuery(db, SCAN_STATE_SQL, (sql) =>
     /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-event-application.sqlite-database */ db.prepare(
       sql,
@@ -1079,7 +1075,8 @@ export function catchUpRound(
         sql,
       ),
     ).get(currentWatermark) !== undefined;
-  if (batch === null && !hasDeferred)
+  if (batch === null && !hasDeferred) {
+    replayStarts.set(db, sourceRevision);
     return {
       sourceRevision,
       watermark: watermark(db),
@@ -1087,6 +1084,7 @@ export function catchUpRound(
       accessedItems: 0,
       storeTransactions: 0,
     };
+  }
   // A complete source scan proves that an absent revision is a permanent hole in this
   // ledger. Before that point, keep strict continuity so a later batch can still supply it.
   const allowRevisionGaps = batch === null || batch.done;
@@ -1099,6 +1097,15 @@ export function catchUpRound(
   const replayEvents = directlyApplicable
     ? batch.events
     : readyDeferredEvents(db, batch?.events ?? [], limit, allowRevisionGaps);
+  if (requiresEventShapeReplay(replayEvents, replayStart))
+    return {
+      replayRequired: true,
+      sourceRevision,
+      watermark: currentWatermark,
+      reducedItems: 0,
+      accessedItems: batch?.accessedItems ?? 0,
+      storeTransactions: 0,
+    };
   let prefetch = batch?.prefetchContent ?? batchContentPrefetchers.get(eventStore);
   if (prefetch === undefined && hasDeferred) {
     prefetch = eventStore.readBatch(null, 1).prefetchContent;
@@ -1138,6 +1145,7 @@ export function catchUpRound(
     refreshRelationCycleAudit(db);
     return reduced;
   });
+  if (watermark(db) === sourceRevision) replayStarts.set(db, sourceRevision);
   return {
     sourceRevision,
     watermark: watermark(db),

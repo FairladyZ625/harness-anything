@@ -1,3 +1,4 @@
+import { lifecycleFixture } from "./lifecycle.fixtures.ts";
 // harness-test-tier: fast
 // @vitest-environment happy-dom
 import { act } from "react";
@@ -427,6 +428,7 @@ describe("总览:左下「关注的工作」", () => {
                   runtimeSessionId: "rs_1",
                   kindId: "codex",
                   liveness: "live",
+                  lifecycle: lifecycleFixture(),
                   definitionSnapshot: { model: '["deepseek-official","Deepseek-V4.1-Flash"]' },
                   associations: [{ taskId: "task_m1" }],
                   activity: { lastObservedAt: AT },
@@ -1105,6 +1107,7 @@ describe("总览派生(纯函数)", () => {
           runtimeSessionId: "rs_tuple",
           kindId: "codex",
           liveness: "live",
+          lifecycle: lifecycleFixture(),
           definitionSnapshot: { model: '["deepseek-official","Deepseek-V4.1-Flash"]' },
           associations: [{ taskId: "task_m1" }],
           activity: { lastObservedAt: AT },
@@ -1113,6 +1116,7 @@ describe("总览派生(纯函数)", () => {
           runtimeSessionId: "rs_plain",
           kindId: "zcode",
           liveness: "live",
+          lifecycle: lifecycleFixture(),
           definitionSnapshot: { model: "glm-5.3" },
           associations: [{ taskId: "task_w1" }],
           activity: { lastObservedAt: AT },
@@ -1121,6 +1125,7 @@ describe("总览派生(纯函数)", () => {
           runtimeSessionId: "rs_nosnap",
           kindId: "codex",
           liveness: "live",
+          lifecycle: lifecycleFixture(),
           definitionSnapshot: null,
           associations: [],
           activity: { lastObservedAt: AT },
@@ -1279,6 +1284,7 @@ describe("总览派生(纯函数)", () => {
           runtimeSessionId: "rs_pr",
           kindId: "codex",
           liveness: "live",
+          lifecycle: lifecycleFixture(),
           definitionSnapshot: { model: "gpt-6.1-sol" },
           associations: [{ taskId: "task_m_pr" }],
           activity: { lastObservedAt: "2026-10-14T09:30:00.000Z" },
@@ -1287,6 +1293,7 @@ describe("总览派生(纯函数)", () => {
           runtimeSessionId: "rs_rr",
           kindId: "zcode",
           liveness: "live",
+          lifecycle: lifecycleFixture(),
           definitionSnapshot: { model: "glm-5.3" },
           associations: [{ taskId: "task_m_rr" }],
           activity: { lastObservedAt: "2026-10-14T09:00:00.000Z" },
@@ -1295,6 +1302,7 @@ describe("总览派生(纯函数)", () => {
           runtimeSessionId: "rs_stale",
           kindId: "codex",
           liveness: "live",
+          lifecycle: lifecycleFixture(),
           definitionSnapshot: { model: "gpt-6.1-sol" },
           associations: [{ taskId: "task_m_stale_running" }],
           activity: { lastObservedAt: "2026-10-14T08:30:00.000Z" },
@@ -1800,6 +1808,7 @@ describe("总览派生(纯函数)", () => {
           runtimeSessionId: "rs_r",
           kindId: "codex",
           liveness: "live",
+          lifecycle: lifecycleFixture(),
           definitionSnapshot: { model: "gpt-6.1-sol" },
           associations: [{ taskId: "task_running_m" }],
           activity: { lastObservedAt: "2026-10-14T11:00:00.000Z" },

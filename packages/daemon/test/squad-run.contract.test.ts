@@ -1,4 +1,5 @@
 // harness-test-tier: contract
+import { lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -439,10 +440,21 @@ function canonicalFixture() {
     acceptedRevision: 42,
   };
   const rows = [run];
-  let outcome: RuntimeSession["outcome"] = null,
+  let lifecycleOutcome: RuntimeSession["outcome"] | undefined,
+    outcome: RuntimeSession["outcome"] = null,
     resultRef: string | null = null,
     result = "Complete immutable result\n";
   const projection = {
+    readDispatchLifecycle: (query: Parameters<TaskProjection["readDispatchLifecycle"]>[0]) =>
+      lifecycleReadForSync([
+        {
+          runtimeSessionId: "runtime-leader",
+          dispatchId: "dispatch_000000000000000000000001",
+          outcome: lifecycleOutcome === undefined ? outcome : lifecycleOutcome,
+          attemptSettled: (lifecycleOutcome === undefined ? outcome : lifecycleOutcome) !== null,
+          process: (lifecycleOutcome === undefined ? outcome : lifecycleOutcome) === null ? "alive" : "exited",
+        },
+      ])(query),
     readCut: () => ({ status: "ready", watermark: 42, sourceRevision: 42 }),
     read: () => ({
       snapshot: { task: { iteration: 2 }, executions: [{ executionId: identity.executionId, iteration: 1 }] },
@@ -468,6 +480,9 @@ function canonicalFixture() {
   } as unknown as TaskProjection;
   return {
     rows,
+    setLifecycleOutcome: (value: RuntimeSession["outcome"]) => {
+      lifecycleOutcome = value;
+    },
     setOutcome: (value: RuntimeSession["outcome"]) => {
       outcome = value;
     },
@@ -605,4 +620,12 @@ test("unknown run is explicit and public reads cannot reveal local control state
   assert.throws(() => f.reader.read("../local"), /canonical/u);
   const wire = serializeSquadRunRead(f.reader.read(summary.squadRunId));
   assert.doesNotMatch(wire, /cwd|providerHome|binding|roster|pendingLeaderTriggers/u);
+});
+
+// A stale live session with no outcome must never overrule the accepted lifecycle receipt.
+test("canonical Squad reads use lifecycle verdicts despite contradictory legacy session activity", () => {
+  const fixture = canonicalFixture();
+  fixture.setLifecycleOutcome("stopped");
+  assert.equal(fixture.reader.read(summary.squadRunId).run.leaderTurns[0]?.status, "stopped");
+  assert.equal(fixture.reader.list({}).runs[0]?.runningCount, 0);
 });

@@ -2,16 +2,7 @@ import { consumeKnownError } from "@harness-anything/kernel";
 import { runFleetReplicaStream, type FleetReplicaStreamOptions } from "./peer.ts";
 import { readReplicaGeneration } from "./replica-generation.ts";
 import { recordReplicaHealth, replicaFailure } from "./replica-health.ts";
-const DETERMINISTIC_RETRY_DELAY_MS = 5 * 60_000;
-const isDeterministicReplicaFailure = (error: unknown): boolean => {
-  const observed = error as { readonly code?: unknown; readonly name?: unknown } | null;
-  return (
-    observed?.code === "edge_upgrade_required" ||
-    observed?.code === "center_upgrade_required" ||
-    observed?.code === "replica_duplicate_connection" ||
-    (error instanceof Error && observed?.name === "TaskLifecycleContractError")
-  );
-};
+import { isDeterministicReplicaFailure, replicaRetryDelay } from "./replica-retry.ts";
 export interface ReplicaSyncOptions extends Omit<FleetReplicaStreamOptions, "onApplied"> {
   readonly signal?: AbortSignal;
   /**
@@ -161,6 +152,8 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
     });
   streams.set(key, stream);
   let failures = 0,
+    deterministicFailures = 0,
+    lastPosition: string | undefined,
     confirming = false,
     confirmAgain = false,
     confirmation: Promise<void> | undefined,
@@ -205,7 +198,11 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
         ...options,
         signal: options.signal ? AbortSignal.any([options.signal, stream.connection.signal]) : stream.connection.signal,
         onApplied: async (position, changedPaths) => {
-          failures = 0;
+          if (`${position.history}:${position.sequence}` !== lastPosition) {
+            failures = 0;
+            deterministicFailures = 0;
+          }
+          lastPosition = `${position.history}:${position.sequence}`;
           if (!changedPaths) pendingChangedPaths = null;
           else if (pendingChangedPaths) for (const changed of changedPaths) pendingChangedPaths.add(changed);
           observe(null);
@@ -215,19 +212,28 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
         },
       });
       if (options.signal?.aborted) return;
+      const error = attempt.failed ? attempt.error : null;
+      const retryDelay = replicaRetryDelay(
+        error,
+        isDeterministicReplicaFailure(error) ? deterministicFailures++ : failures++,
+      );
       if (attempt.failed) {
+        if (retryDelay === null && attempt.error instanceof Error)
+          attempt.error.message +=
+            "; automatic retry budget exhausted after 3 deterministic failures; reconfigure or restart to retry";
         stream.down = attempt.error;
         settleReady(key, false);
         observe(replicaFailure(attempt.error, "replica_sync_failed"));
         options.onFailure?.(attempt.error);
       }
-      const ceiling = Math.min(30_000, 250 * 2 ** Math.min(failures++, 7));
-      const retryDelay =
-        attempt.failed && isDeterministicReplicaFailure(attempt.error)
-          ? DETERMINISTIC_RETRY_DELAY_MS
-          : Math.floor(Math.random() * (ceiling + 1));
+      // Preserve the health failure. Reconfiguration or daemon restart grants a new budget.
+      if (retryDelay === null) return;
       await new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, retryDelay),
+        const done = () => {
+            options.signal?.removeEventListener("abort", onAbort);
+            resolve();
+          },
+          timer = setTimeout(done, retryDelay),
           onAbort = () => {
             clearTimeout(timer);
             options.signal?.removeEventListener("abort", onAbort);

@@ -1,3 +1,5 @@
+import { validDispatchLifecycleSummary } from "./protocol/daemon-protocol-validate-relation-query.ts";
+import type { DispatchLifecycleSummary } from "@harness-anything/kernel";
 import type { RuntimeCapabilitySupport } from "./runtime-inventory-types.ts";
 import { runtimeWebSearchModes } from "./runtime-inventory.ts";
 import {
@@ -148,6 +150,8 @@ export interface AgentRuntimeSessionContextDto {
   readonly windowTokens: number;
 }
 export interface AgentRuntimeSessionDto {
+  /** Absent only on previous-version peers; remove optionality 2026-12-07. */
+  readonly lifecycle?: DispatchLifecycleSummary;
   readonly runtimeSessionId: string;
   readonly providerSessionId: string | null;
   readonly instanceId: string;
@@ -164,7 +168,9 @@ export interface AgentRuntimeSessionDto {
   readonly definitionSnapshotRef: string;
   readonly definitionSnapshot: AgentDefinitionSnapshot | null;
   readonly definitionSnapshotPersisted: boolean;
+  /** @deprecated Observation display only; remove 2026-12-07. */
   readonly liveness: "live" | "stale" | "unknown" | "exited";
+  /** @deprecated Previous display word; remove 2026-12-07. */
   readonly semanticState?: RuntimeSessionSemanticState;
   readonly attachCapability: "supported" | "unsupported";
   readonly streamCursor: string | null;
@@ -551,7 +557,7 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
         "associations",
         "activity",
       ],
-      ["installationState", "installationError", "semanticState", "attemptChain", "metrics", "context"],
+      ["installationState", "installationError", "semanticState", "attemptChain", "metrics", "context", "lifecycle"],
     ) &&
     typeof value.runtimeSessionId === "string" &&
     (value.providerSessionId === null || typeof value.providerSessionId === "string") &&
@@ -569,6 +575,7 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
         value.definitionSnapshot.instanceId === value.instanceId &&
         value.definitionSnapshot.installationId === value.installationId)) &&
     (!value.definitionSnapshotPersisted || value.definitionSnapshot !== null) &&
+    (value.lifecycle === undefined || validDispatchLifecycleSummary(value.lifecycle)) &&
     liveness.includes(String(value.liveness)) &&
     (value.semanticState === undefined || semanticStates.includes(String(value.semanticState))) &&
     attachCapabilities.includes(String(value.attachCapability)) &&

@@ -540,7 +540,7 @@ test(
         async () => "device-token-edge-one",
       ),
       (error: unknown) => {
-        assert.equal((error as { code?: string }).code, "replica_sync_failed");
+        assert.equal((error as { code?: string }).code, "replica_quota_exceeded");
         assert.match(String(error), /base backup exceeds disk quota/u);
         return true;
       },
@@ -884,5 +884,48 @@ test(
     assert.equal(readReplicaHealth(viewDir).syncFailure?.code, "authorization_denied");
     fixture.owners.keycloak.permit("person-owner", replicationRepoId, ["repository-read"]);
     await waitForState(() => mirrorSequence() === centerSequence(fixture), "re-admission after the grant", 60_000);
+  },
+);
+
+test(
+  "deterministic invalid frames stop after three sessions without durable progress",
+  { timeout: 30_000 },
+  async (t) => {
+    const fixture = await fleetReplicationFixture(t);
+    const fake = await fakeReplicationCenter(t, fixture, (frame, send) => {
+      if (frame.type === "replica.start") send({ type: "replica.invalid" } as never);
+    });
+    const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-replica-retry-budget-"));
+    t.after(() => rmSync(viewRoot, { recursive: true, force: true }));
+    const controller = new AbortController();
+    let failures = 0;
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    try {
+      await runFleetReplicaSync({
+        hostname: "127.0.0.1",
+        port: fake.port,
+        ca: fixture.cert,
+        servername: "localhost",
+        nodeId: "edge-one",
+        credential: "secret-edge-one",
+        repoId: replicationRepoId,
+        viewRoot,
+        diskQuotaBytes: 64 * 1024 * 1024,
+        signal: controller.signal,
+        onFailure: () => {
+          failures++;
+          queueMicrotask(() => t.mock.timers.tick(1_000_000));
+        },
+      });
+      assert.equal(failures, 3);
+      assert.equal(fake.counts()["replica.start"], 3);
+      assert.equal(
+        readReplicaHealth(path.join(viewRoot, "repos", replicationRepoId, "views", "edge-one")).syncFailure?.code,
+        "invalid_frame",
+      );
+    } finally {
+      controller.abort();
+      t.mock.timers.reset();
+    }
   },
 );

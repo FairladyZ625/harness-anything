@@ -9,6 +9,7 @@ import {
   isReturnedRuntimeContinuation,
   runtimeEventContentClaims,
   dispatchOwner,
+  getExecutableEntityAction,
   stableStringify,
   submissionDigest,
   type AgentRuntimeEventV1,
@@ -20,6 +21,9 @@ import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { noChanges } from "./entity-action-write-helpers.ts";
 import { requireDispatchLifecycleAdmission } from "./runtime-dispatch-admission.ts";
+import { commitRuntimeSessionBundle, compileRuntimeSessionDraft } from "./entity-action-runtime-session.ts";
+import { publicationKillpoints } from "./entity-action-relation.ts";
+import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
 
 const auxiliaryEventTypes = Object.freeze([
   "runtime_installation_observed",
@@ -262,6 +266,57 @@ export function appendAuxiliaryRuntimeIngress(
                 "Runtime dispatch content does not match a declared artifact.",
               );
             })();
+  const requested = {
+    event: value,
+    plan: canonicalEventWritePlan(value, "agent-runtime/v1", value.opId),
+    blobs,
+  };
+  const launchGeneration = action.dispatchContext?.launchGeneration;
+  if (value.type === "runtime_dispatch_requested" && launchGeneration !== undefined) {
+    const compile = getExecutableEntityAction("runtime_session_started")!.execution!.compile!,
+      payload = value.payload,
+      draft = compile({
+        action: {
+          kind: "runtime_session_started",
+          runtimeSessionId: payload.runtimeSessionId,
+          instanceId: payload.instanceId,
+          installationId: payload.installationId,
+          kindId: payload.kindId,
+          definitionSnapshotRef: payload.definitionSnapshotRef,
+          launchGeneration,
+          attachable: true,
+          ...(payload.taskId && payload.executionId
+            ? { taskBinding: { taskId: payload.taskId, executionId: payload.executionId } }
+            : {}),
+        },
+        actor: binding.actor,
+        source: binding.source,
+        session: resolveWriteSessionIdentity(binding, cell.projection),
+        opId: `${action.opId}-started`,
+        occurredAt: value.occurredAt,
+        workspaceRevision: value.workspaceRevision + 1,
+        currentEntity: cell.projection.readRuntimeSession(payload.runtimeSessionId),
+      });
+    if (draft.kind !== "runtime-session") throw cell.cellCodedError("invalid_runtime_event", "Session start required.");
+    const started = compileRuntimeSessionDraft(draft);
+    if ("noChanges" in started) throw cell.cellCodedError("invalid_runtime_event", "Session already exists.");
+    // No dispatch becomes visible without its session: validate both before the single append.
+    const receipt = commitRuntimeSessionBundle(
+      cell.store,
+      cell.projection,
+      { ...started, preceding: [requested] },
+      binding.authorizationDecision!,
+      () => publicationKillpoints(cell.input.killpoint),
+    );
+    return {
+      schema: "command-receipt/v2",
+      ok: receipt.outcome === "applied",
+      command: "runtime-ingress",
+      ...receipt,
+      opId: value.opId,
+      event: value,
+    } as unknown as JsonObject;
+  }
   cell.store.append({
     event: value,
     plan: canonicalEventWritePlan(value, "agent-runtime/v1", value.opId),

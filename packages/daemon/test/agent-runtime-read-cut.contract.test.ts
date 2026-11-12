@@ -187,23 +187,13 @@ async function overviewDispatchReads(
           discoverySource: "wrapper",
           capabilities: ["structured_witness", "attach"],
         }),
-        ...sessions.map((runtimeSessionId) =>
-          runtimeEvent("runtime_session_started", {
-            runtimeSessionId,
-            instanceId: definition.instanceId,
-            installationId: definition.installationId,
-            kindId: definition.kindId,
-            definitionSnapshotRef: "artifact:runtime-definition/test",
-            launchGeneration: 1,
-            attachable: true,
-          }),
-        ),
       ];
-    for (let index = 0; index < dispatchHistorySize; index += 1)
+    for (let index = 0; index < dispatchHistorySize; index += 1) {
+      const runtimeSessionId = index < sessions.length ? sessions[index]! : `session-history-${index}`;
       events.push(
         runtimeEvent("runtime_dispatch_requested", {
           dispatchId: `dispatch-overview-${index}`,
-          runtimeSessionId: sessions[index % sessions.length]!,
+          runtimeSessionId,
           instanceId: definition.instanceId,
           installationId: definition.installationId,
           kindId: definition.kindId,
@@ -211,7 +201,28 @@ async function overviewDispatchReads(
           definitionSnapshotRef: "artifact:runtime-definition/test",
           definitionSnapshot: definition,
         }),
+        runtimeEvent("runtime_session_started", {
+          runtimeSessionId,
+          instanceId: definition.instanceId,
+          installationId: definition.installationId,
+          kindId: definition.kindId,
+          definitionSnapshotRef: "artifact:runtime-definition/test",
+          launchGeneration: 1,
+          attachable: true,
+        }),
       );
+      if (index >= sessions.length)
+        events.push(
+          runtimeEvent("runtime_session_exited", { runtimeSessionId }),
+          runtimeEvent("runtime_session_outcome_observed", {
+            runtimeSessionId,
+            outcome: "stopped",
+            exitCode: 0,
+            resultRef: `artifact:runtime-result/sha256/${"a".repeat(64)}`,
+            result: null,
+          }),
+        );
+    }
     for (const event of events) {
       store.append({ event, plan: runtimeWritePlan(event), blobs: [] });
       projection.apply(event);

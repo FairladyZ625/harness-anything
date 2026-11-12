@@ -119,7 +119,7 @@ import type { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
 import type { AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import type { RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { explainAuthenticationRequired, readTaskActionExplanation } from "./task-action-explanation-read.ts";
-import { commitRuntimeSessionAction } from "./runtime-session-action-runtime.ts";
+import { commitRuntimeSessionAction, settleUnlaunchedRuntimeSession } from "./runtime-session-action-runtime.ts";
 import { readTaskWipSnapshot, type TaskQueryCell } from "./repo-cell-task-query.ts";
 import { agendaQueryFromPayload, taskDispatchesPayloadFromCell } from "./repo-cell-read-payloads.ts";
 
@@ -187,8 +187,8 @@ export interface RepoCellApiContext {
   readonly appendAuxiliaryRuntimeIngress: RepoCellOperationalContext["appendAuxiliaryRuntimeIngress"];
   bootstrapReceipt: RepoBootstrapReceipt | undefined;
   readonly catalog: RepoCell["catalog"];
-  readonly terminal: RepoCell["terminal"];
   readonly runtimeStream: AgentRuntimeStreamHub;
+  readonly canHibernate?: () => boolean;
   readonly generation: number;
   readonly recovery: RepoCellCore["recovery"];
   readonly lock: { readonly close: () => Promise<void> };
@@ -221,7 +221,9 @@ function agendaViewerContext(binding: RepoCellBinding): {
   return { principalId: binding.actor.principal.personId, ...(nodeId === undefined ? {} : { nodeId }), teamIds: [] };
 }
 
-export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & RepoCellSynchronousRead {
+export function createRepoCellApi(
+  apiContext: RepoCellApiContext,
+): Omit<RepoCell, "terminal"> & RepoCellSynchronousRead {
   // Backup lifetimes serialize independently of ledger writes: retention cannot remove
   // another builtin's in-progress snapshot. A replay shares the same claim's execution.
   const builtinRuns = new Map<string, Promise<WriteReceipt>>();
@@ -920,10 +922,18 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
           now: context.now(),
         });
       }
-      if (action.kind === "event" && runtimeSessionActionIds.includes(action.type as never)) {
-        const receipt = await commitRuntimeSessionAction(context.extracted, action, authorizedBinding);
+      if (
+        action.kind === "event" &&
+        (runtimeSessionActionIds.includes(action.type as never) ||
+          (action.type === "runtime_dispatch_requested" && action.dispatchContext?.launchGeneration !== undefined))
+      ) {
+        const receipt =
+          action.type === "runtime_dispatch_requested"
+            ? context.appendAuxiliaryRuntimeIngress(action, authorizedBinding)
+            : await commitRuntimeSessionAction(context.extracted, action, authorizedBinding);
         const dispatch =
-            action.type === "runtime_session_started" && typeof action.payload.runtimeSessionId === "string"
+            (action.type === "runtime_session_started" || action.type === "runtime_dispatch_requested") &&
+            typeof action.payload.runtimeSessionId === "string"
               ? context.projection.readRuntimeDispatch(action.payload.runtimeSessionId)
               : null,
           executionRole = !dispatch
@@ -999,7 +1009,28 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
       "runtime-run",
       policyAction,
       binding,
-      executeRuntimeIngress,
+      async (authorizedBinding) => {
+        // The writer compares acceptance before and after this request. A failed new admission
+        // reply cannot have launched a provider; an existing dispatch retains its process.
+        const before = action.kind === "event" ? context.store.readEvent(action.opId) : null;
+        try {
+          return await executeRuntimeIngress(authorizedBinding);
+        } catch (error) {
+          const accepted = action.kind === "event" ? context.store.readEvent(action.opId) : null;
+          if (
+            !before &&
+            typeof authorizedBinding.source === "object" &&
+            authorizedBinding.source.kind === "node" &&
+            action.kind === "event" &&
+            action.type === "runtime_dispatch_requested" &&
+            action.dispatchContext?.launchGeneration !== undefined &&
+            accepted?.schema === "agent-runtime-event/v1" &&
+            accepted.type === "runtime_dispatch_requested"
+          )
+            await settleUnlaunchedRuntimeSession(context.extracted, accepted.payload, action.opId, authorizedBinding);
+          throw error;
+        }
+      },
       queueObservation,
     );
   };
@@ -1101,6 +1132,25 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     const completed = await continueBuiltin(action, binding, receipt);
     return settleWriteReceipt(context, action, completed, signal);
   };
+  const close = async () => {
+    if (context.state === "closed") return;
+    // Terminates because builtinRuns only shrinks while close waits: every entry removes itself
+    // at settlement, and a new entry needs a schedule-run-now claim the closing owner no longer
+    // issues.
+    while (builtinRuns.size > 0) await Promise.allSettled([...builtinRuns.values()]);
+    context.state = "closed";
+    context.runtimeSpawner.close();
+    context.runtimeStream.close();
+    await context.presetProcess.close();
+    await context.tail;
+    try {
+      await context.store.drain();
+    } finally {
+      context.replica.close();
+      context.projection.close();
+      await context.lock.close();
+    }
+  };
   return {
     bootstrapReceipt: context.bootstrapReceipt,
     scheduleOccurrenceSettlementOwner: async (dispatchId) =>
@@ -1117,7 +1167,6 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     awaitRuntimeSignal: context.awaitRuntimeSignal,
     runtimeIngress,
     catalog: context.catalog,
-    terminal: context.terminal,
     read,
     readDispatchLifecycle: async (query) => context.projection.readDispatchLifecycle(query),
     readEventWitness: async (revision) => context.projection.readEventWitness(revision),
@@ -1178,25 +1227,19 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
       if (context.state !== "attached") return;
       await context.store.settlePendingMaterialization?.(settlementContext);
     },
-    close: async () => {
-      if (context.state === "closed") return;
-      // Terminates because builtinRuns only shrinks while close waits: every entry removes itself
-      // at settlement, and a new entry needs a schedule-run-now claim the closing owner no longer
-      // issues.
-      while (builtinRuns.size > 0) await Promise.allSettled([...builtinRuns.values()]);
-      context.state = "closed";
-      context.runtimeSpawner.close();
-      await context.terminal.close();
-      context.runtimeStream.close();
-      await context.presetProcess.close();
-      await context.tail;
-      try {
-        await context.store.drain();
-      } finally {
-        context.replica.close();
-        context.projection.close();
-        await context.lock.close();
-      }
+    close,
+    hibernate: async () => {
+      if (
+        context.state !== "attached" ||
+        !context.canHibernate?.() ||
+        builtinRuns.size > 0 ||
+        context.queueDepth !== 0 ||
+        context.writeQueue.waiting.length !== 0 ||
+        context.store.materializationHealth().state !== "ok"
+      )
+        return false;
+      await close();
+      return true;
     },
   };
 }

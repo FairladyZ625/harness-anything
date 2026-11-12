@@ -265,7 +265,7 @@ export function withQueryOnlyDatabaseSession<A>(
 export function discardDatabase(
   projectionPath: string,
   eventStore: EventStreamPort,
-  reason: "schema_mismatch" | "explicit_rebuild",
+  reason: "schema_mismatch" | "explicit_rebuild" | "event_shape_migration",
   onContinuityProgress?: (progress: { readonly applied: number; readonly total: number }) => void,
 ): void {
   if (!localRuntimeStateFileSystem.exists(projectionPath)) return;

@@ -198,7 +198,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     const unavailableRetried = await eventually(async () => {
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_unavailable" })).dispatches;
       unavailableObserved = rows;
-      if (rows.length === 2) assert.equal(rows[0]?.fallbackState, "dispatched", JSON.stringify(rows));
+      if (rows.length === 2) assert.equal(rows[0]?.nextDispatchId, rows[1]?.dispatchId, JSON.stringify(rows));
       return rows.length === 2 && rows[1]?.outcome === "stopped" && taskDispatchRowsSettled(rows) ? rows : null;
     }).catch((error: Error) => {
       throw new Error(`${error.message}: ${JSON.stringify(unavailableObserved)}`);
@@ -247,13 +247,16 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     const completed = await eventually(async () => {
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_success" })).dispatches;
       assert.equal(
-        rows.some((row) => row.fallbackState === "exhausted"),
+        rows.some(
+          (row) =>
+            row.lifecycle?.policy?.groupSettled === true && row.outcome === "failed" && row.nextDispatchId === null,
+        ),
         false,
         JSON.stringify(rows),
       );
       // The successor is published only after its predecessor links to it, so no read may see both
       // rows with the predecessor still scheduled.
-      if (rows.length === 2) assert.equal(rows[0]?.fallbackState, "dispatched", JSON.stringify(rows));
+      if (rows.length === 2) assert.equal(rows[0]?.nextDispatchId, rows[1]?.dispatchId, JSON.stringify(rows));
       return rows.length === 2 && rows[1]?.outcome === "stopped" && taskDispatchRowsSettled(rows) ? rows : null;
     });
     assertAttemptChain(completed, ["provider-rate-first", "provider-success-second"]);
@@ -315,7 +318,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       return task?.snapshot.task?.status === "active" &&
         task.snapshot.lease === null &&
         rows.length === 2 &&
-        rows[1]?.fallbackState === "exhausted"
+        rows[1]?.lifecycle?.policy?.groupSettled === true
         ? { task, rows }
         : null;
     });
@@ -326,7 +329,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       exhausted.rows.map(({ classification }) => classification),
       ["provider_quota", "provider_quota"],
     );
-    assert.equal(exhausted.rows[1]?.fallbackState, "exhausted");
+    assert.equal(exhausted.rows[1]?.lifecycle?.groupPhase, "closed");
     const exhaustionEvents = makeTaskEventStore({ repoId: "provider-fallback", rootDir: root })
         .read()
         .events.filter((event) => event.taskId === "task_provider_fallback_exhausted"),
@@ -426,7 +429,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     );
     const rejected = await eventually(async () => {
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_launch_rejected" })).dispatches;
-      return rows.length === 1 && rows[0]?.fallbackState === "exhausted" ? rows[0] : null;
+      return rows.length === 1 && rows[0]?.lifecycle?.policy?.groupSettled === true ? rows[0] : null;
     });
     assert.match(rejected.reason ?? "", /fixture continuation launch rejected/u);
     assert.doesNotMatch(JSON.stringify(rejected), /sk-continuation-secret/u);
@@ -497,7 +500,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     );
     await eventually(async () => {
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_restart" })).dispatches;
-      return rows.length === 1 && rows[0]?.fallbackState === "scheduled" ? rows : null;
+      return rows.length === 1 && rows[0]?.lifecycle?.groupPhase === "waiting_backoff" ? rows : null;
     });
     await cell.close();
     cell = await open();
@@ -505,7 +508,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_restart" })).dispatches;
       // The successor is published only after its predecessor links to it, so no read may see both
       // rows with the predecessor still scheduled.
-      if (rows.length === 2) assert.equal(rows[0]?.fallbackState, "dispatched", JSON.stringify(rows));
+      if (rows.length === 2) assert.equal(rows[0]?.nextDispatchId, rows[1]?.dispatchId, JSON.stringify(rows));
       const successor = rows[1],
         outcomeMatchesEvidence =
           successor?.exitCode === null
@@ -532,7 +535,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_bare" })).dispatches;
       // The successor is published only after its predecessor links to it, so no read may see both
       // rows with the predecessor still scheduled.
-      if (rows.length === 2) assert.equal(rows[0]?.fallbackState, "dispatched", JSON.stringify(rows));
+      if (rows.length === 2) assert.equal(rows[0]?.nextDispatchId, rows[1]?.dispatchId, JSON.stringify(rows));
       return rows.length === 2 && rows[1]?.outcome === "stopped" && taskDispatchRowsSettled(rows) ? rows : null;
     });
     assertAttemptChain(bare, ["provider-bare-first", "provider-bare-second"]);
@@ -594,7 +597,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_stderr" })).dispatches;
       // The successor is published only after its predecessor links to it, so no read may see both
       // rows with the predecessor still scheduled.
-      if (rows.length === 2) assert.equal(rows[0]?.fallbackState, "dispatched", JSON.stringify(rows));
+      if (rows.length === 2) assert.equal(rows[0]?.nextDispatchId, rows[1]?.dispatchId, JSON.stringify(rows));
       return rows.length === 2 && rows[1]?.outcome === "stopped" && taskDispatchRowsSettled(rows) ? rows : null;
     });
     assertAttemptChain(stderrBounded, ["provider-stderr-first", "provider-stderr-second"]);
@@ -643,7 +646,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_reset_window" })).dispatches;
       resetObserved = rows;
       return rows.length === 1 &&
-        rows[0]?.fallbackState === "scheduled" &&
+        rows[0]?.lifecycle?.groupPhase === "waiting_backoff" &&
         rows[0]?.resetAt === "2099-01-01T00:00:00.000Z"
         ? { row: rows[0], stream: readDispatchStream(root, rows[0].dispatchId) }
         : null;
@@ -696,7 +699,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_single_retry" }))
         .dispatches;
       singleObserved = rows;
-      if (rows.length === 2) assert.equal(rows[0]?.fallbackState, "dispatched", JSON.stringify(rows));
+      if (rows.length === 2) assert.equal(rows[0]?.nextDispatchId, rows[1]?.dispatchId, JSON.stringify(rows));
       return rows.length === 2 && rows[1]?.outcome === "stopped" && taskDispatchRowsSettled(rows) ? rows : null;
     }).catch((error: Error) => {
       throw new Error(`${error.message}: ${JSON.stringify(singleObserved)}`);
@@ -743,12 +746,14 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_solo_exhausted" }))
         .dispatches;
       soloObserved = rows;
-      return rows.length === 2 && rows[1]?.fallbackState === "exhausted" && taskDispatchRowsSettled(rows) ? rows : null;
+      return rows.length === 2 && rows[1]?.lifecycle?.policy?.groupSettled === true && taskDispatchRowsSettled(rows)
+        ? rows
+        : null;
     }).catch((error: Error) => {
       throw new Error(`${error.message}: ${JSON.stringify(soloObserved)}`);
     });
     assert.equal(soloExhausted.length, 2, JSON.stringify(soloExhausted));
-    assert.equal(soloExhausted[1]?.fallbackState, "exhausted");
+    assert.equal(soloExhausted[1]?.lifecycle?.groupPhase, "closed");
     assert.deepEqual(
       soloExhausted.map(({ classification }) => classification),
       ["provider_quota", "provider_quota"],
@@ -787,7 +792,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_acp_stream" }))
         .dispatches;
       acpObserved = rows;
-      if (rows.length === 2) assert.equal(rows[0]?.fallbackState, "dispatched", JSON.stringify(rows));
+      if (rows.length === 2) assert.equal(rows[0]?.nextDispatchId, rows[1]?.dispatchId, JSON.stringify(rows));
       return rows.length === 2 && rows[1]?.outcome === "stopped" && taskDispatchRowsSettled(rows) ? rows : null;
     }).catch((error: Error) => {
       throw new Error(`${error.message}: ${JSON.stringify(acpObserved)}`);
@@ -903,7 +908,7 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
         dispatchLifecycleReadOf(() => published)(query),
       readRuntimeSessions: async () =>
         published.flatMap((event) => {
-          if (event.type !== "runtime_session_started") return [];
+          if (event.type !== "runtime_dispatch_requested") return [];
           const outcome = published.findLast(
             (value) =>
               value.type === "runtime_session_outcome_observed" &&
@@ -1324,7 +1329,6 @@ function assertAttemptChain(rows: readonly TaskDispatchRow[], providers: readonl
     providers,
   );
   assert.equal(new Set(rows.map(({ attemptGroupId }) => attemptGroupId)).size, 1);
-  assert.equal(rows[0]?.fallbackState, "dispatched");
   assert.equal(rows[0]?.nextDispatchId, rows[1]?.dispatchId);
 }
 

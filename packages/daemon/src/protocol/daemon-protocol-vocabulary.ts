@@ -32,6 +32,32 @@ export const decisionStateWords = [
 
 export const factLivenessWords = ["standing", "superseded_fact"] as const;
 
+export const dispatchAttemptPhaseWords = ["starting", "running", "settling", "closed"] as const;
+
+export const dispatchGroupPhaseWords = [
+  "starting",
+  "running",
+  "settling",
+  "waiting_backoff",
+  "awaiting_ruling",
+  "closed",
+] as const;
+
+export const dispatchReservationStateWords = ["reserved", "held", "released"] as const;
+
+export const dispatchCapacityDispositionWords = ["busy", "recovering", "free"] as const;
+
+export const dispatchDisplayStatusWords = [
+  "running",
+  "succeeded",
+  "failed",
+  "unknown",
+  "cancelled",
+  "stopped",
+  "blocked",
+  "lost",
+] as const;
+
 // daemon-status-vocabulary:generated:end
 
 export const executionV1StateWords = ["active", "submitted", "changes_requested", "accepted", "abandoned"] as const;

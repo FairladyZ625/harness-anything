@@ -200,3 +200,27 @@ export function daemonStopRefusal(
     return daemonProtocolError("daemon-stop", "shutdown_unavailable", "This daemon composition has no shutdown owner.");
   return null;
 }
+
+/** Previous closed decoders reject nested additions. Remove only this extension at the wire
+ * boundary until 2026-12-07; internal readers always retain the canonical lifecycle DTO. */
+export function previousDispatchLifecycleReadResult<T>(method: string, result: T): T {
+  if (
+    ![
+      "repo.agentRuntime.overview",
+      "repo.agentRuntime.sessions.read",
+      "repo.projection.read",
+      "repo.task.dispatches",
+    ].includes(method)
+  )
+    return result;
+  const project = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(project);
+    if (value === null || typeof value !== "object") return value;
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([key]) => key !== "lifecycle" || !("dispatchId" in value || "runtimeSessionId" in value))
+        .map(([key, item]) => [key, project(item)]),
+    );
+  };
+  return project(result) as T;
+}

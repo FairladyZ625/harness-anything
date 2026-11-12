@@ -1,38 +1,38 @@
 import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import type { SquadControlResult } from "./squad-control-result.ts";
-import { makeTaskLifecycleService } from "@harness-anything/application/internal/task-lifecycle-service";
-import {
-  type ActorIdentity,
-  type AgentRuntimeEventV1,
-  type AuthorizationDecision,
-  type CanonicalEventCut,
-  type DaemonRepoMode,
-  type DelegatedExecutionToken,
-  type MaterializationHealth,
-  type WriteReceipt,
-  type WriteReceiptDraft,
-  type WriteSource,
-  type TaskClaimant,
+import type { makeTaskLifecycleService } from "@harness-anything/application/internal/task-lifecycle-service";
+import type {
+  ActorIdentity,
+  AgentRuntimeEventV1,
+  AuthorizationDecision,
+  CanonicalEventCut,
+  DaemonRepoMode,
+  DelegatedExecutionToken,
+  MaterializationHealth,
+  WriteReceipt,
+  WriteReceiptDraft,
+  WriteSource,
+  TaskClaimant,
 } from "@harness-anything/kernel";
-import { type PresetRunReceiptV1 } from "@harness-anything/preset";
-import { type AgentRuntimeAttachSubscription, type AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
-import { type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
+import type { PresetRunReceiptV1 } from "@harness-anything/preset";
+import type { AgentRuntimeAttachSubscription, AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
+import type { RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import type { FleetRuntimeDispatchContext } from "./fleet/command-protocol.ts";
-import { openGuiCatalog } from "./gui-catalog.ts";
-import {
-  type DaemonRepoAttachProgress,
-  type DaemonGuiReadMethod,
-  type DaemonGuiReadPayloadMap,
-  type DaemonGuiReadResultMap,
-  type ObserveTailResult,
+import type { openGuiCatalog } from "./gui-catalog.ts";
+import type {
+  DaemonRepoAttachProgress,
+  DaemonGuiReadMethod,
+  DaemonGuiReadPayloadMap,
+  DaemonGuiReadResultMap,
+  ObserveTailResult,
 } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
-import { type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
-import { type TerminalHost, type TrustedTerminalLaunch } from "./terminal-host.ts";
+import type { RepoBootstrapReceipt } from "./repo-bootstrap.ts";
+import type { TerminalHost, TrustedTerminalLaunch } from "./terminal-host.ts";
 import type { KeycloakCenterAuthority } from "./transport/auth-context.ts";
 import type { WriterEpochFenceDescriptor } from "@harness-anything/storage";
-import { createLedgerBackup } from "@harness-anything/storage";
-import { type DaemonRegistryRepo } from "@harness-anything/kernel";
+import type { createLedgerBackup } from "@harness-anything/storage";
+import type { DaemonRegistryRepo } from "@harness-anything/kernel";
 
 export type RepoTaskAction = Readonly<Record<string, unknown>> & {
   readonly kind: string;
@@ -370,6 +370,8 @@ export interface RepoCell {
     signal?: AbortSignal,
     queueObservation?: RepoCellQueueObservation,
   ) => Promise<import("@harness-anything/storage").BaseBackupArchive>;
+  /** Internal idle retirement; false leaves background work running. */
+  readonly hibernate?: () => Promise<boolean>;
   readonly close: () => Promise<void>;
 }
 

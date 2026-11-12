@@ -110,6 +110,7 @@ function writeDeclaredEntitySource(rootDir) {
 export async function openLane({
   lane,
   workspaceRoot,
+  scenarioId,
   env,
   runRoot,
   startDriver,
@@ -200,7 +201,12 @@ export async function openLane({
                 await seedScheduleRuntimeOrder(rootDir, repoId, writerFence);
                 await seedSupersedeChain(rootDir, repoId, writerFence);
                 await seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence, sessionTaskPackages);
-                await seedGuiE2eDeliverySessions(rootDir, repoId, writerFence);
+                await seedGuiE2eDeliverySessions(
+                  rootDir,
+                  repoId,
+                  writerFence,
+                  scenarioId === "sessions-delivery-status" ? "admit" : "complete",
+                );
                 await seedGuiE2eCollaborationLeases(rootDir, repoId, writerFence);
               },
             },

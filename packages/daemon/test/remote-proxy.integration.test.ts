@@ -26,12 +26,14 @@ import { openBootstrappedRepoCell, registerBootstrappedDaemonRepo } from "./repo
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import type { CredentialPort } from "../src/agent-runtime-credential-port.ts";
 import { createLocalGuiServiceBridge } from "../../gui/src/main/local-composition-root.ts";
+import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 
 test(
   "remote-proxy forwards repository frames and streams, reconnects, and fails closed",
   { timeout: 30_000 },
   async (t) => {
-    const parent = mkdtempSync(path.join(tmpdir(), "ha-remote-proxy-")),
+    const worker = fixtureRuntimeProcess(t),
+      parent = mkdtempSync(path.join(tmpdir(), "ha-remote-proxy-")),
       repoId = "proxy-repo",
       repoRoot = path.join(parent, "repo-b"),
       userRootA = path.join(parent, "user-a"),
@@ -69,9 +71,9 @@ test(
           },
         ],
         runtimeLaunch: (_prepared, persistence) => {
-          appendRuntimeWorkerRecord(repoRoot, persistence.dispatchId, { kind: "process_started", pid: process.pid });
+          appendRuntimeWorkerRecord(repoRoot, persistence.dispatchId, { kind: "process_started", pid: worker.pid });
           return {
-            pid: process.pid,
+            ...worker,
             onOutput: (listener) => {
               providerOutput = listener;
               queueMicrotask(() =>
@@ -80,7 +82,6 @@ test(
             },
             onErrorOutput: () => undefined,
             onExit: () => undefined,
-            terminate: () => undefined,
           };
         },
       }),

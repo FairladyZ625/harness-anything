@@ -1,4 +1,5 @@
 import {
+  dispatchLifecycleSummary,
   decisionAcceptReviewReadiness,
   decisionReviewContentDigest,
   type DecisionAcceptReviewReadiness,
@@ -6,7 +7,6 @@ import {
   type DecisionProjectionRow,
   type TaskProjection,
 } from "@harness-anything/kernel";
-import { readDispatchStreamSummary } from "./dispatch-stream.ts";
 import type { DaemonDecisionFullRow, DaemonDecisionReviewDispatchRow } from "./protocol/daemon-protocol-gui-types.ts";
 
 /**
@@ -68,14 +68,15 @@ export function readDecisionReviewDispatches(input: {
     const target = row.event.payload.reviewTarget;
     if (target?.kind !== "decision" || target.decisionId !== input.decision.decisionId) return [];
     const header = row.event.payload,
-      stream = readDispatchStreamSummary(input.rootDir, header.dispatchId),
-      outcome = row.outcome ?? input.projection.readRuntimeSession(header.runtimeSessionId)?.outcome,
+      lifecycle = dispatchLifecycleSummary(
+        input.projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: [header.dispatchId] }),
+      ),
       status =
-        stream?.process?.exited === false
-          ? ("running" as const)
-          : outcome === "succeeded" || outcome === "failed"
-            ? outcome
-            : ("unknown" as const),
+        lifecycle.displayStatus === "running" ||
+        lifecycle.displayStatus === "succeeded" ||
+        lifecycle.displayStatus === "failed"
+          ? lifecycle.displayStatus
+          : "unknown",
       review = input.decision.reviews.find(({ reviewId }) => reviewId === `review-${header.dispatchId}`);
     return [
       {

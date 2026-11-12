@@ -6,13 +6,15 @@
 // no local dispatch stream, exactly like the center daemon. The two instances named by the
 // incident are covered: the DeepSeek Harness worker on ds-bailian and the Codex worker on
 // codex-api.
+import { lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { AgentRuntimeEventV1, RuntimeSession, TaskProjection } from "@harness-anything/kernel";
-import { readTaskDispatches, withLocalDispatchStreamEvidence } from "../src/dispatch-read.ts";
+import { readTaskDispatches } from "../src/dispatch-read.ts";
+import { withLocalDispatchStreamEvidence } from "../src/dispatch-activity-read.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
 
 const dispatchId = "dispatch_5beaecffdf966066d2816b0d",
@@ -102,6 +104,15 @@ function centerProjection(
   const event = dispatchEvent(session, session.lastObservedAt),
     dispatchDocumentPath = `${taskPackagePath}/artifacts/dispatches/${dispatchId}.json`;
   return {
+    readDispatchLifecycle: lifecycleReadForSync([
+      {
+        runtimeSessionId,
+        dispatchId,
+        process: "alive",
+        outcome: session.outcome,
+        attemptSettled: session.outcome !== null,
+      },
+    ]),
     readCut: () => ({ status: "ready", watermark: 1, sourceRevision: 1 }),
     read: () => ({
       watermark: 1,

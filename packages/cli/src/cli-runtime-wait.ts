@@ -188,7 +188,7 @@ function runtimeDaemonGoneReceipt(
   spawned: JsonObject | undefined,
 ): JsonObject {
   const runtime = current as unknown as AgentRuntimeSessionResult | undefined,
-    status = runtime?.settlement?.outcome ?? (runtime?.session ? "running" : "unknown"),
+    status = runtime?.session?.lifecycle?.displayStatus ?? runtime?.settlement?.outcome ?? "unknown",
     commandName = spawned ? "runtime-run" : "runtime-status";
   return daemonGoneReceipt(commandName, gone.cause, status, {
     runtimeSessionId,
@@ -206,7 +206,7 @@ function runtimeWaitFailureReceipt(
   spawned: JsonObject | undefined,
 ): JsonObject {
   const runtime = current as unknown as AgentRuntimeSessionResult | undefined,
-    status = runtime?.settlement?.outcome ?? (runtime?.session ? "running" : "unknown"),
+    status = runtime?.session?.lifecycle?.displayStatus ?? runtime?.settlement?.outcome ?? "unknown",
     commandName = spawned ? "runtime-run" : "runtime-status";
   return daemonStoppedReceipt(
     commandName,
@@ -352,11 +352,11 @@ function lastKnownRuntimeDispatch(
     dispatchId: target?.dispatchId ?? attempt?.dispatchId ?? null,
     runtimeSessionId,
     status,
-    liveness: session.liveness,
+    lifecyclePhase: session.lifecycle?.groupPhase ?? "pending",
     outcome: activity.outcome ?? null,
     exitCode: activity.exitCode ?? null,
     classification: attempt?.classification ?? null,
-    fallbackState: attempt?.fallbackState ?? null,
+    lifecycleStatus: session.lifecycle?.status ?? "pending",
   };
 }
 

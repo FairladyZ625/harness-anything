@@ -27,6 +27,7 @@ export interface RepoWriterBootstrapV1 {
     readonly repoId: string;
     readonly rootDir: string;
     readonly ownerId: string;
+    readonly writerGeneration?: number;
     readonly mode?: DaemonRepoMode;
     readonly authoredBranch?: string;
     readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
@@ -117,7 +118,7 @@ export interface RepoWriterControlV1 {
   readonly schema: "harness-repo-writer-control/v1";
   readonly protocolVersion: typeof REPO_WRITER_PROTOCOL_VERSION;
   readonly requestId: string;
-  readonly command: "recover" | "drain" | "crash";
+  readonly command: "recover" | "drain" | "crash" | "hibernate";
 }
 
 export type RepoWriterMessageV1 =

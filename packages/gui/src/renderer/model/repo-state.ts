@@ -78,7 +78,11 @@ export function projectActivityRead(
     readonly error: unknown;
   },
   runtime: {
-    readonly data?: { readonly sessions: ReadonlyArray<{ readonly liveness: string }> };
+    readonly data?: {
+      readonly sessions: ReadonlyArray<
+        Pick<import("@harness-anything/daemon/protocol").AgentRuntimeSessionDto, "lifecycle">
+      >;
+    };
     readonly error: unknown;
   },
   agenda?: AgendaSuccess,
@@ -101,7 +105,9 @@ export function projectActivityRead(
     inReview: byStatus.in_review,
     blocked: byStatus.blocked,
     liveAgents:
-      runtime.data === undefined ? null : runtime.data.sessions.filter(({ liveness }) => liveness === "live").length,
+      runtime.data === undefined
+        ? null
+        : runtime.data.sessions.filter(({ lifecycle }) => lifecycle?.displayStatus === "running").length,
   };
 }
 

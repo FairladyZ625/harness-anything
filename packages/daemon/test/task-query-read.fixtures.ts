@@ -1,3 +1,4 @@
+import { lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
 import {
   INITIAL_SETTINGS_V1,
   type TaskProjection,
@@ -124,6 +125,7 @@ export function projectionStub(
     decisionAgendaRows = options.decisionAgenda ?? [],
     decisions = options.decisions ?? {};
   return {
+    readDispatchLifecycle: lifecycleReadForSync([]),
     listEntities: () => [],
     readTaskIndex: () => ({
       ...cut,

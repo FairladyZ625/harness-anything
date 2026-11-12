@@ -1,4 +1,24 @@
 {
+  "task-submit": {
+    "owner": "task",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-submit.ts#finalizeCloseoutSubmission:9b41d05f65de8d9e3c9872c2007b849d",
+        "route": "task-submit",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-submit.ts#finalizeCloseoutSubmission:db3440bd02f587e907b52795a61c8838",
+        "route": "task-submit",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/submission-delivery.ts#refreshOrigin:b7aa8072f6624318e22cd65584fdbb97",
+        "route": "task-submit",
+        "role": "support"
+      }
+    ]
+  },
   "agent-install": {
     "owner": "agent",
     "sources": [
@@ -2847,6 +2867,122 @@
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/commit-file.ts#openReplicationCommitFile:e8c6eb5fc6239a9ec08a5ca518e4187f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/durable-file.ts#openTemporaryFile.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/commit-file.ts#openReplicationCommitFile:fb65c20c1f0aa570407d72f8bf8249b2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/durable-file.ts#openTemporaryFile.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/commit-file.ts#openReplicationCommitFile.write:753b899db069c5de2cffc538d47e2c12",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@streamparser/json/dist/mjs/jsonparser.d.ts#JSONParser.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/walreceiver.ts#runWalReceiver:5b6f2617d39753b10e9efa4b460376a2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/commit-file.ts#openReplicationCommitFile.write"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/durable-file.ts#openTemporaryFile.close:fe2dd164e2953bc3a73ed350f9390bac",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-diagnostics-memory.ts#observeWorkerMemory.refresh:6700fd1224ad53e9cda194492eae4a47",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-diagnostics-memory.ts#observeWorkerMemory.created:478e4bced8972591774acf8bbee3eab5",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-diagnostics-memory.ts#observeWorkerMemory.created:6700fd1224ad53e9cda194492eae4a47",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-diagnostics-memory.ts#observeWorkerMemory.snapshot:cc8693ba72d7a21e8aaa3e0366b78dc6",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker.handleRequest:03293f73cc0cc9e81f44670262393d50",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker.handleRequest:03293f73cc0cc9e81f44670262393d50:2",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker.handleRequest:03293f73cc0cc9e81f44670262393d50:3",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.supervisor.request:d5777d4f1648d1f914adb10e865d9e67",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.supervisor.request:a533cdcf59bf5863ea1f81296726348a",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.supervisor.request:cc097f038cceffe182542f8d0d62b720",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.supervisor.close:06d19a2b25a2f246a2eb20c6cd5bc384",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.sendControl.watchdog:a533cdcf59bf5863ea1f81296726348a",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.sendControl.watchdog.error:349a552038702e0a2f7f2e6bf010fab9",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.sendControl.watchdog:cc6d6302ecf90b7ec90b85cdf7295bdc",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.armIdle:06d19a2b25a2f246a2eb20c6cd5bc384",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.armIdle:bfbdc7e9953b081a0638bee0bec5c87a",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-settlement.ts#publishExit:6e33d92c4e1ae12e9babebfc18cc28c6",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/agent-runtime-stream.ts#AgentRuntimeStreamHub.publish"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-open.ts#openRepoWriterCell:ab98770cb40cde7a97777d58f1eb9012",

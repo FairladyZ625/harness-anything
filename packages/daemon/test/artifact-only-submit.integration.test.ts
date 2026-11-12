@@ -158,13 +158,8 @@ async function submitBaselineTask(
       [explainerPath, ...(artifact ? [`${packagePath}/artifacts/report.md`] : [])],
     );
     assert.deepEqual(
-      event.payload.execution.submission?.outputs.filter(
-        (output) => !output.startsWith(`Artifact-Anchor: ${explainerPath}@`),
-      ),
-      [
-        ...(publicChange === "delete" ? ["Deleted-Production-Paths: foreign.txt"] : []),
-        ...(artifact ? [`Artifact-Anchor: ${packagePath}/artifacts/report.md@${docs.revision}`] : []),
-      ],
+      event.payload.execution.submission?.outputs,
+      publicChange === "delete" ? ["Deleted-Production-Paths: foreign.txt"] : [],
     );
 
     if (!artifact && !hasPublicDiff) {
@@ -333,6 +328,7 @@ test("a documentation amendment completes with newly accepted artifact paths on 
       );
     assert.ok(amended && isTaskEvent(amended) && amended.type === "execution_submitted");
     const submission = amended.payload.execution.submission!;
+    assert.deepEqual(submission.outputs, []);
     assert.ok(submission.deliverables.includes(`${packagePath}/artifacts/followup.md`));
     assert.equal(submission.commitSha, null);
     const reader = makeTaskEventReader({ repoId: workspaceId("doc-amend"), rootDir }),

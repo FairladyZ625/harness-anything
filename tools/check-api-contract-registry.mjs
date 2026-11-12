@@ -6,6 +6,7 @@ import ts from "typescript";
 
 const expectedMethods = Object.freeze([
   { method: "protocol.hello", requiresRepo: false },
+  { method: "protocol.dispatchLifecycle.enable", requiresRepo: false },
   { method: "daemon.status", requiresRepo: false },
   { method: "repo.agentRuntime.quote", requiresRepo: false },
   { method: "daemon.skillEval.version.register", requiresRepo: false },

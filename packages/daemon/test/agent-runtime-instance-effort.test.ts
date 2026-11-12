@@ -195,7 +195,7 @@ test("stored effort reaches launch flags for agy and config.toml for codex when 
       "--output-format",
       "stream-json",
       "--print-timeout",
-      "30m",
+      "120m",
       "--model",
       "gemini-3.1-pro-low",
       "--dangerously-skip-permissions",

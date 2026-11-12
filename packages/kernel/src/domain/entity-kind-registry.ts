@@ -1,4 +1,5 @@
-import { dispatchLifecyclePolicies } from "./dispatch-lifecycle-ontology.ts";
+import { taskSubmissionPolicies } from "./task-submission-policy.ts";
+import { dispatchLifecyclePolicies, dispatchLifecycleJudgment } from "./dispatch-lifecycle-ontology.ts";
 import { todoSchema } from "./todo.ts";
 import { createTodoActionCatalog } from "./todo-action-contract.ts";
 import { AGENT_DECLARATION_V1_SCHEMA, SQUAD_DECLARATION_V1_SCHEMA } from "./agent-squad-schema.ts";
@@ -82,6 +83,7 @@ import { guiAdmissionPolicy, guiAdmissionPolicyJudgments } from "./gui-admission
 import { gateMappingPolicy, gateMappingPolicyJudgments } from "./gate-mapping-policy.ts";
 import { storageReplayPolicy, storageReplayJudgments } from "./storage-replay-policy.ts";
 import { completionGateOverridePolicy, completionGateOverrideJudgment } from "./completion-gate-policy.ts";
+import { writerLifecyclePolicy } from "./writer-lifecycle-policy.ts";
 import { guiQueryPacing } from "./gui-query-pacing.ts";
 import { taskLeaseGuidancePolicy, returnToPlannedJudgment } from "./task-lease-guidance.ts";
 import sourceContractFacets from "./source-contract-facets.json" with { type: "json" };
@@ -992,7 +994,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
         route: "submitTask → shared snapshot checks; applyTransition → submit.validate → validateSubmitExecution",
       }],
     }],
-    policies: [taskLeasePolicy, completionGateOverridePolicy, taskLeaseGuidancePolicy, {
+    policies: [...taskSubmissionPolicies, taskLeasePolicy, completionGateOverridePolicy, taskLeaseGuidancePolicy, {
       id: "runtime-dispatch-mutation", ownerRef: "task/release", unit: "task lease generation",
       bounds: "claimOpId must identify the same task, execution and lease version; held/reserving leases fence mutations except contract migration and parent-only amendment.",
       defaultValue: null, version: 1, scope: "center task mutation",
@@ -1001,6 +1003,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
       sources: [
       { candidateId: "policy:packages/daemon:packages/daemon/src/repo-cell-task-mutation.ts#taskMutation:4254517165b44213a35c3638508ba56d", route: "packages/daemon/src/repo-cell-task-mutation.ts#taskMutation" },
       { candidateId: "policy:packages/daemon:packages/daemon/src/repo-cell-task-mutation.ts#taskMutation:c2a07f207dff3812d7cd929fca87048e", route: "packages/daemon/src/repo-cell-task-mutation.ts#taskMutation" },
+      { candidateId: "policy:packages/daemon:packages/daemon/src/repo-cell-open.ts#openRepoWriterCell.releaseUnadmittedLease.releaseAction:1548d05acb20300aa42a5aa0827c30db", route: "rejected dispatch → task/release with the exact claimOpId" },
       ],
     }, {
       id: "submit-lease-proof", ownerRef: "task", unit: "SubmitExecution proof",
@@ -1359,6 +1362,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     ],
     actionCatalog: runtimeSessionCatalog,
     policies: dispatchLifecyclePolicies,
+    judgments: [dispatchLifecycleJudgment],
     entityStore: null,
     authoring: { kind: "agent-runtime-event", contractRef: "agent-runtime-event/v1" },
     sdkExposure: noSdkExposure,
@@ -1470,6 +1474,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     ...hostEntityTypeContract,
     judgments: [runtimeReleasePolicyJudgment, supplyChainReleasePolicyJudgment, storageReadJudgment, ...storageReadAdditionalJudgments, ...storageReplayJudgments, ...storageScopePolicyJudgments, ...guiAdmissionPolicyJudgments, ...gateMappingPolicyJudgments],
     policies: [
+      writerLifecyclePolicy,
       guiQueryPacing,
       guiInteractionPolicy,
       guiAdmissionPolicy,

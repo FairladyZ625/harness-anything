@@ -10,14 +10,14 @@ import { binding } from "../src/daemon-host-binding.ts";
 import { createIdentitySession } from "../src/authorization-provider.ts";
 import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
-import { makeAgentRuntimeReadModel, readObservedRuntimeSession } from "../src/agent-runtime-read.ts";
+import { makeAgentRuntimeReadModel } from "../src/agent-runtime-read.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 
 const dispatchId = "dispatch_000000000000000000000007";
 
 for (const role of ["implementation", "reviewer"] as const) {
-  test(`${role}: stream exit remains visible when canonical settlement is denied`, (t) => {
+  test(`${role}: local stream cannot turn a denied canonical settlement into a terminal read`, (t) => {
     const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-exit-read-"));
     t.after(() => rmSync(rootDir, { recursive: true, force: true }));
     let session: RuntimeSession = {
@@ -79,11 +79,11 @@ for (const role of ["implementation", "reviewer"] as const) {
     appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: process.pid });
     assert.equal(reads.session({ runtimeSessionId: session.runtimeSessionId }).session.liveness, "live");
     appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_exit", exitCode: 0, signal: null });
-    const exited = readObservedRuntimeSession(projection, rootDir, session.runtimeSessionId)!;
-    assert.equal(exited.liveness, "exited");
-    assert.equal(exited.attachable, false);
+    const exited = projection.readRuntimeSession(session.runtimeSessionId)!;
+    assert.equal(exited.liveness, "live");
+    assert.equal(reads.session({ runtimeSessionId: session.runtimeSessionId }).session.attachCapability, "unsupported");
     assert.equal(exited.outcome, null);
-    assert.equal(exited.exitCode, 0);
+    assert.equal(exited.exitCode, null);
     assert.equal(reads.session({ runtimeSessionId: session.runtimeSessionId }).settlement, null);
     assert.equal(
       reads.session({ runtimeSessionId: session.runtimeSessionId }).session.liveness,
@@ -110,18 +110,18 @@ for (const role of ["implementation", "reviewer"] as const) {
       },
       "2026-10-03T11:54:11.000Z",
     );
-    const failed = readObservedRuntimeSession(projection, rootDir, session.runtimeSessionId)!;
-    assert.equal(failed.liveness, "exited");
-    assert.equal(failed.outcome, "failed");
-    assert.equal(failed.reasonCode, "runtime_archive_failed");
-    assert.equal(failed.exitCode, 0);
-    assert.equal(failed.resultRef, resultRef);
+    const failed = projection.readRuntimeSession(session.runtimeSessionId)!;
+    assert.equal(failed.liveness, "live");
+    assert.equal(failed.outcome, null);
+    assert.equal(failed.reasonCode, undefined);
+    assert.equal(failed.exitCode, null);
+    assert.equal(failed.resultRef, null);
     assert.equal(reads.overview({}).sessions[0]?.liveness, "live");
     assert.equal(reads.session({ runtimeSessionId: session.runtimeSessionId }).result, null);
     assert.equal(session.liveness, "live", "local evidence must not write the canonical projection");
     assert.equal(session.outcome, null);
     session = { ...session, liveness: "exited", attachable: false, outcome: "cancelled" };
-    const canonical = readObservedRuntimeSession(projection, rootDir, session.runtimeSessionId)!;
+    const canonical = projection.readRuntimeSession(session.runtimeSessionId)!;
     assert.equal(canonical.outcome, "cancelled");
     assert.equal(canonical.resultRef, null, "local terminal text must not replace a canonical outcome");
   });

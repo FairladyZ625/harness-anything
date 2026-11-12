@@ -5,6 +5,7 @@ import {
   type TaskProjection,
   type AgentRuntimeEventV1,
   stableStringify,
+  sha256Text,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { deriveActionResult, type EntityActionCatalogPreparer } from "./entity-action-catalog-executor.ts";
@@ -13,6 +14,8 @@ import type { RepoCellBinding, RepoTaskAction, RuntimeIngressAction } from "./re
 
 export function runtimeSessionActionPreparer(projection: () => TaskProjection): EntityActionCatalogPreparer {
   return (contract, action, binding) => {
+    if (action.reasonCode === "ruling_resolved" && binding.executionPrincipal)
+      invalidRuntimeSessionAction("execution_credential_rejected", "A runtime cannot answer its own owner ruling.");
     const runtimeSessionId = requiredRuntimeActionText(action.runtimeSessionId, "runtimeSessionId"),
       dispatch = projection().readRuntimeDispatch(runtimeSessionId),
       dispatchSource = dispatch?.source,
@@ -115,6 +118,45 @@ export async function commitRuntimeSessionAction(
     return await cell.entityActionExecutor.run(catalogAction, binding, action.opId, cell.entityActionRuntimes);
   } catch (error) {
     return deriveActionResult(contract, catalogAction, cell.failed(action.opId, error, contract, catalogAction));
+  }
+}
+
+/** The first atomic admission has not returned to its node, so no provider can have launched.
+ * Settle at the accepting writer when credential creation fails, before an execution identity exists.
+ */
+export async function settleUnlaunchedRuntimeSession(
+  cell: RepoCellActionContext,
+  execution: { readonly runtimeSessionId: string; readonly dispatchId: string },
+  opId: string,
+  binding: RepoCellBinding,
+): Promise<void> {
+  const { runtimeSessionId, dispatchId } = execution,
+    terminalBinding: RepoCellBinding = {
+      ...binding,
+      actor: { ...binding.actor, executor: { kind: "agent", id: `runtime-session:${runtimeSessionId}` } },
+    },
+    body = "Runtime dispatch failed before execution credential issuance.",
+    sha256 = sha256Text(body);
+  for (const action of [
+    { kind: "event", type: "runtime_session_exited", opId: `${opId}-launch-exited`, payload: { runtimeSessionId } },
+    {
+      kind: "event",
+      type: "runtime_session_outcome_observed",
+      opId: `${opId}-launch-failed`,
+      payload: {
+        runtimeSessionId,
+        dispatchId,
+        outcome: "failed",
+        exitCode: null,
+        resultRef: `artifact:runtime-result/sha256/${sha256}`,
+        result: { sha256, size: Buffer.byteLength(body), mediaType: "text/plain; charset=utf-8" },
+      },
+      resultBody: body,
+    },
+  ] as const) {
+    const receipt = await commitRuntimeSessionAction(cell, action, terminalBinding);
+    if (receipt.outcome !== "applied" && receipt.outcome !== "no_changes")
+      throw cell.cellCodedError(receipt.code ?? "runtime_event_rejected", String(receipt.evidence));
   }
 }
 

@@ -1,9 +1,5 @@
 import { cellCriterionError } from "./repo-cell-errors.ts";
-import {
-  runtimeSessionSemanticState,
-  type CanonicalSquadRun,
-  type TaskProjectionQueries,
-} from "@harness-anything/kernel";
+import { dispatchLifecycleSummary, type CanonicalSquadRun, type TaskProjectionQueries } from "@harness-anything/kernel";
 import { activePhase, compareRunSummaries, listQuery, matchesRunQuery, runInActivityWindow } from "./squad-run-list.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type {
@@ -44,9 +40,10 @@ export function makeSquadCanonicalReader(input: {
       outcome?.schema === "agent-runtime-event/v1" && outcome.type === "runtime_session_outcome_observed"
         ? outcome.payload.runtimeMetrics
         : null;
-    const semantic = session ? runtimeSessionSemanticState(session) : null;
-    const status: SquadRunTurnStatus | null =
-      semantic === "ended-indeterminate" ? "unknown" : semantic === "unavailable" ? "lost" : semantic;
+    const display = runtimeSessionId
+      ? dispatchLifecycleSummary(projection.readDispatchLifecycle({ by: "session", runtimeSessionId })).displayStatus
+      : null;
+    const status: SquadRunTurnStatus | null = display === "blocked" ? "unknown" : display;
     return {
       status,
       startedAt: dispatch?.payload.startedAt ?? dispatch?.occurredAt ?? null,
@@ -91,7 +88,11 @@ export function makeSquadCanonicalReader(input: {
       leaderTurnCount: run.leaderTurns.length,
       workerAttemptCount: run.workerAttempts.length,
       runningCount: [...run.leaderTurns, ...run.workerAttempts].filter(
-        (entry) => entry.runtimeSessionId && projection.readRuntimeSession(entry.runtimeSessionId)?.outcome === null,
+        (entry) =>
+          entry.runtimeSessionId &&
+          dispatchLifecycleSummary(
+            projection.readDispatchLifecycle({ by: "session", runtimeSessionId: entry.runtimeSessionId }),
+          ).displayStatus === "running",
       ).length,
       latestActivityAt: run.acceptedAt,
     };

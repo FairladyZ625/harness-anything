@@ -1,4 +1,4 @@
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, readlinkSync, rmSync } from "node:fs";
 import path from "node:path";
 import { runProcessTextAsync } from "./process-port.ts";
 import { mirrorNodeModules } from "./worktree-node-modules-mirror.ts";
@@ -43,9 +43,15 @@ export const nodeModulesSetupAdapter = {
     await runProcessTextAsync(npm, ["ci"], input.cwd);
   },
   /** The mirror is this adapter's own product; a node_modules the repository tracks is not. */
-  async cleanup(cwd: string): Promise<void> {
-    if (!existsSync(path.join(cwd, "node_modules"))) return;
-    if ((await runProcessTextAsync("git", ["-C", cwd, "ls-files", "--", "node_modules"])).trim()) return;
+  async cleanup(cwd: string, rootDir: string): Promise<void> {
+    const modules = path.join(cwd, "node_modules"),
+      entry = lstatSync(modules, { throwIfNoEntry: false });
+    if (!entry) return;
+    if (!existsSync(path.join(cwd, ".git"))) {
+      // Without the setup record, only a link to the declared store is identifiable as managed.
+      if (!entry.isSymbolicLink() || path.resolve(cwd, readlinkSync(modules)) !== path.resolve(rootDir, "node_modules"))
+        return;
+    } else if ((await runProcessTextAsync("git", ["-C", cwd, "ls-files", "--", "node_modules"])).trim()) return;
     /* @gate-identity non-state/environment-io.62027d9c14966472 */ rmSync(path.join(cwd, "node_modules"), {
       recursive: true,
       force: true,

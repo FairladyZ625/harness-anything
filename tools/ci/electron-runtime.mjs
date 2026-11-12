@@ -35,6 +35,7 @@ import { pathToFileURL } from "node:url";
 export const ELECTRON_RELEASE_BASE = "https://github.com/electron/electron/releases/download";
 export const DEFAULT_ATTEMPTS = 3;
 export const DEFAULT_TIMEOUT_MS = 120_000;
+const CACHE_HIT_ATTEMPTS = 0;
 
 const repoRoot = path.resolve(import.meta.dirname, "..", "..");
 
@@ -204,7 +205,7 @@ export async function ensureElectronArchive({
   const archivePath = electronArchivePath({ cacheRoot, version, platform, arch });
   if (isCachedArchive(archivePath)) {
     log(`electron-runtime: cache hit at ${archivePath}`);
-    return { cacheHit: true, archivePath, url, attempts: 0 };
+    return { cacheHit: true, archivePath, url, attempts: CACHE_HIT_ATTEMPTS };
   }
   if (existsSync(archivePath)) {
     // A cached file that is not a ZIP is a failed download that was written through a proxy

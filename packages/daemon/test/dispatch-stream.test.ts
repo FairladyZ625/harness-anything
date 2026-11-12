@@ -14,6 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 import {
   appendRuntimeWorkerRecord,
   archiveDispatchStream,
@@ -33,7 +34,6 @@ import {
 import { adoptRuntimes } from "../src/runtime-spawn-adoption.ts";
 import { cancelRuntime } from "../src/runtime-spawn-control.ts";
 import { adoptNativeProcess, terminateRuntimeTree } from "../src/runtime-spawn-process.ts";
-import { readRuntimeSessionActivityEvidence } from "../src/dispatch-read.ts";
 import { runtimeBindingForDispatch } from "../src/runtime-spawn-types.ts";
 import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
 import { runtimeSessionActionPreparer } from "../src/runtime-session-action-runtime.ts";
@@ -356,12 +356,13 @@ test("dispatch summaries keep a lifecycle record that straddles the head window 
   }
 });
 
-test("ZCode provider writes and its live worker host form current session activity evidence", () => {
+test("ZCode provider frames preserve bounded stream activity observations", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-zcode-activity-"));
   try {
     const dispatchId = "dispatch_555555555555555555555555",
       runtimeSessionId = "runtime_555555555555555555555555",
-      target = dispatchStreamPath(rootDir, dispatchId);
+      target = dispatchStreamPath(rootDir, dispatchId),
+      worker = fixtureRuntimeProcess(t);
     openDispatchStream(rootDir, {
       dispatchId,
       taskId: "task-zcode",
@@ -374,7 +375,7 @@ test("ZCode provider writes and its live worker host form current session activi
     appendRuntimeWorkerRecord(rootDir, dispatchId, {
       kind: "process_started",
       occurredAt: "2026-09-06T00:00:01.000Z",
-      pid: process.pid,
+      pid: worker.pid,
     });
     const frames = [
       { type: "session.updated", payload: { type: "model_request_started" } },
@@ -390,33 +391,13 @@ test("ZCode provider writes and its live worker host form current session activi
       });
     utimesSync(target, new Date("2026-09-06T00:00:05.000Z"), new Date("2026-09-06T00:00:05.000Z"));
 
-    const summary = readDispatchStreamSummary(rootDir, dispatchId),
-      evidence = readRuntimeSessionActivityEvidence(rootDir, dispatchId);
+    const summary = readDispatchStreamSummary(rootDir, dispatchId);
     assert.equal(summary?.lastObservedAt, "2026-09-06T00:00:05.000Z");
     assert.deepEqual(summary?.lastProviderActivity, { kind: "waiting", observedAt: "2026-09-06T00:00:05.000Z" });
     assert.deepEqual(
       summary?.records.map((record) => record.kind),
       ["process_started"],
     );
-    assert.deepEqual(evidence, {
-      lastObservedAt: "2026-09-06T00:00:05.000Z",
-      workerHostAlive: true,
-      process: { pid: process.pid, exitCode: null, signal: null, exited: false },
-      terminalOutcome: null,
-      runtimeMetrics: null,
-      lastProgressAt: "2026-09-06T00:00:05.000Z",
-      lastProviderReconnect: null,
-    });
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
-test("runtime activity evidence is absent when no local dispatch stream exists", () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-missing-activity-"));
-  try {
-    assert.equal(readRuntimeSessionActivityEvidence(rootDir, "dispatch_666666666666666666666666"), undefined);
-    assert.equal(readRuntimeSessionActivityEvidence(path.join(rootDir, "remote-root"), "dispatch-gui"), undefined);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

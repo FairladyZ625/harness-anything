@@ -465,6 +465,13 @@ export const daemonProtocolMethods = Object.freeze([
     }),
   },
   {
+    id: "protocol.dispatchLifecycle.enable",
+    phase: "W3",
+    method: "protocol.dispatchLifecycle.enable",
+    requiresRepo: false,
+    params: shape({}),
+  },
+  {
     id: "daemon.status",
     phase: "W3",
     method: "daemon.status",

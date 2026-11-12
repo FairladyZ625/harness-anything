@@ -795,7 +795,7 @@ test("agy consumes only its closed stream-json event protocol", { timeout: 300_0
           "--output-format",
           "stream-json",
           "--print-timeout",
-          "30m",
+          "120m",
           "--model",
           "gemini-3.1-pro-low",
           "--dangerously-skip-permissions",

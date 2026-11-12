@@ -1,3 +1,4 @@
+import { renderLifecyclePhase } from "./cli-render.ts";
 import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
 import { cliErrorMessage } from "./cli-error.ts";
 import { cliFailure } from "./cli-meta.ts";
@@ -55,7 +56,7 @@ export function renderRuntimeStatus(value: JsonObject): string {
       `session: ${session.runtimeSessionId}`,
       `instance: ${session.instanceId}`,
       `provider-session: ${session.providerSessionId ?? "-"}`,
-      `liveness: ${session.liveness}`,
+      `lifecycle: ${renderLifecyclePhase(session.lifecycle)}`,
       `outcome: ${activity.outcome ?? "-"}`,
       `result: ${activity.resultRef ?? "-"}`,
       ...(providerUnreachable
@@ -75,7 +76,7 @@ export function renderRuntimeStatus(value: JsonObject): string {
       ...(attempts.length
         ? [
             `attempt-group: ${String(attemptChain?.attemptGroupId)}`,
-            "ATTEMPT\tPROVIDER\tMODEL\tCLASSIFICATION\tFALLBACK\tREASON",
+            "ATTEMPT\tPROVIDER\tMODEL\tCLASSIFICATION\tLIFECYCLE\tREASON",
             ...attempts.map((attempt) => {
               const provider = attempt.provider as Record<string, unknown>;
               return [
@@ -83,7 +84,7 @@ export function renderRuntimeStatus(value: JsonObject): string {
                 provider.instance,
                 provider.model ?? "-",
                 attempt.classification ?? "-",
-                attempt.fallbackState ?? "-",
+                renderLifecyclePhase(attempt.lifecycle),
                 attempt.reason ?? "-",
               ]
                 .map(String)
@@ -96,14 +97,14 @@ export function renderRuntimeStatus(value: JsonObject): string {
   const sessions = Array.isArray(value.sessions) ? (value.sessions as Record<string, unknown>[]) : [];
   return sessions.length
     ? [
-        "SESSION\tINSTANCE\tLIVENESS\tACTIVITY\tOUTCOME\tRESULT",
+        "SESSION\tINSTANCE\tLIFECYCLE\tACTIVITY\tOUTCOME\tRESULT",
         ...sessions.map((session) => {
           const activity = session.activity as Record<string, unknown>,
             providerUnreachable = activity.providerUnreachable as Record<string, unknown> | undefined;
           return [
             session.runtimeSessionId,
             session.instanceId,
-            session.liveness,
+            renderLifecyclePhase(session.lifecycle),
             providerUnreachable?.state ?? "-",
             activity.outcome ?? "-",
             activity.resultRef ?? "-",

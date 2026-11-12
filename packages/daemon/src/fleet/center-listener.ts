@@ -1,4 +1,5 @@
 import { validDispatchLifecycleQuery } from "../runtime-dispatch-admission.ts";
+import { previousDispatchLifecycleReadResult } from "../protocol/json-rpc-dispatch-support.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
   beginDaemonOperation,
@@ -1400,7 +1401,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         schema: "fleet.operational.read.result/v1",
         messageId: mid(frame.messageId, "runtime-read"),
         inReplyTo: frame.messageId,
-        result: result as unknown as Readonly<Record<string, unknown>>,
+        result: previousDispatchLifecycleReadResult(frame.method, result) as Readonly<Record<string, unknown>>,
         ...(versionWarnings.has(nodeId) ? { versionWarning: versionWarnings.get(nodeId) } : {}),
       });
     }

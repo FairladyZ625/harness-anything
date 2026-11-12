@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+import { lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentRuntimeEventV1, RuntimeSession, TaskProjectionQueries } from "@harness-anything/kernel";
@@ -53,6 +54,9 @@ function largeTaskProjection() {
       lastObservedAt: workerEvent.occurredAt,
     },
     projection = {
+      readDispatchLifecycle: lifecycleReadForSync([
+        { runtimeSessionId: session.runtimeSessionId, dispatchId: workerEvent.payload.dispatchId, process: "alive" },
+      ]),
       readTaskRuntimeBatch: () => {
         counts.fullTaskBatch += 1;
         throw new Error("bounded dispatch selection must not assemble the task's dispatch batch");

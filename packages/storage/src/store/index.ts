@@ -41,3 +41,6 @@ export { assertNoPendingHistoricalRewrites, planLegacyGenerationConversion } fro
 export { applyAttachMigrations } from "./attach-migrations.ts";
 export * from "./task-event-store.ts";
 export { runCompletionGenerationConversion } from "./completion-generation-conversion.ts";
+
+export { replicationCommitChunks, replicationCommitBytes, REPLICATION_PAGE_BYTES } from "./replication-log.ts";
+export type { SqliteEventRow } from "./sqlite-event-store-types.ts";

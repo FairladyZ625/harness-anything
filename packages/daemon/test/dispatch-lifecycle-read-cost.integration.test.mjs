@@ -8,7 +8,11 @@ import { READ_PROBES } from "./fixtures/g38-read-cost.mjs";
 
 const rootDir = fileURLToPath(new URL("../../../", import.meta.url)),
   probeIds = [
+    "protocol-lifecycle-enable",
     "cli-schedule-reckon",
+    "dispatch-point",
+    "runtime-overview-default",
+    "task-dispatches-page",
     "projection:runtime-session-groups",
     "repo.reckoning.signals.read",
     "in-flight-work",
@@ -45,6 +49,11 @@ for (const backend of ["pglite", "sqlite"])
           measured,
           ...options,
         });
+      for (const dimension of options.dimensions)
+        for (const pair of Object.values(measured[backend][dimension]["task-dispatches-page"])) {
+          assert.equal(pair.resultSize, 1, "the selected history task must actually populate the page");
+          assert.equal(pair.firstResultSize, 1);
+        }
       t.diagnostic(JSON.stringify({ backend, errors: result.errors }));
       assert.equal(result.ok, true, result.errors.join("\n"));
     },

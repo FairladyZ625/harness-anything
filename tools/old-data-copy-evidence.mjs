@@ -36,6 +36,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 // hand-rolled runs walked into a 28G restore-drills copy.
 const HARNESS_COPY_DIRS = ["wal", "generated", "presets"];
 const HARNESS_COPY_FILES = ["settings.local.json"];
+const MIN_ATTACH_TIMEOUT_MS = 1000;
 const TERMINAL_ATTACH_EVENTS = new Set([
   "repo_attach_completed",
   "repo_attach_failed",
@@ -58,7 +59,7 @@ export function parseArgs(argv) {
     coldAttach: argv.includes("--cold-attach"),
     attachTimeoutMs: Number(option("--attach-timeout-ms") ?? 900_000),
   };
-  if (!Number.isInteger(args.attachTimeoutMs) || args.attachTimeoutMs < 1000)
+  if (!Number.isInteger(args.attachTimeoutMs) || args.attachTimeoutMs < MIN_ATTACH_TIMEOUT_MS)
     throw new Error("--attach-timeout-ms must be an integer >= 1000");
   return args;
 }

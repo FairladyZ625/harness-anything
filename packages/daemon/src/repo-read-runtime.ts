@@ -1,9 +1,8 @@
+import { readRuntimeCanAttach } from "./agent-runtime-read.ts";
 import { taskListQueryFromPayload } from "./repo-query-payload.ts";
 import { type TaskProjection, type TaskProjectionQueries, type WriteReceiptDraft } from "@harness-anything/kernel";
 import { makeDaemonProjectionReader, makeTaskEventReader } from "@harness-anything/storage";
-import { readObservedRuntimeSession } from "./agent-runtime-read.ts";
 import type { FleetEdgeConfig } from "./client/fleet-edge-config.ts";
-import { readRuntimeSessionActivityEvidence } from "./dispatch-read.ts";
 import { makeEntityActionCatalogExecutor, type EntityActionCatalogRuntimes } from "./entity-action-catalog-executor.ts";
 import { readEntityLocator } from "./entity-locator-read.ts";
 import { readEdgeDocWorkspace } from "./fleet-edge-doc-read.ts";
@@ -76,7 +75,7 @@ export function makeRepoReadRuntime(
       },
     }),
     readSession = (runtimeSessionId: string) =>
-      reader.withSession((projection) => readObservedRuntimeSession(projection, input.rootDir, runtimeSessionId));
+      reader.withSession((projection) => projection.readRuntimeSession(runtimeSessionId));
   let closed = false;
   const latched = () => "Query-only reader cannot start writer work.";
   const edgeConfig = input.edgeConfig ?? (() => null);
@@ -178,7 +177,7 @@ export function makeRepoReadRuntime(
         flushPublications: unsupportedWrite,
         observeOutcome: unsupportedWrite,
       },
-      runtimeReads = repositoryRuntimeReads(writableProjection, readStore, input.now, input.rootDir, false),
+      runtimeReads = repositoryRuntimeReads(writableProjection, readStore, input.now, input.rootDir),
       now = input.now ?? (() => new Date().toISOString());
     const runtimeSpawner: RepoCellRuntimeContext["runtimeSpawner"] = {
         prepareWorktree: unsupportedWrite,
@@ -191,6 +190,7 @@ export function makeRepoReadRuntime(
         adopt: unsupportedWrite,
         cancel: unsupportedWrite,
         steer: unsupportedWrite,
+        isIdle: unsupportedWrite,
         close: unsupportedWrite,
       },
       actionContext = createRepoCellActionContext({
@@ -316,15 +316,7 @@ export function makeRepoReadRuntime(
     readSettlementSession: (runtimeSessionId: string) =>
       reader.withSession((projection) => projection.readDispatchLifecycle({ by: "session", runtimeSessionId })),
     canAttach: (session: NonNullable<ReturnType<typeof readSession>>) =>
-      session.liveness !== "exited" &&
-      query((projection) => {
-        const dispatch = projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
-        return Boolean(
-          dispatch &&
-            readRuntimeSessionActivityEvidence(input.rootDir, dispatch.payload.dispatchId)?.workerHostAlive === true &&
-            projection.readRuntimeInstallation(session.installationId)?.effectiveCapabilities.includes("attach"),
-        );
-      }),
+      query((projection) => readRuntimeCanAttach(projection, session)),
     explainBasis: (payload: Readonly<Record<string, unknown>>, binding?: RepoCellBinding) => {
       const read = (projection: TaskProjectionQueries) => ({
         revision: projection.readCut().sourceRevision,

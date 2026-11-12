@@ -36,10 +36,14 @@ import type { PromptCacheTtlState } from "../../model/smart-attention.ts";
 import type { SnapshotStatus, TaskRow } from "../../model/types.ts";
 import { useMemo } from "react";
 
-// Liveness vocabulary maps, not point comparisons: the daemon's liveness word decides the
-// badge tone and the cancel affordance through table lookups alone.
-const LIVENESS_BADGE: Record<string, SnapshotStatus> = { live: "active", exited: "done" };
-const LIVENESS_LIVE: Record<string, boolean> = { live: true };
+// Badge tones present the kernel lifecycle display verdict; actions use its policy.
+const LIFECYCLE_BADGE: Record<string, SnapshotStatus> = {
+  running: "active",
+  succeeded: "done",
+  failed: "blocked",
+  cancelled: "cancelled",
+  blocked: "blocked",
+};
 const MISSING_EVIDENCE_KEY = {
   "exit-code-and-result": "agentRuntime.outcomeMissingExitAndResult",
   "exit-code": "agentRuntime.outcomeMissingExit",
@@ -154,7 +158,7 @@ export function SessionsPanel({
             <SessionTranscript
               repoId={repoId}
               dispatchId={sessionDispatchIdOf(session, row)}
-              live={LIVENESS_LIVE[session.liveness] ?? false}
+              live={session.lifecycle?.displayStatus === "running"}
               onSettled={reread}
               title={t("agentRuntime.transcript")}
             />
@@ -167,11 +171,12 @@ export function SessionsPanel({
           onNavigateEntity={onNavigateEntity}
         />
       )}
-      {row?.kind === "round" && session?.kindId === "codex" && session.liveness === "exited" && (
+      {row?.kind === "round" && session?.kindId === "codex" && (
         <RuntimeHandoff
           key={row.dispatchId}
           repoId={repoId}
           dispatchId={row.dispatchId}
+          canExport={session.lifecycle?.policy?.canHandoff === true}
           onNavigate={onNavigateEntity}
         />
       )}
@@ -426,12 +431,7 @@ export function SessionDetailView({
     installationBadge = sessionInstallationBadge(session),
     resume = row?.kind === "round" ? row.resume : null,
     // 结局:daemon settlement 优先,其次语义状态/结局词;live 会话一律「运行中」。
-    verdict = sessionVerdict({
-      liveness: session.liveness,
-      ...(session.semanticState === undefined ? {} : { semanticState: session.semanticState }),
-      outcome: session.activity.outcome,
-      settlement,
-    }),
+    verdict = sessionVerdict({ lifecycle: session.lifecycle }),
     // 快照没落盘与「有快照但没写模型」是两种事实:前者沿用既有词条如实说快照缺失,
     // 后者说未记录模型,不把两种情况压成同一句话。
     modelLabel =
@@ -498,7 +498,11 @@ export function SessionDetailView({
           {needsYou ? (
             <StatusTag tone="agent-question" mono label={t("agentRuntime.smartClassNeedsYou")} />
           ) : (
-            <StatusTag status={LIVENESS_BADGE[session.liveness] ?? "unknown"} mono label={session.liveness} />
+            <StatusTag
+              status={LIFECYCLE_BADGE[session.lifecycle?.displayStatus ?? "unknown"] ?? "unknown"}
+              mono
+              label={session.lifecycle?.groupPhase ?? session.lifecycle?.status ?? "pending"}
+            />
           )}
           {installationBadge && (
             <StatusTag tone="neutral" mono tip={session.installationError?.hint} label={t(installationBadge)} />
@@ -535,7 +539,7 @@ export function SessionDetailView({
             )}
           </div>
           <Right>
-            {LIVENESS_LIVE[session.liveness] && (
+            {session.lifecycle?.displayStatus === "running" && (
               <Button
                 size="sm"
                 variant="danger"
@@ -667,7 +671,7 @@ export function SessionDetailView({
             </p>
             {conclusion.source === "none" ? (
               <Empty>
-                {session.liveness === "live"
+                {session.lifecycle?.displayStatus === "running"
                   ? t("agentRuntime.sessionConclusionRunning")
                   : t("agentRuntime.sessionConclusionMissing")}
               </Empty>

@@ -1,4 +1,4 @@
-import { executeRepoReadRequest } from "./repo-read-worker.ts";
+import { observeWorkerMemory } from "./daemon-diagnostics-memory.ts";
 import { createAuthorizationProvider } from "./authorization-provider.ts";
 import { randomUUID } from "node:crypto";
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
@@ -40,6 +40,8 @@ import {
   installStorageWorkerContext,
 } from "@harness-anything/storage";
 
+observeWorkerMemory();
+
 const bootstrap = workerData as RepoWriterBootstrapV1;
 
 if (!isMainThread) {
@@ -67,7 +69,8 @@ async function startRepoWriterWorker(): Promise<void> {
     >(),
     runtimeProcesses = new Map<string, RuntimeProcessListeners>(),
     activeRequests = new Map<string, AbortController>(),
-    activeStoreRequests = new Set<Promise<void>>();
+    activeStoreRequests = new Set<Promise<void>>(),
+    activePresets = new Set<string>();
   let draining = false;
   let cell: Awaited<ReturnType<typeof openRepoWriterCell>> | null = null;
   let publishedHead: { generation: number | null; revision: number | undefined } | undefined;
@@ -111,10 +114,6 @@ async function startRepoWriterWorker(): Promise<void> {
     } else if (isWriterControl(message)) void handleControl(message);
   });
 
-  if (bootstrap.role === "reader") {
-    clearInterval(heartbeat);
-    return;
-  }
   try {
     const config = bootstrap.config,
       input: RepoCellOpenInput = {
@@ -308,7 +307,7 @@ async function startRepoWriterWorker(): Promise<void> {
     // before the request waits.
     const queueObservation = writeQueueObservationFor(request);
     activeRequests.set(request.requestId, abort);
-    if ((bootstrap.role !== "reader" && !cell) || draining) {
+    if (!cell || draining) {
       activeRequests.delete(request.requestId);
       return postReceipt(
         request.requestId,
@@ -319,11 +318,6 @@ async function startRepoWriterWorker(): Promise<void> {
       );
     }
     try {
-      if (bootstrap.role === "reader") {
-        if (request.method !== "read") throw new Error("Reader worker only accepts query requests.");
-        postReceipt(request.requestId, await executeRepoReadRequest(request));
-        return;
-      }
       if (!cell) throw new Error("RepoWriterCell is unavailable");
       const binding = reviveBinding(
         request.binding,
@@ -377,14 +371,21 @@ async function startRepoWriterWorker(): Promise<void> {
             queueObservation,
           );
           break;
-        case "presetRun":
+        case "presetRun": {
+          const starting = (request.payload as { action: { kind: string } }).action.kind === "preset-run-start";
+          if (starting) activePresets.add(request.requestId);
           value = await cell.presetRun(
             (request.payload as { action: Parameters<typeof cell.presetRun>[0] }).action,
             binding!,
-            () => notify("releaseCurrentAccessToken", request.requestId),
+            () => {
+              activePresets.delete(request.requestId);
+              notify("releaseCurrentAccessToken", request.requestId);
+            },
             queueObservation,
           );
+          if ((value as { outcome: string }).outcome !== "started") activePresets.delete(request.requestId);
           break;
+        }
         case "spawnRuntime":
           value = await cell.spawnRuntime(request.payload as never, binding!, queueObservation);
           break;
@@ -442,6 +443,7 @@ async function startRepoWriterWorker(): Promise<void> {
       );
     } catch (error) {
       consumeKnownError(error);
+      activePresets.delete(request.requestId);
       if (cell) publishCellStatus("status");
       postReceipt(
         request.requestId,
@@ -460,6 +462,17 @@ async function startRepoWriterWorker(): Promise<void> {
   async function handleControl(control: RepoWriterControlV1): Promise<void> {
     try {
       if (control.command === "crash") process.exit(86);
+      if (control.command === "hibernate") {
+        if (activeRequests.size > 0 || activePresets.size > 0 || !cell?.hibernate)
+          return postReceipt(control.requestId, false);
+        draining = true;
+        const hibernated = await cell.hibernate();
+        if (hibernated) {
+          cell = null;
+          closeWriterEpochFenceDescriptors();
+        } else draining = false;
+        return postReceipt(control.requestId, hibernated);
+      }
       if (control.command === "recover") await cell?.verifyReadiness();
       if (control.command === "drain") {
         draining = true;

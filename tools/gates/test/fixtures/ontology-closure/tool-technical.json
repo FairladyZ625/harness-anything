@@ -1,0 +1,62 @@
+[
+  {
+    "label": "synthetic benchmark input",
+    "target": "tools/scale/workload.mjs",
+    "text": "query({ limit: 50 }); const riskTier = 'medium';"
+  },
+  {
+    "label": "test process watchdog",
+    "target": "tools/run-tests.mjs",
+    "text": "const DEFAULT_TEST_FILE_TIMEOUT_MS = 900000; const PROCESS_TREE_KILL_GRACE_MS = 1000;"
+  },
+  {
+    "label": "test shard budget",
+    "target": "tools/shards.mjs",
+    "text": "const integrationFileBudgetMs = 180000; if (weight > integrationFileBudgetMs + 1) errors.push('over budget');"
+  },
+  {
+    "label": "tool parser flags",
+    "target": "tools/parse.mjs",
+    "text": "parseCommonArgs(args, { allowBase: true }); const flag = { allowEquals: true }; if (flag === '--base' && allowBase) read();"
+  },
+  {
+    "label": "compiler flags",
+    "target": "tools/gates/compiler.mjs",
+    "text": "compile({ allowJs: true, allowImportingTsExtensions: true });"
+  },
+  {
+    "label": "checker metadata",
+    "target": "tools/gates/audit.mjs",
+    "text": "const prescriptions = { policy: 'Declare a policy' }; const facts = { policyNames: 0 }; if (policy.version < 1) errors.push('version');"
+  },
+  {
+    "label": "gate tier",
+    "target": "tools/gates/audit.mjs",
+    "text": "if (gate.tier === 'pr-required') check(); if (gate.allowlistPolicy.allowed !== true) returnValue();"
+  },
+  {
+    "label": "content claim validation",
+    "target": "tools/gates/audit.mjs",
+    "text": "if (claim.fields['run-url'] !== undefined) check(); if (claims.size > 1) errors.push('multiple');"
+  },
+  {
+    "label": "receipt schema",
+    "target": "tools/gates/audit.mjs",
+    "text": "const MIN_RECEIPT_LIMIT = 0; const schema = { properties: { limit: { type: 'integer' } } }; if (!Number.isInteger(receipt.limit) || receipt.limit < MIN_RECEIPT_LIMIT) errors.push('schema');"
+  },
+  {
+    "label": "tool subprocess options",
+    "target": "tools/gates/runner.mjs",
+    "text": "spawnSync('node', [], { timeout: 20000 }); rmSync(scratch, { retryDelay: 20 });"
+  },
+  {
+    "label": "loop counter initialization",
+    "target": "tools/ci/runner.mjs",
+    "text": "for (let attempt = 1; attempt <= attempts; attempt += 1) fetchArchive();"
+  },
+  {
+    "label": "lexical collisions",
+    "target": "tools/gates/audit.mjs",
+    "text": "const ELECTRON_RELEASE_BASE = 'https://example.invalid'; let generated = 0; if (generated % 10000 === 0) flush();"
+  }
+]
