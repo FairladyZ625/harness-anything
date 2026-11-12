@@ -209,3 +209,27 @@ test("waking a parked isolate retains the attached repository cut while startup 
   assert.equal(await write, "wake");
   await supervisor.close();
 });
+
+test("a failed idle drain preserves its error and cannot re-admit work on a closed cell", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const writer = new Writer();
+  writer.hibernate = "hold";
+  const { supervisor, created } = await open(writer);
+  t.mock.timers.tick(WRITER_IDLE_TIMEOUT_MS);
+  writer.emit("message", {
+    schema: "harness-repo-writer-receipt/v1",
+    requestId: writer.controls[0]!.requestId,
+    outcome: "error",
+    error: { name: "Error", message: "drain failed after close", code: "writer_drain_failed" },
+  });
+  await turn();
+  assert.equal(supervisor.status().state, "unavailable");
+  t.mock.timers.tick(WRITER_IDLE_TIMEOUT_MS * 2);
+  await turn();
+  assert.equal(writer.controls.length, 1, "a partially closed cell cannot become an idle veto and heal admission");
+  await assert.rejects(supervisor.request("run", "blocked"), { code: "writer_drain_failed" });
+  assert.equal(writer.writes.length, 0);
+  assert.equal(created.length, 1);
+  await assert.rejects(supervisor.close(), { code: "writer_drain_failed" });
+  assert.equal(writer.terminated, 1);
+});

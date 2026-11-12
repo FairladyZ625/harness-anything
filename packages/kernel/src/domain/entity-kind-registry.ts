@@ -1000,8 +1000,6 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
       reason: "Runtime settlement cannot release a later holder or bypass the existing mutation fence.",
       fixtures: ["packages/daemon/test/runtime-spawn-lifecycle-settlement.integration.test.ts"],
       sources: [
-      // Release replay enforces the same Task/execution lease atomicity, including an unpublished reservation.
-      { candidateId: "policy:packages/kernel:packages/kernel/src/domain/task-lifecycle-replay.ts#assertReplay:e8a815183d5178e3286a6601795565f3", route: "Task/release snapshot replay" },
       { candidateId: "policy:packages/daemon:packages/daemon/src/repo-cell-task-mutation.ts#taskMutation:4254517165b44213a35c3638508ba56d", route: "packages/daemon/src/repo-cell-task-mutation.ts#taskMutation" },
       { candidateId: "policy:packages/daemon:packages/daemon/src/repo-cell-task-mutation.ts#taskMutation:c2a07f207dff3812d7cd929fca87048e", route: "packages/daemon/src/repo-cell-task-mutation.ts#taskMutation" },
       ],

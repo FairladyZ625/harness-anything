@@ -489,10 +489,21 @@ export async function openWriterSupervisor(
           await active.terminate();
           if (worker === active) worker = null;
         }
-      })().finally(() => {
-        retiring = false;
-        armIdle();
-      });
+      })()
+        .catch((error: unknown) => {
+          // A failed close may have already released cell resources; never retry it as an idle veto.
+          status = {
+            ...status,
+            state: "unavailable",
+            lastError: error instanceof Error ? error.message : String(error),
+            causeClass: "infrastructure",
+          };
+          throw error;
+        })
+        .finally(() => {
+          retiring = false;
+          armIdle();
+        });
       // Observe background rejection; admission still receives the original rejected barrier.
       void Promise.allSettled([ready]);
     }, WRITER_IDLE_TIMEOUT_MS);
