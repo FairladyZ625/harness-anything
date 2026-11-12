@@ -884,7 +884,8 @@ export function openFleetEdgeRuntime(input: {
           }
           throw error;
         }
-        if (draft.type === "runtime_session_started") await pullRuntimeReplica();
+        if (draft.type === "runtime_session_started" || draft.type === "runtime_dispatch_requested")
+          await pullRuntimeReplica();
         const {
           event: _event,
           executionCredential,
@@ -909,10 +910,7 @@ export function openFleetEdgeRuntime(input: {
             surfaces: executionSurfaces,
           });
         }
-        const sanitizedReceipt = {
-          ...receipt,
-          ...(typeof executionPrincipalId === "string" ? { executionPrincipalId } : {}),
-        } as JsonObject;
+        const sanitizedReceipt = receipt as JsonObject;
         if (draft.type === "runtime_session_cancelled" && typeof draft.payload.runtimeSessionId === "string")
           runtimeControlReceipts.set(draft.payload.runtimeSessionId, sanitizedReceipt);
         return {

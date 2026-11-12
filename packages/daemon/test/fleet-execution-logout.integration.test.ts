@@ -982,7 +982,12 @@ test(
     const relayedAfter = await cli(["task", "progress", "append", taskId, "--text", "After settlement."]);
     assert.equal(relayedAfter.code, "daemon_unavailable", JSON.stringify(relayedAfter));
     assert.match(JSON.stringify(relayedAfter), /connect ENOENT \/tmp\/harness-anything-\d+\/r-[a-f0-9]{24}\.sock/u);
-    // A direct caller still meets the center's settled-identity refusal.
+    // Canonical settlement precedes local archive compaction, which retires the edge identity.
+    await waitForArrival(
+      async () => (readRuntimeExecutionPrincipal(edgeRoot, secret) === null ? true : null),
+      watchDirectoryArrival(f.root),
+    );
+    // A direct caller now meets the center's settled-identity refusal.
     const directAfter = await spawnCli(
       ["--root", worktree, "--json", "task", "progress", "append", taskId, "--text", "After settlement."],
       {

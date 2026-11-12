@@ -10,6 +10,7 @@ import {
   sha256Text,
 } from "@harness-anything/kernel";
 import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
+import { readyDispatchLifecycle } from "./runtime-dispatch-admission.ts";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { type AgentRuntimeEventV1, type CanonicalEventStore } from "@harness-anything/kernel";
@@ -831,6 +832,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       protocolFamily = runtimeKind.protocolFamily;
     let activeBinding: RuntimeBinding,
       taskLeaseHandoff: RuntimeSpawnerInput["handoffTaskLease"],
+      releaseUnadmittedLease: (() => Promise<void>) | undefined,
       taskBinding: ActiveRuntime["task"] = null;
     // prepareLaunch already minted this run's temp scope. Every refusal in this admission window
     // happens before a stream or process exists, so the scope is the only resource to hand back.
@@ -850,7 +852,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       // attach takes none: it never asks for the handoff, so the frozen round's lease state stays untouched.
       taskLeaseHandoff =
         taskId && !input.remote && !reviewerBinding && !readOnlyAttach ? input.handoffTaskLease : undefined;
-      activeBinding = taskLeaseHandoff
+      const leaseHandoff = taskLeaseHandoff
         ? await taskLeaseHandoff({
             taskId: taskId!,
             runtimeSessionId,
@@ -858,7 +860,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             ...(arrangementId ? { arrangementId } : {}),
             binding,
           })
-        : binding;
+        : null;
+      activeBinding = leaseHandoff?.binding ?? binding;
+      releaseUnadmittedLease = leaseHandoff?.releaseUnadmittedLease;
       const lease = taskId && !input.remote ? projection!.currentLease(taskId) : null;
       if (
         taskId &&
@@ -964,8 +968,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             }
           : {}),
       }));
-    let requested: Awaited<ReturnType<typeof publishRuntimeEvent>> | undefined;
-    const requestDispatch = (resumeAccepted: boolean) =>
+    let requested: Awaited<ReturnType<typeof publishRuntimeEvent>> | undefined,
+      dispatchRequestSent = false,
+      releaseUnadmittedClaim: (() => Promise<void>) | undefined;
+    const requestDispatch = () =>
       publishRuntimeEvent(
         "runtime_dispatch_requested",
         runtimeDispatchRequestedPayload(
@@ -985,7 +991,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             ...(handoff ? { handoffCheckpointId: handoff.dispatchId, acceptedCommit: handoff.commit } : {}),
           },
           {
-            ...(resumeAccepted && (handoff?.dispatchId ?? requestedDispatchId)
+            ...((handoff?.dispatchId ?? requestedDispatchId)
               ? { resumedFromDispatchId: handoff?.dispatchId ?? requestedDispatchId }
               : {}),
             ...(taskBinding ? { taskBinding } : {}),
@@ -1008,6 +1014,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           role: dispatchRole ?? null,
           taskId: taskBinding?.taskId ?? null,
           executionId: taskBinding?.executionId ?? null,
+          launchGeneration: input.daemonGeneration,
         },
       );
     const cleanupCallbackRelay = (): void => {
@@ -1026,12 +1033,28 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         if (reviewCleanupFailure)
           console.error(`[review-worktree] ${newDispatchId} could not be reclaimed: ${reviewCleanupFailure.message}`);
       }
-      if (!requested && !taskLeaseHandoff) {
+      if (process && !(await runtimeProcessTreeStopped(input.rootDir, newDispatchId, process))) return;
+      // A lost receipt (including credential issuance after commit) does not undo admission.
+      // Center reads must be ready; an unavailable read preserves the stream and claim for recovery.
+      const observed =
+          !requested && dispatchRequestSent && input.remote
+            ? readyDispatchLifecycle(
+                await input.remote.readDispatchLifecycle({ by: "dispatch", dispatchIds: [newDispatchId] }),
+                runtimeSpawnError,
+              )[0]
+            : null,
+        admitted =
+          requested || observed || (dispatchRequestSent && !input.remote && input.store!().readEvent(dispatchOpId));
+      if (observed?.policy.attemptSettled) {
         if (stream) removeDispatchStream(input.rootDir, newDispatchId);
         return;
       }
-      requested ??= await requestDispatch(false);
-      if (process && !(await runtimeProcessTreeStopped(input.rootDir, newDispatchId, process))) return;
+      if (!admitted) {
+        await releaseUnadmittedLease?.();
+        await releaseUnadmittedClaim?.();
+        if (stream) removeDispatchStream(input.rootDir, newDispatchId);
+        return;
+      }
       await publishRuntimeEvent("runtime_session_exited", { runtimeSessionId }, randomUUID(), activeBinding);
       const body = `Runtime dispatch failed before provider registration: ${runtimeErrorMessage(error)}`,
         sha256 = sha256Text(body),
@@ -1177,7 +1200,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     try {
       openStream();
       onPrepared?.(newDispatchId, runtimeSessionId);
-      requested = await requestDispatch(true);
+      dispatchRequestSent = true;
+      // The acceptance boundary now owns claim cleanup. A missing reply must not let the
+      // outer preparation rollback release an accepted or still-unknown task claim.
+      releaseUnadmittedClaim = claim.release;
+      claim.release = undefined;
+      requested = await requestDispatch();
     } catch (error) {
       await cleanupFailedLaunch(error);
       throw error;
@@ -1192,26 +1220,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         dispatchId: newDispatchId,
         authorizationDecision: authorizationDecision as unknown as JsonObject | null,
       };
-    }
-    try {
-      await publishRuntimeEvent(
-        "runtime_session_started",
-        {
-          runtimeSessionId,
-          instanceId: definition.instanceId,
-          installationId: definition.installationId,
-          kindId: definition.kindId,
-          definitionSnapshotRef,
-          launchGeneration: input.daemonGeneration,
-          attachable: true,
-          ...(taskBinding ? { taskBinding: { taskId: taskBinding.taskId, executionId: taskBinding.executionId } } : {}),
-        },
-        randomUUID(),
-        binding,
-      );
-    } catch (error) {
-      await cleanupFailedLaunch(error);
-      throw error;
     }
     if (!process)
       try {

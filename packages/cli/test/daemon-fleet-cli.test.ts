@@ -263,7 +263,8 @@ test(
       realm.bind(fixture.edgeUser);
       signInAt(fixture.edgeUser, "edge-operator", undefined, undefined, fixture.edgeRepo);
       const shown = run(fixture, "edge", ["task", "show", "task-fleet"]);
-      assert.equal(shown.revision, pulled.ackCut);
+      assert.equal((shown.proof as { appliedCut: number }).appliedCut, pulled.ackCut);
+      assert.equal(shown.revision, shown.expectedVersion);
       assert.doesNotMatch(String(shown.summary), /task=null/u);
       for (const state of ["clean", "eligible", "deletion"] as const) {
         const localPath = path.join(fixture.edgeRepo, "harness", docPath);

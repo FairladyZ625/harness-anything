@@ -35,3 +35,11 @@ export function adoptionFromProcessTable(
 ) {
   return processes.has(session.runtimeSessionId);
 }
+
+export function rulingFromPhase(group: { readonly groupPhase: string }): boolean {
+  return group.groupPhase === "awaiting_ruling";
+}
+
+export function rulingFromPolicy(group: { readonly policy: { readonly canResolveRuling: boolean } }): boolean {
+  return group.policy.canResolveRuling;
+}

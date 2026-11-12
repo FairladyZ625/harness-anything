@@ -1,3 +1,4 @@
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { runStorageMigrationAction } from "./storage-migration-action.ts";
 import { runTodoAction } from "./todo-action.ts";
 import { runTaskWitnessAction } from "./task-witness-action.ts";
@@ -17,6 +18,7 @@ import {
   executionExecutorDeclarationCandidates,
   getExecutableEntityAction,
   lifecycleDocumentPaths,
+  type AgentRuntimeEventV1,
   requireEntityTypeContract,
   type ExecutionAnnotationKind,
   type WriteReceiptDraft as WriteReceipt,
@@ -54,6 +56,9 @@ import { runAssignmentMigrationAction } from "./assignment-migration-action.ts";
 import { readVerticalKindAction } from "./vertical-kind-read.ts";
 import { parseRulingArtifact, runtimeRulingPath, runtimeRulingResolutionPath } from "./runtime-ruling.ts";
 import { squadRulingResumeNext } from "./squad-ruling-resume.ts";
+import { dispatchLifecyclePendingError } from "./runtime-dispatch-admission.ts";
+import { commitRuntimeSessionAction } from "./runtime-session-action-runtime.ts";
+import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
 
 export async function executeAction(
   cell: RepoCellOperationalContext,
@@ -584,8 +589,9 @@ async function resolveTaskEscalation(
       "invalid_escalation_resolution",
       `Dispatch ${dispatchId} does not belong to Task ${taskId}.`,
     );
-  if (task.snapshot.task?.status !== "blocked" || task.snapshot.lease !== null)
-    throw cell.cellCodedError("invalid_escalation_resolution", `Task ${taskId} is not waiting for an owner ruling.`);
+  const lifecycle = cell.projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatchId] });
+  if (lifecycle.status !== "ready") throw dispatchLifecyclePendingError(lifecycle, cell.cellCodedError);
+  const attempt = lifecycle.rows[0];
   const path = `${packagePath}/${runtimeRulingPath(dispatchId)}`,
     rulingDocument = cell.projection.readDocument(path).document,
     existing = rulingDocument?.body ?? null;
@@ -608,6 +614,17 @@ async function resolveTaskEscalation(
   }
   const existingResolution = cell.projection.readDocument(resolutionPath).document,
     existingResolutionBody = existingResolution?.body ?? null;
+  const resolutionOpId = `escalation-resolved-${dispatchId}`,
+    accepted = cell.store.readEvent(resolutionOpId),
+    completing =
+      accepted?.schema === "agent-runtime-event/v1" &&
+      accepted.type === "runtime_session_outcome_observed" &&
+      accepted.payload.runtimeSessionId === dispatch.payload.runtimeSessionId &&
+      accepted.payload.reasonCode === "ruling_resolved";
+  // canResolveRuling owns waiting admission. An already accepted resolution instead resumes
+  // its unfinished Task transition; it must still pass the immutable answer check below.
+  if (!attempt?.policy.canResolveRuling && !(completing && existingResolution))
+    throw cell.cellCodedError("invalid_escalation_resolution", `Task ${taskId} is not waiting for an owner ruling.`);
   let artifact: WriteReceipt | null = null;
   if (existingResolution !== undefined && existingResolution !== null) {
     let parsed: Record<string, unknown>;
@@ -648,10 +665,49 @@ async function resolveTaskEscalation(
       killpoint: cell.input.killpoint,
     });
   }
-  const transitioned = await cell.lifecycleAction(
-      { kind: "task-transition", taskId, status: "planned", reason: `Owner answered escalation ${dispatchId}.` },
-      binding,
-    ),
+  const terminal = cell.projection
+      .readRuntimeSessionEventsByType(dispatch.payload.runtimeSessionId, ["runtime_session_outcome_observed"])
+      .findLast(
+        (event): event is Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }> =>
+          event.type === "runtime_session_outcome_observed",
+      )!,
+    resolved = completing
+      ? cell.receiptForOperation(resolutionOpId, binding)
+      : await commitRuntimeSessionAction(
+          cell,
+          {
+            kind: "event",
+            type: "runtime_session_outcome_observed",
+            opId: resolutionOpId,
+            payload: {
+              ...terminal.payload,
+              dispatchId,
+              reasonCode: "ruling_resolved",
+            },
+            resultBody: readCanonicalRuntimeResult(cell.store, terminal.payload.resultRef),
+          },
+          { ...binding, source: dispatch.source },
+        );
+  if (resolved.outcome !== "applied") return resolved;
+  // A later explicit Task transition supersedes restoration. Replaying an old answer must not
+  // reopen a newer owner block; the indexed latest transition is bounded to this Task.
+  const transitionType = "task_transitioned",
+    laterTransition =
+      completing &&
+      cell.store.queryEvents!({
+        type: transitionType,
+        entity: `task/${taskId}`,
+        limit: storageReadPolicy.defaultValue.pageSizes.one,
+      })[0],
+    progressed =
+      completing && task.snapshot.revision > accepted.workspaceRevision && task.snapshot.task?.status !== "blocked",
+    transitioned =
+      (laterTransition && laterTransition.workspaceRevision > accepted.workspaceRevision) || progressed
+        ? resolved
+        : await cell.lifecycleAction(
+            { kind: "task-transition", taskId, status: "planned", reason: `Owner answered escalation ${dispatchId}.` },
+            binding,
+          ),
     escalatedDispatch = cell.projection.readRuntimeDispatchById(dispatchId)?.event,
     // A leader turn owns its ruling. The answered task is planned, but its old execution is
     // consumed: the run can only continue as a new Squad run under the execution `ha task start`

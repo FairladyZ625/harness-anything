@@ -14,6 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 import {
   appendRuntimeWorkerRecord,
   archiveDispatchStream,
@@ -356,12 +357,13 @@ test("dispatch summaries keep a lifecycle record that straddles the head window 
   }
 });
 
-test("ZCode provider writes and its live worker host form current session activity evidence", () => {
+test("ZCode provider writes and its live worker host form current session activity evidence", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-zcode-activity-"));
   try {
     const dispatchId = "dispatch_555555555555555555555555",
       runtimeSessionId = "runtime_555555555555555555555555",
-      target = dispatchStreamPath(rootDir, dispatchId);
+      target = dispatchStreamPath(rootDir, dispatchId),
+      worker = fixtureRuntimeProcess(t);
     openDispatchStream(rootDir, {
       dispatchId,
       taskId: "task-zcode",
@@ -374,7 +376,7 @@ test("ZCode provider writes and its live worker host form current session activi
     appendRuntimeWorkerRecord(rootDir, dispatchId, {
       kind: "process_started",
       occurredAt: "2026-09-06T00:00:01.000Z",
-      pid: process.pid,
+      pid: worker.pid,
     });
     const frames = [
       { type: "session.updated", payload: { type: "model_request_started" } },
@@ -401,7 +403,7 @@ test("ZCode provider writes and its live worker host form current session activi
     assert.deepEqual(evidence, {
       lastObservedAt: "2026-09-06T00:00:05.000Z",
       workerHostAlive: true,
-      process: { pid: process.pid, exitCode: null, signal: null, exited: false },
+      process: { pid: worker.pid, exitCode: null, signal: null, exited: false },
       terminalOutcome: null,
       runtimeMetrics: null,
       lastProgressAt: "2026-09-06T00:00:05.000Z",

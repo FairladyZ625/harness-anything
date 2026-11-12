@@ -243,6 +243,11 @@ export function scanDispatchLifecycleObservationSites(root = process.cwd()) {
           add(judgmentContextNode(node), enclosingSymbol(node), "liveness-comparison");
         if (names.includes("fallbackState") && !insideDispatchObservationPayload(node))
           add(judgmentContextNode(node), enclosingSymbol(node), "fallback-state-branch");
+        if (
+          names.some((name) => name === "groupPhase" || name === "phase") &&
+          [node.left, node.right].some((value) => ts.isStringLiteralLike(value) && value.text === "awaiting_ruling")
+        )
+          add(judgmentContextNode(node), enclosingSymbol(node), "ruling-phase-branch");
       }
       if (ts.isReturnStatement(node) && node.expression) {
         const text = node.expression.getText(source),

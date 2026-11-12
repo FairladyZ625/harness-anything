@@ -443,6 +443,7 @@ export function sessionWithActivityEvidence(
       : { ...session, liveness: "unknown", attachable: false };
   const lastObservedAt = latestRuntimeActivityAt([session.lastObservedAt, evidence.lastObservedAt]);
   if (session.outcome !== null) return { ...session, lastObservedAt };
+  if (evidence.workerHostAlive) return { ...session, liveness: "live", attachable: true, lastObservedAt };
   // Process exit and locally persisted settlement remain observable even if canonical writes
   // are denied. This read does not release a lease or authorize any business operation.
   if (evidence.terminalOutcome || evidence.process?.exited) {

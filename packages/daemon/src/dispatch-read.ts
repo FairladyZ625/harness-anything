@@ -31,6 +31,7 @@ import type {
   TaskDispatchRow,
 } from "./protocol/daemon-protocol.contract.ts";
 import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
+import { probeProcessGroup } from "./runtime/process-group-reconciler.ts";
 import { projectedTaskNotFound } from "./projection-readiness.ts";
 import type { AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
 import { runtimeResumeAdmission } from "./runtime-resume-admission.ts";
@@ -127,7 +128,7 @@ export function readRuntimeSessionActivityEvidence(
   if (!stream) return undefined;
   return {
     lastObservedAt: stream.lastObservedAt,
-    workerHostAlive: stream.process?.exited === false && runtimePidIsAlive(stream.process.pid),
+    workerHostAlive: probeProcessGroup({ pid: stream.process?.pid, dispatch: { rootDir, dispatchId } }) === "running",
     runtimeMetrics: stream.runtimeMetrics,
     process: stream.process,
     terminalOutcome: stream.terminalOutcome,

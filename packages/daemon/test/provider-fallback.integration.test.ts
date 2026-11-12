@@ -903,7 +903,7 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
         dispatchLifecycleReadOf(() => published)(query),
       readRuntimeSessions: async () =>
         published.flatMap((event) => {
-          if (event.type !== "runtime_session_started") return [];
+          if (event.type !== "runtime_dispatch_requested") return [];
           const outcome = published.findLast(
             (value) =>
               value.type === "runtime_session_outcome_observed" &&

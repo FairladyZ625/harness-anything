@@ -39,12 +39,12 @@ export async function commitRuntimeSettlement(
   const current = group.rows[0]!;
   if (current.attempt.runtimeSessionId !== event.payload.runtimeSessionId)
     throw cell.cellCodedError("runtime_terminal_superseded", "The dispatch attempt is no longer current.");
-  if (current.policy.attemptSettled && !current.policy.fallbackPending) return commit(bundle);
-  if (current.attempt.stopProof !== "proven_stopped")
-    throw cell.cellCodedError("runtime_process_group_unproven", "Dispatch settlement requires accepted stop proof.");
   const preview = previewDispatchLifecycleOutcome(current, event);
   if (preview.kind !== "applied")
     throw cell.cellCodedError("runtime_event_rejected", "Dispatch lifecycle rejected the terminal outcome.");
+  if (current.policy.attemptSettled && !current.policy.fallbackPending) return commit(bundle);
+  if (current.attempt.stopProof !== "proven_stopped")
+    throw cell.cellCodedError("runtime_process_group_unproven", "Dispatch settlement requires accepted stop proof.");
   const task = current.attempt.task;
   if (!task || task.role !== "implementer" || preview.groupPhase === "waiting_backoff") return commit(bundle);
   const read = cell.projection.read(task.taskId),
@@ -67,8 +67,8 @@ export async function commitRuntimeSettlement(
       page.rows.some(
         (row) =>
           row.attemptGroupId !== current.attemptGroupId &&
-          row.groupPhase !== "closed" &&
-          row.groupPhase !== "awaiting_ruling" &&
+          !row.policy.groupSettled &&
+          !row.policy.canResolveRuling &&
           row.attempt.task?.taskId === task.taskId &&
           row.attempt.task.executionId === task.executionId &&
           row.attempt.task.leaseVersion === task.leaseVersion,

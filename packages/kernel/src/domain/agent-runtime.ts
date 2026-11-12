@@ -1010,6 +1010,10 @@ export function reduceRuntimeSession(
   if (event.type === "runtime_session_exited")
     return { ...current, liveness: "exited", attachable: false, lastObservedAt: event.occurredAt };
   if (event.type === "runtime_session_outcome_observed") {
+    // A ruling answers the dispatch group's outstanding ask. It is a new observation of an
+    // already stopped session, not a replacement for that session's immutable terminal result.
+    if (event.payload.reasonCode === "ruling_resolved" && current.outcome !== null)
+      return { ...current, lastObservedAt: event.occurredAt };
     if (current.outcome !== null) {
       if (
         current.outcome !== event.payload.outcome ||

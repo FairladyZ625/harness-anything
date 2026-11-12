@@ -119,7 +119,7 @@ import type { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
 import type { AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import type { RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { explainAuthenticationRequired, readTaskActionExplanation } from "./task-action-explanation-read.ts";
-import { commitRuntimeSessionAction } from "./runtime-session-action-runtime.ts";
+import { commitRuntimeSessionAction, settleUnlaunchedRuntimeSession } from "./runtime-session-action-runtime.ts";
 import { readTaskWipSnapshot, type TaskQueryCell } from "./repo-cell-task-query.ts";
 import { agendaQueryFromPayload, taskDispatchesPayloadFromCell } from "./repo-cell-read-payloads.ts";
 
@@ -920,10 +920,18 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
           now: context.now(),
         });
       }
-      if (action.kind === "event" && runtimeSessionActionIds.includes(action.type as never)) {
-        const receipt = await commitRuntimeSessionAction(context.extracted, action, authorizedBinding);
+      if (
+        action.kind === "event" &&
+        (runtimeSessionActionIds.includes(action.type as never) ||
+          (action.type === "runtime_dispatch_requested" && action.dispatchContext?.launchGeneration !== undefined))
+      ) {
+        const receipt =
+          action.type === "runtime_dispatch_requested"
+            ? context.appendAuxiliaryRuntimeIngress(action, authorizedBinding)
+            : await commitRuntimeSessionAction(context.extracted, action, authorizedBinding);
         const dispatch =
-            action.type === "runtime_session_started" && typeof action.payload.runtimeSessionId === "string"
+            (action.type === "runtime_session_started" || action.type === "runtime_dispatch_requested") &&
+            typeof action.payload.runtimeSessionId === "string"
               ? context.projection.readRuntimeDispatch(action.payload.runtimeSessionId)
               : null,
           executionRole = !dispatch
@@ -999,7 +1007,28 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
       "runtime-run",
       policyAction,
       binding,
-      executeRuntimeIngress,
+      async (authorizedBinding) => {
+        // The writer compares acceptance before and after this request. A failed new admission
+        // reply cannot have launched a provider; an existing dispatch retains its process.
+        const before = action.kind === "event" ? context.store.readEvent(action.opId) : null;
+        try {
+          return await executeRuntimeIngress(authorizedBinding);
+        } catch (error) {
+          const accepted = action.kind === "event" ? context.store.readEvent(action.opId) : null;
+          if (
+            !before &&
+            typeof authorizedBinding.source === "object" &&
+            authorizedBinding.source.kind === "node" &&
+            action.kind === "event" &&
+            action.type === "runtime_dispatch_requested" &&
+            action.dispatchContext?.launchGeneration !== undefined &&
+            accepted?.schema === "agent-runtime-event/v1" &&
+            accepted.type === "runtime_dispatch_requested"
+          )
+            await settleUnlaunchedRuntimeSession(context.extracted, accepted.payload, action.opId, authorizedBinding);
+          throw error;
+        }
+      },
       queueObservation,
     );
   };
