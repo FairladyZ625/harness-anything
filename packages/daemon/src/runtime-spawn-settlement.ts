@@ -370,7 +370,7 @@ export async function publishExit(
           hosting = await detectHostingProvider(context.input.rootDir, undefined, true),
           env = hosting ? await context.prepareDaemonGitEnvironment(active.instanceId, hosting.kind) : undefined,
           renderBody = submission
-            ? taskPrBodyRenderer({
+            ? await taskPrBodyRenderer({
                 rootDir: context.input.rootDir,
                 projection,
                 taskId: active.task.taskId,

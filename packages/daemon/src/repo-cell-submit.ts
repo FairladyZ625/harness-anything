@@ -22,6 +22,7 @@ import {
   sameWriteSource,
   sha256Text,
   type DocEventChange,
+  type ExecutionV1,
   type SubmissionV1,
   type WriteSource,
   type WriteReceiptDraft,
@@ -39,7 +40,7 @@ import { TaskLifecycleContractError } from "@harness-anything/kernel/internal/do
 import { errorCode } from "@harness-anything/kernel/internal/domain/task-lifecycle-contract-support.ts";
 import { attributeCellCriterion } from "./repo-cell-errors.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
-import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
+import type { RepoCellBinding, RepoCellContinuationWrite, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { assertCurrentSubmittedExecution } from "./repo-cell-execution-selection.ts";
 import { createSubmissionArtifactReader } from "./submission-artifacts.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
@@ -489,6 +490,7 @@ async function autoDeclareSubmittedExecutor(
   taskId: string,
   executionId: string,
   binding: RepoCellBinding,
+  enqueuePublication: RepoCellContinuationWrite,
 ): Promise<WriteReceiptDraft | null> {
   const snapshot = (await cell.service.read(taskId)).snapshot,
     execution = snapshot.executions.find((candidate) => candidate.executionId === executionId);
@@ -522,16 +524,14 @@ async function autoDeclareSubmittedExecutor(
   if (candidates.size !== 1) return null;
   const [candidate] = candidates.values();
   if (!candidate) return null;
-  return cell.declareExecutionExecutor(
-    {
-      kind: "task-declare-executor",
-      taskId,
-      executionId,
-      agent: candidate.executorId,
-      reason: "Automatically attributed from the unique implementation dispatch for this execution at submission.",
-    },
-    binding,
-  );
+  const action = {
+    kind: "task-declare-executor",
+    taskId,
+    executionId,
+    agent: candidate.executorId,
+    reason: "Automatically attributed from the unique implementation dispatch for this execution at submission.",
+  };
+  return enqueuePublication(action, binding);
 }
 
 /**
@@ -564,11 +564,48 @@ function readSubmittedImplementationDispatches(
     .map((event) => event.payload);
 }
 
-function submissionSteps(
-  executor: WriteReceiptDraft | null,
-  review: { readonly steps: readonly WriteReceiptDraft[]; readonly warnings: readonly string[] },
-): readonly WriteReceiptDraft[] {
-  return [...(executor ? [executor] : []), ...review.steps];
+/** Continues a frozen submit only after the command runner has released its publication turn. */
+export async function continueSubmittedTask(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+  receipt: WriteReceiptDraft,
+  enqueuePublication: RepoCellContinuationWrite,
+): Promise<WriteReceiptDraft> {
+  const event = cell.store.readTaskEvent(receipt.opId);
+  if (event?.type !== "execution_submitted") return receipt;
+  const {
+      executionPrincipal: _executionPrincipal,
+      authorizationDecision: _authorizationDecision,
+      ...principal
+    } = binding,
+    principalBinding = { ...principal, actor: { principal: binding.actor.principal, executor: null } },
+    executor = await autoDeclareSubmittedExecutor(
+      cell,
+      event.taskId,
+      event.payload.execution.executionId,
+      principalBinding,
+      enqueuePublication,
+    ),
+    review = await submittedCutReview(
+      cell,
+      event.taskId,
+      action,
+      binding,
+      receipt,
+      enqueuePublication,
+      event.payload.execution,
+    ),
+    warnings = [...(receipt.warnings ?? []), ...review.warnings];
+  return {
+    ...receipt,
+    ...(warnings.length ? { warnings } : {}),
+    steps: [
+      ...((receipt as { readonly steps?: readonly WriteReceiptDraft[] }).steps ?? []),
+      ...(executor ? [executor] : []),
+      ...review.steps,
+    ],
+  } as WriteReceiptDraft;
 }
 
 function riskTierCloseoutGates(
@@ -765,11 +802,21 @@ async function submittedCutReview(
   action: RepoTaskAction,
   binding: RepoCellBinding,
   receipt: WriteReceiptDraft,
+  enqueuePublication: RepoCellContinuationWrite,
+  submitted: ExecutionV1,
 ): Promise<{ readonly steps: readonly WriteReceiptDraft[]; readonly warnings: readonly string[] }> {
   const { snapshot } = await cell.service.read(taskId),
     execution = snapshot.executions.find(
-      (value) => value.iteration === snapshot.task?.iteration && value.state === "submitted",
+      (value) =>
+        value.executionId === submitted.executionId &&
+        value.iteration === snapshot.task?.iteration &&
+        value.state === "submitted",
     );
+  if (
+    !execution?.submission ||
+    cell.projection.readTaskSubmissionOperation(taskId, execution.executionId) !== receipt.opId
+  )
+    return { steps: [], warnings: [] };
   if (
     snapshot.task?.status === "in_review" &&
     execution?.submission &&
@@ -780,13 +827,15 @@ async function submittedCutReview(
         instanceId = binding.executionPrincipal
           ? cell.projection.readRuntimeDispatch(binding.executionPrincipal.runtimeSessionId)?.payload.instanceId
           : undefined,
-        renderBody = taskPrBodyRenderer({
+        executionRef = `execution/${execution.executionId}`,
+        executionVersion = cell.projection.readEntityVersionWitness(executionRef).currentVersion,
+        renderBody = await taskPrBodyRenderer({
           rootDir: cell.rootDir,
           projection: cell.projection,
           taskId,
           submission: execution.submission,
         });
-      await publishSubmittedCut({
+      const current = await publishSubmittedCut({
         rootDir: cell.rootDir,
         repoId: cell.input.repoId,
         taskId,
@@ -797,7 +846,12 @@ async function submittedCutReview(
         ...(typeof instanceId === "string" ? { instanceId } : {}),
         prepareDaemonGitEnvironment: cell.input.prepareDaemonGitEnvironment,
         ...(renderBody ? { renderBody } : {}),
+        isCurrentCut: () =>
+          executionVersion !== null &&
+          cell.projection.readEntityVersionWitness(executionRef).currentVersion === executionVersion &&
+          cell.projection.readTaskSubmissionOperation(taskId, execution.executionId) === receipt.opId,
       });
+      if (!current) return { steps: [], warnings: [] };
     } catch (error) {
       const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512),
         warning = `The cut is frozen, but publication failed before review: ${detail} Retry: ha task submit ${taskId} --amend.`;
@@ -819,6 +873,8 @@ async function submittedCutReview(
       action,
       { ...principalBinding, actor: { principal: binding.actor.principal, executor: null } },
       receipt,
+      enqueuePublication,
+      receipt.opId,
     );
   return dispatched ? { steps: [dispatched.step], warnings: dispatched.warnings } : { steps: [], warnings: [] };
 }
@@ -980,14 +1036,7 @@ export async function submitTask(
       binding,
     );
     if (receipt.outcome !== "applied") return receipt;
-    const executor = await autoDeclareSubmittedExecutor(cell, taskId, executionId, binding);
-    const review = await submittedCutReview(cell, taskId, action, binding, receipt);
-    const warnings = [...(receipt.warnings ?? []), ...review.warnings];
-    return {
-      ...receipt,
-      ...(warnings.length ? { warnings } : {}),
-      steps: submissionSteps(executor, review),
-    } as WriteReceiptDraft;
+    return { ...receipt, steps: [] } as WriteReceiptDraft;
   }
   // Assignment callers carry their changed documents above. With no carried changes,
   // consume center-accepted content; never scan the center worktree on an edge's behalf.
@@ -1083,28 +1132,24 @@ export async function submitTask(
       } as WriteReceiptDraft;
     const receipt = cell.receiptForOperation(event!.opId, binding);
     if (receipt.outcome !== "applied") return receipt;
-    const executor = await autoDeclareSubmittedExecutor(cell, taskId, executionId, binding);
-    const review = await submittedCutReview(cell, taskId, action, binding, receipt);
-    const warnings = [...anchorDriftWarnings, ...review.warnings];
+    const warnings = anchorDriftWarnings;
     return {
       ...receipt,
       ...(submission.riskTierAssessment ? { riskTierAssessment: submission.riskTierAssessment } : {}),
       ...(warnings.length ? { warnings } : {}),
-      steps: submissionSteps(executor, review),
+      steps: [],
     } as WriteReceiptDraft;
   }
   if (selected.submission && submissionDigest(selected.submission) === submissionDigest(submission))
     return submitTask(cell, { ...action, amend: false }, binding);
   const receipt = await cell.lifecycleAction({ ...action, executionId, submission }, binding);
   if (receipt.outcome !== "applied") return receipt;
-  const executor = await autoDeclareSubmittedExecutor(cell, taskId, executionId, binding),
-    review = await submittedCutReview(cell, taskId, action, binding, receipt);
-  const warnings = [...anchorDriftWarnings, ...review.warnings];
+  const warnings = anchorDriftWarnings;
   return {
     ...receipt,
     ...(submission.riskTierAssessment ? { riskTierAssessment: submission.riskTierAssessment } : {}),
     ...(warnings.length ? { warnings } : {}),
-    steps: [...(synced ? [synced] : []), ...submissionSteps(executor, review)],
+    steps: synced ? [synced] : [],
   } as WriteReceiptDraft;
 }
 

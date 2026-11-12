@@ -149,7 +149,7 @@ function captureCreate(context: test.TestContext, posted: { body: string }[]) {
 
 test("the publication port writes the governance declaration from the frozen protected-surface cut", async (context) => {
   const { fixture, frozen } = publication(context, "pr-body-render"),
-    renderBody = taskPrBodyRenderer({
+    renderBody = await taskPrBodyRenderer({
       rootDir: fixture.canonical,
       projection: projection(frozen.commitSha!),
       taskId,
@@ -191,7 +191,7 @@ test("the legacy submission-prose body fails the same governance lint (negative 
 
 test("an update re-renders the existing body instead of replacing authored prose", async (context) => {
   const { fixture, frozen } = publication(context, "pr-body-render-update"),
-    renderBody = taskPrBodyRenderer({
+    renderBody = await taskPrBodyRenderer({
       rootDir: fixture.canonical,
       projection: projection(frozen.commitSha!),
       taskId,
@@ -209,7 +209,7 @@ test("an update re-renders the existing body instead of replacing authored prose
     ...frozen,
     productionDelta: { ...frozen.productionDelta!, added: 2, deleted: 1 },
   };
-  const renderUpdatedBody = taskPrBodyRenderer({
+  const renderUpdatedBody = await taskPrBodyRenderer({
     rootDir: fixture.canonical,
     projection: projection(frozen.commitSha!),
     taskId,
@@ -241,7 +241,7 @@ test("an update re-renders the existing body instead of replacing authored prose
 
 test("a marker-less template-shaped existing body gains governance while preserving its prose", async (context) => {
   const { fixture, frozen } = publication(context, "pr-body-render-markerless"),
-    renderBody = taskPrBodyRenderer({
+    renderBody = await taskPrBodyRenderer({
       rootDir: fixture.canonical,
       projection: projection(frozen.commitSha!),
       taskId,
@@ -286,7 +286,7 @@ test("a marker-less template-shaped existing body gains governance while preserv
 
 test("a marked custom existing body is migrated before rendering and remains safe to refresh", async (context) => {
   const { fixture, frozen } = publication(context, "pr-body-render-marked-custom"),
-    renderBody = taskPrBodyRenderer({
+    renderBody = await taskPrBodyRenderer({
       rootDir: fixture.canonical,
       projection: projection(frozen.commitSha!),
       taskId,
@@ -360,7 +360,7 @@ test("a marked custom existing body is migrated before rendering and remains saf
 
 test("an arbitrary marker-less existing body is preserved verbatim in the rendered body", async (context) => {
   const { fixture, frozen } = publication(context, "pr-body-render-arbitrary"),
-    renderBody = taskPrBodyRenderer({
+    renderBody = await taskPrBodyRenderer({
       rootDir: fixture.canonical,
       projection: projection(frozen.commitSha!),
       taskId,

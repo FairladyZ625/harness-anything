@@ -1,3 +1,5 @@
+import { inWorktreeTurn } from "./task-worktree.ts";
+import { cellCodedError } from "./repo-cell-errors.ts";
 import {
   SUBMISSION_FACTS_END,
   SUBMISSION_FACTS_START,
@@ -28,29 +30,36 @@ type PullRequestInput = {
 };
 /** The only task publication port: both explicit push and terminal settlement use it. */
 export async function publishTaskWorkerBranch(
-  input: Parameters<typeof pushTaskWorkerBranch>[0] & { readonly pullRequest?: PullRequestInput },
+  input: Parameters<typeof pushTaskWorkerBranch>[0] & {
+    readonly pullRequest?: PullRequestInput;
+    readonly isCurrentCut?: () => boolean;
+  },
 ): Promise<{
   readonly push: Awaited<ReturnType<typeof pushTaskWorkerBranch>>;
   readonly pullRequest?: { readonly url: string; readonly headSha: string | null };
 }> {
-  const push = await pushTaskWorkerBranch(input);
-  if (!push.attempted || !push.ok || !input.pullRequest) return { push };
-  try {
-    if (push.pushedCommit !== input.pullRequest.submission.commitSha)
-      throw new Error(
-        `The pushed commit differs from the frozen submission; run ha task submit ${input.taskId} --amend first.`,
+  return inWorktreeTurn(input.cwd, async () => {
+    if (input.isCurrentCut && !input.isCurrentCut())
+      throw cellCodedError("execution_scope_mismatch", "The submitted publication cut was superseded.");
+    const push = await pushTaskWorkerBranch(input);
+    if (!push.attempted || !push.ok || !input.pullRequest) return { push };
+    try {
+      if (push.pushedCommit !== input.pullRequest.submission.commitSha)
+        throw new Error(
+          `The pushed commit differs from the frozen submission; run ha task submit ${input.taskId} --amend first.`,
+        );
+      const pullRequest = await publishTaskPullRequest(push.branch, input.pullRequest, input.env);
+      return { push, pullRequest };
+    } catch (error) {
+      const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
+      throw Object.assign(
+        new Error(`Branch pushed; PR publication failed: ${detail} Retry: ha task push ${input.taskId}.`, {
+          cause: error,
+        }),
+        { code: "delivery_publish_failed" },
       );
-    const pullRequest = await publishTaskPullRequest(push.branch, input.pullRequest, input.env);
-    return { push, pullRequest };
-  } catch (error) {
-    const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
-    throw Object.assign(
-      new Error(`Branch pushed; PR publication failed: ${detail} Retry: ha task push ${input.taskId}.`, {
-        cause: error,
-      }),
-      { code: "delivery_publish_failed" },
-    );
-  }
+    }
+  });
 }
 
 /** Publish the hosted read surface after the owning node has pushed its fenced task branch. */

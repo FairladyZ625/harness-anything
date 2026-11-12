@@ -38,6 +38,13 @@ export type RepoTaskAction = Readonly<Record<string, unknown>> & {
   readonly kind: string;
 };
 
+/** A continuation enters the writer as its own command, not as the completed parent command. */
+export type RepoCellContinuationWrite = (
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+  execute?: (authorizedBinding: RepoCellBinding) => Promise<WriteReceiptDraft>,
+) => Promise<WriteReceiptDraft>;
+
 export type RepoCellAutoClaimRelation = Extract<
   DaemonGuiReadResultMap["repo.triadic.relationGraph"],
   { readonly facet: "edges" }

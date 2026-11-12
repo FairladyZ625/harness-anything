@@ -6,16 +6,14 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { cmdShellInvocation } from "@harness-anything/storage";
 import { scrubProviderValue } from "./dispatch-stream.ts";
-import { repositoryBaseRef } from "./schedule-occurrence-workspace.ts";
+import { repositoryBaseRefAsync } from "./schedule-occurrence-workspace.ts";
 import { assertNoIgnoredLedgerDelivery } from "./ignored-ledger-delivery.ts";
 
 const execFileAsync = promisify(execFile),
   detailLimit = 512,
   // One formatted line per commit; a rebased worker branch carries every recreated commit again.
   workerHistoryLimit = 1 << 20,
-  // Settlement pushes inside the repository write queue, so a stalled remote or a credential dialog
-  // nobody answers holds every write to the repo. A code-only worker branch pushes in seconds; this
-  // is the bound the fleet edge gives its own network transfers.
+  // Bound remote transfers even when publication continues outside the repository write queue.
   workerPushTimeoutMs = 60_000;
 
 export type WorkerPushResult =
@@ -77,7 +75,7 @@ export async function workerBranchHasDelivery(input: {
   const env = gitEnvironment();
   try {
     const branch = (await readGitText(input.cwd, ["branch", "--show-current"], env)).trim(),
-      baseRef = input.baseRef ?? repositoryBaseRef(input.canonicalRoot);
+      baseRef = input.baseRef ?? (await repositoryBaseRefAsync(input.canonicalRoot));
     if (branch !== input.taskId || !baseRef) return false;
     return (await readGitText(input.cwd, ["rev-list", "--count", `${baseRef}..HEAD`], env)).trim() !== "0";
   } catch {
@@ -271,16 +269,16 @@ export async function pushWorkerBranch(input: {
   // published remote cut nor the default branch: a published cut already carried its own
   // admission, and after a rebase the default branch's merges are ancestors the worker did not
   // write. An empty expected cut means the remote branch is absent.
-  const mismatch = await firstCommitOutsideConventionalIdentity(
-    input.cwd,
-    [input.expectedRemoteCommit, repositoryBaseRef(input.canonicalRoot)].filter((ref): ref is string => !!ref),
-    pushedCommit,
-    identity,
-    env,
-  );
+  const baseRef = await repositoryBaseRefAsync(input.canonicalRoot),
+    mismatch = await firstCommitOutsideConventionalIdentity(
+      input.cwd,
+      [input.expectedRemoteCommit, baseRef].filter((ref): ref is string => !!ref),
+      pushedCommit,
+      identity,
+      env,
+    );
   if (mismatch) return { attempted: true, ok: false, branch, head, pushedCommit, detail: mismatch };
 
-  const baseRef = repositoryBaseRef(input.canonicalRoot);
   if (baseRef)
     try {
       await assertNoIgnoredLedgerDelivery(input.cwd, baseRef, pushedCommit);

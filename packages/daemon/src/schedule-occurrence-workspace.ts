@@ -209,36 +209,64 @@ export function hasUnbornHead(rootDir: string): boolean {
  * the repository's default branch: its published copy, else the main checkout's branch. Null when none resolves.
  */
 export function repositoryBaseRef(rootDir: string): string | null {
+  return readGitRefs(rootDir, repositoryBaseRefReads(rootDir));
+}
+
+/** The same baseline policy for callers that must leave the writer event loop available. */
+export async function repositoryBaseRefAsync(rootDir: string): Promise<string | null> {
+  const reads = repositoryBaseRefReads(rootDir);
+  let step = reads.next();
+  while (!step.done) {
+    const result = await runProcessExitAsync("git", step.value, rootDir);
+    step = reads.next(result.exitCode === 0 ? result.stdout.trim() || null : null);
+  }
+  return step.value;
+}
+
+type GitRefReads = Generator<readonly string[], string | null, string | null>;
+
+function* repositoryBaseRefReads(rootDir: string): GitRefReads {
   // Task checkouts mirror only their task package, so read the declaration from the primary worktree.
-  const primary = gitOrNull(rootDir, "worktree", "list", "--porcelain", "-z")
-    ?.split("\0")[0]
-    ?.slice("worktree ".length);
+  const primary = (yield ["worktree", "list", "--porcelain", "-z"])?.split("\0")[0]?.slice("worktree ".length);
   if (!primary) return null;
   const { configPath } = resolveHarnessLayout(primary),
     targetRef = configPath && readSettingsFacet(readFileSync(configPath, "utf8")).delivery.targetRef;
   if (targetRef) {
-    if (!gitOrNull(rootDir, "rev-parse", "--verify", "--quiet", `${targetRef}^{commit}`))
+    if (!(yield ["rev-parse", "--verify", "--quiet", `${targetRef}^{commit}`]))
       throw new Error(`Configured delivery.targetRef ${targetRef} does not resolve to a commit in ${rootDir}.`);
     return targetRef;
   }
-  return firstCommitRef(rootDir, defaultBranchCandidates(rootDir));
+  return yield* firstCommitRefReads(yield* defaultBranchCandidateReads());
 }
 
-function defaultBranchCandidates(rootDir: string): readonly (string | null)[] {
+function* defaultBranchCandidateReads(): Generator<readonly string[], readonly (string | null)[], string | null> {
   // HEAD of the common git directory is the main checkout's, also when rootDir is a linked worktree.
-  const common = gitOrNull(rootDir, "rev-parse", "--path-format=absolute", "--git-common-dir"),
-    checkedOut = common && gitOrNull(rootDir, `--git-dir=${common}`, "symbolic-ref", "--quiet", "--short", "HEAD");
+  const common = yield ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    checkedOut = common && (yield [`--git-dir=${common}`, "symbolic-ref", "--quiet", "--short", "HEAD"]);
   return [
-    gitOrNull(rootDir, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"),
+    yield ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
     checkedOut && `origin/${checkedOut}`,
     checkedOut,
   ];
 }
 
+function* firstCommitRefReads(candidates: readonly (string | null)[]): GitRefReads {
+  for (const ref of candidates) if (ref && (yield ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`])) return ref;
+  return null;
+}
+
+function readGitRefs<T>(rootDir: string, reads: Generator<readonly string[], T, string | null>): T {
+  let step = reads.next();
+  while (!step.done) step = reads.next(gitOrNull(rootDir, ...step.value));
+  return step.value;
+}
+
+function defaultBranchCandidates(rootDir: string): readonly (string | null)[] {
+  return readGitRefs(rootDir, defaultBranchCandidateReads());
+}
+
 function firstCommitRef(rootDir: string, candidates: readonly (string | null)[]): string | null {
-  return (
-    candidates.find((ref) => ref && gitOrNull(rootDir, "rev-parse", "--verify", "--quiet", `${ref}^{commit}`)) ?? null
-  );
+  return readGitRefs(rootDir, firstCommitRefReads(candidates));
 }
 
 /**

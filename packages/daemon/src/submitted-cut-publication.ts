@@ -1,3 +1,4 @@
+import { inWorktreeTurn } from "./task-worktree.ts";
 import type { SubmissionV1 } from "@harness-anything/kernel";
 import { detectHostingProvider } from "./hosting-provider.ts";
 import { publishTaskPullRequest, publishTaskWorkerBranch } from "./runtime-task-publication.ts";
@@ -23,10 +24,13 @@ export async function publishSubmittedCut(input: {
     repoId: string,
   ) => Promise<NodeJS.ProcessEnv | null>;
   readonly renderBody?: (body: string | undefined) => string;
-}): Promise<void> {
-  if (input.submission.commitSha === null) return;
+  /** Canonical submission fence, checked after preparation within the local publication turn. */
+  readonly isCurrentCut?: () => boolean;
+}): Promise<boolean> {
+  const commitSha = input.submission.commitSha;
+  if (commitSha === null) return true;
   const hosting = await detectHostingProvider(input.rootDir, undefined, true);
-  if (!hosting) return;
+  if (!hosting) return true;
   if (input.workerRoot === null)
     throw cellCodedError("delivery_publish_failed", `Task ${input.taskId} has no managed task branch to publish.`);
   const env = input.instanceId
@@ -46,9 +50,10 @@ export async function publishSubmittedCut(input: {
           canonicalRoot: input.rootDir,
           taskId: input.taskId,
           personId: input.personId,
-          submittedCommitSha: input.submission.commitSha,
+          submittedCommitSha: commitSha,
           env: env ?? undefined,
           pullRequest,
+          isCurrentCut: input.isCurrentCut,
         }),
         push = publication.push;
       if (!push.attempted || !push.ok)
@@ -57,15 +62,20 @@ export async function publishSubmittedCut(input: {
           push.attempted ? push.detail : `Task branch publication refused: ${push.reason}.`,
         );
       published = publication.pullRequest;
-    } else published = await publishTaskPullRequest(input.taskId, pullRequest, env ?? undefined);
+    } else
+      published = await inWorktreeTurn(input.rootDir, () =>
+        publishTaskPullRequest(input.taskId, pullRequest, env ?? undefined),
+      );
   } catch (error) {
+    if (runtimeErrorCode(error) === "execution_scope_mismatch") return false;
     if (runtimeErrorCode(error)) throw error;
     const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
     throw cellCodedError("delivery_publish_failed", `PR publication failed: ${detail}`);
   }
-  if (published?.headSha !== input.submission.commitSha)
+  if (published?.headSha !== commitSha)
     throw cellCodedError(
       "delivery_publish_failed",
-      `PR head ${published?.headSha ?? "unavailable"} does not match the frozen delivery ${input.submission.commitSha}.`,
+      `PR head ${published?.headSha ?? "unavailable"} does not match the frozen delivery ${commitSha}.`,
     );
+  return true;
 }

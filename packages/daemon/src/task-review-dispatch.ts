@@ -41,7 +41,7 @@ import { runtimeKindForId } from "./runtime-inventory.ts";
 import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
 import { DecisionReviewContentConflictError } from "./repo-cell-errors.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
-import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import type { RepoCellBinding, RepoCellContinuationWrite, RepoTaskAction } from "./repo-cell-types.ts";
 import type { NodeAutoDispatchCandidate } from "./node-auto-dispatch.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { taskExecutionPlacement } from "./task-execution-placement.ts";
@@ -590,6 +590,7 @@ export async function spawnCutReviewDispatch(
     readonly packagePath: string;
     readonly binding: RepoCellBinding;
     readonly revision: number;
+    readonly enqueuePublication?: RepoCellContinuationWrite;
     readonly reviewerId: string;
     readonly ownerNote?: string;
     readonly extras?: Readonly<Record<string, unknown>>;
@@ -607,9 +608,11 @@ export async function spawnCutReviewDispatch(
   | { readonly outcome: "failed"; readonly error: string }
 > {
   const cutReviewKey = reviewDispatchKey(input.taskId, input.execution, input.reviewerId),
-    submission = input.execution.submission!;
+    submission = input.execution.submission!,
+    submissionOpId = cell.projection.readTaskSubmissionOperation(input.taskId, input.execution.executionId);
   let key = input.dispatchKey ?? cutReviewKey,
-    ids = reviewDispatchIds(cell.input.repoId, key);
+    ids = reviewDispatchIds(cell.input.repoId, key),
+    alreadyDispatched = false;
   const existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
   if (existing !== null) {
     // One cut holds one live review seat. A row whose session already reached its terminal verdict
@@ -644,29 +647,6 @@ export async function spawnCutReviewDispatch(
       };
     key = attempt.key;
     ids = attempt.ids;
-  }
-  if (input.dispatchKey === undefined || key === cutReviewKey) {
-    const inFlight = activeCutReviewDispatches(cell, input.taskId, input.execution).at(-1)?.event ?? null;
-    if (inFlight !== null) {
-      const holdingReviewer = typeof inFlight.payload.agentId === "string" ? inFlight.payload.agentId : null;
-      if (holdingReviewer === input.reviewerId)
-        return {
-          outcome: "already_dispatched",
-          ids: {
-            dispatchId: inFlight.payload.dispatchId,
-            runtimeSessionId: inFlight.payload.runtimeSessionId,
-            dispatchOpId: inFlight.opId,
-          },
-        };
-      if (input.dispatchKey === undefined)
-        return {
-          outcome: "failed",
-          error:
-            `Task ${input.taskId}'s submitted cut already holds review dispatch ${inFlight.payload.dispatchId} by agent ` +
-            `${holdingReviewer ?? "with no recorded agent"} (runtime session ${inFlight.payload.runtimeSessionId}); ` +
-            `reviewer ${input.reviewerId} was not dispatched. Retry after that review session ends.`,
-        };
-    }
   }
   let resolved;
   try {
@@ -751,26 +731,92 @@ export async function spawnCutReviewDispatch(
       ...(extras.fast === true ? { fast: true } : {}),
       prompt: missionPrompt(ids.dispatchId),
     },
-    authorizationDecision = await evaluateRepoCellAction({
-      action: { kind: "runtime-spawn", ...payload },
-      repoId: cell.input.repoId,
-      binding: input.binding,
-      actionId: ids.dispatchOpId,
-      revision: input.revision,
-      now: cell.now(),
-      readTask: (taskId) => cell.projection.read(taskId).snapshot.task,
-    });
-  if (authorizationDecision.outcome !== "allowed")
-    return { outcome: "failed", error: `authorization_denied: ${authorizationDecision.nextActions.join(" ")}` };
+    enqueuePublication = async (
+      attemptPayload: typeof payload,
+      effect: (authorizationDecision: import("@harness-anything/kernel").AuthorizationDecision) => Promise<unknown>,
+    ) => {
+      const apply = async (authorizedBinding?: RepoCellBinding): Promise<WriteReceiptDraft> => {
+        const current = cell.projection.read(input.taskId).snapshot,
+          execution = current.executions.find((value) => value.executionId === input.execution.executionId);
+        if (
+          current.task?.status !== "in_review" ||
+          current.task.iteration !== input.execution.iteration ||
+          execution?.state !== "submitted" ||
+          !execution.submission ||
+          cell.projection.readTaskSubmissionOperation(input.taskId, execution.executionId) !== submissionOpId
+        )
+          throw cell.cellCodedError("execution_scope_mismatch", "The submitted review cut was superseded.");
+        const existing = cell.projection.readRuntimeDispatchByDispatchKey(attemptPayload.dispatchKey)?.event;
+        if (existing) {
+          ids = {
+            dispatchId: existing.payload.dispatchId,
+            runtimeSessionId: existing.payload.runtimeSessionId,
+            dispatchOpId: existing.opId,
+          };
+          return { outcome: "no_changes", opId: existing.opId } as WriteReceiptDraft;
+        }
+        if (input.dispatchKey === undefined || key === cutReviewKey) {
+          const holding = activeCutReviewDispatches(cell, input.taskId, execution).at(-1)?.event;
+          if (holding?.payload.agentId === input.reviewerId) {
+            ids = {
+              dispatchId: holding.payload.dispatchId,
+              runtimeSessionId: holding.payload.runtimeSessionId,
+              dispatchOpId: holding.opId,
+            };
+            return { outcome: "no_changes", opId: holding.opId } as WriteReceiptDraft;
+          }
+          if (holding && input.dispatchKey === undefined)
+            throw cell.cellCodedError(
+              "review_dispatch_failed",
+              `Task ${input.taskId}'s submitted cut already holds review dispatch ${holding.payload.dispatchId} by agent ` +
+                `${holding.payload.agentId ?? "with no recorded agent"} (runtime session ${holding.payload.runtimeSessionId}); ` +
+                `reviewer ${input.reviewerId} was not dispatched. ` +
+                "Retry after that review session ends.",
+            );
+        }
+        const authorizationDecision = authorizedBinding?.authorizationDecision
+          ? authorizedBinding.authorizationDecision
+          : await evaluateRepoCellAction({
+              action: { kind: "runtime-spawn", ...attemptPayload },
+              repoId: cell.input.repoId,
+              binding: input.binding,
+              actionId: reviewDispatchIds(cell.input.repoId, attemptPayload.dispatchKey).dispatchOpId,
+              revision: cell.store.readHead()?.revision ?? 0,
+              now: cell.now(),
+              readTask: (taskId) => cell.projection.read(taskId).snapshot.task,
+            });
+        if (authorizationDecision.outcome !== "allowed")
+          throw cell.cellCodedError(
+            "authorization_denied",
+            `authorization_denied: ${authorizationDecision.nextActions.join(" ")}`,
+          );
+        return (await effect(authorizationDecision)) as WriteReceiptDraft;
+      };
+      const receipt = await (input.enqueuePublication
+        ? input
+            .enqueuePublication({ kind: "runtime-spawn", ...attemptPayload }, input.binding, apply)
+            .catch((error) => {
+              if (runtimeErrorCode(error) !== "authorization_denied") throw error;
+              throw cell.cellCodedError(
+                "authorization_denied",
+                `authorization_denied: ${error instanceof Error ? error.message : String(error)}`,
+              );
+            })
+        : apply());
+      if (receipt.outcome === "no_changes") alreadyDispatched = true;
+      if (receipt.outcome !== "applied" && receipt.outcome !== "no_changes")
+        throw cell.cellCodedError(
+          receipt.code ?? "review_dispatch_failed",
+          `${receipt.code === "authorization_denied" ? "authorization_denied: " : ""}${receipt.rejectionExplanation ?? "Review dispatch failed."}`,
+        );
+    };
   try {
-    // Already inside the center queue. Only launch admission is awaited; provider completion is not.
-    const worktree = await cell.runtimeSpawner.prepareWorktree(payload, input.execution.submission?.commitSha ?? null);
-    await cell.runtimeSpawner.spawn(payload, { ...input.binding, authorizationDecision }, worktree);
+    const worktree = await cell.runtimeSpawner.prepareWorktree(payload, submission.commitSha);
+    await enqueuePublication(payload, async (authorizationDecision) =>
+      cell.runtimeSpawner.spawn(payload, { ...input.binding, authorizationDecision }, worktree),
+    );
   } catch (error) {
     if (continuation?.resume && runtimeErrorCode(error) === "runtime_resume_failed") {
-      // A provider can reject a previously valid session after admission (for example after its
-      // local transcript was compacted). The source remains consumed; retry once as a fresh
-      // reviewer session that owns its own dispatch identity, registration id, and report paths.
       const fallbackKey = `${key}:resume-fallback`,
         fallbackIds = reviewDispatchIds(cell.input.repoId, fallbackKey),
         fallbackPayload = {
@@ -782,13 +828,12 @@ export async function spawnCutReviewDispatch(
             `Write and register this round as review-${fallbackIds.dispatchId} at the paths named above.`,
         };
       delete (fallbackPayload as { dispatchId?: string }).dispatchId;
-      // The fallback spawns inside the same queued publication turn as the resume it replaces: the
-      // authorization decision was evaluated over the same actor, target, and repository revision,
-      // so carrying it forward adds no permission the cut dispatch did not already have.
       const fallbackError = await cell.runtimeSpawner
-        .prepareWorktree(fallbackPayload, input.execution.submission?.commitSha ?? null)
+        .prepareWorktree(fallbackPayload, submission.commitSha)
         .then((worktree) =>
-          cell.runtimeSpawner.spawn(fallbackPayload, { ...input.binding, authorizationDecision }, worktree),
+          enqueuePublication(fallbackPayload, async (authorizationDecision) =>
+            cell.runtimeSpawner.spawn(fallbackPayload, { ...input.binding, authorizationDecision }, worktree),
+          ),
         )
         .then(
           () => null,
@@ -801,13 +846,16 @@ export async function spawnCutReviewDispatch(
           error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
         };
       }
-      return { outcome: "dispatched", ids: fallbackIds };
+      return {
+        outcome: alreadyDispatched ? "already_dispatched" : "dispatched",
+        ids: alreadyDispatched ? ids : fallbackIds,
+      };
     } else {
       consumeKnownError(error);
       return { outcome: "failed", error: error instanceof Error ? error.message : String(error) };
     }
   }
-  return { outcome: "dispatched", ids };
+  return { outcome: alreadyDispatched ? "already_dispatched" : "dispatched", ids };
 }
 
 /** The idempotent attempt chain of one review cut: advance only after the prior session ended. */
@@ -851,6 +899,8 @@ export async function dispatchInReviewCutReview(
   action: RepoTaskAction,
   binding: RepoCellBinding,
   receipt: WriteReceiptDraft,
+  enqueuePublication?: RepoCellContinuationWrite,
+  submissionOpId?: string,
 ): Promise<{
   readonly seat?: ReviewSeat;
   readonly step: WriteReceiptDraft;
@@ -862,6 +912,8 @@ export async function dispatchInReviewCutReview(
     (value) => value.iteration === current.snapshot.task?.iteration && value.state === "submitted",
   );
   if (!execution?.submission || !current.packagePath) return null;
+  if (submissionOpId && cell.projection.readTaskSubmissionOperation(taskId, execution.executionId) !== submissionOpId)
+    return null;
   const reverify = cutReverifyRoute(current.snapshot, execution);
   // dec_BEFCF7D0484E901F187C2C8EC6 CH2: a resubmission whose previous blocking findings are all
   // owner-verify and adopted waits on the owner's verification; only an explicit reviewer selection
@@ -944,6 +996,7 @@ export async function dispatchInReviewCutReview(
       packagePath: current.packagePath,
       binding,
       revision: cell.store.readHead()?.revision ?? 0,
+      ...(enqueuePublication ? { enqueuePublication } : {}),
       reviewerId,
       ...(typeof action.reviewer === "string" ? { dispatchKey: reviewDispatchKey(taskId, execution, reviewerId) } : {}),
       ...(typeof action.reason === "string" ? { ownerNote: action.reason } : {}),

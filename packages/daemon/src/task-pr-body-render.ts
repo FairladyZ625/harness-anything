@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   describeDependencyChange,
+  hasDependencyChange,
   deriveProtectedSurfaceRules,
   governanceDecisionAuthority,
   readSubmissionFacts,
@@ -9,7 +10,7 @@ import {
   type SubmissionV1,
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
-import { runProcessText } from "./process-text.ts";
+import { runProcessExitAsync, runProcessTextAsync } from "./process-port.ts";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
 
 /**
@@ -24,12 +25,12 @@ import { readTaskTransitionDocument } from "./transition-document-access.ts";
  * publication port, so the rendered governance declaration and delivery facts are not a step a
  * worker can forget.
  */
-export function taskPrBodyRenderer(input: {
+export async function taskPrBodyRenderer(input: {
   readonly rootDir: string;
   readonly projection: TaskProjectionQueries;
   readonly taskId: string;
   readonly submission: SubmissionV1;
-}): ((body: string | undefined) => string) | undefined {
+}): Promise<((body: string | undefined) => string) | undefined> {
   const templatePath = path.join(input.rootDir, ".github", "pull_request_template.md"),
     manifestPath = path.join(input.rootDir, "tools", "gate-manifest.json");
   if (!existsSync(templatePath) || !existsSync(manifestPath)) return undefined;
@@ -42,16 +43,7 @@ export function taskPrBodyRenderer(input: {
       slot: "task.closeout",
     }),
     snapshot = input.projection.read(input.taskId).snapshot,
-    facts = readSubmissionFacts(input.submission),
-    dependencyDescription = describeDependencyChange({
-      paths: facts.changedFiles,
-      base: facts.productionDelta?.baseSha,
-      head: input.submission.commitSha,
-      read: {
-        revisionExists: (revision) => gitRevisionExists(input.rootDir, revision),
-        readManifest: (revision, manifestReadPath) => readManifestAt(input.rootDir, revision, manifestReadPath),
-      },
-    }),
+    dependencyDescription = await dependencyDescriptionFor(input.rootDir, input.submission),
     protectedSurfaceRules = deriveProtectedSurfaceRules(manifest),
     profileId = snapshot.task?.metadata?.profileId ?? null,
     decisionAuthority = governanceDecisionAuthority(snapshot.decisionRelations);
@@ -70,20 +62,46 @@ export function taskPrBodyRenderer(input: {
     });
 }
 
-function gitRevisionExists(rootDir: string, revision: string): boolean {
-  try {
-    runProcessText("git", ["rev-parse", "--verify", "--quiet", `${revision}^{commit}`], rootDir);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function readManifestAt(rootDir: string, revision: string, manifestPath: string): unknown {
-  // ls-tree is a value, not an exception: an absent path at that revision prints nothing and
-  // exits zero. A missing revision cannot reach here because describeDependencyChange checks it.
-  const listed = runProcessText("git", ["ls-tree", "--name-only", revision, "--", manifestPath], rootDir);
-  return listed.trim().length === 0
-    ? null
-    : JSON.parse(runProcessText("git", ["show", `${revision}:${manifestPath}`], rootDir));
+async function dependencyDescriptionFor(rootDir: string, submission: SubmissionV1): Promise<string> {
+  const facts = readSubmissionFacts(submission),
+    paths = facts.changedFiles,
+    base = facts.productionDelta?.baseSha,
+    head = submission.commitSha,
+    description = { paths, base, head };
+  if (!hasDependencyChange(paths) || !base || !head) return describeDependencyChange(description);
+  const revisions = await Promise.all(
+    [base, head].map(async (revision) => {
+      const result = await runProcessExitAsync(
+        "git",
+        ["rev-parse", "--verify", "--quiet", `${revision}^{commit}`],
+        rootDir,
+      );
+      return result.exitCode === 0;
+    }),
+  );
+  if (revisions.some((exists) => !exists)) return describeDependencyChange(description);
+  const manifests = new Map<string, unknown>();
+  for (const manifestPath of new Set(
+    paths.filter((file) => file !== "package-lock.json" && hasDependencyChange([file])),
+  ))
+    for (const revision of [base, head]) {
+      const listed = await runProcessTextAsync(
+        "git",
+        ["ls-tree", "--name-only", revision, "--", manifestPath],
+        rootDir,
+      );
+      manifests.set(
+        `${revision}:${manifestPath}`,
+        listed.trim()
+          ? JSON.parse(await runProcessTextAsync("git", ["show", `${revision}:${manifestPath}`], rootDir))
+          : null,
+      );
+    }
+  return describeDependencyChange({
+    ...description,
+    read: {
+      revisionExists: () => true,
+      readManifest: (revision, manifestPath) => manifests.get(`${revision}:${manifestPath}`),
+    },
+  });
 }
