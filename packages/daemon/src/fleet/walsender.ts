@@ -1,6 +1,12 @@
 import type { ReplicaSyncPhase } from "./replica-status.ts";
 import { createReadStream } from "node:fs";
-import { replicationContentClaims, type ReplicationCommit, type ReplicationPosition } from "@harness-anything/storage";
+import {
+  replicationCommitBytes,
+  replicationCommitChunks,
+  replicationContentClaims,
+  type ReplicationCommit,
+  type ReplicationPosition,
+} from "@harness-anything/storage";
 import { type PersistedCanonicalEventV1 } from "@harness-anything/kernel";
 import type { BaseBackupArchive } from "@harness-anything/storage";
 import { REPLICATION_CHUNK_BYTES, type ReplicationPeer } from "./protocol.ts";
@@ -124,9 +130,15 @@ export async function runWalSender(input: {
     commitProgress();
     for (const commit of page.commits) {
       assertOwner();
-      const bytes = Buffer.from(JSON.stringify(commit));
-      await peer.send({ type: "replica.commit", size: bytes.length });
-      await sendBytes(peer, [bytes], signal, commitProgress);
+      await peer.send({ type: "replica.commit", size: replicationCommitBytes(commit) });
+      await sendBytes(
+        peer,
+        (function* () {
+          for (const chunk of replicationCommitChunks(commit)) yield Buffer.from(chunk);
+        })(),
+        signal,
+        commitProgress,
+      );
       const objects = new Map<string, number>();
       for (const row of commit.events)
         for (const claim of replicationContentClaims(JSON.parse(row.eventJson) as PersistedCanonicalEventV1))

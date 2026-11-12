@@ -67,6 +67,7 @@
     "@harness-anything/storage": "0.1.0",
     "@harness-anything/preset": "0.1.0",
     "@openrouter/sdk": "1.4.25",
+    "@streamparser/json": "0.0.26",
     "cron-parser": "5.10.0",
     "effect": "3.21.4",
     "node-pty": "1.2.0-beta.15",

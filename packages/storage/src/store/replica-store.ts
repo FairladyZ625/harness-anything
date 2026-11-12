@@ -13,7 +13,10 @@ export function openReplicaStore(options: {
   store.pruneReplicationLog(store.replicationPosition().sequence);
   return {
     position: store.replicationPosition,
-    apply: (commit: ReplicationCommit, blobs: readonly CanonicalContentBlob[]) => {
+    apply: (
+      commit: ReplicationCommit<Iterable<import("./sqlite-event-store-types.ts").SqliteEventRow>>,
+      blobs: readonly CanonicalContentBlob[],
+    ) => {
       const applied = store.applyReplicationCommit(commit, blobs);
       // A replica never serves the log; once a commit is durable only its own position row anchors the
       // stream, so older rows are recycled here (a standby recycling WAL after its restartpoint).

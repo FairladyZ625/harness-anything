@@ -179,6 +179,7 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
   signal.addEventListener("abort", abortConnection, { once: true });
   const failReplicationSession = (error: unknown): void => {
     const failure = error instanceof Error ? error : new Error(String(error));
+    if (!("code" in failure)) (failure as Error & { code: string }).code = "invalid_frame";
     if (!closed) {
       // The existing replica health/lifecycle path persists this message after the socket is gone.
       failure.message += `; peer=${JSON.stringify({
@@ -302,7 +303,11 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
         // Superseded generations go now unless a read still pins one; its release collects it.
         await generations.collect();
       },
-      apply: (commit: import("@harness-anything/storage").ReplicationCommit) => {
+      apply: (
+        commit: import("@harness-anything/storage").ReplicationCommit<
+          Iterable<import("@harness-anything/storage").SqliteEventRow>
+        >,
+      ) => {
         if (!opened) throw new Error("replica generation is unavailable");
         opened.apply(commit);
       },
@@ -390,7 +395,7 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
       target,
       directory: path.join(viewRoot, "staging"),
       quotaBytes: options.diskQuotaBytes,
-      // The commit envelope only (events and outcome); content objects stream to staging files.
+      // Parser scratch only; the commit envelope and objects stream to staging files.
       maxBufferedBytes: 16 * 1024 * 1024,
       signal,
     });

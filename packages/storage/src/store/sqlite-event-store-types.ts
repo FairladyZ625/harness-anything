@@ -96,7 +96,7 @@ export interface SqliteEventStore {
     readonly head: ReplicationPosition;
   };
   readonly applyReplicationCommit: (
-    commit: ReplicationCommit,
+    commit: ReplicationCommit<Iterable<import("./sqlite-event-store-types.ts").SqliteEventRow>>,
     blobs: readonly CanonicalContentBlob[],
   ) => ReplicationPosition;
   readonly databasePath: string;

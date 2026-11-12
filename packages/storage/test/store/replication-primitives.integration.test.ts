@@ -182,3 +182,106 @@ test("a rejected eventless commit advances replication and reaches a restored re
     center.close();
   }
 });
+
+test("replication pages obey a byte budget while one oversized commit remains indivisible", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-replication-byte-page-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const repoId = "page-budget",
+    center = openSqliteEventStore({ repoId, databasePath: path.join(root, "ledger.sqlite") }),
+    fence = { repoId, holder: "center", epoch: 1 };
+  try {
+    center.claimWriter(fence);
+    const base = center.replicationPosition();
+    for (const [i, megabytes] of [9, 9, 20, 1].entries())
+      center.appendCommand({
+        fence,
+        events: [],
+        rejectionCode: "test",
+        intent: {
+          opId: `page-${i}`,
+          intentDigest: `sha256:${"a".repeat(64)}`,
+          summary: "x".repeat(megabytes * 1024 * 1024),
+        },
+      });
+    let cursor = base;
+    for (const expected of [1, 1, 1, 1]) {
+      const page = center.replicationCommits(cursor, 100);
+      assert.equal(page.commits.length, expected);
+      assert.equal(page.commits[0]!.position.sequence, cursor.sequence + 1);
+      cursor = page.commits.at(-1)!.position;
+      assert.equal(page.done, cursor.sequence === center.replicationPosition().sequence);
+    }
+    assert.equal(center.replicationCommits(cursor, 100).done, true);
+  } finally {
+    center.close();
+  }
+});
+
+test("streamed replica rows roll back the complete transaction on a late interval failure", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-replication-rollback-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const repoId = "rollback",
+    center = openSqliteEventStore({ repoId, databasePath: path.join(root, "center.sqlite") }),
+    fence = { repoId, holder: "center", epoch: 1 };
+  try {
+    center.claimWriter(fence);
+    const base = center.replicationPosition(),
+      source = new DatabaseSync(center.databasePath, { readOnly: true });
+    try {
+      await backup(source, path.join(root, "replica.sqlite"));
+    } finally {
+      source.close();
+    }
+    const replica = openReplicaStore({ repoId, databasePath: path.join(root, "replica.sqlite") });
+    try {
+      const { eventAt } = await import("./task-event-store.fixtures.ts");
+      center.appendCommand({
+        fence,
+        events: [eventAt(1), eventAt(2)],
+        intent: { opId: "streamed", intentDigest: `sha256:${"b".repeat(64)}`, summary: "two rows" },
+      });
+      const commit = center.replicationCommits(base, 10).commits[0]!;
+      const invalid = {
+        ...commit,
+        events: {
+          *[Symbol.iterator]() {
+            yield commit.events[0]!;
+            yield { ...commit.events[1]!, revision: 4 };
+          },
+        },
+      };
+      assert.throws(() => replica.apply(invalid, []), /revision gap/u);
+      assert.deepEqual(replica.position(), base);
+      let suppliedKeysRead = 0;
+      const blobs = ["a", "b"].map((letter) => ({
+        get sha256() {
+          suppliedKeysRead++;
+          return letter.repeat(64);
+        },
+        size: 1,
+        body: "x",
+      }));
+      replica.apply(
+        {
+          ...commit,
+          events: {
+            *[Symbol.iterator]() {
+              yield* commit.events;
+            },
+          },
+        },
+        blobs,
+      );
+      assert.equal(
+        suppliedKeysRead,
+        blobs.length,
+        "supplied blobs are indexed once per transaction, not once per event",
+      );
+      assert.deepEqual(replica.position(), center.replicationPosition());
+    } finally {
+      replica.close();
+    }
+  } finally {
+    center.close();
+  }
+});

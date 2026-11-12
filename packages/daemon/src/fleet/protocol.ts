@@ -1,6 +1,14 @@
 import { TextDecoder } from "node:util";
-import type { ReplicationCommit, ReplicationPosition } from "@harness-anything/storage";
+import type { ReplicationCommit, ReplicationPosition, SqliteEventRow } from "@harness-anything/storage";
 import type { BaseBackupMetadata } from "@harness-anything/storage";
+
+export class ReplicationError extends Error {
+  readonly code: string;
+  constructor(message: string, code = "replica_protocol_error") {
+    super(message);
+    this.code = code;
+  }
+}
 
 export const REPLICATION_FRAME_BYTES = 96 * 1024;
 export const REPLICATION_CHUNK_BYTES = 64 * 1024;
@@ -192,6 +200,14 @@ export class ReplicationDecoder {
 /** Decode the transaction envelope only; canonical event content was accepted by the center. */
 export function parseReplicationCommit(bytes: Uint8Array): ReplicationCommit {
   const value: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  validateReplicationCommit(value);
+  return value as ReplicationCommit;
+}
+
+/** Shared envelope/interval boundary for buffered legacy callers and staged event iterators. */
+export function validateReplicationCommit(
+  value: unknown,
+): asserts value is ReplicationCommit<Iterable<SqliteEventRow>> {
   const string = (v: unknown) => typeof v === "string";
   const nullableUint = (v: unknown) => v === null || uint(v);
   const nullableString = (v: unknown) => v === null || string(v);
@@ -199,18 +215,7 @@ export function parseReplicationCommit(bytes: Uint8Array): ReplicationCommit {
   if (
     !shape(value, {
       position: isReplicationPosition,
-      events: (v) =>
-        Array.isArray(v) &&
-        v.every((row) =>
-          shape(row, {
-            revision: uint,
-            opId: text,
-            eventJson: string,
-            occurredAt: text,
-            recordedAt: text,
-            digest,
-          }),
-        ),
+      events: (v) => v !== null && typeof v === "object" && Symbol.iterator in v,
       outcome: (v) =>
         v === null ||
         shape(v, {
@@ -227,19 +232,27 @@ export function parseReplicationCommit(bytes: Uint8Array): ReplicationCommit {
       writer: (v) => v === null || shape(v, { repoId: text, holder: text, epoch: uint }),
     })
   )
-    throw new Error("invalid replication commit envelope");
-  const commit = value as ReplicationCommit;
-  const first = commit.events[0],
-    last = commit.events.at(-1);
+    throw new ReplicationError("invalid replication commit envelope", "replica_protocol_error");
+  const commit = value as ReplicationCommit<Iterable<SqliteEventRow>>;
+  let count = 0,
+    first: SqliteEventRow | undefined,
+    last: SqliteEventRow | undefined;
+  for (const row of commit.events) {
+    if (!shape(row, { revision: uint, opId: text, eventJson: string, occurredAt: text, recordedAt: text, digest }))
+      throw new ReplicationError("invalid replication commit envelope", "replica_protocol_error");
+    first ??= row;
+    if (row.revision !== first.revision + count || commit.outcome?.memberOpIds[count] !== row.opId)
+      throw new ReplicationError("replication commit interval differs", "replica_protocol_error");
+    count++;
+    last = row;
+  }
   if (
-    commit.events.some((row, index) => row.revision !== first!.revision + index) ||
     (last !== undefined && last.revision !== commit.position.revision) ||
     (commit.outcome !== null &&
       (commit.outcome.firstRevision !== (first?.revision ?? null) ||
         commit.outcome.lastRevision !== (last?.revision ?? null) ||
-        JSON.stringify(commit.outcome.memberOpIds) !== JSON.stringify(commit.events.map((row) => row.opId)))) ||
-    (commit.outcome === null && commit.events.length > 0)
+        commit.outcome.memberOpIds.length !== count)) ||
+    (commit.outcome === null && count > 0)
   )
-    throw new Error("replication commit interval differs");
-  return commit;
+    throw new ReplicationError("replication commit interval differs", "replica_protocol_error");
 }
