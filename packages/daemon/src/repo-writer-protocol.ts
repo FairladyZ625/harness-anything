@@ -1,3 +1,4 @@
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import type { PostgresTaskEventStoreRequest, PostgresTaskEventStoreResult } from "@harness-anything/storage";
 import type { DaemonRepoMode, EventPublicationKillpoint, ReceiptDiagnostic } from "@harness-anything/kernel";
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
@@ -81,7 +82,7 @@ export interface RepoWriterReceiptV1 {
   readonly schema: "harness-repo-writer-receipt/v1";
   readonly protocolVersion: typeof REPO_WRITER_PROTOCOL_VERSION;
   readonly requestId: string;
-  readonly outcome: "ok" | "error";
+  readonly outcome: OperationalStatus.DaemonOperationOutcome;
   readonly value?: unknown;
   readonly error?: SerializedWriterErrorV1;
   /** Process-monotonic milliseconds when the worker began this request, for queue-vs-execution split. */
@@ -210,7 +211,7 @@ export interface RepoWriterCapabilityCallV1 {
 export interface RepoWriterCapabilityResultV1 {
   readonly schema: "harness-repo-writer-capability-result/v1";
   readonly callId: string;
-  readonly outcome: "ok" | "error";
+  readonly outcome: OperationalStatus.DaemonOperationOutcome;
   readonly value?: unknown;
   readonly error?: SerializedWriterErrorV1;
 }

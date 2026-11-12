@@ -1,3 +1,4 @@
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { edgeReplicaDoctor } from "./edge-replica-doctor.ts";
 import { resolveLedgerGitLayout } from "@harness-anything/storage";
 import {
@@ -18,7 +19,7 @@ import { workspaceLinkDoctorCheck } from "./workspace-link-integrity.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
-export type DoctorCheckStatus = "ok" | "warn" | "fail" | "indeterminate";
+export type DoctorCheckStatus = OperationalStatus.DoctorCheckStatus;
 export interface DoctorCheck {
   readonly id: string;
   readonly status: DoctorCheckStatus;

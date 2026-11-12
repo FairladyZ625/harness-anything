@@ -1,6 +1,10 @@
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import type { TaskDispatchDecisionAction } from "./protocol/task-dispatch-contract.ts";
 
-type SettledIncidentAction = Extract<TaskDispatchDecisionAction, { readonly status: "applied" | "failed" }>;
+type SettledIncidentAction = Extract<
+  TaskDispatchDecisionAction,
+  { readonly status: OperationalStatus.DecisionActionStatus }
+>;
 import { appendRuntimeWorkerRecord, readDispatchStreamSummary } from "./dispatch-stream.ts";
 
 /** The dispatch-stream record kind that carries one incident disposition. It lives on the source
@@ -84,7 +88,7 @@ export function incidentActionFromRecord(record: Readonly<Record<string, unknown
   return {
     pointId: record.pointId,
     questionVersion: record.questionVersion,
-    status: status as "applied" | "failed",
+    status: status as OperationalStatus.DecisionActionStatus,
     selected: record.selected,
     action: action as "resume" | "rerun" | "needs_attention" | "no_action",
     attention,

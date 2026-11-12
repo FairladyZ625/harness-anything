@@ -1,3 +1,5 @@
+import { entityContentReadOutcomes } from "@harness-anything/kernel/internal/domain/client-view-status.ts";
+import type * as ClientStatus from "@harness-anything/kernel/internal/domain/client-view-status.ts";
 import path from "node:path";
 import {
   consumeKnownError,
@@ -44,7 +46,7 @@ export class EntityContentReadContractError extends Error {
   }
 }
 
-export type EntityContentOutcome = "file" | "directory" | "missing" | "too-large" | "binary";
+export type EntityContentOutcome = ClientStatus.EntityContentOutcome;
 
 export interface EntityContentEntryV1 {
   /** Entity-relative path; the entity content root itself is the empty string. */
@@ -200,7 +202,7 @@ function contentResult(
   };
 }
 
-const outcomes: readonly EntityContentOutcome[] = ["file", "directory", "missing", "too-large", "binary"];
+const outcomes: readonly EntityContentOutcome[] = entityContentReadOutcomes;
 
 export function validateEntityContentRead(value: unknown): readonly string[] {
   if (!isJsonObject(value) || value.schema !== ENTITY_CONTENT_READ_SCHEMA || value.ok !== true)

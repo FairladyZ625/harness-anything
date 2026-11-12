@@ -1,3 +1,4 @@
+import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import { isTerminalStatus, relationIsCurrent } from "@harness-anything/kernel";
 import { taskPresentationReads } from "./task-presentation-read.ts";
 import { workIndexFromProjection } from "./work-read.ts";
@@ -77,7 +78,7 @@ const DONE_FOLD_DAYS = 7,
 export interface WorkBriefsReadResult {
   readonly schema: "daemon.work-briefs/v1";
   readonly ok: true;
-  readonly status: "ready" | "pending";
+  readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
   readonly briefs: readonly WorkBrief[];
   readonly watermark: number;
   readonly sourceRevision: number;

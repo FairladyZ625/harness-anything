@@ -1,7 +1,12 @@
+import {
+  docCandidateStates,
+  projectedDocumentSyncStates,
+  observedDocumentSyncStates,
+} from "./authored-document-status.ts";
 import type { StatusVocabulary, StatusWordRegistration } from "./status-vocabulary.ts";
 
 /**
- * Authored-document status words that live outside the kernel domain today
+ * Authored-document candidate and replica status words owned by the kernel domain
  * (dec_6B912A63D279A922FA1288536D CH2). The status-vocabulary gate scans daemon,
  * application, and CLI sources for authored-document vocabularies and refuses any
  * that is not registered here first. Candidate disposition and replica sync state
@@ -12,27 +17,27 @@ export const authoredDocumentStatusVocabularies: readonly StatusVocabulary[] = [
     id: "docCandidate.state",
     entity: "AuthoredDocument",
     field: "candidate state",
-    module: "packages/daemon/src/doc-sync-candidate-scanner.ts",
-    anchor: "DocCandidateState",
-    words: ["clean", "eligible", "inapplicable", "blocked", "deletion", "conflict"],
+    module: "packages/kernel/src/domain/authored-document-status.ts",
+    anchor: "docCandidateStates",
+    words: docCandidateStates,
     note: "One scan's verdict on a local candidate row; never a persisted document state.",
   },
   {
     id: "documentReplica.syncState",
     entity: "AuthoredDocument",
     field: "syncState",
-    module: "packages/daemon/src/doc-sync-reads.ts",
-    anchor: "ProjectedDocumentSyncState",
-    words: ["synced", "unsynced", "unobservable", "derived"],
+    module: "packages/kernel/src/domain/authored-document-status.ts",
+    anchor: "projectedDocumentSyncStates",
+    words: projectedDocumentSyncStates,
     note: "Replica visibility of a read cut against the accepted canonical cut; not content readiness.",
   },
   {
     id: "documentReplica.syncState-observed",
     entity: "AuthoredDocument",
     field: "syncState",
-    module: "packages/daemon/src/doc-sync-reads.ts",
-    anchor: "#syncState",
-    words: ["synced", "unsynced", "unobservable"],
+    module: "packages/kernel/src/domain/authored-document-status.ts",
+    anchor: "observedDocumentSyncStates",
+    words: observedDocumentSyncStates,
     subsetOf: "documentReplica.syncState",
   },
   {

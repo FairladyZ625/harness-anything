@@ -1,3 +1,4 @@
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { existsSync, lstatSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { DEFAULT_HARNESS_LOCAL_ROOT, resolveHarnessLayout } from "@harness-anything/kernel";
@@ -105,7 +106,7 @@ function leafFiles(target: string, relative: string, found: string[] = []): stri
  *  preference is still wanted. */
 export function doctorLocalRootResidue(rootDir: string): {
   readonly id: "local-root-residue";
-  readonly status: "ok" | "warn" | "fail";
+  readonly status: Exclude<OperationalStatus.DoctorCheckStatus, "indeterminate">;
   readonly summary: string;
   readonly count: number;
   readonly next: string;

@@ -1,3 +1,4 @@
+import type * as RuntimeStatus from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import { runtimeDispatchTaskMatches } from "./runtime-session-action-runtime.ts";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -59,7 +60,7 @@ export interface RuntimeDispatchArchive {
   readonly providerSessionId: string | null;
   readonly startedAt: string;
   readonly endedAt: string;
-  readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped";
+  readonly outcome: NonNullable<RuntimeStatus.RuntimeSession["outcome"]>;
   readonly exitCode: number | null;
   readonly resultRef: string;
   readonly resultText: string;

@@ -1,3 +1,4 @@
+import type * as AccessStatus from "@harness-anything/kernel/internal/domain/access-status.ts";
 // `ha edge join <link>`: authenticate the invited person over the center's pinned TLS channel,
 // then register and sync one local mirror for each repository carried by the invitation.
 import { X509Certificate } from "node:crypto";
@@ -19,7 +20,7 @@ const DEFAULT_QUOTA_FRACTION = 0.4;
 /** One repository's stage inside a running join; observation only, it never steers the join. */
 export interface EdgeJoinRepositoryProgress {
   readonly repoId: string;
-  readonly phase: "workspace" | "register" | "sync" | "synced" | "failed";
+  readonly phase: AccessStatus.EdgeJoinRepositoryPhase;
 }
 
 /** The phases of the one join a daemon is currently running, for a read-only viewer poll. */

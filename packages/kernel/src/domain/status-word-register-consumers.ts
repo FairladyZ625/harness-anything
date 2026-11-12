@@ -33,6 +33,12 @@ const catalogs: readonly Catalog[] = [
         repoCellStateWords: "A repository cell is warming, attached, unavailable, or has not been loaded.",
         repoLockStateWords: "Repository process lock is held, does not apply to this target, or cannot be observed.",
         daemonControlPhaseWords: "Daemon control is queued, draining, starting a successor, settled, or failed.",
+        daemonOperationOutcomeWords: "A daemon operation completes successfully or with an error.",
+        repoBootstrapOutcomeWords:
+          "Repository bootstrap applies changes, needs none, completes partially, or cannot confirm settlement.",
+        repoCellAttachmentStateWords:
+          "Repository cell attachment warms, serves requests, is unavailable, or has closed.",
+        repoRecoveryStatusWords: "Repository recovery has no uncertainty or cannot determine settlement.",
       },
       Migration: {
         migrationPhaseWords:
@@ -41,6 +47,11 @@ const catalogs: readonly Catalog[] = [
           "A historical generation is converted, retained for read only use, or unsupported.",
         writerEpochMigrationStateWords:
           "Writer epoch conversion is unnecessary, previously completed, newly completed, or incomplete.",
+        authoredDispositionWords: "Authored import is migrated, intentionally excluded, or still required.",
+        migrationDispositionWords: "Historical input is archived or retired after reconciliation.",
+        taskRestatementDispositionWords:
+          "Imported task contract retires a preset, renames it, or aligns its task class.",
+        legacyWorktreeStatusWords: "Legacy worktree rename is planned or has completed.",
       },
       Projection: {
         projectionFreshnesses: "A projection is current, usable from a stale cache, or unavailable without any cache.",
@@ -55,6 +66,10 @@ const catalogs: readonly Catalog[] = [
         decisionDriftStateWords:
           "Decision evidence is current, has drifted from its accepted cut, or cannot be observed.",
         decisionConflictStateWords: "Decision consistency is clear, conflicting, or cannot be observed.",
+        decisionActionStatusWords: "A claimed decision action is applied or fails.",
+        decisionAnnotationStatusWords: "Decision annotation settlement awaits execution, succeeds, or fails.",
+        incidentHeadStatusWords:
+          "Incident evidence compares the current head to a prior run or reports unavailable evidence.",
       },
       Materialization: {
         materializationReceiptStatusWords:
@@ -63,6 +78,16 @@ const catalogs: readonly Catalog[] = [
       Package: {
         scaffoldDocumentDispositionWords:
           "Scaffold output was created, preserved unchanged, or differs from its generated content.",
+        bootstrapDocumentDispositionWords: "Bootstrap creates, preserves, or updates a generated document.",
+      },
+      Review: { reviewPromptPhaseWords: "Reviewer prompt is for the first review or a returned cut." },
+      Artifact: {
+        skillPublicationStatusWords: "An evaluated skill is a draft or published.",
+        deliveryFileStatusWords: "A delivery file is added, modified, deleted, renamed, copied, or changes type.",
+      },
+      Task: {
+        workTopologyStateWords:
+          "Work topology shows completion, cancellation, execution, ruling wait, blocking, readiness, unknown evidence, or an external boundary.",
       },
     },
   },
@@ -102,6 +127,8 @@ const catalogs: readonly Catalog[] = [
       Artifact: {
         entityWriteStateWords:
           "Entity write settlement is applied, pending, conflicting with a newer revision, or rejected.",
+        entityContentReadOutcomes:
+          "Content read resolves to text, a directory, absence, oversized content, or binary bytes.",
         entityLocatorReadOutcomeWords:
           "Locator read resolves to text, a directory, absence, an unsupported locator, oversized content, or binary bytes.",
       },
@@ -133,6 +160,14 @@ const catalogs: readonly Catalog[] = [
           "Repository join prepares a workspace, registers, syncs, completes sync, or fails.",
         legacyRoleGrantOutcomeWords:
           "Legacy role grant was written, already present, or skipped because no grant was needed.",
+      },
+      Host: {
+        replicaSyncPhaseWords:
+          "Replica transfer prepares, authorizes, queues or transfers its backup and commits, then waits for durable acknowledgement or new work.",
+        fleetConflictStateWords: "A fleet mirror conflict is staged or resolved.",
+        fleetMirrorApplyOutcomeWords:
+          "Mirror application succeeds, is blocked by local changes, or has no attached view.",
+        fleetLinkStateWords: "A fleet link is current, lagging behind the center, or has no synchronized cut.",
       },
     },
   },

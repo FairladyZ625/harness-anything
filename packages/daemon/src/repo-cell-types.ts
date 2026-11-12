@@ -1,3 +1,4 @@
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import type { SquadControlResult } from "./squad-control-result.ts";
 import { makeTaskLifecycleService } from "@harness-anything/application/internal/task-lifecycle-service";
 import {
@@ -196,7 +197,7 @@ export interface RepoCellStatus {
   readonly repoId: string;
   readonly rootDir: string;
   readonly mode: DaemonRepoMode | null;
-  readonly state: "warming" | "attached" | "unavailable" | "closed";
+  readonly state: OperationalStatus.RepoCellAttachmentState;
   /** A verified source generation can retain completed reads while writes are latched. */
   readonly projectionReadable?: boolean;
   readonly generation: number | null;

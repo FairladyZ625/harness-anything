@@ -1,3 +1,4 @@
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { existsSync, lstatSync, readFileSync, readlinkSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 
@@ -79,7 +80,7 @@ export function workspaceLinkFailure(finding: WorkspaceLinkFinding): Error & { r
 
 export function workspaceLinkDoctorCheck(rootDir: string): {
   readonly id: "workspace-links";
-  readonly status: "ok" | "fail";
+  readonly status: Extract<OperationalStatus.DoctorCheckStatus, "ok" | "fail">;
   readonly summary: string;
   readonly count: number;
   readonly next: string;

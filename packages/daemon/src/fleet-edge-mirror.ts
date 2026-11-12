@@ -1,3 +1,4 @@
+import type * as AccessStatus from "@harness-anything/kernel/internal/domain/access-status.ts";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import {
@@ -79,10 +80,10 @@ export interface FleetConflictRecord {
   readonly conflictId: string;
   readonly paths: readonly FleetConflictPathRow[];
   readonly repoId: string;
-  readonly state: "staged" | "resolved";
+  readonly state: AccessStatus.FleetConflictState;
 }
 export interface FleetMirrorApplyResult {
-  readonly outcome: "applied" | "pull_blocked" | "no_view";
+  readonly outcome: AccessStatus.FleetMirrorApplyOutcome;
   readonly fromRevision: number | null;
   readonly toRevision: number | null;
   readonly dirtyPaths: readonly string[];

@@ -1,3 +1,4 @@
+import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import { mergedCloseoutCandidates } from "./task-merged-closeout.ts";
 import { taskPresentationReads } from "./task-presentation-read.ts";
 import {
@@ -47,7 +48,11 @@ export interface TaskQueryCell {
     value: object,
     revision: number,
     worktreeVisible: boolean | null,
-    cut?: { readonly status: "ready" | "pending"; readonly watermark: number; readonly sourceRevision: number },
+    cut?: {
+      readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
+      readonly watermark: number;
+      readonly sourceRevision: number;
+    },
   ) => WriteReceipt;
   readonly cellCodedError: (code: string, message: string, diagnostic?: ReceiptDiagnostic) => Error;
   readonly requiredCellText: (value: unknown, name: string) => string;

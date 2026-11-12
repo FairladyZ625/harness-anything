@@ -1,3 +1,4 @@
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
@@ -35,7 +36,7 @@ export interface DecisionActionRecord {
   readonly action: "resume" | "rerun" | "needs_attention" | "no_action";
   /** Why a needs_attention action is owner business: a real question, or a guard refusal. */
   readonly attention: "question" | "guard" | null;
-  readonly status: "applied" | "failed";
+  readonly status: OperationalStatus.DecisionActionStatus;
   readonly reason: string | null;
   readonly successorDispatchId: string | null;
   readonly budget: {
@@ -58,7 +59,7 @@ export interface DecisionAnnotationEntry {
   readonly show: readonly DecisionReadSurface[];
   readonly dispatchIds: readonly string[];
   readonly subjectRef: string;
-  readonly status: "pending" | "succeeded" | "failed";
+  readonly status: OperationalStatus.DecisionAnnotationStatus;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly egress: DecisionEgressReceipt;

@@ -1,3 +1,4 @@
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { lstatSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError, sha256Text } from "@harness-anything/kernel";
@@ -261,7 +262,7 @@ export function destinationConflict(
   sourceBody: string,
 ): {
   readonly surface: string;
-  readonly disposition: "excluded" | "required";
+  readonly disposition: Exclude<OperationalStatus.AuthoredDisposition, "migrated">;
   readonly reason: string;
   readonly targetConflict?: true;
 } | null {

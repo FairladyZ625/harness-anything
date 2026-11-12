@@ -1,3 +1,4 @@
+import type * as AccessStatus from "@harness-anything/kernel/internal/domain/access-status.ts";
 import { readPolicyMetadata } from "./policy-metadata-read.ts";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import path from "node:path";
@@ -77,7 +78,7 @@ const resourceServerClientId = "harness-center",
 interface PermissionRequest {
   readonly requestId: string;
   readonly version: number;
-  readonly state: "pending" | "approved" | "rejected" | "withdrawn";
+  readonly state: AccessStatus.PermissionRequestState;
   readonly personId: string;
   readonly groupId: string;
   readonly resource: string;

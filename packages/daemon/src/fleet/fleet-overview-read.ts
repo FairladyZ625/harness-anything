@@ -1,3 +1,4 @@
+import type * as AccessStatus from "@harness-anything/kernel/internal/domain/access-status.ts";
 import type { FleetNodeSessionStatus } from "./node-session-status.ts";
 import type { FleetReplicaStatus } from "./center-types.ts";
 import { runtimeErrorCode } from "../runtime-spawn-errors.ts";
@@ -149,7 +150,7 @@ export interface FleetNodeRow {
 
 export interface FleetLinkRow {
   readonly nodeId: string;
-  readonly state: "fresh" | "lag" | "unsynced";
+  readonly state: AccessStatus.FleetLinkState;
   readonly delivery: string | null;
   readonly lagRevisions: number | null;
   readonly lagMs: number | null;

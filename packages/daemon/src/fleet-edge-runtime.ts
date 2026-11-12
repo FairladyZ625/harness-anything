@@ -1,3 +1,4 @@
+import type * as RuntimeStatus from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import { fleetMirrorTaskPaths } from "./fleet-edge-mirror.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import { requiredCellText } from "./repo-cell-settlement.ts";
@@ -159,8 +160,8 @@ export async function readFleetRuntimeSessionsPaged(readPage: (payload: JsonObje
     readonly runtimeSessionId: string;
     readonly providerSessionId: string | null;
     readonly instanceId: string;
-    readonly liveness: "live" | "stale" | "unknown" | "exited";
-    readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" | null;
+    readonly liveness: RuntimeStatus.RuntimeLiveness;
+    readonly outcome: NonNullable<RuntimeStatus.RuntimeSession["outcome"]> | null;
     readonly providerUnreachable: RuntimeProviderUnreachable | null;
   }[]
 > {
@@ -168,8 +169,8 @@ export async function readFleetRuntimeSessionsPaged(readPage: (payload: JsonObje
     readonly runtimeSessionId: string;
     readonly providerSessionId: string | null;
     readonly instanceId: string;
-    readonly liveness: "live" | "stale" | "unknown" | "exited";
-    readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" | null;
+    readonly liveness: RuntimeStatus.RuntimeLiveness;
+    readonly outcome: NonNullable<RuntimeStatus.RuntimeSession["outcome"]> | null;
     readonly providerUnreachable: RuntimeProviderUnreachable | null;
   }> = [];
   const seen = new Set<string>();

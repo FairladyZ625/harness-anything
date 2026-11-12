@@ -1,3 +1,4 @@
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { makeTaskLifecycleService } from "@harness-anything/application/internal/task-lifecycle-service";
 import {
   prepareDaemonRepoStorage,
@@ -87,7 +88,7 @@ export interface RepoCellCoreInput {
 export interface RepoCellCore {
   readonly store: ReturnType<typeof makeTaskEventStore>;
   readonly recovery: {
-    readonly status: "none" | "indeterminate";
+    readonly status: OperationalStatus.RepoRecoveryStatus;
     readonly elapsedMs: number;
     readonly error?: string;
     readonly errorCode?: string;

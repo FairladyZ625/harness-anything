@@ -1,3 +1,4 @@
+import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import { createHash } from "node:crypto";
 import {
   decisionReviewContentDigest,
@@ -241,7 +242,11 @@ export function preparedEntityWarnings(action: RepoTaskAction): readonly string[
 }
 
 export function readReceipt<
-  T extends { readonly status: "ready" | "pending"; readonly watermark: number; readonly sourceRevision: number },
+  T extends {
+    readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
+    readonly watermark: number;
+    readonly sourceRevision: number;
+  },
 >(command: string, read: T): WriteReceipt {
   const base = {
     opId: `read:${command}`,

@@ -1,3 +1,4 @@
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import path from "node:path";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { DaemonTaskRuntimeContextResult } from "./protocol/daemon-protocol-runtime-context.ts";
@@ -39,7 +40,7 @@ export const incidentContinuationBudget = 3;
 
 export interface IncidentDecisionFields {
   readonly toolCallCount: number | null;
-  readonly headStatus: "unchanged" | "changed" | "unavailable" | "no-previous-run";
+  readonly headStatus: OperationalStatus.IncidentHeadStatus;
   readonly lastConclusion: string | null;
   readonly exitHead: string | null;
   readonly currentHead: string | null;
@@ -310,7 +311,7 @@ export function incidentActionBinding(rootDir: string, dispatchId: string): Repo
 export interface IncidentActionOutcome {
   readonly action: DecisionActionRecord["action"];
   readonly attention: IncidentAttention | null;
-  readonly status: "applied" | "failed";
+  readonly status: OperationalStatus.DecisionActionStatus;
   readonly reason: string | null;
   readonly successorDispatchId: string | null;
 }

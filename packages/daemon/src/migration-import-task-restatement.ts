@@ -1,3 +1,4 @@
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import {
@@ -52,7 +53,7 @@ export interface RestatedTaskContract {
   readonly presetSnapshotDigest: `sha256:${string}`;
   readonly source: "contract" | "compiled";
   readonly repair?: {
-    readonly disposition: "retired-preset-to-standard-task" | "renamed-preset" | "preset-task-class-aligned";
+    readonly disposition: OperationalStatus.TaskRestatementDisposition;
     readonly presetId: string;
     readonly taskClass: TaskClass;
   };

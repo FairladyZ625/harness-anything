@@ -1,3 +1,4 @@
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { createHash } from "node:crypto";
 import { lstatSync, readlinkSync } from "node:fs";
 import path from "node:path";
@@ -205,7 +206,7 @@ export function destinationLinkConflict(
   sourceTarget: string,
 ): {
   readonly surface: string;
-  readonly disposition: "excluded" | "required";
+  readonly disposition: Exclude<OperationalStatus.AuthoredDisposition, "migrated">;
   readonly reason: string;
   readonly targetConflict?: true;
 } | null {
