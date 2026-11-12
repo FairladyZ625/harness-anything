@@ -82,6 +82,7 @@ import { guiAdmissionPolicy, guiAdmissionPolicyJudgments } from "./gui-admission
 import { gateMappingPolicy, gateMappingPolicyJudgments } from "./gate-mapping-policy.ts";
 import { storageReplayPolicy, storageReplayJudgments } from "./storage-replay-policy.ts";
 import { completionGateOverridePolicy, completionGateOverrideJudgment } from "./completion-gate-policy.ts";
+import { writerLifecyclePolicy } from "./writer-lifecycle-policy.ts";
 import { guiQueryPacing } from "./gui-query-pacing.ts";
 import { taskLeaseGuidancePolicy, returnToPlannedJudgment } from "./task-lease-guidance.ts";
 import sourceContractFacets from "./source-contract-facets.json" with { type: "json" };
@@ -1470,6 +1471,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     ...hostEntityTypeContract,
     judgments: [runtimeReleasePolicyJudgment, supplyChainReleasePolicyJudgment, storageReadJudgment, ...storageReadAdditionalJudgments, ...storageReplayJudgments, ...storageScopePolicyJudgments, ...guiAdmissionPolicyJudgments, ...gateMappingPolicyJudgments],
     policies: [
+      writerLifecyclePolicy,
       guiQueryPacing,
       guiInteractionPolicy,
       guiAdmissionPolicy,

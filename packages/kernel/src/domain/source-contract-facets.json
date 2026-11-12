@@ -1729,6 +1729,17 @@
             "route": "packages/storage/src/store/sqlite-event-store.ts#assertMetadata"
           }
         ]
+      },
+      {
+        "id": "daemon-writer-hibernation",
+        "symbol": "packages/daemon/src/repo-cell-open.ts#openRepoWriterCell.apiContext.canHibernate",
+        "explain": "Own-process lifecycle probe: retain the writer during runtime restoration, process settlement or an indexed active dispatch, including fallback backoff. This is a resource-lifetime contract, not a domain eligibility judgment.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/repo-cell-open.ts#openRepoWriterCell.apiContext.canHibernate:b2e20e0637db019e1f3424b4d89fc96f",
+            "route": "packages/daemon/src/repo-cell-open.ts#openRepoWriterCell.apiContext.canHibernate"
+          }
+        ]
       }
     ]
   },

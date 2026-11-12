@@ -116,7 +116,7 @@ export interface RepoWriterControlV1 {
   readonly schema: "harness-repo-writer-control/v1";
   readonly protocolVersion: typeof REPO_WRITER_PROTOCOL_VERSION;
   readonly requestId: string;
-  readonly command: "recover" | "drain" | "crash";
+  readonly command: "recover" | "drain" | "crash" | "hibernate";
 }
 
 export type RepoWriterMessageV1 =

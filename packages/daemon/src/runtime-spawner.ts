@@ -1491,6 +1491,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     },
     cancel: (payload: JsonObject, binding: RuntimeBinding) => cancelRuntime(extracted, payload, binding),
     steer: (payload: JsonObject, binding: RuntimeBinding) => steerRuntime(extracted, payload, binding),
+    isIdle: () => processes.size === 0 && exiting.size === 0,
     close: () => {
       fallbackClosed = true;
       if (ownsModelSlotQueue) modelSlotQueue.close();

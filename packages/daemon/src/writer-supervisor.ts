@@ -1,3 +1,4 @@
+import { writerLifecyclePolicy } from "@harness-anything/kernel/internal/domain/writer-lifecycle-policy.ts";
 import { prepareStorageWorkerContext } from "@harness-anything/storage";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -35,7 +36,7 @@ export interface WriterSupervisor {
     binding?: RepoCellBinding,
     signal?: AbortSignal,
   ) => Promise<T>;
-  readonly control: (command: RepoWriterControlV1["command"]) => Promise<void>;
+  readonly control: (command: Exclude<RepoWriterControlV1["command"], "hibernate">) => Promise<void>;
   readonly status: () => RepoCellStatus;
   readonly bootstrapReceipt: () => unknown;
   readonly ledgerCut: import("./repo-cell-types.ts").ReplicaCutSource["ledgerCut"];
@@ -46,6 +47,9 @@ export interface WriterSupervisor {
  * settings); a cold rebuild on a large repository or slow disk can outlive the default without being dead. */
 export const WRITER_READY_WATCHDOG_MS_ENV = "HARNESS_WRITER_READY_WATCHDOG_MS";
 export const WRITER_READY_WATCHDOG_MS = 60_000;
+
+/** Keep only the recent write working set; the host retains the repository lock and readable cut. */
+export const WRITER_IDLE_TIMEOUT_MS = writerLifecyclePolicy.defaultValue.idleTimeoutMs;
 
 /** Effective watchdog: the environment override, else the default. An invalid override fails closed. */
 export function resolveWriterReadyWatchdogMs(env: NodeJS.ProcessEnv = process.env): number {
@@ -67,6 +71,7 @@ export async function openWriterSupervisor(
       url: URL,
       workerOptions: {
         readonly execArgv: readonly string[];
+        readonly name?: string;
         readonly workerData: RepoWriterBootstrapV1;
         readonly transferList?: readonly import("node:worker_threads").MessagePort[];
       },
@@ -75,6 +80,10 @@ export async function openWriterSupervisor(
     readonly onPublishedStatus?: (status: RepoCellStatus) => void;
   } = {},
 ): Promise<WriterSupervisor> {
+  let users = 0,
+    retiring = false,
+    idleTimer: ReturnType<typeof setTimeout> | undefined;
+  const expectedExits = new WeakSet<Worker>();
   let worker: Worker | null = null,
     closed = false,
     opened = false,
@@ -119,15 +128,16 @@ export async function openWriterSupervisor(
   ready = startWriterWorker();
   await ready;
   opened = true;
+  armIdle();
 
-  return {
+  const supervisor: WriterSupervisor = {
     request: async <T>(
       method: RepoWriterRequestV1["method"],
       payload: unknown,
       binding?: RepoCellBinding,
       signal?: AbortSignal,
     ) => {
-      await ready;
+      await acquireWriter();
       if (closed || !worker) throw new Error("RepoWriterCell is closed");
       if (signal?.aborted) throw abortError(signal);
       const storeAbort = method === "canonicalStore" ? new AbortController() : undefined,
@@ -144,7 +154,7 @@ export async function openWriterSupervisor(
           writerEpoch: serializedBinding?.writerEpochFence ?? null,
         };
       status = { ...status, queueDepth: (status.queueDepth ?? 0) + 1 };
-      return new Promise<T>((resolve, reject) => {
+      return await new Promise<T>((resolve, reject) => {
         const cancel = () => {
             storeAbort?.abort(signal?.reason);
             const active = worker;
@@ -183,16 +193,29 @@ export async function openWriterSupervisor(
         }
       });
     },
-    control: sendControl,
+    control: async (command) => {
+      users++;
+      clearTimeout(idleTimer);
+      try {
+        await acquireWriter();
+        await sendControl(command);
+      } finally {
+        users--;
+        armIdle();
+      }
+    },
     status: () => statusWithCurrentRetryElapsed(status, statusObservedAt),
     bootstrapReceipt: () => publishedBootstrapReceipt,
     ledgerCut: () => publishedLedgerCut,
     close: async () => {
       if (closed) return;
       closed = true;
+      clearTimeout(idleTimer);
       for (const operation of pending.values()) operation.storeAbort?.abort(new Error("RepoWriterCell closed"));
       try {
+        await ready;
         if (worker) {
+          expectedExits.add(worker);
           await sendControl("drain", true);
         }
       } finally {
@@ -210,17 +233,48 @@ export async function openWriterSupervisor(
     },
   };
 
+  return {
+    ...supervisor,
+    request: async <T>(
+      method: RepoWriterRequestV1["method"],
+      payload: unknown,
+      binding?: RepoCellBinding,
+      signal?: AbortSignal,
+    ) => {
+      users++;
+      clearTimeout(idleTimer);
+      try {
+        return await supervisor.request<T>(method, payload, binding, signal);
+      } finally {
+        users--;
+        armIdle();
+      }
+    },
+  };
+
   function startWriterWorker(): Promise<void> {
     if (closed) return Promise.reject(new Error("WriterSupervisor is closed"));
     return new Promise((resolve, reject) => {
       const watchdogMs = resolveWriterReadyWatchdogMs(),
         context = prepareStorageWorkerContext(input.storage, input.repoId),
         workerOptions = {
+          name: "repo-writer",
           execArgv: process.execArgv.filter(
             (argument) => argument === "--experimental-strip-types" || argument === "--enable-source-maps",
           ),
           workerData: {
-            ...bootstrapMessage(input, options.canonicalStore !== undefined),
+            ...bootstrapMessage(
+              opened
+                ? {
+                    ...input,
+                    bootstrap: undefined,
+                    authoredBranch:
+                      input.authoredBranch ??
+                      (publishedBootstrapReceipt as { readonly authoredBranch?: string } | undefined)?.authoredBranch,
+                  }
+                : input,
+              options.canonicalStore !== undefined,
+            ),
             storageContext: context.context,
           },
           transferList: context.transferList,
@@ -254,6 +308,7 @@ export async function openWriterSupervisor(
       armReadyWatchdog();
       worker = candidate;
       candidate.on("message", (message: unknown) => {
+        if (worker !== candidate) return;
         if (isReceipt(message)) {
           const operation = pending.get(message.requestId);
           if (!operation) return;
@@ -316,6 +371,7 @@ export async function openWriterSupervisor(
             settled = true;
             clearTimeout(readyWatchdog);
             resolve();
+            if (opened) armIdle();
           } else if (message.kind === "closed" && message.error && !settled) {
             settled = true;
             clearTimeout(readyWatchdog);
@@ -328,6 +384,7 @@ export async function openWriterSupervisor(
         if (isCapabilityCall(message)) void handleCapability(candidate, message);
       });
       candidate.once("error", (error) => {
+        if (worker !== candidate) return;
         if (!settled) {
           settled = true;
           clearTimeout(readyWatchdog);
@@ -345,6 +402,7 @@ export async function openWriterSupervisor(
           if (!opened) closed = true;
           reject(error);
         }
+        if (expectedExits.has(candidate)) return;
         failActive(error);
         if (!closed) {
           status = {
@@ -367,8 +425,7 @@ export async function openWriterSupervisor(
     });
   }
 
-  async function sendControl(command: RepoWriterControlV1["command"], allowClosed = false): Promise<void> {
-    await ready;
+  async function sendControl(command: RepoWriterControlV1["command"], allowClosed = false): Promise<unknown> {
     if ((!allowClosed && closed) || !worker) throw new Error("RepoWriterCell is unavailable");
     const requestId = randomUUID(),
       control: RepoWriterControlV1 = {
@@ -377,17 +434,60 @@ export async function openWriterSupervisor(
         requestId,
         command,
       };
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<unknown>((resolve, reject) => {
+      const watchdog = setTimeout(() => {
+        pending.delete(requestId);
+        const error = Object.assign(
+          new Error(`Writer control ${command} did not acknowledge within ${WRITER_READY_WATCHDOG_MS}ms`),
+          { code: "writer_control_timeout" },
+        );
+        status = { ...status, state: "unavailable", lastError: error.message, causeClass: "infrastructure" };
+        reject(error);
+      }, WRITER_READY_WATCHDOG_MS);
+      watchdog.unref?.();
       pending.set(requestId, {
-        resolve: () => resolve(),
+        resolve,
         reject,
-        cleanup: () => undefined,
+        cleanup: () => clearTimeout(watchdog),
         retainSessionToken: false,
         operation: null,
         phase: "write-execution",
       });
       worker!.postMessage(control);
     });
+  }
+
+  async function acquireWriter(): Promise<void> {
+    // Admission reserves a user before yielding. Retirement publishes this barrier before
+    // posting hibernate, so a successor cannot open until drain AND terminate have finished.
+    await ready;
+    if (closed) throw new Error("RepoWriterCell is closed");
+    if (!worker) ready = startWriterWorker();
+    await ready;
+  }
+
+  function armIdle(): void {
+    clearTimeout(idleTimer);
+    if (closed || retiring || status.state !== "attached" || users !== 0 || pending.size !== 0 || !worker) return;
+    idleTimer = setTimeout(() => {
+      if (closed || users !== 0 || pending.size !== 0 || !worker) return;
+      const active = worker;
+      retiring = true;
+      ready = (async () => {
+        const hibernated = await sendControl("hibernate");
+        if (hibernated === true) {
+          expectedExits.add(active);
+          await active.terminate();
+          if (worker === active) worker = null;
+        }
+      })().finally(() => {
+        retiring = false;
+        armIdle();
+      });
+      // Observe background rejection; admission still receives the original rejected barrier.
+      void Promise.allSettled([ready]);
+    }, WRITER_IDLE_TIMEOUT_MS);
+    idleTimer.unref?.();
   }
 
   function failActive(error: Error): void {

@@ -11,6 +11,7 @@ export function openRuntimeWorkspaceMonitor(
   const lastActivity = new BigInt64Array(new SharedArrayBuffer(BigInt64Array.BYTES_PER_ELEMENT * 2)),
     extension = import.meta.url.endsWith(".js") ? ".js" : ".ts",
     worker = new Worker(new URL(`./runtime-workspace-monitor-worker${extension}`, import.meta.url), {
+      name: "workspace-monitor",
       workerData: { rootDir, cwd, lastActivity: lastActivity.buffer },
     });
   let resolveReady!: () => void,

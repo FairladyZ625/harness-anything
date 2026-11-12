@@ -1,3 +1,4 @@
+import { writerLifecyclePolicy } from "@harness-anything/kernel/internal/domain/writer-lifecycle-policy.ts";
 import { continueReviewRework } from "./task-return-dispatch.ts";
 import { makeRuntimeRecoveryWork } from "./runtime-recovery-work.ts";
 import { localOperatorBinding } from "./daemon-host-binding.ts";
@@ -42,7 +43,6 @@ import {
   scheduleArchivedDispatchStreamCompaction,
 } from "./dispatch-stream-archive.ts";
 import { createRuntimeOutcomeWaiters } from "./runtime-settlement.ts";
-import { openGuiCatalog } from "./gui-catalog.ts";
 import { type CanonicalRoot, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { makeRecoveryProbe } from "./recovery-state.ts";
@@ -675,7 +675,16 @@ export async function openRepoWriterCell(
     ...(input.recordLifecycle ? { recordLifecycle: input.recordLifecycle } : {}),
     ...(input.runtimeLaunch ? { launch: input.runtimeLaunch } : {}),
   });
-  const catalog = openGuiCatalog({ repoId: input.repoId, rootDir, readSettings: () => readSettings(), now }),
+  let catalogPromise: Promise<ReturnType<typeof import("./gui-catalog.ts").openGuiCatalog>> | undefined;
+  const getCatalog = () =>
+    (catalogPromise ??= import("./gui-catalog.ts").then(({ openGuiCatalog }) =>
+      openGuiCatalog({ repoId: input.repoId, rootDir, readSettings: () => readSettings(), now }),
+    ));
+  const catalog: RepoCell["catalog"] = {
+      snapshot: async () => (await getCatalog()).snapshot(),
+      preset: async (payload) => (await getCatalog()).preset(payload),
+      reread: async (payload) => (await getCatalog()).reread(payload),
+    },
     terminalHost = openTerminalHost({
       repoId: input.repoId,
       rootDir,
@@ -909,6 +918,7 @@ export async function openRepoWriterCell(
       );
     });
   const squadRecoveryDispatchIds = await squadCoordinator.retentionProtectedDispatchIds();
+  let restoringRuntimes = true;
   setImmediate(() => {
     if (state === "closed") return;
     void recoveryWork
@@ -916,7 +926,10 @@ export async function openRepoWriterCell(
       .then(
         () => undefined,
         (error: unknown) => console.error("[runtime-recovery]", error),
-      );
+      )
+      .finally(() => {
+        restoringRuntimes = false;
+      });
   });
   // Retention first: pruning doomed streams before the compaction pass keeps it from rewriting
   // files the same queue is about to delete.
@@ -944,6 +957,16 @@ export async function openRepoWriterCell(
   );
 
   const apiContext = {
+    canHibernate: () => {
+      if (restoringRuntimes || !runtimeSpawner.isIdle()) return false;
+      // The active index includes a fallback waiting for its next attempt, with no live process.
+      // Existence needs one indexed row, not a scan of historical sessions/tasks.
+      const active = projection.readDispatchLifecycle({
+        by: "active",
+        limit: writerLifecyclePolicy.defaultValue.activeProbeLimit,
+      });
+      return active.status === "ready" && active.rows.length === 0;
+    },
     onlineBinding,
     extracted: operationalContext,
     mode,

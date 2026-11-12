@@ -191,6 +191,7 @@ export function makeRepoReadRuntime(
         adopt: unsupportedWrite,
         cancel: unsupportedWrite,
         steer: unsupportedWrite,
+        isIdle: unsupportedWrite,
         close: unsupportedWrite,
       },
       actionContext = createRepoCellActionContext({
