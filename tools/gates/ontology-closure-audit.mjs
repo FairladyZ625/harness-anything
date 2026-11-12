@@ -83,6 +83,14 @@ export function closureDeclarations(snapshot) {
   }
   for (const kind of snapshot.kinds) {
     exemptions(kind.kind, kind.ontologyExemptions);
+    for (const contract of kind.sourceContracts ?? []) {
+      if (!nonempty(contract.id) || !nonempty(contract.symbol) || !nonempty(contract.explain))
+        throw new Error(`${kind.kind}: incomplete source contract`);
+      add("judgment", kind.kind, `contract:${kind.kind}/${contract.id}`, contract.sources, {
+        symbol: contract.symbol,
+        sourceContract: true,
+      });
+    }
     for (const judgment of kind.judgments ?? []) {
       if (
         !nonempty(judgment.id) ||
@@ -94,7 +102,10 @@ export function closureDeclarations(snapshot) {
         !Array.isArray(judgment.consumers)
       )
         throw new Error(`${kind.kind}: incomplete judgment declaration`);
-      add("judgment", kind.kind, `judgment:${kind.kind}/${judgment.id}`, judgment.sources, { symbol: judgment.symbol });
+      if (judgment.sources.length)
+        add("judgment", kind.kind, `judgment:${kind.kind}/${judgment.id}`, judgment.sources, {
+          symbol: judgment.symbol,
+        });
     }
     for (const policy of kind.policies ?? []) {
       if (
@@ -201,8 +212,11 @@ export function auditOntologyClosure({
     if (declaration && declaration.status !== "technical-exempt") {
       if (
         candidate.category === "judgment" &&
-        (!candidate.file.startsWith("packages/kernel/src/domain/") ||
-          declaration.symbol !== `${candidate.file}#${candidate.symbol}`)
+        (declaration.sourceContract
+          ? declaration.symbol.split("#")[0] !== candidate.file ||
+            declaration.route !== `${candidate.file}#${candidate.symbol}`
+          : !candidate.file.startsWith("packages/kernel/src/domain/") ||
+            declaration.symbol !== `${candidate.file}#${candidate.symbol}`)
       ) {
         findings.push({
           ...candidate,

@@ -1,4 +1,5 @@
 import type * as AuthorizationReceipt from "@harness-anything/kernel/internal/domain/receipt-frame.ts";
+import { validatePolicyGroupScopes } from "@harness-anything/kernel/internal/domain/policy-groups.ts";
 import type * as AccessStatus from "@harness-anything/kernel/internal/domain/access-status.ts";
 import {
   issueRuntimeExecutionCredential,
@@ -314,10 +315,8 @@ export class KeycloakPolicyAdapter
   }
 
   validatePolicyGroups(groups: readonly PolicyGroup[]): void {
-    assertAcyclicPolicyGroups(groups);
-    for (const group of groups)
-      for (const scope of group.scopes)
-        if (!this.#scopeKnown(scope)) throw new Error(`Unknown Keycloak action scope ${scope}.`);
+    const scope = validatePolicyGroupScopes(groups, (scope) => this.#scopeKnown(scope));
+    if (scope !== null) throw new Error(`Unknown Keycloak action scope ${scope}.`);
   }
 
   /** Align existing managed login clients as part of the same realm synchronization. */

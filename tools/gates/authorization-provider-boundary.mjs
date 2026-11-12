@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { loadOntologyClosureSnapshot } from "./ontology-gate-lib.mjs";
 
 const SOURCE_ROOTS = ["packages/"];
 const PROVIDER_PACKAGE_PREFIX = "packages/authorization-keycloak";
@@ -22,7 +23,7 @@ export function providerLineFingerprint(file, sourceLine) {
   return createHash("sha256").update(`${file}\0${sourceLine.trim()}`).digest("hex");
 }
 
-export function findProviderBoundaryViolations(diffText, waivedFingerprints = []) {
+export function findProviderBoundaryViolations(diffText, waivedFingerprints = [], sourceReferences = new Set()) {
   const errors = [];
   let file = "";
   for (const line of String(diffText).split(/\r?\n/u)) {
@@ -36,6 +37,10 @@ export function findProviderBoundaryViolations(diffText, waivedFingerprints = []
       file.startsWith(`${PROVIDER_PACKAGE_PREFIX}/`) || file.startsWith(`${PROVIDER_PACKAGE_PREFIX}-`);
     if (isProviderPackage || EXEMPTED_TEST_PATH.test(file)) continue;
     const sourceLine = line.slice(1);
+    // A registered source location is an ontology reference, never a provider implementation.
+    const reference =
+      file.endsWith(".json") && /^\s*(?:"(?:symbol|candidateId|route)":\s*)?"([^"\n]+)"[,]?\s*$/u.exec(sourceLine);
+    if (reference && sourceReferences.has(reference[1])) continue;
     if (waivedFingerprints.includes(providerLineFingerprint(file, sourceLine))) continue;
     const reason = providerMarkerReason(sourceLine);
     if (reason) errors.push(`${file}: ${reason}: ${line.slice(1).trim()}`);
@@ -80,8 +85,18 @@ export function checkAuthorizationProviderBoundary(rootDir) {
   const allowlist = JSON.parse(readFileSync(path.join(rootDir, WAIVER_PATH), "utf8"));
   const today = new Date().toISOString().slice(0, 10);
   const fingerprints = allowlist.entries.lineFingerprints ?? [];
+  const sourceReferences = new Set(
+    loadOntologyClosureSnapshot(rootDir).kinds.flatMap((kind) =>
+      [...(kind.judgments ?? []), ...(kind.sourceContracts ?? [])].flatMap((row) => [
+        row.symbol,
+        row.contractRef,
+        ...(row.consumers ?? []),
+        ...row.sources.flatMap((source) => [source.candidateId, source.route]),
+      ]),
+    ),
+  );
   return [
-    ...findProviderBoundaryViolations(diff, fingerprints),
+    ...findProviderBoundaryViolations(diff, fingerprints, sourceReferences),
     ...(fingerprints.length ? findStaleFingerprints(fingerprints, governedSourceFiles(rootDir)) : []),
     ...findExpiredWaivers({ entries: allowlist.entries.providerWaivers }, today),
   ];

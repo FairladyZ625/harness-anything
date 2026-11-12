@@ -12,6 +12,7 @@ import {
   requireEntityTypeContract,
   type BaseEntity,
 } from "@harness-anything/kernel";
+import { validateEntityActionExplanationSet } from "@harness-anything/kernel";
 import { renderEntityActionExplanation } from "../src/cli/entity-action-explain-render.ts";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
@@ -231,7 +232,7 @@ test("explain receipts exit non-zero exactly when the explanation mode is failur
   assert.equal(receiptExitCode({ exitCode: 3 }), 3);
 });
 
-test("human renderer fails closed when a typed action row is incomplete", () => {
+test("the canonical explanation boundary rejects an incomplete action row", () => {
   const catalog = makeTaskActionExplanationService({
       actor: { principal: { personId: "person-explain" }, executor: null },
       authorize: () => {
@@ -241,13 +242,11 @@ test("human renderer fails closed when a typed action row is incomplete", () => 
     }).catalog(),
     row = catalog.subjects[0]!.actions[0]!,
     { evaluatedAtCut: _missing, ...incompleteRow } = row;
-  assert.throws(
-    () =>
-      renderEntityActionExplanation({
-        ...catalog,
-        subjects: [{ ...catalog.subjects[0]!, actions: [incompleteRow] }],
-      } as unknown as Parameters<typeof renderEntityActionExplanation>[0]),
-    /missing required fields/u,
+  assert.ok(
+    validateEntityActionExplanationSet({
+      ...catalog,
+      subjects: [{ ...catalog.subjects[0]!, actions: [incompleteRow] }],
+    }).length > 0,
   );
 });
 

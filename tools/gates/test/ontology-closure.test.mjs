@@ -81,6 +81,17 @@ test("the full repository passes the classified closure gate", (t) => {
   );
   assert.ok(owned.length > 0);
   assert.ok(owned.every((row) => row.status === "registered"));
+  // dec_7E44897E CH1 / S2b: syntax candidates must resolve to the real semantic owner.
+  const judgments = result.classified.filter(
+    (row) =>
+      row.category === "judgment" &&
+      /^packages\/(?:kernel|preset|cli|application|authorization-[^/]+|dsh-plugin)\//u.test(row.file),
+  );
+  assert.ok(judgments.length > 0);
+  assert.deepEqual(
+    judgments.filter((row) => row.status !== "registered"),
+    [],
+  );
   for (const [symbol, action] of [
     ["cleanupConsumedDocumentDescriptor", "cli-local-effects"],
     ["installPresetPackage", "preset-install"],
@@ -111,6 +122,31 @@ test("closure positive emits all three errors and prescriptions; negative text i
     assert.ok(row.line > 0 && row.reason.length > 20 && row.prescription.length > 20);
   }
   assert.deepEqual(audit(scan("negative")).findings, []);
+});
+
+test("input contracts retain their actual codec owner and exact identity without becoming domain judgments", () => {
+  const target = "packages/preset/src/codec.ts",
+    source = 'function validateInput(value) { if (typeof value !== "string") return ["invalid input"]; return []; }',
+    candidates = scanOntologyText(target, source),
+    contract = {
+      id: "input",
+      symbol: `${target}#validateInput`,
+      explain: "Preset input codec",
+      sources: [{ candidateId: candidates[0].id, route: `${target}#validateInput` }],
+    },
+    snapshot = { actions: [], kinds: [{ kind: "host", sourceContracts: [contract] }] };
+  assert.deepEqual(audit(candidates, { snapshot }).findings, []);
+  assert.equal(audit(candidates, { snapshot }).classified[0].declarationRef, "contract:host/input");
+  assert.ok(
+    audit(scanOntologyText(target, source.replace("string", "number")), { snapshot }).findings.some(
+      (row) => row.code === "ONTOLOGY_JUDGMENT_UNDECLARED",
+    ),
+  );
+  contract.symbol = "packages/preset/src/other.ts#wrongOwner";
+  assert.ok(audit(candidates, { snapshot }).findings.some((row) => row.code === "ONTOLOGY_JUDGMENT_DUPLICATE"));
+  contract.symbol = `${target}#validateInput`;
+  snapshot.kinds[0].sourceContracts.push(contract);
+  assert.throws(() => audit(candidates, { snapshot }), /multiple ontology owners/u);
 });
 
 test("CLI deletion, timer, IPC and policy branch fixtures are detected", () => {

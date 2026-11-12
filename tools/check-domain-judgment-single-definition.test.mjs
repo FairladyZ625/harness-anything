@@ -18,7 +18,7 @@ const repoRoot = path.resolve(import.meta.dirname, "..");
 // The gate enumerates through git; a directory inside the real repository would
 // resolve to the outer repo's tree, so the checked-in fixture runs from a copy
 // that is its own repository.
-function fixtureFindings(t, kinds = []) {
+function fixtureFindings(t, kinds = loadOntologyClosureSnapshot(repoRoot).kinds) {
   const fixture = mkdtempSync(path.join(tmpdir(), "ha-domain-judgment-fixture-"));
   t.after(() => rmSync(fixture, { recursive: true, force: true }));
   cpSync(path.join(repoRoot, "tools/fixtures/domain-judgment-single-definition"), fixture, { recursive: true });
@@ -446,6 +446,28 @@ test("registry judgments enforce canonical definitions, consumers and equivalent
     findings().some((item) => item.includes("one definition")),
     findings().join("\n"),
   );
+  judgment.symbol = `${canonical}#start.validate`;
+  judgment.consumers = [];
+  write(canonical, "export const start = { validate: () => [] }; export const stop = { validate: () => [] };");
+  assert.deepEqual(findings(), [], "qualified transition predicates do not collide with sibling transitions");
+  write("packages/gui/src/copy.ts", "export const start = { validate: () => [] };");
+  assert.ok(findings().some((item) => item.includes("one definition of start.validate")));
+  kinds[0].sourceContracts = [{ id: "codec-owner", symbol: `${canonical}#start.validate` }];
+  assert.deepEqual(
+    checkDomainJudgmentSingleDefinition(root, kinds).filter((item) => item.includes("codec-owner")),
+    [],
+  );
+  kinds[0].sourceContracts[0].symbol = `${canonical}#removedCodec`;
+  assert.ok(checkDomainJudgmentSingleDefinition(root, kinds).some((item) => item.includes("codec-owner")));
+});
+
+test("Decision acceptance and relation admission copies are refused through the production registry", (t) => {
+  const findings = fixtureFindings(t);
+  for (const symbol of ["decisionAcceptReviewReadiness", "assertDecisionAcceptReview", "assertRelationAdmission"])
+    assert.ok(
+      findings.some((item) => item.includes(`one definition of ${symbol}`) && item.includes("judgment-copies.ts")),
+      findings.join("\n"),
+    );
 });
 
 test("registered coverage rules refuse SQL liveness and renamed coverage algorithms", (t) => {

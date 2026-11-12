@@ -259,30 +259,14 @@ export function relationOwnerRef(sourceRef: string): string {
   return source?.kind === "decision" ? `decision/${source.id}` : sourceRef;
 }
 
+/** Writable triples and record strengths share one registry judgment. */
 export function isAllowedRelationKindTriple(
   sourceKind: string,
   type: RelationType,
   targetKind: string,
   registry: readonly CanonicalRelationDirection[] = canonicalRelationDirections,
 ): boolean {
-  if (registry === canonicalRelationDirections)
-    return writableRelationStrengths.has(relationTripleKey(sourceKind, type, targetKind));
-  // Ratified convention (dec_mr74sbka, 2026-07-05): every edge reads as one sentence,
-  // `source <verb> target`, in the physical (host -> target) direction — no cell whose
-  // verb reads backwards. The canonical direction registry is the single authority:
-  // a triple is writable exactly when it has a registry row (one canonical direction
-  // per semantic relation, blueprint 铁律三). Every reversed-direction pair keeps only
-  // its canonical side writable — fact→decision supports/invalidated-by and task→task
-  // blocks were retired with zero stored active edges (2026-08-17 census); the retired
-  // aliases remain parse-only vocabulary and reverse questions go through
-  // `incomingRelations` in relation-direction.ts.
-  return registry.some(
-    (direction) =>
-      direction.registration !== "derived" &&
-      direction.sourceKind === sourceKind &&
-      direction.type === type &&
-      direction.targetKind === targetKind,
-  );
+  return isAllowedRelation(sourceKind, type, targetKind, registry);
 }
 
 export function isAllowedRelationRecord(
@@ -291,19 +275,29 @@ export function isAllowedRelationRecord(
   targetKind: string,
   registry: readonly CanonicalRelationDirection[] = canonicalRelationDirections,
 ): boolean {
+  return isAllowedRelation(sourceKind, record.type, targetKind, registry, record);
+}
+
+function isAllowedRelation(
+  sourceKind: string,
+  type: RelationType,
+  targetKind: string,
+  registry: readonly CanonicalRelationDirection[],
+  record?: Pick<EntityRelationRecord, "strength">,
+): boolean {
+  const matchesStrength = (strength: RelationStrength | undefined) =>
+    record === undefined || strength === undefined || strength === record.strength;
   if (registry === canonicalRelationDirections) {
-    const strengths = writableRelationStrengths.get(relationTripleKey(sourceKind, record.type, targetKind));
-    return (
-      strengths !== undefined && strengths.some((strength) => strength === undefined || strength === record.strength)
-    );
+    const strengths = writableRelationStrengths.get(relationTripleKey(sourceKind, type, targetKind));
+    return strengths !== undefined && (record === undefined || strengths.some(matchesStrength));
   }
   return registry.some(
     (direction) =>
       direction.registration !== "derived" &&
       direction.sourceKind === sourceKind &&
-      direction.type === record.type &&
+      direction.type === type &&
       direction.targetKind === targetKind &&
-      (direction.strength === undefined || direction.strength === record.strength),
+      matchesStrength(direction.strength),
   );
 }
 
