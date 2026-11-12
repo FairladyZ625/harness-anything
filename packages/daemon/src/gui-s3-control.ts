@@ -1,3 +1,6 @@
+import type * as ClientStatus from "@harness-anything/kernel/internal/domain/client-view-status.ts";
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
+import type { WriteReceiptOutcome } from "@harness-anything/kernel/internal/domain/write-receipt-status.ts";
 import { isJsonObject, rejectSecretKeys, type JsonObject } from "./protocol/json-rpc-types.ts";
 import { validateReceiptAcceptance } from "@harness-anything/kernel";
 import { isContractVersion } from "@harness-anything/kernel/contract-version";
@@ -5,10 +8,10 @@ import { isContractVersion } from "@harness-anything/kernel/contract-version";
 export interface DaemonControlReceipt extends JsonObject {
   readonly schema: "daemon-control-receipt/v1";
   readonly ok: boolean;
-  readonly outcome: "pending" | "op_rejected" | "applied";
+  readonly outcome: Extract<WriteReceiptOutcome, "pending" | "op_rejected" | "applied">;
   readonly kind: "refresh" | "restart";
   readonly operationId: string;
-  readonly phase: "queued" | "draining" | "starting" | "settled" | "failed";
+  readonly phase: OperationalStatus.DaemonControlPhase;
   readonly requestedAt: string;
   readonly completedAt: string | null;
   readonly before: JsonObject | null;
@@ -19,7 +22,7 @@ export interface DaemonControlReceipt extends JsonObject {
 export interface CatalogRereadReceipt extends JsonObject {
   readonly schema: "catalog-reread-receipt/v1";
   readonly ok: boolean;
-  readonly outcome: "applied" | "op_rejected";
+  readonly outcome: Extract<WriteReceiptOutcome, "applied" | "op_rejected">;
   readonly operationId: string;
   readonly repoId: string;
   readonly beforeDigest: string;
@@ -30,7 +33,7 @@ export interface CatalogRereadReceipt extends JsonObject {
 export interface TerminalControlReceipt extends JsonObject {
   readonly schema: "terminal-control-receipt/v1";
   readonly ok: boolean;
-  readonly outcome: "applied" | "op_rejected";
+  readonly outcome: Extract<WriteReceiptOutcome, "applied" | "op_rejected">;
   readonly operationId: string;
   readonly sessionId: string | null;
   readonly daemonGeneration: number;
@@ -45,7 +48,7 @@ export interface TerminalSessionRow extends JsonObject {
   readonly shellProfile: string;
   readonly requestedBackend: "direct-pty" | "tmux";
   readonly backend: "direct-pty" | "tmux";
-  readonly status: "running" | "exited" | "unknown";
+  readonly status: ClientStatus.TerminalTabState;
   readonly createdAt: string;
   readonly lastActivityAt: string;
   readonly exitCode: number | null;

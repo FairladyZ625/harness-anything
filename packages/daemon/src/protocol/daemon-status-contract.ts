@@ -1,7 +1,8 @@
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { materializationStateWords } from "./daemon-protocol-vocabulary.ts";
 
 export interface DaemonRepoAttachProgress {
-  readonly phase: "opening" | "recovering" | "catching-up" | "restoring-runtimes";
+  readonly phase: OperationalStatus.RepoAttachPhase;
   readonly applied: number | null;
   readonly total: number | null;
   readonly watermark: number | null;
@@ -24,14 +25,14 @@ export interface DaemonStatusResult {
     readonly id: string;
     readonly kind: "local" | "remote-endpoint" | "fleet-center";
     readonly displayName: string;
-    readonly state: "enabled" | "disabled";
+    readonly state: OperationalStatus.RepoRegistrationState;
     readonly endpoint?: string;
   }[];
   readonly repos: readonly {
     readonly repoId: string;
     readonly rootDir: string;
     readonly mode: "local" | "remote-proxy" | "remote-center" | "remote-edge" | null;
-    readonly state: "warming" | "attached" | "unavailable" | "closed";
+    readonly state: OperationalStatus.RepoCellAttachmentState;
     readonly generation: number | null;
     readonly queueDepth: number | null;
     readonly projectionWatermark?: number;
@@ -49,7 +50,7 @@ export interface DaemonStatusResult {
       readonly lastError?: string;
     } | null;
     readonly attach?: DaemonRepoAttachProgress;
-    readonly registrationState?: "enabled" | "disabled";
+    readonly registrationState?: OperationalStatus.RepoRegistrationState;
     readonly nextAction?: string;
   }[];
   readonly summary: string;

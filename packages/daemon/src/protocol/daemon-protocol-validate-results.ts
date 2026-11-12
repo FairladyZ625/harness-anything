@@ -1,3 +1,4 @@
+import type { ScheduleState } from "@harness-anything/kernel/internal/domain/schedule.ts";
 import type { SquadControlResult } from "../squad-control-result.ts";
 import { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
 import { validateObserveTailResult, type DaemonProtocolErrorResult } from "./daemon-protocol-gui-types.ts";
@@ -34,7 +35,7 @@ import { generatedTaskCreateResultFields, generatedWriteReceiptFields } from "./
 import { isJsonObject, type JsonObject } from "./json-rpc-types.ts";
 export type ValidScheduleListRow = {
   readonly scheduleId: string;
-  readonly state: "armed" | "paused";
+  readonly state: ScheduleState;
   readonly mode: "detect" | "remediate";
   readonly systemPresetId?: string;
   readonly spec: {

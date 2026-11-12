@@ -1,4 +1,5 @@
 import type { DaemonRepoMode } from "@harness-anything/kernel";
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 
 /**
  * 跨仓库主页聚合结果(dec_C612E69B7C7E3480A5F9D2CAD3 / dec_66CE6F92D92CE3424C44B985D2):
@@ -18,11 +19,11 @@ export interface DaemonHomeRepoOverview {
   readonly displayName: string;
   readonly canonicalRoot: string | null;
   readonly authoredBranch: string | null;
-  readonly registrationState: "enabled" | "disabled";
+  readonly registrationState: OperationalStatus.RepoRegistrationState;
   readonly connectionId?: string;
   readonly mode: DaemonRepoMode;
-  readonly cellState: "attached" | "warming" | "unavailable" | "not_loaded";
-  readonly status: "online" | "warming" | "unavailable" | "offline";
+  readonly cellState: OperationalStatus.RepoCellState;
+  readonly status: OperationalStatus.HomeRepoStatus;
   readonly unavailableReason: string | null;
   /** 等你处理 N(attn 桶未结事项计数);离线/未附着为 null */
   readonly waitingCount: number | null;
