@@ -7,7 +7,7 @@ import type { WriteSource } from "./write-chain.contract.ts";
 import { hasRequiredFields, validateWriteSource } from "./write-chain.contract.ts";
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { timestamp } from "./timestamp.ts";
-import { reviewConsentConflicts } from "./review-consent-validity.ts";
+import { disposedReviewIdsForSubmission, reviewConsentConflicts } from "./review-consent-validity.ts";
 export const reviewFindingCategories = [
   "correctness",
   "completeness",
@@ -420,6 +420,18 @@ export function approvedReviewHistoryForExecution(
   execution: ExecutionV1,
 ): readonly ReviewV1[] {
   return reviewsForExecution(reviews, execution).filter((review) => review.verdict === "approved");
+}
+
+export function hasApprovedReviewForExecution(
+  reviews: readonly ReviewV1[],
+  execution: ProjectedExecution,
+  dispositions: readonly ReviewDispositionV1[] = [],
+): boolean {
+  if (execution.schema !== "execution/v1" || !execution.submission) return false;
+  const currentReviews = reviewsForExecution(reviews, execution);
+  if (!currentReviews.some((review) => review.verdict === "approved")) return false;
+  const disposed = disposedReviewIdsForSubmission(dispositions, submissionDigest(execution.submission));
+  return !currentReviews.some((review) => review.verdict === "changes_requested" && !disposed.has(review.reviewId));
 }
 
 export function reviewsForExecution(reviews: readonly ReviewV1[], execution: ExecutionV1): readonly ReviewV1[] {

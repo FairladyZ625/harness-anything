@@ -91,6 +91,34 @@
         "explain": "Canonical decisionAcceptReviewReadiness; existing unique kernel definition and result semantics are preserved.",
         "consumers": [],
         "sources": []
+      },
+      {
+        "id": "assertDecisionReviewerIndependent",
+        "symbol": "packages/kernel/src/domain/decision-event-document.ts#assertDecisionReviewerIndependent",
+        "declaration": "function",
+        "inputs": [
+          "decision: DecisionDocumentState | null",
+          "reviewer: ActorIdentity",
+          "independence: ReviewIndependence"
+        ],
+        "output": "void",
+        "failureCodes": ["actor_unauthorized"],
+        "explain": "Enforce Decision reviewer independence from both the original proposer and every recorded amendment author under the repository reviewIndependence setting.",
+        "consumers": ["packages/daemon/src/entity-action-catalog-executor.ts"],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/decision-event-document.ts#assertDecisionReviewerIndependent:a3be2e008f69cb263d361803e7ff6e19",
+            "route": "domain"
+          }
+        ],
+        "consumerRules": [
+          {
+            "pathPattern": "^packages/daemon/",
+            "pattern": "decision\\?\\.amendments\\?\\.some\\([\\s\\S]{0,160}?(?:isIndependentFrom|reviewActorsIndependent)",
+            "reason": "consume the kernel assertDecisionReviewerIndependent verdict",
+            "flags": "u"
+          }
+        ]
       }
     ],
     "contracts": [
@@ -212,6 +240,50 @@
           {
             "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-projections.ts#validateDaemonDecisionList:9ae6ed1f3fdcba40919b9e4ca0f09b7f",
             "route": "packages/daemon/src/protocol/daemon-protocol-validate-projections.ts#validateDaemonDecisionList"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/decision-provider.ts#openDecisionProviderService.port.decide",
+        "symbol": "packages/daemon/src/decision-provider.ts#openDecisionProviderService.port.decide",
+        "explain": "Daemon `DecisionProviderPort.decide` transport adapter executing validated provider invocations with timeout and audit recording.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/decision-provider.ts#openDecisionProviderService.port.decide:ac03593faf9739488670ff08f41264d4",
+            "route": "packages/daemon/src/decision-provider.ts#openDecisionProviderService.port.decide"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/decision-provider.ts#validateDecisionRequest",
+        "symbol": "packages/daemon/src/decision-provider.ts#validateDecisionRequest",
+        "explain": "Ingress request envelope validator for `DecisionProviderPort` invocations (`requestId`, `decisionPoint`, `options`, timeout bounds).",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/decision-provider.ts#validateDecisionRequest:057f566b5cddf6760beba74a28cff400",
+            "route": "packages/daemon/src/decision-provider.ts#validateDecisionRequest"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/decision-surface-actions.ts#validateDecisionPackages",
+        "symbol": "packages/daemon/src/decision-surface-actions.ts#validateDecisionPackages",
+        "explain": "Repository scan adapter aggregating per-package `decision.md` frontmatter and projection parity diagnostics.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/decision-surface-actions.ts#validateDecisionPackages:716f3dfddac329d6340e8c0a98658329",
+            "route": "packages/daemon/src/decision-surface-actions.ts#validateDecisionPackages"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/decision-surface-actions.ts#validateOne",
+        "symbol": "packages/daemon/src/decision-surface-actions.ts#validateOne",
+        "explain": "Single-package `decision.md` authored-file vs canonical Decision projection consistency inspector.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/decision-surface-actions.ts#validateOne:654798729b6d3757220339a910cc4828",
+            "route": "packages/daemon/src/decision-surface-actions.ts#validateOne"
           }
         ]
       }
@@ -487,6 +559,63 @@
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-replay.ts#validateTransition:d9e469e091e4183b1e99ee477efbca91",
             "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "isSubmittedExecutionCutOpen",
+        "symbol": "packages/kernel/src/domain/task-bound-runtime-authority.ts#isSubmittedExecutionCutOpen",
+        "declaration": "function",
+        "inputs": ["snapshot: TaskLifecycleSnapshot", "executionId: string"],
+        "output": "boolean",
+        "failureCodes": [],
+        "explain": "Judge whether the named Execution is currently the active submitted cut on a Task in review/submitted state at the review workflow node.",
+        "consumers": [
+          "packages/daemon/src/runtime-execution-scope.ts",
+          "packages/kernel/src/domain/task-lifecycle-command-transitions.ts"
+        ],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-bound-runtime-authority.ts#isSubmittedExecutionCutOpen:9a1bb2e06d3f113603fbcb1c54435633",
+            "route": "domain"
+          }
+        ],
+        "consumerRules": [
+          {
+            "pathPattern": "^packages/daemon/",
+            "pattern": "currentNode\\s*===\\s*[\"']review[\"']\\s*&&\\s*current\\?\\.state\\s*===\\s*[\"']submitted[\"']",
+            "reason": "consume the kernel isSubmittedExecutionCutOpen verdict",
+            "flags": "u"
+          }
+        ]
+      },
+      {
+        "id": "isCutReturningRework",
+        "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#isCutReturningRework",
+        "declaration": "function",
+        "inputs": [
+          "snapshot: TaskLifecycleSnapshot",
+          "command: Pick<ReworkTaskCommand, \"executionId\" | \"submissionDigest\" | \"handoffId\" | \"takeover\">"
+        ],
+        "output": "boolean",
+        "failureCodes": [],
+        "explain": "Judge whether a ReworkTask command returns the current submitted cut to implementation rather than only arranging the next execution round.",
+        "consumers": [
+          "packages/daemon/src/repo-cell-proof.ts",
+          "packages/kernel/src/domain/task-lifecycle-command-transitions.ts"
+        ],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-command-transitions.ts#isCutReturningRework:cc8e8f950e6d5f212e6c817046ad4aff",
+            "route": "domain"
+          }
+        ],
+        "consumerRules": [
+          {
+            "pathPattern": "^packages/daemon/",
+            "pattern": "command\\.handoffId\\s*===\\s*undefined\\s*&&\\s*\\(\\s*command\\.takeover\\s*!==\\s*true",
+            "reason": "consume the kernel isCutReturningRework verdict",
+            "flags": "u"
           }
         ]
       }
@@ -984,6 +1113,116 @@
           {
             "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/gui-result-validation.ts#validateDaemonTaskWip:95074cce0edfb0376de4f4ace29abf5b",
             "route": "packages/daemon/src/protocol/gui-result-validation.ts#validateDaemonTaskWip"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/entity-assignment-runtime.ts#assertEntityAssignment",
+        "symbol": "packages/daemon/src/entity-assignment-runtime.ts#assertEntityAssignment",
+        "explain": "RepoCell operational guard checking projected `assigned-to` relation rows and formatting CLI reassignment guidance.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/entity-assignment-runtime.ts#assertEntityAssignment:38c2b416048a66d092029e42588182ff",
+            "route": "packages/daemon/src/entity-assignment-runtime.ts#assertEntityAssignment"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/ignored-ledger-delivery.ts#assertNoIgnoredLedgerDelivery",
+        "symbol": "packages/daemon/src/ignored-ledger-delivery.ts#assertNoIgnoredLedgerDelivery",
+        "explain": "Git index tree-inspection guard rejecting repository commits that force-added gitignored `harness/` ledger paths.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/ignored-ledger-delivery.ts#assertNoIgnoredLedgerDelivery:ecdd3a892a2dccd7e2a0715b9d4f3700",
+            "route": "packages/daemon/src/ignored-ledger-delivery.ts#assertNoIgnoredLedgerDelivery"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/repo-cell-action-dispatch.ts#validateCanonicalIdentityInputs",
+        "symbol": "packages/daemon/src/repo-cell-action-dispatch.ts#validateCanonicalIdentityInputs",
+        "explain": "RepoCell ingress adapter checking `taskId`/`executionId`/`reviewId` parameters against `requireEntityTypeContract(kind).id` regexes.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/repo-cell-action-dispatch.ts#validateCanonicalIdentityInputs:c56ea3210da271052f34956becd8dc8d",
+            "route": "packages/daemon/src/repo-cell-action-dispatch.ts#validateCanonicalIdentityInputs"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/repo-cell-proof.ts#assertPremiseReviewedPastBudget",
+        "symbol": "packages/daemon/src/repo-cell-proof.ts#assertPremiseReviewedPastBudget",
+        "explain": "RepoCell rework proof adapter delegating cut-return detection to kernel `isCutReturningRework` and checking projected premise-review Fact timestamps past the return budget.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/repo-cell-proof.ts#assertPremiseReviewedPastBudget:f6058584073c1ceae510951e0ddd84b6",
+            "route": "packages/daemon/src/repo-cell-proof.ts#assertPremiseReviewedPastBudget"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/repo-cell-proof.ts#isCommitOnPublishedDefaultBranch",
+        "symbol": "packages/daemon/src/repo-cell-proof.ts#isCommitOnPublishedDefaultBranch",
+        "explain": "Git commit-graph reachability probe (`merge-base --is-ancestor`) checking whether a delivery commit landed on the remote default branch.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/repo-cell-proof.ts#isCommitOnPublishedDefaultBranch:d28be0f9673553a8c065e2d1189fa54e",
+            "route": "packages/daemon/src/repo-cell-proof.ts#isCommitOnPublishedDefaultBranch"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/repo-cell-task-query.ts#assertTaskWipCapacity",
+        "symbol": "packages/daemon/src/repo-cell-task-query.ts#assertTaskWipCapacity",
+        "explain": "RepoCell WIP admission adapter assembling projected `TaskWipSnapshotEntryV1` rows and delegating the capacity verdict to kernel `admitTaskExecutionWip`.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/repo-cell-task-query.ts#assertTaskWipCapacity:d268c0c1ad0483fb6f7b7dc36c3ed449",
+            "route": "packages/daemon/src/repo-cell-task-query.ts#assertTaskWipCapacity"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/runtime-worker-push.ts#isDaemonWorkerIdentity",
+        "symbol": "packages/daemon/src/runtime-worker-push.ts#isDaemonWorkerIdentity",
+        "explain": "Git author/committer identity check detecting fallback daemon process git identities prior to worker branch push.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/runtime-worker-push.ts#isDaemonWorkerIdentity:216602cbc57ac3b42304f48fd4c7ab1c",
+            "route": "packages/daemon/src/runtime-worker-push.ts#isDaemonWorkerIdentity"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/runtime-worker-push.ts#isAncestor",
+        "symbol": "packages/daemon/src/runtime-worker-push.ts#isAncestor",
+        "explain": "Git `merge-base --is-ancestor` subprocess wrapper used during fast-forward worker branch push validation.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/runtime-worker-push.ts#isAncestor:b69439db3dca253220e56ff54bdbb0ea",
+            "route": "packages/daemon/src/runtime-worker-push.ts#isAncestor"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/task-dispatch-admission.ts#assertTaskDispatchPrerequisites",
+        "symbol": "packages/daemon/src/task-dispatch-admission.ts#assertTaskDispatchPrerequisites",
+        "explain": "Task dispatch preflight adapter reading `blockingOf` / `readSet` projections to refuse worker dispatch while task dependencies are unmet.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/task-dispatch-admission.ts#assertTaskDispatchPrerequisites:2b2c2ebe9b7023c99e880feb6355beb7",
+            "route": "packages/daemon/src/task-dispatch-admission.ts#assertTaskDispatchPrerequisites"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/work-topology-read.ts#assertSameCut",
+        "symbol": "packages/daemon/src/work-topology-read.ts#assertSameCut",
+        "explain": "Projection watermark/sourceRevision consistency guard across paged `workTopologyFromProjection` index reads while preserving partial-status warnings.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/work-topology-read.ts#assertSameCut:241a4c20b06e16318968b63a54937320",
+            "route": "packages/daemon/src/work-topology-read.ts#assertSameCut"
           }
         ]
       }
@@ -3580,6 +3819,237 @@
             "route": "packages/daemon/src/protocol/repository-read-frame.ts#validateRepositoryReadFrame"
           }
         ]
+      },
+      {
+        "id": "daemon/src/agent-declaration-resolution.ts#assertBundledAgentLifecycleOpen",
+        "symbol": "packages/daemon/src/agent-declaration-resolution.ts#assertBundledAgentLifecycleOpen",
+        "explain": "Host filesystem bundled-agent protection guard refusing retire or delete operations against shipped built-in agent declarations.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/agent-declaration-resolution.ts#assertBundledAgentLifecycleOpen:d6d577b0fc5f23b372343eb76000bff7",
+            "route": "packages/daemon/src/agent-declaration-resolution.ts#assertBundledAgentLifecycleOpen"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/agent-entities.ts#validateAgentEntityAction",
+        "symbol": "packages/daemon/src/agent-entities.ts#validateAgentEntityAction",
+        "explain": "Daemon ingress adapter validating agent/squad install dry-run package paths, runtime compatibility inventory, and local SKILL.md resolution.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/agent-entities.ts#validateAgentEntityAction:ddbe64fc3b0ff61a35dfc6bae73f2fa6",
+            "route": "packages/daemon/src/agent-entities.ts#validateAgentEntityAction"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/agent-entities.ts#validateEntityDeclarationSource",
+        "symbol": "packages/daemon/src/agent-entities.ts#validateEntityDeclarationSource",
+        "explain": "Daemon declaration-source ingress adapter decoding raw agent or squad JSON/package manifests and checking local skill and runtime inventory bindings.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/agent-entities.ts#validateEntityDeclarationSource:ba314f83088f5c2cf43f4dd873887b79",
+            "route": "packages/daemon/src/agent-entities.ts#validateEntityDeclarationSource"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/agent-runtime-instance-store.ts#openRuntimeInstanceStore.assertGatewaySearchVerified",
+        "symbol": "packages/daemon/src/agent-runtime-instance-store.ts#openRuntimeInstanceStore.assertGatewaySearchVerified",
+        "explain": "Host runtime-instance store guard requiring gateway web-search capability verification before persisting gateway search configuration.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/agent-runtime-instance-store.ts#openRuntimeInstanceStore.assertGatewaySearchVerified:ce852d93ec1e90ddb0f0c6e0d89587d7",
+            "route": "packages/daemon/src/agent-runtime-instance-store.ts#openRuntimeInstanceStore.assertGatewaySearchVerified"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/agent-runtime-launch-config.ts#isPrivateIpv4",
+        "symbol": "packages/daemon/src/agent-runtime-launch-config.ts#isPrivateIpv4",
+        "explain": "Network RFC1918/loopback IPv4 address classifier for local runtime endpoint launch configuration.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/agent-runtime-launch-config.ts#isPrivateIpv4:fd197f73d7d7fdc6a88c808e716a626d",
+            "route": "packages/daemon/src/agent-runtime-launch-config.ts#isPrivateIpv4"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/agent-runtime-web-search.ts#assertRuntimeWebSearchSupported",
+        "symbol": "packages/daemon/src/agent-runtime-web-search.ts#assertRuntimeWebSearchSupported",
+        "explain": "Host CLI/provider capability adapter verifying whether the selected runtime installation supports requested web-search modes.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/agent-runtime-web-search.ts#assertRuntimeWebSearchSupported:28aa8ae6cc6107f1443a1b59b8f73413",
+            "route": "packages/daemon/src/agent-runtime-web-search.ts#assertRuntimeWebSearchSupported"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/agent-runtime-web-search.ts#allowedWebSearchModesInPolicy",
+        "symbol": "packages/daemon/src/agent-runtime-web-search.ts#allowedWebSearchModesInPolicy",
+        "explain": "Runtime launch flag adapter mapping repository web-search policy levels onto concrete provider CLI search modes.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/agent-runtime-web-search.ts#allowedWebSearchModesInPolicy:22a22b8302f1222a810f5cd96d5f76ec",
+            "route": "packages/daemon/src/agent-runtime-web-search.ts#allowedWebSearchModesInPolicy"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/entity-rows-read.ts#validateEntityRowList",
+        "symbol": "packages/daemon/src/entity-rows-read.ts#validateEntityRowList",
+        "explain": "Read-surface DTO validator for `daemon.entity-row-list/v1` paged entity projection envelopes.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/entity-rows-read.ts#validateEntityRowList:57aacace6557f2e2ea2bbadbd0d18e57",
+            "route": "packages/daemon/src/entity-rows-read.ts#validateEntityRowList"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/entity-rows-read.ts#validateRow",
+        "symbol": "packages/daemon/src/entity-rows-read.ts#validateRow",
+        "explain": "Row-level DTO shape validator for `daemon.entity-row-list/v1` projected entity entries.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/entity-rows-read.ts#validateRow:4f54e1691412ee7490860fee2498cb92",
+            "route": "packages/daemon/src/entity-rows-read.ts#validateRow"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/entity-rows-read.ts#validateDescriptor",
+        "symbol": "packages/daemon/src/entity-rows-read.ts#validateDescriptor",
+        "explain": "Artifact/entity descriptor metadata shape validator inside `entity-rows-read` responses.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/entity-rows-read.ts#validateDescriptor:5a98c712bc9201d62e1e3e47bd043f59",
+            "route": "packages/daemon/src/entity-rows-read.ts#validateDescriptor"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/host-action-authorization.ts#requireAuthorizedHostAction",
+        "symbol": "packages/daemon/src/host-action-authorization.ts#requireAuthorizedHostAction",
+        "explain": "Daemon host-level RPC enforcement adapter invoking `AuthorizationPort` for non-repository host administration methods.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/host-action-authorization.ts#requireAuthorizedHostAction:1007cc2d7decc68d724c17d7601623c4",
+            "route": "packages/daemon/src/host-action-authorization.ts#requireAuthorizedHostAction"
+          }
+        ]
+      },
+      {
+        "id": "oidc-transport-failure",
+        "symbol": "packages/daemon/src/keycloak-transport-failure.ts#isKeycloakTransportFailure",
+        "explain": "OIDC identity-authority network error classifier distinguishing transport reachability errors from policy denials.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/keycloak-transport-failure.ts#isKeycloakTransportFailure:bed04fe70756e94408140d5a14a1e5c9",
+            "route": "packages/daemon/src/keycloak-transport-failure.ts#isKeycloakTransportFailure"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/node-auto-claim.ts#decideNodeAutoClaim",
+        "symbol": "packages/daemon/src/node-auto-claim.ts#decideNodeAutoClaim",
+        "explain": "Daemon node-agent startup coordinator deciding whether a local worker node claims eligible queued dispatches.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/node-auto-claim.ts#decideNodeAutoClaim:040f9f982511a7d8be4dbb61615e15fa",
+            "route": "packages/daemon/src/node-auto-claim.ts#decideNodeAutoClaim"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/offline-storage.ts#assertNoRunningDaemon",
+        "symbol": "packages/daemon/src/offline-storage.ts#assertNoRunningDaemon",
+        "explain": "Unix socket / lockfile liveness guard refusing offline SQLite maintenance while a live daemon holds the workspace.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/offline-storage.ts#assertNoRunningDaemon:4f72d905fcfc2b749239ed60c33b2136",
+            "route": "packages/daemon/src/offline-storage.ts#assertNoRunningDaemon"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/repo-all-purge.ts#validateRepoAllPurge",
+        "symbol": "packages/daemon/src/repo-all-purge.ts#validateRepoAllPurge",
+        "explain": "Destructive maintenance preflight contract validating confirmation tokens and target paths before purging local state.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/repo-all-purge.ts#validateRepoAllPurge:b384a40c811c3b25ed6ae92bf6405017",
+            "route": "packages/daemon/src/repo-all-purge.ts#validateRepoAllPurge"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/repo-all-purge.ts#validateBackupDestination",
+        "symbol": "packages/daemon/src/repo-all-purge.ts#validateBackupDestination",
+        "explain": "Filesystem destination guard ensuring backup archive paths are writable and outside the purged directory tree.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/repo-all-purge.ts#validateBackupDestination:ced50d2aa49552504038e1a0c9b80b06",
+            "route": "packages/daemon/src/repo-all-purge.ts#validateBackupDestination"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/repo-bootstrap.ts#assertMachinePlanCurrent",
+        "symbol": "packages/daemon/src/repo-bootstrap.ts#assertMachinePlanCurrent",
+        "explain": "Repository attach/bootstrap guard verifying local machine storage layout version matches the current daemon build.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/repo-bootstrap.ts#assertMachinePlanCurrent:9ead2275dcf8446242fc63585b3a7697",
+            "route": "packages/daemon/src/repo-bootstrap.ts#assertMachinePlanCurrent"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/rpc-command-routing.ts#assertDaemonRpcRouting",
+        "symbol": "packages/daemon/src/rpc-command-routing.ts#assertDaemonRpcRouting",
+        "explain": "Startup protocol-table invariant check ensuring every declared JSON-RPC method binds a handler and command classification.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/rpc-command-routing.ts#assertDaemonRpcRouting:fda9133e6fe469c8568d8b625e355ebe",
+            "route": "packages/daemon/src/rpc-command-routing.ts#assertDaemonRpcRouting"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/runtime/model-slot-queue.ts#ModelSlotQueue.validateRequest",
+        "symbol": "packages/daemon/src/runtime/model-slot-queue.ts#ModelSlotQueue.validateRequest",
+        "explain": "In-memory model concurrency queue request validator checking positive slot weights and abort signal state.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/runtime/model-slot-queue.ts#ModelSlotQueue.validateRequest:da696b5d14b3df1e7c26da9d4224f3ec",
+            "route": "packages/daemon/src/runtime/model-slot-queue.ts#ModelSlotQueue.validateRequest"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/runtime/model-slot-queue.ts#assertContextBudget",
+        "symbol": "packages/daemon/src/runtime/model-slot-queue.ts#assertContextBudget",
+        "explain": "Runtime model slot admission guard checking requested token context window against configured instance capacity.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/runtime/model-slot-queue.ts#assertContextBudget:1f16343302f8c9e293be5f90459174e6",
+            "route": "packages/daemon/src/runtime/model-slot-queue.ts#assertContextBudget"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/tls-listener-admission.ts#validateCertificateNames",
+        "symbol": "packages/daemon/src/tls-listener-admission.ts#validateCertificateNames",
+        "explain": "TLS X.509 SAN/CN hostname and IP certificate validator for remote fleet listener sockets.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/tls-listener-admission.ts#validateCertificateNames:ba5cb3641e8d8cb966d3ae15094fcc1e",
+            "route": "packages/daemon/src/tls-listener-admission.ts#validateCertificateNames"
+          }
+        ]
       }
     ]
   },
@@ -3792,6 +4262,314 @@
           {
             "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-task.ts#validateSessionEnvironment:d87662e7b3e492a14e15a989db89c183",
             "route": "packages/daemon/src/protocol/daemon-protocol-validate-task.ts#validateSessionEnvironment"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/agent-entities.ts#assertAgentDispatchable",
+        "symbol": "packages/daemon/src/agent-entities.ts#assertAgentDispatchable",
+        "explain": "Runtime spawn admission adapter translating projected Agent lifecycleState (`active` vs `configured`/`retired`) into coded dispatch errors with successor hints.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/agent-entities.ts#assertAgentDispatchable:36f50a176bbc8283e624f49f8368ab60",
+            "route": "packages/daemon/src/agent-entities.ts#assertAgentDispatchable"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/agent-runtime-contract.ts#validateAgentRuntimeOverview",
+        "symbol": "packages/daemon/src/agent-runtime-contract.ts#validateAgentRuntimeOverview",
+        "explain": "Daemon read-DTO structural validator for `agent-runtime.overview/v1` payloads.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/agent-runtime-contract.ts#validateAgentRuntimeOverview:78750452957df25829f9f0040d048059",
+            "route": "packages/daemon/src/agent-runtime-contract.ts#validateAgentRuntimeOverview"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/agent-runtime-contract.ts#validateAgentRuntimeSession",
+        "symbol": "packages/daemon/src/agent-runtime-contract.ts#validateAgentRuntimeSession",
+        "explain": "Daemon read-DTO structural validator for `agent-runtime.session/v1` payloads and attempt chains.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/agent-runtime-contract.ts#validateAgentRuntimeSession:e32763effd183f11cbc8d9524a5cdc8b",
+            "route": "packages/daemon/src/agent-runtime-contract.ts#validateAgentRuntimeSession"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/agent-runtime-contract.ts#validateAgentRuntimeEvents",
+        "symbol": "packages/daemon/src/agent-runtime-contract.ts#validateAgentRuntimeEvents",
+        "explain": "Daemon read-DTO structural validator for `agent-runtime.events/v1` paged event envelopes.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/agent-runtime-contract.ts#validateAgentRuntimeEvents:76f367e80779a4db6f4a7f7e0cd0136d",
+            "route": "packages/daemon/src/agent-runtime-contract.ts#validateAgentRuntimeEvents"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/agent-runtime-contract.ts#validateAgentRuntimeSessionGroups",
+        "symbol": "packages/daemon/src/agent-runtime-contract.ts#validateAgentRuntimeSessionGroups",
+        "explain": "Daemon read-DTO structural validator for `agent-runtime.session-groups/v1` grouped session views.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/agent-runtime-contract.ts#validateAgentRuntimeSessionGroups:15d7cfdf0442774762daa61afab082c0",
+            "route": "packages/daemon/src/agent-runtime-contract.ts#validateAgentRuntimeSessionGroups"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/agent-runtime-read.ts#isSessionGroupStatusSelection",
+        "symbol": "packages/daemon/src/agent-runtime-read.ts#isSessionGroupStatusSelection",
+        "explain": "Query filter array type-guard checking non-empty `agentRuntimeSessionGroupStatusWords` selections on `agent-runtime-read`.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/agent-runtime-read.ts#isSessionGroupStatusSelection:579157f3b14b7f5cd126a96be6a01638",
+            "route": "packages/daemon/src/agent-runtime-read.ts#isSessionGroupStatusSelection"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/agent-runtime-stream.ts#validateAgentRuntimeAttach",
+        "symbol": "packages/daemon/src/agent-runtime-stream.ts#validateAgentRuntimeAttach",
+        "explain": "Interactive attach handshake DTO validator for `agent-runtime.attach/v1` stream descriptors.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/agent-runtime-stream.ts#validateAgentRuntimeAttach:7a768c32bb288e5f8d29a373ca0bf4f4",
+            "route": "packages/daemon/src/agent-runtime-stream.ts#validateAgentRuntimeAttach"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/agent-runtime-stream.ts#validateAgentRuntimeAttachEvent",
+        "symbol": "packages/daemon/src/agent-runtime-stream.ts#validateAgentRuntimeAttachEvent",
+        "explain": "Live runtime stream frame validator for `agent-runtime.attach-event/v1` stdout/stderr/lifecycle notifications.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/agent-runtime-stream.ts#validateAgentRuntimeAttachEvent:390b85a4af21db768713279f66fa03b1",
+            "route": "packages/daemon/src/agent-runtime-stream.ts#validateAgentRuntimeAttachEvent"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/agent-runtime-token-usage.ts#validateAgentRuntimeTokenUsage",
+        "symbol": "packages/daemon/src/agent-runtime-token-usage.ts#validateAgentRuntimeTokenUsage",
+        "explain": "Telemetry DTO validator for `agent-runtime.token-usage/v1` aggregated token accounting payloads.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/agent-runtime-token-usage.ts#validateAgentRuntimeTokenUsage:203f0bdf2e541616b1185744530ad559",
+            "route": "packages/daemon/src/agent-runtime-token-usage.ts#validateAgentRuntimeTokenUsage"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/agent-runtime-token-usage.ts#validateAgentRuntimeTokenUsageDetail",
+        "symbol": "packages/daemon/src/agent-runtime-token-usage.ts#validateAgentRuntimeTokenUsageDetail",
+        "explain": "Telemetry DTO validator for `agent-runtime.token-usage-detail/v1` per-session token breakdown payloads.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/agent-runtime-token-usage.ts#validateAgentRuntimeTokenUsageDetail:9933e72a970d84fc4bb883873470203c",
+            "route": "packages/daemon/src/agent-runtime-token-usage.ts#validateAgentRuntimeTokenUsageDetail"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/dispatch-stream.ts#assertDispatchId",
+        "symbol": "packages/daemon/src/dispatch-stream.ts#assertDispatchId",
+        "explain": "Filesystem path-safety guard verifying `dispatch_<24-hex>` format before resolving local dispatch stream JSONL files.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/dispatch-stream.ts#assertDispatchId:9855fe8aa7aa037b8f9f311e87587d75",
+            "route": "packages/daemon/src/dispatch-stream.ts#assertDispatchId"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/observe-jsonl-tail.ts#isLineBoundary",
+        "symbol": "packages/daemon/src/observe-jsonl-tail.ts#isLineBoundary",
+        "explain": "Byte-level newline boundary check (`\\n` / `\\r\\n`) for incremental JSONL stream tailing.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/observe-jsonl-tail.ts#isLineBoundary:06b130bc014be4df4c36131feb1ccee8",
+            "route": "packages/daemon/src/observe-jsonl-tail.ts#isLineBoundary"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/runtime-callback-relay.ts#validateRuntimeCallbackRelayPath",
+        "symbol": "packages/daemon/src/runtime-callback-relay.ts#validateRuntimeCallbackRelayPath",
+        "explain": "HTTP callback relay URL path parser validating `/v1/runtime-callbacks/<dispatchId>` route segments.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/runtime-callback-relay.ts#validateRuntimeCallbackRelayPath:472d1549bca32677fddf41a44ae8c0c6",
+            "route": "packages/daemon/src/runtime-callback-relay.ts#validateRuntimeCallbackRelayPath"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/runtime-callback-relay.ts#assertEndpointIdentity",
+        "symbol": "packages/daemon/src/runtime-callback-relay.ts#assertEndpointIdentity",
+        "explain": "Loopback/HMAC callback relay authentication guard verifying bearer credentials and target daemon identity.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/runtime-callback-relay.ts#assertEndpointIdentity:b9653402793701a7bfc6cc2b05b3ebdb",
+            "route": "packages/daemon/src/runtime-callback-relay.ts#assertEndpointIdentity"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/runtime-execution-scope.ts#isCurrentSubmittedWorkerWrite",
+        "symbol": "packages/daemon/src/runtime-execution-scope.ts#isCurrentSubmittedWorkerWrite",
+        "explain": "Runtime execution credential RPC scope guard allowing post-submit `task-push` and `task-submit --amend` only when kernel `isSubmittedExecutionCutOpen` holds.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/runtime-execution-scope.ts#isCurrentSubmittedWorkerWrite:7090d57763afb51efdd76752bfde074f",
+            "route": "packages/daemon/src/runtime-execution-scope.ts#isCurrentSubmittedWorkerWrite"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/runtime-handoff-native.ts#validateHandoffRollout",
+        "symbol": "packages/daemon/src/runtime-handoff-native.ts#validateHandoffRollout",
+        "explain": "Provider rollout file verifier checking native CLI session transcript readability before native handoff.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/runtime-handoff-native.ts#validateHandoffRollout:516c3226d9611944d89002161f257eaf",
+            "route": "packages/daemon/src/runtime-handoff-native.ts#validateHandoffRollout"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/runtime-handoff-store.ts#assertHandoffClaim",
+        "symbol": "packages/daemon/src/runtime-handoff-store.ts#assertHandoffClaim",
+        "explain": "Local handoff checkpoint store guard verifying claim token ownership and unconsumed state.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/runtime-handoff-store.ts#assertHandoffClaim:f419c56cd5edc008deddcb0c17cc4aac",
+            "route": "packages/daemon/src/runtime-handoff-store.ts#assertHandoffClaim"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/runtime-resume-admission.ts#assertResumeAgent",
+        "symbol": "packages/daemon/src/runtime-resume-admission.ts#assertResumeAgent",
+        "explain": "Session resume preflight guard checking Agent identity continuity and active declaration state.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/runtime-resume-admission.ts#assertResumeAgent:530fde246f4d4d1e3b0b5679caffb72b",
+            "route": "packages/daemon/src/runtime-resume-admission.ts#assertResumeAgent"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/runtime-resume-admission.ts#assertNativeResumeNotExported",
+        "symbol": "packages/daemon/src/runtime-resume-admission.ts#assertNativeResumeNotExported",
+        "explain": "Session resume transport guard preventing native provider resume after a session switched to portable packet export.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/runtime-resume-admission.ts#assertNativeResumeNotExported:44f6c4bb27227ea36a137d0adf87471a",
+            "route": "packages/daemon/src/runtime-resume-admission.ts#assertNativeResumeNotExported"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/runtime-resume-admission.ts#assertRuntimeHandoffLaunch",
+        "symbol": "packages/daemon/src/runtime-resume-admission.ts#assertRuntimeHandoffLaunch",
+        "explain": "Handoff launch admission guard validating source session settlement and handoff packet readiness before spawning successor runtime.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/runtime-resume-admission.ts#assertRuntimeHandoffLaunch:95854e73717c36aa78177c866b64eb85",
+            "route": "packages/daemon/src/runtime-resume-admission.ts#assertRuntimeHandoffLaunch"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/runtime-spawn-adoption.ts#assertRuntimeRecoveryReady",
+        "symbol": "packages/daemon/src/runtime-spawn-adoption.ts#assertRuntimeRecoveryReady",
+        "explain": "Daemon restart adoption guard verifying projection readiness and stream state before re-attaching an orphaned runtime session.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/runtime-spawn-adoption.ts#assertRuntimeRecoveryReady:2f55c601bb36da422303aed5a009d6a9",
+            "route": "packages/daemon/src/runtime-spawn-adoption.ts#assertRuntimeRecoveryReady"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/runtime-spawn-adoption.ts#isBinding",
+        "symbol": "packages/daemon/src/runtime-spawn-adoption.ts#isBinding",
+        "explain": "Persisted runtime adoption binding JSON record shape guard.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/runtime-spawn-adoption.ts#isBinding:469675bff67be1e8023f54775c9dea86",
+            "route": "packages/daemon/src/runtime-spawn-adoption.ts#isBinding"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/runtime-spawn-mission.ts#resolveRuntimeInstanceCandidates.assertAllowed",
+        "symbol": "packages/daemon/src/runtime-spawn-mission.ts#resolveRuntimeInstanceCandidates.assertAllowed",
+        "explain": "Runtime instance selection filter checking explicit caller `allowedInstances` allowlists during spawn resolution.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/runtime-spawn-mission.ts#resolveRuntimeInstanceCandidates.assertAllowed:014330df2eb99442be5bb882d3ae8dfc",
+            "route": "packages/daemon/src/runtime-spawn-mission.ts#resolveRuntimeInstanceCandidates.assertAllowed"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/runtime-spawn-mission.ts#resolveRuntimeInstanceCandidates.assertDeclarationServes",
+        "symbol": "packages/daemon/src/runtime-spawn-mission.ts#resolveRuntimeInstanceCandidates.assertDeclarationServes",
+        "explain": "Runtime instance selection guard verifying the chosen host runtime instance serves the Agent's declared runtime kind and model.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/runtime-spawn-mission.ts#resolveRuntimeInstanceCandidates.assertDeclarationServes:bb554dc59b55e670f210151a8e7bf421",
+            "route": "packages/daemon/src/runtime-spawn-mission.ts#resolveRuntimeInstanceCandidates.assertDeclarationServes"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/runtime-spawn-process.ts#assertPreparedRuntimeLaunch",
+        "symbol": "packages/daemon/src/runtime-spawn-process.ts#assertPreparedRuntimeLaunch",
+        "explain": "OS child-process launch preflight guard verifying executable path, working directory, and environment readiness before `spawn`.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/runtime-spawn-process.ts#assertPreparedRuntimeLaunch:b084d259e3321348851ed7ffddb1cb85",
+            "route": "packages/daemon/src/runtime-spawn-process.ts#assertPreparedRuntimeLaunch"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/runtime-spawn-settlement.ts#hasAcceptedExecutionSubmission",
+        "symbol": "packages/daemon/src/runtime-spawn-settlement.ts#hasAcceptedExecutionSubmission",
+        "explain": "Runtime exit settlement probe reading projected Execution `submission !== null` to distinguish delivered runs from unsettled exits.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/runtime-spawn-settlement.ts#hasAcceptedExecutionSubmission:644c3930c8aed8650037c88eeb48a5f0",
+            "route": "packages/daemon/src/runtime-spawn-settlement.ts#hasAcceptedExecutionSubmission"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/squad-run-contract.ts#validateSquadRunsList",
+        "symbol": "packages/daemon/src/squad-run-contract.ts#validateSquadRunsList",
+        "explain": "Read-surface DTO validator for `daemon.squad-runs-list/v1` paged squad run summaries.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/squad-run-contract.ts#validateSquadRunsList:a1f0f8fe278afd2fb026cbf0e1a47d9c",
+            "route": "packages/daemon/src/squad-run-contract.ts#validateSquadRunsList"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/squad-run-contract.ts#validateSquadRunRead",
+        "symbol": "packages/daemon/src/squad-run-contract.ts#validateSquadRunRead",
+        "explain": "Read-surface DTO validator for `daemon.squad-run-read/v1` detailed squad run attempt views.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/squad-run-contract.ts#validateSquadRunRead:6b7f1039aacf8e0e4332c82bb9ab614c",
+            "route": "packages/daemon/src/squad-run-contract.ts#validateSquadRunRead"
           }
         ]
       }
@@ -4039,6 +4817,50 @@
             "route": "packages/daemon/src/protocol/daemon-protocol-validate-results.ts#validateDaemonDocumentRead"
           }
         ]
+      },
+      {
+        "id": "daemon/src/doc-sync-candidate-scanner.ts#validateSelectedDocPaths",
+        "symbol": "packages/daemon/src/doc-sync-candidate-scanner.ts#validateSelectedDocPaths",
+        "explain": "Workspace path normalization guard ensuring explicit `ha doc sync` path selections stay within authored ledger roots without traversal.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/doc-sync-candidate-scanner.ts#validateSelectedDocPaths:02b5007526147fa57a464c0d3ec40475",
+            "route": "packages/daemon/src/doc-sync-candidate-scanner.ts#validateSelectedDocPaths"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/entity-content-read.ts#validateEntityContentRead",
+        "symbol": "packages/daemon/src/entity-content-read.ts#validateEntityContentRead",
+        "explain": "Read-surface DTO validator for `daemon.entity-content-read/v1` content-addressed blob responses.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/entity-content-read.ts#validateEntityContentRead:9a7312c504a2cbaa6703baf3a77aa3fd",
+            "route": "packages/daemon/src/entity-content-read.ts#validateEntityContentRead"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/entity-locator-read.ts#validateEntityLocatorRead",
+        "symbol": "packages/daemon/src/entity-locator-read.ts#validateEntityLocatorRead",
+        "explain": "Read-surface DTO validator for `daemon.entity-locator-read/v1` resolved entity locator responses.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/entity-locator-read.ts#validateEntityLocatorRead:689c541517a210c4a4b04a9570398001",
+            "route": "packages/daemon/src/entity-locator-read.ts#validateEntityLocatorRead"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/transition-document-access.ts#assertTaskTransitionDocumentReady",
+        "symbol": "packages/daemon/src/transition-document-access.ts#assertTaskTransitionDocumentReady",
+        "explain": "Canonical projection document-body reader feeding kernel `assertTransitionDocumentReady` without direct worktree file reads.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/transition-document-access.ts#assertTaskTransitionDocumentReady:dcc61a71a36bfc0bd1832954add094b8",
+            "route": "packages/daemon/src/transition-document-access.ts#assertTaskTransitionDocumentReady"
+          }
+        ]
       }
     ]
   },
@@ -4253,6 +5075,61 @@
             "route": "packages/storage/src/store/legacy-generation-source.ts#assertLegacySequence"
           }
         ]
+      },
+      {
+        "id": "daemon/src/migration-import-oracle-rebuild.ts#isLegacyMigrationTaskWithoutProvenance",
+        "symbol": "packages/daemon/src/migration-import-oracle-rebuild.ts#isLegacyMigrationTaskWithoutProvenance",
+        "explain": "Historical cold-rebuild oracle adapter identifying pre-provenance migrated Task records during replay verification.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/migration-import-oracle-rebuild.ts#isLegacyMigrationTaskWithoutProvenance:692951ac24ea85b73bdad878f76b3de1",
+            "route": "packages/daemon/src/migration-import-oracle-rebuild.ts#isLegacyMigrationTaskWithoutProvenance"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/migration-import-reconciliation.ts#isIncluded",
+        "symbol": "packages/daemon/src/migration-import-reconciliation.ts#isIncluded",
+        "explain": "Migration reconciliation path-scope filter matching ledger files included in a historical import batch.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/migration-import-reconciliation.ts#isIncluded:ab30e999022717dcacb2127b45012cb0",
+            "route": "packages/daemon/src/migration-import-reconciliation.ts#isIncluded"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/migration-import-source.ts#validateSourceGit",
+        "symbol": "packages/daemon/src/migration-import-source.ts#validateSourceGit",
+        "explain": "Git repository preflight check verifying clean readable source refs before running historical ledger import.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/migration-import-source.ts#validateSourceGit:f7bdcb5695be5e49a2011d9c6a8a3066",
+            "route": "packages/daemon/src/migration-import-source.ts#validateSourceGit"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/migration-import-task-restatement.ts#validateRestatedEvent",
+        "symbol": "packages/daemon/src/migration-import-task-restatement.ts#validateRestatedEvent",
+        "explain": "Historical Task/v1-to-Task/v2 event restatement envelope check delegating schema validation to kernel `validateTaskEvent`.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/migration-import-task-restatement.ts#validateRestatedEvent:6a72f8996c5f711e33ce1f921e4ac21c",
+            "route": "packages/daemon/src/migration-import-task-restatement.ts#validateRestatedEvent"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/submit-old-data-copy.ts#assertOldDataCopyReceipt",
+        "symbol": "packages/daemon/src/submit-old-data-copy.ts#assertOldDataCopyReceipt",
+        "explain": "Submit-time artifact receipt check verifying `old-data-copy-evidence/v1` JSON binds the submitted commit SHA with zero failures when `data-migration` path reviewers match.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/submit-old-data-copy.ts#assertOldDataCopyReceipt:2869abb0bf811e7fdd1ba672252833e9",
+            "route": "packages/daemon/src/submit-old-data-copy.ts#assertOldDataCopyReceipt"
+          }
+        ]
       }
     ]
   },
@@ -4388,6 +5265,39 @@
           {
             "candidateId": "judgment:packages/storage:packages/storage/src/writer-epoch.ts#validateWriterEpochFenceDescriptor:da0ab0ca6e28162f6c7e407c4ddf92b5",
             "route": "packages/storage/src/writer-epoch.ts#validateWriterEpochFenceDescriptor"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/repo-cell-execution-selection.ts#assertCurrentSubmittedExecution",
+        "symbol": "packages/daemon/src/repo-cell-execution-selection.ts#assertCurrentSubmittedExecution",
+        "explain": "RepoCell CLI diagnostic wrapper delegating candidate lookup to kernel `currentSubmittedExecutions` and formatting disambiguation hints.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/repo-cell-execution-selection.ts#assertCurrentSubmittedExecution:002e9d0d70f7a107c5b8db8fe4935c1a",
+            "route": "packages/daemon/src/repo-cell-execution-selection.ts#assertCurrentSubmittedExecution"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/repo-cell-execution-selection.ts#assertExecutionExecutorDeclarationEligible",
+        "symbol": "packages/daemon/src/repo-cell-execution-selection.ts#assertExecutionExecutorDeclarationEligible",
+        "explain": "RepoCell operational wrapper verifying dispatch-lineage proof before recording `declare-executor` on an Execution.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/repo-cell-execution-selection.ts#assertExecutionExecutorDeclarationEligible:9eee14fa8c43929858b0faee85bf26ba",
+            "route": "packages/daemon/src/repo-cell-execution-selection.ts#assertExecutionExecutorDeclarationEligible"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/repo-writer-worker.ts#assertWriterEpoch",
+        "symbol": "packages/daemon/src/repo-writer-worker.ts#assertWriterEpoch",
+        "explain": "Writer-worker IPC fence guard verifying monotonic storage `writerEpoch` before executing a serialized write turn.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/repo-writer-worker.ts#assertWriterEpoch:2cb859a74ea8ffd22b9bd09885fe39e0",
+            "route": "packages/daemon/src/repo-writer-worker.ts#assertWriterEpoch"
           }
         ]
       }
@@ -4724,6 +5634,39 @@
             "route": "packages/gui/src/renderer/graph/territory.ts#isFactVisibleWithHost"
           }
         ]
+      },
+      {
+        "id": "daemon/src/distill-actions.ts#isCandidate",
+        "symbol": "packages/daemon/src/distill-actions.ts#isCandidate",
+        "explain": "Distillation packet JSON schema guard validating candidate item records.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/distill-actions.ts#isCandidate:1c5b96d9fb2612c5460e4d19650f7376",
+            "route": "packages/daemon/src/distill-actions.ts#isCandidate"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/distill-actions.ts#isSubject",
+        "symbol": "packages/daemon/src/distill-actions.ts#isSubject",
+        "explain": "Distillation packet JSON schema guard validating subject descriptor records.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/distill-actions.ts#isSubject:a67c776e29a38c629553fab0df4313bd",
+            "route": "packages/daemon/src/distill-actions.ts#isSubject"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/distill-actions.ts#isEdge",
+        "symbol": "packages/daemon/src/distill-actions.ts#isEdge",
+        "explain": "Distillation packet JSON schema guard validating proposed relation edge records.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/distill-actions.ts#isEdge:d905495dadcb11e21e8bcdc983067e3a",
+            "route": "packages/daemon/src/distill-actions.ts#isEdge"
+          }
+        ]
       }
     ]
   },
@@ -4895,6 +5838,28 @@
             "route": "packages/daemon/src/protocol/gui-result-validation.ts#validateDaemonSettingsReadForClient"
           }
         ]
+      },
+      {
+        "id": "daemon/src/repo-cell-settings-state.ts#assertMintAuthority",
+        "symbol": "packages/daemon/src/repo-cell-settings-state.ts#assertMintAuthority",
+        "explain": "RepoCell token-minting guard checking `AuthorizationDecision` outcome before issuing delegated execution credentials.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/repo-cell-settings-state.ts#assertMintAuthority:85a6f8598604bfc1ef76bf3fcaf413e9",
+            "route": "packages/daemon/src/repo-cell-settings-state.ts#assertMintAuthority"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/settings-action-runtime.ts#assertCatalogSelection",
+        "symbol": "packages/daemon/src/settings-action-runtime.ts#assertCatalogSelection",
+        "explain": "Settings mutation adapter verifying selected vertical/preset identifiers exist in the loaded workspace catalog.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/settings-action-runtime.ts#assertCatalogSelection:c9563429839d32eb5e9f058f7a41a44d",
+            "route": "packages/daemon/src/settings-action-runtime.ts#assertCatalogSelection"
+          }
+        ]
       }
     ]
   },
@@ -4923,6 +5888,34 @@
         "explain": "Canonical ownerVerifiableFindingCategories; existing unique kernel definition and result semantics are preserved.",
         "consumers": [],
         "sources": []
+      },
+      {
+        "id": "hasApprovedReviewForExecution",
+        "symbol": "packages/kernel/src/domain/review.ts#hasApprovedReviewForExecution",
+        "declaration": "function",
+        "inputs": [
+          "reviews: readonly ReviewV1[]",
+          "execution: ProjectedExecution",
+          "dispositions?: readonly ReviewDispositionV1[]"
+        ],
+        "output": "boolean",
+        "failureCodes": [],
+        "explain": "Judge whether a submitted Execution has at least one approved Review on its current submission cut and no undisposed changes_requested Review.",
+        "consumers": ["packages/daemon/src/task-query-read.ts"],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/review.ts#hasApprovedReviewForExecution:cbfb71d22e6c307bc5aaddc13c9f7f21",
+            "route": "domain"
+          }
+        ],
+        "consumerRules": [
+          {
+            "pathPattern": "^packages/daemon/",
+            "pattern": "disposedReviewIds[\\s\\S]{0,240}verdict\\s*===\\s*[\"']changes_requested[\"']\\s*&&\\s*!disposed\\.has",
+            "reason": "consume the kernel hasApprovedReviewForExecution verdict",
+            "flags": "u"
+          }
+        ]
       }
     ],
     "contracts": [
@@ -4989,6 +5982,28 @@
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/review.ts#validateReviewConsentV1:f302f0b777cebd8c5f442ca753b962ef",
             "route": "packages/kernel/src/domain/review.ts#validateReviewConsentV1"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/review-dispatch-admission.ts#assertReviewerTarget",
+        "symbol": "packages/daemon/src/review-dispatch-admission.ts#assertReviewerTarget",
+        "explain": "Review dispatch routing adapter verifying target Agent existence, active status, and non-squad reviewer target kind.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/review-dispatch-admission.ts#assertReviewerTarget:5312efcd7192a933cf27c553f28e5a53",
+            "route": "packages/daemon/src/review-dispatch-admission.ts#assertReviewerTarget"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/reviewer-artifact-publication.ts#assertPhysicalReviewReport",
+        "symbol": "packages/daemon/src/reviewer-artifact-publication.ts#assertPhysicalReviewReport",
+        "explain": "Physical worktree file check ensuring reviewer report markdown files exist and are non-empty before bundling carried review artifacts.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/reviewer-artifact-publication.ts#assertPhysicalReviewReport:749c080e0a9baa6199247d3bd73cc4f2",
+            "route": "packages/daemon/src/reviewer-artifact-publication.ts#assertPhysicalReviewReport"
           }
         ]
       }
@@ -5494,6 +6509,28 @@
           {
             "candidateId": "judgment:packages/daemon:packages/daemon/src/gui-s3-control.ts#validateCatalogRereadReceipt:1abd650bba5081c1df251b2c1d10b195",
             "route": "packages/daemon/src/gui-s3-control.ts#validateCatalogRereadReceipt"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/skill-eval-runner.ts#SkillEvalRunner.assertCurator",
+        "symbol": "packages/daemon/src/skill-eval-runner.ts#SkillEvalRunner.assertCurator",
+        "explain": "Skill evaluation runner guard checking caller curator authorization before executing skill benchmark suites.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/skill-eval-runner.ts#SkillEvalRunner.assertCurator:6bd64e82b83e95a98ba370076a3410dd",
+            "route": "packages/daemon/src/skill-eval-runner.ts#SkillEvalRunner.assertCurator"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/skill-eval-runner.ts#validateCaseDraft",
+        "symbol": "packages/daemon/src/skill-eval-runner.ts#validateCaseDraft",
+        "explain": "Skill evaluation benchmark case JSON input validator.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/skill-eval-runner.ts#validateCaseDraft:cd86b3565aaf6732a108da0926177c9d",
+            "route": "packages/daemon/src/skill-eval-runner.ts#validateCaseDraft"
           }
         ]
       }

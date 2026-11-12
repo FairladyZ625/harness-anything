@@ -28,6 +28,7 @@ import type {
   TaskMutationEvent,
 } from "./task-lifecycle-event.ts";
 import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
+import { isSubmittedExecutionCutOpen } from "./task-bound-runtime-authority.ts";
 import { validateTaskReviewResponseV1 } from "./review.ts";
 import { completionContractGap } from "./completion-readiness.ts";
 import { taskLeaseGuidance } from "./task-lease-guidance.ts";
@@ -542,17 +543,11 @@ export function submitExecutionStateIssues(
       lifecycleContractIssue("invalid_proof", "The previous execution is being handed off; its submission is fenced"),
     );
   if (command.amend === true) {
-    if (
-      !task ||
-      !["submitted", "in_review"].includes(task.status) ||
-      task.currentNode !== "review" ||
-      current?.state !== "submitted" ||
-      !current.submission
-    )
+    if (!isSubmittedExecutionCutOpen(snapshot, command.executionId))
       issues.push(
         lifecycleContractIssue("invalid_transition", "submission amendment requires the current submitted execution"),
       );
-    else if (submission && submissionId(current.submission) === submissionId(submission))
+    else if (submission && current?.submission && submissionId(current.submission) === submissionId(submission))
       issues.push(lifecycleContractIssue("invalid_transition", "submission amendment must change the packet"));
   } else if (!task || task.status !== "active" || task.currentNode !== "implementation" || current?.state !== "active")
     issues.push(lifecycleContractIssue("invalid_transition", "SubmitExecution requires the active current execution"));
@@ -678,14 +673,7 @@ export const rework: Transition = {
   },
   reduce: (snapshot, raw) => {
     const command = raw as ReworkTaskCommand;
-    const reviewedCut = snapshot.reviews.some(
-        (review) => review.executionId === command.executionId && review.submissionDigest === command.submissionDigest,
-      ),
-      returnNow =
-        command.takeover === true &&
-        snapshot.task?.currentNode === "review" &&
-        (snapshot.task.status === "submitted" || reviewedCut);
-    if (command.handoffId !== undefined || (command.takeover === true && !returnNow)) {
+    if (!isCutReturningRework(snapshot, command)) {
       const task = arrangeExecution(snapshot, command),
         mutation = taskAmendment(task, command.reason, ["executionArrangement"]);
       return {
@@ -724,3 +712,20 @@ export const rework: Transition = {
     };
   },
 };
+
+/** A handoff or a takeover of an already-returned round only arranges the next round; every other rework returns the current cut. */
+export function isCutReturningRework(
+  snapshot: TaskLifecycleSnapshot,
+  command: Pick<ReworkTaskCommand, "executionId" | "submissionDigest" | "handoffId" | "takeover">,
+): boolean {
+  if (command.handoffId !== undefined) return false;
+  if (command.takeover !== true) return true;
+  const task = snapshot.task;
+  if (task?.currentNode !== "review") return false;
+  return (
+    task.status === "submitted" ||
+    snapshot.reviews.some(
+      (review) => review.executionId === command.executionId && review.submissionDigest === command.submissionDigest,
+    )
+  );
+}

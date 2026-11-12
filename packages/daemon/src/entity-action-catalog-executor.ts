@@ -74,7 +74,7 @@ import { decisionRelationLinkResolver } from "./entity-document-links.ts";
 import { actionReceiptGuidance } from "./receipt-guidance.ts";
 import { attachDecisionReviewerArtifact } from "./reviewer-artifact-publication.ts";
 import { decisionReviewState } from "./decision-review-read.ts";
-import { assertDecisionReviewerIndependent } from "./decision-review-authorization.ts";
+import { assertDecisionReviewerIndependent } from "@harness-anything/kernel/internal/domain/decision-event-document.ts";
 import { reconcileDecisionReviewAwaitAfterWrite } from "./decision-review-awaits.ts";
 import { retireDecisionAwaitsAfterWrite } from "./terminal-awaits-retirement.ts";
 import { resolveDecisionReviewAction } from "./repo-cell-action-parse.ts";

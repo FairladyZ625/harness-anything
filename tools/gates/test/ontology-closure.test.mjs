@@ -975,3 +975,53 @@ test("daemon protocol, client, home and fleet judgment candidates leave the migr
     );
   }
 });
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1 S2h: final repository-wide Judgment debt zeroing.
+// Zero `category === "judgment"` entries remain in `ontology-closure.json` across the entire
+// repository; every judgment candidate in `packages/` and `tools/` resolves to a canonical
+// kernel `EntityKindContract.judgments` entry or exact `sourceContracts` owner, and any
+// undeclared or re-allowlisted judgment candidate fails closed.
+test("dec_7E44897ECDCAEF2B92EC66A260/CH1 S2h: repository-wide judgment baseline is permanently zero", () => {
+  const baseline = loadGateAllowlist("ontology-closure", {
+    allowlistRoot: path.join(repoRoot, "tools/gate-allowlists"),
+    report: false,
+  }).candidates;
+  assert.deepEqual(
+    baseline.filter((row) => row.category === "judgment"),
+    [],
+    "dec_7E44897ECDCAEF2B92EC66A260/CH1 requires 0 judgment allowlist entries across the entire repository",
+  );
+
+  const result = evaluateOntologyClosure({ rootDir: repoRoot, base: "HEAD" });
+  assert.equal(result.after.judgment, 0);
+  const allJudgments = result.classified.filter((row) => row.category === "judgment");
+  assert.ok(allJudgments.length >= 550);
+  assert.deepEqual(
+    allJudgments.filter((row) => row.status !== "registered"),
+    [],
+  );
+
+  const snapshot = loadOntologyClosureSnapshot(repoRoot);
+  for (const target of [
+    "packages/daemon/src/runtime-unregistered-guard.ts",
+    "packages/daemon/src/repo-cell-unregistered-guard.ts",
+    "packages/daemon/src/migration-unregistered-guard.ts",
+    "packages/kernel/src/domain/unregistered-judgment.ts",
+  ]) {
+    const undeclared = scanOntologyText(
+      target,
+      "export function assertUnregisteredS2hCandidate(v: unknown): boolean { if (!v || typeof v !== 'object') return false; return 'ok' in v; }\n",
+    );
+    assert.equal(undeclared.length, 1, target);
+    assert.deepEqual(
+      audit(undeclared, { snapshot }).findings.map((row) => row.code),
+      ["ONTOLOGY_JUDGMENT_UNDECLARED"],
+      target,
+    );
+    assert.deepEqual(
+      audit(undeclared, { snapshot, baseline: [debt(undeclared[0])], previous: [] }).findings.map((row) => row.code),
+      ["ONTOLOGY_BASELINE_GROWTH"],
+      target,
+    );
+  }
+});

@@ -76,3 +76,10 @@ export function isTaskBoundRuntimeWriter(
     runtimeSessionIdFromActor(actor) === binding.runtimeSessionId
   );
 }
+
+export function isSubmittedExecutionCutOpen(snapshot: TaskLifecycleSnapshot, executionId: string): boolean {
+  const task = snapshot.task,
+    current = snapshot.executions.find((candidate) => candidate.executionId === executionId);
+  if (!task || (task.status !== "submitted" && task.status !== "in_review")) return false;
+  return task.currentNode === "review" && current?.state === "submitted" && current.submission !== null;
+}

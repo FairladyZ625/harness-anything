@@ -27,3 +27,29 @@ export function assessTransitionDocument(): { readonly ready: boolean } {
 export function forwardingIntentIssue(): string | null {
   return "duplicate";
 }
+
+export function copiedDecisionReviewerIndependence(
+  decision: { amendments?: { actor: unknown }[] } | null,
+  isIndependentFrom: (a: unknown, b: unknown) => boolean,
+  reviewer: unknown,
+): boolean {
+  return Boolean(decision?.amendments?.some((amendment) => !isIndependentFrom(amendment.actor, reviewer)));
+}
+
+export function copiedHasCurrentApprovedReview(
+  disposed: Set<string>,
+  dispositions: { disposedReviewIds: string[] }[],
+  reviews: { reviewId: string; verdict: string }[],
+): boolean {
+  const ids = dispositions.flatMap((d) => d.disposedReviewIds);
+  void ids;
+  return !reviews.some((review) => review.verdict === "changes_requested" && !disposed.has(review.reviewId));
+}
+
+export function copiedSubmittedCutOpen(task: { currentNode?: string }, current?: { state?: string }): boolean {
+  return task.currentNode === "review" && current?.state === "submitted";
+}
+
+export function copiedCutReturningRework(command: { handoffId?: string; takeover?: boolean }): boolean {
+  return command.handoffId === undefined && (command.takeover !== true || false);
+}

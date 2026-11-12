@@ -144,3 +144,13 @@ test("isIndependentFrom matches the previous selfReview behavior across the full
     );
   }
 });
+
+test("isIndependentFrom enforces principal-level independence when configured", () => {
+  const samePersonAgentA = person("person-a", declared("agent", "executor-a"));
+  const samePersonAgentB = person("person-a", declared("agent", "executor-b"));
+  const differentPersonAgentB = person("person-b", declared("agent", "executor-b"));
+
+  assert.equal(isIndependentFrom(samePersonAgentA, samePersonAgentB, "execution"), true);
+  assert.equal(isIndependentFrom(samePersonAgentA, samePersonAgentB, "principal"), false);
+  assert.equal(isIndependentFrom(samePersonAgentA, differentPersonAgentB, "principal"), true);
+});

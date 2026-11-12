@@ -9,6 +9,7 @@ import {
   type TaskProjection,
   type TaskV2,
 } from "@harness-anything/kernel";
+import { isSubmittedExecutionCutOpen } from "@harness-anything/kernel/internal/domain/task-bound-runtime-authority.ts";
 import { readyDispatchLifecycle } from "./runtime-dispatch-admission.ts";
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { actionForDaemonMethod } from "./protocol/daemon-protocol.contract.ts";
@@ -178,13 +179,7 @@ export function isCurrentSubmittedWorkerWrite(input: {
     (action.kind === "task-submit" && action.executionId !== undefined && action.executionId !== executionId)
   )
     return false;
-  const current = snapshot.executions.find((candidate) => candidate.executionId === executionId);
-  return (
-    ["submitted", "in_review"].includes(String(snapshot.task?.status)) &&
-    snapshot.task?.currentNode === "review" &&
-    current?.state === "submitted" &&
-    current.submission !== null
-  );
+  return isSubmittedExecutionCutOpen(snapshot, executionId);
 }
 
 /** Non-empty explicit path selection; a scopeless `--all` sweep is not a path selection. */
