@@ -1,3 +1,4 @@
+import { cliOperationalPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { AGENDA_PIN_CRITERIA } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 
 type GuidanceArgs = Readonly<Record<string, unknown>>;
@@ -7,7 +8,7 @@ type GuidanceTemplate = (args: GuidanceArgs) => string;
 // 细节写进 fact 的第一句,工作页收束后每条只露第一句,取证细节应放 --source。
 // 74 列(CJK 2 列、ASCII 1 列)是 canonical 台账 2659 条存量事实首句宽度的 p25——
 // 最短的四分之一过关,其余连同 SHA/路径领起的一律被提醒,只提示不拒绝。
-export const FACT_FIRST_SENTENCE_LIMIT = 74;
+export const FACT_FIRST_SENTENCE_LIMIT = cliOperationalPolicy.defaultValue.guidance.factColumns;
 
 /**
  * `ha fact record` receipts advise conclusion-first statements: the hint rides the receipt's
@@ -59,7 +60,7 @@ export function displayColumns(text: string): number {
 // 标题只写一个重点(业主 2026-09-30):创建类回执对超宽标题追加一条提示,只提示不拒绝。
 // 56 列(≈28 个 CJK 字符)恰为 canonical 台账 4075 条存量标题的 p25——最短的四分之一过关,
 // 其余被提醒,与「Agent 总是把名字写得很长」的现状对齐。
-export const TITLE_FOCUS_LIMIT = 56;
+export const TITLE_FOCUS_LIMIT = cliOperationalPolicy.defaultValue.guidance.titleColumns;
 
 /**
  * Creation receipts advise on over-wide titles: the hint rides the same guidance array the daemon

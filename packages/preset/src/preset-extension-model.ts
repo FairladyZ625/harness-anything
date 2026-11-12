@@ -1,3 +1,4 @@
+import { presetExecutionPolicy } from "@harness-anything/kernel/internal/domain/preset-execution-policy.ts";
 import type {
   TemplateCatalog,
   TemplateSelection,
@@ -158,7 +159,10 @@ export function validateCompletionDeclaration(completion: VerticalCompletionDecl
           `completion.gates.${gateId}.source`,
         ),
       );
-    else if (source.kind === "manual" && (gate.mandatorySignoff || gate.allowOverride))
+    else if (
+      source.kind === presetExecutionPolicy.defaultValue.manualCompletionSource &&
+      (gate.mandatorySignoff || gate.allowOverride)
+    )
       issues.push(
         extensionIssue(
           "completion_governance_invalid",
@@ -335,7 +339,7 @@ export function planTemplateMaterialization(request: MaterializationRequest): Ma
       continue;
     }
 
-    const preferredLocale = selection.localePolicy.prefer === "explicit" ? request.locale : request.locale;
+    const preferredLocale = request.locale;
     const preferred = document.locales.find((variant) => variant.locale === preferredLocale);
     const fallback =
       document.locales.find((variant) => variant.locale === selection.localePolicy.fallback) ??

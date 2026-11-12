@@ -1,3 +1,4 @@
+import { cliOperationalPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
 import {
   cliCapabilities,
@@ -120,7 +121,7 @@ export async function taskCreateHelpWorks(argv: readonly string[]): Promise<read
   }
 }
 
-const TASK_CREATE_HELP_WORK_LIMIT = 20;
+const TASK_CREATE_HELP_WORK_LIMIT = cliOperationalPolicy.defaultValue.taskCreateHelpRows;
 
 export function cliFailure(command: string, code: string, expectation: string): JsonObject {
   return {

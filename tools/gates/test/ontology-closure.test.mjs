@@ -111,6 +111,69 @@ test("the full repository passes the classified closure gate", (t) => {
   );
 });
 
+// dec_7E44897ECDCAEF2B92EC66A260 / S3d: retired debt cannot return to the leaf packages.
+test("CLI and preset Policy candidates resolve to the canonical registry without legacy debt", () => {
+  const result = evaluateOntologyClosure({ rootDir: repoRoot, base: "HEAD" });
+  const baseline = loadGateAllowlist("ontology-closure", { report: false }).candidates;
+  for (const owner of ["packages/cli", "packages/preset"]) {
+    assert.deepEqual(
+      baseline.filter(({ id }) => id.startsWith(`policy:${owner}:`)),
+      [],
+    );
+    const candidates = result.classified.filter(
+      ({ category, file }) => category === "policy" && file.startsWith(`${owner}/`),
+    );
+    assert.ok(candidates.length > 0, owner);
+    assert.ok(
+      candidates.every(({ status }) => status === "registered"),
+      owner,
+    );
+  }
+});
+
+test("CLI/preset inline budgets still fail closed while canonical references add no leaf defaults", () => {
+  for (const target of ["packages/cli/src/new-policy.ts", "packages/preset/src/new-policy.ts"]) {
+    for (const source of [
+      "const retryLimit = 5;",
+      "const timeoutMs = 100;",
+      "const maxConcurrency = 64;",
+      "if (returnBudget > 3) reject();",
+      "if (allowedAgents.length === 0) reject();",
+    ]) {
+      const candidates = scanOntologyText(target, source);
+      assert.ok(
+        audit(candidates).findings.some(({ code }) => code === "ONTOLOGY_POLICY_UNDECLARED"),
+        `${target}: ${source}`,
+      );
+    }
+    const source =
+      'import { cliOperationalPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";\nconst retryLimit = cliOperationalPolicy.defaultValue.reconnect.unreachableAttempts;';
+    assert.deepEqual(audit(scanOntologyText(target, source)).findings, []);
+  }
+});
+
+test("S3d kernel Policy source bindings retain LF/CRLF identities and reject changed defaults", () => {
+  const snapshot = loadOntologyClosureSnapshot(repoRoot);
+  for (const [target, from, to] of [
+    ["packages/kernel/src/domain/cli-operational-policy.ts", "unreachableAttempts: 5", "unreachableAttempts: 6"],
+    ["packages/kernel/src/domain/preset-execution-policy.ts", "terminationGraceMs: 100", "terminationGraceMs: 101"],
+  ]) {
+    const source = readFileSync(path.join(repoRoot, target), "utf8");
+    assert.notEqual(source.replace(from, to), source);
+    const original = scanOntologyText(target, source);
+    assert.deepEqual(audit(original, { snapshot }).findings, []);
+    assert.deepEqual(
+      scanOntologyText(target, source.replaceAll("\n", "\r\n")).map(({ id }) => id),
+      original.map(({ id }) => id),
+    );
+    assert.ok(
+      audit(scanOntologyText(target, source.replace(from, to)), { snapshot }).findings.some(
+        ({ code }) => code === "ONTOLOGY_POLICY_UNDECLARED",
+      ),
+    );
+  }
+});
+
 test("closure positive emits all three errors and prescriptions; negative text is accepted", () => {
   const result = audit(scan("positive"));
   assert.deepEqual([...new Set(result.findings.map((row) => row.code))].sort(), [

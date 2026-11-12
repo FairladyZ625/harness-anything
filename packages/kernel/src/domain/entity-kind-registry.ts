@@ -1,3 +1,5 @@
+import { cliOperationalPolicy, cliContractPolicy } from "./cli-operational-policy.ts";
+import { presetExecutionPolicy, taskRemoteEdgePolicy } from "./preset-execution-policy.ts";
 import { taskSubmissionPolicies } from "./task-submission-policy.ts";
 import { dispatchLifecyclePolicies, dispatchLifecycleJudgment } from "./dispatch-lifecycle-ontology.ts";
 import { todoSchema } from "./todo.ts";
@@ -994,7 +996,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
         route: "submitTask → shared snapshot checks; applyTransition → submit.validate → validateSubmitExecution",
       }],
     }],
-    policies: [...taskSubmissionPolicies, taskLeasePolicy, completionGateOverridePolicy, taskLeaseGuidancePolicy, {
+    policies: [presetExecutionPolicy, taskRemoteEdgePolicy, ...taskSubmissionPolicies, taskLeasePolicy, completionGateOverridePolicy, taskLeaseGuidancePolicy, {
       id: "runtime-dispatch-mutation", ownerRef: "task/release", unit: "task lease generation",
       bounds: "claimOpId must identify the same task, execution and lease version; held/reserving leases fence mutations except contract migration and parent-only amendment.",
       defaultValue: null, version: 1, scope: "center task mutation",
@@ -1474,6 +1476,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     ...hostEntityTypeContract,
     judgments: [runtimeReleasePolicyJudgment, supplyChainReleasePolicyJudgment, storageReadJudgment, ...storageReadAdditionalJudgments, ...storageReplayJudgments, ...storageScopePolicyJudgments, ...guiAdmissionPolicyJudgments, ...gateMappingPolicyJudgments],
     policies: [
+      cliOperationalPolicy, cliContractPolicy,
       writerLifecyclePolicy,
       guiQueryPacing,
       guiInteractionPolicy,

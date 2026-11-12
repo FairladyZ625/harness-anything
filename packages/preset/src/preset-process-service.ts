@@ -1,3 +1,4 @@
+import { presetExecutionPolicy } from "@harness-anything/kernel/internal/domain/preset-execution-policy.ts";
 import type * as WriteContract from "@harness-anything/kernel/internal/domain/write-chain.contract.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -96,8 +97,8 @@ interface TrackedChild {
   termination?: Promise<void>;
 }
 const terminal = new Set<PresetRunOutcomeV1>(["applied", "op_rejected", "failed", "outcome_unknown"]),
-  resultLimit = 64 * 1_024,
-  terminationGraceMs = 100;
+  resultLimit = presetExecutionPolicy.defaultValue.resultBytes,
+  terminationGraceMs = presetExecutionPolicy.defaultValue.terminationGraceMs;
 export function recoverPresetRunStatus(
   options: Pick<PresetProcessServiceOptions, "rootDir" | "userRoot">,
   runId: string,
@@ -118,7 +119,7 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
     runRoot = path.resolve(options.runRoot ?? path.join(resolveHarnessLayout(rootDir).localRoot, "preset-runs")),
     witnessRoot = path.join(runRoot, "witnesses"),
     stagingRoot = path.join(runRoot, "staging"),
-    timeoutMs = options.timeoutMs ?? 5_000,
+    timeoutMs = options.timeoutMs ?? presetExecutionPolicy.defaultValue.timeoutMs,
     maxResultBytes = options.maxResultBytes ?? resultLimit;
   ensureTree(rootDir, runRoot, witnessRoot, stagingRoot);
   const witnesses = new Map<string, Witness>(),

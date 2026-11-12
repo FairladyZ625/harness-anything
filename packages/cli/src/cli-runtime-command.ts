@@ -1,3 +1,4 @@
+import { cliContractPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
 import { renderRuntimeStatus, runRuntimeAuthCommand } from "./cli-runtime-auth.ts";
 import { runRuntimeBatch } from "./cli-runtime-batch.ts";
@@ -22,7 +23,7 @@ export async function runRuntimeFacadeCommand(
   writeActivity: (text: string) => void = (text) => process.stderr.write(text),
   request: (command: ThinCommand) => Promise<JsonObject> = runCommandThroughDaemon,
 ): Promise<JsonObject> {
-  if (command.action.claimNext === true) {
+  if (command.action.claimNext === cliContractPolicy.defaultValue.claimNext) {
     const candidates = await request({
       ...command,
       method: "repo.tasks.claimable",

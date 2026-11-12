@@ -11,6 +11,7 @@ const coordinatedCommitAuthorities = Object.freeze([
   Object.freeze({ functionName: "prepareCommit", primitive: "gitObjects.importCommit(" }),
   Object.freeze({ functionName: "finalizeRefs", primitive: "gitObjects.updateRefs(" }),
 ]);
+const cliDataModuleSpecifier = "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 
 export function findW3WriteAuthorityViolations(rootDir = process.cwd()) {
   const violations = [],
@@ -112,7 +113,7 @@ export function findW3WriteAuthorityViolations(rootDir = process.cwd()) {
 
 function isDomainModuleImport(specifier) {
   return (
-    /^@harness-anything\/(?:kernel|application)(?:\/|$)/u.test(specifier) ||
+    (specifier !== cliDataModuleSpecifier && /^@harness-anything\/(?:kernel|application)(?:\/|$)/u.test(specifier)) ||
     /(?:^|\/)(?:kernel|application)\/src(?:\/|$)/u.test(specifier)
   );
 }

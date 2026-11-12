@@ -1,3 +1,4 @@
+import { cliOperationalPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { createReadStream } from "node:fs";
 import { readdir } from "node:fs/promises";
@@ -6,8 +7,8 @@ import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/clien
 import { addDuration, createDurationHistogram, durationPercentile, type DurationHistogram } from "./slo-metrics.ts";
 
 const DAY_MS = 86_400_000,
-  DEFAULT_SLOW_LIMIT = 200,
-  MAX_SLOW_LIMIT = 10_000;
+  DEFAULT_SLOW_LIMIT = cliOperationalPolicy.defaultValue.slo.defaultRows,
+  MAX_SLOW_LIMIT = cliOperationalPolicy.defaultValue.slo.maximumRows;
 
 export interface DaemonSloOptions {
   readonly day: string;
@@ -226,7 +227,7 @@ async function readConnRequests(
       replyBytes: 0,
       traceSpans: 0,
       byMethod: new Map(),
-      overThresholdCount: 0,
+      overThresholdCount: cliOperationalPolicy.defaultValue.slo.initialOverThresholdCount,
       overThreshold: [],
       read: { file: "", incompleteLines: [], missingFiles: [] },
     };
@@ -447,7 +448,11 @@ function daemonSloOption(argv: readonly string[], name: string): string | undefi
 }
 function parseSlowLimit(value: string): number {
   const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > MAX_SLOW_LIMIT)
+  if (
+    !Number.isSafeInteger(parsed) ||
+    parsed < cliOperationalPolicy.defaultValue.slo.minimumRows ||
+    parsed > MAX_SLOW_LIMIT
+  )
     throw invalidField(`Invalid --slow-limit ${value}; use 1..${MAX_SLOW_LIMIT}.`);
   return parsed;
 }

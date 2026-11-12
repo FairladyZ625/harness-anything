@@ -1,3 +1,4 @@
+import { cliOperationalPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import path from "node:path";
 import {
@@ -574,9 +575,13 @@ async function forceStopDaemon(userRoot: string, daemonId: string, pid: number):
 async function waitProcessExit(pid: number, budgetMs: number): Promise<boolean> {
   // A fixed number of attempts, not a clock deadline: the budget is spent in retries and the
   // result is the process state, so no wall-clock comparison decides success.
-  for (let attempt = 0; attempt < Math.max(1, Math.ceil(budgetMs / 10)); attempt += 1) {
+  for (
+    let attempt = 0;
+    attempt < Math.max(1, Math.ceil(budgetMs / cliOperationalPolicy.defaultValue.daemon.stopPollMs));
+    attempt += 1
+  ) {
     if (!daemonProcessAlive(pid)) return true;
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => setTimeout(resolve, cliOperationalPolicy.defaultValue.daemon.stopPollMs));
   }
   return !daemonProcessAlive(pid);
 }
@@ -606,14 +611,14 @@ async function waitForDaemonStop(
   pid: number,
   exchange: DaemonShutdownExchange | null,
 ): Promise<DaemonStopOutcome> {
-  for (let attempt = 0; attempt < 500; attempt += 1) {
+  for (let attempt = 0; attempt < cliOperationalPolicy.defaultValue.daemon.stopAttempts; attempt += 1) {
     if (readDaemonPid(userRoot, daemonId) === null) return "stopped";
     if (!daemonProcessAlive(pid)) {
       releaseDaemonPidFile(userRoot, daemonId, pid);
       releaseDaemonSingletonLock(userRoot, daemonId, pid);
       return "stopped";
     }
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => setTimeout(resolve, cliOperationalPolicy.defaultValue.daemon.stopPollMs));
   }
   return exchange?.stopReply?.ok === true && (await daemonSocketProbe(localUserDaemonEndpoint(userRoot, daemonId)))
     ? "draining"

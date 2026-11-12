@@ -1,3 +1,4 @@
+import { cliOperationalPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import type { DaemonLaunchSpec } from "@harness-anything/daemon/internal/client/daemon-autostart";
 import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
 import { renderCliGuidance } from "../cli/guidance-plane.ts";
@@ -100,7 +101,12 @@ export async function withAutostart(
     // The failed connection already proves this socket unavailable. A second socket probe can
     // consume its full timeout without adding evidence.
     const refusal = runtimeDaemonStartRefusal(options.env);
-    if (refusal) throw new DaemonAutostartError({ ok: false, ...refusal, attempts: 0 });
+    if (refusal)
+      throw new DaemonAutostartError({
+        ok: false,
+        ...refusal,
+        attempts: cliOperationalPolicy.defaultValue.daemon.unattempted,
+      });
     const stoppedAt =
       options.userRoot && options.daemonId ? readDaemonStoppedAt(options.userRoot, options.daemonId) : null;
     if (stoppedAt)
@@ -108,7 +114,7 @@ export async function withAutostart(
         ok: false,
         code: "daemon_stopped_by_operator",
         hint: `The daemon was stopped by the operator at ${stoppedAt}. Run \`ha daemon start --service\` to start it.`,
-        attempts: 0,
+        attempts: cliOperationalPolicy.defaultValue.daemon.unattempted,
       });
     const started = await ensureLocalDaemonRunning({
       socketPath,

@@ -318,3 +318,11 @@ test("SLO options default to today's UTC day and validate thresholds", () => {
     untilMs: Date.parse("2026-01-01T12:00:00Z"),
   });
 });
+
+test("SLO slow-list retains its inclusive upper bound", () => {
+  assert.equal(parseDaemonSloOptions(["daemon", "slo", "--slow-limit", "10000"], "/tmp/u", "d").slowLimit, 10000);
+  assert.throws(
+    () => parseDaemonSloOptions(["daemon", "slo", "--slow-limit", "10001"], "/tmp/u", "d"),
+    /Invalid --slow-limit/u,
+  );
+});

@@ -68,3 +68,16 @@ test("node auto-claim CLI rejects an enabled policy with no agent or malformed l
   assert.match(String(parseNodeAutoClaimControl(["enable", "--agent", "sol", "--max-concurrent", "0"])), /integer/u);
   assert.match(String(parseNodeAutoClaimControl(["status", "--agent", "sol"])), /does not accept/u);
 });
+
+// Preserve the externally accepted range while its authority moves into kernel.
+test("auto-claim accepts both concurrency endpoints and refuses the next value", () => {
+  for (const value of ["1", "64"]) {
+    const parsed = parseNodeAutoClaimControl(["enable", "--agent", "sol", "--max-concurrent", value]);
+    assert.equal(typeof parsed, "object");
+    if (typeof parsed !== "string" && parsed.operation === "enable") assert.equal(parsed.maxConcurrent, Number(value));
+  }
+  assert.match(
+    String(parseNodeAutoClaimControl(["enable", "--agent", "sol", "--max-concurrent", "65"])),
+    /integer from 1 to 64/u,
+  );
+});

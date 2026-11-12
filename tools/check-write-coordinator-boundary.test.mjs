@@ -20,6 +20,11 @@ test("W3 write authority rejects restoration of a journal coordinator", () =>
 
 test("W3 write authority rejects a second event-store composition root", () =>
   withFixture((root) => {
+    write(
+      root,
+      "packages/cli/src/policy.ts",
+      'import { cliOperationalPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";\nvoid cliOperationalPolicy;\n',
+    );
     write(root, "packages/application/src/fallback.ts", "const fallback = makeTaskEventStore({ rootDir });\n");
     assert.match(findW3WriteAuthorityViolations(root).join("\n"), /production consumers must be exactly/u);
   }));
@@ -89,6 +94,52 @@ export type { ProbeState } from "@harness-anything/kernel/internal/domain/operat
 `,
     );
     assert.deepEqual(findW3WriteAuthorityViolations(root), []);
+  }));
+
+test("W3 permits the exact CLI Policy data leaf", () =>
+  withFixture((root) => {
+    write(
+      root,
+      "packages/cli/src/policy.ts",
+      'import { cliOperationalPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";\nvoid cliOperationalPolicy;\n',
+    );
+    assert.deepEqual(findW3WriteAuthorityViolations(root), []);
+  }));
+
+test("W3 still rejects a kernel barrel next to the CLI Policy data leaf", () =>
+  withFixture((root) => {
+    write(
+      root,
+      "packages/cli/src/policy.ts",
+      'import { cliOperationalPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";\nvoid cliOperationalPolicy;\n',
+    );
+    write(root, "packages/cli/src/barrel-import.ts", 'import { service } from "@harness-anything/kernel";\n');
+    assert.match(findW3WriteAuthorityViolations(root).join("\n"), /thin CLI must not import kernel\/application/u);
+  }));
+
+test("W3 still rejects another kernel domain leaf next to the CLI Policy data leaf", () =>
+  withFixture((root) => {
+    write(
+      root,
+      "packages/cli/src/policy.ts",
+      'import { cliOperationalPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";\nvoid cliOperationalPolicy;\n',
+    );
+    write(
+      root,
+      "packages/cli/src/domain-import.ts",
+      'import { service } from "@harness-anything/kernel/internal/domain/other-policy.ts";\n',
+    );
+    assert.match(findW3WriteAuthorityViolations(root).join("\n"), /thin CLI must not import kernel\/application/u);
+  }));
+
+test("W3 still rejects local CLI writes when the Policy data leaf is imported", () =>
+  withFixture((root) => {
+    write(
+      root,
+      "packages/cli/src/policy-write.ts",
+      'import { cliOperationalPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";\nimport { writeFileSync } from "node:fs";\nwriteFileSync("receipt.json", String(cliOperationalPolicy.defaultValue.backupDays));\n',
+    );
+    assert.match(findW3WriteAuthorityViolations(root).join("\n"), /thin CLI must not perform local writes/u);
   }));
 
 for (const declaration of [

@@ -1,3 +1,4 @@
+import { cliOperationalPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import type { AgentRuntimeSessionResult } from "@harness-anything/daemon/internal/agent-runtime-contract";
 import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
 import { cliErrorMessage } from "./cli-error.ts";
@@ -8,7 +9,7 @@ type DaemonGone = { readonly kind: "daemon-gone"; readonly cause: string };
 type DaemonStoppedByOperator = { readonly kind: "daemon-stopped"; readonly stoppedAt: string };
 type DaemonWaitFailure = DaemonGone | DaemonStoppedByOperator;
 
-const subscriptionReconnectAttemptLimit = 5;
+const subscriptionReconnectAttemptLimit = cliOperationalPolicy.defaultValue.reconnect.unreachableAttempts;
 
 /** Every terminal wait — one session, several sessions, or a task's dispatch set — is one
  * long-lived repo.agentRuntime.sessions.await request. The daemon owns the settle decision and
@@ -278,7 +279,7 @@ async function readDaemonSubscription(
   // daemon could not serve the request still counts — absence (ENOENT), refusal (ECONNREFUSED), a
   // socket that closes without a word, and an unanswered request deadline.
   let unreachable = 0,
-    retry = 0;
+    retry: number = cliOperationalPolicy.defaultValue.reconnect.initialOrdinal;
   for (;;) {
     try {
       return await read();
@@ -301,7 +302,16 @@ async function readDaemonSubscription(
       // The retry ordinal deliberately outlives the budget: a daemon that keeps accepting and then
       // closing must not turn into a connection storm, so the spacing grows to the same 5 s ceiling
       // however long the wait runs.
-      await new Promise((resolve) => setTimeout(resolve, Math.min(250 * 2 ** Math.min(retry++, 5), 5_000)));
+      await new Promise((resolve) =>
+        setTimeout(
+          resolve,
+          Math.min(
+            cliOperationalPolicy.defaultValue.reconnect.backoffMs *
+              2 ** Math.min(retry++, cliOperationalPolicy.defaultValue.reconnect.exponentCeiling),
+            cliOperationalPolicy.defaultValue.reconnect.maximumBackoffMs,
+          ),
+        ),
+      );
     }
   }
 }

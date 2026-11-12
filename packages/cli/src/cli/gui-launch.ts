@@ -1,3 +1,4 @@
+import { cliContractPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { accessSync, constants, existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
@@ -15,7 +16,7 @@ import { isBrowserGuiParentOrigin, startBrowserGuiBroker, type BrowserGuiBroker 
 
 type ReceiptEmitter = (receipt: Record<string, unknown>, json: boolean) => void;
 type LockfileEntry = { readonly optional?: boolean; readonly resolved?: string; readonly version?: string };
-const DESKTOP_GUI_RELEASES_URL = "https://github.com/FairladyZ625/harness-anything/releases";
+const DESKTOP_GUI_RELEASES_URL = cliContractPolicy.defaultValue.desktopReleasesUrl;
 export interface GuiElectronRuntime {
   readonly binary?: string;
   readonly installScript?: string;

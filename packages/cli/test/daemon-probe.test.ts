@@ -744,3 +744,12 @@ test("failed macOS sampler records an error without claiming a scene was capture
   );
   assert.equal(result.errors.length, 1);
 });
+
+test("probe preserves its interval and timeout endpoints", () => {
+  assert.equal(
+    parseProbeArgs(["daemon", "probe", "--interval", "250ms", "--timeout", "120s"], "/tmp/ha-probe").ok,
+    true,
+  );
+  assert.equal(parseProbeArgs(["daemon", "probe", "--interval", "249ms"], "/tmp/ha-probe").ok, false);
+  assert.equal(parseProbeArgs(["daemon", "probe", "--timeout", "120001ms"], "/tmp/ha-probe").ok, false);
+});

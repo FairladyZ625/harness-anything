@@ -1,3 +1,4 @@
+import { presetExecutionPolicy } from "@harness-anything/kernel/internal/domain/preset-execution-policy.ts";
 import { loadCanonicalAssets } from "./preset-assets.ts";
 import { materializeSelections } from "./preset-materialization.ts";
 import {
@@ -47,7 +48,7 @@ export function runVerticalDiscoveryAction(
         templateRef,
         materializeAs: document.materializeAs,
         localePolicy: {
-          prefer: "explicit" as const,
+          prefer: presetExecutionPolicy.defaultValue.discoveryLocalePreference,
           fallback: document.fallbackLocale,
         },
       },

@@ -1,3 +1,4 @@
+import { presetExecutionPolicy } from "@harness-anything/kernel/internal/domain/preset-execution-policy.ts";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
@@ -80,7 +81,7 @@ export function mergeScaffoldOverlay(
         slot: item.slot,
         templateRef: project.ref,
         materializeAs: item.path,
-        localePolicy: { prefer: "project", fallback: "en-US" },
+        localePolicy: { ...presetExecutionPolicy.defaultValue.overlayLocale },
       },
       owner: "doc-sync",
       requiredAnchors: item.requiredAnchors,
