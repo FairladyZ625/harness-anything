@@ -26,6 +26,7 @@ import { readTestQuarantine } from "./test-quarantine.mjs";
 const repoRoot = resolve(import.meta.dirname, "..");
 const DEFAULT_TEST_FILE_TIMEOUT_MS = 900_000;
 const PROCESS_TREE_KILL_GRACE_MS = 1_000;
+const CONCURRENCY_DISABLED = 0;
 // A worker runtime injects its daemon route and execution identity; tests must
 // reach their own fixture daemons as the test actor, not as that worker.
 const WORKER_ENVIRONMENT_VARIABLES = [
@@ -160,7 +161,9 @@ const concurrency = resolveTestConcurrency({
   isCi: Boolean(process.env.CI),
 });
 const concurrencyArgs =
-  concurrency && Number.isInteger(concurrency) && concurrency > 0 ? [`--test-concurrency=${concurrency}`] : [];
+  concurrency && Number.isInteger(concurrency) && concurrency > CONCURRENCY_DISABLED
+    ? [`--test-concurrency=${concurrency}`]
+    : [];
 const defaultFileTimeoutMs = positiveIntegerOrDefault(
   process.env.HARNESS_TEST_FILE_TIMEOUT_MS,
   DEFAULT_TEST_FILE_TIMEOUT_MS,

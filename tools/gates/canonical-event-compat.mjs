@@ -50,6 +50,8 @@ const FIXTURE_ROOT = "packages/kernel/fixtures/canonical-events";
 const DAEMON_FIXTURE_ROOT = "packages/daemon/fixtures/readside-responses";
 const MAX_READSIDE_EVENTS = 300;
 const MAX_READSIDE_MILLISECONDS = 8_000;
+const FROZEN_RESPONSE_LIMIT = 100;
+const FROZEN_GRAPH_LIMIT = 500;
 const DISPATCH_TASK_ID = "task_62eb49f177c35bd599b0d128a9";
 const frozenReadsideEvents = Object.freeze([
   {
@@ -368,14 +370,14 @@ export function projectFrozenDaemonResponses(rootDir, transformEvent = (event) =
       readPinnedEntities: projection.listPinnedEntities,
       judgments: { closeout: closeoutReadiness, blocking: blockingOf },
     });
-    const taskRead = model.guiTasks({ limit: 100 }),
+    const taskRead = model.guiTasks({ limit: FROZEN_RESPONSE_LIMIT }),
       decisionProjection = projection.listDecisions({}),
       decisionRead = { ok: true, decisions: decisionProjection.decisions, warnings: [] };
     const responses = new Map([
       ["validateDaemonTaskSnapshotList", taskRead],
       ["validateDaemonWorkspaceSummary", workspaceSummaryFromReads(taskRead, decisionRead)],
-      ["validateDaemonAgenda", model.agenda({ limit: 100 })],
-      ["validateDaemonRelationGraph", model.relationGraphPage({ limit: 500 })],
+      ["validateDaemonAgenda", model.agenda({ limit: FROZEN_RESPONSE_LIMIT })],
+      ["validateDaemonRelationGraph", model.relationGraphPage({ limit: FROZEN_GRAPH_LIMIT })],
       ["validateDaemonDecisionList", decisionRead],
       [
         "validateDaemonDocumentRead",

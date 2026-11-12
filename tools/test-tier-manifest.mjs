@@ -3,6 +3,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const testFilePattern = /\.(test|spec)\.(?:mjs|js|ts)$/u;
+const NON_POSITIVE_TIMEOUT_BOUNDARY_MS = 0;
 // Other runners own their own discovery roots: `npm run test:gui` collects *.vitest.ts(x) under
 // packages/gui/test (recursively) and `npm run test:e2e` runs packages/gui/e2e/*.e2e.mjs
 // (top level only). A test-shaped file matching those names inside those roots is discovered
@@ -76,7 +77,7 @@ export function parseTestFileTimeoutMarker(source, file = "test file") {
     return "none";
   }
   const timeoutMs = Number(value);
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= NON_POSITIVE_TIMEOUT_BOUNDARY_MS) {
     throw new Error(`invalid test file timeout marker: ${file}; expected none or a positive integer`);
   }
   return timeoutMs;

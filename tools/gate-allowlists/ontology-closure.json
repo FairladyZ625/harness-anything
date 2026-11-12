@@ -30202,42 +30202,6 @@
         "removalSlice": "S3"
       },
       {
-        "id": "policy:tools:tools/affected-tests.mjs#WHOLE_TIER_RATIO:69979d7528885c9b5042b126cb4cd25b",
-        "category": "policy",
-        "path": "tools/affected-tests.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped WHOLE_TIER_RATIO has literal configuration",
-        "exemptionId": "policy:tools:tools/affected-tests.mjs#WHOLE_TIER_RATIO:69979d7528885c9b5042b126cb4cd25b",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/check-bypass-write-boundary.mjs#checkBypassWriteBoundary.fail.allowed:f0ce3ef598574b1ebe708af042563f87",
-        "category": "policy",
-        "path": "tools/check-bypass-write-boundary.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowed has literal configuration",
-        "exemptionId": "policy:tools:tools/check-bypass-write-boundary.mjs#checkBypassWriteBoundary.fail.allowed:f0ce3ef598574b1ebe708af042563f87",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/check-bypass-write-boundary.mjs#checkBypassWriteBoundary.allowed:2e8154e618cb72503d0e8939c62379cc",
-        "category": "policy",
-        "path": "tools/check-bypass-write-boundary.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowed has literal configuration",
-        "exemptionId": "policy:tools:tools/check-bypass-write-boundary.mjs#checkBypassWriteBoundary.allowed:2e8154e618cb72503d0e8939c62379cc",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/check-cli-path-contract.mjs#fixtureWorkspace:4d13e56f0b1d8a250541f87d37f00da8",
         "category": "action",
         "path": "tools/check-cli-path-contract.mjs",
@@ -30298,18 +30262,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/check-domain-judgment-single-definition.mjs#main.policy:e5bcc0443ad1b42ae6628b7bf2203562",
-        "category": "policy",
-        "path": "tools/check-domain-judgment-single-definition.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped policy has literal configuration",
-        "exemptionId": "policy:tools:tools/check-domain-judgment-single-definition.mjs#main.policy:e5bcc0443ad1b42ae6628b7bf2203562",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "judgment:tools:tools/check-fallback-boundaries.mjs#isFullHistoryCall:6cc09f85c2ba48e55f83c8d6c0937683",
         "category": "judgment",
         "path": "tools/check-fallback-boundaries.mjs",
@@ -30334,18 +30286,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/check-file-complexity.mjs#FILE_COMPLEXITY_POLICY:6a2eede1ce1b1822c45270a078ac72d3",
-        "category": "policy",
-        "path": "tools/check-file-complexity.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped FILE_COMPLEXITY_POLICY has literal configuration",
-        "exemptionId": "policy:tools:tools/check-file-complexity.mjs#FILE_COMPLEXITY_POLICY:6a2eede1ce1b1822c45270a078ac72d3",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "judgment:tools:tools/check-gate-manifest-invariants.mjs#checkProtectedSurfaceCoverage:c3b68ccf23fcd873b78fc1533a2b8905",
         "category": "judgment",
         "path": "tools/check-gate-manifest-invariants.mjs",
@@ -30358,102 +30298,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/check-gate-manifest-invariants.mjs#jobRunsGate.commands:ac65c312798f6b4d9ecf6a38d53ba804",
-        "category": "policy",
-        "path": "tools/check-gate-manifest-invariants.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: gate.tier === \"pr-required\"",
-        "exemptionId": "policy:tools:tools/check-gate-manifest-invariants.mjs#jobRunsGate.commands:ac65c312798f6b4d9ecf6a38d53ba804",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/check-gate-manifest-invariants.mjs#checkSurfaceClassMapping:b5cd366edff53f758cec26efb74bc71e",
-        "category": "policy",
-        "path": "tools/check-gate-manifest-invariants.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: hasClass(\"manual\") !== (gate.tier === \"manual-only\")",
-        "exemptionId": "policy:tools:tools/check-gate-manifest-invariants.mjs#checkSurfaceClassMapping:b5cd366edff53f758cec26efb74bc71e",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/check-gate-surface.mjs#checkWorkflowSurface:0d89828e0de2b89914fe41838934e6d8",
-        "category": "policy",
-        "path": "tools/check-gate-surface.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: gate.tier === \"pr-required\"",
-        "exemptionId": "policy:tools:tools/check-gate-surface.mjs#checkWorkflowSurface:0d89828e0de2b89914fe41838934e6d8",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/check-gate-surface.mjs#checkBranchProtection:6d2202b474917bef6ed5ab602364032c",
-        "category": "policy",
-        "path": "tools/check-gate-surface.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: gate.tier === \"pr-required\" && gateContexts.length === 0",
-        "exemptionId": "policy:tools:tools/check-gate-surface.mjs#checkBranchProtection:6d2202b474917bef6ed5ab602364032c",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/check-gate-surface.mjs#checkTierReasons:fada4d3e4165fb7bd96d14857fbb98ce",
-        "category": "policy",
-        "path": "tools/check-gate-surface.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: gate.tier !== \"pr-required\" && isBlank(gate.tierReason)",
-        "exemptionId": "policy:tools:tools/check-gate-surface.mjs#checkTierReasons:fada4d3e4165fb7bd96d14857fbb98ce",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/check-gate-surface.mjs#checkBoundaryFields:810abb5871bb29b442c3c0cfaf77a422",
-        "category": "policy",
-        "path": "tools/check-gate-surface.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: !gate.allowlistPolicy || typeof gate.allowlistPolicy !== \"object\"",
-        "exemptionId": "policy:tools:tools/check-gate-surface.mjs#checkBoundaryFields:810abb5871bb29b442c3c0cfaf77a422",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/check-github-required-contexts.mjs#fetchGitHubBranchRules.attempt:450888f43aea70c3bce6ed2f0e4136fa",
-        "category": "policy",
-        "path": "tools/check-github-required-contexts.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped attempt has literal configuration",
-        "exemptionId": "policy:tools:tools/check-github-required-contexts.mjs#fetchGitHubBranchRules.attempt:450888f43aea70c3bce6ed2f0e4136fa",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/check-implementation-contracts.mjs#<module>:29ec2a8ede85571c9b5bde93eeebdf3d",
-        "category": "policy",
-        "path": "tools/check-implementation-contracts.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: rel.startsWith(\"packages/storage/src/store/\") &&\n    !allowedGitProcessImplementations.has(rel) &&\n    (/\\bfrom\\s+[\"']node:child_process[\"']/.test(text) || /\\br",
-        "exemptionId": "policy:tools:tools/check-implementation-contracts.mjs#<module>:29ec2a8ede85571c9b5bde93eeebdf3d",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "judgment:tools:tools/check-import-boundaries.mjs#checkOrphanPackageModules:55f5060778fd9cf995dd8d9284f067c0",
         "category": "judgment",
         "path": "tools/check-import-boundaries.mjs",
@@ -30462,18 +30306,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped checkOrphanPackageModules; branches=17; booleanReturns=7",
         "exemptionId": "judgment:tools:tools/check-import-boundaries.mjs#checkOrphanPackageModules:55f5060778fd9cf995dd8d9284f067c0",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/check-integration-test-shards.mjs#deletionAllowlistRelativePath:bdea73f4a7b65f96eaf223f1eff10ccd",
-        "category": "policy",
-        "path": "tools/check-integration-test-shards.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped deletionAllowlistRelativePath has literal configuration",
-        "exemptionId": "policy:tools:tools/check-integration-test-shards.mjs#deletionAllowlistRelativePath:bdea73f4a7b65f96eaf223f1eff10ccd",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -30510,18 +30342,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateIntentionalTestDeletions; branches=7; booleanReturns=0",
         "exemptionId": "judgment:tools:tools/check-integration-test-shards.mjs#validateIntentionalTestDeletions:a9c7238e2cc2415caea07e1a910f3cde",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/check-integrity-single-source.mjs#<module>:343237789484119d3abadb3b6b99a216",
-        "category": "policy",
-        "path": "tools/check-integrity-single-source.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: claims.size > 1",
-        "exemptionId": "policy:tools:tools/check-integrity-single-source.mjs#<module>:343237789484119d3abadb3b6b99a216",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -30606,18 +30426,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: rmSync() may change state or trigger execution",
         "exemptionId": "action:tools:tools/check-package-tarball-exports.mjs#packPackage:2c4777e9a96b52698079ad08f5c11312",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/check-poll-spin-boundary.mjs#allowlistCeiling:edc91956415abf7201b0aaea4d092c3a",
-        "category": "policy",
-        "path": "tools/check-poll-spin-boundary.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowlistCeiling has literal configuration",
-        "exemptionId": "policy:tools:tools/check-poll-spin-boundary.mjs#allowlistCeiling:edc91956415abf7201b0aaea4d092c3a",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -30850,30 +30658,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/check-relation-canonical-direction.mjs#KERNEL_ALLOWLIST:ee64232e51750311c003df9ed06730ba",
-        "category": "policy",
-        "path": "tools/check-relation-canonical-direction.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped KERNEL_ALLOWLIST has literal configuration",
-        "exemptionId": "policy:tools:tools/check-relation-canonical-direction.mjs#KERNEL_ALLOWLIST:ee64232e51750311c003df9ed06730ba",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/check-relation-canonical-direction.mjs#checkDerivedDirectionsNotWritable:8231756a035854dd5552d9130e5f932a",
-        "category": "policy",
-        "path": "tools/check-relation-canonical-direction.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: direction.registration === \"derived\" &&\n      isAllowedRelationKindTriple(direction.sourceKind, direction.type, direction.targetKind)",
-        "exemptionId": "policy:tools:tools/check-relation-canonical-direction.mjs#checkDerivedDirectionsNotWritable:8231756a035854dd5552d9130e5f932a",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "judgment:tools:tools/check-schema-field-coverage.mjs#checkEntityFieldCoverage:93a90c685758c20b158f7c24de400bbf",
         "category": "judgment",
         "path": "tools/check-schema-field-coverage.mjs",
@@ -30882,18 +30666,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped checkEntityFieldCoverage; branches=19; booleanReturns=0",
         "exemptionId": "judgment:tools:tools/check-schema-field-coverage.mjs#checkEntityFieldCoverage:93a90c685758c20b158f7c24de400bbf",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/check-self-repo-path-literals.mjs#scanSelfRepoPathLiterals.allowlistedHits:23b7ae5960153eddc1c3523643eae919",
-        "category": "policy",
-        "path": "tools/check-self-repo-path-literals.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowlistedHits has literal configuration",
-        "exemptionId": "policy:tools:tools/check-self-repo-path-literals.mjs#scanSelfRepoPathLiterals.allowlistedHits:23b7ae5960153eddc1c3523643eae919",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -31018,18 +30790,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/check-supply-chain.mjs#validateSbom:8b6096d3c8a68a18e814bf82977c8fb3",
-        "category": "policy",
-        "path": "tools/check-supply-chain.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: !isWorkspace &&\n      policy.sbom.requiresComponentHash &&\n      (!Array.isArray(component.hashes) || component.hashes.length === 0)",
-        "exemptionId": "policy:tools:tools/check-supply-chain.mjs#validateSbom:8b6096d3c8a68a18e814bf82977c8fb3",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "judgment:tools:tools/check-supply-chain.mjs#validateSbom:d0043c6fb20e4a6c523480699a00392a",
         "category": "judgment",
         "path": "tools/check-supply-chain.mjs",
@@ -31054,18 +30814,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/check-sync-subprocess.mjs#scanSyncSubprocess.program.options.allowJs:493df3e6c0c042a09e89f67a4f23412a",
-        "category": "policy",
-        "path": "tools/check-sync-subprocess.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowJs has literal configuration",
-        "exemptionId": "policy:tools:tools/check-sync-subprocess.mjs#scanSyncSubprocess.program.options.allowJs:493df3e6c0c042a09e89f67a4f23412a",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "judgment:tools:tools/check-template-command-surface.mjs#hasFiles:d8b4e1266c541a947591e0049d090ce9",
         "category": "judgment",
         "path": "tools/check-template-command-surface.mjs",
@@ -31074,30 +30822,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped hasFiles; branches=1; booleanReturns=1",
         "exemptionId": "judgment:tools:tools/check-template-command-surface.mjs#hasFiles:d8b4e1266c541a947591e0049d090ce9",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/check-write-road-registry.mjs#declaredWriteRoads.timeout:de4f2497642c3584c0b562cd692971aa",
-        "category": "policy",
-        "path": "tools/check-write-road-registry.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped timeout has literal configuration",
-        "exemptionId": "policy:tools:tools/check-write-road-registry.mjs#declaredWriteRoads.timeout:de4f2497642c3584c0b562cd692971aa",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/check-write-road-registry.mjs#findWriteRoadRegistryViolations:f7b5297f957cca29beac8479c0051cc2",
-        "category": "policy",
-        "path": "tools/check-write-road-registry.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: lifecycle?.authority !== \"packages/daemon/src/repo-cell.ts\" ||\n    lifecycle?.store !== \"packages/storage/src/store/task-event-store.ts\" ||\n    lifecycle?.lease",
-        "exemptionId": "policy:tools:tools/check-write-road-registry.mjs#findWriteRoadRegistryViolations:f7b5297f957cca29beac8479c0051cc2",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -31126,42 +30850,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/ci/electron-runtime.mjs#ELECTRON_RELEASE_BASE:219c7fc7157d8a86d0dab408d796f1c7",
-        "category": "policy",
-        "path": "tools/ci/electron-runtime.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped ELECTRON_RELEASE_BASE has literal configuration",
-        "exemptionId": "policy:tools:tools/ci/electron-runtime.mjs#ELECTRON_RELEASE_BASE:219c7fc7157d8a86d0dab408d796f1c7",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/ci/electron-runtime.mjs#DEFAULT_ATTEMPTS:5be571ac2df005202904fdde00c6f532",
-        "category": "policy",
-        "path": "tools/ci/electron-runtime.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped DEFAULT_ATTEMPTS has literal configuration",
-        "exemptionId": "policy:tools:tools/ci/electron-runtime.mjs#DEFAULT_ATTEMPTS:5be571ac2df005202904fdde00c6f532",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/ci/electron-runtime.mjs#DEFAULT_TIMEOUT_MS:a387aa59a3fc967e8fcc306e025f2b81",
-        "category": "policy",
-        "path": "tools/ci/electron-runtime.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped DEFAULT_TIMEOUT_MS has literal configuration",
-        "exemptionId": "policy:tools:tools/ci/electron-runtime.mjs#DEFAULT_TIMEOUT_MS:a387aa59a3fc967e8fcc306e025f2b81",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/ci/electron-runtime.mjs#electronCacheDirectory:bcc284a1fc36def479b6c3a553a4f5c6",
         "category": "action",
         "path": "tools/ci/electron-runtime.mjs",
@@ -31186,30 +30874,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/ci/electron-runtime.mjs#retryableTransportError:85b53a234ff810f21154b2f6c75150c3",
-        "category": "policy",
-        "path": "tools/ci/electron-runtime.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: typeof error?.retryable === \"boolean\"",
-        "exemptionId": "policy:tools:tools/ci/electron-runtime.mjs#retryableTransportError:85b53a234ff810f21154b2f6c75150c3",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/ci/electron-runtime.mjs#fetchArchiveWithRetry.attempt:450888f43aea70c3bce6ed2f0e4136fa",
-        "category": "policy",
-        "path": "tools/ci/electron-runtime.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped attempt has literal configuration",
-        "exemptionId": "policy:tools:tools/ci/electron-runtime.mjs#fetchArchiveWithRetry.attempt:450888f43aea70c3bce6ed2f0e4136fa",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/ci/electron-runtime.mjs#downloadArchive:0ee7980a1eb591bcb3d4f22caf87756c",
         "category": "action",
         "path": "tools/ci/electron-runtime.mjs",
@@ -31230,18 +30894,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: rmSync() may change state or trigger execution",
         "exemptionId": "action:tools:tools/ci/electron-runtime.mjs#downloadArchive:29be47d1c7f7ca8fa45b89107a12c0c2",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/ci/electron-runtime.mjs#ensureElectronArchive.attempts:5007c49b2464bfbfbcf01e27f6555747",
-        "category": "policy",
-        "path": "tools/ci/electron-runtime.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped attempts has literal configuration",
-        "exemptionId": "policy:tools:tools/ci/electron-runtime.mjs#ensureElectronArchive.attempts:5007c49b2464bfbfbcf01e27f6555747",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -31426,30 +31078,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/e2e-probe-support.mjs#warmDaemonProjection.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
-        "category": "policy",
-        "path": "tools/e2e-probe-support.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped attempt has literal configuration",
-        "exemptionId": "policy:tools:tools/e2e-probe-support.mjs#warmDaemonProjection.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/e2e-probe-support.mjs#warmDaemonProjection:2d0b44d2d704fc78dea491e3c8c15465",
-        "category": "policy",
-        "path": "tools/e2e-probe-support.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: attempt + 1 < attempts",
-        "exemptionId": "policy:tools:tools/e2e-probe-support.mjs#warmDaemonProjection:2d0b44d2d704fc78dea491e3c8c15465",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/e2e-probe-support.mjs#runCliJson.child:954d7de6764db2c94c4cad218310233c",
         "category": "action",
         "path": "tools/e2e-probe-support.mjs",
@@ -31594,102 +31222,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/gate-surface-boundary-policy.mjs#boundaryAllowlistAuthorityFindings:60b3ab3c8543b888f69d352e168616aa",
-        "category": "policy",
-        "path": "tools/gate-surface-boundary-policy.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: gate.allowlistPolicy.allowed !== true",
-        "exemptionId": "policy:tools:tools/gate-surface-boundary-policy.mjs#boundaryAllowlistAuthorityFindings:60b3ab3c8543b888f69d352e168616aa",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gate-surface-boundary-policy.mjs#boundaryAllowlistAuthorityFindings:4ab6fb02fbf10fb93a9b88f4920f7e76",
-        "category": "policy",
-        "path": "tools/gate-surface-boundary-policy.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: gate.allowlistPolicy.adrOrDecisionRequired !== true",
-        "exemptionId": "policy:tools:tools/gate-surface-boundary-policy.mjs#boundaryAllowlistAuthorityFindings:4ab6fb02fbf10fb93a9b88f4920f7e76",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/allowlist-path-existence.mjs#allowlistSchema:b5d2dd913d87db11e1be82511c85c226",
-        "category": "policy",
-        "path": "tools/gates/allowlist-path-existence.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowlistSchema has literal configuration",
-        "exemptionId": "policy:tools:tools/gates/allowlist-path-existence.mjs#allowlistSchema:b5d2dd913d87db11e1be82511c85c226",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/allowlist-path-existence.mjs#allowlistJsonPolicies.check-integration-test-shards.json.pathSections.overBudgetFiles:0e82bb6132e7ad440b6b1a79fa3fe254",
-        "category": "policy",
-        "path": "tools/gates/allowlist-path-existence.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped overBudgetFiles has literal configuration",
-        "exemptionId": "policy:tools:tools/gates/allowlist-path-existence.mjs#allowlistJsonPolicies.check-integration-test-shards.json.pathSections.overBudgetFiles:0e82bb6132e7ad440b6b1a79fa3fe254",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/allowlist-path-existence.mjs#allowlistJsonPolicies.check-self-repo-path-literals.json.pathSections.allowlistedUsages:81fcad787513a81e39b13ca7067dfdcb",
-        "category": "policy",
-        "path": "tools/gates/allowlist-path-existence.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowlistedUsages has literal configuration",
-        "exemptionId": "policy:tools:tools/gates/allowlist-path-existence.mjs#allowlistJsonPolicies.check-self-repo-path-literals.json.pathSections.allowlistedUsages:81fcad787513a81e39b13ca7067dfdcb",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/allowlist-path-existence.mjs#collectJsonPathEntries:30b39f8ba2dc157a85f6f210a9b5b1ad",
-        "category": "policy",
-        "path": "tools/gates/allowlist-path-existence.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: parsed.schema !== allowlistSchema || typeof parsed.entries !== \"object\" || parsed.entries === null",
-        "exemptionId": "policy:tools:tools/gates/allowlist-path-existence.mjs#collectJsonPathEntries:30b39f8ba2dc157a85f6f210a9b5b1ad",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/allowlist-path-existence.mjs#main.allowFixture:3644237b6bbcb40f9d2a84718a2cb65d",
-        "category": "policy",
-        "path": "tools/gates/allowlist-path-existence.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowFixture has literal configuration",
-        "exemptionId": "policy:tools:tools/gates/allowlist-path-existence.mjs#main.allowFixture:3644237b6bbcb40f9d2a84718a2cb65d",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/authorization-flow-graph.mjs#buildFlowGraph.program.options.allowImportingTsExtensions:f9ea74aea361bbb1bb1211acd98878bb",
-        "category": "policy",
-        "path": "tools/gates/authorization-flow-graph.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowImportingTsExtensions has literal configuration",
-        "exemptionId": "policy:tools:tools/gates/authorization-flow-graph.mjs#buildFlowGraph.program.options.allowImportingTsExtensions:f9ea74aea361bbb1bb1211acd98878bb",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "judgment:tools:tools/gates/authorization-flow-trace.mjs#makeAuthorizationTracer.derived:82d6a563eb5977f127bfd66b3bfeee25",
         "category": "judgment",
         "path": "tools/gates/authorization-flow-trace.mjs",
@@ -31698,18 +31230,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped derived; branches=10; booleanReturns=3",
         "exemptionId": "judgment:tools:tools/gates/authorization-flow-trace.mjs#makeAuthorizationTracer.derived:82d6a563eb5977f127bfd66b3bfeee25",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/authorization-flow-trace.mjs#makeAuthorizationTracer.allowPredicate.allowed:2e8154e618cb72503d0e8939c62379cc",
-        "category": "policy",
-        "path": "tools/gates/authorization-flow-trace.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowed has literal configuration",
-        "exemptionId": "policy:tools:tools/gates/authorization-flow-trace.mjs#makeAuthorizationTracer.allowPredicate.allowed:2e8154e618cb72503d0e8939c62379cc",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -31822,18 +31342,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/gates/canonical-event-compat.mjs#readContentObject:5891d5431e7b0384ea69a433fdeea41a",
-        "category": "policy",
-        "path": "tools/gates/canonical-event-compat.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: bytes.byteLength !== claim.size || createHash(\"sha256\").update(bytes).digest(\"hex\") !== claim.sha256",
-        "exemptionId": "policy:tools:tools/gates/canonical-event-compat.mjs#readContentObject:5891d5431e7b0384ea69a433fdeea41a",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/gates/canonical-event-compat.mjs#positionFixtureProjection:31a136cbf3d8348cd76cbd38a8d69a5d",
         "category": "action",
         "path": "tools/gates/canonical-event-compat.mjs",
@@ -31842,42 +31350,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: run() may change state or trigger execution",
         "exemptionId": "action:tools:tools/gates/canonical-event-compat.mjs#positionFixtureProjection:31a136cbf3d8348cd76cbd38a8d69a5d",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/canonical-event-compat.mjs#projectFrozenDaemonResponses.taskRead.limit:281836eca24c2eb78d50f8542399ca4d",
-        "category": "policy",
-        "path": "tools/gates/canonical-event-compat.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped limit has literal configuration",
-        "exemptionId": "policy:tools:tools/gates/canonical-event-compat.mjs#projectFrozenDaemonResponses.taskRead.limit:281836eca24c2eb78d50f8542399ca4d",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/canonical-event-compat.mjs#projectFrozenDaemonResponses.responses.limit:281836eca24c2eb78d50f8542399ca4d",
-        "category": "policy",
-        "path": "tools/gates/canonical-event-compat.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped limit has literal configuration",
-        "exemptionId": "policy:tools:tools/gates/canonical-event-compat.mjs#projectFrozenDaemonResponses.responses.limit:281836eca24c2eb78d50f8542399ca4d",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/canonical-event-compat.mjs#projectFrozenDaemonResponses.responses.limit:566e0d0917d2d5e10ead25ab3a9e3260",
-        "category": "policy",
-        "path": "tools/gates/canonical-event-compat.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped limit has literal configuration",
-        "exemptionId": "policy:tools:tools/gates/canonical-event-compat.mjs#projectFrozenDaemonResponses.responses.limit:566e0d0917d2d5e10ead25ab3a9e3260",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -31918,18 +31390,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/gates/clean-build.mjs#inspectTargets:ab50a8b05812e4049fbc246adbed7581",
-        "category": "policy",
-        "path": "tools/gates/clean-build.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: stage === \"before\" && GENERATED_SEGMENT.test(normalized) && existsSync(absoluteTarget)",
-        "exemptionId": "policy:tools:tools/gates/clean-build.mjs#inspectTargets:ab50a8b05812e4049fbc246adbed7581",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/gates/clean-build.mjs#evaluateCleanBuild.result:5e3c47d59c8ee4a820e2377c2bd635a1",
         "category": "action",
         "path": "tools/gates/clean-build.mjs",
@@ -31950,54 +31410,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: run() may change state or trigger execution",
         "exemptionId": "action:tools:tools/gates/clean-build.mjs#evaluateCleanBuild.result:b12525da79f4722eaeb512cfc6afef89",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/clean-build.mjs#evaluateCleanBuild.retryDelayMs:744254044a70bba9acf6abae0555428c",
-        "category": "policy",
-        "path": "tools/gates/clean-build.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped retryDelayMs has literal configuration",
-        "exemptionId": "policy:tools:tools/gates/clean-build.mjs#evaluateCleanBuild.retryDelayMs:744254044a70bba9acf6abae0555428c",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/cli-command-timing.mjs#parseCliCommandTimingBaseline:412976bdf091dc893a067aa23ee63121",
-        "category": "policy",
-        "path": "tools/gates/cli-command-timing.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: parsed?.schema !== \"cli-command-timing-ratchet/v1\" ||\n    typeof parsed.basisRevision !== \"string\" ||\n    parsed.baseline !== NOOP_ID ||\n    !plain(parsed.limit",
-        "exemptionId": "policy:tools:tools/gates/cli-command-timing.mjs#parseCliCommandTimingBaseline:412976bdf091dc893a067aa23ee63121",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/cli-command-timing.mjs#parseArgs.allowBase:19ce9f552177204d2475684b74bbf6f9",
-        "category": "policy",
-        "path": "tools/gates/cli-command-timing.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowBase has literal configuration",
-        "exemptionId": "policy:tools:tools/gates/cli-command-timing.mjs#parseArgs.allowBase:19ce9f552177204d2475684b74bbf6f9",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/combine-pr-bodies.mjs#machineSection:448de6e0dace10aa9bf3a32e129174f1",
-        "category": "policy",
-        "path": "tools/gates/combine-pr-bodies.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: claims.length > 0",
-        "exemptionId": "policy:tools:tools/gates/combine-pr-bodies.mjs#machineSection:448de6e0dace10aa9bf3a32e129174f1",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -32082,42 +31494,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: append() may change state or trigger execution",
         "exemptionId": "action:tools:tools/gates/cost-budget.mjs#measureProjectionRebuild:766e193fc233a1d8dc72555108501fc3",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/cost-budget.mjs#measureProjectionRebuild.retryDelayMs:744254044a70bba9acf6abae0555428c",
-        "category": "policy",
-        "path": "tools/gates/cost-budget.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped retryDelayMs has literal configuration",
-        "exemptionId": "policy:tools:tools/gates/cost-budget.mjs#measureProjectionRebuild.retryDelayMs:744254044a70bba9acf6abae0555428c",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/cost-budget.mjs#readBudgetFile:6db4dc94e3e45fa3792b288dfab3ca29",
-        "category": "policy",
-        "path": "tools/gates/cost-budget.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: budget?.schema !== \"cost-budget/v1\"",
-        "exemptionId": "policy:tools:tools/gates/cost-budget.mjs#readBudgetFile:6db4dc94e3e45fa3792b288dfab3ca29",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/cost-budget.mjs#readBudgetFile:a4bff48ee5aadf285a5113de4fa51e26",
-        "category": "policy",
-        "path": "tools/gates/cost-budget.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: typeof budget.fixture !== \"string\" || budget.fixture.length === 0",
-        "exemptionId": "policy:tools:tools/gates/cost-budget.mjs#readBudgetFile:a4bff48ee5aadf285a5113de4fa51e26",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -32242,18 +31618,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/gates/eslint-rules/no-poll-spin.js#create.CallExpression:9deaf5963e68f5c094ea6f6668f582f4",
-        "category": "policy",
-        "path": "tools/gates/eslint-rules/no-poll-spin.js",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: integration &&\n          node.callee.type === \"Identifier\" &&\n          pollHelpers.has(node.callee.name) &&\n          carriesDeadline(node)",
-        "exemptionId": "policy:tools:tools/gates/eslint-rules/no-poll-spin.js#create.CallExpression:9deaf5963e68f5c094ea6f6668f582f4",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/gates/eslint-rules/no-swallowed-failure.js#contentHash:f893be47d4243e8385792b15695da48a",
         "category": "action",
         "path": "tools/gates/eslint-rules/no-swallowed-failure.js",
@@ -32278,90 +31642,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/gates/evidence-contract.mjs#validateEvidenceBody:f9d3a2bd9296ad450a3241f75c5b68ac",
-        "category": "policy",
-        "path": "tools/gates/evidence-contract.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: !new Set([\"ci\", \"performance\"]).has(claim.type)",
-        "exemptionId": "policy:tools:tools/gates/evidence-contract.mjs#validateEvidenceBody:f9d3a2bd9296ad450a3241f75c5b68ac",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/evidence-contract.mjs#validateEvidenceBody:58160542860c46fd6a54d9e075f3bf0d",
-        "category": "policy",
-        "path": "tools/gates/evidence-contract.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: claim.fields[field] === undefined || claim.fields[field].length === 0",
-        "exemptionId": "policy:tools:tools/gates/evidence-contract.mjs#validateEvidenceBody:58160542860c46fd6a54d9e075f3bf0d",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/evidence-contract.mjs#validateEvidenceBody:c8c4dc33f15b4fabf3ca996126049059",
-        "category": "policy",
-        "path": "tools/gates/evidence-contract.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: claim.fields[\"run-url\"] !== undefined && !validRunUrl(claim.fields[\"run-url\"])",
-        "exemptionId": "policy:tools:tools/gates/evidence-contract.mjs#validateEvidenceBody:c8c4dc33f15b4fabf3ca996126049059",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/evidence-contract.mjs#validateEvidenceBody:31d5b536190bb3a020aea815fa2a0cbf",
-        "category": "policy",
-        "path": "tools/gates/evidence-contract.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: claim.fields[\"commit-sha\"] !== undefined && !SHA.test(claim.fields[\"commit-sha\"])",
-        "exemptionId": "policy:tools:tools/gates/evidence-contract.mjs#validateEvidenceBody:31d5b536190bb3a020aea815fa2a0cbf",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/evidence-contract.mjs#validateEvidenceBody:58160542860c46fd6a54d9e075f3bf0d:2",
-        "category": "policy",
-        "path": "tools/gates/evidence-contract.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: claim.fields[field] === undefined || claim.fields[field].length === 0",
-        "exemptionId": "policy:tools:tools/gates/evidence-contract.mjs#validateEvidenceBody:58160542860c46fd6a54d9e075f3bf0d:2",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/evidence-contract.mjs#validateEvidenceBody:23aaa4968e0d534bf36159792c3386a1",
-        "category": "policy",
-        "path": "tools/gates/evidence-contract.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: claim.type === \"performance\"",
-        "exemptionId": "policy:tools:tools/gates/evidence-contract.mjs#validateEvidenceBody:23aaa4968e0d534bf36159792c3386a1",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/evidence-contract.mjs#validateEvidenceBody.status:60d0bfa78b10ce1691bdb3b4f871662f",
-        "category": "policy",
-        "path": "tools/gates/evidence-contract.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: claims.length === 0",
-        "exemptionId": "policy:tools:tools/gates/evidence-contract.mjs#validateEvidenceBody.status:60d0bfa78b10ce1691bdb3b4f871662f",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "judgment:tools:tools/gates/evidence-contract.mjs#validateEvidenceBody:aac26dfc4f24f079537888136ae8a3e1",
         "category": "judgment",
         "path": "tools/gates/evidence-contract.mjs",
@@ -32370,18 +31650,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateEvidenceBody; branches=9; booleanReturns=0",
         "exemptionId": "judgment:tools:tools/gates/evidence-contract.mjs#validateEvidenceBody:aac26dfc4f24f079537888136ae8a3e1",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/gui-read-baseline.mjs#parseArgs.allowBase:19ce9f552177204d2475684b74bbf6f9",
-        "category": "policy",
-        "path": "tools/gates/gui-read-baseline.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowBase has literal configuration",
-        "exemptionId": "policy:tools:tools/gates/gui-read-baseline.mjs#parseArgs.allowBase:19ce9f552177204d2475684b74bbf6f9",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -32434,66 +31702,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/gates/module-policy.mjs#BUDGETED_PRODUCTION.budgetExempt:af47b8549303bc6159007d0efd5289a0",
-        "category": "policy",
-        "path": "tools/gates/module-policy.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped budgetExempt has literal configuration",
-        "exemptionId": "policy:tools:tools/gates/module-policy.mjs#BUDGETED_PRODUCTION.budgetExempt:af47b8549303bc6159007d0efd5289a0",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/module-policy.mjs#EXEMPT_PRODUCTION.budgetExempt:55ef5630b5065843789aa1e816075d65",
-        "category": "policy",
-        "path": "tools/gates/module-policy.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped budgetExempt has literal configuration",
-        "exemptionId": "policy:tools:tools/gates/module-policy.mjs#EXEMPT_PRODUCTION.budgetExempt:55ef5630b5065843789aa1e816075d65",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/ontology-action-concurrency.mjs#auditActionConcurrency:939d0d785a131ae69e4e5d15f24c8888",
-        "category": "policy",
-        "path": "tools/gates/ontology-action-concurrency.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: typeof action.concurrency !== \"object\" || action.concurrency === null || Array.isArray(action.concurrency)",
-        "exemptionId": "policy:tools:tools/gates/ontology-action-concurrency.mjs#auditActionConcurrency:939d0d785a131ae69e4e5d15f24c8888",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/ontology-action-concurrency.mjs#main.allowFixture:3644237b6bbcb40f9d2a84718a2cb65d",
-        "category": "policy",
-        "path": "tools/gates/ontology-action-concurrency.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowFixture has literal configuration",
-        "exemptionId": "policy:tools:tools/gates/ontology-action-concurrency.mjs#main.allowFixture:3644237b6bbcb40f9d2a84718a2cb65d",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/ontology-closure-audit.mjs#prescriptions.policy:f3a2d8fbe96c6b3c493f6ed381bca43e",
-        "category": "policy",
-        "path": "tools/gates/ontology-closure-audit.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped policy has literal configuration",
-        "exemptionId": "policy:tools:tools/gates/ontology-closure-audit.mjs#prescriptions.policy:f3a2d8fbe96c6b3c493f6ed381bca43e",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "judgment:tools:tools/gates/ontology-closure-audit.mjs#validateClosureBaseline:98729e36f7c0f6446d0ae042374c6aec",
         "category": "judgment",
         "path": "tools/gates/ontology-closure-audit.mjs",
@@ -32502,18 +31710,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateClosureBaseline; branches=5; booleanReturns=0",
         "exemptionId": "judgment:tools:tools/gates/ontology-closure-audit.mjs#validateClosureBaseline:98729e36f7c0f6446d0ae042374c6aec",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/ontology-closure-audit.mjs#closureDeclarations:217835bf6fbf44958566d88c279fe2c9",
-        "category": "policy",
-        "path": "tools/gates/ontology-closure-audit.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: !nonempty(policy.id) ||\n        !nonempty(policy.ownerRef) ||\n        !nonempty(policy.unit) ||\n        !nonempty(policy.bounds) ||\n        !Object.hasOwn(polic",
-        "exemptionId": "policy:tools:tools/gates/ontology-closure-audit.mjs#closureDeclarations:217835bf6fbf44958566d88c279fe2c9",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -32542,18 +31738,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/gates/ontology-closure-scan.mjs#scanOntologyText.visit.facts.policyNames:c5adf61b1433321c34eebe4fe409be86",
-        "category": "policy",
-        "path": "tools/gates/ontology-closure-scan.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped policyNames has literal configuration",
-        "exemptionId": "policy:tools:tools/gates/ontology-closure-scan.mjs#scanOntologyText.visit.facts.policyNames:c5adf61b1433321c34eebe4fe409be86",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/gates/ontology-closure-scan.mjs#scanOntologyText.visit:2ff918178f46f4f47fe65b80a6b36f27",
         "category": "action",
         "path": "tools/gates/ontology-closure-scan.mjs",
@@ -32562,54 +31746,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: update() may change state or trigger execution",
         "exemptionId": "action:tools:tools/gates/ontology-closure-scan.mjs#scanOntologyText.visit:2ff918178f46f4f47fe65b80a6b36f27",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/ontology-closure.mjs#main.options.allowBase:19ce9f552177204d2475684b74bbf6f9",
-        "category": "policy",
-        "path": "tools/gates/ontology-closure.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowBase has literal configuration",
-        "exemptionId": "policy:tools:tools/gates/ontology-closure.mjs#main.options.allowBase:19ce9f552177204d2475684b74bbf6f9",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/ontology-explain-executable-actions.mjs#main.allowFixture:3644237b6bbcb40f9d2a84718a2cb65d",
-        "category": "policy",
-        "path": "tools/gates/ontology-explain-executable-actions.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowFixture has literal configuration",
-        "exemptionId": "policy:tools:tools/gates/ontology-explain-executable-actions.mjs#main.allowFixture:3644237b6bbcb40f9d2a84718a2cb65d",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/ontology-gate-lib.mjs#parseCommonArgs:20d10d3343be2ad41a38e12c03b553f8",
-        "category": "policy",
-        "path": "tools/gates/ontology-gate-lib.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: flag === \"--fixture\" && allowFixture",
-        "exemptionId": "policy:tools:tools/gates/ontology-gate-lib.mjs#parseCommonArgs:20d10d3343be2ad41a38e12c03b553f8",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/ontology-gate-lib.mjs#parseCommonArgs:1ef27f16fa3e8ba497702d2f469ea08c",
-        "category": "policy",
-        "path": "tools/gates/ontology-gate-lib.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: flag === \"--base\" && allowBase",
-        "exemptionId": "policy:tools:tools/gates/ontology-gate-lib.mjs#parseCommonArgs:1ef27f16fa3e8ba497702d2f469ea08c",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -32626,42 +31762,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/gates/ontology-kind-authority.mjs#actionCoverage:2945b12818444d6c20bd16c861208778",
-        "category": "policy",
-        "path": "tools/gates/ontology-kind-authority.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: effect.implementation === \"compiled-event\" && declared.has(effect.policyAction)",
-        "exemptionId": "policy:tools:tools/gates/ontology-kind-authority.mjs#actionCoverage:2945b12818444d6c20bd16c861208778",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/platform-smoke.mjs#evaluatePlatformSmoke.help.timeout:ee19a5b20be5955d176eafe625832150",
-        "category": "policy",
-        "path": "tools/gates/platform-smoke.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped timeout has literal configuration",
-        "exemptionId": "policy:tools:tools/gates/platform-smoke.mjs#evaluatePlatformSmoke.help.timeout:ee19a5b20be5955d176eafe625832150",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/platform-smoke.mjs#evaluatePlatformSmoke.result.timeout:ee19a5b20be5955d176eafe625832150",
-        "category": "policy",
-        "path": "tools/gates/platform-smoke.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped timeout has literal configuration",
-        "exemptionId": "policy:tools:tools/gates/platform-smoke.mjs#evaluatePlatformSmoke.result.timeout:ee19a5b20be5955d176eafe625832150",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/gates/production-delta.mjs#reportComputedDelta:9ea27a44f572af95f8221c54bd0e5573",
         "category": "action",
         "path": "tools/gates/production-delta.mjs",
@@ -32670,18 +31770,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: appendFileSync() may change state or trigger execution",
         "exemptionId": "action:tools:tools/gates/production-delta.mjs#reportComputedDelta:9ea27a44f572af95f8221c54bd0e5573",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/receipt-verify.mjs#RECEIPT_SCHEMA.oneOf.properties.limit:2c4ebd46e4cd814c0e36d8569373c43a",
-        "category": "policy",
-        "path": "tools/gates/receipt-verify.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped limit has literal configuration",
-        "exemptionId": "policy:tools:tools/gates/receipt-verify.mjs#RECEIPT_SCHEMA.oneOf.properties.limit:2c4ebd46e4cd814c0e36d8569373c43a",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -32698,18 +31786,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/gates/receipt-verify.mjs#validateReceiptSchema:618992967c8cafb34aae4988d49f172f",
-        "category": "policy",
-        "path": "tools/gates/receipt-verify.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: !(Number.isInteger(receipt.limit) && receipt.limit >= 0) &&\n      !(typeof receipt.limit === \"string\" && receipt.limit.length > 0)",
-        "exemptionId": "policy:tools:tools/gates/receipt-verify.mjs#validateReceiptSchema:618992967c8cafb34aae4988d49f172f",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "judgment:tools:tools/gates/receipt-verify.mjs#validateReceiptSchema:863e6ec3989af726604da9100ea9ed74",
         "category": "judgment",
         "path": "tools/gates/receipt-verify.mjs",
@@ -32718,18 +31794,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateReceiptSchema; branches=9; booleanReturns=0",
         "exemptionId": "judgment:tools:tools/gates/receipt-verify.mjs#validateReceiptSchema:863e6ec3989af726604da9100ea9ed74",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/receipt-verify.mjs#verifyReceipt:cf8022d07c3fddc869110266a6736c35",
-        "category": "policy",
-        "path": "tools/gates/receipt-verify.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: expectations.minimumLimit !== undefined &&\n    !(typeof receipt?.limit === \"number\" && receipt.limit >= expectations.minimumLimit)",
-        "exemptionId": "policy:tools:tools/gates/receipt-verify.mjs#verifyReceipt:cf8022d07c3fddc869110266a6736c35",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -32842,42 +31906,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/gates/windows-first-run.mjs#STEP_TIMEOUT_MS:0a3c40d210a065e56e1386bb9a5e4ab6",
-        "category": "policy",
-        "path": "tools/gates/windows-first-run.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped STEP_TIMEOUT_MS has literal configuration",
-        "exemptionId": "policy:tools:tools/gates/windows-first-run.mjs#STEP_TIMEOUT_MS:0a3c40d210a065e56e1386bb9a5e4ab6",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/windows-first-run.mjs#evaluateWindowsFirstRun.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
-        "category": "policy",
-        "path": "tools/gates/windows-first-run.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped attempt has literal configuration",
-        "exemptionId": "policy:tools:tools/gates/windows-first-run.mjs#evaluateWindowsFirstRun.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gates/windows-first-run.mjs#evaluateWindowsFirstRun.retryDelay:5ef6fc570ec8dd149876881ddd912759",
-        "category": "policy",
-        "path": "tools/gates/windows-first-run.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped retryDelay has literal configuration",
-        "exemptionId": "policy:tools:tools/gates/windows-first-run.mjs#evaluateWindowsFirstRun.retryDelay:5ef6fc570ec8dd149876881ddd912759",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/gates/windows-first-run.mjs#evaluateWindowsFirstRun:7c47df6b100f2598e08cb3860b5446bf",
         "category": "action",
         "path": "tools/gates/windows-first-run.mjs",
@@ -32970,54 +31998,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: writeFileSync() may change state or trigger execution",
         "exemptionId": "action:tools:tools/gui-e2e.mjs#main:4f0a13c67b8e4e1187d0f9e04a7a1022",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/integration-test-shards.mjs#integrationShardBudgetMs:243d5868a25b6ec16f598e35e2c68373",
-        "category": "policy",
-        "path": "tools/integration-test-shards.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped integrationShardBudgetMs has literal configuration",
-        "exemptionId": "policy:tools:tools/integration-test-shards.mjs#integrationShardBudgetMs:243d5868a25b6ec16f598e35e2c68373",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/integration-test-shards.mjs#integrationFileBudgetMs:cfc2f419e7c34528315e98aa4622ddc8",
-        "category": "policy",
-        "path": "tools/integration-test-shards.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped integrationFileBudgetMs has literal configuration",
-        "exemptionId": "policy:tools:tools/integration-test-shards.mjs#integrationFileBudgetMs:cfc2f419e7c34528315e98aa4622ddc8",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/integration-test-shards.mjs#integrationShardWallSpreadBudgetMs:eed75e1fc8aef818f934d23a238efc17",
-        "category": "policy",
-        "path": "tools/integration-test-shards.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped integrationShardWallSpreadBudgetMs has literal configuration",
-        "exemptionId": "policy:tools:tools/integration-test-shards.mjs#integrationShardWallSpreadBudgetMs:eed75e1fc8aef818f934d23a238efc17",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/integration-test-shards.mjs#validateIntegrationTestShards:7a024c9689262b8545375428d31e325a",
-        "category": "policy",
-        "path": "tools/integration-test-shards.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: !((weightOverrides[file] ?? 0) > integrationFileBudgetMs)",
-        "exemptionId": "policy:tools:tools/integration-test-shards.mjs#validateIntegrationTestShards:7a024c9689262b8545375428d31e325a",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -33190,18 +32170,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/isolated-test-dependencies.mjs#prepareDependencies.lock.timeout:6d4bf34ac3037b272a2b871c727b9574",
-        "category": "policy",
-        "path": "tools/isolated-test-dependencies.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped timeout has literal configuration",
-        "exemptionId": "policy:tools:tools/isolated-test-dependencies.mjs#prepareDependencies.lock.timeout:6d4bf34ac3037b272a2b871c727b9574",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/isolated-test-dependencies.mjs#prepareDependencies:44b7188a4b9ab78dba0b6a8d7021ff90",
         "category": "action",
         "path": "tools/isolated-test-dependencies.mjs",
@@ -33246,18 +32214,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: writeFileSync() may change state or trigger execution",
         "exemptionId": "action:tools:tools/isolated-test-dependencies.mjs#prepareDependencies:88a2b03376719f5a71c91161747d66bb",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/logs/cli-usage-audit.mjs#auditCliUsage.zeroObservation.evidenceLimit:43ec34a5b3c035451177cbd8b00872bf",
-        "category": "policy",
-        "path": "tools/logs/cli-usage-audit.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped evidenceLimit has literal configuration",
-        "exemptionId": "policy:tools:tools/logs/cli-usage-audit.mjs#auditCliUsage.zeroObservation.evidenceLimit:43ec34a5b3c035451177cbd8b00872bf",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -33514,66 +32470,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/measure-gui-read-baseline.mjs#reloadRenderer.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
-        "category": "policy",
-        "path": "tools/measure-gui-read-baseline.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped attempt has literal configuration",
-        "exemptionId": "policy:tools:tools/measure-gui-read-baseline.mjs#reloadRenderer.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/measure-gui-read-baseline.mjs#reloadRenderer:c405084fbfcb5b9770b6390db5bb3dbf",
-        "category": "policy",
-        "path": "tools/measure-gui-read-baseline.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: !String(error).includes(\"Promise was collected\") || attempt === 19",
-        "exemptionId": "policy:tools:tools/measure-gui-read-baseline.mjs#reloadRenderer:c405084fbfcb5b9770b6390db5bb3dbf",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/measure-gui-read-baseline.mjs#openElectronInspector.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
-        "category": "policy",
-        "path": "tools/measure-gui-read-baseline.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped attempt has literal configuration",
-        "exemptionId": "policy:tools:tools/measure-gui-read-baseline.mjs#openElectronInspector.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/measure-gui-read-baseline.mjs#executeRenderer.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
-        "category": "policy",
-        "path": "tools/measure-gui-read-baseline.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped attempt has literal configuration",
-        "exemptionId": "policy:tools:tools/measure-gui-read-baseline.mjs#executeRenderer.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/measure-gui-read-baseline.mjs#executeRenderer:c405084fbfcb5b9770b6390db5bb3dbf",
-        "category": "policy",
-        "path": "tools/measure-gui-read-baseline.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: !String(error).includes(\"Promise was collected\") || attempt === 19",
-        "exemptionId": "policy:tools:tools/measure-gui-read-baseline.mjs#executeRenderer:c405084fbfcb5b9770b6390db5bb3dbf",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "judgment:tools:tools/node-test-failure-reporter.mjs#isTestFailureWrapper:69ff4ed259540cc2efe2560fd81217bd",
         "category": "judgment",
         "path": "tools/node-test-failure-reporter.mjs",
@@ -33598,18 +32494,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/node-test-runner-lib.mjs#selectTestFiles:72e0cb651899400fa14c39f21da3f904",
-        "category": "policy",
-        "path": "tools/node-test-runner-lib.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: tier === \"all\"",
-        "exemptionId": "policy:tools:tools/node-test-runner-lib.mjs#selectTestFiles:72e0cb651899400fa14c39f21da3f904",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "judgment:tools:tools/node-test-runner-lib.mjs#validateManifest:75f37cb6e1f0f09b5c820e512ee8b7e6",
         "category": "judgment",
         "path": "tools/node-test-runner-lib.mjs",
@@ -33618,30 +32502,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateManifest; branches=3; booleanReturns=0",
         "exemptionId": "judgment:tools:tools/node-test-runner-lib.mjs#validateManifest:75f37cb6e1f0f09b5c820e512ee8b7e6",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/node-test-runner-lib.mjs#resolveTestConcurrency:ae3d17e6ba3b0a8c2e71f2ad232fdd6b",
-        "category": "policy",
-        "path": "tools/node-test-runner-lib.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: flagConcurrency !== undefined && Number.isInteger(flagConcurrency) && flagConcurrency > 0",
-        "exemptionId": "policy:tools:tools/node-test-runner-lib.mjs#resolveTestConcurrency:ae3d17e6ba3b0a8c2e71f2ad232fdd6b",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/node-test-runner-lib.mjs#resolveTestConcurrency:cbd4bbfaec1c7735f2f8d04d4bfa6ff4",
-        "category": "policy",
-        "path": "tools/node-test-runner-lib.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: envConcurrency !== undefined && envConcurrency !== \"\"",
-        "exemptionId": "policy:tools:tools/node-test-runner-lib.mjs#resolveTestConcurrency:cbd4bbfaec1c7735f2f8d04d4bfa6ff4",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -33694,18 +32554,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/old-data-copy-evidence.mjs#parseArgs:27096f4a62ae7d8af521d84397afe9e2",
-        "category": "policy",
-        "path": "tools/old-data-copy-evidence.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: !Number.isInteger(args.attachTimeoutMs) || args.attachTimeoutMs < 1000",
-        "exemptionId": "policy:tools:tools/old-data-copy-evidence.mjs#parseArgs:27096f4a62ae7d8af521d84397afe9e2",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/old-data-copy-evidence.mjs#run.child:23f0c14bedf2d467c1a9ee1bb86b9239",
         "category": "action",
         "path": "tools/old-data-copy-evidence.mjs",
@@ -33738,18 +32586,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: run() may change state or trigger execution",
         "exemptionId": "action:tools:tools/old-data-copy-evidence.mjs#runText.result:e5ffa25e7109449f604fd129c09daba2",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/old-data-copy-evidence.mjs#snapshotRepository.retryDelay:a38f533782efe76e8e50dba711b96f64",
-        "category": "policy",
-        "path": "tools/old-data-copy-evidence.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped retryDelay has literal configuration",
-        "exemptionId": "policy:tools:tools/old-data-copy-evidence.mjs#snapshotRepository.retryDelay:a38f533782efe76e8e50dba711b96f64",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -33798,18 +32634,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: run() may change state or trigger execution",
         "exemptionId": "action:tools:tools/old-data-copy-evidence.mjs#snapshotCacheDatabase.recovered:26531f422a69210fe415f61ec152a3fc",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/old-data-copy-evidence.mjs#snapshotCacheDatabase.retryDelay:a38f533782efe76e8e50dba711b96f64",
-        "category": "policy",
-        "path": "tools/old-data-copy-evidence.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped retryDelay has literal configuration",
-        "exemptionId": "policy:tools:tools/old-data-copy-evidence.mjs#snapshotCacheDatabase.retryDelay:a38f533782efe76e8e50dba711b96f64",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -33886,18 +32710,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/old-data-copy-evidence.mjs#createAndSubmitMediumEvidenceTask:a3eccf97b622f934cae091eb7f0c0af6",
-        "category": "policy",
-        "path": "tools/old-data-copy-evidence.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: assessment?.schema !== \"task-risk-tier-assessment/v1\" || assessment.declaredTier !== \"medium\"",
-        "exemptionId": "policy:tools:tools/old-data-copy-evidence.mjs#createAndSubmitMediumEvidenceTask:a3eccf97b622f934cae091eb7f0c0af6",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/old-data-copy-evidence.mjs#runDirectEvidence:2d2e8e4156591ff8132e74e70f78867a",
         "category": "action",
         "path": "tools/old-data-copy-evidence.mjs",
@@ -33922,18 +32734,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/old-data-copy-evidence.mjs#boundedRm.retryDelay:a38f533782efe76e8e50dba711b96f64",
-        "category": "policy",
-        "path": "tools/old-data-copy-evidence.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped retryDelay has literal configuration",
-        "exemptionId": "policy:tools:tools/old-data-copy-evidence.mjs#boundedRm.retryDelay:a38f533782efe76e8e50dba711b96f64",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/old-data-copy-evidence.mjs#boundedRm:9227427805b387434da7853ad43e6e6a",
         "category": "action",
         "path": "tools/old-data-copy-evidence.mjs",
@@ -33942,18 +32742,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: rmSync() may change state or trigger execution",
         "exemptionId": "action:tools:tools/old-data-copy-evidence.mjs#boundedRm:9227427805b387434da7853ad43e6e6a",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/old-data-copy-evidence.mjs#main.retryDelay:a38f533782efe76e8e50dba711b96f64",
-        "category": "policy",
-        "path": "tools/old-data-copy-evidence.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped retryDelay has literal configuration",
-        "exemptionId": "policy:tools:tools/old-data-copy-evidence.mjs#main.retryDelay:a38f533782efe76e8e50dba711b96f64",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -34126,18 +32914,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/perf/baseline-daemon-arm.mjs#runDaemonArm.listMs.payload.limit:3d5762acfee353fe3edd750ddd6d2d06",
-        "category": "policy",
-        "path": "tools/perf/baseline-daemon-arm.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped limit has literal configuration",
-        "exemptionId": "policy:tools:tools/perf/baseline-daemon-arm.mjs#runDaemonArm.listMs.payload.limit:3d5762acfee353fe3edd750ddd6d2d06",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/perf/baseline-daemon-arm.mjs#runDaemonArm:5ec08fe02066ba52e8e37a6c3cb17867",
         "category": "action",
         "path": "tools/perf/baseline-daemon-arm.mjs",
@@ -34182,42 +32958,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: assign() may change state or trigger execution",
         "exemptionId": "action:tools:tools/perf/baseline-fixture.mjs#withoutExecutionCredential:90d561d956b02f0d62f7368a46eb5fbc",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/perf/baseline-gui-arm.mjs#runGuiArm.timeout:ce20292f9fe2d403461b29451cb14098",
-        "category": "policy",
-        "path": "tools/perf/baseline-gui-arm.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped timeout has literal configuration",
-        "exemptionId": "policy:tools:tools/perf/baseline-gui-arm.mjs#runGuiArm.timeout:ce20292f9fe2d403461b29451cb14098",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/perf/baseline-gui-arm.mjs#runGuiArm.timeout:ce20292f9fe2d403461b29451cb14098:2",
-        "category": "policy",
-        "path": "tools/perf/baseline-gui-arm.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped timeout has literal configuration",
-        "exemptionId": "policy:tools:tools/perf/baseline-gui-arm.mjs#runGuiArm.timeout:ce20292f9fe2d403461b29451cb14098:2",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/perf/baseline-gui-arm.mjs#runGuiArm.timeout:74baa14f0593fb06f9712e9ba19bf3f6",
-        "category": "policy",
-        "path": "tools/perf/baseline-gui-arm.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped timeout has literal configuration",
-        "exemptionId": "policy:tools:tools/perf/baseline-gui-arm.mjs#runGuiArm.timeout:74baa14f0593fb06f9712e9ba19bf3f6",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -34390,18 +33130,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/pr-merge.mjs#run:ccab03860e954915bcf84075b35ce10a",
-        "category": "policy",
-        "path": "tools/pr-merge.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: !allowFailure && result.status !== 0",
-        "exemptionId": "policy:tools:tools/pr-merge.mjs#run:ccab03860e954915bcf84075b35ce10a",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/pr-merge.mjs#output:1e8751f9617866b549da2a545ce00d78",
         "category": "action",
         "path": "tools/pr-merge.mjs",
@@ -34414,18 +33142,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/pr-merge.mjs#preflight.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
-        "category": "policy",
-        "path": "tools/pr-merge.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped attempt has literal configuration",
-        "exemptionId": "policy:tools:tools/pr-merge.mjs#preflight.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/pr-merge.mjs#equivalentRebasedCut:896f34ca42ca9db756618b04666c7331",
         "category": "action",
         "path": "tools/pr-merge.mjs",
@@ -34434,18 +33150,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: run() may change state or trigger execution",
         "exemptionId": "action:tools:tools/pr-merge.mjs#equivalentRebasedCut:896f34ca42ca9db756618b04666c7331",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/pr-merge.mjs#enqueueOpenPr.checks.allowFailure:4bdf300d741567eea7f4c85e204be5ec",
-        "category": "policy",
-        "path": "tools/pr-merge.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowFailure has literal configuration",
-        "exemptionId": "policy:tools:tools/pr-merge.mjs#enqueueOpenPr.checks.allowFailure:4bdf300d741567eea7f4c85e204be5ec",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -34498,30 +33202,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/pr-merge.mjs#waitForMergedPr.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
-        "category": "policy",
-        "path": "tools/pr-merge.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped attempt has literal configuration",
-        "exemptionId": "policy:tools:tools/pr-merge.mjs#waitForMergedPr.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/pr-merge.mjs#deleteRemoteBranch.probe.allowFailure:4bdf300d741567eea7f4c85e204be5ec",
-        "category": "policy",
-        "path": "tools/pr-merge.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowFailure has literal configuration",
-        "exemptionId": "policy:tools:tools/pr-merge.mjs#deleteRemoteBranch.probe.allowFailure:4bdf300d741567eea7f4c85e204be5ec",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/pr-merge.mjs#deleteRemoteBranch.probe:c8e77c2e5fcc3aed04a088bb5950a5e7",
         "category": "action",
         "path": "tools/pr-merge.mjs",
@@ -34530,18 +33210,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: run() may change state or trigger execution",
         "exemptionId": "action:tools:tools/pr-merge.mjs#deleteRemoteBranch.probe:c8e77c2e5fcc3aed04a088bb5950a5e7",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/pr-merge.mjs#deleteRemoteBranch.deletion.allowFailure:4bdf300d741567eea7f4c85e204be5ec",
-        "category": "policy",
-        "path": "tools/pr-merge.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowFailure has literal configuration",
-        "exemptionId": "policy:tools:tools/pr-merge.mjs#deleteRemoteBranch.deletion.allowFailure:4bdf300d741567eea7f4c85e204be5ec",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -34566,18 +33234,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: run() may change state or trigger execution",
         "exemptionId": "action:tools:tools/pr-merge.mjs#removeLocalBranch:d2c099e57f469c42cb0f206883cd5316",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/pr-merge.mjs#removeLocalBranch.localRef.allowFailure:4bdf300d741567eea7f4c85e204be5ec",
-        "category": "policy",
-        "path": "tools/pr-merge.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowFailure has literal configuration",
-        "exemptionId": "policy:tools:tools/pr-merge.mjs#removeLocalBranch.localRef.allowFailure:4bdf300d741567eea7f4c85e204be5ec",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -34750,18 +33406,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/release-installation.mjs#runReleaseCommand.allowPositionals:dfbd75c6929f662fd75baedf599dadd4",
-        "category": "policy",
-        "path": "tools/release-installation.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowPositionals has literal configuration",
-        "exemptionId": "policy:tools:tools/release-installation.mjs#runReleaseCommand.allowPositionals:dfbd75c6929f662fd75baedf599dadd4",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/release-installation.mjs#runReleaseCommand:ce08fc928ec44bed13574f133cd7b751",
         "category": "action",
         "path": "tools/release-installation.mjs",
@@ -34882,18 +33526,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/release-installation.mjs#switchRelease:905e29a3f783b582eb18ac69feb80169",
-        "category": "policy",
-        "path": "tools/release-installation.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: repos.some((repo) => repo.state === \"failed\") || Date.now() >= deadline",
-        "exemptionId": "policy:tools:tools/release-installation.mjs#switchRelease:905e29a3f783b582eb18ac69feb80169",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/release-installation.mjs#switchRelease:02d8f2da84481cc759c9ab29933b44c3",
         "category": "action",
         "path": "tools/release-installation.mjs",
@@ -34938,18 +33570,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: assign() may change state or trigger execution",
         "exemptionId": "action:tools:tools/release-installation.mjs#cli:0f88a8049a2d0642437cfe92fc71d4bc",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/release-installation.mjs#cli:6316bdc310ed6cea93408aca99b176ad",
-        "category": "policy",
-        "path": "tools/release-installation.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: !allowFailure && receipt.ok !== true",
-        "exemptionId": "policy:tools:tools/release-installation.mjs#cli:6316bdc310ed6cea93408aca99b176ad",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -35002,18 +33622,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/release-installation.mjs#run:11bb20810b812abbb8943bb7b93abca4",
-        "category": "policy",
-        "path": "tools/release-installation.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: allowFailure && typeof error.code === \"number\" && error.stdout",
-        "exemptionId": "policy:tools:tools/release-installation.mjs#run:11bb20810b812abbb8943bb7b93abca4",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/release-version.mjs#writeJson:d2f45f2340676bc07f4bb6f7a6ed4cad",
         "category": "action",
         "path": "tools/release-version.mjs",
@@ -35050,18 +33658,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/run-local-check.mjs#selectQosPrefix:fbbb2bcf4047e5db0d80b56904cfda35",
-        "category": "policy",
-        "path": "tools/run-local-check.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: platform === \"darwin\" && hasTaskpolicy",
-        "exemptionId": "policy:tools:tools/run-local-check.mjs#selectQosPrefix:fbbb2bcf4047e5db0d80b56904cfda35",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/run-local-check.mjs#acquireLock:fe14a435fb2c90f8f9339b66a22b9399",
         "category": "action",
         "path": "tools/run-local-check.mjs",
@@ -35094,18 +33690,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: rmSync() may change state or trigger execution",
         "exemptionId": "action:tools:tools/run-local-check.mjs#acquireLock:8d07d7746aed3a43d027ea3c0c3e6fec:2",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/run-local-gates-check.mjs#staticGateExclusion:cb33fa94de0f40063611bc5e673a28b9",
-        "category": "policy",
-        "path": "tools/run-local-gates-check.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: gate.tier !== \"pr-required\"",
-        "exemptionId": "policy:tools:tools/run-local-gates-check.mjs#staticGateExclusion:cb33fa94de0f40063611bc5e673a28b9",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -35182,30 +33766,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/run-node-tests.mjs#DEFAULT_TEST_FILE_TIMEOUT_MS:362166f765b010775880010168bc453a",
-        "category": "policy",
-        "path": "tools/run-node-tests.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped DEFAULT_TEST_FILE_TIMEOUT_MS has literal configuration",
-        "exemptionId": "policy:tools:tools/run-node-tests.mjs#DEFAULT_TEST_FILE_TIMEOUT_MS:362166f765b010775880010168bc453a",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/run-node-tests.mjs#PROCESS_TREE_KILL_GRACE_MS:7e5da8e57b9c3f41fe465682dfdaf561",
-        "category": "policy",
-        "path": "tools/run-node-tests.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped PROCESS_TREE_KILL_GRACE_MS has literal configuration",
-        "exemptionId": "policy:tools:tools/run-node-tests.mjs#PROCESS_TREE_KILL_GRACE_MS:7e5da8e57b9c3f41fe465682dfdaf561",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/run-node-tests.mjs#<module>:f62145f4644019967667b454ca12f864",
         "category": "action",
         "path": "tools/run-node-tests.mjs",
@@ -35218,54 +33778,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/run-node-tests.mjs#concurrencyArgs:38c1353c9a081bcd554c7933fd347837",
-        "category": "policy",
-        "path": "tools/run-node-tests.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: concurrency && Number.isInteger(concurrency) && concurrency > 0",
-        "exemptionId": "policy:tools:tools/run-node-tests.mjs#concurrencyArgs:38c1353c9a081bcd554c7933fd347837",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/run-node-tests.mjs#selectedFileTimeouts:5f1bfff2582d3a502f45996f2184c0d8",
-        "category": "policy",
-        "path": "tools/run-node-tests.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: marked === undefined || (marked === \"none\" && !unboundedAllowed)",
-        "exemptionId": "policy:tools:tools/run-node-tests.mjs#selectedFileTimeouts:5f1bfff2582d3a502f45996f2184c0d8",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/run-node-tests.mjs#fileTimeoutMs:36e6f593b759f1cca7167d43a35121ca",
-        "category": "policy",
-        "path": "tools/run-node-tests.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: finiteTimeouts.length > 0",
-        "exemptionId": "policy:tools:tools/run-node-tests.mjs#fileTimeoutMs:36e6f593b759f1cca7167d43a35121ca",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/run-node-tests.mjs#stallReportMs:4555f640c4cc67b6c0b86f288f395a1d",
-        "category": "policy",
-        "path": "tools/run-node-tests.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: finiteTimeouts.length === 0",
-        "exemptionId": "policy:tools:tools/run-node-tests.mjs#stallReportMs:4555f640c4cc67b6c0b86f288f395a1d",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/run-node-tests.mjs#child:8c6fedcfe3943a19e6b16e59a3803e14",
         "category": "action",
         "path": "tools/run-node-tests.mjs",
@@ -35274,18 +33786,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: spawn() may change state or trigger execution",
         "exemptionId": "action:tools:tools/run-node-tests.mjs#child:8c6fedcfe3943a19e6b16e59a3803e14",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/run-node-tests.mjs#watchdog:cc5262d17de1a83ab44ce283eb296ffe",
-        "category": "policy",
-        "path": "tools/run-node-tests.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: finiteTimeouts.length === 0",
-        "exemptionId": "policy:tools:tools/run-node-tests.mjs#watchdog:cc5262d17de1a83ab44ce283eb296ffe",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -35434,30 +33934,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/scale/b5-real.mjs#measureB5RealSingle.claimBasis:0a6f81a9b1489b1d6cfe5283bf4f5d5f",
-        "category": "policy",
-        "path": "tools/scale/b5-real.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped claimBasis has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/b5-real.mjs#measureB5RealSingle.claimBasis:0a6f81a9b1489b1d6cfe5283bf4f5d5f",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/scale/b5-real.mjs#measureB5RealSingle.draft.payload.riskTier:d3e53392b5af532ed2c9544b172fe896",
-        "category": "policy",
-        "path": "tools/scale/b5-real.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped riskTier has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/b5-real.mjs#measureB5RealSingle.draft.payload.riskTier:d3e53392b5af532ed2c9544b172fe896",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/scale/b5-real.mjs#measureB5RealSingle.draft.factId:98b811f2c1df063b7e45398ccd07919e",
         "category": "action",
         "path": "tools/scale/b5-real.mjs",
@@ -35478,102 +33954,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: update() may change state or trigger execution",
         "exemptionId": "action:tools:tools/scale/b5-real.mjs#measureB5RealSingle.eventStore.readHead.eventDigest:e3b7eeda684e94d49f1748f1a11de517",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/scale/b5-real.mjs#measureB5RealSingle.catchUpLimit:2a3862c09b3f08a5d38b5a13c6beaab1",
-        "category": "policy",
-        "path": "tools/scale/b5-real.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped catchUpLimit has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/b5-real.mjs#measureB5RealSingle.catchUpLimit:2a3862c09b3f08a5d38b5a13c6beaab1",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/scale/b5-real.mjs#measureB5RealSingle.catchUpLimit:d94695942ec3bce05faa7ee4dd0d0d9a",
-        "category": "policy",
-        "path": "tools/scale/b5-real.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped catchUpLimit has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/b5-real.mjs#measureB5RealSingle.catchUpLimit:d94695942ec3bce05faa7ee4dd0d0d9a",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/scale/b5-real.mjs#measureB5RealSingle.narrowStatus.limit:3d5762acfee353fe3edd750ddd6d2d06",
-        "category": "policy",
-        "path": "tools/scale/b5-real.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped limit has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/b5-real.mjs#measureB5RealSingle.narrowStatus.limit:3d5762acfee353fe3edd750ddd6d2d06",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/scale/b5-real.mjs#measureB5RealSingle.narrowWindow.limit:3d5762acfee353fe3edd750ddd6d2d06",
-        "category": "policy",
-        "path": "tools/scale/b5-real.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped limit has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/b5-real.mjs#measureB5RealSingle.narrowWindow.limit:3d5762acfee353fe3edd750ddd6d2d06",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/scale/b5-real.mjs#measureB5RealSingle.singleTask.limit:0dd585c292e12f6bf0b47a1d330750d6",
-        "category": "policy",
-        "path": "tools/scale/b5-real.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped limit has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/b5-real.mjs#measureB5RealSingle.singleTask.limit:0dd585c292e12f6bf0b47a1d330750d6",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/scale/b5-real.mjs#measureB5RealSingle.pageTask.limit:3d5762acfee353fe3edd750ddd6d2d06",
-        "category": "policy",
-        "path": "tools/scale/b5-real.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped limit has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/b5-real.mjs#measureB5RealSingle.pageTask.limit:3d5762acfee353fe3edd750ddd6d2d06",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/scale/b5-real.mjs#measureB5RealSingle.pageGraph.limit:3d5762acfee353fe3edd750ddd6d2d06",
-        "category": "policy",
-        "path": "tools/scale/b5-real.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped limit has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/b5-real.mjs#measureB5RealSingle.pageGraph.limit:3d5762acfee353fe3edd750ddd6d2d06",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/scale/b5-real.mjs#measureB5RealSingle.pageFacts.limit:3d5762acfee353fe3edd750ddd6d2d06",
-        "category": "policy",
-        "path": "tools/scale/b5-real.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped limit has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/b5-real.mjs#measureB5RealSingle.pageFacts.limit:3d5762acfee353fe3edd750ddd6d2d06",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -35626,18 +34006,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/scale/center-bench.mjs#main.allowPositionals:dfbd75c6929f662fd75baedf599dadd4",
-        "category": "policy",
-        "path": "tools/scale/center-bench.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowPositionals has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/center-bench.mjs#main.allowPositionals:dfbd75c6929f662fd75baedf599dadd4",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/scale/center-bench.mjs#main:a67cac63055d2f17aeb68f62ec504181",
         "category": "action",
         "path": "tools/scale/center-bench.mjs",
@@ -35686,18 +34054,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/scale/center-campaign.mjs#measureCenter.probe.receipt.payload.limit:0dd585c292e12f6bf0b47a1d330750d6",
-        "category": "policy",
-        "path": "tools/scale/center-campaign.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped limit has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/center-campaign.mjs#measureCenter.probe.receipt.payload.limit:0dd585c292e12f6bf0b47a1d330750d6",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/scale/center-campaign.mjs#legacyFrameProbe.server:6ac75a7abb2bf5f3db01f66de71054e4",
         "category": "action",
         "path": "tools/scale/center-campaign.mjs",
@@ -35734,18 +34090,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/scale/center-campaign.mjs#legacyFrameProbe.timeoutMs:e7081fc1e347ae791f97369495842bd2",
-        "category": "policy",
-        "path": "tools/scale/center-campaign.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped timeoutMs has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/center-campaign.mjs#legacyFrameProbe.timeoutMs:e7081fc1e347ae791f97369495842bd2",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/scale/center-fixture.mjs#createCenterFixture.request:2cf782cc1b97d136fc50b1b0fd8a2934",
         "category": "action",
         "path": "tools/scale/center-fixture.mjs",
@@ -35754,30 +34098,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: delete() may change state or trigger execution",
         "exemptionId": "action:tools:tools/scale/center-fixture.mjs#createCenterFixture.request:2cf782cc1b97d136fc50b1b0fd8a2934",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/scale/center-fixture.mjs#createCenterFixture.request.timeoutMs:56d92d560ecf5a3d099f43ff3d944a05",
-        "category": "policy",
-        "path": "tools/scale/center-fixture.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped timeoutMs has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/center-fixture.mjs#createCenterFixture.request.timeoutMs:56d92d560ecf5a3d099f43ff3d944a05",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/scale/center-fixture.mjs#createCenterFixture.close.retryDelay:a38f533782efe76e8e50dba711b96f64",
-        "category": "policy",
-        "path": "tools/scale/center-fixture.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped retryDelay has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/center-fixture.mjs#createCenterFixture.close.retryDelay:a38f533782efe76e8e50dba711b96f64",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -35842,18 +34162,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/scale/center-fixture.mjs#createCenterFixture.waitReady.timeoutMs:5af3656f31feb918c9418078a571930a",
-        "category": "policy",
-        "path": "tools/scale/center-fixture.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped timeoutMs has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/center-fixture.mjs#createCenterFixture.waitReady.timeoutMs:5af3656f31feb918c9418078a571930a",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/scale/center-fixture.mjs#createCenterFixture.subscribeEvents:128aedc69d348bc18477fce2225a9657",
         "category": "action",
         "path": "tools/scale/center-fixture.mjs",
@@ -35862,18 +34170,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: delete() may change state or trigger execution",
         "exemptionId": "action:tools:tools/scale/center-fixture.mjs#createCenterFixture.subscribeEvents:128aedc69d348bc18477fce2225a9657",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/scale/center-fixture.mjs#createCenterFixture.peer.timeoutMs:56d92d560ecf5a3d099f43ff3d944a05",
-        "category": "policy",
-        "path": "tools/scale/center-fixture.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped timeoutMs has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/center-fixture.mjs#createCenterFixture.peer.timeoutMs:56d92d560ecf5a3d099f43ff3d944a05",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -35914,54 +34210,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/scale/center-ledger.mjs#generateCenterLedger.generated:430241759784bd10e7a6d45f33722c0d",
-        "category": "policy",
-        "path": "tools/scale/center-ledger.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped generated has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/center-ledger.mjs#generateCenterLedger.generated:430241759784bd10e7a6d45f33722c0d",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/scale/center-ledger.mjs#generateCenterLedger.riskTier:e8bab2f33fc5c4d994e6b3ef674a656c",
-        "category": "policy",
-        "path": "tools/scale/center-ledger.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped riskTier has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/center-ledger.mjs#generateCenterLedger.riskTier:e8bab2f33fc5c4d994e6b3ef674a656c",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/scale/center-ledger.mjs#generateCenterLedger:88b033bbc5a173a84a1d0cc4d904e591",
-        "category": "policy",
-        "path": "tools/scale/center-ledger.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: needed < 1 || needed > profile.events - generated",
-        "exemptionId": "policy:tools:tools/scale/center-ledger.mjs#generateCenterLedger:88b033bbc5a173a84a1d0cc4d904e591",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/scale/center-ledger.mjs#generateCenterLedger:eb1782982fb2d64102b94550677c2b03",
-        "category": "policy",
-        "path": "tools/scale/center-ledger.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: generated % 10_000 === 0",
-        "exemptionId": "policy:tools:tools/scale/center-ledger.mjs#generateCenterLedger:eb1782982fb2d64102b94550677c2b03",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/scale/center-ledger.mjs#generateCenterLedger:3addde52e5bfbd09f570b12f8a6b5238",
         "category": "action",
         "path": "tools/scale/center-ledger.mjs",
@@ -35974,30 +34222,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/scale/center-model.mjs#extractTrafficModel.rate:6db670bf050ff7bbb01ac380ae443dd5",
-        "category": "policy",
-        "path": "tools/scale/center-model.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped rate has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/center-model.mjs#extractTrafficModel.rate:6db670bf050ff7bbb01ac380ae443dd5",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/scale/center-process.mjs#launch.shutdownDeadlineMs:636cc5d946164436fe08e378f7615957",
-        "category": "policy",
-        "path": "tools/scale/center-process.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped shutdownDeadlineMs has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/center-process.mjs#launch.shutdownDeadlineMs:636cc5d946164436fe08e378f7615957",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/scale/center-process.mjs#<module>:1bc6b6568f2352cceda51e1723993eea",
         "category": "action",
         "path": "tools/scale/center-process.mjs",
@@ -36006,18 +34230,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: process.on(message) is an execution entry",
         "exemptionId": "action:tools:tools/scale/center-process.mjs#<module>:1bc6b6568f2352cceda51e1723993eea",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/scale/center-replay.mjs#syntheticParams.payload.limit:5fe71253427187a597c501af26bb9f84",
-        "category": "policy",
-        "path": "tools/scale/center-replay.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped limit has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/center-replay.mjs#syntheticParams.payload.limit:5fe71253427187a597c501af26bb9f84",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -36106,18 +34318,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/scale/cli-entity-bench.commands.mjs#decisionPacket.riskTier:d3e53392b5af532ed2c9544b172fe896",
-        "category": "policy",
-        "path": "tools/scale/cli-entity-bench.commands.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped riskTier has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/cli-entity-bench.commands.mjs#decisionPacket.riskTier:d3e53392b5af532ed2c9544b172fe896",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/scale/cli-entity-bench.mjs#main:d4477a9bfb05b35339d0aabc4fe0d0a4",
         "category": "action",
         "path": "tools/scale/cli-entity-bench.mjs",
@@ -36142,18 +34342,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/scale/cli-entity-bench.mjs#main.timeoutMs:eb93500f81177372f239d495c2eaa0de",
-        "category": "policy",
-        "path": "tools/scale/cli-entity-bench.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped timeoutMs has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/cli-entity-bench.mjs#main.timeoutMs:eb93500f81177372f239d495c2eaa0de",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/scale/cli-entity-bench.mjs#main:f67f31b7475330cff10ad44e0a07ba3a",
         "category": "action",
         "path": "tools/scale/cli-entity-bench.mjs",
@@ -36162,18 +34350,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: invoke() may change state or trigger execution",
         "exemptionId": "action:tools:tools/scale/cli-entity-bench.mjs#main:f67f31b7475330cff10ad44e0a07ba3a",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/scale/cli-entity-bench.mjs#main.receipt.timeoutMs:5af3656f31feb918c9418078a571930a",
-        "category": "policy",
-        "path": "tools/scale/cli-entity-bench.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped timeoutMs has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/cli-entity-bench.mjs#main.receipt.timeoutMs:5af3656f31feb918c9418078a571930a",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -36202,18 +34378,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/scale/cli-entity-bench.mjs#main.timeoutMs:5af3656f31feb918c9418078a571930a",
-        "category": "policy",
-        "path": "tools/scale/cli-entity-bench.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped timeoutMs has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/cli-entity-bench.mjs#main.timeoutMs:5af3656f31feb918c9418078a571930a",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/scale/cli-entity-bench.mjs#main:34d7319835fbf7b4517b9271a22b4323",
         "category": "action",
         "path": "tools/scale/cli-entity-bench.mjs",
@@ -36222,18 +34386,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: invoke() may change state or trigger execution",
         "exemptionId": "action:tools:tools/scale/cli-entity-bench.mjs#main:34d7319835fbf7b4517b9271a22b4323",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/scale/cli-entity-bench.mjs#main.timeoutMs:5af3656f31feb918c9418078a571930a:2",
-        "category": "policy",
-        "path": "tools/scale/cli-entity-bench.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped timeoutMs has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/cli-entity-bench.mjs#main.timeoutMs:5af3656f31feb918c9418078a571930a:2",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -36250,18 +34402,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/scale/cli-entity-bench.mjs#main.timeoutMs:5af3656f31feb918c9418078a571930a:3",
-        "category": "policy",
-        "path": "tools/scale/cli-entity-bench.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped timeoutMs has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/cli-entity-bench.mjs#main.timeoutMs:5af3656f31feb918c9418078a571930a:3",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/scale/cli-entity-bench.mjs#main:44e56f1f6a60907a5d22273cb5014ba0",
         "category": "action",
         "path": "tools/scale/cli-entity-bench.mjs",
@@ -36270,18 +34410,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: invoke() may change state or trigger execution",
         "exemptionId": "action:tools:tools/scale/cli-entity-bench.mjs#main:44e56f1f6a60907a5d22273cb5014ba0",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/scale/cli-entity-bench.mjs#main.timeoutMs:981b7ecab8a550018d0948f6503a4152",
-        "category": "policy",
-        "path": "tools/scale/cli-entity-bench.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped timeoutMs has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/cli-entity-bench.mjs#main.timeoutMs:981b7ecab8a550018d0948f6503a4152",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -36334,18 +34462,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/scale/cli-entity-bench.mjs#stopDaemon.stopped.timeoutMs:5af3656f31feb918c9418078a571930a",
-        "category": "policy",
-        "path": "tools/scale/cli-entity-bench.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped timeoutMs has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/cli-entity-bench.mjs#stopDaemon.stopped.timeoutMs:5af3656f31feb918c9418078a571930a",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/scale/cli-entity-bench.mjs#stopDaemon.stopped:6a97d03f9699256dba9b8d76cb75a2ee",
         "category": "action",
         "path": "tools/scale/cli-entity-bench.mjs",
@@ -36366,18 +34482,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: spawn() may change state or trigger execution",
         "exemptionId": "action:tools:tools/scale/cli-entity-bench.mjs#concurrentCli.child:1812c980f4a7b5268e81c04c68a5ad39",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/scale/cli-entity-bench.oracles.mjs#receiptOracle:cf5fc36c7c57a4b28ace602fd1517cef",
-        "category": "policy",
-        "path": "tools/scale/cli-entity-bench.oracles.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: outcome.status === \"accepted_durable\" && outcome.firstRevision > initRevision && !claimed.has(outcome.opId)",
-        "exemptionId": "policy:tools:tools/scale/cli-entity-bench.oracles.mjs#receiptOracle:cf5fc36c7c57a4b28ace602fd1517cef",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -36522,18 +34626,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: writeFileSync() may change state or trigger execution",
         "exemptionId": "action:tools:tools/scale/cli-entity-bench.workload.mjs#benchContext.review:c8ddb5b92bf66c8117fe4a7227b90e6d",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/scale/cli-entity-bench.workload.mjs#benchContext.squadSource.leaderTurnBudget:70a092cde8c0c0a8adc34fdd171ec497",
-        "category": "policy",
-        "path": "tools/scale/cli-entity-bench.workload.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped leaderTurnBudget has literal configuration",
-        "exemptionId": "policy:tools:tools/scale/cli-entity-bench.workload.mjs#benchContext.squadSource.leaderTurnBudget:70a092cde8c0c0a8adc34fdd171ec497",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -36850,18 +34942,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/smoke-cli-package.mjs#runCliPackageSmoke.retryDelay:5ef6fc570ec8dd149876881ddd912759",
-        "category": "policy",
-        "path": "tools/smoke-cli-package.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped retryDelay has literal configuration",
-        "exemptionId": "policy:tools:tools/smoke-cli-package.mjs#runCliPackageSmoke.retryDelay:5ef6fc570ec8dd149876881ddd912759",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/smoke-cli-package.mjs#runCliPackageSmoke:384889fb0c821e5482209f42ac571619",
         "category": "action",
         "path": "tools/smoke-cli-package.mjs",
@@ -36906,30 +34986,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: rmSync() may change state or trigger execution",
         "exemptionId": "action:tools:tools/smoke-legacy-intake.mjs#<module>:db3a29937634901fdc999d5763eb2f72",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/soak/daemon-soak.mjs#workloadFailureEvidenceLimit:bcc8b614f8bc2f74ebedd7ee16a7d9d3",
-        "category": "policy",
-        "path": "tools/soak/daemon-soak.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped workloadFailureEvidenceLimit has literal configuration",
-        "exemptionId": "policy:tools:tools/soak/daemon-soak.mjs#workloadFailureEvidenceLimit:bcc8b614f8bc2f74ebedd7ee16a7d9d3",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/soak/daemon-soak.mjs#createSoakEvents.task.metadata.riskTier:d3e53392b5af532ed2c9544b172fe896",
-        "category": "policy",
-        "path": "tools/soak/daemon-soak.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped riskTier has literal configuration",
-        "exemptionId": "policy:tools:tools/soak/daemon-soak.mjs#createSoakEvents.task.metadata.riskTier:d3e53392b5af532ed2c9544b172fe896",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -37138,30 +35194,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/soak/daemon-soak.mjs#workloadClient.options.payload.limit:3d5762acfee353fe3edd750ddd6d2d06",
-        "category": "policy",
-        "path": "tools/soak/daemon-soak.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped limit has literal configuration",
-        "exemptionId": "policy:tools:tools/soak/daemon-soak.mjs#workloadClient.options.payload.limit:3d5762acfee353fe3edd750ddd6d2d06",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/soak/daemon-soak.mjs#workloadClient.options.payload.limit:3d5762acfee353fe3edd750ddd6d2d06:2",
-        "category": "policy",
-        "path": "tools/soak/daemon-soak.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped limit has literal configuration",
-        "exemptionId": "policy:tools:tools/soak/daemon-soak.mjs#workloadClient.options.payload.limit:3d5762acfee353fe3edd750ddd6d2d06:2",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/soak/daemon-soak.mjs#<module>:3fb4478f59ff221dcbeebb868948eed7",
         "category": "action",
         "path": "tools/soak/daemon-soak.mjs",
@@ -37230,18 +35262,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: update() may change state or trigger execution",
         "exemptionId": "action:tools:tools/stress/core/oracles.mjs#oracleO3:b46bd6134bb1a6e160a70fe1b0801eba",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/stress/core/oracles.mjs#oracleO3:9a49c177829d6584937cd6f81c106590",
-        "category": "policy",
-        "path": "tools/stress/core/oracles.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: createHash(\"sha256\").update(bytes).digest(\"hex\") !== stripSha256(claim.sha256)",
-        "exemptionId": "policy:tools:tools/stress/core/oracles.mjs#oracleO3:9a49c177829d6584937cd6f81c106590",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -37330,18 +35350,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/stress/daemon/mixed-history-scenario.mjs#runMixedHistoryScenario.killed.timeout:ee19a5b20be5955d176eafe625832150",
-        "category": "policy",
-        "path": "tools/stress/daemon/mixed-history-scenario.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped timeout has literal configuration",
-        "exemptionId": "policy:tools:tools/stress/daemon/mixed-history-scenario.mjs#runMixedHistoryScenario.killed.timeout:ee19a5b20be5955d176eafe625832150",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/stress/daemon/mixed-history-scenario.mjs#runMixedHistoryScenario:441a7548c6e8b7b360cba33298d1ccc6",
         "category": "action",
         "path": "tools/stress/daemon/mixed-history-scenario.mjs",
@@ -37350,18 +35358,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: rmSync() may change state or trigger execution",
         "exemptionId": "action:tools:tools/stress/daemon/mixed-history-scenario.mjs#runMixedHistoryScenario:441a7548c6e8b7b360cba33298d1ccc6",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/stress/daemon/mixed-history-scenario.mjs#runMixedHistoryScenario.caseResult.oracles.interruptionRetry:dbe19d4de70242194bca669fda90323f",
-        "category": "policy",
-        "path": "tools/stress/daemon/mixed-history-scenario.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped interruptionRetry has literal configuration",
-        "exemptionId": "policy:tools:tools/stress/daemon/mixed-history-scenario.mjs#runMixedHistoryScenario.caseResult.oracles.interruptionRetry:dbe19d4de70242194bca669fda90323f",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -37462,18 +35458,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/stress/daemon/registry-runtime-scenarios.mjs#runCliMaybe.result.timeout:ce20292f9fe2d403461b29451cb14098",
-        "category": "policy",
-        "path": "tools/stress/daemon/registry-runtime-scenarios.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped timeout has literal configuration",
-        "exemptionId": "policy:tools:tools/stress/daemon/registry-runtime-scenarios.mjs#runCliMaybe.result.timeout:ce20292f9fe2d403461b29451cb14098",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/stress/daemon/registry-runtime-scenarios.mjs#spawnCli.child:ab346289596a3a218dcb5d49d98acf00",
         "category": "action",
         "path": "tools/stress/daemon/registry-runtime-scenarios.mjs",
@@ -37482,18 +35466,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: spawn() may change state or trigger execution",
         "exemptionId": "action:tools:tools/stress/daemon/registry-runtime-scenarios.mjs#spawnCli.child:ab346289596a3a218dcb5d49d98acf00",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/stress/daemon/registry-runtime-scenarios.mjs#processOptions.timeout:f2101e6de6857fc1337be200d9d22bf4",
-        "category": "policy",
-        "path": "tools/stress/daemon/registry-runtime-scenarios.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped timeout has literal configuration",
-        "exemptionId": "policy:tools:tools/stress/daemon/registry-runtime-scenarios.mjs#processOptions.timeout:f2101e6de6857fc1337be200d9d22bf4",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -37518,18 +35490,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: rmSync() may change state or trigger execution",
         "exemptionId": "action:tools:tools/stress/daemon/writer-projection-scenarios.mjs#runProjectionOwnerScenario:a5406086392850ad15722ee2d46758d8",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/stress/daemon/writer-projection-scenarios.mjs#processOptions.timeout:f2101e6de6857fc1337be200d9d22bf4",
-        "category": "policy",
-        "path": "tools/stress/daemon/writer-projection-scenarios.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped timeout has literal configuration",
-        "exemptionId": "policy:tools:tools/stress/daemon/writer-projection-scenarios.mjs#processOptions.timeout:f2101e6de6857fc1337be200d9d22bf4",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -37714,42 +35674,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/stress/entity-v2-scale.generator.mjs#generateEventStream:af7bcfe78e8cee729056e40c870c94d0",
-        "category": "policy",
-        "path": "tools/stress/entity-v2-scale.generator.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: index > 0 && members.length < budget",
-        "exemptionId": "policy:tools:tools/stress/entity-v2-scale.generator.mjs#generateEventStream:af7bcfe78e8cee729056e40c870c94d0",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/stress/entity-v2-scale.generator.mjs#generateEventStream.compiled.event.payload.riskTier:d3e53392b5af532ed2c9544b172fe896",
-        "category": "policy",
-        "path": "tools/stress/entity-v2-scale.generator.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped riskTier has literal configuration",
-        "exemptionId": "policy:tools:tools/stress/entity-v2-scale.generator.mjs#generateEventStream.compiled.event.payload.riskTier:d3e53392b5af532ed2c9544b172fe896",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/stress/entity-v2-scale.generator.mjs#generateEventStream:c14a8730c822831f6103d610c3011386",
-        "category": "policy",
-        "path": "tools/stress/entity-v2-scale.generator.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: index % declaredWorkset.decisionEveryTasks === 0 && members.length + 1 < budget",
-        "exemptionId": "policy:tools:tools/stress/entity-v2-scale.generator.mjs#generateEventStream:c14a8730c822831f6103d610c3011386",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/stress/entity-v2-scale.generator.mjs#generateEventStream:2166351a52bd380620d2559fbb485005",
         "category": "action",
         "path": "tools/stress/entity-v2-scale.generator.mjs",
@@ -37798,18 +35722,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/stress/fleet/fleet-fixture.mjs#openFleetCampaignFixture.close.retryDelay:babc02cb3a7facbd191545da635999f5",
-        "category": "policy",
-        "path": "tools/stress/fleet/fleet-fixture.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped retryDelay has literal configuration",
-        "exemptionId": "policy:tools:tools/stress/fleet/fleet-fixture.mjs#openFleetCampaignFixture.close.retryDelay:babc02cb3a7facbd191545da635999f5",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/stress/fleet/fleet-fixture.mjs#openFleetCampaignFixture.close:36cd25b4a4778c39783913e581a324d9",
         "category": "action",
         "path": "tools/stress/fleet/fleet-fixture.mjs",
@@ -37818,18 +35730,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: rmSync() may change state or trigger execution",
         "exemptionId": "action:tools:tools/stress/fleet/fleet-fixture.mjs#openFleetCampaignFixture.close:36cd25b4a4778c39783913e581a324d9",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/stress/fleet/fleet-fixture.mjs#openFleetCampaignFixture.retryDelay:babc02cb3a7facbd191545da635999f5",
-        "category": "policy",
-        "path": "tools/stress/fleet/fleet-fixture.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped retryDelay has literal configuration",
-        "exemptionId": "policy:tools:tools/stress/fleet/fleet-fixture.mjs#openFleetCampaignFixture.retryDelay:babc02cb3a7facbd191545da635999f5",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -37966,30 +35866,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/stress/fleet/scale-runner.mjs#primaryRequest.expectedEvents:b9f682327e07d81e4195a180ec1b4ca5",
-        "category": "policy",
-        "path": "tools/stress/fleet/scale-runner.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: offset === 0 && blobClaims.length > 0",
-        "exemptionId": "policy:tools:tools/stress/fleet/scale-runner.mjs#primaryRequest.expectedEvents:b9f682327e07d81e4195a180ec1b4ca5",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/stress/fleet/scale-runner.mjs#scaleDocumentEvent.payload.changes.policyId:d923c9c7495f7eb1b45f81f3c1609f1e",
-        "category": "policy",
-        "path": "tools/stress/fleet/scale-runner.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped policyId has literal configuration",
-        "exemptionId": "policy:tools:tools/stress/fleet/scale-runner.mjs#scaleDocumentEvent.payload.changes.policyId:d923c9c7495f7eb1b45f81f3c1609f1e",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/stress/fleet/scale-runner.mjs#verifyBlobManifest:807951bbe9be18221efe73ee288215b6",
         "category": "action",
         "path": "tools/stress/fleet/scale-runner.mjs",
@@ -38038,18 +35914,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/stress/fleet/scale-runner.mjs#withScratch.retryDelay:a38f533782efe76e8e50dba711b96f64",
-        "category": "policy",
-        "path": "tools/stress/fleet/scale-runner.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped retryDelay has literal configuration",
-        "exemptionId": "policy:tools:tools/stress/fleet/scale-runner.mjs#withScratch.retryDelay:a38f533782efe76e8e50dba711b96f64",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/stress/fleet/scale-runner.mjs#withScratch:cc102692919685eb964457792c38da5d",
         "category": "action",
         "path": "tools/stress/fleet/scale-runner.mjs",
@@ -38086,18 +35950,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/stress/fleet/upload-boundary.mjs#documentPaths.concurrent:15c5f549bd6140075ddff9d19c0f8fb7",
-        "category": "policy",
-        "path": "tools/stress/fleet/upload-boundary.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped concurrent has literal configuration",
-        "exemptionId": "policy:tools:tools/stress/fleet/upload-boundary.mjs#documentPaths.concurrent:15c5f549bd6140075ddff9d19c0f8fb7",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/stress/fleet/upload-boundary.mjs#runFleetUploadBoundaryCampaign:6bdd613f5f937e17cd2442987a65e161",
         "category": "action",
         "path": "tools/stress/fleet/upload-boundary.mjs",
@@ -38118,30 +35970,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: write() may change state or trigger execution",
         "exemptionId": "action:tools:tools/stress/fleet/upload-boundary.mjs#runFleetUploadBoundaryCampaign:45cc5262102636b78f2ef0bbb04b92c7",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/stress/fleet/upload-boundary.mjs#runFleetUploadBoundaryCampaign.stale.docChanges.policyId:5859cf78a6a583014a5dc45758f08dcc",
-        "category": "policy",
-        "path": "tools/stress/fleet/upload-boundary.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped policyId has literal configuration",
-        "exemptionId": "policy:tools:tools/stress/fleet/upload-boundary.mjs#runFleetUploadBoundaryCampaign.stale.docChanges.policyId:5859cf78a6a583014a5dc45758f08dcc",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/stress/fleet/upload-boundary.mjs#runFleetUploadBoundaryCampaign.counts.maxConcurrentClients:75f6e661fb1a602d76889b759aed7dd9",
-        "category": "policy",
-        "path": "tools/stress/fleet/upload-boundary.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped maxConcurrentClients has literal configuration",
-        "exemptionId": "policy:tools:tools/stress/fleet/upload-boundary.mjs#runFleetUploadBoundaryCampaign.counts.maxConcurrentClients:75f6e661fb1a602d76889b759aed7dd9",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -38202,18 +36030,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: rmSync() may change state or trigger execution",
         "exemptionId": "action:tools:tools/stress/fleet/volume-arm.mjs#runRealVolumeEnospcArm:5863aeb2c3fded5654c6b42224e8ef0f",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/stress/fleet/volume-arm.mjs#runRealVolumeEnospcArm.retryDelay:a38f533782efe76e8e50dba711b96f64",
-        "category": "policy",
-        "path": "tools/stress/fleet/volume-arm.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped retryDelay has literal configuration",
-        "exemptionId": "policy:tools:tools/stress/fleet/volume-arm.mjs#runRealVolumeEnospcArm.retryDelay:a38f533782efe76e8e50dba711b96f64",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -38374,30 +36190,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/temporary-directory-cleanup.mjs#DEFAULT_ATTEMPTS:bab039f5a998d9a8021aafb369784435",
-        "category": "policy",
-        "path": "tools/temporary-directory-cleanup.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped DEFAULT_ATTEMPTS has literal configuration",
-        "exemptionId": "policy:tools:tools/temporary-directory-cleanup.mjs#DEFAULT_ATTEMPTS:bab039f5a998d9a8021aafb369784435",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/temporary-directory-cleanup.mjs#removeTemporaryDirectorySync.attempt:450888f43aea70c3bce6ed2f0e4136fa",
-        "category": "policy",
-        "path": "tools/temporary-directory-cleanup.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped attempt has literal configuration",
-        "exemptionId": "policy:tools:tools/temporary-directory-cleanup.mjs#removeTemporaryDirectorySync.attempt:450888f43aea70c3bce6ed2f0e4136fa",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/temporary-directory-cleanup.mjs#removeTemporaryDirectorySync:6c34930778cce0f8549fe71eeb799a78",
         "category": "action",
         "path": "tools/temporary-directory-cleanup.mjs",
@@ -38406,18 +36198,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: rmSync() may change state or trigger execution",
         "exemptionId": "action:tools:tools/temporary-directory-cleanup.mjs#removeTemporaryDirectorySync:6c34930778cce0f8549fe71eeb799a78",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/temporary-directory-cleanup.mjs#removeTemporaryDirectory.attempt:450888f43aea70c3bce6ed2f0e4136fa",
-        "category": "policy",
-        "path": "tools/temporary-directory-cleanup.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped attempt has literal configuration",
-        "exemptionId": "policy:tools:tools/temporary-directory-cleanup.mjs#removeTemporaryDirectory.attempt:450888f43aea70c3bce6ed2f0e4136fa",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -38446,18 +36226,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/test-center-update.mjs#updateTestCenter.timeout:ce20292f9fe2d403461b29451cb14098",
-        "category": "policy",
-        "path": "tools/test-center-update.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped timeout has literal configuration",
-        "exemptionId": "policy:tools:tools/test-center-update.mjs#updateTestCenter.timeout:ce20292f9fe2d403461b29451cb14098",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/test-center-update.mjs#updateTestCenter:9560881f045b279b12cd833ffc7b1e4b",
         "category": "action",
         "path": "tools/test-center-update.mjs",
@@ -38466,18 +36234,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: execute() may change state or trigger execution",
         "exemptionId": "action:tools:tools/test-center-update.mjs#updateTestCenter:9560881f045b279b12cd833ffc7b1e4b",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/test-center-update.mjs#updateTestCenter.timeout:c8a670c5e4c2bec191e14ff71c12caed",
-        "category": "policy",
-        "path": "tools/test-center-update.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped timeout has literal configuration",
-        "exemptionId": "policy:tools:tools/test-center-update.mjs#updateTestCenter.timeout:c8a670c5e4c2bec191e14ff71c12caed",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -38538,138 +36294,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateTestQuarantine; branches=8; booleanReturns=0",
         "exemptionId": "judgment:tools:tools/test-quarantine.mjs#validateTestQuarantine:b4fc84b8e390d087e862d76bbb6d66fb",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/test-tier-manifest.mjs#parseTestFileTimeoutMarker:aa9b55609181da2cb81465d8ef206c9d",
-        "category": "policy",
-        "path": "tools/test-tier-manifest.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped condition contains a literal: !Number.isSafeInteger(timeoutMs) || timeoutMs <= 0",
-        "exemptionId": "policy:tools:tools/test-tier-manifest.mjs#parseTestFileTimeoutMarker:aa9b55609181da2cb81465d8ef206c9d",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/tool-command-contract.mjs#runNodeTestsCommand.options.allowEquals:b26e03923142ba4bea9736164e788306",
-        "category": "policy",
-        "path": "tools/tool-command-contract.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowEquals has literal configuration",
-        "exemptionId": "policy:tools:tools/tool-command-contract.mjs#runNodeTestsCommand.options.allowEquals:b26e03923142ba4bea9736164e788306",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/tool-command-contract.mjs#runNodeTestsCommand.options.allowEquals:b26e03923142ba4bea9736164e788306:2",
-        "category": "policy",
-        "path": "tools/tool-command-contract.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowEquals has literal configuration",
-        "exemptionId": "policy:tools:tools/tool-command-contract.mjs#runNodeTestsCommand.options.allowEquals:b26e03923142ba4bea9736164e788306:2",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/tool-command-contract.mjs#runNodeTestsCommand.options.allowEquals:b26e03923142ba4bea9736164e788306:3",
-        "category": "policy",
-        "path": "tools/tool-command-contract.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowEquals has literal configuration",
-        "exemptionId": "policy:tools:tools/tool-command-contract.mjs#runNodeTestsCommand.options.allowEquals:b26e03923142ba4bea9736164e788306:3",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/tool-command-contract.mjs#runNodeTestsCommand.options.allowEquals:b26e03923142ba4bea9736164e788306:4",
-        "category": "policy",
-        "path": "tools/tool-command-contract.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowEquals has literal configuration",
-        "exemptionId": "policy:tools:tools/tool-command-contract.mjs#runNodeTestsCommand.options.allowEquals:b26e03923142ba4bea9736164e788306:4",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/tool-command-contract.mjs#runNodeTestsCommand.options.allowEquals:b26e03923142ba4bea9736164e788306:5",
-        "category": "policy",
-        "path": "tools/tool-command-contract.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowEquals has literal configuration",
-        "exemptionId": "policy:tools:tools/tool-command-contract.mjs#runNodeTestsCommand.options.allowEquals:b26e03923142ba4bea9736164e788306:5",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/tool-command-contract.mjs#runNodeTestsCommand.options.allowEquals:b26e03923142ba4bea9736164e788306:6",
-        "category": "policy",
-        "path": "tools/tool-command-contract.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowEquals has literal configuration",
-        "exemptionId": "policy:tools:tools/tool-command-contract.mjs#runNodeTestsCommand.options.allowEquals:b26e03923142ba4bea9736164e788306:6",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/tool-command-contract.mjs#runNodeTestsCommand.options.allowEquals:b26e03923142ba4bea9736164e788306:7",
-        "category": "policy",
-        "path": "tools/tool-command-contract.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowEquals has literal configuration",
-        "exemptionId": "policy:tools:tools/tool-command-contract.mjs#runNodeTestsCommand.options.allowEquals:b26e03923142ba4bea9736164e788306:7",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/tool-command-contract.mjs#runNodeTestsCommand.options.allowEquals:b26e03923142ba4bea9736164e788306:8",
-        "category": "policy",
-        "path": "tools/tool-command-contract.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowEquals has literal configuration",
-        "exemptionId": "policy:tools:tools/tool-command-contract.mjs#runNodeTestsCommand.options.allowEquals:b26e03923142ba4bea9736164e788306:8",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/tool-command-contract.mjs#readonlyCheckoutCommand.options.allowEquals:b26e03923142ba4bea9736164e788306",
-        "category": "policy",
-        "path": "tools/tool-command-contract.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowEquals has literal configuration",
-        "exemptionId": "policy:tools:tools/tool-command-contract.mjs#readonlyCheckoutCommand.options.allowEquals:b26e03923142ba4bea9736164e788306",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/tool-command-contract.mjs#readonlyCheckoutCommand.options.allowEquals:b26e03923142ba4bea9736164e788306:2",
-        "category": "policy",
-        "path": "tools/tool-command-contract.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped allowEquals has literal configuration",
-        "exemptionId": "policy:tools:tools/tool-command-contract.mjs#readonlyCheckoutCommand.options.allowEquals:b26e03923142ba4bea9736164e788306:2",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
