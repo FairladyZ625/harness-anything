@@ -557,7 +557,7 @@ syncBuiltinESMExports();
         "Worker",
         class extends NativeWorker {
           constructor(filename: string | URL, options: WorkerOptions = {}) {
-            const reader = String(filename).includes("repo-writer-worker.") && options.workerData?.role === "reader";
+            const reader = String(filename).includes("repo-reader-worker.") && options.workerData?.role === "reader";
             super(
               filename,
               reader

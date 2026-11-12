@@ -187,8 +187,8 @@ export interface RepoCellApiContext {
   readonly appendAuxiliaryRuntimeIngress: RepoCellOperationalContext["appendAuxiliaryRuntimeIngress"];
   bootstrapReceipt: RepoBootstrapReceipt | undefined;
   readonly catalog: RepoCell["catalog"];
-  readonly terminal: RepoCell["terminal"];
   readonly runtimeStream: AgentRuntimeStreamHub;
+  readonly canHibernate?: () => boolean;
   readonly generation: number;
   readonly recovery: RepoCellCore["recovery"];
   readonly lock: { readonly close: () => Promise<void> };
@@ -221,7 +221,9 @@ function agendaViewerContext(binding: RepoCellBinding): {
   return { principalId: binding.actor.principal.personId, ...(nodeId === undefined ? {} : { nodeId }), teamIds: [] };
 }
 
-export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & RepoCellSynchronousRead {
+export function createRepoCellApi(
+  apiContext: RepoCellApiContext,
+): Omit<RepoCell, "terminal"> & RepoCellSynchronousRead {
   // Backup lifetimes serialize independently of ledger writes: retention cannot remove
   // another builtin's in-progress snapshot. A replay shares the same claim's execution.
   const builtinRuns = new Map<string, Promise<WriteReceipt>>();
@@ -1130,6 +1132,25 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     const completed = await continueBuiltin(action, binding, receipt);
     return settleWriteReceipt(context, action, completed, signal);
   };
+  const close = async () => {
+    if (context.state === "closed") return;
+    // Terminates because builtinRuns only shrinks while close waits: every entry removes itself
+    // at settlement, and a new entry needs a schedule-run-now claim the closing owner no longer
+    // issues.
+    while (builtinRuns.size > 0) await Promise.allSettled([...builtinRuns.values()]);
+    context.state = "closed";
+    context.runtimeSpawner.close();
+    context.runtimeStream.close();
+    await context.presetProcess.close();
+    await context.tail;
+    try {
+      await context.store.drain();
+    } finally {
+      context.replica.close();
+      context.projection.close();
+      await context.lock.close();
+    }
+  };
   return {
     bootstrapReceipt: context.bootstrapReceipt,
     scheduleOccurrenceSettlementOwner: async (dispatchId) =>
@@ -1146,7 +1167,6 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     awaitRuntimeSignal: context.awaitRuntimeSignal,
     runtimeIngress,
     catalog: context.catalog,
-    terminal: context.terminal,
     read,
     readDispatchLifecycle: async (query) => context.projection.readDispatchLifecycle(query),
     readEventWitness: async (revision) => context.projection.readEventWitness(revision),
@@ -1207,25 +1227,19 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
       if (context.state !== "attached") return;
       await context.store.settlePendingMaterialization?.(settlementContext);
     },
-    close: async () => {
-      if (context.state === "closed") return;
-      // Terminates because builtinRuns only shrinks while close waits: every entry removes itself
-      // at settlement, and a new entry needs a schedule-run-now claim the closing owner no longer
-      // issues.
-      while (builtinRuns.size > 0) await Promise.allSettled([...builtinRuns.values()]);
-      context.state = "closed";
-      context.runtimeSpawner.close();
-      await context.terminal.close();
-      context.runtimeStream.close();
-      await context.presetProcess.close();
-      await context.tail;
-      try {
-        await context.store.drain();
-      } finally {
-        context.replica.close();
-        context.projection.close();
-        await context.lock.close();
-      }
+    close,
+    hibernate: async () => {
+      if (
+        context.state !== "attached" ||
+        !context.canHibernate?.() ||
+        builtinRuns.size > 0 ||
+        context.queueDepth !== 0 ||
+        context.writeQueue.waiting.length !== 0 ||
+        context.store.materializationHealth().state !== "ok"
+      )
+        return false;
+      await close();
+      return true;
     },
   };
 }

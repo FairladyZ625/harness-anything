@@ -1,3 +1,4 @@
+import { openDaemonMemoryLedger, labelWorkerMemory } from "./daemon-diagnostics-memory.ts";
 import { Worker } from "node:worker_threads";
 import { createDaemonOperationTable } from "./daemon-operation-table.ts";
 import { createDaemonTraceCompletions } from "./daemon-trace-completions.ts";
@@ -27,24 +28,29 @@ export interface DaemonDiagnosticsOptions {
   readonly writeQueues?: () => readonly DaemonDiagnosticsQueueRow[];
 }
 export async function openDaemonDiagnostics(options: DaemonDiagnosticsOptions) {
-  const heartbeat = new BigInt64Array(new SharedArrayBuffer(16)),
+  const memoryLedger = openDaemonMemoryLedger(),
+    heartbeat = new BigInt64Array(new SharedArrayBuffer(16)),
     operations = createDaemonOperationTable(),
     completions = createDaemonTraceCompletions(),
     histogram = monitorEventLoopDelay({ resolution: 20 }),
     extension = path.extname(fileURLToPath(import.meta.url)),
-    worker = new Worker(new URL(`./daemon-diagnostics-worker${extension}`, import.meta.url), {
-      workerData: {
-        userRoot: options.userRoot,
-        daemonId: options.daemonId,
-        endpoint: options.endpoint,
-        heartbeatMs: options.heartbeatMs,
-        stallThresholdMs: options.stallThresholdMs,
-        metricsIntervalMs: options.metricsIntervalMs,
-        heartbeat: heartbeat.buffer,
-        operations: operations.buffer,
-        completions: completions.buffer,
-      },
-    });
+    worker = labelWorkerMemory(
+      new Worker(new URL(`./daemon-diagnostics-worker${extension}`, import.meta.url), {
+        name: "diagnostics",
+        workerData: {
+          userRoot: options.userRoot,
+          daemonId: options.daemonId,
+          endpoint: options.endpoint,
+          heartbeatMs: options.heartbeatMs,
+          stallThresholdMs: options.stallThresholdMs,
+          metricsIntervalMs: options.metricsIntervalMs,
+          heartbeat: heartbeat.buffer,
+          operations: operations.buffer,
+          completions: completions.buffer,
+        },
+      }),
+      "diagnostics",
+    );
   let closed = false,
     heartbeatDelayMax = 0;
   const stallWindows: EventLoopStallWindow[] = [];
@@ -91,12 +97,14 @@ export async function openDaemonDiagnostics(options: DaemonDiagnosticsOptions) {
   Atomics.store(heartbeat, 0, nowMs());
   histogram.enable();
   const sampleMetrics = (): void => {
+    memoryLedger.sample();
     const memory = process.memoryUsage();
     send({
       type: "metrics",
       metrics: {
         sampledAt: new Date().toISOString(),
         ...memory,
+        memory: memoryLedger.snapshot(memory),
         activeHandles: (process as NodeJS.Process & { _getActiveHandles(): readonly unknown[] })._getActiveHandles()
           .length,
         activeResources: process.getActiveResourcesInfo().length,
@@ -124,6 +132,7 @@ export async function openDaemonDiagnostics(options: DaemonDiagnosticsOptions) {
     clearInterval(timer);
     clearInterval(metrics);
     histogram.disable();
+    memoryLedger.close();
   };
   // A failed observer is visible, but cannot crash business work or strand its timers.
   worker.on("error", (error) => {

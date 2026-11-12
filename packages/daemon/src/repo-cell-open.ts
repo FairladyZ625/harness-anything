@@ -1,3 +1,4 @@
+import { writerLifecyclePolicy } from "@harness-anything/kernel/internal/domain/writer-lifecycle-policy.ts";
 import { continueReviewRework } from "./task-return-dispatch.ts";
 import { makeRuntimeRecoveryWork } from "./runtime-recovery-work.ts";
 import { localOperatorBinding } from "./daemon-host-binding.ts";
@@ -22,7 +23,6 @@ import {
   type WriterGeneration,
 } from "@harness-anything/kernel";
 import { createPresetProcessService, presetUserRoot } from "@harness-anything/preset";
-import { nodeLocalWriteCommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
 import {
   prepareAgentEntityDelete,
   prepareAgentEntityInstall,
@@ -42,7 +42,6 @@ import {
   scheduleArchivedDispatchStreamCompaction,
 } from "./dispatch-stream-archive.ts";
 import { createRuntimeOutcomeWaiters } from "./runtime-settlement.ts";
-import { openGuiCatalog } from "./gui-catalog.ts";
 import { type CanonicalRoot, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { makeRecoveryProbe } from "./recovery-state.ts";
@@ -81,12 +80,10 @@ import type {
   RepoCellAttachProgress,
   RepoCellBinding,
   RepoCellStatus,
-  RepoCellTerminal,
   RepoCellWriteQueueState,
   RepoTaskAction,
 } from "./repo-cell-types.ts";
 import type { EntityActionCatalogPreparer, EntityActionCatalogRuntimes } from "./entity-action-catalog-executor.ts";
-import { admitRepoMode } from "./repo-mode.ts";
 import {
   makeRuntimeSpawner,
   type RuntimeAttemptTerminal,
@@ -94,7 +91,6 @@ import {
   type RuntimeLauncher,
 } from "./runtime-spawn.ts";
 import { withOnlineRuntimeSession, type RuntimeOperatorSession } from "./runtime-online-binding.ts";
-import { openTerminalHost } from "./terminal-host.ts";
 import { makeRepoCellSquadCoordinator } from "./repo-cell-squad-coordinator.ts";
 import { reconcileAbandonedTaskWorktrees } from "./task-worktree.ts";
 import { makeAgentActionRuntime, makeSquadActionRuntime } from "./squad-action-runtime.ts";
@@ -113,6 +109,8 @@ export interface RepoCellOpenInput {
   readonly repoId: WorkspaceId;
   readonly rootDir: CanonicalRoot;
   readonly ownerId: string;
+  /** Supervisor-owned generation for physical isolate replacement, independent of wall-clock steps. */
+  readonly writerGeneration?: number;
   readonly mode?: DaemonRepoMode;
   readonly authoredBranch?: string;
   readonly runtimeLaunch?: RuntimeLauncher;
@@ -164,10 +162,11 @@ export async function openRepoCell(input: RepoCellOpenInput): Promise<RepoCell> 
   return openRepoCellProxy(input);
 }
 
+// The host proxy owns terminal sessions and their registry across writer isolate replacement.
 export async function openRepoWriterCell(
   input: RepoCellOpenInput,
   lock: Awaited<ReturnType<typeof acquireWorkspaceLock>>,
-): Promise<RepoCell> {
+): Promise<Omit<RepoCell, "terminal">> {
   const rootDir = input.rootDir,
     mode = input.mode ?? "local",
     now = input.now ?? (() => new Date().toISOString());
@@ -180,7 +179,7 @@ export async function openRepoWriterCell(
       "The repository is still opening; repository Settings become readable once it finishes attaching.",
     );
   };
-  const generation = Date.now() * 1_000 + (process.pid % 1_000);
+  const generation = input.writerGeneration ?? Date.now() * 1_000 + (process.pid % 1_000);
   const activeWriter: WriterGeneration = {
       workspaceId: input.repoId,
       generation,
@@ -675,43 +674,15 @@ export async function openRepoWriterCell(
     ...(input.recordLifecycle ? { recordLifecycle: input.recordLifecycle } : {}),
     ...(input.runtimeLaunch ? { launch: input.runtimeLaunch } : {}),
   });
-  const catalog = openGuiCatalog({ repoId: input.repoId, rootDir, readSettings: () => readSettings(), now }),
-    terminalHost = openTerminalHost({
-      repoId: input.repoId,
-      rootDir,
-      daemonGeneration: generation,
-      now,
-    });
-  const admitTerminalWrite = (binding: RepoCellBinding): void => {
-    const admission = admitRepoMode(mode, nodeLocalWriteCommandTopology, binding.source);
-    if (!admission.ok) throw cellCodedError(admission.code, admission.nextAction);
-    if (state !== "attached") throw cellCodedError("repo_unavailable", latched());
-  };
-  const terminal: RepoCellTerminal = {
-    list: terminalHost.list,
-    attach: terminalHost.attach,
-    detach: terminalHost.detach,
-    close: terminalHost.close,
-    spawn: (payload, binding) => {
-      admitTerminalWrite(binding);
-      return terminalHost.spawn(payload);
-    },
-    spawnTrusted: (launch, binding) => {
-      admitTerminalWrite(binding);
-      return terminalHost.spawnTrusted(launch);
-    },
-    input: (payload, binding) => {
-      admitTerminalWrite(binding);
-      return terminalHost.input(payload);
-    },
-    resize: (payload, binding) => {
-      admitTerminalWrite(binding);
-      return terminalHost.resize(payload);
-    },
-    terminate: (payload, binding) => {
-      admitTerminalWrite(binding);
-      return terminalHost.terminate(payload);
-    },
+  let catalogPromise: Promise<ReturnType<typeof import("./gui-catalog.ts").openGuiCatalog>> | undefined;
+  const getCatalog = () =>
+    (catalogPromise ??= import("./gui-catalog.ts").then(({ openGuiCatalog }) =>
+      openGuiCatalog({ repoId: input.repoId, rootDir, readSettings: () => readSettings(), now }),
+    ));
+  const catalog: RepoCell["catalog"] = {
+    snapshot: async () => (await getCatalog()).snapshot(),
+    preset: async (payload) => (await getCatalog()).preset(payload),
+    reread: async (payload) => (await getCatalog()).reread(payload),
   };
   const extracted = createRepoCellActionContext({
     input,
@@ -925,6 +896,7 @@ export async function openRepoWriterCell(
       );
     });
   const squadRecoveryDispatchIds = await squadCoordinator.retentionProtectedDispatchIds();
+  let restoringRuntimes = true;
   setImmediate(() => {
     if (state === "closed") return;
     void recoveryWork
@@ -932,7 +904,10 @@ export async function openRepoWriterCell(
       .then(
         () => undefined,
         (error: unknown) => console.error("[runtime-recovery]", error),
-      );
+      )
+      .finally(() => {
+        restoringRuntimes = false;
+      });
   });
   // Retention first: pruning doomed streams before the compaction pass keeps it from rewriting
   // files the same queue is about to delete.
@@ -960,6 +935,16 @@ export async function openRepoWriterCell(
   );
 
   const apiContext = {
+    canHibernate: () => {
+      if (restoringRuntimes || !runtimeSpawner.isIdle()) return false;
+      // The active index includes a fallback waiting for its next attempt, with no live process.
+      // Existence needs one indexed row, not a scan of historical sessions/tasks.
+      const active = projection.readDispatchLifecycle({
+        by: "active",
+        limit: writerLifecyclePolicy.defaultValue.activeProbeLimit,
+      });
+      return active.status === "ready" && active.rows.length === 0;
+    },
     onlineBinding,
     extracted: operationalContext,
     mode,
@@ -1062,7 +1047,6 @@ export async function openRepoWriterCell(
       bootstrapReceipt = value;
     },
     catalog,
-    terminal,
     runtimeStream,
     generation,
     get recovery() {
