@@ -1,3 +1,4 @@
+import { dshBrokerPolicy } from "@harness-anything/kernel/internal/domain/dsh-plugin-policy.ts";
 import { readFileSync, statSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";
@@ -6,8 +7,8 @@ import type { BrokerFailure, BrokerResponse } from "./shared.ts";
 export { BROKER_ROUTE } from "./shared.ts";
 export type { BrokerFailure, BrokerResponse, BrokerSuccess } from "./shared.ts";
 
-const OUTPUT_LIMIT_BYTES = 1_000_000;
-const BROKER_GRACE_MS = 5_000;
+const OUTPUT_LIMIT_BYTES = dshBrokerPolicy.defaultValue.outputLimit;
+const BROKER_GRACE_MS = dshBrokerPolicy.defaultValue.terminationGraceMs;
 
 interface BrokerStream {
   on(event: "data" | "end" | "error", listener: (...args: readonly unknown[]) => void): unknown;

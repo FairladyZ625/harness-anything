@@ -90,6 +90,9 @@ import { managedIdentityPolicy } from "./managed-identity-policy.ts";
 import { guiQueryPacing } from "./gui-query-pacing.ts";
 import { taskLeaseGuidancePolicy, returnToPlannedJudgment } from "./task-lease-guidance.ts";
 import sourceContractFacets from "./source-contract-facets.json" with { type: "json" };
+import { artifactLocatorPolicy, taskReviewAttributionPolicy } from "./application-policy.ts";
+import { builtinAuthorizationContractPolicy } from "./builtin-authorization-policy.ts";
+import { dshBrokerPolicy, dshPresentationPolicy } from "./dsh-plugin-policy.ts";
 
 const sourceContracts = sourceContractFacets as Readonly<
   Record<
@@ -1508,6 +1511,11 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
           },
         ],
       },
+      artifactLocatorPolicy,
+      taskReviewAttributionPolicy,
+      builtinAuthorizationContractPolicy,
+      dshBrokerPolicy,
+      dshPresentationPolicy,
     ],
     schema: hostAggregateSchema,
     relations: { directions: [], edges: [] },

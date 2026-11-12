@@ -112,6 +112,91 @@ test("the full repository passes the classified closure gate", (t) => {
 });
 
 // dec_7E44897ECDCAEF2B92EC66A260 / S3d: retired debt cannot return to the leaf packages.
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: application, builtin and DSH have no remaining migration debt.
+test("application, builtin authorization and DSH remain closed in every ontology category", () => {
+  const result = evaluateOntologyClosure({ rootDir: repoRoot, base: "HEAD" });
+  const baseline = loadGateAllowlist("ontology-closure", { report: false }).candidates;
+  for (const owner of ["packages/application", "packages/authorization-builtin", "packages/dsh-plugin"]) {
+    assert.deepEqual(
+      baseline.filter((row) => row.owner === owner),
+      [],
+      owner,
+    );
+    for (const category of ["action", "judgment", "policy"]) {
+      const candidates = result.classified.filter(
+        (row) => row.category === category && row.file.startsWith(`${owner}/`),
+      );
+      assert.ok(candidates.length > 0, `${owner}/${category}`);
+      assert.deepEqual(
+        candidates.filter((row) => row.status !== "registered"),
+        [],
+        `${owner}/${category}`,
+      );
+    }
+  }
+});
+
+test("leaf Policy bindings preserve defaults and distinguish exact presentation contracts from new budgets", () => {
+  const snapshot = loadOntologyClosureSnapshot(repoRoot);
+  for (const [target, from, to] of [
+    [
+      "packages/kernel/src/domain/application-policy.ts",
+      'snapshotAdmissionKind: "repository-path"',
+      'snapshotAdmissionKind: "url"',
+    ],
+    ["packages/kernel/src/domain/application-policy.ts", "pageLimit: 100", "pageLimit: 101"],
+    ["packages/kernel/src/domain/dsh-plugin-policy.ts", "outputLimit: 1_000_000", "outputLimit: 1_000_001"],
+    ["packages/kernel/src/domain/dsh-plugin-policy.ts", "terminationGraceMs: 5_000", "terminationGraceMs: 5_001"],
+    [
+      "packages/authorization-builtin/src/builtin-policy-adapter.ts",
+      'policyRef = "builtin-policy@1"',
+      'policyRef = "builtin-policy@2"',
+    ],
+    ["packages/dsh-plugin/src/client.ts", 'referrerPolicy: "no-referrer"', 'referrerPolicy: "origin"'],
+    ["packages/dsh-plugin/src/tutorial-content.ts", 'retry: "重试"', 'retry: "再次尝试"'],
+    ["packages/dsh-plugin/src/tutorial-content.ts", 'retry: "Retry"', 'retry: "Try again"'],
+  ]) {
+    const source = readFileSync(path.join(repoRoot, target), "utf8");
+    assert.notEqual(source.replace(from, to), source, target);
+    const candidates = scanOntologyText(target, source);
+    assert.deepEqual(audit(candidates, { snapshot }).findings, [], target);
+    assert.deepEqual(
+      scanOntologyText(target, source.replaceAll("\n", "\r\n")).map(({ id }) => id),
+      candidates.map(({ id }) => id),
+    );
+    assert.ok(
+      audit(scanOntologyText(target, source.replace(from, to)), { snapshot }).findings.some(
+        ({ code }) => code === "ONTOLOGY_POLICY_UNDECLARED",
+      ),
+      `${target}: ${from}`,
+    );
+  }
+  for (const owner of ["application", "authorization-builtin", "dsh-plugin"]) {
+    const target = `packages/${owner}/src/new-policy.ts`;
+    assert.ok(
+      audit(scanOntologyText(target, "const retryLimit = 3;"), { snapshot }).findings.some(
+        ({ code }) => code === "ONTOLOGY_POLICY_UNDECLARED",
+      ),
+    );
+  }
+});
+
+test("leaf action registrations remain exact and do not authorize a neighboring undeclared call", () => {
+  const snapshot = loadOntologyClosureSnapshot(repoRoot);
+  for (const target of [
+    "packages/application/src/task-lifecycle-service.ts",
+    "packages/authorization-builtin/src/builtin-policy-adapter.ts",
+    "packages/dsh-plugin/src/broker.ts",
+  ]) {
+    const source = readFileSync(path.join(repoRoot, target), "utf8");
+    assert.deepEqual(audit(scanOntologyText(target, source), { snapshot }).findings, [], target);
+    const result = audit(scanOntologyText(target, `${source}\nfunction undeclared() { dispatch(); }`), { snapshot });
+    assert.equal(result.findings.length, 1, target);
+    assert.equal(result.findings[0].code, "ONTOLOGY_ACTION_UNDECLARED");
+    assert.equal(result.findings[0].symbol, "undeclared");
+  }
+});
+
 test("CLI and preset Policy candidates resolve to the canonical registry without legacy debt", () => {
   const result = evaluateOntologyClosure({ rootDir: repoRoot, base: "HEAD" });
   const baseline = loadGateAllowlist("ontology-closure", { report: false }).candidates;
