@@ -21,6 +21,32 @@ const context = {
   eligibleDirtyPaths: [],
 };
 
+test("orphaned lease completion names its actual holder and reconnects without claiming release", (t) => {
+  const active = at(2);
+  for (const own of [true, false]) {
+    const actor = own ? active.lease!.actor : { principal: { personId: "another-person" }, executor: null },
+      snapshot = { ...active, lease: { ...active.lease!, phase: "orphaned" as const } },
+      next = taskCompletionNext(snapshot, { ...context, actor }).next!;
+    t.diagnostic(JSON.stringify({ own, next }));
+    assert.match(next.reason, /orphaned/u);
+    assert.match(next.reason, own ? /held by you/u : /held by another actor/u);
+    assert.doesNotMatch(next.reason, /lease was released/u);
+    assert.equal(next.action, "ha task start task-1");
+  }
+});
+
+test("completion observes an already dispatched reviewer and preserves dispatch recovery when absent", () => {
+  const submitted = at(3),
+    pending = taskCompletionNext(submitted, { ...context, activeReviewDispatchIds: ["dispatch-review-current"] });
+  assert.equal(pending.blocker?.code, "review_pending");
+  assert.equal(pending.next?.action, "ha task dispatches task-1");
+  assert.match(pending.next!.reason, /reviewer is already dispatched/u);
+  assert.equal(
+    taskCompletionNext(submitted, { ...context, activeReviewDispatchIds: [] }).next?.action,
+    "ha task dispatch-review task-1",
+  );
+});
+
 // A task whose work already happened outside Harness has no execution to submit: the blocker
 // must hand over the settle chain instead of reading as a dead end (task_b6896bab owner-done).
 test("a never-started task names the evidence-and-settle chain, a started one keeps the plain message", () => {

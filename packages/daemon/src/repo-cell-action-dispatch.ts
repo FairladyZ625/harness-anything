@@ -32,6 +32,7 @@ import { runLedgerReconcileAction } from "./repo-cell-migration-actions.ts";
 import { type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
 import { selectExecutorDeclaration, taskLineageExecutorCandidates } from "./dispatch-read.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
+import { taskShowFromProjection } from "./repo-cell-completion.ts";
 import { dispatchDecisionReview, dispatchTaskReview } from "./task-review-dispatch.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { runFactAction } from "./repo-cell-fact-action.ts";
@@ -176,7 +177,8 @@ export function executeRepoAction(
     const opId = String(action.opId ?? "");
     return cell.receiptForOperation(opId, binding);
   }
-  if (action.kind === "task-show") return cell.showTask(String(action.taskId ?? ""));
+  if (action.kind === "task-show")
+    return taskShowFromProjection(cell.rootDir, cell.projection, String(action.taskId ?? ""), undefined, binding.actor);
   if (action.kind === "task-list") return cell.listTasks(action, binding);
   if (action.kind === "work-list" || action.kind === "work-show") return readWork(cell, action, binding);
   if (action.kind === "relation-list") return cell.listRelations(action, binding);

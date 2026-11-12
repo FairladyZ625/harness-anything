@@ -11,6 +11,109 @@ import {
   squadAttemptStatus,
 } from "../src/squad-leader-decision.ts";
 import type { TaskDispatchRow } from "../src/protocol/daemon-protocol.contract.ts";
+import {
+  emptyTaskLifecycleSnapshot,
+  normalizeTaskLifecycleCommand,
+  reduceTaskEvent,
+  taskCompletionNext,
+} from "@harness-anything/kernel";
+import { validateTransition } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract";
+import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
+import { actionCriterionFailure } from "../src/repo-cell-errors.ts";
+
+test("show, squad and transition agree on lease ownership and give executable recovery", async (t) => {
+  const active = lifecycleFixture().events.slice(0, 2).reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());
+  for (const [phase, own] of [
+    ["orphaned", true],
+    ["orphaned", false],
+    ["held", false],
+  ] as const) {
+    const actor = own
+        ? active.lease!.actor
+        : { ...active.lease!.actor, executor: { kind: "agent" as const, id: "other-session" } },
+      snapshot = { ...active, lease: { ...active.lease!, phase } },
+      next = taskCompletionNext(snapshot, {
+        closeout: "ready",
+        closeoutPath: "tasks/task-1/closeout.md",
+        eligibleDirtyPaths: [],
+        actor,
+      }).next!,
+      issues = validateTransition(
+        snapshot,
+        {
+          ...normalizeTaskLifecycleCommand(
+            {
+              workspaceId: "workspace-1",
+              actor,
+              source: "local",
+              expectedRevision: snapshot.revision,
+            },
+            { type: "TransitionTask", taskId: "task-1", status: "planned", reason: "Reset the round" },
+          ),
+          workspaceRevision: snapshot.revision + 1,
+          eventId: "lease-receipt-transition",
+          occurredAt: "2026-11-12T00:00:00.000Z",
+        },
+        {} as never,
+      );
+    let starts = 0;
+    await assert.rejects(
+      reacquireSquadTaskLease({
+        taskId: "task-1",
+        binding: { actor, source: "local" },
+        snapshot,
+        start: async () => {
+          starts += 1;
+          return { outcome: "applied" };
+        },
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        t.diagnostic(JSON.stringify({ own, show: next, squad: error.message, transition: issues }));
+        const holder = own ? /held by you/u : /held by another actor/u;
+        for (const message of [next.reason, error.message, issues[0]!.message]) {
+          assert.ok(message.includes(phase), message);
+          assert.match(message, holder);
+          assert.doesNotMatch(message, /lease was released/u);
+        }
+        const action = phase === "orphaned" ? "ha task start task-1" : "ha task release task-1";
+        assert.equal(next.action, action);
+        assert.deepEqual(actionCriterionFailure(error)?.nextActions, [action]);
+        assert.match(issues[0]!.message, /ha task release task-1/u);
+        return true;
+      },
+    );
+    assert.equal(starts, 0);
+  }
+});
+
+test("released leases reconnect and held self leases continue without changing lease semantics", async () => {
+  const active = lifecycleFixture().events.slice(0, 2).reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot()),
+    actor = active.lease!.actor;
+  for (const lease of [null, active.lease]) {
+    const snapshot = { ...active, lease };
+    let starts = 0;
+    await reacquireSquadTaskLease({
+      taskId: "task-1",
+      binding: { actor, source: "local" },
+      snapshot,
+      start: async (executionId) => {
+        assert.equal(executionId, active.executions[0]!.executionId);
+        starts += 1;
+        return { outcome: "applied" };
+      },
+    });
+    assert.equal(starts, lease === null ? 1 : 0);
+    const next = taskCompletionNext(snapshot, {
+      closeout: "ready",
+      closeoutPath: "tasks/task-1/closeout.md",
+      eligibleDirtyPaths: [],
+      actor,
+    }).next!;
+    assert.equal(next.action, lease === null ? "ha task start task-1" : "ha task submit task-1");
+    assert.match(next.reason, lease === null ? /lease was released/u : /held by you/u);
+  }
+});
 
 const squadActor: ActorIdentity = {
     principal: { personId: "person-squad" },

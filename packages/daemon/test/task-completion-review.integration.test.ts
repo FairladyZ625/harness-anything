@@ -98,7 +98,7 @@ async function recordReview(
   );
 }
 
-test("submit enters independent review automatically and completion still requires owner consent", async () => {
+test("submit enters independent review automatically and completion still requires owner consent", async (t) => {
   const f = await fixture(false, true, false, false, false, {
     autoSubmit: false,
     create: { riskTier: "high" },
@@ -109,6 +109,14 @@ test("submit enters independent review automatically and completion still requir
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     assert.deepEqual(await taskStatus(f), { status: "in_review", iteration: 0 });
     assert.equal(f.launches.length, 1, "submit dispatches the reviewer");
+
+    const shown = (await f.run({ kind: "task-show", taskId })) as Receipt,
+      next = (JSON.parse(String(shown.evidence)) as { completionNext: { action: string; reason: string } })
+        .completionNext;
+    t.diagnostic(JSON.stringify({ completionNext: next }));
+    assert.equal(next.action, `ha task dispatches ${taskId}`);
+    assert.match(next.reason, /reviewer.*dispatched/u);
+    assert.doesNotMatch(next.action, /dispatch-review/u);
 
     const stopped = (await f.complete()) as Receipt;
     assert.equal(stopped.outcome, "op_rejected", JSON.stringify(stopped));

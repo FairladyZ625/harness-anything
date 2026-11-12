@@ -11,6 +11,7 @@ import {
   resolveHarnessLayout,
   reviewsForExecution,
   type CloseoutSnapshot,
+  type ActorIdentity,
   type CompletionDeliveryStatus,
   taskCompletionAction,
   taskCompletionNext,
@@ -29,6 +30,7 @@ import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { cellCodedError, cellErrorCode } from "./repo-cell-errors.ts";
 import { deliveryContainment, EMPTY_TREE_SHA, rebaseEquivalentDelivery } from "./task-delivery-containment.ts";
 import { taskLineageExecutorCandidates } from "./dispatch-read.ts";
+import { activeCutReviewDispatches } from "./review-dispatch-state.ts";
 
 /** Canonical completion inputs shared by command and GUI projection consumers. */
 export function readCompletionContext(
@@ -37,6 +39,7 @@ export function readCompletionContext(
   snapshot: TaskLifecycleSnapshot,
   status: "ready" | "pending",
   rootDir?: string,
+  actor?: ActorIdentity,
 ): CompletionReadinessContext {
   const taskRead = projection.read(taskId),
     unavailable: CompletionReadinessContext = {
@@ -83,6 +86,17 @@ export function readCompletionContext(
           )
         : undefined,
     common = {
+      ...(actor === undefined ? {} : { actor }),
+      activeReviewDispatchIds:
+        snapshot.task?.status === "in_review" && closeoutGates.review !== false
+          ? snapshot.executions.flatMap((execution) =>
+              isNativeExecution(execution) && execution.iteration === snapshot.task?.iteration && execution.submission
+                ? activeCutReviewDispatches({ projection }, taskId, execution).map(
+                    ({ event }) => event.payload.dispatchId,
+                  )
+                : [],
+            )
+          : [],
       closeoutGates,
       ...(executorlessReview
         ? {
@@ -291,12 +305,13 @@ export function readTaskCompletion(
   projection: TaskProjectionQueries,
   taskId: string,
   rootDir?: string,
+  actor?: ActorIdentity,
 ): DaemonTaskCompletionResult {
   // The same judgment task show, task dispatches, task read-set, task review and the task document
   // reads consult: a lagging cut is not an answer about this task, and a current cut without it is a
   // not-found naming the id — never an ok-shaped completion for a task that does not exist.
   const read = requireCurrentTaskProjection(projection, taskId, "task completion read"),
-    context = readCompletionContext(projection, taskId, read.snapshot, read.status, rootDir),
+    context = readCompletionContext(projection, taskId, read.snapshot, read.status, rootDir, actor),
     { blocker } = taskCompletionNext(read.snapshot, context),
     // The action, not just the blocker's narration: once no blocker remains the reader must see
     // `ha task complete`, otherwise a submitted low-risk cut reads as a dead end and invites a

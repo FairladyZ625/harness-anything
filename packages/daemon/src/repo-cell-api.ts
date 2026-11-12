@@ -503,8 +503,13 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
         readResult: (ref) => readCanonicalRuntimeResult(context.store, ref),
       }).read(context.requiredCellText(payload.squadRunId, "squadRunId")),
     "repo.decisions.list": (payload: Readonly<Record<string, unknown>>) => decisionListFromPayload(payload),
-    "repo.tasks.completion.read": (payload) =>
-      readTaskCompletion(context.projection, context.requiredCellText(payload.taskId, "taskId"), context.rootDir),
+    "repo.tasks.completion.read": (payload, binding?: RepoCellBinding) =>
+      readTaskCompletion(
+        context.projection,
+        context.requiredCellText(payload.taskId, "taskId"),
+        context.rootDir,
+        binding?.actor,
+      ),
     "repo.tasks.runtimeContext.read": (payload) =>
       readTaskRuntimeContext(
         context.rootDir,

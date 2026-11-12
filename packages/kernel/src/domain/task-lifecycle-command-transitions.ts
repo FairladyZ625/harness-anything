@@ -30,6 +30,7 @@ import type {
 import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
 import { validateTaskReviewResponseV1 } from "./review.ts";
 import { completionContractGap } from "./completion-readiness.ts";
+import { taskLeaseGuidance } from "./task-lease-guidance.ts";
 import { isTaskRiskTierAssessmentNonDecreasing } from "./task-risk-tier-assessment.ts";
 import { timestamp } from "./timestamp.ts";
 import { explainStatusTransition, reinstateTaskTargets } from "./lifecycle-status.ts";
@@ -339,6 +340,37 @@ export const reinstate: Transition = {
       (raw as TransitionTaskCommand).status as "planned" | "active" | "in_review",
     ),
 };
+function validateReturnToPlanned(
+  snapshot: TaskLifecycleSnapshot,
+  command: TransitionTaskCommand,
+): readonly ContractValidationIssue[] {
+  const issues = revisionIssues(snapshot, command),
+    from = snapshot.task?.status,
+    lease = taskLeaseGuidance(command.taskId, snapshot.lease, command.actor);
+  if (from !== "active" && from !== "blocked")
+    issues.push(lifecycleContractIssue("invalid_transition", "ReturnToPlanned requires an active or blocked task"));
+  else if (snapshot.task?.currentNode !== "implementation")
+    issues.push(lifecycleContractIssue("invalid_transition", "ReturnToPlanned requires an implementation task"));
+  else if (snapshot.lease !== null)
+    issues.push(
+      lifecycleContractIssue(
+        "invalid_transition",
+        `ReturnToPlanned requires an unleased task: release the ${from} task's lease before returning it to planned. ` +
+          `${lease.reason} Run ${lease.releaseAction}, then retry the transition.`,
+      ),
+    );
+  else if (!explainStatusTransition(from, "planned").allowed)
+    issues.push(
+      lifecycleContractIssue(
+        "invalid_transition",
+        `ReturnToPlanned does not accept ${from}: the status graph has no ${from} to planned transition`,
+      ),
+    );
+  if (!isNonEmptyString(command.reason))
+    issues.push(lifecycleContractIssue("missing_field", "ReturnToPlanned requires an auditable reason"));
+  return issues;
+}
+
 /** ReturnToPlanned closes the round the way changes_requested does: an unleased execution that is
  * still active in the current iteration would otherwise keep claiming the round forever, leaving
  * `ha task start` no way to allocate a fresh execution. Advancing the iteration supersedes it.
@@ -350,32 +382,7 @@ export const returnToPlanned: Transition = {
     command.type === "TransitionTask" &&
     command.status === "planned" &&
     (snapshot.task?.status === "active" || snapshot.task?.status === "blocked"),
-  validate: (snapshot, raw) => {
-    const command = raw as TransitionTaskCommand,
-      issues = revisionIssues(snapshot, command),
-      from = snapshot.task?.status;
-    if (from !== "active" && from !== "blocked")
-      issues.push(lifecycleContractIssue("invalid_transition", "ReturnToPlanned requires an active or blocked task"));
-    else if (snapshot.task?.currentNode !== "implementation")
-      issues.push(lifecycleContractIssue("invalid_transition", "ReturnToPlanned requires an implementation task"));
-    else if (snapshot.lease !== null)
-      issues.push(
-        lifecycleContractIssue(
-          "invalid_transition",
-          `ReturnToPlanned requires an unleased task: release the ${from} task's lease before returning it to planned`,
-        ),
-      );
-    else if (!explainStatusTransition(from, "planned").allowed)
-      issues.push(
-        lifecycleContractIssue(
-          "invalid_transition",
-          `ReturnToPlanned does not accept ${from}: the status graph has no ${from} to planned transition`,
-        ),
-      );
-    if (!isNonEmptyString(command.reason))
-      issues.push(lifecycleContractIssue("missing_field", "ReturnToPlanned requires an auditable reason"));
-    return issues;
-  },
+  validate: (snapshot, raw) => validateReturnToPlanned(snapshot, raw as TransitionTaskCommand),
   reduce: (snapshot, raw) => {
     const command = raw as TransitionTaskCommand,
       task = snapshot.task as TaskV2,

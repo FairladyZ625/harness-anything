@@ -25,7 +25,6 @@ import { executeRepoReadAction } from "./repo-cell-action-dispatch.ts";
 import { createRepoCellApi, repoCellSynchronousRead, type RepoCellApiContext } from "./repo-cell-api.ts";
 import { bindVerifiedExecutorClaim } from "./repo-cell-authorization.ts";
 import { dispatchRead } from "./repo-cell-command.ts";
-import { taskShowFromProjection } from "./repo-cell-completion.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import type { RepoCellOpenInput } from "./repo-cell-open.ts";
 import { makeRepoCellSettingsState } from "./repo-cell-settings-state.ts";
@@ -268,9 +267,6 @@ export function makeRepoReadRuntime(
         latched,
       } as unknown as RepoCellApiContext,
       api = createRepoCellApi(context);
-    Object.assign(operationalContext, {
-      showTask: (taskId: string) => taskShowFromProjection(input.rootDir, writableProjection, taskId),
-    });
     return (cachedRuntime = { projection, api, actionContext: operationalContext });
   };
   const readAtCut = <M extends Parameters<RepoCell["read"]>[0]>(

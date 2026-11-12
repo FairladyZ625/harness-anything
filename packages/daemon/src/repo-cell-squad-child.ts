@@ -7,7 +7,7 @@ import {
   DOC_POLICY_ID,
   isTerminalStatus,
   type SquadRunObservation,
-  isSameExecution,
+  taskLeaseGuidance,
   type TaskLifecycleSnapshot,
   parseDocWriteIntent,
   sha256Text,
@@ -216,13 +216,14 @@ export async function reacquireSquadTaskLease(input: {
   }
   const lease = input.snapshot.lease;
   if (lease) {
-    if (lease.executionId === execution.executionId && isSameExecution(lease.actor, input.binding.actor)) return;
+    const guidance = taskLeaseGuidance(input.taskId, lease, input.binding.actor);
+    if (!guidance.reconnect && lease.executionId === execution.executionId && guidance.heldByCaller) return;
     throw cellCriterionError(
       "lease_conflict",
-      `Task ${input.taskId} is leased by another execution or actor; the squad continuation stopped.`,
+      `Task ${input.taskId}: ${guidance.reason} The squad continuation stopped.`,
       "run",
       "squad/execution-lease-holder",
-      [`The current holder must run ha task release ${input.taskId}; wait for release before retrying.`],
+      [guidance.reconnect ? guidance.reconnectAction : guidance.releaseAction],
     );
   }
   const started = await input.start(execution.executionId);
