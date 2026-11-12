@@ -65,17 +65,17 @@ export async function hydrateReplicaSeed(rootDir: string, metadata: BaseBackupMe
   } finally {
     importer.close();
   }
-  const database = /* @gate-identity state-store/legacy.26d47cc905c83791 */ new DatabaseSync(ledgerPath);
+  const database = /* @gate-identity state-store/task.replica-seed */ new DatabaseSync(ledgerPath);
   try {
-    /* @gate-identity state-store/legacy.495a95d8d0ebc9c4 */ database.exec("BEGIN IMMEDIATE");
-    /* @gate-identity state-store/legacy.6898e452604d5455 */ database
+    /* @gate-identity state-store/task.replica-seed */ database.exec("BEGIN IMMEDIATE");
+    /* @gate-identity state-store/task.replica-seed */ database
       .prepare("UPDATE replication_state SET history=?,sequence=? WHERE singleton=1")
       .run(metadata.position.history, metadata.position.sequence);
-    /* @gate-identity state-store/legacy.f7b2404f353753c5 */ database.exec("DELETE FROM replication_log");
-    /* @gate-identity state-store/legacy.29bfcf9d5b5bbbbd */ database
+    /* @gate-identity state-store/task.replica-seed */ database.exec("DELETE FROM replication_log");
+    /* @gate-identity state-store/task.replica-seed */ database
       .prepare("INSERT INTO replication_log(sequence,revision,outcome_op_id,writer_json) VALUES(?,?,NULL,?)")
       .run(metadata.position.sequence, metadata.position.revision, JSON.stringify(seed.writer));
-    /* @gate-identity state-store/legacy.700e549c9765b008 */ database.exec("COMMIT");
+    /* @gate-identity state-store/task.replica-seed */ database.exec("COMMIT");
   } finally {
     database.close();
   }

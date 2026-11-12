@@ -235,6 +235,99 @@ const postgresProjectionTables = Object.freeze(
 
 // Source-bound physical storage declarations. A marker must match its entity owner, module, and medium.
 const physicalSourceStoreRows = Object.freeze([
+  // Existing local files are owned here; registration changes no on-disk layout.
+  {
+    owner: "runtime-instance",
+    id: "runtime-instance.builtin-identity",
+    module: "packages/authorization-builtin/src/state.ts",
+    kind: "filesystem-store",
+    role: "authority",
+  },
+  {
+    owner: "script-execution",
+    id: "script-execution.runs",
+    module: "packages/preset/src/preset-process-service.ts",
+    kind: "filesystem-store",
+    role: "authority",
+    residency: "runtime-local",
+    vocabulary: ["PresetRun.outcome", "PresetRun.phase"],
+  },
+  {
+    owner: "document",
+    id: "document.local-edits",
+    module: "packages/gui/src/main/local-doc-ipc.ts",
+    kind: "filesystem-store",
+    role: "authority",
+    residency: "host-local",
+  },
+  {
+    owner: "document",
+    id: "document.artifact-cache",
+    module: "packages/gui/src/main/artifact-open-ipc.ts",
+    kind: "filesystem-store",
+    role: "projection",
+    residency: "host-local",
+    projectionRead: {
+      kind: "document",
+      store: "document.events",
+      cursor: "generation",
+      reader: "openMaterializedCopy",
+    },
+  },
+  {
+    owner: "document",
+    id: "document.fleet-read",
+    module: "packages/cli/src/index.ts",
+    kind: "filesystem-store",
+    role: "projection",
+    residency: "runtime-local",
+    projectionRead: { kind: "document", store: "document.events", cursor: "revision", reader: "streamDocumentFile" },
+  },
+  {
+    owner: "task",
+    id: "task.backup-sqlite",
+    module: "packages/storage/src/fleet-basebackup-worker.ts",
+    kind: "filesystem-store",
+    role: "projection",
+    residency: "runtime-local",
+    projectionRead: { kind: "task", store: "task.task-events", cursor: "revision", reader: "startBaseBackup" },
+  },
+  {
+    owner: "task",
+    id: "task.backup-postgres",
+    module: "packages/storage/src/postgres/pg-basebackup.ts",
+    kind: "filesystem-store",
+    role: "projection",
+    residency: "runtime-local",
+    projectionRead: { kind: "task", store: "task.task-events", cursor: "revision", reader: "prepareSqlBaseBackup" },
+  },
+  {
+    owner: "task",
+    id: "task.replica-seed",
+    module: "packages/storage/src/fleet-replica-seed.ts",
+    kind: "sqlite-database",
+    role: "projection",
+    residency: "runtime-local",
+    tables: [],
+    projectionRead: { kind: "task", store: "task.task-events", cursor: "revision", reader: "hydrateReplicaSeed" },
+  },
+  // The exclusive physical-writer claim is execution state, not host process liveness.
+  // The rowless SQLite sidecar retains its inode and OS lock for the owner's lifetime.
+  {
+    owner: "execution",
+    id: "execution.pglite-directory",
+    module: "packages/storage/src/pglite/data-dir-mutex.ts",
+    kind: "filesystem-store",
+    role: "authority",
+  },
+  {
+    owner: "execution",
+    id: "execution.pglite-owner",
+    module: "packages/storage/src/pglite/data-dir-mutex.ts",
+    kind: "sqlite-database",
+    role: "authority",
+    tables: [],
+  },
   {
     owner: "runtime-instance",
     module: "packages/kernel/src/daemon/registry.ts",
@@ -501,12 +594,17 @@ const physicalSourceStores: readonly { readonly owner: string; readonly store: S
   Object.freeze(
     physicalSourceStoreRows.map((row) => {
       const { owner, module, kind, role } = row;
-      const id = moduleStoreId(owner, module, kind);
+      const id = ("id" in row ? row.id : undefined) ?? moduleStoreId(owner, module, kind);
       const projectionStore = role === "projection";
       const stateRole = role as StateStoreRole;
       const residency = (
-        owner === "execution" || owner === "runtime-instance" ? "runtime-local" : "canonical"
+        "residency" in row
+          ? row.residency
+          : owner === "execution" || owner === "runtime-instance"
+            ? "runtime-local"
+            : "canonical"
       ) as StateStoreResidency;
+      const read = "projectionRead" in row ? row.projectionRead : undefined;
       const medium: StateStoreMedium = {
         kind: kind as StateStoreMedium["kind"],
         module,
@@ -517,13 +615,13 @@ const physicalSourceStores: readonly { readonly owner: string; readonly store: S
         role: stateRole,
         residency,
         medium: freeze(medium),
-        vocabulary: freeze([]),
+        vocabulary: freeze(("vocabulary" in row ? row.vocabulary : undefined) ?? []),
         ...(projectionStore
           ? {
-              source: freeze({ kind: "task", store: "task.task-events" }),
-              freshness: freeze({ cursor: "revision" as StateStoreFreshnessCursor }),
-              invalidation: "rebuild-on-start",
-              reader: "readTaskProjection",
+              source: freeze({ kind: read?.kind ?? "task", store: read?.store ?? "task.task-events" }),
+              freshness: freeze({ cursor: (read?.cursor ?? "revision") as StateStoreFreshnessCursor }),
+              invalidation: read ? "fence-on-read" : "rebuild-on-start",
+              reader: read?.reader ?? "readTaskProjection",
             }
           : {}),
       };
@@ -678,6 +776,7 @@ const storesByKind: Readonly<Record<string, readonly StateStoreDeclaration[]>> =
       "packages/kernel/src/domain/event-shape-migration-event.ts",
     ),
   ],
+  "script-execution": physicalStoresForKind("script-execution"),
   "vertical-declaration": [
     canonical(
       "vertical-declaration.events",

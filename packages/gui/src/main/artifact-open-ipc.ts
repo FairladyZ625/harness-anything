@@ -125,9 +125,9 @@ async function openMaterializedCopy(
   const sha = createHash("sha256").update(content).digest("hex"),
     directory = path.join(services.artifactCacheRoot(), input.repoId, sha),
     copyPath = path.join(directory, artifactBasename(input.path));
-  /* @gate-identity state-store/legacy.2c1a86260f734e5a */ mkdirSync(directory, { recursive: true });
+  /* @gate-identity state-store/document.artifact-cache */ mkdirSync(directory, { recursive: true });
   if (!isRegularFile(copyPath))
-    /* @gate-identity state-store/legacy.459499d8f4c32753 */ writeFileSync(copyPath, content, { mode: 0o444 });
+    /* @gate-identity state-store/document.artifact-cache */ writeFileSync(copyPath, content, { mode: 0o444 });
   const failureMessage = await services.openPath(copyPath);
   if (failureMessage !== "") throw new Error(`Opening ${copyPath} in the system viewer failed: ${failureMessage}`);
   return { ok: true, openedPath: copyPath, error: null };
