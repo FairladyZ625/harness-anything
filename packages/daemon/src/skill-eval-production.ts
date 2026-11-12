@@ -67,17 +67,17 @@ export function openSkillEvalCatalogStore(userRoot: string): SkillEvalStore {
     }
   };
   const persist = async (catalog: CatalogDocument): Promise<void> => {
-    await /* @gate-identity state-store/legacy.608cfd34c28c14f2 */ mkdir(path.dirname(target), {
+    await /* @gate-identity state-store/script-execution.skill-eval-catalog */ mkdir(path.dirname(target), {
       recursive: true,
       mode: 0o700,
     });
     const temporary = `${target}.${process.pid}.tmp`;
-    await /* @gate-identity state-store/legacy.e38724d6d6436462 */ writeFile(
+    await /* @gate-identity state-store/script-execution.skill-eval-catalog */ writeFile(
       temporary,
       `${JSON.stringify(catalog)}\n`,
       { encoding: "utf8", mode: 0o600 },
     );
-    await /* @gate-identity state-store/legacy.48679571ab6e654a */ rename(temporary, target);
+    await /* @gate-identity state-store/script-execution.skill-eval-catalog */ rename(temporary, target);
   };
   const updateCatalog = (update: (catalog: CatalogDocument) => CatalogDocument): Promise<void> => {
     const operation = writes.then(async () => {

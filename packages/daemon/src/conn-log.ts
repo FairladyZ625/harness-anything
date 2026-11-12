@@ -219,9 +219,9 @@ export function openDaemonConnLog(options: DaemonConnLogOptions): DaemonConnLog 
         await closeHandle();
         openDay = day;
         fileBase = path.join(logDir, `${stem}${day}.jsonl`);
-        await /* @gate-identity state-store/legacy.6d0e830b1d8e8184 */ mkdir(logDir, { recursive: true });
+        await /* @gate-identity non-state/environment-io.6d0e830b1d8e8184 */ mkdir(logDir, { recursive: true });
         await pruneOldDays();
-        handle = await /* @gate-identity state-store/legacy.322a27fbba962656 */ open(fileBase, "a");
+        handle = await /* @gate-identity non-state/environment-io.322a27fbba962656 */ open(fileBase, "a");
         bytes = (await handle.stat()).size;
       }
       if (bytes + Buffer.byteLength(line) > maxBytes) {
@@ -231,7 +231,7 @@ export function openDaemonConnLog(options: DaemonConnLogOptions): DaemonConnLog 
         // one day's traffic exceeded maxBytes × kept generations (research 3: 2026-10-16).
         await closeHandle();
         await shiftDayGenerations(day);
-        handle = await /* @gate-identity state-store/legacy.8c335c7d3f5a6f60 */ open(fileBase, "a");
+        handle = await /* @gate-identity non-state/environment-io.8c335c7d3f5a6f60 */ open(fileBase, "a");
         bytes = 0;
       }
       bytes += (await handle!.write(line)).bytesWritten;
@@ -284,7 +284,9 @@ export function openDaemonConnLog(options: DaemonConnLogOptions): DaemonConnLog 
     for (const name of names) {
       const day = pattern.exec(name)?.[1];
       if (day !== undefined && !keep.includes(day))
-        await /* @gate-identity state-store/legacy.772a233589a799c0 */ rm(path.join(logDir, name), { force: true });
+        await /* @gate-identity non-state/environment-io.772a233589a799c0 */ rm(path.join(logDir, name), {
+          force: true,
+        });
     }
   }
 }
@@ -307,7 +309,7 @@ function safeConnRuntimeId(value: string): string {
 }
 async function renameIfExists(from: string, to: string): Promise<void> {
   try {
-    await /* @gate-identity state-store/legacy.119a357bb4245a64 */ rename(from, to);
+    await /* @gate-identity non-state/environment-io.119a357bb4245a64 */ rename(from, to);
   } catch (error) {
     if (!isConnFileMissing(error)) throw error;
     consumeKnownError(error);

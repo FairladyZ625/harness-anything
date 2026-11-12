@@ -24,11 +24,11 @@ interface ArchivedStream {
 export function archiveDispatchStream(rootDir: string, dispatchId: string): void {
   const { live, archived } = streamPaths(rootDir, dispatchId);
   if (statSync(live, { throwIfNoEntry: false })?.isFile()) {
-    /* @gate-identity state-store/legacy.14241f87acf53d0c */ mkdirSync(path.dirname(archived), {
+    /* @gate-identity state-store/execution.dispatch-stream-archive */ mkdirSync(path.dirname(archived), {
       recursive: true,
       mode: 0o700,
     });
-    /* @gate-identity state-store/legacy.8a6a330c5d745c06 */ renameSync(live, archived);
+    /* @gate-identity state-store/execution.dispatch-stream-archive */ renameSync(live, archived);
   } else if (!statSync(archived, { throwIfNoEntry: false })?.isFile()) return;
   compactDispatchStreamArchive(archived, dispatchId);
 }
@@ -125,7 +125,7 @@ export function pruneDispatchStreamArchive(
     // Re-check before deleting, like the compaction pass above: a dispatch purge may have taken
     // the file between the enumeration and this delete; either way the next pass re-enumerates.
     if (statSync(stream.file, { throwIfNoEntry: false })?.isFile())
-      /* @gate-identity state-store/legacy.e49443c41253472b */ unlinkSync(stream.file);
+      /* @gate-identity state-store/execution.dispatch-stream-archive */ unlinkSync(stream.file);
     // A retained stream's sidecar is not independent evidence. Remove the stored/not-required
     // disposition with the stream it describes; a pending disposition was never doomed above.
     removeDispatchEvidenceState(rootDir, stream.dispatchId);

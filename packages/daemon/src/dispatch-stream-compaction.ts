@@ -294,7 +294,7 @@ function parseRecord(line: string, lineNumber: number): JsonRecord {
 function writeAllSync(descriptor: number, bytes: Buffer): void {
   let offset = 0;
   while (offset < bytes.length)
-    offset += /* @gate-identity state-store/legacy.1f32815b2645ae65 */ writeSync(
+    offset += /* @gate-identity state-store/execution.dispatch-stream-compaction */ writeSync(
       descriptor,
       bytes,
       offset,

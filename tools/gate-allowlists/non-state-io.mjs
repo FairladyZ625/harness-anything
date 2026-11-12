@@ -791,4 +791,444 @@ export const nonStateIoDeclarations = Object.freeze([
     api: "rmSync",
     scope: "migrateCompletion",
   },
+  {
+    id: "environment-io.fd11f2cc7ba917bb",
+    path: "packages/daemon/src/agent-declaration-migration.ts",
+    category: "environment-io",
+    subtype: "agent-declaration-migration",
+    reason:
+      "Writes an operator-requested candidate agent declaration file or asset directory before explicit agent installation; canonical agent state enters the ledger only on install. Signal: writeFileSync in migrateAgentDeclarations.",
+    api: "writeFileSync",
+    scope: "migrateAgentDeclarations",
+  },
+  {
+    id: "environment-io.c856ef7e6562828b",
+    path: "packages/daemon/src/agent-declaration-migration.ts",
+    category: "environment-io",
+    subtype: "agent-declaration-migration",
+    reason:
+      "Writes an operator-requested candidate agent declaration file or asset directory before explicit agent installation; canonical agent state enters the ledger only on install. Signal: mkdirSync in migrateAgentDeclarations.",
+    api: "mkdirSync",
+    scope: "migrateAgentDeclarations",
+  },
+  {
+    id: "environment-io.b8e22ee9dc2cbdbb",
+    path: "packages/daemon/src/agent-declaration-migration.ts",
+    category: "environment-io",
+    subtype: "agent-declaration-migration",
+    reason:
+      "Writes an operator-requested candidate agent declaration file or asset directory before explicit agent installation; canonical agent state enters the ledger only on install. Signal: writeFileSync in migrateAgentDeclarations.",
+    api: "writeFileSync",
+    scope: "migrateAgentDeclarations",
+  },
+  {
+    id: "environment-io.11ea73f113a7658b",
+    path: "packages/daemon/src/agent-runtime-instance-store.ts",
+    category: "environment-io",
+    subtype: "runtime-launch-scratch",
+    reason:
+      "Creates or reclaims per-session temporary launch/hook scratch directories under the runtime instance root; carries no persisted domain state. Signal: mkdirSync in finishLaunch.",
+    api: "mkdirSync",
+    scope: "finishLaunch",
+  },
+  {
+    id: "environment-io.53e36032a7e7b1b3",
+    path: "packages/daemon/src/agent-runtime-instance-store.ts",
+    category: "environment-io",
+    subtype: "runtime-launch-scratch",
+    reason:
+      "Creates or reclaims per-session temporary launch/hook scratch directories under the runtime instance root; carries no persisted domain state. Signal: rmSync in reclaimRuntimeTempDirectory.",
+    api: "rmSync",
+    scope: "reclaimRuntimeTempDirectory",
+  },
+  {
+    id: "environment-io.c525f2977a64562a",
+    path: "packages/daemon/src/client/daemon-autostart.ts",
+    category: "environment-io",
+    subtype: "daemon-os-service-unit",
+    reason:
+      "Manages host OS service supervisor unit files (launchd/systemd) or empty process spawn working directories; holds no application aggregate state. Signal: mkdirSync in writeDaemonServiceUnit.",
+    api: "mkdirSync",
+    scope: "writeDaemonServiceUnit",
+  },
+  {
+    id: "environment-io.ebb0f3dc7d49ecf6",
+    path: "packages/daemon/src/client/daemon-autostart.ts",
+    category: "environment-io",
+    subtype: "daemon-os-service-unit",
+    reason:
+      "Manages host OS service supervisor unit files (launchd/systemd) or empty process spawn working directories; holds no application aggregate state. Signal: mkdirSync in writeDaemonServiceUnit.",
+    api: "mkdirSync",
+    scope: "writeDaemonServiceUnit",
+  },
+  {
+    id: "environment-io.d1ede72339cbae09",
+    path: "packages/daemon/src/client/daemon-autostart.ts",
+    category: "environment-io",
+    subtype: "daemon-os-service-unit",
+    reason:
+      "Manages host OS service supervisor unit files (launchd/systemd) or empty process spawn working directories; holds no application aggregate state. Signal: writeFileSync in writeDaemonServiceUnit.",
+    api: "writeFileSync",
+    scope: "writeDaemonServiceUnit",
+  },
+  {
+    id: "environment-io.a9c01bf05c0cfe26",
+    path: "packages/daemon/src/client/daemon-autostart.ts",
+    category: "environment-io",
+    subtype: "daemon-os-service-unit",
+    reason:
+      "Manages host OS service supervisor unit files (launchd/systemd) or empty process spawn working directories; holds no application aggregate state. Signal: rmSync in removeDaemonServiceUnit.",
+    api: "rmSync",
+    scope: "removeDaemonServiceUnit",
+  },
+  {
+    id: "environment-io.b44a95013e42368d",
+    path: "packages/daemon/src/client/daemon-autostart.ts",
+    category: "environment-io",
+    subtype: "daemon-os-service-unit",
+    reason:
+      "Manages host OS service supervisor unit files (launchd/systemd) or empty process spawn working directories; holds no application aggregate state. Signal: mkdirSync in ensureDaemonSpawnRoot.",
+    api: "mkdirSync",
+    scope: "ensureDaemonSpawnRoot",
+  },
+  {
+    id: "environment-io.5ac349285e591d4c",
+    path: "packages/daemon/src/client/local-daemon-target.ts",
+    category: "environment-io",
+    subtype: "daemon-transport-socket",
+    reason:
+      "Creates the mode-0700 per-user temporary socket root directory for local IPC endpoints; stores no domain state. Signal: mkdirSync in mkdirSecurely.",
+    api: "mkdirSync",
+    scope: "mkdirSecurely",
+  },
+  {
+    id: "environment-io.6d0e830b1d8e8184",
+    path: "packages/daemon/src/conn-log.ts",
+    category: "environment-io",
+    subtype: "daemon-observability-log",
+    reason:
+      "Manages or reads size/age-rolled local daemon diagnostic, lifecycle, connection, probe, or request observability log files; accountability receipts live in the canonical ledger. Signal: mkdir in writeLine.",
+    api: "mkdir",
+    scope: "writeLine",
+  },
+  {
+    id: "environment-io.322a27fbba962656",
+    path: "packages/daemon/src/conn-log.ts",
+    category: "environment-io",
+    subtype: "daemon-observability-log",
+    reason:
+      "Manages or reads size/age-rolled local daemon diagnostic, lifecycle, connection, probe, or request observability log files; accountability receipts live in the canonical ledger. Signal: open in writeLine.",
+    api: "open",
+    scope: "writeLine",
+  },
+  {
+    id: "environment-io.8c335c7d3f5a6f60",
+    path: "packages/daemon/src/conn-log.ts",
+    category: "environment-io",
+    subtype: "daemon-observability-log",
+    reason:
+      "Manages or reads size/age-rolled local daemon diagnostic, lifecycle, connection, probe, or request observability log files; accountability receipts live in the canonical ledger. Signal: open in writeLine.",
+    api: "open",
+    scope: "writeLine",
+  },
+  {
+    id: "environment-io.772a233589a799c0",
+    path: "packages/daemon/src/conn-log.ts",
+    category: "environment-io",
+    subtype: "daemon-observability-log",
+    reason:
+      "Manages or reads size/age-rolled local daemon diagnostic, lifecycle, connection, probe, or request observability log files; accountability receipts live in the canonical ledger. Signal: rm in pruneOldDays.",
+    api: "rm",
+    scope: "pruneOldDays",
+  },
+  {
+    id: "environment-io.119a357bb4245a64",
+    path: "packages/daemon/src/conn-log.ts",
+    category: "environment-io",
+    subtype: "daemon-observability-log",
+    reason:
+      "Manages or reads size/age-rolled local daemon diagnostic, lifecycle, connection, probe, or request observability log files; accountability receipts live in the canonical ledger. Signal: rename in renameIfExists.",
+    api: "rename",
+    scope: "renameIfExists",
+  },
+  {
+    id: "environment-io.ec7a202fd7b6fd10",
+    path: "packages/daemon/src/lifecycle-log.ts",
+    category: "environment-io",
+    subtype: "daemon-observability-log",
+    reason:
+      "Manages or reads size/age-rolled local daemon diagnostic, lifecycle, connection, probe, or request observability log files; accountability receipts live in the canonical ledger. Signal: mkdirSync in openDaemonLifecycleLog.",
+    api: "mkdirSync",
+    scope: "openDaemonLifecycleLog",
+  },
+  {
+    id: "environment-io.df81aef7aa74b913",
+    path: "packages/daemon/src/lifecycle-log.ts",
+    category: "environment-io",
+    subtype: "daemon-observability-log",
+    reason:
+      "Manages or reads size/age-rolled local daemon diagnostic, lifecycle, connection, probe, or request observability log files; accountability receipts live in the canonical ledger. Signal: appendFileSync in openDaemonLifecycleLog.",
+    api: "appendFileSync",
+    scope: "openDaemonLifecycleLog",
+  },
+  {
+    id: "environment-io.d0c312cacca07778",
+    path: "packages/daemon/src/lifecycle-log.ts",
+    category: "environment-io",
+    subtype: "daemon-observability-log",
+    reason:
+      "Manages or reads size/age-rolled local daemon diagnostic, lifecycle, connection, probe, or request observability log files; accountability receipts live in the canonical ledger. Signal: mkdirSync in openDaemonOutputFd.",
+    api: "mkdirSync",
+    scope: "openDaemonOutputFd",
+  },
+  {
+    id: "environment-io.435edbd8df19f65d",
+    path: "packages/daemon/src/lifecycle-log.ts",
+    category: "environment-io",
+    subtype: "daemon-observability-log",
+    reason:
+      "Manages or reads size/age-rolled local daemon diagnostic, lifecycle, connection, probe, or request observability log files; accountability receipts live in the canonical ledger. Signal: openSync in openDaemonOutputFd.",
+    api: "openSync",
+    scope: "openDaemonOutputFd",
+  },
+  {
+    id: "environment-io.3d928f21650aab9d",
+    path: "packages/daemon/src/lifecycle-log.ts",
+    category: "environment-io",
+    subtype: "daemon-observability-log",
+    reason:
+      "Manages or reads size/age-rolled local daemon diagnostic, lifecycle, connection, probe, or request observability log files; accountability receipts live in the canonical ledger. Signal: closeSync in closeDaemonOutputFd.",
+    api: "closeSync",
+    scope: "closeDaemonOutputFd",
+  },
+  {
+    id: "environment-io.2534a7ea79e2c8d2",
+    path: "packages/daemon/src/lifecycle-log.ts",
+    category: "environment-io",
+    subtype: "daemon-observability-log",
+    reason:
+      "Manages or reads size/age-rolled local daemon diagnostic, lifecycle, connection, probe, or request observability log files; accountability receipts live in the canonical ledger. Signal: openSync in readDaemonLifecycleRecords.",
+    api: "openSync",
+    scope: "readDaemonLifecycleRecords",
+  },
+  {
+    id: "environment-io.5a87f3c7e94203a3",
+    path: "packages/daemon/src/lifecycle-log.ts",
+    category: "environment-io",
+    subtype: "daemon-observability-log",
+    reason:
+      "Manages or reads size/age-rolled local daemon diagnostic, lifecycle, connection, probe, or request observability log files; accountability receipts live in the canonical ledger. Signal: closeSync in readDaemonLifecycleRecords.",
+    api: "closeSync",
+    scope: "readDaemonLifecycleRecords",
+  },
+  {
+    id: "environment-io.704983ddbd864c1d",
+    path: "packages/daemon/src/lifecycle-log.ts",
+    category: "environment-io",
+    subtype: "daemon-observability-log",
+    reason:
+      "Manages or reads size/age-rolled local daemon diagnostic, lifecycle, connection, probe, or request observability log files; accountability receipts live in the canonical ledger. Signal: rmSync in rotateLifecycleLog.",
+    api: "rmSync",
+    scope: "rotateLifecycleLog",
+  },
+  {
+    id: "environment-io.72b8d8e75f7f721b",
+    path: "packages/daemon/src/lifecycle-log.ts",
+    category: "environment-io",
+    subtype: "daemon-observability-log",
+    reason:
+      "Manages or reads size/age-rolled local daemon diagnostic, lifecycle, connection, probe, or request observability log files; accountability receipts live in the canonical ledger. Signal: rmSync in rotateLifecycleLog.",
+    api: "rmSync",
+    scope: "rotateLifecycleLog",
+  },
+  {
+    id: "environment-io.801d4a0fe4d0d9b8",
+    path: "packages/daemon/src/lifecycle-log.ts",
+    category: "environment-io",
+    subtype: "daemon-observability-log",
+    reason:
+      "Manages or reads size/age-rolled local daemon diagnostic, lifecycle, connection, probe, or request observability log files; accountability receipts live in the canonical ledger. Signal: renameSync in rotateLifecycleLog.",
+    api: "renameSync",
+    scope: "rotateLifecycleLog",
+  },
+  {
+    id: "environment-io.c079f11d542d95e6",
+    path: "packages/daemon/src/lifecycle-log.ts",
+    category: "environment-io",
+    subtype: "daemon-observability-log",
+    reason:
+      "Manages or reads size/age-rolled local daemon diagnostic, lifecycle, connection, probe, or request observability log files; accountability receipts live in the canonical ledger. Signal: renameSync in rotateLifecycleLog.",
+    api: "renameSync",
+    scope: "rotateLifecycleLog",
+  },
+  {
+    id: "environment-io.b62396679580c5a1",
+    path: "packages/daemon/src/observe-jsonl-tail.ts",
+    category: "environment-io",
+    subtype: "daemon-observability-log",
+    reason:
+      "Manages or reads size/age-rolled local daemon diagnostic, lifecycle, connection, probe, or request observability log files; accountability receipts live in the canonical ledger. Signal: open in openStableFile.",
+    api: "open",
+    scope: "openStableFile",
+  },
+  {
+    id: "environment-io.9be0f8fbd8c5f109",
+    path: "packages/daemon/src/probe-log-sink.ts",
+    category: "environment-io",
+    subtype: "daemon-observability-log",
+    reason:
+      "Manages or reads size/age-rolled local daemon diagnostic, lifecycle, connection, probe, or request observability log files; accountability receipts live in the canonical ledger. Signal: mkdir in writeLine.",
+    api: "mkdir",
+    scope: "writeLine",
+  },
+  {
+    id: "environment-io.f2d57822d6b3d560",
+    path: "packages/daemon/src/probe-log-sink.ts",
+    category: "environment-io",
+    subtype: "daemon-observability-log",
+    reason:
+      "Manages or reads size/age-rolled local daemon diagnostic, lifecycle, connection, probe, or request observability log files; accountability receipts live in the canonical ledger. Signal: open in writeLine.",
+    api: "open",
+    scope: "writeLine",
+  },
+  {
+    id: "environment-io.690433e47117a394",
+    path: "packages/daemon/src/probe-log-sink.ts",
+    category: "environment-io",
+    subtype: "daemon-observability-log",
+    reason:
+      "Manages or reads size/age-rolled local daemon diagnostic, lifecycle, connection, probe, or request observability log files; accountability receipts live in the canonical ledger. Signal: mkdir in ensureProbeDirectory.",
+    api: "mkdir",
+    scope: "ensureProbeDirectory",
+  },
+  {
+    id: "environment-io.b71e5d2d09de6e06",
+    path: "packages/daemon/src/probe-log-sink.ts",
+    category: "environment-io",
+    subtype: "daemon-observability-log",
+    reason:
+      "Manages or reads size/age-rolled local daemon diagnostic, lifecycle, connection, probe, or request observability log files; accountability receipts live in the canonical ledger. Signal: writeFile in writeProbeFile.",
+    api: "writeFile",
+    scope: "writeProbeFile",
+  },
+  {
+    id: "environment-io.3ed3a8e5f168e3da",
+    path: "packages/daemon/src/probe-log-sink.ts",
+    category: "environment-io",
+    subtype: "daemon-observability-log",
+    reason:
+      "Manages or reads size/age-rolled local daemon diagnostic, lifecycle, connection, probe, or request observability log files; accountability receipts live in the canonical ledger. Signal: rm in pruneOldDays.",
+    api: "rm",
+    scope: "pruneOldDays",
+  },
+  {
+    id: "environment-io.a4b2ae42a0d210f8",
+    path: "packages/daemon/src/repo-cache-purge.ts",
+    category: "environment-io",
+    subtype: "repo-cache-cleanup",
+    reason:
+      "Deletes regenerable local cache directories or operator-retired repository Harness roots after backup verification; writes no domain state. Signal: rmSync in purgeRepoCache.",
+    api: "rmSync",
+    scope: "purgeRepoCache",
+  },
+  {
+    id: "environment-io.9bc5b49b9a770b83",
+    path: "packages/daemon/src/repo-cache-purge.ts",
+    category: "environment-io",
+    subtype: "repo-cache-cleanup",
+    reason:
+      "Deletes regenerable local cache directories or operator-retired repository Harness roots after backup verification; writes no domain state. Signal: rmSync in removeRepoHarnessRoots.",
+    api: "rmSync",
+    scope: "removeRepoHarnessRoots",
+  },
+  {
+    id: "environment-io.3dd8b1ca6b76b91c",
+    path: "packages/daemon/src/request-log.ts",
+    category: "environment-io",
+    subtype: "daemon-observability-log",
+    reason:
+      "Manages or reads size/age-rolled local daemon diagnostic, lifecycle, connection, probe, or request observability log files; accountability receipts live in the canonical ledger. Signal: mkdir in openSink.",
+    api: "mkdir",
+    scope: "openSink",
+  },
+  {
+    id: "environment-io.69b1169ea4d01ff3",
+    path: "packages/daemon/src/request-log.ts",
+    category: "environment-io",
+    subtype: "daemon-observability-log",
+    reason:
+      "Manages or reads size/age-rolled local daemon diagnostic, lifecycle, connection, probe, or request observability log files; accountability receipts live in the canonical ledger. Signal: rm in pruneAgedFiles.",
+    api: "rm",
+    scope: "pruneAgedFiles",
+  },
+  {
+    id: "environment-io.b99cb7e864440348",
+    path: "packages/daemon/src/request-log.ts",
+    category: "environment-io",
+    subtype: "daemon-observability-log",
+    reason:
+      "Manages or reads size/age-rolled local daemon diagnostic, lifecycle, connection, probe, or request observability log files; accountability receipts live in the canonical ledger. Signal: rename in renameIfExists.",
+    api: "rename",
+    scope: "renameIfExists",
+  },
+  {
+    id: "environment-io.f7701295bb5a8c9f",
+    path: "packages/daemon/src/runtime-callback-relay.ts",
+    category: "environment-io",
+    subtype: "daemon-transport-socket",
+    reason:
+      "Unlinks stale or closing UNIX domain IPC/relay socket inodes around transport server lifecycle; stores no domain state. Signal: rmSync in removeRuntimeCallbackRelay.",
+    api: "rmSync",
+    scope: "removeRuntimeCallbackRelay",
+  },
+  {
+    id: "environment-io.251625d620743e95",
+    path: "packages/daemon/src/runtime-callback-relay.ts",
+    category: "environment-io",
+    subtype: "daemon-transport-socket",
+    reason:
+      "Unlinks stale or closing UNIX domain IPC/relay socket inodes around transport server lifecycle; stores no domain state. Signal: unlinkSync in removeStaleRelay.",
+    api: "unlinkSync",
+    scope: "removeStaleRelay",
+  },
+  {
+    id: "environment-io.def6ae045029d530",
+    path: "packages/daemon/src/skill-eval-runner.ts",
+    category: "environment-io",
+    subtype: "skill-eval-sandbox",
+    reason:
+      "Creates an isolated per-case temporary working directory for a skill evaluation runtime invocation; stores no catalog or evaluation state. Signal: mkdir in sandboxDirectory.",
+    api: "mkdir",
+    scope: "sandboxDirectory",
+  },
+  {
+    id: "environment-io.1933a00ec3702ddb",
+    path: "packages/daemon/src/task-worktree.ts",
+    category: "environment-io",
+    subtype: "worktree-setup",
+    reason:
+      "Creates the parent directory under .worktrees/.review before detached git worktree checkout for immutable review inspection; derived from canonical commit SHA. Signal: mkdirSync in addPinnedReviewWorktree.",
+    api: "mkdirSync",
+    scope: "addPinnedReviewWorktree",
+  },
+  {
+    id: "environment-io.e0963dd729d80e07",
+    path: "packages/daemon/src/transport/unix-socket.ts",
+    category: "environment-io",
+    subtype: "daemon-transport-socket",
+    reason:
+      "Unlinks stale or closing UNIX domain IPC/relay socket inodes around transport server lifecycle; stores no domain state. Signal: rmSync in createUnixSocketTransportServer.",
+    api: "rmSync",
+    scope: "createUnixSocketTransportServer",
+  },
+  {
+    id: "environment-io.961cdcaa9a92cbbe",
+    path: "packages/daemon/src/transport/unix-socket.ts",
+    category: "environment-io",
+    subtype: "daemon-transport-socket",
+    reason:
+      "Unlinks stale or closing UNIX domain IPC/relay socket inodes around transport server lifecycle; stores no domain state. Signal: rmSync in createUnixSocketTransportServer.",
+    api: "rmSync",
+    scope: "createUnixSocketTransportServer",
+  },
 ]);

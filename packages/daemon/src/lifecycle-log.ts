@@ -137,7 +137,7 @@ export function openDaemonLifecycleLog(input: {
     record: (entry) => {
       try {
         if (!preparedDirectory) {
-          /* @gate-identity state-store/legacy.ec7a202fd7b6fd10 */ mkdirSync(path.dirname(logPath), {
+          /* @gate-identity non-state/environment-io.ec7a202fd7b6fd10 */ mkdirSync(path.dirname(logPath), {
             recursive: true,
           });
           preparedDirectory = true;
@@ -145,7 +145,7 @@ export function openDaemonLifecycleLog(input: {
         // One recorder serves the daemon's whole life, so the size cap is rechecked before every
         // append: rotateLifecycleLog early-returns on a single statSync when the file is under it.
         rotateLifecycleLog(logPath, maxBytes, keptFiles);
-        /* @gate-identity state-store/legacy.df81aef7aa74b913 */ appendFileSync(
+        /* @gate-identity non-state/environment-io.df81aef7aa74b913 */ appendFileSync(
           logPath,
           `${JSON.stringify({ schema: input.logKind ? "daemon-diagnostics/v1" : DAEMON_LIFECYCLE_LOG_SCHEMA.id, at: now().toISOString(), daemonId: input.daemonId, pid, ...entry } satisfies DaemonLifecycleRecord)}\n`,
           "utf8",
@@ -170,14 +170,14 @@ export function openDaemonOutputFd(
   maxBytes = daemonLogDefaultMaxBytes,
   keptFiles = daemonLogDefaultKeptFiles,
 ): number {
-  /* @gate-identity state-store/legacy.d0c312cacca07778 */ mkdirSync(path.dirname(logPath), { recursive: true });
+  /* @gate-identity non-state/environment-io.d0c312cacca07778 */ mkdirSync(path.dirname(logPath), { recursive: true });
   rotateLifecycleLog(logPath, maxBytes, keptFiles);
-  return /* @gate-identity state-store/legacy.435edbd8df19f65d */ openSync(logPath, "a", 0o600);
+  return /* @gate-identity non-state/environment-io.435edbd8df19f65d */ openSync(logPath, "a", 0o600);
 }
 
 export function closeDaemonOutputFd(fd: number): void {
   try {
-    /* @gate-identity state-store/legacy.3d928f21650aab9d */ closeSync(fd);
+    /* @gate-identity non-state/environment-io.3d928f21650aab9d */ closeSync(fd);
   } catch (error) {
     consumeKnownError(error);
   }
@@ -207,7 +207,7 @@ export function readDaemonLifecycleRecords(
     for (let index = files.length - 1; index >= 0; index -= 1) {
       let descriptor: number;
       try {
-        descriptor = /* @gate-identity state-store/legacy.2534a7ea79e2c8d2 */ openSync(
+        descriptor = /* @gate-identity non-state/environment-io.2534a7ea79e2c8d2 */ openSync(
           path.join(directory, files[index]!),
           "r",
         );
@@ -234,7 +234,7 @@ export function readDaemonLifecycleRecords(
           });
         if (found) return records.reverse();
       } finally {
-        /* @gate-identity state-store/legacy.5a87f3c7e94203a3 */ closeSync(descriptor);
+        /* @gate-identity non-state/environment-io.5a87f3c7e94203a3 */ closeSync(descriptor);
       }
     }
     return [];
@@ -267,17 +267,17 @@ function lifecycleLogFiles(directory: string, base: string): string[] {
 function rotateLifecycleLog(logPath: string, maxBytes: number, keptFiles: number): void {
   if (logFileSize(logPath) < maxBytes) return;
   if (keptFiles < 1) {
-    /* @gate-identity state-store/legacy.704983ddbd864c1d */ rmSync(logPath, { force: true });
+    /* @gate-identity non-state/environment-io.704983ddbd864c1d */ rmSync(logPath, { force: true });
     return;
   }
-  /* @gate-identity state-store/legacy.72b8d8e75f7f721b */ rmSync(`${logPath}.${keptFiles}`, { force: true });
+  /* @gate-identity non-state/environment-io.72b8d8e75f7f721b */ rmSync(`${logPath}.${keptFiles}`, { force: true });
   for (let index = keptFiles - 1; index >= 1; index -= 1)
     if (logFileExists(`${logPath}.${index}`))
-      /* @gate-identity state-store/legacy.801d4a0fe4d0d9b8 */ renameSync(
+      /* @gate-identity non-state/environment-io.801d4a0fe4d0d9b8 */ renameSync(
         `${logPath}.${index}`,
         `${logPath}.${index + 1}`,
       );
-  /* @gate-identity state-store/legacy.c079f11d542d95e6 */ renameSync(logPath, `${logPath}.1`);
+  /* @gate-identity non-state/environment-io.c079f11d542d95e6 */ renameSync(logPath, `${logPath}.1`);
 }
 function logFileSize(filePath: string): number {
   try {
