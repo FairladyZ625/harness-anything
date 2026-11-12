@@ -37,6 +37,7 @@ export interface OntologySourceExemption {
 export interface OntologyJudgmentDeclaration {
   readonly id: string;
   readonly symbol: string;
+  readonly declaration?: "function" | "const";
   readonly inputs: readonly string[];
   readonly output: string;
   readonly failureCodes: readonly string[];
@@ -50,6 +51,16 @@ export interface OntologyJudgmentDeclaration {
     readonly flags?: string;
     readonly reason: string;
   }[];
+}
+
+/** A syntactic predicate owned by an existing codec, protocol or renderer, not a business verdict.
+ * Exact source identities keep these boundaries closed when their implementation changes.
+ */
+export interface OntologySourceContract {
+  readonly id: string;
+  readonly symbol: string;
+  readonly explain: string;
+  readonly sources: readonly OntologySourceBinding[];
 }
 
 export interface OntologyPolicyDeclaration {

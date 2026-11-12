@@ -102,6 +102,16 @@ export function assertAcyclicPolicyGroups(groups: readonly PolicyGroup[]): void 
   for (const group of groups) visit(group.id);
 }
 
+/** Providers supply their scope inventory; cycle and scope admission have one domain owner. */
+export function validatePolicyGroupScopes(
+  groups: readonly PolicyGroup[],
+  known: (scope: string) => boolean,
+): string | null {
+  assertAcyclicPolicyGroups(groups);
+  for (const group of groups) for (const scope of group.scopes) if (!known(scope)) return scope;
+  return null;
+}
+
 export type AuthorizationResource =
   | { readonly kind: "fleet" }
   | { readonly kind: "repository"; readonly repoId: string }

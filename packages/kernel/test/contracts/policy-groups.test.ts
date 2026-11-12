@@ -11,6 +11,7 @@ import {
   effectivePolicyGroupScopes,
   encodeAuthorizationResource,
   minimumBasePolicyGroup,
+  validatePolicyGroupScopes,
   type PolicyGroup,
 } from "../../src/domain/policy-groups.ts";
 import type { ActionDeclaration } from "../../src/domain/action-declaration.ts";
@@ -115,6 +116,30 @@ test("custom group inheritance accepts composition and rejects direct and transi
         { ...custom, composites: ["audit"] },
         { id: "audit", base: false, scopes: [], composites: ["release"] },
       ]),
+    /cycle/u,
+  );
+});
+
+test("policy group admission checks graph validity before returning the first unknown provider scope", () => {
+  const group: PolicyGroup = { id: "release", base: false, scopes: ["known", "unknown", "later"], composites: [] },
+    observed: string[] = [];
+  assert.equal(
+    validatePolicyGroupScopes([group], (scope) => {
+      observed.push(scope);
+      return scope === "known";
+    }),
+    "unknown",
+  );
+  assert.deepEqual(observed, ["known", "unknown"]);
+  assert.equal(
+    validatePolicyGroupScopes([group], () => true),
+    null,
+  );
+  assert.throws(
+    () =>
+      validatePolicyGroupScopes([{ ...group, composites: ["release"] }], () => {
+        throw new Error("scope callback must not run before cycle validation");
+      }),
     /cycle/u,
   );
 });

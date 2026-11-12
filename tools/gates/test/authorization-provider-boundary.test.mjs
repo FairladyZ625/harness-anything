@@ -55,6 +55,31 @@ test("permits provider internals, test fixtures, and neutral authorization contr
   );
 });
 
+test("registered ontology source references are data; implementation, labels and unregistered references remain forbidden", () => {
+  const symbol = "packages/authorization-keycloak/src/provider.ts#Provider.validate",
+    refs = new Set([symbol]);
+  assert.deepEqual(
+    findProviderBoundaryViolations(
+      `+++ b/packages/kernel/src/domain/facets.json\n+"symbol": "${symbol}",\n+"${symbol}"`,
+      [],
+      refs,
+    ),
+    [],
+  );
+  for (const [file, line] of [
+    ["facets.json", '"symbol": "packages/authorization-keycloak/src/other.ts#Other"'],
+    ["facets.json", '"explain": "Keycloak-specific behavior"'],
+    ["facets.json", '"realm": "main"'],
+    ["runtime.ts", `export const symbol = "${symbol}";`],
+    ["runtime.ts", 'import { Provider } from "@harness-anything/authorization-keycloak";'],
+  ])
+    assert.equal(
+      findProviderBoundaryViolations(`+++ b/packages/kernel/src/domain/${file}\n+${line}`, [], refs).length,
+      1,
+      line,
+    );
+});
+
 test("permits future Keycloak provider packages and neutral admin client names", () => {
   assert.deepEqual(
     findProviderBoundaryViolations(

@@ -82,6 +82,17 @@ import { gateMappingPolicy, gateMappingPolicyJudgments } from "./gate-mapping-po
 import { storageReplayPolicy, storageReplayJudgments } from "./storage-replay-policy.ts";
 import { completionGateOverridePolicy, completionGateOverrideJudgment } from "./completion-gate-policy.ts";
 import { guiQueryPacing } from "./gui-query-pacing.ts";
+import sourceContractFacets from "./source-contract-facets.json" with { type: "json" };
+
+const sourceContracts = sourceContractFacets as Readonly<
+  Record<
+    string,
+    {
+      readonly judgments: readonly import("./ontology-source.ts").OntologyJudgmentDeclaration[];
+      readonly contracts: readonly import("./ontology-source.ts").OntologySourceContract[];
+    }
+  >
+>;
 
 export type EntityStorageForm =
   | "lifecycle"
@@ -153,6 +164,7 @@ export type { EntityKind, EntityResidencyFacets, RegisteredEntity } from "./base
 
 export type EntityKindContract<E extends BaseEntity = BaseEntity, T = unknown> = EntityTypeContract<E> & {
   readonly judgments?: readonly import("./ontology-source.ts").OntologyJudgmentDeclaration[];
+  readonly sourceContracts?: readonly import("./ontology-source.ts").OntologySourceContract[];
   readonly policies?: readonly import("./ontology-source.ts").OntologyPolicyDeclaration[];
   readonly ontologyExemptions?: readonly import("./ontology-source.ts").OntologySourceExemption[];
   readonly schema: EntityDocumentJsonSchema<T>;
@@ -572,6 +584,13 @@ const baseEntityAction = (
 const withBaseEntityActions = <T extends readonly EntityKindContract[]>(contracts: T): T =>
   Object.freeze(
     contracts.map((contract) => {
+      const facets = sourceContracts[contract.kind];
+      if (facets)
+        contract = {
+          ...contract,
+          sourceContracts: facets.contracts,
+          judgments: [...(contract.judgments ?? []), ...facets.judgments],
+        };
       const actionCatalog = contract.actionCatalog;
       if (actionCatalog === null || actionCatalog.reason !== undefined) return contract;
       const existing = new Set(actionCatalog.actions.map(({ id }) => id)),

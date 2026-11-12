@@ -13,5 +13,5 @@
     "rootDir": "./src",
     "outDir": "./dist"
   },
-  "include": ["src/**/*.ts", "src/domain/action-source-facets.json"]
+  "include": ["src/**/*.ts", "src/domain/action-source-facets.json", "src/domain/source-contract-facets.json"]
 }

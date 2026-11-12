@@ -1,3 +1,4 @@
+import { validatePolicyGroupScopes } from "@harness-anything/kernel/internal/domain/policy-groups.ts";
 import {
   policyActionDeclarations,
   baseEntityPolicyActions,
@@ -122,14 +123,13 @@ export class BuiltinPolicyAdapter
     return Object.freeze({ scopeCount: this.#knownScopes.size + artifactScopes.length, groupCount: base.length });
   }
   validatePolicyGroups(groups: readonly PolicyGroup[]): void {
-    assertAcyclicPolicyGroups(groups);
-    for (const group of groups)
-      for (const scope of group.scopes)
-        if (
-          !this.#knownScopes.has(scope) &&
-          !/^entity-kind\/KND-[0-9a-f]{32}\/(?:import|update|archive|delete)$/u.test(scope)
-        )
-          throw new Error(`Unknown built-in action scope ${scope}.`);
+    const scope = validatePolicyGroupScopes(
+      groups,
+      (scope) =>
+        this.#knownScopes.has(scope) ||
+        /^entity-kind\/KND-[0-9a-f]{32}\/(?:import|update|archive|delete)$/u.test(scope),
+    );
+    if (scope !== null) throw new Error(`Unknown built-in action scope ${scope}.`);
   }
   syncLoginClients(token: string): Promise<void> {
     this.#assertCenter(token);

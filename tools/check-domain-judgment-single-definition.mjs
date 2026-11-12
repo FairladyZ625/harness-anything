@@ -21,36 +21,13 @@ const DISPATCH_OBSERVATION_BASELINE = "tools/gate-allowlists/dispatch-lifecycle-
 
 // Legacy declarations remain enforced while S2 moves their owners into EntityKindContract.
 const judgments = [
-  ["closeoutReadiness", "packages/kernel/src/domain/closeout-readiness.ts", "closeoutReadiness"],
-  ["factLiveness", "packages/kernel/src/domain/fact-liveness.ts", "factLiveness"],
-  ["blockingOf", "packages/kernel/src/domain/task-blocking.ts", "blockingOf"],
-  ["startability", "packages/kernel/src/domain/task-lifecycle-command-transitions.ts", "canStartExecution"],
-  ["queryPayloadValidation", "packages/kernel/src/domain/query-payload-validation.ts", "queryPayloadValidation"],
-  ["statusVocabulary", "packages/kernel/src/domain/status-vocabulary.ts", "statusVocabularies", "const"],
-  [
-    "authoredDocumentReadiness",
-    "packages/kernel/src/domain/transition-document-readiness.ts",
-    "assessAuthoredDocumentReadiness",
-  ],
-  [
-    "transitionDocumentReadiness",
-    "packages/kernel/src/domain/transition-document-readiness.ts",
-    "assessTransitionDocument",
-  ],
-  ["reviewReverifyRoute", "packages/kernel/src/domain/review-reverify.ts", "reviewReverifyRoute"],
-  [
-    "ownerVerifiableFindingCategories",
-    "packages/kernel/src/domain/review-reverify.ts",
-    "ownerVerifiableFindingCategories",
-    "const",
-  ],
-  ["forwardingIntent", "packages/daemon/src/fleet/forwarding-intent.ts", "forwardingIntentIssue"],
-  [
-    "closeoutBilingualDelivery",
-    "packages/kernel/src/domain/transition-document-readiness.ts",
-    "missingChineseCloseoutSections",
-  ],
-].map(([id, canonical, symbol, declaration = "function"]) => ({ id, canonical, symbol, declaration }));
+  {
+    id: "forwardingIntent",
+    canonical: "packages/daemon/src/fleet/forwarding-intent.ts",
+    symbol: "forwardingIntentIssue",
+    declaration: "function",
+  },
+];
 const requiredConsumers = new Map([
   ["packages/kernel/src/domain/task-lifecycle-review-transitions.ts", "closeoutReadiness("],
   ["packages/kernel/src/domain/completion-readiness.ts", "closeoutReadiness("],
@@ -99,18 +76,26 @@ export function checkDomainJudgmentSingleDefinition(
     registered = kinds.flatMap((kind) =>
       (kind.judgments ?? []).map((judgment) => {
         const [canonical, symbol] = judgment.symbol.split("#");
-        return { ...judgment, canonical, symbol, declaration: "any" };
+        return { ...judgment, canonical, symbol, declaration: judgment.declaration ?? "function" };
       }),
     );
   const importsJudgment = judgmentImportResolver(root, bodies);
   const definitions = new Map();
   for (const [file, body] of bodies) {
     const source = ts.createSourceFile(file, body, ts.ScriptTarget.Latest, true);
-    const visit = (node) => {
+    const visit = (node, parents = []) => {
+      const name = node.name && ts.isIdentifier(node.name) ? node.name.text : "",
+        named =
+          ts.isFunctionDeclaration(node) ||
+          ts.isVariableDeclaration(node) ||
+          ts.isPropertyAssignment(node) ||
+          ts.isClassDeclaration(node) ||
+          ts.isMethodDeclaration(node),
+        symbols = named && name ? [...parents, name] : parents;
       const declaration =
-        ts.isFunctionDeclaration(node) && node.body
+        (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) && node.body
           ? "function"
-          : ts.isVariableDeclaration(node) && node.initializer
+          : (ts.isVariableDeclaration(node) || ts.isPropertyAssignment(node)) && node.initializer
             ? ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer)
               ? "function"
               : "const"
@@ -118,8 +103,12 @@ export function checkDomainJudgmentSingleDefinition(
       if (declaration && node.name && ts.isIdentifier(node.name)) {
         const key = `${declaration}:${node.name.text}`;
         definitions.set(key, [...(definitions.get(key) ?? []), file]);
+        if (symbols.length > 1) {
+          const qualified = `${declaration}:${symbols.join(".")}`;
+          definitions.set(qualified, [...(definitions.get(qualified) ?? []), file]);
+        }
       }
-      ts.forEachChild(node, visit);
+      ts.forEachChild(node, (child) => visit(child, symbols));
     };
     visit(source);
   }
@@ -130,6 +119,12 @@ export function checkDomainJudgmentSingleDefinition(
         `${judgment.id}: expected one definition of ${judgment.symbol} at ${judgment.canonical}; ` +
           `found ${hits.length ? hits.join(", ") : "none"}`,
       );
+  }
+  for (const contract of kinds.flatMap((kind) => kind.sourceContracts ?? [])) {
+    const [file, symbol] = contract.symbol.split("#"),
+      hits = (definitions.get(`function:${symbol}`) ?? []).filter((found) => found === file);
+    if (hits.length !== 1)
+      findings.push(`${contract.id}: source contract must resolve to one codec/adapter owner at ${contract.symbol}`);
   }
   for (const judgment of registered) {
     for (const file of judgment.consumers) {

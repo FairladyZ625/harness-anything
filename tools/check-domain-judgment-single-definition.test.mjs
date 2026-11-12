@@ -18,7 +18,7 @@ const repoRoot = path.resolve(import.meta.dirname, "..");
 // The gate enumerates through git; a directory inside the real repository would
 // resolve to the outer repo's tree, so the checked-in fixture runs from a copy
 // that is its own repository.
-function fixtureFindings(t, kinds = []) {
+function fixtureFindings(t, kinds = loadOntologyClosureSnapshot(repoRoot).kinds) {
   const fixture = mkdtempSync(path.join(tmpdir(), "ha-domain-judgment-fixture-"));
   t.after(() => rmSync(fixture, { recursive: true, force: true }));
   cpSync(path.join(repoRoot, "tools/fixtures/domain-judgment-single-definition"), fixture, { recursive: true });
@@ -368,6 +368,24 @@ test("registry judgments enforce canonical definitions, consumers and equivalent
     `import { isEligible as eligible } from '@harness-anything/kernel/internal/domain/eligibility.ts';\nexport const verdict = eligible(true);`,
   );
   assert.deepEqual(findings(), [], "aliased import and canonical call are allowed");
+  write("packages/kernel/src/index.ts", "export { isEligible as admission } from './domain/eligibility.ts';");
+  write(
+    consumer,
+    "import { admission as eligible } from '@harness-anything/kernel'; export const verdict = eligible(true);",
+  );
+  assert.deepEqual(findings(), [], "a named root barrel alias must resolve to the canonical judgment");
+  write("packages/kernel/src/index.ts", "export { isEligible as admission } from './domain/unrelated.ts';");
+  assert.ok(
+    findings().some((item) => item.includes("must consume")),
+    "a wrong barrel target is refused",
+  );
+  write("packages/kernel/src/index.ts", "export { isEligible as admission } from './domain/eligibility.ts';");
+  write(consumer, "import { admission } from '@harness-anything/kernel'; export const verdict = true;");
+  assert.ok(
+    findings().some((item) => item.includes("must consume")),
+    "an unused root import is refused",
+  );
+  write(consumer, "import { admission } from '@harness-anything/kernel'; export const verdict = admission(true);");
   write("packages/gui/src/copy.ts", "export const isEligible = (value: boolean) => value;");
   assert.ok(
     findings().some((item) => item.includes("one definition")),
@@ -446,6 +464,28 @@ test("registry judgments enforce canonical definitions, consumers and equivalent
     findings().some((item) => item.includes("one definition")),
     findings().join("\n"),
   );
+  judgment.symbol = `${canonical}#start.validate`;
+  judgment.consumers = [];
+  write(canonical, "export const start = { validate: () => [] }; export const stop = { validate: () => [] };");
+  assert.deepEqual(findings(), [], "qualified transition predicates do not collide with sibling transitions");
+  write("packages/gui/src/copy.ts", "export const start = { validate: () => [] };");
+  assert.ok(findings().some((item) => item.includes("one definition of start.validate")));
+  kinds[0].sourceContracts = [{ id: "codec-owner", symbol: `${canonical}#start.validate` }];
+  assert.deepEqual(
+    checkDomainJudgmentSingleDefinition(root, kinds).filter((item) => item.includes("codec-owner")),
+    [],
+  );
+  kinds[0].sourceContracts[0].symbol = `${canonical}#removedCodec`;
+  assert.ok(checkDomainJudgmentSingleDefinition(root, kinds).some((item) => item.includes("codec-owner")));
+});
+
+test("Decision acceptance and relation admission copies are refused through the production registry", (t) => {
+  const findings = fixtureFindings(t);
+  for (const symbol of ["decisionAcceptReviewReadiness", "assertDecisionAcceptReview", "assertRelationAdmission"])
+    assert.ok(
+      findings.some((item) => item.includes(`one definition of ${symbol}`) && item.includes("judgment-copies.ts")),
+      findings.join("\n"),
+    );
 });
 
 test("registered coverage rules refuse SQL liveness and renamed coverage algorithms", (t) => {
@@ -472,6 +512,36 @@ test("registered Fact admission refuses copied definitions and archive eligibili
     findings.some((finding) =>
       finding.includes("fact-archive-copy.ts: factAdmission: consume the kernel Fact archive-transition verdict"),
     ),
+    findings.join("\n"),
+  );
+});
+
+test("active writer admission is a canonical judgment with every live consumer", (t) => {
+  const kinds = loadOntologyClosureSnapshot(repoRoot).kinds;
+  const symbol = "packages/kernel/src/domain/write-chain.contract.ts#assertCurrentWriter";
+  const judgment = kinds.flatMap((kind) => kind.judgments ?? []).find((item) => item.symbol === symbol);
+  assert.ok(judgment, "the live writer fence must not be classified as syntax");
+  assert.deepEqual([...judgment.consumers].sort(), [
+    "packages/daemon/src/repo-bootstrap.ts",
+    "packages/daemon/src/repo-cell-api.ts",
+    "packages/daemon/src/repo-cell-command-run.ts",
+    "packages/daemon/src/runtime-publication-queue.ts",
+    "packages/daemon/src/task-witness-runner.ts",
+  ]);
+  assert.ok(
+    kinds
+      .flatMap((kind) => kind.sourceContracts ?? [])
+      .every((contract) => contract.sources.every((source) => source.route !== symbol)),
+  );
+  const findings = fixtureFindings(t, kinds);
+  assert.ok(
+    findings.some(
+      (item) => item.includes("one definition of assertCurrentWriter") && item.includes("judgment-copies.ts"),
+    ),
+    findings.join("\n"),
+  );
+  assert.ok(
+    findings.some((item) => item.includes("writer-admission-copy.ts") && item.includes(judgment.id)),
     findings.join("\n"),
   );
 });

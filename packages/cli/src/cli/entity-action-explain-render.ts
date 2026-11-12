@@ -7,7 +7,6 @@ export function renderEntityActionExplanation(
   value: EntityActionExplanationRenderInput,
   requestRefs?: readonly string[],
 ): string {
-  assertRenderableExplanation(value);
   const heading =
       value.mode === "catalog"
         ? `${title(value.subjects[0]?.kind)} actions (catalog; availability is not evaluated without an object):`
@@ -66,40 +65,4 @@ function requestRefAt(requestRefs: readonly string[] | undefined, index: number)
   if (typeof ref !== "string" || ref.length === 0)
     throw new TypeError("Entity Action explanation failure subject is missing its request-side ref.");
   return ref;
-}
-
-function assertRenderableExplanation(value: EntityActionExplanationRenderInput): void {
-  assertFields(value, ["mode", "subjects", "evaluatedAtCut"], "explanation set");
-  if (!Array.isArray(value.subjects)) throw new TypeError("Entity Action explanation subjects are missing.");
-  for (const subject of value.subjects) {
-    assertFields(subject, ["ref", "revision", "actions", "failure"], "explanation subject");
-    if (!Array.isArray(subject.actions)) throw new TypeError("Entity Action explanation actions are missing.");
-    if (subject.failure !== null) {
-      assertFields(subject.failure, ["code", "message", "nextActions"], "explanation failure");
-      if (!Array.isArray(subject.failure.nextActions))
-        throw new TypeError("Entity Action explanation failure next actions are missing.");
-    }
-    for (const row of subject.actions) {
-      assertFields(
-        row,
-        ["action", "available", "criteria", "unmetCriteria", "authorizationDecision", "nextActions", "evaluatedAtCut"],
-        "explanation action row",
-      );
-      assertFields(row.action, ["id", "explain", "syntax"], "explanation action");
-      assertFields(row.action.syntax, ["usage"], "explanation action syntax");
-      if (!Array.isArray(row.criteria) || !Array.isArray(row.unmetCriteria) || !Array.isArray(row.nextActions))
-        throw new TypeError("Entity Action explanation row arrays are missing.");
-      if (row.authorizationDecision !== null)
-        assertFields(
-          row.authorizationDecision,
-          ["policyRef", "outcome", "reasonCodes", "nextActions", "evaluatedAtCut"],
-          "explanation authorization decision",
-        );
-    }
-  }
-}
-
-function assertFields(value: object, fields: readonly string[], label: string): void {
-  if (fields.some((field) => !Object.hasOwn(value, field)))
-    throw new TypeError(`Entity Action ${label} is missing required fields.`);
 }

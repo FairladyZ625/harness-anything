@@ -1,0 +1,2892 @@
+{
+  "decision": {
+    "judgments": [
+      {
+        "id": "assertDecisionAcceptReview",
+        "symbol": "packages/kernel/src/domain/decision-event-document.ts#assertDecisionAcceptReview",
+        "inputs": [
+          "current: DecisionDocumentState",
+          "documentBody: string",
+          "event: Extract<DecisionEventDraftV1, { readonly type: \"decision_accepted\" }>",
+          "requirement: DecisionReviewRequirement"
+        ],
+        "output": "void",
+        "failureCodes": ["invalid_transition"],
+        "explain": "Accept only a current, valid review or the existing repository policy route; preserve every error, criterion attribution and next action.",
+        "consumers": ["packages/kernel/src/domain/decision-event-document.ts"],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/decision-event-document.ts#assertDecisionAcceptReview:3d71f566914de78a94e1e7126e17e7af",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "assertDecisionReviewMutation",
+        "symbol": "packages/kernel/src/domain/decision-event-document.ts#assertDecisionReviewMutation",
+        "inputs": ["current: DecisionDocumentState", "documentBody: string", "event: DecisionEventDraftV1"],
+        "output": "void",
+        "failureCodes": ["invalid_transition"],
+        "explain": "Admit review responses/overrides only for the current Decision content and known review findings.",
+        "consumers": ["packages/kernel/src/domain/decision-event-document.ts"],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/decision-event-document.ts#assertDecisionReviewMutation:9346179e0b966c5899679bd7edf4deb9",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "assertDecisionJudgmentConsent",
+        "symbol": "packages/kernel/src/domain/decision-event-document.ts#assertDecisionJudgmentConsent",
+        "inputs": ["current: DecisionDocumentState", "event: DecisionEventV1"],
+        "output": "void",
+        "failureCodes": ["invalid_transition"],
+        "explain": "Bind Decision judgment consent to the accepted state/content and approved actor.",
+        "consumers": [],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/decision-event-document.ts#assertDecisionJudgmentConsent:267c4b12259ee05732d1f271f9d2c6f7",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "assertDecisionContentPin",
+        "symbol": "packages/kernel/src/domain/decision-event-document.ts#assertDecisionContentPin",
+        "inputs": ["current: DecisionDocumentState", "event: DecisionEventV1"],
+        "output": "void",
+        "failureCodes": ["invalid_transition"],
+        "explain": "Require a content pin matching the reduced Decision content.",
+        "consumers": [],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/decision-event-document.ts#assertDecisionContentPin:caeca6b790dc3e2456a876c20b133434",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "assertDecisionEvidenceFloor",
+        "symbol": "packages/kernel/src/domain/decision-event-document.ts#assertDecisionEvidenceFloor",
+        "inputs": ["current: DecisionDocumentState | null", "event: DecisionEventDraftV1 | DecisionEventV1"],
+        "output": "void",
+        "failureCodes": ["invalid_transition"],
+        "explain": "Require the existing Decision evidence floor before acceptance.",
+        "consumers": ["packages/kernel/src/domain/decision-event-document.ts"],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/decision-event-document.ts#assertDecisionEvidenceFloor:4594035e1a324c79d8a62ef27f9914ec",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "decisionAcceptReviewReadiness",
+        "symbol": "packages/kernel/src/domain/decision-event-document.ts#decisionAcceptReviewReadiness",
+        "declaration": "function",
+        "inputs": ["current: DecisionDocumentState", "documentBody: string", "requirement: DecisionReviewRequirement"],
+        "output": "DecisionAcceptReviewReadiness",
+        "failureCodes": [],
+        "explain": "Canonical decisionAcceptReviewReadiness; existing unique kernel definition and result semantics are preserved.",
+        "consumers": [],
+        "sources": []
+      }
+    ],
+    "contracts": [
+      {
+        "id": "application/src/decision-service.ts#DecisionService",
+        "symbol": "packages/application/src/decision-service.ts#makeDecisionService.coverage",
+        "explain": "DecisionService: Coverage projection readiness/error mapping; coverage itself is kernel-owned.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/application:packages/application/src/decision-service.ts#makeDecisionService.coverage:f7328ee042de80f6a96db86f14786c53",
+            "route": "packages/application/src/decision-service.ts#makeDecisionService.coverage"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/decision-event-document.ts#CompiledDecisionWrite",
+        "symbol": "packages/kernel/src/domain/decision-event-document.ts#assertDecisionWritePlan",
+        "explain": "CompiledDecisionWrite: Decision write-plan envelope and certified claim validation.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/decision-event-document.ts#assertDecisionWritePlan:ba5c703baf266653076fa58bb4021e3b",
+            "route": "packages/kernel/src/domain/decision-event-document.ts#assertDecisionWritePlan"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/decision-event-validation.ts#DecisionEventV1",
+        "symbol": "packages/kernel/src/domain/decision-event-validation.ts#validateDecisionEventFields",
+        "explain": "DecisionEventV1: Strict/historical event decoder; acceptance uses canonical Decision judgments.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/decision-event-validation.ts#validateDecisionEventFields:1197705efa486db165ceddfd7230242b",
+            "route": "packages/kernel/src/domain/decision-event-validation.ts#validateDecisionEventFields"
+          }
+        ]
+      }
+    ]
+  },
+  "task": {
+    "judgments": [
+      {
+        "id": "blockingOf",
+        "symbol": "packages/kernel/src/domain/task-blocking.ts#blockingOf",
+        "inputs": [
+          "tasks: readonly BlockingTask[]",
+          "relations: readonly BlockingRelation[]",
+          "projection: BlockingProjectionState = {}"
+        ],
+        "output": "readonly BlockingAssessment[]",
+        "failureCodes": [],
+        "explain": "Canonical task dependency blocking verdict.",
+        "consumers": [],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-blocking.ts#blockingOf:a0a302e36870a3d5cfddd31421b1e46a",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "retireCompletionGeneration/validate",
+        "symbol": "packages/kernel/src/domain/task-completion-generation-retirement.ts#retireCompletionGeneration.validate",
+        "inputs": ["snapshot", "raw"],
+        "output": "Inferred aggregate ContractValidationIssue[]",
+        "failureCodes": ["invalid_transition"],
+        "explain": "Canonical retireCompletionGeneration.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
+        "consumers": [],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-completion-generation-retirement.ts#retireCompletionGeneration.validate:224143bbf07b952f55a72d8a059509ae",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "create/validate",
+        "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#create.validate",
+        "inputs": ["snapshot", "raw", "rawProof"],
+        "output": "Inferred aggregate ContractValidationIssue[]",
+        "failureCodes": ["invalid_transition", "invalid_schema", "invalid_proof"],
+        "explain": "Canonical create.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
+        "consumers": [],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-command-transitions.ts#create.validate:6e55d7a8b4d711ea884cf4c50e27e611",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "start/validate",
+        "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#start.validate",
+        "inputs": ["snapshot", "raw", "rawProof"],
+        "output": "Inferred aggregate ContractValidationIssue[]",
+        "failureCodes": ["invalid_proof", "invalid_transition"],
+        "explain": "Canonical start.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
+        "consumers": [],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-command-transitions.ts#start.validate:67a2ab4e95a53ad803f007aa40f0b365",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "block/validate",
+        "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#block.validate",
+        "inputs": ["snapshot", "raw"],
+        "output": "Inferred aggregate ContractValidationIssue[]",
+        "failureCodes": ["invalid_transition"],
+        "explain": "Canonical block.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
+        "consumers": [],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-command-transitions.ts#block.validate:cd02abfb79e4a02e89ec7eb0b3f2a663",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "reinstate/validate",
+        "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#reinstate.validate",
+        "inputs": ["snapshot", "raw"],
+        "output": "Inferred aggregate ContractValidationIssue[]",
+        "failureCodes": ["invalid_transition", "missing_field"],
+        "explain": "Canonical reinstate.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
+        "consumers": [],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-command-transitions.ts#reinstate.validate:a61d72d58a5b69fcf2b7be0a222a3f0e",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "returnToPlanned/validate",
+        "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#returnToPlanned.validate",
+        "inputs": ["snapshot", "raw"],
+        "output": "Inferred aggregate ContractValidationIssue[]",
+        "failureCodes": ["invalid_transition", "missing_field"],
+        "explain": "Canonical returnToPlanned.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
+        "consumers": [],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-command-transitions.ts#returnToPlanned.validate:e1c9fd96a58002624c9f20d5917a9090",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "unblock/validate",
+        "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#unblock.validate",
+        "inputs": ["snapshot", "raw"],
+        "output": "Inferred aggregate ContractValidationIssue[]",
+        "failureCodes": ["invalid_transition"],
+        "explain": "Canonical unblock.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
+        "consumers": [],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-command-transitions.ts#unblock.validate:a906af53ce9565a37f3f66c482c558dd",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "cancel/validate",
+        "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#cancel.validate",
+        "inputs": ["snapshot", "raw"],
+        "output": "Inferred aggregate ContractValidationIssue[]",
+        "failureCodes": ["invalid_transition", "missing_field", "force_reason_required"],
+        "explain": "Canonical cancel.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
+        "consumers": [],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-command-transitions.ts#cancel.validate:ba5223ea23d50a90934845aa389aa3de",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "submit/validate",
+        "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#submit.validate",
+        "inputs": ["snapshot", "raw", "rawProof"],
+        "output": "Inferred aggregate ContractValidationIssue[]",
+        "failureCodes": ["invalid_proof", "invalid_transition", "invalid_submission"],
+        "explain": "Canonical submit.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
+        "consumers": [],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-command-transitions.ts#submit.validate:6c06fca1d4a23ab8b169fb8630e03162",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "rework/validate",
+        "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#rework.validate",
+        "inputs": ["snapshot", "raw", "rawProof"],
+        "output": "Inferred aggregate ContractValidationIssue[]",
+        "failureCodes": ["invalid_transition", "missing_field", "invalid_proof"],
+        "explain": "Canonical rework.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
+        "consumers": [],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-command-transitions.ts#rework.validate:a903bc5db24da0a3fbb22d9870358bd7",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "consent/validate",
+        "symbol": "packages/kernel/src/domain/task-lifecycle-review-transitions.ts#consent.validate",
+        "inputs": ["snapshot", "raw", "rawProof"],
+        "output": "Inferred aggregate ContractValidationIssue[]",
+        "failureCodes": ["invalid_transition", "invalid_proof"],
+        "explain": "Canonical consent.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
+        "consumers": [],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-review-transitions.ts#consent.validate:8057178ac0bdc619bbaf482aea7c477c",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "complete/validate",
+        "symbol": "packages/kernel/src/domain/task-lifecycle-review-transitions.ts#complete.validate",
+        "inputs": ["snapshot", "raw", "rawProof"],
+        "output": "Inferred aggregate ContractValidationIssue[]",
+        "failureCodes": ["invalid_schema", "invalid_transition", "invalid_proof"],
+        "explain": "Canonical complete.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
+        "consumers": [],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-review-transitions.ts#complete.validate:4c5e9791fa4bef1bae0ed8c47c2ee8fb",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "releaseRuntimeLease/validate",
+        "symbol": "packages/kernel/src/domain/task-lifecycle-runtime-lease-transition.ts#releaseRuntimeLease.validate",
+        "inputs": ["snapshot", "raw"],
+        "output": "Inferred aggregate ContractValidationIssue[]",
+        "failureCodes": ["invalid_transition", "missing_field"],
+        "explain": "Canonical releaseRuntimeLease.validate aggregate transition eligibility; preserves the existing validation issues and error wording.",
+        "consumers": [],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-runtime-lease-transition.ts#releaseRuntimeLease.validate:9cc1ec22fc56b0e96a7416eae54e2a2f",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "isTaskRiskTierAssessmentNonDecreasing",
+        "symbol": "packages/kernel/src/domain/task-risk-tier-assessment.ts#isTaskRiskTierAssessmentNonDecreasing",
+        "inputs": ["value: unknown"],
+        "output": "boolean",
+        "failureCodes": [],
+        "explain": "Canonical non-decreasing task risk-tier comparison.",
+        "consumers": [],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-risk-tier-assessment.ts#isTaskRiskTierAssessmentNonDecreasing:8a24c009ffce07b26f8847f9993b2530",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "closeoutReadiness",
+        "symbol": "packages/kernel/src/domain/closeout-readiness.ts#closeoutReadiness",
+        "declaration": "function",
+        "inputs": [
+          "snapshot: CloseoutSnapshot",
+          "availability?: CloseoutProjectionAvailability",
+          "effectiveGates?: Readonly<Record<CloseoutGate, boolean>>",
+          "delivery?: CompletionDeliveryStatus"
+        ],
+        "output": "CloseoutAssessment",
+        "failureCodes": [],
+        "explain": "Canonical closeoutReadiness; existing unique kernel definition and result semantics are preserved.",
+        "consumers": [],
+        "sources": []
+      },
+      {
+        "id": "startability",
+        "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#canStartExecution",
+        "declaration": "function",
+        "inputs": ["snapshot: TaskLifecycleSnapshot", "executionId: string"],
+        "output": "boolean",
+        "failureCodes": [],
+        "explain": "Canonical startability; existing unique kernel definition and result semantics are preserved.",
+        "consumers": [],
+        "sources": []
+      },
+      {
+        "id": "validateTransition",
+        "symbol": "packages/kernel/src/domain/task-lifecycle-replay.ts#validateTransition",
+        "inputs": ["snapshot: TaskLifecycleSnapshot", "command: C extends TaskLifecycleCommand", "proof: ProofFor<C>"],
+        "output": "readonly ContractValidationIssue[]",
+        "failureCodes": ["invalid_transition"],
+        "explain": "Delegate current task snapshot and command eligibility to the sole TASK_LIFECYCLE_TRANSITIONS registry, including its no-match rejection.",
+        "consumers": [],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-replay.ts#validateTransition:d9e469e091e4183b1e99ee477efbca91",
+            "route": "domain"
+          }
+        ]
+      }
+    ],
+    "contracts": [
+      {
+        "id": "application/src/task-lifecycle-service.ts#TaskLifecycleService",
+        "symbol": "packages/application/src/task-lifecycle-service.ts#assertWriteTargetDeclared",
+        "explain": "TaskLifecycleService: Frozen publication plan contract before calling an external writer.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/application:packages/application/src/task-lifecycle-service.ts#assertWriteTargetDeclared:6d6e54f96b487a102b48c78144a0f347",
+            "route": "packages/application/src/task-lifecycle-service.ts#assertWriteTargetDeclared"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/completion-contract.ts#FrozenCompletionContract",
+        "symbol": "packages/kernel/src/domain/completion-contract.ts#validateFrozenCompletionContract",
+        "explain": "FrozenCompletionContract: Frozen completion contract structure.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/completion-contract.ts#validateFrozenCompletionContract:fb6d92857ed8cdbefbb30f037f54fd47",
+            "route": "packages/kernel/src/domain/completion-contract.ts#validateFrozenCompletionContract"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/completion-gate-witness.ts#CompletionGateWitnessV1",
+        "symbol": "packages/kernel/src/domain/completion-gate-witness.ts#validateCompletionGateWitnessV1",
+        "explain": "CompletionGateWitnessV1: Witness document shape; eligibility is judged by completion readiness.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/completion-gate-witness.ts#validateCompletionGateWitnessV1:814e206a6a4b14b3148368f0175ba5fa",
+            "route": "packages/kernel/src/domain/completion-gate-witness.ts#validateCompletionGateWitnessV1"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/task-bootstrap-event.ts#task-bootstrap-event.validateTaskBootstrapEventFields",
+        "symbol": "packages/kernel/src/domain/task-bootstrap-event.ts#validateTaskBootstrapEventFields",
+        "explain": "task-bootstrap-event: Versioned task-bootstrap-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-bootstrap-event.ts#validateTaskBootstrapEventFields:f4245cc23c690b0b6208d393c2c13f5b",
+            "route": "packages/kernel/src/domain/task-bootstrap-event.ts#validateTaskBootstrapEventFields"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/task-bootstrap-event.ts#task-bootstrap-event.assertTaskBootstrapWritePlan",
+        "symbol": "packages/kernel/src/domain/task-bootstrap-event.ts#assertTaskBootstrapWritePlan",
+        "explain": "task-bootstrap-event: Versioned task-bootstrap-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-bootstrap-event.ts#assertTaskBootstrapWritePlan:27172fec380a901bb28a39e64c86372e",
+            "route": "packages/kernel/src/domain/task-bootstrap-event.ts#assertTaskBootstrapWritePlan"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/task-graph.ts#TaskGraph",
+        "symbol": "packages/kernel/src/domain/task-graph.ts#validateTaskGraph",
+        "explain": "TaskGraph: Graph schema consistency at the declared task construction boundary.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-graph.ts#validateTaskGraph:0c91d1b436361f79aba4904a37b01e8b",
+            "route": "packages/kernel/src/domain/task-graph.ts#validateTaskGraph"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/task-lifecycle-contract-support.ts#lifecycleDocumentPaths",
+        "symbol": "packages/kernel/src/domain/task-lifecycle-contract-support.ts#canonicalDocumentPaths",
+        "explain": "lifecycleDocumentPaths: Derives canonical document paths from the command, without judging readiness.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-contract-support.ts#canonicalDocumentPaths:d49e48cd9c9039df8734ba5e04853ee6",
+            "route": "packages/kernel/src/domain/task-lifecycle-contract-support.ts#canonicalDocumentPaths"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/task-lifecycle-event.ts#task-lifecycle-event.validateTaskEventFields",
+        "symbol": "packages/kernel/src/domain/task-lifecycle-event.ts#validateTaskEventFields",
+        "explain": "task-lifecycle-event: Versioned task-lifecycle-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-event.ts#validateTaskEventFields:b2a99b1ee466a6b919de2a957279f97b",
+            "route": "packages/kernel/src/domain/task-lifecycle-event.ts#validateTaskEventFields"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/task-lifecycle-event.ts#task-lifecycle-event.validateEdge",
+        "symbol": "packages/kernel/src/domain/task-lifecycle-event.ts#validateEdge",
+        "explain": "task-lifecycle-event: Versioned task-lifecycle-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-event.ts#validateEdge:3cb137aa73b6e740c38387e565cd3cc3",
+            "route": "packages/kernel/src/domain/task-lifecycle-event.ts#validateEdge"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/task-lifecycle-publication.ts#task-lifecycle-publication",
+        "symbol": "packages/kernel/src/domain/task-lifecycle-publication.ts#assertTaskLifecycleWritePlan",
+        "explain": "task-lifecycle-publication: Versioned task-lifecycle-publication.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-publication.ts#assertTaskLifecycleWritePlan:b4d9e48ed27dca247f80a95bf741a329",
+            "route": "packages/kernel/src/domain/task-lifecycle-publication.ts#assertTaskLifecycleWritePlan"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/task-lifecycle-replay.ts#replayTaskLifecycleEvent.assertAtomic",
+        "symbol": "packages/kernel/src/domain/task-lifecycle-replay.ts#assertAtomic",
+        "explain": "replayTaskLifecycleEvent: Replay input consistency and atomic bundle validation.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-replay.ts#assertAtomic:80b8b400ca87f5d3a473c373000b71df",
+            "route": "packages/kernel/src/domain/task-lifecycle-replay.ts#assertAtomic"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/task-lifecycle-replay.ts#replayTaskLifecycleEvent.assertReplay",
+        "symbol": "packages/kernel/src/domain/task-lifecycle-replay.ts#assertReplay",
+        "explain": "replayTaskLifecycleEvent: Replay input consistency and atomic bundle validation.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-replay.ts#assertReplay:556eb98adeea09f380f82e26facaa560",
+            "route": "packages/kernel/src/domain/task-lifecycle-replay.ts#assertReplay"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/task-progress-event.ts#task-progress-event.assertTaskProgressWritePlan",
+        "symbol": "packages/kernel/src/domain/task-progress-event.ts#assertTaskProgressWritePlan",
+        "explain": "task-progress-event: Versioned task-progress-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-progress-event.ts#assertTaskProgressWritePlan:38c5d63f3ebb4506f21b2fbcca02977d",
+            "route": "packages/kernel/src/domain/task-progress-event.ts#assertTaskProgressWritePlan"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/task-progress-event.ts#task-progress-event.validateTaskProgressEventFields",
+        "symbol": "packages/kernel/src/domain/task-progress-event.ts#validateTaskProgressEventFields",
+        "explain": "task-progress-event: Versioned task-progress-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-progress-event.ts#validateTaskProgressEventFields:8ddd84c7c538e6c86cc7d526e13a79f9",
+            "route": "packages/kernel/src/domain/task-progress-event.ts#validateTaskProgressEventFields"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/task-snapshot-upgrade-store-seam.ts#TaskSnapshotUpgrade",
+        "symbol": "packages/kernel/src/domain/task-snapshot-upgrade-store-seam.ts#assertSnapshotUpgradeInputs",
+        "explain": "TaskSnapshotUpgrade: Snapshot upgrade declared event/document input validation.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-snapshot-upgrade-store-seam.ts#assertSnapshotUpgradeInputs:221e555f4f468b2b93b759d419225c60",
+            "route": "packages/kernel/src/domain/task-snapshot-upgrade-store-seam.ts#assertSnapshotUpgradeInputs"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/task.ts#TaskV2",
+        "symbol": "packages/kernel/src/domain/task.ts#validateTaskV2",
+        "explain": "TaskV2: Persisted Task document decoding; transitions remain aggregate-owned.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task.ts#validateTaskV2:e2f7ec1de26e559225ba7b420a9514be",
+            "route": "packages/kernel/src/domain/task.ts#validateTaskV2"
+          }
+        ]
+      }
+    ]
+  },
+  "host": {
+    "judgments": [
+      {
+        "id": "assertTransitionDocumentReady",
+        "symbol": "packages/kernel/src/domain/transition-document-readiness.ts#assertTransitionDocumentReady",
+        "inputs": ["kind: TransitionDocumentKind", "body: string", "contract?: MarkdownDocumentContract"],
+        "output": "void",
+        "failureCodes": ["plan_placeholder", "body_placeholder", "instructions_placeholder", "roster_placeholder"],
+        "explain": "Apply canonical transition document readiness and its original failure explanation.",
+        "consumers": ["packages/kernel/src/domain/decision-event-document.ts"],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/transition-document-readiness.ts#assertTransitionDocumentReady:aed4a8f5db9c5bab10cb89e4ce82eee6",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "queryPayloadValidation",
+        "symbol": "packages/kernel/src/domain/query-payload-validation.ts#queryPayloadValidation",
+        "declaration": "function",
+        "inputs": ["kind: QueryPayloadKind", "value: unknown"],
+        "output": "readonly QueryPayloadValidationIssue[]",
+        "failureCodes": [],
+        "explain": "Canonical queryPayloadValidation; existing unique kernel definition and result semantics are preserved.",
+        "consumers": [],
+        "sources": []
+      },
+      {
+        "id": "statusVocabulary",
+        "symbol": "packages/kernel/src/domain/status-vocabulary.ts#statusVocabularies",
+        "declaration": "const",
+        "inputs": [],
+        "output": "StatusVocabulary[]",
+        "failureCodes": [],
+        "explain": "Canonical statusVocabulary; existing unique kernel definition and result semantics are preserved.",
+        "consumers": [],
+        "sources": []
+      },
+      {
+        "id": "currentWriterAdmission",
+        "symbol": "packages/kernel/src/domain/write-chain.contract.ts#assertCurrentWriter",
+        "inputs": ["active: WriterGeneration", "token: WriterGenerationToken", "workspaceId: string"],
+        "output": "void",
+        "failureCodes": ["writer_rejected"],
+        "explain": "Admit only the active workspace, generation and owner; preserve the writer fence error and call order.",
+        "consumers": [
+          "packages/daemon/src/repo-bootstrap.ts",
+          "packages/daemon/src/repo-cell-api.ts",
+          "packages/daemon/src/repo-cell-command-run.ts",
+          "packages/daemon/src/runtime-publication-queue.ts",
+          "packages/daemon/src/task-witness-runner.ts"
+        ],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/write-chain.contract.ts#assertCurrentWriter:d09e3bbe274d8a0e44326a19a3552950",
+            "route": "domain"
+          }
+        ],
+        "consumerRules": [
+          {
+            "pathPattern": "^packages/",
+            "pattern": "\\b(?:token|writerToken)\\.(?:generation|ownerId)\\s*(?:===|!==|==|!=)\\s*(?:active|activeWriter)\\.|writer token is not the active workspace generation and owner",
+            "reason": "consume the kernel active writer admission verdict",
+            "flags": "u"
+          }
+        ]
+      }
+    ],
+    "contracts": [
+      {
+        "id": "authorization-builtin/src/builtin-policy-adapter.ts#AuthorizationPolicyAdministrationPort",
+        "symbol": "packages/authorization-builtin/src/builtin-policy-adapter.ts#BuiltinPolicyAdapter.validatePolicyGroups",
+        "explain": "AuthorizationPolicyAdministrationPort: Provider inventory adapter and provider-specific scope error rendering; cycle/scope judgment is kernel-owned.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/authorization-builtin:packages/authorization-builtin/src/builtin-policy-adapter.ts#BuiltinPolicyAdapter.validatePolicyGroups:63a32b390e1371f562ccd56a8b310ac3",
+            "route": "packages/authorization-builtin/src/builtin-policy-adapter.ts#BuiltinPolicyAdapter.validatePolicyGroups"
+          }
+        ]
+      },
+      {
+        "id": "authorization-builtin/src/builtin-session-service.ts#StoredSession",
+        "symbol": "packages/authorization-builtin/src/builtin-session-service.ts#isStoredSession",
+        "explain": "StoredSession: Private session-store decoding boundary.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/authorization-builtin:packages/authorization-builtin/src/builtin-session-service.ts#isStoredSession:55b6043b4cd1f351dfea86a5afb54708",
+            "route": "packages/authorization-builtin/src/builtin-session-service.ts#isStoredSession"
+          }
+        ]
+      },
+      {
+        "id": "permission-request-command",
+        "symbol": "packages/authorization-keycloak-gui/src/PermissionRequestsTab.tsx#createPermissionRequestsTab.PermissionRequestsTab.decide",
+        "explain": "PermissionRequestsService: Permission-request decision command handler; it sends a decision and does not compute eligibility.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/authorization-keycloak-gui:packages/authorization-keycloak-gui/src/PermissionRequestsTab.tsx#createPermissionRequestsTab.PermissionRequestsTab.decide:fbeaf95edc5ea58ff32a1a43b735b1f0",
+            "route": "packages/authorization-keycloak-gui/src/PermissionRequestsTab.tsx#createPermissionRequestsTab.PermissionRequestsTab.decide"
+          }
+        ]
+      },
+      {
+        "id": "oidc-policy-administration",
+        "symbol": "packages/authorization-keycloak/src/keycloak-policy-adapter.ts#KeycloakPolicyAdapter.validatePolicyGroups",
+        "explain": "AuthorizationPolicyAdministrationPort: Maps kernel validatePolicyGroupScopes to the existing remote provider error wording; no provider-local group traversal remains.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/authorization-keycloak:packages/authorization-keycloak/src/keycloak-policy-adapter.ts#KeycloakPolicyAdapter.validatePolicyGroups:d966738134221933d73e7b7a7a3af7f3",
+            "route": "packages/authorization-keycloak/src/keycloak-policy-adapter.ts#KeycloakPolicyAdapter.validatePolicyGroups"
+          }
+        ]
+      },
+      {
+        "id": "oidc-identity-verification",
+        "symbol": "packages/authorization-keycloak/src/keycloak-policy-adapter.ts#KeycloakPolicyAdapter.validateUserAccessToken",
+        "explain": "AuthorizationDecisionPort: Remote identity/token verification and provider cache adapter, preserving provider status/errors.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/authorization-keycloak:packages/authorization-keycloak/src/keycloak-policy-adapter.ts#KeycloakPolicyAdapter.validateUserAccessToken:1163402a2a9a9408cd760fd990e81702",
+            "route": "packages/authorization-keycloak/src/keycloak-policy-adapter.ts#KeycloakPolicyAdapter.validateUserAccessToken"
+          }
+        ]
+      },
+      {
+        "id": "tls-listener-input",
+        "symbol": "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#validateListenerInput",
+        "explain": "ListenerInput: Listener endpoint/certificate input validation.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#validateListenerInput:7dd561417008b6c6f4b8517147cebfe9",
+            "route": "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts#validateListenerInput"
+          }
+        ]
+      },
+      {
+        "id": "cli/src/cli/gui-browser-broker.ts#BrowserGuiBroker.isBrowserGuiParentOrigin",
+        "symbol": "packages/cli/src/cli/gui-browser-broker.ts#isBrowserGuiParentOrigin",
+        "explain": "BrowserGuiBroker: Local broker origin and request authentication transport boundary.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/cli:packages/cli/src/cli/gui-browser-broker.ts#isBrowserGuiParentOrigin:792ef7091829f05fa670e6b70de3770f",
+            "route": "packages/cli/src/cli/gui-browser-broker.ts#isBrowserGuiParentOrigin"
+          }
+        ]
+      },
+      {
+        "id": "cli/src/cli/gui-browser-broker.ts#BrowserGuiBroker.authorized",
+        "symbol": "packages/cli/src/cli/gui-browser-broker.ts#authorized",
+        "explain": "BrowserGuiBroker: Local broker origin and request authentication transport boundary.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/cli:packages/cli/src/cli/gui-browser-broker.ts#authorized:1342a545b8a6c7074fedd4bd9f1c9f4c",
+            "route": "packages/cli/src/cli/gui-browser-broker.ts#authorized"
+          }
+        ]
+      },
+      {
+        "id": "cli/src/cli/receipt-render-registry.ts#WriteReceipt",
+        "symbol": "packages/cli/src/cli/receipt-render-registry.ts#allowedInstancesLine",
+        "explain": "WriteReceipt: Formats allowed runtime instances already certified by the receipt.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/cli:packages/cli/src/cli/receipt-render-registry.ts#allowedInstancesLine:72e650fe42867b663826461f617f2911",
+            "route": "packages/cli/src/cli/receipt-render-registry.ts#allowedInstancesLine"
+          }
+        ]
+      },
+      {
+        "id": "cli/src/cli/thin-command-doctor-health.ts#DoctorCheck",
+        "symbol": "packages/cli/src/cli/thin-command-doctor-health.ts#isDoctorCheck",
+        "explain": "DoctorCheck: Health response shape guard before presentation.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/cli:packages/cli/src/cli/thin-command-doctor-health.ts#isDoctorCheck:16092fbc63ffd41839e381535a74f513",
+            "route": "packages/cli/src/cli/thin-command-doctor-health.ts#isDoctorCheck"
+          }
+        ]
+      },
+      {
+        "id": "cli/src/cli/thin-command-doctor.ts#doctorInvocation",
+        "symbol": "packages/cli/src/cli/thin-command-doctor.ts#validateInvocation",
+        "explain": "doctorInvocation: Document command invocation syntax checking for doctor diagnostics.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/cli:packages/cli/src/cli/thin-command-doctor.ts#validateInvocation:eeb6dbded09ffd88896f755a8a545fbc",
+            "route": "packages/cli/src/cli/thin-command-doctor.ts#validateInvocation"
+          }
+        ]
+      },
+      {
+        "id": "cli/src/cli/thin-command-inputs.ts#CliInputFacet",
+        "symbol": "packages/cli/src/cli/thin-command-inputs.ts#isInput",
+        "explain": "CliInputFacet: Input descriptor shape guard; domain action availability is not computed.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/cli:packages/cli/src/cli/thin-command-inputs.ts#isInput:3ccee56f047340c7e5caf5c48d5de1f9",
+            "route": "packages/cli/src/cli/thin-command-inputs.ts#isInput"
+          }
+        ]
+      },
+      {
+        "id": "cli/src/cli/thin-command-router.ts#ThinCommand",
+        "symbol": "packages/cli/src/cli/thin-command-router.ts#validateEdgeJoinBootstrap",
+        "explain": "ThinCommand: Edge-join bootstrap CLI wire validation.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/cli:packages/cli/src/cli/thin-command-router.ts#validateEdgeJoinBootstrap:990e8a77db982f7a1a1173e500e4b631",
+            "route": "packages/cli/src/cli/thin-command-router.ts#validateEdgeJoinBootstrap"
+          }
+        ]
+      },
+      {
+        "id": "cli/src/daemon/cli-entry-guard.ts#assertCanonicalCliEntry",
+        "symbol": "packages/cli/src/daemon/cli-entry-guard.ts#assertCanonicalCliEntry",
+        "explain": "assertCanonicalCliEntry: Canonical executable selection at process entry.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/cli:packages/cli/src/daemon/cli-entry-guard.ts#assertCanonicalCliEntry:031aeb7307e48f99ccf605434eafdb02",
+            "route": "packages/cli/src/daemon/cli-entry-guard.ts#assertCanonicalCliEntry"
+          }
+        ]
+      },
+      {
+        "id": "cli/src/daemon/fleet-payload-serializer.ts#EntityActionInputField",
+        "symbol": "packages/cli/src/daemon/fleet-payload-serializer.ts#validateInputs",
+        "explain": "EntityActionInputField: CLI serialized invocation validation against the declared protocol fields.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/cli:packages/cli/src/daemon/fleet-payload-serializer.ts#validateInputs:00738dbe9ab651a587c3a6a1dfe133d0",
+            "route": "packages/cli/src/daemon/fleet-payload-serializer.ts#validateInputs"
+          }
+        ]
+      },
+      {
+        "id": "cli/src/daemon/metrics.ts#DaemonMetricsArgs",
+        "symbol": "packages/cli/src/daemon/metrics.ts#validateDaemonMetricsArgs",
+        "explain": "DaemonMetricsArgs: Metrics command argument grammar.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/cli:packages/cli/src/daemon/metrics.ts#validateDaemonMetricsArgs:7db8d685822e5522278e97b51f18ec68",
+            "route": "packages/cli/src/daemon/metrics.ts#validateDaemonMetricsArgs"
+          }
+        ]
+      },
+      {
+        "id": "cli/src/index.ts#resolveHarnessLayout",
+        "symbol": "packages/cli/src/index.ts#isCliEntrypoint",
+        "explain": "resolveHarnessLayout: CLI entry/path syntax adapter or kernel task-ID grammar.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/cli:packages/cli/src/index.ts#isCliEntrypoint:89e788d3d66f7dddeab7816581a1c7ec",
+            "route": "packages/cli/src/index.ts#isCliEntrypoint"
+          }
+        ]
+      },
+      {
+        "id": "dsh-plugin/src/client.ts#BrokerResponse",
+        "symbol": "packages/dsh-plugin/src/client.ts#isBrokerResponse",
+        "explain": "BrokerResponse: DSH broker response decoding.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/dsh-plugin:packages/dsh-plugin/src/client.ts#isBrokerResponse:9020a24b92256f57a8b812b45bc5329f",
+            "route": "packages/dsh-plugin/src/client.ts#isBrokerResponse"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/action-envelope.ts#ActionEnvelope",
+        "symbol": "packages/kernel/src/domain/action-envelope.ts#validateActionEnvelope",
+        "explain": "ActionEnvelope: Strict versioned action envelope and ActorIdentity input codec.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/action-envelope.ts#validateActionEnvelope:c215cb16a42fd72094be48cd4edfa66f",
+            "route": "packages/kernel/src/domain/action-envelope.ts#validateActionEnvelope"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/actor-identity.ts#ActorIdentity",
+        "symbol": "packages/kernel/src/domain/actor-identity.ts#validateActorIdentity",
+        "explain": "ActorIdentity: Principal/executor wire shape; no authorization verdict is inferred.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/actor-identity.ts#validateActorIdentity:55b77b6e22dbf85efa85e22d402ba60b",
+            "route": "packages/kernel/src/domain/actor-identity.ts#validateActorIdentity"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/artifact-text-classification.ts#classifyArtifactBytes",
+        "symbol": "packages/kernel/src/domain/artifact-text-classification.ts#isTextualBytes",
+        "explain": "classifyArtifactBytes: UTF-8/text byte classification used by the artifact ingestion boundary.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/artifact-text-classification.ts#isTextualBytes:16150dc1ccc244b75bf7ab3a0f30fd2b",
+            "route": "packages/kernel/src/domain/artifact-text-classification.ts#isTextualBytes"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/base-entity.ts#BaseEntity.validateBaseEntity",
+        "symbol": "packages/kernel/src/domain/base-entity.ts#validateBaseEntity",
+        "explain": "BaseEntity: Declared entity shape and uniqueness at projection construction.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/base-entity.ts#validateBaseEntity:76d1f7afb3c1dcb3fe558c500ecdd731",
+            "route": "packages/kernel/src/domain/base-entity.ts#validateBaseEntity"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/base-entity.ts#BaseEntity.assertUniqueBaseEntityIdentities",
+        "symbol": "packages/kernel/src/domain/base-entity.ts#assertUniqueBaseEntityIdentities",
+        "explain": "BaseEntity: Declared entity shape and uniqueness at projection construction.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/base-entity.ts#assertUniqueBaseEntityIdentities:1bdf84c82893c6856208477ecf0109ff",
+            "route": "packages/kernel/src/domain/base-entity.ts#assertUniqueBaseEntityIdentities"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/ci-run-observation-event.ts#ci-run-observation-event",
+        "symbol": "packages/kernel/src/domain/ci-run-observation-event.ts#validateFields",
+        "explain": "ci-run-observation-event: Versioned ci-run-observation-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/ci-run-observation-event.ts#validateFields:383d515364a4c9f701d88e71a3068f85",
+            "route": "packages/kernel/src/domain/ci-run-observation-event.ts#validateFields"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/ci-run-observation-v4.ts#ci-run-observation-v4",
+        "symbol": "packages/kernel/src/domain/ci-run-observation-v4.ts#validateCiRunObservationEventV4",
+        "explain": "ci-run-observation-v4: Versioned ci-run-observation-v4.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/ci-run-observation-v4.ts#validateCiRunObservationEventV4:ca32cba38a277c27cbd6130daae6bbc3",
+            "route": "packages/kernel/src/domain/ci-run-observation-v4.ts#validateCiRunObservationEventV4"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/code-doc-retirement.ts#code-doc-retirement",
+        "symbol": "packages/kernel/src/domain/code-doc-retirement.ts#validateRetiredCodeDocPayload",
+        "explain": "code-doc-retirement: Versioned code-doc-retirement.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/code-doc-retirement.ts#validateRetiredCodeDocPayload:0b3e94ea16f6e02c706c068c0ae082bb",
+            "route": "packages/kernel/src/domain/code-doc-retirement.ts#validateRetiredCodeDocPayload"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/contract-version.ts#ContractVersion",
+        "symbol": "packages/kernel/src/domain/contract-version.ts#isContractVersion",
+        "explain": "ContractVersion: Version grammar codec, not an admission policy.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/contract-version.ts#isContractVersion:b4d1c07639c43ef4d3229a9adc502b5f",
+            "route": "packages/kernel/src/domain/contract-version.ts#isContractVersion"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/dependency-declaration.ts#dependency-declaration",
+        "symbol": "packages/kernel/src/domain/dependency-declaration.ts#validateDependencyDeclaration",
+        "explain": "dependency-declaration: Versioned dependency-declaration.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/dependency-declaration.ts#validateDependencyDeclaration:10aadc7919d10f5bb2597ce604afa898",
+            "route": "packages/kernel/src/domain/dependency-declaration.ts#validateDependencyDeclaration"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-action-descriptor.ts#EntityActionDescriptor.validateEntityActionDescriptor.validatePredicate",
+        "symbol": "packages/kernel/src/domain/entity-action-descriptor.ts#validateEntityActionDescriptor.validatePredicate",
+        "explain": "EntityActionDescriptor: Action descriptor and predicate descriptor structure.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-action-descriptor.ts#validateEntityActionDescriptor.validatePredicate:95887a6c41b22dfb8864749e4936a915",
+            "route": "packages/kernel/src/domain/entity-action-descriptor.ts#validateEntityActionDescriptor.validatePredicate"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-action-descriptor.ts#EntityActionDescriptor.validateEntityActionDescriptor.validateResultPredicate",
+        "symbol": "packages/kernel/src/domain/entity-action-descriptor.ts#validateEntityActionDescriptor.validateResultPredicate",
+        "explain": "EntityActionDescriptor: Action descriptor and predicate descriptor structure.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-action-descriptor.ts#validateEntityActionDescriptor.validateResultPredicate:b23bf6a8f91a266e7d08b9ff31b4c14c",
+            "route": "packages/kernel/src/domain/entity-action-descriptor.ts#validateEntityActionDescriptor.validateResultPredicate"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-action-descriptor.ts#EntityActionDescriptor.validateEntityActionDescriptor",
+        "symbol": "packages/kernel/src/domain/entity-action-descriptor.ts#validateEntityActionDescriptor",
+        "explain": "EntityActionDescriptor: Action descriptor and predicate descriptor structure.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-action-descriptor.ts#validateEntityActionDescriptor:3337ea8a898bdca615629be64030eb02",
+            "route": "packages/kernel/src/domain/entity-action-descriptor.ts#validateEntityActionDescriptor"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-action-descriptor.ts#EntityActionDescriptor.assertEntityActionDescriptor",
+        "symbol": "packages/kernel/src/domain/entity-action-descriptor.ts#assertEntityActionDescriptor",
+        "explain": "EntityActionDescriptor: Action descriptor and predicate descriptor structure.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-action-descriptor.ts#assertEntityActionDescriptor:343d56d75fd66f53a338bb78a511f4f8",
+            "route": "packages/kernel/src/domain/entity-action-descriptor.ts#assertEntityActionDescriptor"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-action-explanation.ts#EntityActionExplanationSetV1.validateEntityActionExplainRequest",
+        "symbol": "packages/kernel/src/domain/entity-action-explanation.ts#validateEntityActionExplainRequest",
+        "explain": "EntityActionExplanationSetV1: Explanation request/result wire schema; preserves certified verdicts.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-action-explanation.ts#validateEntityActionExplainRequest:e31c6bac58830589e7a7df8e59ad309d",
+            "route": "packages/kernel/src/domain/entity-action-explanation.ts#validateEntityActionExplainRequest"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-action-explanation.ts#EntityActionExplanationSetV1.validateEntityActionExplanationSet",
+        "symbol": "packages/kernel/src/domain/entity-action-explanation.ts#validateEntityActionExplanationSet",
+        "explain": "EntityActionExplanationSetV1: Explanation request/result wire schema; preserves certified verdicts.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-action-explanation.ts#validateEntityActionExplanationSet:e51aff02e0e453046c6638430112ac26",
+            "route": "packages/kernel/src/domain/entity-action-explanation.ts#validateEntityActionExplanationSet"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-action-explanation.ts#EntityActionExplanationSetV1.validateSubject",
+        "symbol": "packages/kernel/src/domain/entity-action-explanation.ts#validateSubject",
+        "explain": "EntityActionExplanationSetV1: Explanation request/result wire schema; preserves certified verdicts.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-action-explanation.ts#validateSubject:1fe283714401a97fe162b25856e0343d",
+            "route": "packages/kernel/src/domain/entity-action-explanation.ts#validateSubject"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-action-explanation.ts#EntityActionExplanationSetV1.validateAction",
+        "symbol": "packages/kernel/src/domain/entity-action-explanation.ts#validateAction",
+        "explain": "EntityActionExplanationSetV1: Explanation request/result wire schema; preserves certified verdicts.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-action-explanation.ts#validateAction:8cca1bf65815241ffb9c4a19ee2505c4",
+            "route": "packages/kernel/src/domain/entity-action-explanation.ts#validateAction"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-action-explanation.ts#EntityActionExplanationSetV1.validateCriterion",
+        "symbol": "packages/kernel/src/domain/entity-action-explanation.ts#validateCriterion",
+        "explain": "EntityActionExplanationSetV1: Explanation request/result wire schema; preserves certified verdicts.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-action-explanation.ts#validateCriterion:9d015c9a0ace2748c661a1caff2d6171",
+            "route": "packages/kernel/src/domain/entity-action-explanation.ts#validateCriterion"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-action-explanation.ts#EntityActionExplanationSetV1.validateFailure",
+        "symbol": "packages/kernel/src/domain/entity-action-explanation.ts#validateFailure",
+        "explain": "EntityActionExplanationSetV1: Explanation request/result wire schema; preserves certified verdicts.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-action-explanation.ts#validateFailure:efb5448eaa412972c203408db30b7b26",
+            "route": "packages/kernel/src/domain/entity-action-explanation.ts#validateFailure"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-event-compile.ts#compileEntityEvent",
+        "symbol": "packages/kernel/src/domain/entity-event-compile.ts#assertValidCurrent",
+        "explain": "compileEntityEvent: Current entity snapshot decode before compilation.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event-compile.ts#assertValidCurrent:83b5924967ea4f4939408514208f0ebe",
+            "route": "packages/kernel/src/domain/entity-event-compile.ts#assertValidCurrent"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-event.ts#EntityEventV1.validateEntityEventFields",
+        "symbol": "packages/kernel/src/domain/entity-event.ts#validateEntityEventFields",
+        "explain": "EntityEventV1: Entity event payload and exact declared publication inputs.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#validateEntityEventFields:38c1cc053fd80f0ac10c653046f2c0c0",
+            "route": "packages/kernel/src/domain/entity-event.ts#validateEntityEventFields"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-event.ts#EntityEventV1.validateAgentRetiredPayload",
+        "symbol": "packages/kernel/src/domain/entity-event.ts#validateAgentRetiredPayload",
+        "explain": "EntityEventV1: Entity event payload and exact declared publication inputs.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#validateAgentRetiredPayload:e05e29136c96ea600712f35cd55f6280",
+            "route": "packages/kernel/src/domain/entity-event.ts#validateAgentRetiredPayload"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-event.ts#EntityEventV1.assertEntityEventInputs",
+        "symbol": "packages/kernel/src/domain/entity-event.ts#assertEntityEventInputs",
+        "explain": "EntityEventV1: Entity event payload and exact declared publication inputs.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#assertEntityEventInputs:2f934717957e043173b5a081e528c312",
+            "route": "packages/kernel/src/domain/entity-event.ts#assertEntityEventInputs"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-event.ts#EntityEventV1.assertEntityUpsertWritePlan",
+        "symbol": "packages/kernel/src/domain/entity-event.ts#assertEntityUpsertWritePlan",
+        "explain": "EntityEventV1: Entity event payload and exact declared publication inputs.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#assertEntityUpsertWritePlan:291b62d4b3990c007885120bd7797a3f",
+            "route": "packages/kernel/src/domain/entity-event.ts#assertEntityUpsertWritePlan"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-event.ts#EntityEventV1.validateObservedPayload",
+        "symbol": "packages/kernel/src/domain/entity-event.ts#validateObservedPayload",
+        "explain": "EntityEventV1: Entity event payload and exact declared publication inputs.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#validateObservedPayload:5b50f56d63e0762862d1e0856c8e1178",
+            "route": "packages/kernel/src/domain/entity-event.ts#validateObservedPayload"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-event.ts#EntityEventV1.validateReferencePayload",
+        "symbol": "packages/kernel/src/domain/entity-event.ts#validateReferencePayload",
+        "explain": "EntityEventV1: Entity event payload and exact declared publication inputs.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#validateReferencePayload:48a9c55776fb5288db746303db1f6002",
+            "route": "packages/kernel/src/domain/entity-event.ts#validateReferencePayload"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-event.ts#EntityEventV1.validateMissingPayload",
+        "symbol": "packages/kernel/src/domain/entity-event.ts#validateMissingPayload",
+        "explain": "EntityEventV1: Entity event payload and exact declared publication inputs.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#validateMissingPayload:cc8f49e7d22f2f4487b4495dee521777",
+            "route": "packages/kernel/src/domain/entity-event.ts#validateMissingPayload"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-event.ts#EntityEventV1.validateDeletedPayload",
+        "symbol": "packages/kernel/src/domain/entity-event.ts#validateDeletedPayload",
+        "explain": "EntityEventV1: Entity event payload and exact declared publication inputs.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#validateDeletedPayload:7640dc09a813fb9807bbd275a239ac33",
+            "route": "packages/kernel/src/domain/entity-event.ts#validateDeletedPayload"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-event.ts#EntityEventV1.validateArtifactPayload",
+        "symbol": "packages/kernel/src/domain/entity-event.ts#validateArtifactPayload",
+        "explain": "EntityEventV1: Entity event payload and exact declared publication inputs.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#validateArtifactPayload:b135c7aeb7af429ab72f7fdecb9ed5fc",
+            "route": "packages/kernel/src/domain/entity-event.ts#validateArtifactPayload"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-event.ts#EntityEventV1.validateUpsertPayload",
+        "symbol": "packages/kernel/src/domain/entity-event.ts#validateUpsertPayload",
+        "explain": "EntityEventV1: Entity event payload and exact declared publication inputs.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#validateUpsertPayload:adf093d21873d77be5edcf0ace0d6e3a",
+            "route": "packages/kernel/src/domain/entity-event.ts#validateUpsertPayload"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-event.ts#EntityEventV1.validateClaim",
+        "symbol": "packages/kernel/src/domain/entity-event.ts#validateClaim",
+        "explain": "EntityEventV1: Entity event payload and exact declared publication inputs.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#validateClaim:8cf60fcd54c6741b78c39f3741973653",
+            "route": "packages/kernel/src/domain/entity-event.ts#validateClaim"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-event.ts#EntityEventV1.assertExactWritePlan",
+        "symbol": "packages/kernel/src/domain/entity-event.ts#assertExactWritePlan",
+        "explain": "EntityEventV1: Entity event payload and exact declared publication inputs.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#assertExactWritePlan:3511308b84c5157f72c059a071cfd7bb",
+            "route": "packages/kernel/src/domain/entity-event.ts#assertExactWritePlan"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-json-schema.ts#EntityDocumentJsonSchema.validateNode",
+        "symbol": "packages/kernel/src/domain/entity-json-schema.ts#validateNode",
+        "explain": "EntityDocumentJsonSchema: Generic JSON-schema interpreter, including recursive value/shape validation.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-json-schema.ts#validateNode:e8f9702438e1d559eda95046a5b3837d",
+            "route": "packages/kernel/src/domain/entity-json-schema.ts#validateNode"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-json-schema.ts#EntityDocumentJsonSchema.validateNodeValue",
+        "symbol": "packages/kernel/src/domain/entity-json-schema.ts#validateNodeValue",
+        "explain": "EntityDocumentJsonSchema: Generic JSON-schema interpreter, including recursive value/shape validation.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-json-schema.ts#validateNodeValue:5f5a50b73654ca4281482310e2758531",
+            "route": "packages/kernel/src/domain/entity-json-schema.ts#validateNodeValue"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-kind-catalog.ts#EntityKindCatalog.validateEntityKindCatalog",
+        "symbol": "packages/kernel/src/domain/entity-kind-catalog.ts#validateEntityKindCatalog",
+        "explain": "EntityKindCatalog: Declared catalog shape and action declaration input contracts.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-kind-catalog.ts#validateEntityKindCatalog:834a272405729c413196db3deb3df3b9",
+            "route": "packages/kernel/src/domain/entity-kind-catalog.ts#validateEntityKindCatalog"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-kind-catalog.ts#EntityKindCatalog.validateCatalogRow",
+        "symbol": "packages/kernel/src/domain/entity-kind-catalog.ts#validateCatalogRow",
+        "explain": "EntityKindCatalog: Declared catalog shape and action declaration input contracts.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-kind-catalog.ts#validateCatalogRow:f7eedc5c5bd4d4309cfceff7770b280c",
+            "route": "packages/kernel/src/domain/entity-kind-catalog.ts#validateCatalogRow"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-kind-catalog.ts#EntityKindCatalog.validateDeclaration",
+        "symbol": "packages/kernel/src/domain/entity-kind-catalog.ts#validateDeclaration",
+        "explain": "EntityKindCatalog: Declared catalog shape and action declaration input contracts.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-kind-catalog.ts#validateDeclaration:195a51efa6c40c2989e4035820f4ce3b",
+            "route": "packages/kernel/src/domain/entity-kind-catalog.ts#validateDeclaration"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-pin-event.ts#entity-pin-event",
+        "symbol": "packages/kernel/src/domain/entity-pin-event.ts#validateEntityPinEventFields",
+        "explain": "entity-pin-event: Versioned entity-pin-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-pin-event.ts#validateEntityPinEventFields:933e229f888c37008e100be452f9889d",
+            "route": "packages/kernel/src/domain/entity-pin-event.ts#validateEntityPinEventFields"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/host.ts#host.validateHostProcessLock",
+        "symbol": "packages/kernel/src/domain/host.ts#validateHostProcessLock",
+        "explain": "host: Versioned host.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/host.ts#validateHostProcessLock:7bd8004dba46bff3681d1612622bb845",
+            "route": "packages/kernel/src/domain/host.ts#validateHostProcessLock"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/host.ts#host.validateHostDiagnosticLine",
+        "symbol": "packages/kernel/src/domain/host.ts#validateHostDiagnosticLine",
+        "explain": "host: Versioned host.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/host.ts#validateHostDiagnosticLine:bab12c5abc6c42df9b9339f9c16f58f5",
+            "route": "packages/kernel/src/domain/host.ts#validateHostDiagnosticLine"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/people-event.ts#people-event",
+        "symbol": "packages/kernel/src/domain/people-event.ts#validateRetiredPeopleEvent",
+        "explain": "people-event: Versioned people-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/people-event.ts#validateRetiredPeopleEvent:fcb5e648f524ecf0b822e0a69386ad67",
+            "route": "packages/kernel/src/domain/people-event.ts#validateRetiredPeopleEvent"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/production-delta.ts#ProductionDelta",
+        "symbol": "packages/kernel/src/domain/production-delta.ts#isProductionPath",
+        "explain": "ProductionDelta: Production-path classification against the module-policy declaration.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/production-delta.ts#isProductionPath:a517fc3df9011cf0e97c40bd1604efa1",
+            "route": "packages/kernel/src/domain/production-delta.ts#isProductionPath"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/receipt-acceptance.ts#ReceiptAcceptanceFields",
+        "symbol": "packages/kernel/src/domain/receipt-acceptance.ts#validateReceiptAcceptance",
+        "explain": "ReceiptAcceptanceFields: Certified receipt facets and cut consistency contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/receipt-acceptance.ts#validateReceiptAcceptance:0811f12983881e88316f4cdab8a5019d",
+            "route": "packages/kernel/src/domain/receipt-acceptance.ts#validateReceiptAcceptance"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/receipt-domain-registry.ts#WriteReceipt.validateWriteReceipt",
+        "symbol": "packages/kernel/src/domain/receipt-domain-registry.ts#validateWriteReceipt",
+        "explain": "WriteReceipt: Receipt/guidance/diagnostic wire decoding.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/receipt-domain-registry.ts#validateWriteReceipt:f7889a91a93a9a571641c29132b356f1",
+            "route": "packages/kernel/src/domain/receipt-domain-registry.ts#validateWriteReceipt"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/receipt-domain-registry.ts#WriteReceipt.isReceiptGuidance",
+        "symbol": "packages/kernel/src/domain/receipt-domain-registry.ts#isReceiptGuidance",
+        "explain": "WriteReceipt: Receipt/guidance/diagnostic wire decoding.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/receipt-domain-registry.ts#isReceiptGuidance:51f0ced8c8e02c72ed327d3fb44588c1",
+            "route": "packages/kernel/src/domain/receipt-domain-registry.ts#isReceiptGuidance"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/receipt-domain-registry.ts#WriteReceipt.isReceiptDiagnostic",
+        "symbol": "packages/kernel/src/domain/receipt-domain-registry.ts#isReceiptDiagnostic",
+        "explain": "WriteReceipt: Receipt/guidance/diagnostic wire decoding.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/receipt-domain-registry.ts#isReceiptDiagnostic:3ccf1a94b275e0636678120629d8407d",
+            "route": "packages/kernel/src/domain/receipt-domain-registry.ts#isReceiptDiagnostic"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/receipt-domain-registry.ts#WriteReceipt.validateDocSyncDetail",
+        "symbol": "packages/kernel/src/domain/receipt-domain-registry.ts#validateDocSyncDetail",
+        "explain": "WriteReceipt: Receipt/guidance/diagnostic wire decoding.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/receipt-domain-registry.ts#validateDocSyncDetail:00f1f41bf39a48cff2bc9d5dc227257a",
+            "route": "packages/kernel/src/domain/receipt-domain-registry.ts#validateDocSyncDetail"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/runtime-public-query.ts#RuntimePublicQuery",
+        "symbol": "packages/kernel/src/domain/runtime-public-query.ts#assertRuntimeEventTypes",
+        "explain": "RuntimePublicQuery: Public query event-type vocabulary boundary.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/runtime-public-query.ts#assertRuntimeEventTypes:dc457b4a5c63ce78d779148ff556a8e7",
+            "route": "packages/kernel/src/domain/runtime-public-query.ts#assertRuntimeEventTypes"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/submission-facts.ts#SubmissionFacts",
+        "symbol": "packages/kernel/src/domain/submission-facts.ts#isUnambiguousLegacyPath",
+        "explain": "SubmissionFacts: Legacy free-form path parsing; it does not decide delivery readiness.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/submission-facts.ts#isUnambiguousLegacyPath:11ee78ac90ae1293ab3ace338725c557",
+            "route": "packages/kernel/src/domain/submission-facts.ts#isUnambiguousLegacyPath"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/timestamp.ts#IsoInstant",
+        "symbol": "packages/kernel/src/domain/timestamp.ts#isoInstant",
+        "explain": "IsoInstant: UTC timestamp grammar codec.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/timestamp.ts#isoInstant:02344fde05415aa01b113367d601859f",
+            "route": "packages/kernel/src/domain/timestamp.ts#isoInstant"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/write-chain.contract.ts#FrozenWritePlan.validateEventEnvelopeIdentity",
+        "symbol": "packages/kernel/src/domain/write-chain.contract.ts#validateEventEnvelopeIdentity",
+        "explain": "FrozenWritePlan: Write envelope identity and normalized publication input contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/write-chain.contract.ts#validateEventEnvelopeIdentity:a2db7939d5e86cc6a263d9ae9562aed1",
+            "route": "packages/kernel/src/domain/write-chain.contract.ts#validateEventEnvelopeIdentity"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/write-chain.contract.ts#FrozenWritePlan.validateDeclaredWritePlan",
+        "symbol": "packages/kernel/src/domain/write-chain.contract.ts#validateDeclaredWritePlan",
+        "explain": "FrozenWritePlan: Write envelope identity and normalized publication input contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/write-chain.contract.ts#validateDeclaredWritePlan:c9fee1d1587c886746b133b1fee17ca2",
+            "route": "packages/kernel/src/domain/write-chain.contract.ts#validateDeclaredWritePlan"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/write-chain.contract.ts#FrozenWritePlan.validateNormalizedCommandEnvelope",
+        "symbol": "packages/kernel/src/domain/write-chain.contract.ts#validateNormalizedCommandEnvelope",
+        "explain": "FrozenWritePlan: Write envelope identity and normalized publication input contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/write-chain.contract.ts#validateNormalizedCommandEnvelope:af714a3c8ee1ebf05b624c61ebadc8c4",
+            "route": "packages/kernel/src/domain/write-chain.contract.ts#validateNormalizedCommandEnvelope"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/write-source.ts#WriteSource",
+        "symbol": "packages/kernel/src/domain/write-source.ts#validateWriteSource",
+        "explain": "WriteSource: WriteSource wire shape.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/write-source.ts#validateWriteSource:1b9fa45ee29800b64040585fd6d5bbbe",
+            "route": "packages/kernel/src/domain/write-source.ts#validateWriteSource"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/layout/index.ts#resolveHarnessLayout",
+        "symbol": "packages/kernel/src/layout/index.ts#validateTaskIdSyntax",
+        "explain": "resolveHarnessLayout: CLI entry/path syntax adapter or kernel task-ID grammar.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/layout/index.ts#validateTaskIdSyntax:d2a66fb5ac7689e3da45973dcc41b1fc",
+            "route": "packages/kernel/src/layout/index.ts#validateTaskIdSyntax"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/layout/ledger-object-layout.ts#eventObjectTarget",
+        "symbol": "packages/kernel/src/layout/ledger-object-layout.ts#assertPublishableOpId",
+        "explain": "eventObjectTarget: Publishable operation-ID/path grammar.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/layout/ledger-object-layout.ts#assertPublishableOpId:16802867e4a1c85e67cb91cee0525d87",
+            "route": "packages/kernel/src/layout/ledger-object-layout.ts#assertPublishableOpId"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/layout/portable-path.ts#normalizeRelativeDocumentPath.assertNoPortablePathCollisions",
+        "symbol": "packages/kernel/src/layout/portable-path.ts#assertNoPortablePathCollisions",
+        "explain": "normalizeRelativeDocumentPath: Portable path grammar and collision boundary.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/layout/portable-path.ts#assertNoPortablePathCollisions:a477ac5d6c7ced51f266e8a48f52fbac",
+            "route": "packages/kernel/src/layout/portable-path.ts#assertNoPortablePathCollisions"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/layout/portable-path.ts#normalizeRelativeDocumentPath.assertPortablePathSegment",
+        "symbol": "packages/kernel/src/layout/portable-path.ts#assertPortablePathSegment",
+        "explain": "normalizeRelativeDocumentPath: Portable path grammar and collision boundary.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/layout/portable-path.ts#assertPortablePathSegment:7070d61703fe06c37624f17882343e82",
+            "route": "packages/kernel/src/layout/portable-path.ts#assertPortablePathSegment"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/ports/canonical-event-validation.ts#validateCanonicalEventInputs.assertDocumentSizeLimit",
+        "symbol": "packages/kernel/src/ports/canonical-event-validation.ts#assertDocumentSizeLimit",
+        "explain": "validateCanonicalEventInputs: Canonical event document limits, bundle and content input boundary.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/ports/canonical-event-validation.ts#assertDocumentSizeLimit:6a83bf04aaf791b8ab77c26865a43ced",
+            "route": "packages/kernel/src/ports/canonical-event-validation.ts#assertDocumentSizeLimit"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/ports/canonical-event-validation.ts#validateCanonicalEventInputs.assertBundle",
+        "symbol": "packages/kernel/src/ports/canonical-event-validation.ts#assertBundle",
+        "explain": "validateCanonicalEventInputs: Canonical event document limits, bundle and content input boundary.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/ports/canonical-event-validation.ts#assertBundle:9d19500aad63029fecb374ecd42d6a15",
+            "route": "packages/kernel/src/ports/canonical-event-validation.ts#assertBundle"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/ports/canonical-event-validation.ts#validateCanonicalEventInputs.assertContentInputs",
+        "symbol": "packages/kernel/src/ports/canonical-event-validation.ts#assertContentInputs",
+        "explain": "validateCanonicalEventInputs: Canonical event document limits, bundle and content input boundary.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/ports/canonical-event-validation.ts#assertContentInputs:899497207a1b925944656269a540bf75",
+            "route": "packages/kernel/src/ports/canonical-event-validation.ts#assertContentInputs"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/skill-eval-gate.ts#SkillEvalResult",
+        "symbol": "packages/kernel/src/skill-eval-gate.ts#validateOutcome",
+        "explain": "SkillEvalResult: Skill evaluation outcome input contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/skill-eval-gate.ts#validateOutcome:a935428c9492e9228a62bb1ef1d0a218",
+            "route": "packages/kernel/src/skill-eval-gate.ts#validateOutcome"
+          }
+        ]
+      }
+    ]
+  },
+  "runtime-session": {
+    "judgments": [],
+    "contracts": [
+      {
+        "id": "kernel/src/domain/agent-runtime.ts#RuntimeSessionEntityV1.validateAgentRuntimePayloadFields",
+        "symbol": "packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields",
+        "explain": "RuntimeSessionEntityV1: Accepted session/event identity and provenance fields.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:24c55c043e947588d4f2d4e974b40fdd",
+            "route": "packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/agent-runtime.ts#RuntimeSessionEntityV1.validateAgentRuntimeEventFields",
+        "symbol": "packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimeEventFields",
+        "explain": "RuntimeSessionEntityV1: Accepted session/event identity and provenance fields.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimeEventFields:03406a78bf22ef6861245740ed17135e",
+            "route": "packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimeEventFields"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/agent-runtime.ts#RuntimeSessionEntityV1.validateSessionIdentity",
+        "symbol": "packages/kernel/src/domain/agent-runtime.ts#validateSessionIdentity",
+        "explain": "RuntimeSessionEntityV1: Accepted session/event identity and provenance fields.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateSessionIdentity:2ddcd24edd4891d4fa5442b2ce8d69c5",
+            "route": "packages/kernel/src/domain/agent-runtime.ts#validateSessionIdentity"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/agent-runtime.ts#RuntimeSessionEntityV1.validateSessionProvenance",
+        "symbol": "packages/kernel/src/domain/agent-runtime.ts#validateSessionProvenance",
+        "explain": "RuntimeSessionEntityV1: Accepted session/event identity and provenance fields.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateSessionProvenance:21a75fbf8d8275d9e51b9488bf537d85",
+            "route": "packages/kernel/src/domain/agent-runtime.ts#validateSessionProvenance"
+          }
+        ]
+      }
+    ]
+  },
+  "document": {
+    "judgments": [
+      {
+        "id": "decideAuthoredDocument",
+        "symbol": "packages/kernel/src/domain/authored-document.ts#decideAuthoredDocument",
+        "inputs": ["state: AuthoredDocumentState | null", "command: AuthoredDocumentCommand"],
+        "output": "AuthoredDocumentDecision",
+        "failureCodes": [],
+        "explain": "Canonical authored-document acceptance based on the accepted document cut and schema.",
+        "consumers": [],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/authored-document.ts#decideAuthoredDocument:78d706f4b25a06cac62fec2bffa432b7",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "decideDocWriteInternal",
+        "symbol": "packages/kernel/src/domain/doc-sync-writer.ts#decideDocWriteInternal",
+        "inputs": ["input: DocWriteDecisionInput", "requireAuthorization: boolean"],
+        "output": "DocWriteDecision",
+        "failureCodes": [],
+        "explain": "Canonical document write judgment using authored-document truth and declared write ownership.",
+        "consumers": [],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/doc-sync-writer.ts#decideDocWriteInternal:b5119f87fc0c89f75c359cef262ebecd",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "authoredDocumentReadiness",
+        "symbol": "packages/kernel/src/domain/transition-document-readiness.ts#assessAuthoredDocumentReadiness",
+        "declaration": "function",
+        "inputs": ["kind: TransitionDocumentKind", "body: string | null", "contract?: MarkdownDocumentContract"],
+        "output": "AuthoredDocumentReadiness",
+        "failureCodes": [],
+        "explain": "Canonical authoredDocumentReadiness; existing unique kernel definition and result semantics are preserved.",
+        "consumers": [],
+        "sources": []
+      },
+      {
+        "id": "transitionDocumentReadiness",
+        "symbol": "packages/kernel/src/domain/transition-document-readiness.ts#assessTransitionDocument",
+        "declaration": "function",
+        "inputs": ["kind: TransitionDocumentKind", "body: string", "contract?: MarkdownDocumentContract"],
+        "output": "TransitionDocumentReadiness",
+        "failureCodes": [],
+        "explain": "Canonical transitionDocumentReadiness; existing unique kernel definition and result semantics are preserved.",
+        "consumers": [],
+        "sources": []
+      },
+      {
+        "id": "closeoutBilingualDelivery",
+        "symbol": "packages/kernel/src/domain/transition-document-readiness.ts#missingChineseCloseoutSections",
+        "declaration": "function",
+        "inputs": ["closeout: string"],
+        "output": "readonly string[]",
+        "failureCodes": [],
+        "explain": "Canonical closeoutBilingualDelivery; existing unique kernel definition and result semantics are preserved.",
+        "consumers": [],
+        "sources": []
+      }
+    ],
+    "contracts": [
+      {
+        "id": "kernel/src/domain/doc-sync-canonical-events.ts#doc-sync-canonical-events",
+        "symbol": "packages/kernel/src/domain/doc-sync-canonical-events.ts#validateCurrentCanonicalEvent",
+        "explain": "doc-sync-canonical-events: Versioned doc-sync-canonical-events.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/doc-sync-canonical-events.ts#validateCurrentCanonicalEvent:5d3514e7c7f4d789273d4e47decb861d",
+            "route": "packages/kernel/src/domain/doc-sync-canonical-events.ts#validateCurrentCanonicalEvent"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/doc-sync-codec.ts#doc-sync-codec",
+        "symbol": "packages/kernel/src/domain/doc-sync-codec.ts#validateDocWriteIntent",
+        "explain": "doc-sync-codec: Versioned doc-sync-codec.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/doc-sync-codec.ts#validateDocWriteIntent:62ae97fdb55f75469632e931f85b2e39",
+            "route": "packages/kernel/src/domain/doc-sync-codec.ts#validateDocWriteIntent"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/doc-sync-validation.ts#doc-sync-validation",
+        "symbol": "packages/kernel/src/domain/doc-sync-validation.ts#validateDocEventIdentity",
+        "explain": "doc-sync-validation: Versioned doc-sync-validation.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/doc-sync-validation.ts#validateDocEventIdentity:fa63088b06a4e3e88d1238819663a793",
+            "route": "packages/kernel/src/domain/doc-sync-validation.ts#validateDocEventIdentity"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/doc-sync-writer.ts#DocWriteDecision",
+        "symbol": "packages/kernel/src/domain/doc-sync-writer.ts#assertDocSyncWritePlan",
+        "explain": "DocWriteDecision: Declared write plan boundary, separate from the authored-document decision.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/doc-sync-writer.ts#assertDocSyncWritePlan:c9af6a3f3644ca3dd8b3aafab138ef15",
+            "route": "packages/kernel/src/domain/doc-sync-writer.ts#assertDocSyncWritePlan"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-document-event.ts#entity-document-event.assertEntityDocumentEventWritePlan",
+        "symbol": "packages/kernel/src/domain/entity-document-event.ts#assertEntityDocumentEventWritePlan",
+        "explain": "entity-document-event: Versioned entity-document-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-document-event.ts#assertEntityDocumentEventWritePlan:086bfb4377e494bb90b79c1e32e24bc5",
+            "route": "packages/kernel/src/domain/entity-document-event.ts#assertEntityDocumentEventWritePlan"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-document-event.ts#entity-document-event.validateEntityDocumentEventFields",
+        "symbol": "packages/kernel/src/domain/entity-document-event.ts#validateEntityDocumentEventFields",
+        "explain": "entity-document-event: Versioned entity-document-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-document-event.ts#validateEntityDocumentEventFields:589f0d6eb091e3a807145cd409af0d78",
+            "route": "packages/kernel/src/domain/entity-document-event.ts#validateEntityDocumentEventFields"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-owned-content.ts#EntityOwnedContentV1.validateEntityOwnedContent",
+        "symbol": "packages/kernel/src/domain/entity-owned-content.ts#validateEntityOwnedContent",
+        "explain": "EntityOwnedContentV1: Content manifest shape and portable content bindings at ingestion.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-owned-content.ts#validateEntityOwnedContent:22985161d6cbacdb6443918dc48a7abf",
+            "route": "packages/kernel/src/domain/entity-owned-content.ts#validateEntityOwnedContent"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-owned-content.ts#EntityOwnedContentV1.validateContentObject",
+        "symbol": "packages/kernel/src/domain/entity-owned-content.ts#validateContentObject",
+        "explain": "EntityOwnedContentV1: Content manifest shape and portable content bindings at ingestion.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-owned-content.ts#validateContentObject:944d1901f9cdf9a714fc7ba95fce9cac",
+            "route": "packages/kernel/src/domain/entity-owned-content.ts#validateContentObject"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-owned-content.ts#EntityOwnedContentV1.validateBinding",
+        "symbol": "packages/kernel/src/domain/entity-owned-content.ts#validateBinding",
+        "explain": "EntityOwnedContentV1: Content manifest shape and portable content bindings at ingestion.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-owned-content.ts#validateBinding:b232d8ef1778bfdb3875583f500d884e",
+            "route": "packages/kernel/src/domain/entity-owned-content.ts#validateBinding"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-owned-content.ts#EntityOwnedContentV1.validateDirectory",
+        "symbol": "packages/kernel/src/domain/entity-owned-content.ts#validateDirectory",
+        "explain": "EntityOwnedContentV1: Content manifest shape and portable content bindings at ingestion.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-owned-content.ts#validateDirectory:9635b6579f8dc28a0f5aa686159618ec",
+            "route": "packages/kernel/src/domain/entity-owned-content.ts#validateDirectory"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/entity-owned-content.ts#EntityOwnedContentV1.validateRetirement",
+        "symbol": "packages/kernel/src/domain/entity-owned-content.ts#validateRetirement",
+        "explain": "EntityOwnedContentV1: Content manifest shape and portable content bindings at ingestion.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-owned-content.ts#validateRetirement:a4595a3e5d1fc0f0bce8384de9d198f1",
+            "route": "packages/kernel/src/domain/entity-owned-content.ts#validateRetirement"
+          }
+        ]
+      }
+    ]
+  },
+  "migration": {
+    "judgments": [],
+    "contracts": [
+      {
+        "id": "kernel/src/domain/ci-run-observation-retired-event.ts#ci-run-observation-retired-event",
+        "symbol": "packages/kernel/src/domain/ci-run-observation-retired-event.ts#validateRetiredCiRunObservationEvent",
+        "explain": "ci-run-observation-retired-event: Versioned ci-run-observation-retired-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/ci-run-observation-retired-event.ts#validateRetiredCiRunObservationEvent:fb98853b0772a0bc1d5a4a5047e9074a",
+            "route": "packages/kernel/src/domain/ci-run-observation-retired-event.ts#validateRetiredCiRunObservationEvent"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/event-shape-migration-event.ts#event-shape-migration-event.validateEventShapeMigrationEventFields",
+        "symbol": "packages/kernel/src/domain/event-shape-migration-event.ts#validateEventShapeMigrationEventFields",
+        "explain": "event-shape-migration-event: Versioned event-shape-migration-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/event-shape-migration-event.ts#validateEventShapeMigrationEventFields:6450130ceac44fefc90f144a39e0835e",
+            "route": "packages/kernel/src/domain/event-shape-migration-event.ts#validateEventShapeMigrationEventFields"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/event-shape-migration-event.ts#event-shape-migration-event.assertEventShapeMigrationWritePlan",
+        "symbol": "packages/kernel/src/domain/event-shape-migration-event.ts#assertEventShapeMigrationWritePlan",
+        "explain": "event-shape-migration-event: Versioned event-shape-migration-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/event-shape-migration-event.ts#assertEventShapeMigrationWritePlan:50512b245aba48331a9f8e9ea92aedca",
+            "route": "packages/kernel/src/domain/event-shape-migration-event.ts#assertEventShapeMigrationWritePlan"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/historical-event-normalization.ts#normalizeHistoricalEvent",
+        "symbol": "packages/kernel/src/domain/historical-event-normalization.ts#hasRetiredCloseoutOverride",
+        "explain": "normalizeHistoricalEvent: Historical event codec detection for retired closeout override fields.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/historical-event-normalization.ts#hasRetiredCloseoutOverride:30511401e32edfa4fb0c0ae6c35e3408",
+            "route": "packages/kernel/src/domain/historical-event-normalization.ts#hasRetiredCloseoutOverride"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/ledger-layout-migration-event.ts#ledger-layout-migration-event.validateLedgerLayoutMigrationEventFields",
+        "symbol": "packages/kernel/src/domain/ledger-layout-migration-event.ts#validateLedgerLayoutMigrationEventFields",
+        "explain": "ledger-layout-migration-event: Versioned ledger-layout-migration-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/ledger-layout-migration-event.ts#validateLedgerLayoutMigrationEventFields:2e2ff8ceac4ca289287ec90adc458ff4",
+            "route": "packages/kernel/src/domain/ledger-layout-migration-event.ts#validateLedgerLayoutMigrationEventFields"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/ledger-layout-migration-event.ts#ledger-layout-migration-event.assertLedgerLayoutMigrationWritePlan",
+        "symbol": "packages/kernel/src/domain/ledger-layout-migration-event.ts#assertLedgerLayoutMigrationWritePlan",
+        "explain": "ledger-layout-migration-event: Versioned ledger-layout-migration-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/ledger-layout-migration-event.ts#assertLedgerLayoutMigrationWritePlan:dfb2d3de00f52b301f90442cd21660f1",
+            "route": "packages/kernel/src/domain/ledger-layout-migration-event.ts#assertLedgerLayoutMigrationWritePlan"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/migration-import-event.ts#migration-import-event.validateMigrationImportEventFields",
+        "symbol": "packages/kernel/src/domain/migration-import-event.ts#validateMigrationImportEventFields",
+        "explain": "migration-import-event: Versioned migration-import-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/migration-import-event.ts#validateMigrationImportEventFields:37f3c350153c7346146a19e114ad1594",
+            "route": "packages/kernel/src/domain/migration-import-event.ts#validateMigrationImportEventFields"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/migration-import-event.ts#migration-import-event.assertMigrationImportWritePlan",
+        "symbol": "packages/kernel/src/domain/migration-import-event.ts#assertMigrationImportWritePlan",
+        "explain": "migration-import-event: Versioned migration-import-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/migration-import-event.ts#assertMigrationImportWritePlan:28163c5a67ae1ea4537f3d961ec0cc0e",
+            "route": "packages/kernel/src/domain/migration-import-event.ts#assertMigrationImportWritePlan"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/preset-snapshot-upgrade-event.ts#preset-snapshot-upgrade-event.validatePresetSnapshotUpgradeEventFields",
+        "symbol": "packages/kernel/src/domain/preset-snapshot-upgrade-event.ts#validatePresetSnapshotUpgradeEventFields",
+        "explain": "preset-snapshot-upgrade-event: Versioned preset-snapshot-upgrade-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/preset-snapshot-upgrade-event.ts#validatePresetSnapshotUpgradeEventFields:3f9887865a2c5d06294b273b0f212006",
+            "route": "packages/kernel/src/domain/preset-snapshot-upgrade-event.ts#validatePresetSnapshotUpgradeEventFields"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/preset-snapshot-upgrade-event.ts#preset-snapshot-upgrade-event.assertPresetSnapshotUpgradeWritePlan",
+        "symbol": "packages/kernel/src/domain/preset-snapshot-upgrade-event.ts#assertPresetSnapshotUpgradeWritePlan",
+        "explain": "preset-snapshot-upgrade-event: Versioned preset-snapshot-upgrade-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/preset-snapshot-upgrade-event.ts#assertPresetSnapshotUpgradeWritePlan:9627f2a9d7dfad22d3071a230061acfa",
+            "route": "packages/kernel/src/domain/preset-snapshot-upgrade-event.ts#assertPresetSnapshotUpgradeWritePlan"
+          }
+        ]
+      }
+    ]
+  },
+  "execution": {
+    "judgments": [],
+    "contracts": [
+      {
+        "id": "kernel/src/domain/delegated-execution-token.ts#delegated-execution-token",
+        "symbol": "packages/kernel/src/domain/delegated-execution-token.ts#validateDelegatedExecutionToken",
+        "explain": "delegated-execution-token: Versioned delegated-execution-token.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/delegated-execution-token.ts#validateDelegatedExecutionToken:aa664ee13b374d61c06edc9e84afb441",
+            "route": "packages/kernel/src/domain/delegated-execution-token.ts#validateDelegatedExecutionToken"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/execution-delegation-event.ts#execution-delegation-event",
+        "symbol": "packages/kernel/src/domain/execution-delegation-event.ts#validateFields",
+        "explain": "execution-delegation-event: Versioned execution-delegation-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/execution-delegation-event.ts#validateFields:c9ba16dc85005998a3a2330ccb71b4b2",
+            "route": "packages/kernel/src/domain/execution-delegation-event.ts#validateFields"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/execution.ts#ExecutionV1.validateSubmissionV1",
+        "symbol": "packages/kernel/src/domain/execution.ts#validateSubmissionV1",
+        "explain": "ExecutionV1: Execution, Submission, Lease and holder codecs; no second lifecycle admission.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/execution.ts#validateSubmissionV1:1a8e62973233a5b7f02237ce0d8ea3f1",
+            "route": "packages/kernel/src/domain/execution.ts#validateSubmissionV1"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/execution.ts#ExecutionV1.validateExecutionV1",
+        "symbol": "packages/kernel/src/domain/execution.ts#validateExecutionV1",
+        "explain": "ExecutionV1: Execution, Submission, Lease and holder codecs; no second lifecycle admission.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/execution.ts#validateExecutionV1:62f4962d3efc52ec879d67b426e9a8e2",
+            "route": "packages/kernel/src/domain/execution.ts#validateExecutionV1"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/execution.ts#ExecutionV1.validateExecutionAnnotationV1s",
+        "symbol": "packages/kernel/src/domain/execution.ts#validateExecutionAnnotationV1s",
+        "explain": "ExecutionV1: Execution, Submission, Lease and holder codecs; no second lifecycle admission.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/execution.ts#validateExecutionAnnotationV1s:8c1fc1f06b03503577a2466698f2698d",
+            "route": "packages/kernel/src/domain/execution.ts#validateExecutionAnnotationV1s"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/execution.ts#ExecutionV1.validateArchivedExecutionV0",
+        "symbol": "packages/kernel/src/domain/execution.ts#validateArchivedExecutionV0",
+        "explain": "ExecutionV1: Execution, Submission, Lease and holder codecs; no second lifecycle admission.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/execution.ts#validateArchivedExecutionV0:ce93246b629d087e04d953e3c65bee0a",
+            "route": "packages/kernel/src/domain/execution.ts#validateArchivedExecutionV0"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/execution.ts#ExecutionV1.validateLeaseV1",
+        "symbol": "packages/kernel/src/domain/execution.ts#validateLeaseV1",
+        "explain": "ExecutionV1: Execution, Submission, Lease and holder codecs; no second lifecycle admission.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/execution.ts#validateLeaseV1:b67ccb4198d40c286befed93563d93a2",
+            "route": "packages/kernel/src/domain/execution.ts#validateLeaseV1"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/execution.ts#ExecutionV1.validateLeaseHolder",
+        "symbol": "packages/kernel/src/domain/execution.ts#validateLeaseHolder",
+        "explain": "ExecutionV1: Execution, Submission, Lease and holder codecs; no second lifecycle admission.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/execution.ts#validateLeaseHolder:6d123022553b3eeb06be5e118160e529",
+            "route": "packages/kernel/src/domain/execution.ts#validateLeaseHolder"
+          }
+        ]
+      }
+    ]
+  },
+  "relation": {
+    "judgments": [
+      {
+        "id": "validateRelationRecordsForHost",
+        "symbol": "packages/kernel/src/domain/entity-relation.ts#validateRelationRecordsForHost",
+        "inputs": [
+          "host: string",
+          "records: ReadonlyArray<EntityRelationRecord>",
+          "registry: readonly CanonicalRelationDirection[] = canonicalRelationDirections"
+        ],
+        "output": "ReadonlyArray<EntityRelationValidationIssue>",
+        "failureCodes": [
+          "invalid_relation_host",
+          "invalid_relation_endpoint",
+          "invalid_relation_type_subset",
+          "relation_host_source_mismatch",
+          "relation_id_mismatch",
+          "duplicate_relation_id",
+          "relation_rationale_missing"
+        ],
+        "explain": "Judge hosted relation identity, source ownership, live triple qualification and rationale together.",
+        "consumers": [],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-relation.ts#validateRelationRecordsForHost:fae8a8f635b2c7c3bdb8ba73c92d5d1d",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "isAllowedRelationKindTriple",
+        "symbol": "packages/kernel/src/domain/entity-relation.ts#isAllowedRelationKindTriple",
+        "inputs": [
+          "sourceKind: string",
+          "type: RelationType",
+          "targetKind: string",
+          "registry: readonly CanonicalRelationDirection[] = canonicalRelationDirections"
+        ],
+        "output": "boolean",
+        "failureCodes": [],
+        "explain": "Resolve relation-kind triple qualification solely against the supplied canonical direction registry.",
+        "consumers": ["packages/kernel/src/domain/relation-event.ts"],
+        "sources": []
+      },
+      {
+        "id": "isAllowedRelationRecord",
+        "symbol": "packages/kernel/src/domain/entity-relation.ts#isAllowedRelationRecord",
+        "inputs": [
+          "record: Pick<EntityRelationRecord, \"type\" | \"strength\">",
+          "sourceKind: string",
+          "targetKind: string",
+          "registry: readonly CanonicalRelationDirection[] = canonicalRelationDirections"
+        ],
+        "output": "boolean",
+        "failureCodes": [],
+        "explain": "Resolve writable relation record/strength qualification against the same canonical direction registry.",
+        "consumers": ["packages/kernel/src/domain/entity-relation.ts"],
+        "sources": []
+      },
+      {
+        "id": "assertGovernedRelationRecord",
+        "symbol": "packages/kernel/src/domain/entity-relation.ts#assertGovernedRelationRecord",
+        "inputs": ["record: EntityRelationRecord", "witness: unknown", "allowUnknownFields = false"],
+        "output": "void",
+        "failureCodes": [],
+        "explain": "Judge persisted governed relation endpoints against their witnessed registry, not today's registry.",
+        "consumers": ["packages/kernel/src/domain/relation-event.ts"],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-relation.ts#assertGovernedRelationRecord:79ccc7dd4ebbdf9ffcf46e340c4930f7",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "validateGovernedSemantics",
+        "symbol": "packages/kernel/src/domain/governed-relation-direction.ts#validateGovernedSemantics",
+        "inputs": ["declaration: ArtifactRelationDefinition", "sourceKind: string", "targetKind: string"],
+        "output": "void",
+        "failureCodes": [],
+        "explain": "Judge governed artifact relation semantics against accepted canonical declarations.",
+        "consumers": [],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/governed-relation-direction.ts#validateGovernedSemantics:40975337a2f3cf65898ae8b3b704c62b",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "validateDecisionPin",
+        "symbol": "packages/kernel/src/domain/governed-relation-direction.ts#validateDecisionPin",
+        "inputs": ["declaration: ArtifactRelationDefinition", "authority: GovernedRelationCompilationAuthority"],
+        "output": "void",
+        "failureCodes": [],
+        "explain": "Judge governing Decision pin qualification at relation compilation.",
+        "consumers": [],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/governed-relation-direction.ts#validateDecisionPin:ecad626d3b5cf073141c0f8eb42571d9",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "assertRelationAdmission",
+        "symbol": "packages/kernel/src/domain/relation-event.ts#assertRelationAdmission",
+        "inputs": [
+          "record: Pick<EntityRelationRecord, \"source\" | \"target\" | \"type\" | \"rationale\"> &\n    Partial<Pick<EntityRelationRecord, \"direction\">>",
+          "directions: readonly CanonicalRelationDirection[] = canonicalRelationDirections"
+        ],
+        "output": "void",
+        "failureCodes": [
+          "relation_direction_invalid",
+          "relation_target_kind_invalid",
+          "relation_triple_undeclared",
+          "relation_awaits_request_invalid"
+        ],
+        "explain": "Admit only declared canonical writable relation triples, directed acyclic edges and well-formed awaits requests.",
+        "consumers": ["packages/kernel/src/domain/relation-event.ts"],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/relation-event.ts#assertRelationAdmission:61d5b78ef4c56613e3f0b03d1d072740",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "isAllowedRelation",
+        "symbol": "packages/kernel/src/domain/entity-relation.ts#isAllowedRelation",
+        "inputs": [
+          "sourceKind: string",
+          "type: RelationType",
+          "targetKind: string",
+          "registry: readonly CanonicalRelationDirection[]",
+          "record?: Pick<EntityRelationRecord, \"strength\">"
+        ],
+        "output": "boolean",
+        "failureCodes": [],
+        "explain": "One writable triple/optional record-strength judgment for both public relation qualification ports; canonical lookup remains O(1), composed registries retain short-circuit O(n).",
+        "consumers": ["packages/kernel/src/domain/entity-relation.ts"],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-relation.ts#isAllowedRelation:4d693b0ff272687e214c67b14d6eddb0",
+            "route": "domain"
+          }
+        ]
+      }
+    ],
+    "contracts": [
+      {
+        "id": "kernel/src/domain/entity-relation.ts#GovernedRelationRegistryWitness",
+        "symbol": "packages/kernel/src/domain/entity-relation.ts#assertGovernedRelationRegistryWitness",
+        "explain": "GovernedRelationRegistryWitness: Persisted witnessed registry structure; current relation admission is separate.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-relation.ts#assertGovernedRelationRegistryWitness:65de3732d414b9ebc556d6832b0b5a7c",
+            "route": "packages/kernel/src/domain/entity-relation.ts#assertGovernedRelationRegistryWitness"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/relation-event.ts#RelationEventV1.validateRelationEventFields",
+        "symbol": "packages/kernel/src/domain/relation-event.ts#validateRelationEventFields",
+        "explain": "RelationEventV1: Relation event and record codec; registry qualification remains assertRelationAdmission.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/relation-event.ts#validateRelationEventFields:a576d7a781899e9f6d79e97e4cfd2908",
+            "route": "packages/kernel/src/domain/relation-event.ts#validateRelationEventFields"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/relation-event.ts#RelationEventV1.assertRelationEventWritePlan",
+        "symbol": "packages/kernel/src/domain/relation-event.ts#assertRelationEventWritePlan",
+        "explain": "RelationEventV1: Relation event and record codec; registry qualification remains assertRelationAdmission.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/relation-event.ts#assertRelationEventWritePlan:067e4b80fd4e616cf35b6e8bff90e8de",
+            "route": "packages/kernel/src/domain/relation-event.ts#assertRelationEventWritePlan"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/relation-event.ts#RelationEventV1.assertRelationRecord",
+        "symbol": "packages/kernel/src/domain/relation-event.ts#assertRelationRecord",
+        "explain": "RelationEventV1: Relation event and record codec; registry qualification remains assertRelationAdmission.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/relation-event.ts#assertRelationRecord:17c1e105797b5003af584977b6bf16c4",
+            "route": "packages/kernel/src/domain/relation-event.ts#assertRelationRecord"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/relation-event.ts#RelationEventV1.assertRelationEventRecord",
+        "symbol": "packages/kernel/src/domain/relation-event.ts#assertRelationEventRecord",
+        "explain": "RelationEventV1: Relation event and record codec; registry qualification remains assertRelationAdmission.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/relation-event.ts#assertRelationEventRecord:6f03f3313302a9532be975b4153e0db2",
+            "route": "packages/kernel/src/domain/relation-event.ts#assertRelationEventRecord"
+          }
+        ]
+      }
+    ]
+  },
+  "fact": {
+    "judgments": [
+      {
+        "id": "factLiveness",
+        "symbol": "packages/kernel/src/domain/fact-liveness.ts#factLiveness",
+        "declaration": "function",
+        "inputs": ["fact: FactLivenessInput", "relations: readonly FactLivenessRelation[]"],
+        "output": "FactLiveness",
+        "failureCodes": [],
+        "explain": "Canonical factLiveness; existing unique kernel definition and result semantics are preserved.",
+        "consumers": [],
+        "sources": []
+      }
+    ],
+    "contracts": [
+      {
+        "id": "kernel/src/domain/fact-event.ts#fact-event.assertFactWritePlan",
+        "symbol": "packages/kernel/src/domain/fact-event.ts#assertFactWritePlan",
+        "explain": "fact-event: Versioned fact-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/fact-event.ts#assertFactWritePlan:33f29c73fc1059fec068e37a8d60b6af",
+            "route": "packages/kernel/src/domain/fact-event.ts#assertFactWritePlan"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/fact-event.ts#fact-event.validateFactEventFields",
+        "symbol": "packages/kernel/src/domain/fact-event.ts#validateFactEventFields",
+        "explain": "fact-event: Versioned fact-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/fact-event.ts#validateFactEventFields:fe7380277ea705a7c9d3a680a6d7e407",
+            "route": "packages/kernel/src/domain/fact-event.ts#validateFactEventFields"
+          }
+        ]
+      }
+    ]
+  },
+  "settings": {
+    "judgments": [
+      {
+        "id": "assertAcyclicPolicyGroups",
+        "symbol": "packages/kernel/src/domain/policy-groups.ts#assertAcyclicPolicyGroups",
+        "inputs": ["groups: readonly PolicyGroup[]"],
+        "output": "void",
+        "failureCodes": [],
+        "explain": "Reject duplicate, missing or cyclic policy group inheritance in one kernel traversal.",
+        "consumers": ["packages/kernel/src/domain/policy-groups.ts"],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/policy-groups.ts#assertAcyclicPolicyGroups:950068fa3730bc4012238359f987c6c3",
+            "route": "domain"
+          }
+        ]
+      },
+      {
+        "id": "validatePolicyGroupScopes",
+        "symbol": "packages/kernel/src/domain/policy-groups.ts#validatePolicyGroupScopes",
+        "inputs": ["groups: readonly PolicyGroup[]", "known: (scope: string) => boolean"],
+        "output": "string | null",
+        "failureCodes": [],
+        "explain": "Judge group graph and first unknown scope once; providers supply only their inventory and error wording.",
+        "consumers": [
+          "packages/authorization-builtin/src/builtin-policy-adapter.ts",
+          "packages/authorization-keycloak/src/keycloak-policy-adapter.ts"
+        ],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/policy-groups.ts#validatePolicyGroupScopes:652b17b329a7b6f7dd4d5b3874db63a2",
+            "route": "domain"
+          }
+        ]
+      }
+    ],
+    "contracts": [
+      {
+        "id": "kernel/src/domain/settings-event.ts#settings-event.validateSettingsEventFields",
+        "symbol": "packages/kernel/src/domain/settings-event.ts#validateSettingsEventFields",
+        "explain": "settings-event: Versioned settings-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/settings-event.ts#validateSettingsEventFields:0d42e3f710adca12fd892b9358b9eb41",
+            "route": "packages/kernel/src/domain/settings-event.ts#validateSettingsEventFields"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/settings-event.ts#settings-event.assertSettingsEventInputs",
+        "symbol": "packages/kernel/src/domain/settings-event.ts#assertSettingsEventInputs",
+        "explain": "settings-event: Versioned settings-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/settings-event.ts#assertSettingsEventInputs:fe9ab258016b5bdaf608c44e9554e4b5",
+            "route": "packages/kernel/src/domain/settings-event.ts#assertSettingsEventInputs"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/settings-event.ts#settings-event.assertSettingsEventWritePlan",
+        "symbol": "packages/kernel/src/domain/settings-event.ts#assertSettingsEventWritePlan",
+        "explain": "settings-event: Versioned settings-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/settings-event.ts#assertSettingsEventWritePlan:dee5d3e39fe4d0f5318d73592924b4fa",
+            "route": "packages/kernel/src/domain/settings-event.ts#assertSettingsEventWritePlan"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/settings.ts#SettingsV1.assertDeclaredSequenceStyle",
+        "symbol": "packages/kernel/src/domain/settings.ts#assertDeclaredSequenceStyle",
+        "explain": "SettingsV1: Authored settings key/sequence/value schema.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/settings.ts#assertDeclaredSequenceStyle:48f0763aee97e6a0dc0aba6d6f4fb407",
+            "route": "packages/kernel/src/domain/settings.ts#assertDeclaredSequenceStyle"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/settings.ts#SettingsV1.validateGroupedActionValues",
+        "symbol": "packages/kernel/src/domain/settings.ts#validateGroupedActionValues",
+        "explain": "SettingsV1: Authored settings key/sequence/value schema.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/settings.ts#validateGroupedActionValues:4c0312bcc135f26644638934114c709f",
+            "route": "packages/kernel/src/domain/settings.ts#validateGroupedActionValues"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/settings.ts#SettingsV1.assertDeclaredNestedKeys",
+        "symbol": "packages/kernel/src/domain/settings.ts#assertDeclaredNestedKeys",
+        "explain": "SettingsV1: Authored settings key/sequence/value schema.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/settings.ts#assertDeclaredNestedKeys:8b8c1f413d2ad785ed9fceca5d0d8786",
+            "route": "packages/kernel/src/domain/settings.ts#assertDeclaredNestedKeys"
+          }
+        ]
+      }
+    ]
+  },
+  "review": {
+    "judgments": [
+      {
+        "id": "reviewReverifyRoute",
+        "symbol": "packages/kernel/src/domain/review-reverify.ts#reviewReverifyRoute",
+        "declaration": "function",
+        "inputs": [
+          "input: {\n  readonly reviews: readonly ReviewV1[];\n  readonly reviewResponses?: readonly TaskReviewResponseV1[] | undefined;\n  readonly execution: Pick<ExecutionV1, \"iteration\">;\n}"
+        ],
+        "output": "ReviewReverifyRoute",
+        "failureCodes": [],
+        "explain": "Canonical reviewReverifyRoute; existing unique kernel definition and result semantics are preserved.",
+        "consumers": [],
+        "sources": []
+      },
+      {
+        "id": "ownerVerifiableFindingCategories",
+        "symbol": "packages/kernel/src/domain/review-reverify.ts#ownerVerifiableFindingCategories",
+        "declaration": "const",
+        "inputs": [],
+        "output": "readonly FindingCategory[]",
+        "failureCodes": [],
+        "explain": "Canonical ownerVerifiableFindingCategories; existing unique kernel definition and result semantics are preserved.",
+        "consumers": [],
+        "sources": []
+      }
+    ],
+    "contracts": [
+      {
+        "id": "kernel/src/domain/review.ts#ReviewV1.validateReviewDispositionV1",
+        "symbol": "packages/kernel/src/domain/review.ts#validateReviewDispositionV1",
+        "explain": "ReviewV1: Review, consent, finding, response and resolution document codecs.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/review.ts#validateReviewDispositionV1:0e5ffe7caeba33d805ca0329f9220feb",
+            "route": "packages/kernel/src/domain/review.ts#validateReviewDispositionV1"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/review.ts#ReviewV1.validateReviewV1",
+        "symbol": "packages/kernel/src/domain/review.ts#validateReviewV1",
+        "explain": "ReviewV1: Review, consent, finding, response and resolution document codecs.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/review.ts#validateReviewV1:d0dec9f916df59396ef081c13c6a6b62",
+            "route": "packages/kernel/src/domain/review.ts#validateReviewV1"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/review.ts#ReviewV1.validateReviewFindings",
+        "symbol": "packages/kernel/src/domain/review.ts#validateReviewFindings",
+        "explain": "ReviewV1: Review, consent, finding, response and resolution document codecs.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/review.ts#validateReviewFindings:ccd57feddaa4c4aa75fd87455caee2ab",
+            "route": "packages/kernel/src/domain/review.ts#validateReviewFindings"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/review.ts#ReviewV1.validateReviewResolutions",
+        "symbol": "packages/kernel/src/domain/review.ts#validateReviewResolutions",
+        "explain": "ReviewV1: Review, consent, finding, response and resolution document codecs.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/review.ts#validateReviewResolutions:443831456ee84df123310a722bf46d32",
+            "route": "packages/kernel/src/domain/review.ts#validateReviewResolutions"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/review.ts#ReviewV1.validateTaskReviewResponseV1",
+        "symbol": "packages/kernel/src/domain/review.ts#validateTaskReviewResponseV1",
+        "explain": "ReviewV1: Review, consent, finding, response and resolution document codecs.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/review.ts#validateTaskReviewResponseV1:b4021d2be3a4c2b7deed005bad83d724",
+            "route": "packages/kernel/src/domain/review.ts#validateTaskReviewResponseV1"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/review.ts#ReviewV1.validateReviewConsentV1",
+        "symbol": "packages/kernel/src/domain/review.ts#validateReviewConsentV1",
+        "explain": "ReviewV1: Review, consent, finding, response and resolution document codecs.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/review.ts#validateReviewConsentV1:f302f0b777cebd8c5f442ca753b962ef",
+            "route": "packages/kernel/src/domain/review.ts#validateReviewConsentV1"
+          }
+        ]
+      }
+    ]
+  },
+  "schedule": {
+    "judgments": [],
+    "contracts": [
+      {
+        "id": "kernel/src/domain/schedule-action-contract.ts#createScheduleActionCatalog",
+        "symbol": "packages/kernel/src/domain/schedule-action-contract.ts#assertUpdatableDefinitionFields",
+        "explain": "createScheduleActionCatalog: Schedule update field schema, rather than scheduler eligibility.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/schedule-action-contract.ts#assertUpdatableDefinitionFields:60b4af52b756eaf8b1bee84d0128373c",
+            "route": "packages/kernel/src/domain/schedule-action-contract.ts#assertUpdatableDefinitionFields"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/schedule-event.ts#schedule-event.validateScheduleEventFields",
+        "symbol": "packages/kernel/src/domain/schedule-event.ts#validateScheduleEventFields",
+        "explain": "schedule-event: Versioned schedule-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/schedule-event.ts#validateScheduleEventFields:9ea4e5f0da25e302771163f3d69ab2a3",
+            "route": "packages/kernel/src/domain/schedule-event.ts#validateScheduleEventFields"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/schedule-event.ts#schedule-event.assertScheduleEventInputs",
+        "symbol": "packages/kernel/src/domain/schedule-event.ts#assertScheduleEventInputs",
+        "explain": "schedule-event: Versioned schedule-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/schedule-event.ts#assertScheduleEventInputs:0afd47682d677d320ec390cd15e9892f",
+            "route": "packages/kernel/src/domain/schedule-event.ts#assertScheduleEventInputs"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/schedule-event.ts#schedule-event.assertScheduleEventWritePlan",
+        "symbol": "packages/kernel/src/domain/schedule-event.ts#assertScheduleEventWritePlan",
+        "explain": "schedule-event: Versioned schedule-event.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/schedule-event.ts#assertScheduleEventWritePlan:b7f1dd39fe91d16f00c63be0aebf9988",
+            "route": "packages/kernel/src/domain/schedule-event.ts#assertScheduleEventWritePlan"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/schedule.ts#ScheduleV1.validateScheduleDefinitionV1",
+        "symbol": "packages/kernel/src/domain/schedule.ts#validateScheduleDefinitionV1",
+        "explain": "ScheduleV1: Schedule definition and persisted schedule codec.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/schedule.ts#validateScheduleDefinitionV1:62eb305fbde3ab1c2fd620905d51ad7c",
+            "route": "packages/kernel/src/domain/schedule.ts#validateScheduleDefinitionV1"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/schedule.ts#ScheduleV1.validateScheduleV1",
+        "symbol": "packages/kernel/src/domain/schedule.ts#validateScheduleV1",
+        "explain": "ScheduleV1: Schedule definition and persisted schedule codec.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/schedule.ts#validateScheduleV1:b47251685538eee25d83d40af769b994",
+            "route": "packages/kernel/src/domain/schedule.ts#validateScheduleV1"
+          }
+        ]
+      }
+    ]
+  },
+  "vertical-declaration": {
+    "judgments": [],
+    "contracts": [
+      {
+        "id": "kernel/src/domain/vertical-contract.ts#CompiledVerticalContract.validateUniqueContracts",
+        "symbol": "packages/kernel/src/domain/vertical-contract.ts#validateUniqueContracts",
+        "explain": "CompiledVerticalContract: Compiler input consistency for decoded vertical declarations and artifact schemas.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/vertical-contract.ts#validateUniqueContracts:21be22e882f26c342575cb49c4564b1c",
+            "route": "packages/kernel/src/domain/vertical-contract.ts#validateUniqueContracts"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/vertical-contract.ts#CompiledVerticalContract.validateArtifactDeclaration",
+        "symbol": "packages/kernel/src/domain/vertical-contract.ts#validateArtifactDeclaration",
+        "explain": "CompiledVerticalContract: Compiler input consistency for decoded vertical declarations and artifact schemas.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/vertical-contract.ts#validateArtifactDeclaration:01783956c28412d7458e7f775229b444",
+            "route": "packages/kernel/src/domain/vertical-contract.ts#validateArtifactDeclaration"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/vertical-contract.ts#CompiledVerticalContract.assertUniqueValues",
+        "symbol": "packages/kernel/src/domain/vertical-contract.ts#assertUniqueValues",
+        "explain": "CompiledVerticalContract: Compiler input consistency for decoded vertical declarations and artifact schemas.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/vertical-contract.ts#assertUniqueValues:21548ccbaad306612b5cc6c0bee74e0e",
+            "route": "packages/kernel/src/domain/vertical-contract.ts#assertUniqueValues"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/vertical-declaration.ts#vertical-declaration.validateVerticalDeclarationEventFields",
+        "symbol": "packages/kernel/src/domain/vertical-declaration.ts#validateVerticalDeclarationEventFields",
+        "explain": "vertical-declaration: Versioned vertical-declaration.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/vertical-declaration.ts#validateVerticalDeclarationEventFields:0c603361f75eafe363e090040724cc6c",
+            "route": "packages/kernel/src/domain/vertical-declaration.ts#validateVerticalDeclarationEventFields"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/vertical-declaration.ts#vertical-declaration.assertVerticalDeclarationEventInputs",
+        "symbol": "packages/kernel/src/domain/vertical-declaration.ts#assertVerticalDeclarationEventInputs",
+        "explain": "vertical-declaration: Versioned vertical-declaration.ts input envelope and declared publication contract.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/vertical-declaration.ts#assertVerticalDeclarationEventInputs:5becca9f0eab52bb4dcedc2a7e555b3b",
+            "route": "packages/kernel/src/domain/vertical-declaration.ts#assertVerticalDeclarationEventInputs"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/vertical-script-action.ts#VerticalScriptAction.validateVerticalScriptAction",
+        "symbol": "packages/kernel/src/domain/vertical-script-action.ts#validateVerticalScriptAction",
+        "explain": "VerticalScriptAction: Declared script request, plan and result schemas.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/vertical-script-action.ts#validateVerticalScriptAction:33e65baf41d1a3400d727ab23ef0dad2",
+            "route": "packages/kernel/src/domain/vertical-script-action.ts#validateVerticalScriptAction"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/vertical-script-action.ts#VerticalScriptAction.validateVerticalScriptPlan",
+        "symbol": "packages/kernel/src/domain/vertical-script-action.ts#validateVerticalScriptPlan",
+        "explain": "VerticalScriptAction: Declared script request, plan and result schemas.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/vertical-script-action.ts#validateVerticalScriptPlan:afa8e5dd02bda13786b0f7fa95b7195d",
+            "route": "packages/kernel/src/domain/vertical-script-action.ts#validateVerticalScriptPlan"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/vertical-script-action.ts#VerticalScriptAction.validateVerticalScriptResult",
+        "symbol": "packages/kernel/src/domain/vertical-script-action.ts#validateVerticalScriptResult",
+        "explain": "VerticalScriptAction: Declared script request, plan and result schemas.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/vertical-script-action.ts#validateVerticalScriptResult:fa3ff75288645a3c510000cf8bdde7bc",
+            "route": "packages/kernel/src/domain/vertical-script-action.ts#validateVerticalScriptResult"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/schemas/vertical-definition.ts#decodeVerticalDefinition.validateDecisionDeclarations",
+        "symbol": "packages/kernel/src/schemas/vertical-definition.ts#validateDecisionDeclarations",
+        "explain": "decodeVerticalDefinition: Authored vertical definitions and Decision declaration decoding.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/schemas/vertical-definition.ts#validateDecisionDeclarations:9ba232047a8517cf12af469df8728721",
+            "route": "packages/kernel/src/schemas/vertical-definition.ts#validateDecisionDeclarations"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/schemas/vertical-definition.ts#decodeVerticalDefinition.validateVerticalDeclarationRead",
+        "symbol": "packages/kernel/src/schemas/vertical-definition.ts#validateVerticalDeclarationRead",
+        "explain": "decodeVerticalDefinition: Authored vertical definitions and Decision declaration decoding.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/schemas/vertical-definition.ts#validateVerticalDeclarationRead:2691423498708d438541c0ea795d327d",
+            "route": "packages/kernel/src/schemas/vertical-definition.ts#validateVerticalDeclarationRead"
+          }
+        ]
+      },
+      {
+        "id": "preset/src/preset-assets.ts#loadCanonicalAssets",
+        "symbol": "packages/preset/src/preset-assets.ts#assertCanonicalVertical",
+        "explain": "loadCanonicalAssets: Canonical vertical package asset input boundary.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-assets.ts#assertCanonicalVertical:91bdb2c7b42fe06d38cd011e1c361928",
+            "route": "packages/preset/src/preset-assets.ts#assertCanonicalVertical"
+          }
+        ]
+      },
+      {
+        "id": "preset/src/preset-extension-model.ts#validateExtensionInputShape.validateExtensionInputShape",
+        "symbol": "packages/preset/src/preset-extension-model.ts#validateExtensionInputShape",
+        "explain": "validateExtensionInputShape: Preset template/vertical/completion declaration validation and cross-reference input consistency.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-extension-model.ts#validateExtensionInputShape:a14b367bcdc9ee86f4511d8adefd5651",
+            "route": "packages/preset/src/preset-extension-model.ts#validateExtensionInputShape"
+          }
+        ]
+      },
+      {
+        "id": "preset/src/preset-extension-model.ts#validateExtensionInputShape.validateTemplateCatalog",
+        "symbol": "packages/preset/src/preset-extension-model.ts#validateTemplateCatalog",
+        "explain": "validateExtensionInputShape: Preset template/vertical/completion declaration validation and cross-reference input consistency.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-extension-model.ts#validateTemplateCatalog:f93279c396c2adb6204a197e4f87dfaa",
+            "route": "packages/preset/src/preset-extension-model.ts#validateTemplateCatalog"
+          }
+        ]
+      },
+      {
+        "id": "preset/src/preset-extension-model.ts#validateExtensionInputShape.validateTemplateCatalogBodies",
+        "symbol": "packages/preset/src/preset-extension-model.ts#validateTemplateCatalogBodies",
+        "explain": "validateExtensionInputShape: Preset template/vertical/completion declaration validation and cross-reference input consistency.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-extension-model.ts#validateTemplateCatalogBodies:3cff72f3d7a70648737d0be76375bd02",
+            "route": "packages/preset/src/preset-extension-model.ts#validateTemplateCatalogBodies"
+          }
+        ]
+      },
+      {
+        "id": "preset/src/preset-extension-model.ts#validateExtensionInputShape.validateCompletionDeclaration",
+        "symbol": "packages/preset/src/preset-extension-model.ts#validateCompletionDeclaration",
+        "explain": "validateExtensionInputShape: Preset template/vertical/completion declaration validation and cross-reference input consistency.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-extension-model.ts#validateCompletionDeclaration:071eecee26b9dea19ac1a815548b3bd1",
+            "route": "packages/preset/src/preset-extension-model.ts#validateCompletionDeclaration"
+          }
+        ]
+      },
+      {
+        "id": "preset/src/preset-extension-model.ts#validateExtensionInputShape.validateVerticalDefinition",
+        "symbol": "packages/preset/src/preset-extension-model.ts#validateVerticalDefinition",
+        "explain": "validateExtensionInputShape: Preset template/vertical/completion declaration validation and cross-reference input consistency.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-extension-model.ts#validateVerticalDefinition:b5c330f5f42c4b1e4a99b0db4ac3e2e5",
+            "route": "packages/preset/src/preset-extension-model.ts#validateVerticalDefinition"
+          }
+        ]
+      },
+      {
+        "id": "preset/src/preset-extension-model.ts#validateExtensionInputShape.validateTemplateCatalogShape",
+        "symbol": "packages/preset/src/preset-extension-model.ts#validateTemplateCatalogShape",
+        "explain": "validateExtensionInputShape: Preset template/vertical/completion declaration validation and cross-reference input consistency.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-extension-model.ts#validateTemplateCatalogShape:74030e26860112a185eb977444029098",
+            "route": "packages/preset/src/preset-extension-model.ts#validateTemplateCatalogShape"
+          }
+        ]
+      },
+      {
+        "id": "preset/src/preset-extension-model.ts#validateExtensionInputShape.validateVerticalDefinitionShape",
+        "symbol": "packages/preset/src/preset-extension-model.ts#validateVerticalDefinitionShape",
+        "explain": "validateExtensionInputShape: Preset template/vertical/completion declaration validation and cross-reference input consistency.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-extension-model.ts#validateVerticalDefinitionShape:49789483b9dc4937b0256f2f63fd1c47",
+            "route": "packages/preset/src/preset-extension-model.ts#validateVerticalDefinitionShape"
+          }
+        ]
+      },
+      {
+        "id": "preset/src/preset-extension-model.ts#validateExtensionInputShape.validateEntityFieldExtensionsShape",
+        "symbol": "packages/preset/src/preset-extension-model.ts#validateEntityFieldExtensionsShape",
+        "explain": "validateExtensionInputShape: Preset template/vertical/completion declaration validation and cross-reference input consistency.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-extension-model.ts#validateEntityFieldExtensionsShape:6c63dd4414f09af0e18cfe042ec41a31",
+            "route": "packages/preset/src/preset-extension-model.ts#validateEntityFieldExtensionsShape"
+          }
+        ]
+      },
+      {
+        "id": "preset/src/preset-extension-model.ts#validateExtensionInputShape.validateRepositoryScaffoldShape",
+        "symbol": "packages/preset/src/preset-extension-model.ts#validateRepositoryScaffoldShape",
+        "explain": "validateExtensionInputShape: Preset template/vertical/completion declaration validation and cross-reference input consistency.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-extension-model.ts#validateRepositoryScaffoldShape:58215455c7a016eed605dfc8d363d68c",
+            "route": "packages/preset/src/preset-extension-model.ts#validateRepositoryScaffoldShape"
+          }
+        ]
+      },
+      {
+        "id": "preset/src/preset-extension-model.ts#validateExtensionInputShape.validateVerticalScriptsShape",
+        "symbol": "packages/preset/src/preset-extension-model.ts#validateVerticalScriptsShape",
+        "explain": "validateExtensionInputShape: Preset template/vertical/completion declaration validation and cross-reference input consistency.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-extension-model.ts#validateVerticalScriptsShape:03b873780e3262f0bf895baa53ac0b00",
+            "route": "packages/preset/src/preset-extension-model.ts#validateVerticalScriptsShape"
+          }
+        ]
+      },
+      {
+        "id": "preset/src/preset-extension-model.ts#validateExtensionInputShape.validateTemplateSelectionsShape",
+        "symbol": "packages/preset/src/preset-extension-model.ts#validateTemplateSelectionsShape",
+        "explain": "validateExtensionInputShape: Preset template/vertical/completion declaration validation and cross-reference input consistency.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-extension-model.ts#validateTemplateSelectionsShape:9df500219959b49e6660eb9d6bffb375",
+            "route": "packages/preset/src/preset-extension-model.ts#validateTemplateSelectionsShape"
+          }
+        ]
+      },
+      {
+        "id": "preset/src/preset-extension-model.ts#validateExtensionInputShape.validateObjectKeys",
+        "symbol": "packages/preset/src/preset-extension-model.ts#validateObjectKeys",
+        "explain": "validateExtensionInputShape: Preset template/vertical/completion declaration validation and cross-reference input consistency.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-extension-model.ts#validateObjectKeys:e59f014ba68c9997419e322f9e5b54c6",
+            "route": "packages/preset/src/preset-extension-model.ts#validateObjectKeys"
+          }
+        ]
+      },
+      {
+        "id": "preset/src/preset-installation.ts#installPresetPackage",
+        "symbol": "packages/preset/src/preset-installation.ts#assertInstallDirectory",
+        "explain": "installPresetPackage: Preset install directory filesystem boundary.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-installation.ts#assertInstallDirectory:1714ade9850352bafd4b74575f45fd17",
+            "route": "packages/preset/src/preset-installation.ts#assertInstallDirectory"
+          }
+        ]
+      },
+      {
+        "id": "preset/src/preset-package.ts#decodePackage",
+        "symbol": "packages/preset/src/preset-package.ts#validatePackagePolicy",
+        "explain": "decodePackage: Preset package declaration and action capability decoding.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-package.ts#validatePackagePolicy:ad1084cb50bdd4f6f76bc03db85a13da",
+            "route": "packages/preset/src/preset-package.ts#validatePackagePolicy"
+          }
+        ]
+      },
+      {
+        "id": "preset/src/preset-process-service.ts#PresetRunStartInput",
+        "symbol": "packages/preset/src/preset-process-service.ts#validateInputs",
+        "explain": "PresetRunStartInput: Script entrypoint input schema; process admission remains with its existing owner.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-process-service.ts#validateInputs:171c55512d98dbce9d2b15af4f2ec068",
+            "route": "packages/preset/src/preset-process-service.ts#validateInputs"
+          }
+        ]
+      },
+      {
+        "id": "preset/src/preset-repository-scaffold.ts#RepositoryScaffoldPlan",
+        "symbol": "packages/preset/src/preset-repository-scaffold.ts#assertRepositoryScaffoldPlanCurrent",
+        "explain": "RepositoryScaffoldPlan: Filesystem plan freshness check before materialization.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-repository-scaffold.ts#assertRepositoryScaffoldPlanCurrent:763221cadb82443870f8225d56464685",
+            "route": "packages/preset/src/preset-repository-scaffold.ts#assertRepositoryScaffoldPlanCurrent"
+          }
+        ]
+      },
+      {
+        "id": "preset/src/preset-resolver-common.ts#assertSupportedScriptInterpreter",
+        "symbol": "packages/preset/src/preset-resolver-common.ts#assertSupportedScriptInterpreter",
+        "explain": "assertSupportedScriptInterpreter: Interpreter declaration grammar at package decode.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-resolver-common.ts#assertSupportedScriptInterpreter:c9354940964e0a1a9c588af8959ac3ff",
+            "route": "packages/preset/src/preset-resolver-common.ts#assertSupportedScriptInterpreter"
+          }
+        ]
+      },
+      {
+        "id": "preset/src/preset-validation.ts#validatePresetPackage.validatePresetPackage",
+        "symbol": "packages/preset/src/preset-validation.ts#validatePresetPackage",
+        "explain": "validatePresetPackage: Validation report orchestration over the existing preset decoders.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-validation.ts#validatePresetPackage:a528b7ff73b82b856cc67b575731c011",
+            "route": "packages/preset/src/preset-validation.ts#validatePresetPackage"
+          }
+        ]
+      },
+      {
+        "id": "preset/src/preset-validation.ts#validatePresetPackage.validateVerticalSource",
+        "symbol": "packages/preset/src/preset-validation.ts#validateVerticalSource",
+        "explain": "validatePresetPackage: Validation report orchestration over the existing preset decoders.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset-validation.ts#validateVerticalSource:b0b6cc863d1735732e42c2efaa33ebcb",
+            "route": "packages/preset/src/preset-validation.ts#validateVerticalSource"
+          }
+        ]
+      },
+      {
+        "id": "preset/src/preset.contract.ts#PresetManifestV3.validatePresetManifestV3",
+        "symbol": "packages/preset/src/preset.contract.ts#validatePresetManifestV3",
+        "explain": "PresetManifestV3: Manifest, document, snapshot and run receipt wire codecs.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset.contract.ts#validatePresetManifestV3:657fb4679d2697a7d44878e05a4d763b",
+            "route": "packages/preset/src/preset.contract.ts#validatePresetManifestV3"
+          }
+        ]
+      },
+      {
+        "id": "preset/src/preset.contract.ts#PresetManifestV3.validatePresetDocumentV1",
+        "symbol": "packages/preset/src/preset.contract.ts#validatePresetDocumentV1",
+        "explain": "PresetManifestV3: Manifest, document, snapshot and run receipt wire codecs.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset.contract.ts#validatePresetDocumentV1:c5c57d13f1e9fe5a92abd5f3e42c2863",
+            "route": "packages/preset/src/preset.contract.ts#validatePresetDocumentV1"
+          }
+        ]
+      },
+      {
+        "id": "preset/src/preset.contract.ts#PresetManifestV3.validatePresetSnapshotV1",
+        "symbol": "packages/preset/src/preset.contract.ts#validatePresetSnapshotV1",
+        "explain": "PresetManifestV3: Manifest, document, snapshot and run receipt wire codecs.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset.contract.ts#validatePresetSnapshotV1:9a537d3ae75637e0447842c4f36d3a51",
+            "route": "packages/preset/src/preset.contract.ts#validatePresetSnapshotV1"
+          }
+        ]
+      },
+      {
+        "id": "preset/src/preset.contract.ts#PresetManifestV3.validatePresetRunReceiptV1",
+        "symbol": "packages/preset/src/preset.contract.ts#validatePresetRunReceiptV1",
+        "explain": "PresetManifestV3: Manifest, document, snapshot and run receipt wire codecs.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/preset:packages/preset/src/preset.contract.ts#validatePresetRunReceiptV1:ff11a5fd797f6d61c606f4a6275379f1",
+            "route": "packages/preset/src/preset.contract.ts#validatePresetRunReceiptV1"
+          }
+        ]
+      }
+    ]
+  }
+}
