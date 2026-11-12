@@ -1055,10 +1055,9 @@ export async function openRepoWriterCell(
     },
     lock,
   };
-  return {
-    ...createRepoCellApi(apiContext),
+  return Object.assign(createRepoCellApi(apiContext), {
     backup,
     pruneReplicationLog,
     fleetBackup: makeRepoCellFleetBackup(apiContext, input.storage),
-  };
+  });
 }

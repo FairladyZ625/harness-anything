@@ -1,19 +1,25 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { provisionPolicyTestRepository, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { policyTestCenter, provisionPolicyTestRepository, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import test from "node:test";
+import { Worker } from "node:worker_threads";
 import {
   createImmutableLegacyGenerationSnapshot,
   legacyGenerationSnapshotPath,
   makeTaskEventReader,
   openSqliteEventStore,
 } from "@harness-anything/storage";
-import { bindWriterGenerationToken, serializePersistedCanonicalEvent, sha256Text } from "@harness-anything/kernel";
+import {
+  bindWriterGenerationToken,
+  serializePersistedCanonicalEvent,
+  sha256Text,
+  type WriteReceipt,
+} from "@harness-anything/kernel";
 import {
   contentClaims,
   preflightConvertedGenerationActivation,
@@ -21,7 +27,14 @@ import {
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { causeClassOf, chainRepoCellWrite, type RepoCell } from "../src/repo-cell.ts";
 import type { RepoCellQueueObservation } from "../src/repo-cell-types.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import {
+  fixtureFence,
+  openBootstrappedRepoCell as openRepoCell,
+  settleSettingsEvent,
+} from "./repo-settings.fixture.ts";
+import { openWriterSupervisor, type WriterSupervisor } from "../src/writer-supervisor.ts";
+import type { RepoWriterStatusV1 } from "../src/repo-writer-protocol.ts";
+import { openRepoWriterCell } from "../src/repo-cell-open.ts";
 import { projectedTaskIds } from "../src/repo-cell-receipts.ts";
 import { cellCodedError } from "../src/repo-cell-errors.ts";
 import { recoveryCommandPolicy } from "../src/recovery-state.ts";
@@ -437,6 +450,91 @@ test("projection rebuild is executable from a projection latch and settles it", 
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+for (const surface of ["cell", "writer"] as const)
+  test(`${surface} publishes the replacement store cut after in-place latch recovery`, async (t) => {
+    const rootDir = mkdtempSync(path.join(tmpdir(), `ha-${surface}-recovered-cut-`)),
+      repoId = workspaceId(`${surface}-recovered-cut`),
+      binding = withPolicyGroup({ actor, source: "local" as const }, "admin"),
+      statuses: RepoWriterStatusV1[] = [];
+    let cell: RepoCell | undefined,
+      writer: WriterSupervisor | undefined,
+      failAfterCommit = false,
+      workerCount = 0;
+    try {
+      initRepo(rootDir);
+      provisionPolicyTestRepository(repoId);
+      await settleSettingsEvent({ repoId, rootDir });
+      const input = {
+        repoId,
+        rootDir: canonicalRoot(rootDir),
+        ownerId: `${surface}-recovered-cut`,
+        keycloakCenter: policyTestCenter,
+        defaultWriterEpochFence: fixtureFence(repoId, rootDir, path.join(rootDir, ".harness/fixture-writer-epochs")),
+        killpoint: (point: string) => {
+          if (point === "after_store_commit" && failAfterCommit) {
+            failAfterCommit = false;
+            throw new Error("lose response after SQLite acceptance");
+          }
+        },
+      };
+      if (surface === "cell") cell = await openRepoWriterCell(input, { close: async () => undefined } as never);
+      else
+        writer = await openWriterSupervisor(input, {
+          createWorker: (url, options) => {
+            workerCount += 1;
+            const worker = new Worker(url, options);
+            worker.on("message", (message: RepoWriterStatusV1) => {
+              if (message.schema === "harness-repo-writer-status/v1") statuses.push(message);
+            });
+            return worker;
+          },
+        });
+      const originalReplica = cell?.replica,
+        cut = () => (cell ? cell.replica.ledgerCut() : writer!.ledgerCut()),
+        status = () => (cell ? cell.status() : writer!.status()),
+        run: RepoCell["run"] = (action, auth) =>
+          cell ? cell.run(action, auth) : writer!.request<WriteReceipt>("run", { action }, auth),
+        before = cut()!;
+      failAfterCommit = true;
+      const lost = await run(
+        { kind: "task-create", taskId: "task_recovered_cut", title: "Accepted before latch" },
+        binding,
+      );
+      assert.equal(lost.code, "publication_indeterminate", JSON.stringify(lost));
+      assert.equal(status().state, "unavailable");
+      const reader = makeTaskEventReader({ repoId, rootDir });
+      let accepted: NonNullable<ReturnType<typeof reader.currentCut>>;
+      try {
+        accepted = reader.currentCut()!;
+      } finally {
+        await reader.drain();
+      }
+      assert.equal(accepted.revision, before.revision + 1, "the failed response still committed exactly one event");
+      assert.notEqual(accepted.headDigest, before.headDigest);
+      // This read recovers in place and has no receipt cut for the writer to reuse.
+      const listed = await run({ kind: "task-list" }, binding);
+      assert.equal(listed.outcome, "applied", JSON.stringify(listed));
+      assert.equal("cut" in listed, false);
+      assert.match(String(listed.evidence), /task_recovered_cut/u);
+      assert.equal(status().state, "attached");
+      assert.equal(status().ledgerRevision, accepted.revision);
+      assert.deepEqual(cut(), accepted, "the public cut follows the replacement SQLite owner");
+      if (cell) assert.notEqual(cell.replica, originalReplica);
+      else {
+        assert.equal(workerCount, 1, "recovery retains the writer process");
+        assert.ok(statuses.some((message) => message.status?.state === "unavailable"));
+        assert.ok(
+          statuses.some((message) => message.kind === "cut" && message.ledgerCut?.headDigest === accepted.headDigest),
+        );
+      }
+      t.diagnostic(JSON.stringify({ surface, before, accepted, recovered: cut(), workerCount }));
+    } finally {
+      await cell?.close();
+      await writer?.close();
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
 
 test("a queued write rechecks Cell state after close begins", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-cell-close-queue-"));
