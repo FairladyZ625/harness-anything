@@ -3096,6 +3096,241 @@
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn"
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/decision-service.ts#makeDecisionService.record.appended:0d96d4f5d7a756bd529666dd7878b819",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/fact-service.ts#makeFactService.record.appended:0d96d4f5d7a756bd529666dd7878b819",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/task-lifecycle-service.ts#makeTaskLifecycleService.executeInternal:521816cc1a3527f62031e0b042727ea9",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/application/src/task-lifecycle-service.ts#EventStorePort.append"
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/task-lifecycle-service.ts#renewTaskLease:9529e391bab453b3bd43508db235116e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/application/src/task-lifecycle-service.ts#EventStorePort.append"
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/task-lifecycle-service.ts#plannedPublication:d132352a9aa80621aa573b0a6935dc15",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/application/src/task-lifecycle-service.ts#plannedPublication.write"
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/task-lifecycle-service.ts#planned:d132352a9aa80621aa573b0a6935dc15",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/application/src/task-lifecycle-service.ts#planned.write"
+      },
+      {
+        "candidateId": "action:packages/authorization-builtin:packages/authorization-builtin/src/builtin-policy-adapter.ts#BuiltinPolicyAdapter:11490bf9469d17fe579991a10bae215a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/authorization-builtin/src/builtin-policy-adapter.ts#BuiltinPolicyAdapter.update"
+      },
+      {
+        "candidateId": "action:packages/authorization-builtin:packages/authorization-builtin/src/builtin-rbac-service.ts#BuiltinIdentityManagement.result:13b3a37086b8afea20e3e144a93ddd72",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/identity-management-port.ts#IdentityManagementPort.run"
+      },
+      {
+        "candidateId": "action:packages/authorization-builtin:packages/authorization-builtin/src/builtin-session-service.ts#BuiltinIdentitySession.complete:cc7f58744ec08f7b98b8a40655412b61",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/identity-session-port.ts#IdentitySessionPort.complete"
+      },
+      {
+        "candidateId": "action:packages/authorization-builtin:packages/authorization-builtin/src/builtin-session-service.ts#BuiltinIdentitySession:89f47e4f729ec646f81c06d145cd883f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
+      },
+      {
+        "candidateId": "action:packages/authorization-builtin:packages/authorization-builtin/src/builtin-session-service.ts#BuiltinIdentitySession:30fbef742e3fc98489b756201e4ddb89",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/authorization-builtin:packages/authorization-builtin/src/state.ts#writeState:83277789daa3546d3c67f7091f83bb5c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/authorization-builtin:packages/authorization-builtin/src/state.ts#ensureBuiltinConfig:33f447ef05c55dbcde8762f7f9532175",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/authorization-builtin:packages/authorization-builtin/src/builtin-policy-adapter.ts#BuiltinPolicyAdapter.claimRepositoryOwner:f64dad76ea9d40e15d8a94e3a14d15ca",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/authorization-builtin:packages/authorization-builtin/src/builtin-policy-adapter.ts#BuiltinPolicyAdapter.claimRepositoryOwner:2ee744cc948c14fca454480038345156",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/authorization-builtin:packages/authorization-builtin/src/builtin-policy-adapter.ts#BuiltinPolicyAdapter.readPersonTeams:f64dad76ea9d40e15d8a94e3a14d15ca",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/authorization-builtin:packages/authorization-builtin/src/builtin-policy-adapter.ts#BuiltinPolicyAdapter.addUser:7d1b40a8229ac7e939bccb9301fc12c9",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/authorization-builtin:packages/authorization-builtin/src/builtin-policy-adapter.ts#BuiltinPolicyAdapter:49d3d2687d78568bfde6233d1f095a84",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/authorization-builtin:packages/authorization-builtin/src/builtin-session-service.ts#coded:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/authorization-builtin:packages/authorization-builtin/src/builtin-session-service.ts#BuiltinIdentitySession.complete:53b93dfb95741f9c965680ec0014a5b2",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/authorization-builtin:packages/authorization-builtin/src/builtin-session-service.ts#BuiltinIdentitySession.complete:53b93dfb95741f9c965680ec0014a5b2:2",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/authorization-builtin:packages/authorization-builtin/src/builtin-session-service.ts#BuiltinIdentitySession.beginDevice:ff0270d22551d255b17205030c8f8087",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/authorization-builtin:packages/authorization-builtin/src/builtin-session-service.ts#BuiltinIdentitySession.pollDevice:109e24a1e7afd61b5122f809e6afb1aa",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/authorization-builtin:packages/authorization-builtin/src/builtin-session-service.ts#BuiltinIdentitySession.pollDevice:109e24a1e7afd61b5122f809e6afb1aa:2",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/authorization-builtin:packages/authorization-builtin/src/collaboration.ts#identityPluginRequired:a79e2c194807ac42d56e54b5d4091291",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/authorization-builtin:packages/authorization-builtin/src/state.ts#readState:ac0dace1c7b63e61363f4f6bd7709fcf",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/authorization-builtin:packages/authorization-builtin/src/state.ts#hashToken:ed35f90e307750d3519268d2434125b0",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/authorization-builtin:packages/authorization-builtin/src/builtin-policy-adapter.ts#BuiltinPolicyAdapter.writePasswordCredential:f0cfc40802f2fd8f19bad95806150d98",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/authorization-builtin:packages/authorization-builtin/src/builtin-policy-adapter.ts#BuiltinPolicyAdapter.writePasswordCredential:f64dad76ea9d40e15d8a94e3a14d15ca",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/dsh-plugin:packages/dsh-plugin/src/broker.ts#spawnCli:610f77f8452d71b64159b1fa956427af",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/dsh-plugin/src/broker.ts#BrokerSubprocessRuntime.spawn"
+      },
+      {
+        "candidateId": "action:packages/dsh-plugin:packages/dsh-plugin/src/broker.ts#launchBroker.consume:091eae55504ffef47b14fe609a113a13",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/dsh-plugin/src/broker.ts#launchBroker.settle"
+      },
+      {
+        "candidateId": "action:packages/dsh-plugin:packages/dsh-plugin/src/broker.ts#launchBroker:091eae55504ffef47b14fe609a113a13",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/dsh-plugin/src/broker.ts#launchBroker.settle"
+      },
+      {
+        "candidateId": "action:packages/dsh-plugin:packages/dsh-plugin/src/broker.ts#launchBroker:2336dd38d8735fdb1b6263c47c0f9f24",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/dsh-plugin/src/broker.ts#launchBroker.settle"
+      },
+      {
+        "candidateId": "action:packages/dsh-plugin:packages/dsh-plugin/src/broker.ts#launchBroker:aa29e40aaab4d42ffc292ade26ff607a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/dsh-plugin/src/broker.ts#launchBroker.settle"
+      },
+      {
+        "candidateId": "action:packages/dsh-plugin:packages/dsh-plugin/src/broker.ts#createBrokerManager.stop:938c43ee07199275e1ad41b50fb9c29c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/dsh-plugin/src/broker.ts#BrokerSubprocessHandle.terminate"
+      },
+      {
+        "candidateId": "action:packages/dsh-plugin:packages/dsh-plugin/src/broker.ts#createBrokerManager.stop:5d467dab5c849c9669afac189312f894",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/dsh-plugin/src/broker.ts#BrokerSubprocessHandle.terminate"
+      },
+      {
+        "candidateId": "action:packages/dsh-plugin:packages/dsh-plugin/src/broker.ts#createBrokerManager.ensure.request:ed8d1cdbfacaf044773a0d5175a3b034",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/dsh-plugin/src/broker.ts#BrokerSubprocessHandle.terminate"
+      },
+      {
+        "candidateId": "action:packages/dsh-plugin:packages/dsh-plugin/src/broker.ts#createBrokerManager.ensure.request:ed8d1cdbfacaf044773a0d5175a3b034:2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/dsh-plugin/src/broker.ts#BrokerSubprocessHandle.terminate"
+      },
+      {
+        "candidateId": "action:packages/dsh-plugin:packages/dsh-plugin/src/client.ts#createSnapshotStore.subscribe:f1bc38fa56c8370d3616f2b68139bd99",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/dsh-plugin:packages/dsh-plugin/src/index.ts#apply.subprocess.spawn:ed069afd182fe623906493ff8f538007",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/dsh-plugin/src/broker.ts#BrokerSubprocessRuntime.spawn"
+      },
+      {
+        "candidateId": "action:packages/dsh-plugin:packages/dsh-plugin/src/tutorial.ts#writeClipboard:31009dd16199cd5c3f6763ea7e4b8224",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.dom.d.ts#ParentNode.append"
+      },
+      {
+        "candidateId": "action:packages/dsh-plugin:packages/dsh-plugin/src/tutorial.ts#writeClipboard:8c7583f0fca5a090482a707655dccd1f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.dom.d.ts#ChildNode.remove"
       }
     ],
     "technical": true

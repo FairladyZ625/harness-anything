@@ -1,10 +1,11 @@
+import { artifactLocatorPolicy } from "@harness-anything/kernel/internal/domain/task-submission-policy.ts";
 import {
+  artifactLocatorKinds,
   artifactEntityContractSnapshot,
   artifactImportOperationId,
   importBindingGeneration,
   artifactObservationId,
   canonicalArtifactReferenceSourceIdentity,
-  artifactLocatorKinds,
   canonicalArtifactLocator,
   canonicalSourceIdentity,
   compileEntityContentObserved,
@@ -395,7 +396,12 @@ export function resolveArtifactLocator(
   const allowed = contract.declaration.locatorKinds,
     inferred = requestedKind ?? (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//u.test(value) ? "url" : null);
   const kind =
-    inferred ?? (mode === "reference" ? null : allowed.includes("repository-path") ? "repository-path" : null);
+    inferred ??
+    (mode === "reference"
+      ? null
+      : allowed.includes(artifactLocatorPolicy.defaultValue.snapshotAdmissionKind)
+        ? artifactLocatorPolicy.defaultValue.snapshotAdmissionKind
+        : null);
   if (!kind || (!allowed.includes(kind) && !(mode === "reference" && artifactLocatorKinds.includes(kind))))
     throw new ArtifactEntityServiceError(
       "invalid_command",

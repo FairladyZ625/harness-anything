@@ -79,5 +79,8 @@
   },
   "devDependencies": {
     "tsdown": "^0.22.14"
+  },
+  "dependencies": {
+    "@harness-anything/kernel": "0.1.0"
   }
 }

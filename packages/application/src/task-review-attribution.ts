@@ -1,3 +1,4 @@
+import { taskReviewAttributionPolicy } from "@harness-anything/kernel/internal/domain/task-submission-policy.ts";
 import {
   isSameExecution,
   runtimeSessionIdFromActor,
@@ -12,7 +13,11 @@ type AttributionProjection = Pick<TaskProjectionQueries, "readEventList" | "read
  * writer is the actor of that ledger action, not necessarily the actor described in its prose.
  * Both center and replica task-show reads use this assembler. */
 export function readTaskReviewAttribution(projection: AttributionProjection, taskId: string, sourceRevision: number) {
-  const page = projection.readEventList({ entity: `task/${taskId}`, limit: 100, revisionBound: sourceRevision + 1 }),
+  const page = projection.readEventList({
+      entity: `task/${taskId}`,
+      limit: taskReviewAttributionPolicy.defaultValue.pageLimit,
+      revisionBound: sourceRevision + 1,
+    }),
     intervals = projection.readLeaseIntervals(taskId);
   return {
     schema: "task-review-attribution/v1" as const,

@@ -1,6 +1,15 @@
-import { cliOperationalPolicy, cliContractPolicy } from "./cli-operational-policy.ts";
+import {
+  cliOperationalPolicy,
+  cliContractPolicy,
+  dshBrokerPolicy,
+  dshPresentationPolicy,
+} from "./cli-operational-policy.ts";
 import { presetExecutionPolicy, taskRemoteEdgePolicy } from "./preset-execution-policy.ts";
-import { taskSubmissionPolicies } from "./task-submission-policy.ts";
+import {
+  taskSubmissionPolicies,
+  artifactLocatorPolicy,
+  taskReviewAttributionPolicy,
+} from "./task-submission-policy.ts";
 import { dispatchLifecyclePolicies, dispatchLifecycleJudgment } from "./dispatch-lifecycle-ontology.ts";
 import { todoSchema } from "./todo.ts";
 import { createTodoActionCatalog } from "./todo-action-contract.ts";
@@ -86,7 +95,7 @@ import { gateMappingPolicy, gateMappingPolicyJudgments } from "./gate-mapping-po
 import { storageReplayPolicy, storageReplayJudgments } from "./storage-replay-policy.ts";
 import { completionGateOverridePolicy, completionGateOverrideJudgment } from "./completion-gate-policy.ts";
 import { writerLifecyclePolicy } from "./writer-lifecycle-policy.ts";
-import { managedIdentityPolicy } from "./managed-identity-policy.ts";
+import { managedIdentityPolicy, builtinAuthorizationContractPolicy } from "./managed-identity-policy.ts";
 import { guiQueryPacing } from "./gui-query-pacing.ts";
 import { taskLeaseGuidancePolicy, returnToPlannedJudgment } from "./task-lease-guidance.ts";
 import sourceContractFacets from "./source-contract-facets.json" with { type: "json" };
@@ -1508,6 +1517,11 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
           },
         ],
       },
+      artifactLocatorPolicy,
+      taskReviewAttributionPolicy,
+      builtinAuthorizationContractPolicy,
+      dshBrokerPolicy,
+      dshPresentationPolicy,
     ],
     schema: hostAggregateSchema,
     relations: { directions: [], edges: [] },
