@@ -568,6 +568,17 @@
     ],
     "contracts": [
       {
+        "id": "daemon/submission-preparation#prepared-input-fence",
+        "symbol": "packages/daemon/src/submission-preparation.ts#prepareTaskSubmission.assertCurrent",
+        "explain": "Technical equality fence for the prepared Git/risk inputs at the queued publication cut. Task authority stays in the aggregate; unrelated reviewer/executor bookkeeping is not a delivery-input change.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/submission-preparation.ts#prepareTaskSubmission.assertCurrent:17b5f3f9e0ce0b327fd3080d126c63ee",
+            "route": "packages/daemon/src/submission-preparation.ts#prepareTaskSubmission.assertCurrent"
+          }
+        ]
+      },
+      {
         "id": "application/src/task-lifecycle-service.ts#TaskLifecycleService",
         "symbol": "packages/application/src/task-lifecycle-service.ts#assertWriteTargetDeclared",
         "explain": "TaskLifecycleService: Frozen publication plan contract before calling an external writer.",

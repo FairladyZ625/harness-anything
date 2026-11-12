@@ -4,7 +4,6 @@ import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 import path from "node:path";
 import { promisify } from "node:util";
 import { readSettingsFacet, resolveHarnessLayout } from "@harness-anything/kernel";
-import { runProcessText } from "./process-text.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -51,28 +50,6 @@ export async function detectHostingProvider(
     return hostingProviderFromRemote(remote, settings);
   } catch (error) {
     if (allowUnknown && isUnknownHostingProvider(error)) return null as never;
-    throw error;
-  }
-}
-
-/**
- * Whether this repository publishes task deliveries as pull requests. The PR body generator only
- * runs where a hosting origin exists, so `task submit` owes the bilingual closeout exactly there.
- * Reads the same origin and declaration `detectHostingProvider` reads, synchronously because submit
- * derivation is synchronous.
- */
-export function publishesPublicPullRequest(rootDir: string): boolean {
-  let remote: string;
-  try {
-    remote = runProcessText("git", ["-C", rootDir, "remote", "get-url", "origin"], undefined, undefined, 10_000).trim();
-  } catch {
-    return false;
-  }
-  try {
-    hostingProviderFromRemote(remote, hostingDeclaration(rootDir));
-    return true;
-  } catch (error) {
-    if (isUnknownHostingProvider(error)) return false;
     throw error;
   }
 }

@@ -497,6 +497,21 @@ export function makeRepoCellCommandRunner(
           async (error) =>
             failAction(context, action, binding, error, durable ? await authorizeAtCurrentCut()! : undefined),
         );
+    // Submission preparation reads with the verified actor too; publication rechecks the claim.
+    if ((action.kind === "task-submit" || action.kind === "task-settle") && claimAtPublication) {
+      const claimRejected = await bindExecutorClaim();
+      if (claimRejected)
+        return enqueuePublication((authorizationDecision) =>
+          context.executeAction(action, { ...binding, authorizationDecision }),
+        );
+    }
+    if (
+      (action.kind === "task-submit" || action.kind === "task-settle") &&
+      (await authorizeAtCurrentCut()!).outcome !== "allowed"
+    )
+      return enqueuePublication((authorizationDecision) =>
+        context.executeAction(action, { ...binding, authorizationDecision }),
+      );
     const externalRead: ReturnType<typeof readBeforeWriteQueue> =
       (action.kind === "task-complete" || action.kind === "task-witness-run") && typeof action.taskId === "string"
         ? authorizeAtCurrentCut()!.then(async (authorization) => {
@@ -523,7 +538,12 @@ export function makeRepoCellCommandRunner(
               return warnings.length ? { ...receipt, warnings: [...(receipt.warnings ?? []), ...warnings] } : receipt;
             };
           })
-        : readBeforeWriteQueue(context, action, binding);
+        : readBeforeWriteQueue(
+            context,
+            action,
+            binding,
+            async (execute) => (await enqueuePublication(execute, undefined, false)) as WriteReceiptDraft,
+          );
     if (externalRead)
       return externalRead
         .then((publish) =>

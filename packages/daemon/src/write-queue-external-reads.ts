@@ -1,4 +1,5 @@
 import path from "node:path";
+import { prepareTaskSubmission } from "./submission-preparation.ts";
 import { currentSubmittedExecutions, type WriteReceiptDraft } from "@harness-anything/kernel";
 import { artifactImportSourceResolution, prepareArtifactEntityImportSource } from "./artifact-entity-action.ts";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
@@ -31,7 +32,10 @@ export function readBeforeWriteQueue(
   context: RepoCellApiContext,
   action: RepoTaskAction,
   binding: RepoCellBinding,
+  beforeReadWrite?: Parameters<typeof prepareTaskSubmission>[3],
 ): Promise<QueuedPublication> | null {
+  if (action.kind === "task-submit" || action.kind === "task-settle")
+    return prepareTaskSubmission(context, action, binding, beforeReadWrite!);
   const baseline =
     action.kind === "task-start" && typeof action.taskId === "string"
       ? resolveStackedTaskBaseline(

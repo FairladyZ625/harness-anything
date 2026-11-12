@@ -5,9 +5,9 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { hostingProviderFromRemote, publishesPublicPullRequest } from "../src/hosting-provider.ts";
+import { hostingProviderFromRemote, detectHostingProvider } from "../src/hosting-provider.ts";
 
-test("detects GitHub HTTPS and SSH remotes", () => {
+test("detects GitHub HTTPS and SSH remotes", async () => {
   assert.deepEqual(hostingProviderFromRemote("https://github.com/acme/project.git"), {
     kind: "github",
     host: "github.com",
@@ -35,7 +35,7 @@ test("detects a known provider when the repository has no authored settings file
   }
 });
 
-test("detects self-hosted GitLab and encodes its REST base", () => {
+test("detects self-hosted GitLab and encodes its REST base", async () => {
   assert.deepEqual(
     hostingProviderFromRemote("ssh://git@git.example.test:2222/group/project.git", { provider: "gitlab" }),
     {
@@ -47,7 +47,7 @@ test("detects self-hosted GitLab and encodes its REST base", () => {
   );
 });
 
-test("explicit declaration resolves an unknown host and malformed remotes fail clearly", () => {
+test("explicit declaration resolves an unknown host and malformed remotes fail clearly", async () => {
   assert.equal(
     hostingProviderFromRemote("https://code.example.test/group/project", {
       provider: "gitlab",
@@ -60,15 +60,19 @@ test("explicit declaration resolves an unknown host and malformed remotes fail c
 
 // Submit owes the bilingual closeout only where a pull request can actually be published: the
 // renderer runs against this same origin/declaration pair.
-test("public PR capability follows a recognized hosting origin", () => {
+test("public PR capability follows a recognized hosting origin", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-hosting-public-"));
   try {
     execFileSync("git", ["-C", root, "init", "--quiet"]);
-    assert.equal(publishesPublicPullRequest(root), false, "a repository without origin publishes no PR");
+    assert.equal(
+      Boolean(await detectHostingProvider(root, undefined, true)),
+      false,
+      "a repository without origin publishes no PR",
+    );
     execFileSync("git", ["-C", root, "remote", "add", "origin", "https://github.com/acme/project.git"]);
-    assert.equal(publishesPublicPullRequest(root), true);
+    assert.equal(Boolean(await detectHostingProvider(root, undefined, true)), true);
     execFileSync("git", ["-C", root, "remote", "set-url", "origin", path.join(root, "upstream.git")]);
-    assert.equal(publishesPublicPullRequest(root), false, "a local path is not a PR host");
+    assert.equal(Boolean(await detectHostingProvider(root, undefined, true)), false, "a local path is not a PR host");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

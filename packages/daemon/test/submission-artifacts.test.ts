@@ -16,7 +16,7 @@ import {
   readSubmissionArtifact,
   readSubmissionArtifactRange,
 } from "../src/submission-artifacts.ts";
-import { deriveCloseoutSubmission } from "../src/repo-cell-submit.ts";
+import { deriveCloseoutSubmission } from "./closeout-submission.fixture.ts";
 
 const repositorySettingsStub = {
   readRepository: () => ({ gates: [] }),
@@ -67,7 +67,7 @@ function fixture(bytes = Buffer.from("Frozen evidence.\n")) {
   } as unknown as Parameters<typeof readSubmissionArtifact>[0];
   return { cell, store, bytes, blobSha256 };
 }
-function derive(
+async function derive(
   summary: string,
   carried?: Parameters<typeof deriveCloseoutSubmission>[7],
   options: {
@@ -106,7 +106,7 @@ function derive(
       },
     }),
   } as unknown as Parameters<typeof deriveCloseoutSubmission>[0]["projection"];
-  return deriveCloseoutSubmission(
+  return await deriveCloseoutSubmission(
     {
       ...cell,
       ...(options.store ? { store: options.store } : {}),
@@ -128,8 +128,8 @@ function derive(
   );
 }
 
-test("accepted artifacts freeze automatically and Summary is only prose", () => {
-  const submitted = derive("Delivered reports without a hand-written anchor.");
+test("accepted artifacts freeze automatically and Summary is only prose", async () => {
+  const submitted = await derive("Delivered reports without a hand-written anchor.");
   assert.deepEqual(submitted.deliverables, [path, cjkPath]);
   assert.equal(submitted.commitSha, null);
   assert.equal(submitted.artifacts?.[0]?.revision, 7);
@@ -139,7 +139,7 @@ test("accepted artifacts freeze automatically and Summary is only prose", () => 
     "artifact:runtime-result/sha256/…",
     "artifact:artifacts/report.md@7 artifact:artifacts/report.md@7",
   ])
-    assert.deepEqual(derive(prose).artifacts, submitted.artifacts);
+    assert.deepEqual((await derive(prose)).artifacts, submitted.artifacts);
   const changed = { ...submitted, artifacts: [{ ...submitted.artifacts![0]!, revision: 8 }] };
   assert.notEqual(submissionDigest(submitted), submissionDigest(changed));
   const hybrid = { ...submitted, commitSha: "a".repeat(40) };
@@ -153,14 +153,14 @@ test("accepted artifacts freeze automatically and Summary is only prose", () => 
     assert.ok(validateGuiSubmission(invalid).length);
 });
 
-test("carried documents select new nested artifacts and supersede accepted bytes without local files", () => {
+test("carried documents select new nested artifacts and supersede accepted bytes without local files", async () => {
   const nested = `${packagePath}/artifacts/raw/trace.log`,
     blobSha256 = sha256Bytes(Buffer.from("Carried evidence.\n")),
     carried = {
       revision: 9,
       changes: [path, nested].map((target) => ({ path: target, candidate: { sha256: blobSha256 } })),
     } as unknown as NonNullable<Parameters<typeof deriveCloseoutSubmission>[7]>,
-    submitted = derive("Delivered this center write's evidence.", carried);
+    submitted = await derive("Delivered this center write's evidence.", carried);
   for (const target of [path, nested])
     assert.deepEqual(
       submitted.artifacts?.find((artifact) => artifact.path === target),
@@ -243,7 +243,7 @@ test("canonical bootstrap and carried-document acceptances retain the same froze
   }
 });
 
-test("artifact freeze reads and indexes each acceptance once per submission", () => {
+test("artifact freeze reads and indexes each acceptance once per submission", async () => {
   const counts = (process.env.FLEET_STRESS_ARTIFACT_COUNTS ?? "256").split(",").map(Number),
     observations: { artifacts: number; ms: number; eventReads: number; eventBytes: number }[] = [];
   for (const count of counts) {
@@ -278,7 +278,7 @@ test("artifact freeze reads and indexes each acceptance once per submission", ()
         readContentBlob: () => bytes,
       } as unknown as Parameters<typeof readSubmissionArtifact>[0]["store"];
       const start = performance.now(),
-        submitted = derive("Indexed accepted artifacts.", undefined, { paths, store });
+        submitted = await derive("Indexed accepted artifacts.", undefined, { paths, store });
       observations.push({ artifacts: count, ms: performance.now() - start, eventReads, eventBytes: eventJson.length });
       assert.equal(submitted.artifacts?.length, count);
       assert.ok(submitted.artifacts?.every((anchor) => anchor.revision === 7 && anchor.blobSha256 === blobSha256));
@@ -290,7 +290,7 @@ test("artifact freeze reads and indexes each acceptance once per submission", ()
   for (const observation of observations) assert.equal(observation.eventReads, 1);
 });
 
-test("distinct acceptance revisions remain isolated and a fresh submission reloads them", () => {
+test("distinct acceptance revisions remain isolated and a fresh submission reloads them", async () => {
   const { cell, bytes, blobSha256 } = fixture(),
     paths = [path, cjkPath],
     reads: number[] = [],
@@ -312,7 +312,7 @@ test("distinct acceptance revisions remain isolated and a fresh submission reloa
     } as unknown as Parameters<typeof readSubmissionArtifact>[0]["store"],
     options = { paths, store, revision: (target: string) => (target === path ? 7 : 8) };
   for (let i = 0; i < 2; i++) {
-    const submitted = derive("Separate revisions.", undefined, options);
+    const submitted = await derive("Separate revisions.", undefined, options);
     assert.deepEqual(submitted.artifacts?.map(({ revision }) => revision).sort(), [7, 8]);
   }
   assert.deepEqual(reads.sort(), [7, 7, 8, 8]);
@@ -369,7 +369,7 @@ test("a batch indexes claims once while checking each requested blob and identit
   }
 });
 
-test("carried artifact lookup visits each change a bounded number of times", () => {
+test("carried artifact lookup visits each change a bounded number of times", async () => {
   const count = 256,
     blobSha256 = sha256Bytes(Buffer.from("Carried evidence.\n"));
   let pathReads = 0;
@@ -383,7 +383,7 @@ test("carried artifact lookup visits each change a bounded number of times", () 
       candidate: { sha256: blobSha256 },
     })),
   } as unknown as NonNullable<Parameters<typeof deriveCloseoutSubmission>[7]>;
-  const submitted = derive("Linear carried changes.", carried, { paths: [] });
+  const submitted = await derive("Linear carried changes.", carried, { paths: [] });
   assert.equal(submitted.artifacts?.length, count);
   assert.ok(pathReads <= count * 3, `visited ${pathReads} paths for ${count} changes`);
 });

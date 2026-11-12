@@ -1,5 +1,6 @@
 import { createTaskEvent } from "@harness-anything/kernel";
 import { assertEntityAssignment, assignmentFromRelations } from "./entity-assignment-runtime.ts";
+import { preparedSubmission, type PreparedSubmissionAction } from "./submission-preparation.ts";
 import { readCloseoutSubmission, submissionAnchorDriftWarnings, submissionStopped } from "./repo-cell-submit.ts";
 import { createHash } from "node:crypto";
 import {
@@ -282,9 +283,8 @@ export async function runTaskCommandWithDocs(
       taskId,
       submittedExecutionId,
       current.snapshot,
+      (taskAction as PreparedSubmissionAction)[preparedSubmission]!.delivery!,
       bodyOverrides,
-      typeof taskAction.commitSha === "string" ? taskAction.commitSha : undefined,
-      binding.source,
       { changes: carriedChanges, revision: headRevision + 1 },
       Boolean(
         current.snapshot.executions.find((execution) => execution.executionId === submittedExecutionId)?.submission,
