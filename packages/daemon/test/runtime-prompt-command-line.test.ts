@@ -37,7 +37,7 @@ test("agy keeps the task prompt off the command line", () => {
     "--output-format",
     "stream-json",
     "--print-timeout",
-    "30m",
+    "120m",
     "--model",
     "model-a",
     "--dangerously-skip-permissions",
