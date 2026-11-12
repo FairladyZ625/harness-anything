@@ -1,0 +1,113 @@
+// Imported only by this test's Worker adapter. No diagnostics use production parentPort.
+import threads, {
+  getEnvironmentData,
+  workerData,
+  MessageChannel,
+  BroadcastChannel,
+  threadId,
+} from "node:worker_threads";
+import { syncBuiltinESMExports } from "node:module";
+import { DatabaseSync } from "node:sqlite";
+
+export const probeKey = "fleet-backup-cut/v1";
+const NativeWorker = threads.Worker;
+let restore;
+
+export function installAdapter(config) {
+  if (restore) throw new Error("backup cut adapter already installed");
+  const channel = new BroadcastChannel(config.channel);
+  channel.unref();
+  const emit = (event) => channel.postMessage({ ...event, order: Atomics.add(new Int32Array(config.shared), 1, 1) });
+  class ObservedWorker extends NativeWorker {
+    constructor(url, options = {}) {
+      const filename = String(url);
+      const backup = /\/fleet-basebackup-worker\.(?:ts|js)$/u.test(filename);
+      const writer = /\/repo-writer-worker\.(?:ts|js)$/u.test(filename);
+      const ports = backup ? new MessageChannel() : null;
+      const extra = backup ? { [probeKey]: { ...config, port: ports.port2 } } : {};
+      super(url, {
+        ...options,
+        execArgv: [...(options.execArgv ?? process.execArgv), `--import=${import.meta.url}`],
+        workerData: { ...options.workerData, ...extra },
+        transferList: [...(options.transferList ?? []), ...(ports ? [ports.port2] : [])],
+      });
+      const targetThreadId = this.threadId;
+      if (ports) {
+        emit({ event: "backup-created", parentThreadId: threadId, targetThreadId });
+        ports.port1.on("message", (entry) => channel.postMessage(entry));
+        this.on("message", (message) => {
+          if (message.kind === "pinned") emit({ event: "pinned", position: message.metadata.position, targetThreadId });
+          if (message.kind === "complete") emit({ event: "archive-complete", targetThreadId });
+        });
+        this.on("error", (error) => emit({ event: "backup-error", message: error.message, targetThreadId }));
+        this.on("exit", (code) => {
+          emit({ event: "backup-exit", code, targetThreadId });
+          ports.port1.close();
+        });
+      }
+      if (writer) {
+        const send = this.postMessage;
+        this.postMessage = function (message, ...args) {
+          // Observe only the selected real task write; never serialize its binding or credentials.
+          if (message.schema === "harness-repo-writer-request/v1" && message.payload?.action?.taskId === config.taskId)
+            emit({ event: "write-dispatched", requestId: message.requestId, targetThreadId });
+          return send.call(this, message, ...args);
+        };
+        this.on("message", (message) => {
+          if (message.schema === "harness-repo-writer-receipt/v1" && message.value?.taskId === config.taskId)
+            emit({
+              event: "writer-receipt",
+              requestId: message.requestId,
+              queueHead: message.queueHead ?? null,
+              targetThreadId,
+            });
+        });
+      }
+    }
+  }
+  threads.Worker = ObservedWorker;
+  syncBuiltinESMExports();
+  restore = () => {
+    threads.Worker = NativeWorker;
+    syncBuiltinESMExports();
+    channel.close();
+    restore = undefined;
+  };
+  return () => restore();
+}
+
+const inherited = getEnvironmentData(probeKey);
+if (inherited) installAdapter(inherited);
+const probe = workerData?.[probeKey];
+if (probe) {
+  const cells = new Int32Array(probe.shared);
+  const emit = (event) => probe.port.postMessage({ ...event, order: Atomics.add(cells, 1, 1), threadId });
+  const prepare = DatabaseSync.prototype.prepare;
+  DatabaseSync.prototype.prepare = function (sql) {
+    const statement = prepare.call(this, sql);
+    const ledger =
+      sql ===
+      "SELECT repo_id,generation,revision,history,sequence FROM ledger_meta JOIN replication_state USING(singleton)";
+    const projection = sql === "SELECT watermark,schema_version FROM projection_meta WHERE singleton=1";
+    if (!ledger && !projection) return statement;
+    const get = statement.get;
+    statement.get = function (...args) {
+      const row = get.apply(this, args);
+      emit({ event: ledger ? "ledger-select" : "projection-select", row: { ...row } });
+      if (ledger) {
+        const outcome = Atomics.wait(cells, 0, 0, 30_000);
+        if (outcome === "timed-out") throw new Error("backup cut barrier was not released within its cleanup bound");
+        emit({ event: "barrier-released" });
+      } else {
+        DatabaseSync.prototype.prepare = prepare;
+        emit({ event: "sqlite-patch-restored" });
+      }
+      return row;
+    };
+    return statement;
+  };
+  process.once("exit", () => {
+    DatabaseSync.prototype.prepare = prepare;
+    probe.port.close();
+  });
+}
