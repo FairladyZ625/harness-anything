@@ -3,7 +3,13 @@ import { completionSnapshot } from "../../kernel/test/domain/completion.fixtures
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { sha256Bytes, submissionDigest } from "@harness-anything/kernel";
+import {
+  MIGRATION_DOCUMENT_POLICY_ID,
+  sha256Bytes,
+  submissionDigest,
+  validateMigrationImportEvent,
+  type MigrationImportEventV1,
+} from "@harness-anything/kernel";
 import { validateGuiSubmission } from "../src/protocol/daemon-protocol-validate-entities.ts";
 import {
   createSubmissionArtifactReader,
@@ -18,6 +24,13 @@ const repositorySettingsStub = {
 const packagePath = "tasks/task-artifact",
   path = `${packagePath}/artifacts/report.md`,
   cjkPath = `${packagePath}/artifacts/实测报告.md`;
+const progressDocumentClaim = {
+  path: `${packagePath}/progress.md`,
+  sha256: "d".repeat(64),
+  size: 0,
+  mediaType: "text/markdown",
+  policyId: "typed-machine-writer/v1",
+};
 function fixture(bytes = Buffer.from("Frozen evidence.\n")) {
   const blobSha256 = sha256Bytes(bytes);
   const event = {
@@ -208,16 +221,25 @@ test("canonical bootstrap and carried-document acceptances retain the same froze
           payload:
             schema === "task-bootstrap-event/v1"
               ? { initialDocumentClaims: [{ path, sha256: blobSha256 }] }
-              : { carriedDocumentClaims: [{ path, candidate: { sha256: blobSha256 } }] },
+              : {
+                  resultDocumentClaim: progressDocumentClaim,
+                  carriedDocumentClaims: [{ path, candidate: { sha256: blobSha256 } }],
+                },
         }),
       },
     } as unknown as Parameters<typeof readSubmissionArtifact>[0];
     assert.equal(readSubmissionArtifact(accepted, packagePath, path, 7, blobSha256).body, bytes.toString());
+    const range = readSubmissionArtifactRange(accepted, packagePath, path, 7, blobSha256, 0, 8);
+    assert.deepEqual(range.bytes, bytes.subarray(0, 8));
+    assert.equal(range.acceptance, "atomic-acceptance");
     assert.throws(
       () => readSubmissionArtifact(accepted, packagePath, `${path}.absent`, 7),
       /did not accept this path/u,
     );
     assert.throws(() => readSubmissionArtifact(accepted, packagePath, path, 7, "f".repeat(64)), /frozen identity/u);
+    assert.throws(() => readSubmissionArtifactRange(accepted, packagePath, path, 7, "f".repeat(64), 0, 8), {
+      code: "invalid_submission",
+    });
   }
 });
 
@@ -281,6 +303,7 @@ test("distinct acceptance revisions remain isolated and a fresh submission reloa
           workspaceRevision: revision,
           opId: `accepted-${revision}`,
           payload: {
+            resultDocumentClaim: progressDocumentClaim,
             carriedDocumentClaims: [{ path: revision === 7 ? path : cjkPath, candidate: { sha256: blobSha256 } }],
           },
         };
@@ -325,6 +348,7 @@ test("a batch indexes claims once while checking each requested blob and identit
             payload: {
               changes: claims,
               initialDocumentClaims: claims,
+              resultDocumentClaim: progressDocumentClaim,
               carriedDocumentClaims: claims,
             },
           };
@@ -394,4 +418,162 @@ test("range reads reject an accepted object whose bytes changed at the same size
   assert.throws(() => readSubmissionArtifactRange(cell, packagePath, path, 7, blobSha256, 0, 8), {
     code: "content_claim_mismatch",
   });
+});
+
+function migrationFixture(
+  target = "tasks/task_migrated-evidence/artifacts/report.md",
+  content = Buffer.from("Imported canonical evidence.\n"),
+) {
+  const { cell, store, bytes, blobSha256 } = fixture(content);
+  const event: MigrationImportEventV1 = {
+    schema: "migration-import-event/v1",
+    type: "entity_migrated",
+    eventId: "event-migration-artifact",
+    workspaceRevision: 7,
+    opId: "migration-artifact",
+    actor: { principal: { personId: "person_migration" }, executor: null },
+    source: "migration-import/v1",
+    occurredAt: "2026-08-15T00:00:00.000Z",
+    payload: {
+      migratedFrom: target,
+      generation: "v0",
+      entity: {
+        kind: "task-document",
+        taskId: "task_migrated",
+        documentClaim: {
+          path: target,
+          sha256: blobSha256,
+          size: bytes.byteLength,
+          mediaType: "text/markdown",
+          policyId: MIGRATION_DOCUMENT_POLICY_ID,
+        },
+      },
+    },
+  };
+  assert.deepEqual(validateMigrationImportEvent(event), []);
+  return {
+    cell: {
+      ...cell,
+      store: { ...store, readEventAtRevision: (revision: number) => (revision === 7 ? event : null) },
+    } as Parameters<typeof readSubmissionArtifact>[0],
+    bytes,
+    blobSha256,
+    event,
+    target,
+  };
+}
+
+for (const entry of ["whole", "range"] as const) {
+  const read = (cell: Parameters<typeof readSubmissionArtifact>[0], owner: string, target: string, revision = 7) =>
+    entry === "whole"
+      ? readSubmissionArtifact(cell, owner, target, revision)
+      : readSubmissionArtifactRange(cell, owner, target, revision, undefined, 0, 8);
+
+  test(`${entry} reads resolve a validated migration-import revision to exact accepted bytes`, () => {
+    const { cell, bytes, blobSha256, target } = migrationFixture();
+    if (entry === "range") cell.store.readContentBlob = () => assert.fail("range reads must not load the full blob");
+    const result = read(cell, "tasks/task_migrated-evidence", target);
+    assert.deepEqual(result.anchor, { path: target, revision: 7, blobSha256 });
+    assert.equal(result.acceptance, "migration-artifact");
+    assert.equal(result.encoding, "utf8");
+    assert.throws(
+      () =>
+        entry === "whole"
+          ? readSubmissionArtifact(cell, "tasks/task_migrated-evidence", target, 7, "f".repeat(64))
+          : readSubmissionArtifactRange(cell, "tasks/task_migrated-evidence", target, 7, "f".repeat(64), 0, 8),
+      { code: "invalid_submission" },
+    );
+    if ("body" in result) assert.equal(result.body, bytes.toString());
+    else {
+      assert.equal(result.size, bytes.byteLength);
+      assert.deepEqual(result.bytes, bytes.subarray(0, 8));
+      const end = readSubmissionArtifactRange(
+        cell,
+        "tasks/task_migrated-evidence",
+        target,
+        7,
+        blobSha256,
+        bytes.byteLength,
+        8,
+      );
+      assert.equal(end.bytes.byteLength, 0);
+    }
+  });
+
+  test(`${entry} reads keep migration-import acceptance scoped to its path, task and revision`, () => {
+    const { cell, target, event } = migrationFixture();
+    for (const [owner, requested, revision] of [
+      ["tasks/task_migrated-evidence", `${target}.absent`, 7],
+      ["tasks/task_other-evidence", target, 7],
+      ["tasks/task_other-evidence", "tasks/task_other-evidence/artifacts/report.md", 7],
+      ["tasks/task_migrated-evidence", target, 6],
+      ["tasks/task_migrated-evidence", target, 8],
+    ] as const)
+      assert.throws(() => read(cell, owner, requested, revision), { code: "invalid_submission" });
+    const outside = migrationFixture("tasks/task_migrated-evidence/closeout.md");
+    assert.throws(() => read(outside.cell, "tasks/task_migrated-evidence", outside.target), {
+      code: "invalid_submission",
+    });
+    cell.store.readEventAtRevision = () => ({ ...event, workspaceRevision: 8 });
+    assert.throws(() => read(cell, "tasks/task_migrated-evidence", target), { code: "invalid_submission" });
+  });
+
+  test(`${entry} reads reject a retirement at its own revision`, () => {
+    const { cell, store } = fixture(),
+      event = store.readEventAtRevision(7);
+    cell.store.readEventAtRevision = () =>
+      ({
+        ...event,
+        payload: { changes: [{ path, candidate: null }] },
+      }) as ReturnType<typeof cell.store.readEventAtRevision>;
+    assert.throws(() => read(cell, packagePath, path), { code: "invalid_submission" });
+  });
+
+  test(`${entry} reads accept task documentClaims alongside carriedDocumentClaims`, () => {
+    const { cell, bytes, blobSha256 } = fixture();
+    cell.store.readEventAtRevision = () =>
+      ({
+        schema: "task-event/v1",
+        workspaceRevision: 7,
+        opId: "task-acceptance",
+        payload: {
+          documentClaims: [{ path, sha256: blobSha256, size: bytes.byteLength, mediaType: "text/markdown" }],
+          carriedDocumentClaims: [{ path: cjkPath, candidate: { sha256: blobSha256, size: bytes.byteLength } }],
+        },
+      }) as ReturnType<typeof cell.store.readEventAtRevision>;
+    for (const target of [path, cjkPath]) {
+      const result = read(cell, packagePath, target);
+      assert.equal(result.anchor.blobSha256, blobSha256);
+      assert.equal(result.acceptance, "task-acceptance");
+    }
+  });
+}
+
+test("migration-import range verification streams bounded chunks across a UTF-8 boundary", () => {
+  const content = Buffer.from(`${"x".repeat(64 * 1024 - 1)}证据\n`),
+    { cell, bytes, blobSha256, target } = migrationFixture(undefined, content),
+    reads: { offset: number; maxBytes: number }[] = [];
+  cell.store.readContentBlob = () => assert.fail("stream verification must not load the full blob");
+  cell.store.readContentBlobRange = (_digest, offset, maxBytes) => {
+    assert.ok(maxBytes <= 64 * 1024);
+    reads.push({ offset, maxBytes });
+    return bytes.subarray(offset, offset + maxBytes);
+  };
+  const range = readSubmissionArtifactRange(
+    cell,
+    "tasks/task_migrated-evidence",
+    target,
+    7,
+    blobSha256,
+    64 * 1024 - 1,
+    7,
+  );
+  assert.equal(range.encoding, "utf8");
+  assert.equal(range.size, bytes.byteLength);
+  assert.equal(Buffer.from(range.bytes).toString(), "证据\n");
+  assert.deepEqual(reads, [
+    { offset: 0, maxBytes: 64 * 1024 },
+    { offset: 64 * 1024, maxBytes: bytes.byteLength - 64 * 1024 },
+    { offset: 64 * 1024 - 1, maxBytes: 7 },
+  ]);
 });
