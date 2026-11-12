@@ -15,4 +15,4 @@ fs.statSync = ((file, ...args) => {
   return Reflect.apply(stat, fs, [file, ...args]);
 }) as typeof fs.statSync;
 syncBuiltinESMExports();
-await import("../../src/repo-writer-worker.ts");
+await import("../../src/repo-reader-worker.ts");

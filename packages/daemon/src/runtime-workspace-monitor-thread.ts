@@ -1,3 +1,4 @@
+import { labelWorkerMemory } from "./daemon-diagnostics-memory.ts";
 import { Worker } from "node:worker_threads";
 import { runtimeErrorCode, runtimeErrorMessage } from "./runtime-spawn-errors.ts";
 import type { WorkspaceMonitorObservation } from "./runtime-workspace-monitor.ts";
@@ -11,8 +12,10 @@ export function openRuntimeWorkspaceMonitor(
   const lastActivity = new BigInt64Array(new SharedArrayBuffer(BigInt64Array.BYTES_PER_ELEMENT * 2)),
     extension = import.meta.url.endsWith(".js") ? ".js" : ".ts",
     worker = new Worker(new URL(`./runtime-workspace-monitor-worker${extension}`, import.meta.url), {
+      name: "workspace-monitor",
       workerData: { rootDir, cwd, lastActivity: lastActivity.buffer },
     });
+  labelWorkerMemory(worker, "workspace-monitor");
   let resolveReady!: () => void,
     lastRecordedAt = -Infinity,
     terminal = false,

@@ -1,3 +1,4 @@
+import { observeWorkerMemory, labelWorkerMemory } from "./daemon-diagnostics-memory.ts";
 import { Worker, parentPort, workerData } from "node:worker_threads";
 import path from "node:path";
 import { createUnixSocketTransportServer } from "./transport/unix-socket.ts";
@@ -16,6 +17,8 @@ import {
   retainedNodeSeconds,
   TRACE_BUCKET_WINDOW_SECONDS,
 } from "./daemon-trace-buckets.ts";
+
+observeWorkerMemory();
 
 const SAMPLE_WINDOW_MS = 60_000,
   SAMPLES_PER_METHOD = 1_024,
@@ -106,7 +109,10 @@ const snapshot = (): JsonObject => {
 // Inspector commands may wait for a native main-thread call. Give the attempt its own worker so
 // neither session setup nor disconnection can hold the watchdog's diagnostic socket.
 function captureStack(stall: Record<string, JsonValue>): void {
-  const collector = new Worker(new URL(`./daemon-stack-worker${path.extname(import.meta.filename)}`, import.meta.url));
+  const collector = new Worker(new URL(`./daemon-stack-worker${path.extname(import.meta.filename)}`, import.meta.url), {
+    name: "stack-collector",
+  });
+  labelWorkerMemory(collector, "stack-collector");
   let finished = false;
   const finish = (status: string, stack: JsonValue = []): void => {
     if (finished) return;
