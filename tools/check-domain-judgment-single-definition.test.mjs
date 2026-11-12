@@ -311,6 +311,207 @@ test("dispatch observation boundary refuses even a matching nonempty baseline", 
   assert.ok(findings.some((finding) => finding.includes("forbidden runtimePidIsAlive")));
 });
 
+// R1 / dec_AEB05951 F2: observations must not become a second business judgment through
+// callbacks, truthiness or local aliases. Exercise the full checker, not a second detector.
+function localObservationFixture(t, body) {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-dispatch-local-flow-")),
+    file = "packages/daemon/src/local-flow.ts";
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(path.join(root, path.dirname(file)), { recursive: true });
+  mkdirSync(path.join(root, "tools/gate-allowlists"), { recursive: true });
+  writeFileSync(path.join(root, file), body);
+  writeFileSync(
+    path.join(root, "tools/gate-allowlists/dispatch-lifecycle-observation.json"),
+    JSON.stringify({ schema: "harness-anything/gate-allowlist/v1", entries: { observationSites: [] } }),
+  );
+  for (const args of [
+    ["init", "--quiet"],
+    ["config", "core.excludesFile", "/dev/null"],
+  ]) {
+    const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+  }
+  return { root, file };
+}
+
+for (const [name, kind, body] of [
+  ["PID callback capacity", "runtimePidIsAlive", "return pids.filter(runtimePidIsAlive).length < 2;"],
+  ["fallback truthiness", "fallback-state-branch", "return stream.fallbackState ? false : true;"],
+  [
+    "stream outcome local",
+    "stream-process-terminal-return",
+    'const result = summary.process.exited ? "unknown" : "running"; return result;',
+  ],
+  [
+    "PID callback aliases and assignment",
+    "runtimePidIsAlive",
+    "const probe = localProbe; let live; live = pids.filter(probe); const count = live.length; return count < 2;",
+  ],
+  ["PID some callback", "runtimePidIsAlive", "return pids.some(localProbe);"],
+  [
+    "fallback destructuring and branch",
+    "fallback-state-branch",
+    "const { fallbackState: state } = stream; const copy = state; if (copy) return false; return true;",
+  ],
+  [
+    "fallback assignment and negation",
+    "fallback-state-branch",
+    'let state; state = stream["fallback_state"]; return !state;',
+  ],
+  [
+    "fallback schedule conditional",
+    "fallback-state-branch",
+    "const { fallbackSchedule: schedule } = stream; return schedule ? true : false;",
+  ],
+  [
+    "liveness destructuring",
+    "liveness-comparison",
+    'const { liveness } = session; const copy = liveness; return copy === "live";',
+  ],
+  [
+    "stream exit assignment and branch",
+    "stream-process-terminal-return",
+    'let exited; exited = summary.process.exited; const copy = exited; if (copy) return "unknown"; return "running";',
+  ],
+  [
+    "producer with sibling admission",
+    "runtimePidIsAlive",
+    'const count = pids.filter(localProbe).length; submitLifecycleEvent({ type: "runtime_session_liveness_changed", payload: { count } }); return count < 2;',
+  ],
+  ["fallback subset membership", "fallback-state-branch", 'return ["scheduled"].includes(stream.fallbackState);'],
+  [
+    "observation with business else",
+    "fallback-state-branch",
+    'if (stream.fallbackState) events.push({ type: "runtime_session_exited", payload: {} }); else return false;',
+  ],
+  [
+    "aliased stream process",
+    "stream-process-terminal-return",
+    'const p = summary.process; const exited = p.exited; return exited ? "unknown" : "running";',
+  ],
+  ["fallback truthy loop", "fallback-state-branch", "while (stream.fallbackState) releaseCapacity();"],
+  [
+    "PID loop with business action",
+    "runtimePidIsAlive",
+    "const live = pids.filter(localProbe); while (live.length) releaseCapacity();",
+  ],
+  [
+    "fallback switch",
+    "fallback-state-branch",
+    'const state = stream.fallbackState; switch (state) { case "scheduled": return false; default: return true; }',
+  ],
+  [
+    "destructured stream exit",
+    "stream-process-terminal-return",
+    'const { exited } = summary.process; const copy = exited; return copy ? "unknown" : "running";',
+  ],
+  ["PID expression callback", "runtimePidIsAlive", "return pids.filter(pid => localProbe(pid)).length < 2;"],
+  ["PID logical return", "runtimePidIsAlive", "return localProbe(pids[0]) && pids.length < 2;"],
+  ["stream terminal logical return", "stream-process-terminal-return", 'return summary.process.exited && "unknown";'],
+  [
+    "PID block callback",
+    "runtimePidIsAlive",
+    "const probe = localProbe; const live = pids.filter(pid => { const alive = probe(pid); return alive; }); return live.length < 2;",
+  ],
+  [
+    "PID named helper callback",
+    "runtimePidIsAlive",
+    "const probe = (pid: number) => localProbe(pid); const live = pids.filter(probe); return live.length < 2;",
+  ],
+  [
+    "fallback local predicate helper",
+    "fallback-state-branch",
+    "function hasFallback(stream: { fallbackState: boolean }): boolean { return stream.fallbackState; } if (hasFallback(stream)) releaseCapacity();",
+  ],
+  [
+    "PID wrapped callable alias",
+    "runtimePidIsAlive",
+    "const probe = localProbe; const alive = (probe as any)(pids[0]); return alive;",
+  ],
+]) {
+  test(`dispatch local flow refuses ${name}`, (t) => {
+    const { root, file } = localObservationFixture(
+      t,
+      `
+      import { runtimePidIsAlive as localProbe } from "./runtime-process-liveness.ts";
+      export function admission(pids: number[], stream: any, summary: any, session: any) { ${body} }
+    `,
+    );
+    const findings = checkDomainJudgmentSingleDefinition(root, []);
+    assert.ok(
+      findings.some((finding) => finding.startsWith(`${file}#`) && finding.includes(`forbidden ${kind} judgment`)),
+      findings.join("\n"),
+    );
+  });
+}
+
+test("dispatch local flow preserves producers, stop proof, raw spool and dated protocol output", (t) => {
+  const { root } = localObservationFixture(
+    t,
+    `
+    import { runtimePidIsAlive as localProbe } from "./runtime-process-liveness.ts";
+    export function observe(pid: number) {
+      const live = localProbe(pid);
+      return submitLifecycleEvent({ type: "runtime_session_liveness_changed", payload: {
+        liveness: live ? "live" : "unknown"
+      } });
+    }
+    export async function stopProof(pids: number[], attempts: number) {
+      let survivors = pids.filter(localProbe);
+      for (let i = 0; survivors.length > 0 && i < attempts; i++) {
+        await delay(25);
+        survivors = survivors.filter(localProbe);
+      }
+      return survivors;
+    }
+    export function telemetry(pids: number[]) {
+      const live = pids.filter(localProbe);
+      // Previous-version protocol telemetry; remove 2026-12-07.
+      return { liveRuntimeSessions: live.length };
+    }
+    export const rawPidFilter = (pids: number[]) => pids.filter(pid => localProbe(pid));
+    export function oldDto(row: any) {
+      const state = row.fallbackState;
+      // Previous-version protocol output; remove 2026-12-07.
+      return { fallbackState: state ?? null };
+    }
+    export function rawSpool(summary: any) { return { exited: summary.process.exited }; }
+    export function rawLossReason(summary: any, reason: string) {
+      const process = summary.process;
+      if (!process.exited) appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_lost", reason });
+      return { lossReason: process.exited ? null : reason };
+    }
+    export function rawSchedule(stream: any) { return stream.fallbackSchedule; }
+    export function decodeOldDto(value: any) {
+      // Full old wire union, removed 2026-12-07; a subset would be a business decision.
+      return [null, "scheduled", "dispatched", "exhausted"].includes(value.fallbackState) &&
+        typeof value.fallbackState === "string";
+    }
+    export function factShape(row: any) { return !statusWord(factLivenessWords, row.liveness); }
+    export function sessionShape(value: any) {
+      const words = ["live", "stale", "unknown", "exited"];
+      return words.includes(String(value.liveness));
+    }
+    export function historicalObservations(session: any) {
+      const events = [];
+      const kind = { live: null, stale: "stale", unknown: "unknown", exited: "exited" }[session.liveness];
+      if (kind) events.push({
+        type: kind === "exited" ? "runtime_session_exited" : "runtime_session_liveness_changed",
+        payload: kind === "exited" ? {} : { liveness: kind }
+      });
+      if (kind !== "exited") events.push({ type: "runtime_session_exited", payload: {} });
+      return events;
+    }
+    export function separateBindings(pids: number[]) {
+      const count = pids.filter(localProbe).length;
+      function unrelated(count: number) { return count < 2; }
+      return { count, unrelated };
+    }
+  `,
+  );
+  assert.deepEqual(scanDispatchLifecycleObservationSites(root), []);
+});
+
 test("positive fixture: a second forwarding intent judgment is refused", (t) => {
   const findings = fixtureFindings(t);
   assert.ok(
