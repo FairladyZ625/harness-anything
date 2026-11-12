@@ -44,6 +44,31 @@ export function intrinsicSupport(graph, node) {
   );
 }
 
+/** A shared driver has its own reviewed declaration; it does not borrow a command's permission. */
+export function technicalPortEvidence(graph, node, source, action) {
+  if (
+    !source.port ||
+    source.role !== "technical-port" ||
+    source.route !== action.kind ||
+    !action.ontology.technical ||
+    action.ontology.authority !== "local-process" ||
+    action.receiptSettlement !== "none"
+  )
+    return null;
+  const declaration = graph.callDeclaration(node);
+  if (!declaration) return null;
+  const names = [];
+  for (let current = declaration; current && !ts.isSourceFile(current); current = current.parent)
+    if (current.name && (ts.isIdentifier(current.name) || ts.isStringLiteralLike(current.name)))
+      names.unshift(current.name.text);
+  const file = graph.fileOf(declaration).replace(/^.*\/node_modules\//u, "node_modules/");
+  return source.port === `${file}#${names.join(".")}`
+    ? [
+        `typed technical port ${source.port}; ${action.ontology.owner} owns the implementation, not remote authorization`,
+      ]
+    : null;
+}
+
 /** Node gives each caller its own stdout/stderr; these cannot name a repository writer. */
 export function processOwnedOutput(graph, node) {
   const callee = unwrap(node.expression),

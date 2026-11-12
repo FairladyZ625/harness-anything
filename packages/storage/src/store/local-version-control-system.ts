@@ -4,12 +4,9 @@ import {
 } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
-  closeSync,
   existsSync,
-  fsyncSync,
   lstatSync,
   mkdirSync,
-  openSync,
   readdirSync,
   readFileSync,
   readlinkSync,
@@ -37,7 +34,7 @@ import type {
 import { VcsCommandError } from "@harness-anything/kernel/internal/ports/version-control-system.ts";
 import { cmdShellInvocation } from "./cmd-command-line.ts";
 import { makeLocalVersionControlCommands } from "./local-version-control-commands.ts";
-import type { WriteFence } from "../durable-file.ts";
+import { writeFileDurably, type WriteFence } from "../durable-file.ts";
 
 const gitMaxBuffer = 256 * 1024 * 1024,
   gitBatchChunkBytes = 64 * 1024 * 1024,
@@ -851,10 +848,10 @@ function preserveConflict(
       contentSha256: node.sha256,
       localPath,
     };
-  if (!existsSync(local)) durableWrite(local, node.bytes);
+  if (!existsSync(local)) writeFileDurably(local, node.bytes, 0o600);
   const manifest = path.join(directory, "manifest.json"),
     body = Buffer.from(`${JSON.stringify(record, null, 2)}\n`, "utf8");
-  if (!existsSync(manifest)) durableWrite(manifest, body);
+  if (!existsSync(manifest)) writeFileDurably(manifest, body, 0o600);
   return localPath;
 }
 function docSyncConflicts(layout: HarnessLayout): readonly DocSyncConflictRecord[] {
@@ -987,45 +984,6 @@ function gitBlobOidBytes(bytes: Uint8Array): string {
 }
 function hashVcsBytes(algorithm: "sha256", body: string | Uint8Array): string {
   return createHash(algorithm).update(body).digest("hex");
-}
-function durableWrite(target: string, body: Uint8Array): void {
-  const directory = path.dirname(target),
-    temporary = `${target}.tmp-${process.pid}`;
-  /* @gate-identity state-store/task.source.storage.src.store.local-version-control-system.filesystem-store */
-  mkdirSync(directory, { recursive: true });
-  const descriptor =
-    /* @gate-identity state-store/task.source.storage.src.store.local-version-control-system.filesystem-store */
-    openSync(temporary, "w", 0o600);
-  // `.tmp-<pid>` is the same shape as the settlement markers above and the sweep there does
-  // not match it, by design: this temporary lands inside the repository worktree, where a
-  // pid means nothing to whichever node the bytes reach next. The failing writer clears it.
-  try {
-    try {
-      /* @gate-identity state-store/task.source.storage.src.store.local-version-control-system.filesystem-store */
-      writeFileSync(descriptor, body);
-      /* @gate-identity state-store/task.source.storage.src.store.local-version-control-system.filesystem-store */
-      fsyncSync(descriptor);
-    } finally {
-      /* @gate-identity state-store/task.source.storage.src.store.local-version-control-system.filesystem-store */
-      closeSync(descriptor);
-    }
-    /* @gate-identity state-store/task.source.storage.src.store.local-version-control-system.filesystem-store */
-    renameSync(temporary, target);
-  } catch (error) {
-    removeNode(temporary);
-    throw error;
-  }
-  if (process.platform === "win32") return;
-  const parent =
-    /* @gate-identity state-store/task.source.storage.src.store.local-version-control-system.filesystem-store */
-    openSync(directory, "r");
-  try {
-    /* @gate-identity state-store/task.source.storage.src.store.local-version-control-system.filesystem-store */
-    fsyncSync(parent);
-  } finally {
-    /* @gate-identity state-store/task.source.storage.src.store.local-version-control-system.filesystem-store */
-    closeSync(parent);
-  }
 }
 
 function commandErrorSummary(error: unknown): string | undefined {

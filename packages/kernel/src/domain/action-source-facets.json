@@ -226,6 +226,441 @@
         "candidateId": "action:packages/preset:packages/preset/src/preset-resolver-common.ts#resolverContentHash:98350a69023f5557ad3864aab246cd81",
         "route": "repository-read",
         "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/canonical-tree-materialization.ts#applyCanonicalTree:15ec867d1267c955ca42db1fe630f80e",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/fleet-basebackup-worker.ts#<module>:458ee87f02a8be7ef072be4d53d5eb6f",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/fleet-replication-slot.ts#createReplicationRetention.pin:c1194f91beb2d7f16f5785e57ec89d15",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/migration-values.ts#migrationImportError:15af05090a665ab40b0077b9c18473a1",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-artifact-timeline.ts#readPgArtifactTimeline:1facda6f8247ee37eb7fe4ebb3e5ea54",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-decision-read-status.ts#assertPgDecisionReadReady:f37fa454a4b3726015ec848d6b57ddcc",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-entity-declaration-catchup.ts#backfillPgEntityDeclarationPage:c82c2aee7d418ddf47012a49dbc0a607",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-entity-declaration-catchup.ts#backfillPgEntityDeclarationPage:162ba1e0bfd754a91b4984ae41c21d62",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-entity-declaration-catchup.ts#backfillPgEntityDeclarationPage:d251907afe32d0ab571aa9ebc6274f20",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-entity-declaration-catchup.ts#backfillPgEntityDeclarationPage:acab9bbf652f49d0eec6f6a7b66e63dd",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-entity-declarations.ts#readPgEntityDeclarations:1e48e00a40e329be15a6da4e14234553",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-event-read-index-migration.ts#assertPgEventReadIndexReady:7a4b8665f412ce4158f2d97d1bf4b168",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-projection-schema.ts#assertPgProjectionSchemaVersion:c4083369d757aabe45dfe35a6eff6d32",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-read-index-migration.ts#assertPgReadIndexReady:95df72b6b8ac3f5942ccdd21dcd6e63d",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-task-parent-index.ts#assertPgTaskParentIndexReady:eb02c37d618203b2486866cd6bfe0f68",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-task-query-reader.ts#createPgTaskQueryReader:c5b67e4b80aa4d52b03fa69b06388cea",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-task-query-reader.ts#waitForWorker:c11f5ea5081be39a5d50d9aeb4f2da03",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-task-query-reader.ts#waitForWorker:ac255a7c838d42522ce367ee725c3bbd",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-task-query-reader.ts#restoreError.restored:ae2fdfd25a4866822a429bdd94d23074",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-task-query-worker.ts#<module>:c5b67e4b80aa4d52b03fa69b06388cea",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-task-query-worker.ts#startWorker.initialize:30307a2562a2f8b00460cd102d70cd3e",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-task-query-worker.ts#startWorker.handle:e8e511384a523a2b49f1712626151ae1",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-task-query-worker.ts#startWorker:5b23202aa43322ac2c0e390731c1d45b",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-task-query-worker.ts#startWorker:5b23202aa43322ac2c0e390731c1d45b:2",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-value-queries.ts#pgValueQueries.documents:35517e3097fd4d36b1a45b3c70b1a3c4",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-value-queries.ts#pgValueQueries.ready:f99f861b2091e327a841f95670fd7636",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pglite/data-dir-mutex.ts#acquirePGliteDirectoryMutex:860b1a9484a19b96a6e14e0afed6ec76",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pglite/owner-service.ts#pgliteOwnerService.call:22e8d35c134d76114ecf73b21864b525",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pglite/query-owner-epochs.ts#pgliteOwnerEpochs.gate:6f8bd65a70ca88e6e1ebd0c0e87fe837",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pglite/query-owner-epochs.ts#pgliteOwnerEpochs.client.releaseFence:d49867fab0879d5321a6b63a36dc6ff1",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pglite/query-owner-epochs.ts#pgliteOwnerEpochs.canonical:c116c83027b139ffa8839f97b0d30da1",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pglite/query-owner-epochs.ts#assertActive:ead3d5d2edee209bfe1657fdf00e6fac",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pglite/query-owner-worker.ts#startOwner.connect.session.onClose:e8c8b7f7f556123902716b3bf90d4774",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pglite/query-owner-worker.ts#startOwner.dispatch:93d22ecbea88eb0ad09ac097fa2a73fe",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pglite/query-owner-worker.ts#startOwner.dispatch:a3388f511b014674e4549d1c5b9cff7d",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pglite/query-owner-worker.ts#startOwner.dispatch:bc68afba24f253ef6865a70471aacc5e",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pglite/query-owner-worker.ts#startOwner.dispatch:b47e02b85ae27c35850d8e6bd447c58d",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pglite/query-owner.ts#acquirePGliteOwnerTarget:63c545fc3ff1d4cc8068d3b4ca2459f0",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pglite/query-owner.ts#createPGliteTaskQueryReader.reader:63c545fc3ff1d4cc8068d3b4ca2459f0",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pglite/query-owner.ts#acquireOwner:24892e138e0e0c4e37df44499f01e261",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pglite/query-owner.ts#acquireOwner:669bb3d6eabf1847e99788b6c6a467da",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pglite/query-owner.ts#acquireOwner.release:669bb3d6eabf1847e99788b6c6a467da",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pglite/read-session-pool.ts#pgliteGroupReadPool.pool.get.release:be368e58ad0454bdf1ccb9cc3c4c1e06",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pglite/transaction.ts#assertPGliteRuntime:98b005d9cfb2b1a2604c6f62539b8bf4",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/event-summary-read-index.ts#pendingReadIndex:c66c7437fc4afa61d7d295784228ceb2",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-database.ts#closeQueryOnlyReader:35b6501ba8d4aca35178247c747ccc98",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-database.ts#closeProjectionHandlesAt:12f2b78019e721d5026d391fd6f4ddb4",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-database.ts#withQueryOnlyDatabaseSession:c5157dcf45575c4ed9ce846501661763",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-database.ts#withQueryOnlyDatabaseSession:12f2b78019e721d5026d391fd6f4ddb4",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-database.ts#closeDatabase:4b7898f4e07915ea5b08a23613bf4c19",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-database.ts#projectionDatabaseOwner.register:c5157dcf45575c4ed9ce846501661763",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-database.ts#projectionDatabaseOwner.register:12f2b78019e721d5026d391fd6f4ddb4",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-entity-api.ts#requireReadyEntityCut:dea947285b9535b9f205acd4f49bded6",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-factory.ts#makeTaskProjectionReader.withSession:92985a6073c54e07892b9a992d0dcd45",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-sql.ts#hashCanonicalJsonTextFieldChunks:0f6d7b743e376d6ad2f679a838806250",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-sql.ts#hashCanonicalJsonTextFieldChunks:2c898441519862da940868da2871d3c4",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-sql.ts#hashCanonicalJsonTextFieldChunks:07b947e08ffee0620d9112203dd2b3a9",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-sql.ts#hashCanonicalJsonTextFieldChunksAsync:0f6d7b743e376d6ad2f679a838806250",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-sql.ts#hashCanonicalJsonTextFieldChunksAsync:2c898441519862da940868da2871d3c4",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-sql.ts#hashCanonicalJsonTextFieldChunksAsync:07b947e08ffee0620d9112203dd2b3a9",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-sql.ts#beginCanonicalJsonTextFieldHash.hash:9def313cc35a2590c5446387c79e5ea8",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-sql.ts#beginCanonicalJsonTextFieldHash.hash:666f5d83ff22eb47d3ebb6f831c61daf",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/relation-cycle-audit-projection.ts#readRelationCycleAudit:2a5defa1bfdeb70797ebdfb39d4cec9a",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/repository-event-queries.ts#repositoryEventQueries.readSettingsEvent:7d0137b704ee0907bbde5b61288c2e55",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/runtime-member-index.ts#assertRuntimeMemberIndexReady:ec2fce84fc4e5a5df4b51b1639a13d08",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/runtime-member-index.ts#assertRuntimeDispatchKeyIndexReady:4f711d6ae1aa09c954afcc761dc88b9b",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/attach-migrations.ts#applyAttachMigrations:afb614158ac90b6317247b1b4dfb92ac",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/entity-store.ts#entityEventCache:3eda5cadc79f027a0385d8a26af47bca",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/ledger-backup.ts#sha256File:160bd5fc7f631b02f0f8e5be36ad719f",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/legacy-generation-conversion.ts#snapshotSourceDigest:aa2fef3b054064e6288ca694cc1cd2fa",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/legacy-generation-conversion.ts#snapshotSourceDigest:c89286791c605332401fa49e95ff8d77",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/legacy-generation-conversion.ts#snapshotSourceDigest:e8083bedb3307799f5f03bc34ebf0643",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/legacy-generation-conversion.ts#snapshotSourceDigest:5fb10fb43c2eda6e2ca0b5475ebe9795",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-system.ts#gitBlobOidBytes:812a9aec8f696d1fbc70e065f9227005",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-system.ts#gitBlobOidBytes:f5f96c3e99c5a146a95626f18159dea2",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-system.ts#hashVcsBytes:321a0039d61e19dae83463dc4d8c58f3",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-entity-declarations.ts#readSqliteEntityDeclarations:84a40361b6c09355310882bb2bfb94d2",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-ledger-connections.ts#registerLedgerClose.close:df8cad54a87232160272b0769f9b39c0",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-ledger-connections.ts#registerLedgerClose.close:7ee139f417adaac83f998672270d277a",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-ledger-connections.ts#closeSqliteEventStoresUnder:db8d1b35cc2d55a3a8aaffbbeaed333b",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-task-event-materialize.ts#restoreRequestedDocuments:e332b96771302f621bc010beb233f51c",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-task-event-materialize.ts#restoreRequestedDocuments:2376534e94be8d526c788465d936d05c",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-task-event-publication.ts#legacyRetirements:65f371515cb7a37b21f5ea4ed81a88d2",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-task-event-publication.ts#documentClosure:ea7783b1267612a90b434144facb9690",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-task-event-publication.ts#documentClosure:8b3767d6f2c63ffb4836ed548d7cf28a",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-task-event-store.ts#makeSqliteTaskEventStore.publishFollower:d62f8d4b82b1ee00a9938f5f5c49ae49",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-task-event-store.ts#makeSqliteTaskEventStore.publishFollower:d62f8d4b82b1ee00a9938f5f5c49ae49:2",
+        "route": "repository-read",
+        "role": "support"
       }
     ],
     "concurrency": {
@@ -1332,6 +1767,1086 @@
         "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.save:29be47d1c7f7ca8fa45b89107a12c0c2",
         "route": "daemon:bin",
         "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/durable-file.ts#writeFileDurably.write:70d304d5de3953e23092eaee1c94d4dd",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/durable-file.ts#writeFileDurablyFrom:b2fa81b15c0bb3d3797d585274712cd4",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/durable-file.ts#writeFileDurablyFrom.writer.write"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/durable-file.ts#writeFileDurablyFrom:386acfac256b11365f3a27a84cfcc8a9",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/durable-file.ts#writeFileDurablyFrom.publish"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/durable-file.ts#writeFileDurablyFrom:80d25e7706455ad7bd1dc54360a69e48",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/durable-file.ts#removeFileDurably.remove:fe2dd164e2953bc3a73ed350f9390bac",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/durable-file.ts#removeFileDurably:94abc94cda7165d2eec0d56330477bc5",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/durable-file.ts#removeFileDurably.remove"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/fleet-basebackup-worker.ts#<module>:d5a7718735d70577dd06dd357b8d3eed",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/tar/dist/esm/make-command.d.ts#TarCommand"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/fleet-basebackup-worker.ts#<module>:6199fd9a6aba5b1b2fcfb90f14604e7b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.rm"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/fleet-basebackup.ts#startBaseBackup:baf607380caf38f4e696e86355016848",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/diagnostics_channel.d.ts#diagnostics_channel.Channel.publish"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/fleet-basebackup.ts#startBaseBackup.abort:f4f67a0092ae65b768463d9ff4bc7057",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/worker_threads.d.ts#worker_threads.Worker.terminate"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/fleet-basebackup.ts#startBaseBackup:e62d9da5d200b4c674cd113d9254ca94",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/diagnostics_channel.d.ts#diagnostics_channel.Channel.publish"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/fleet-basebackup.ts#startBaseBackup:71e952bb81e431c9be044e268123bf93",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/diagnostics_channel.d.ts#diagnostics_channel.Channel.publish"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/fleet-replica-delivery-lease.ts#replicaDeliveryLeases.claim:ef3b9fdb979cc060327eae3407bac489",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/fleet-replica-delivery-lease.ts#replicaDeliveryLeases.renew.renewed:38f169ca0e87df66405ede8824f6e588",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/fleet-replica-delivery-lease.ts#replicaDeliveryLeases.release:3d8bda60e3b57f7f8bb4c8ccad22640b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/fleet-replica-delivery-lease.ts#replicaDeliveryLeases.record:a3ba348be6a73980bcb200418be79576",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/fleet-replica-delivery-lease.ts#replicaDeliveryLeases.record:01baff2c40581dfe7f37fa8eb3f1eb71",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/fleet-replica-delivery-lease.ts#replicaDeliveryLeases.retire:91c57d0cce5b35b7813a854ce433e358",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/fleet-replica-delivery-lease.ts#replicaDeliveryLeases.retire:5410fd32f74034cab145279f8032dc34",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/fleet-replica-seed.ts#hydrateReplicaSeed:3a605ecd6580562dc6c9ad7353e09269",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/fleet-replica-seed.ts#hydrateReplicaSeed:c1445673081adf722e2b8cceb656d199",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/fleet-replication-slot.ts#openSqliteReplicationSlots.acknowledge.result:f47f529c147efe3511806897507d1bd1",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/fleet-replication-slot.ts#openSqliteReplicationSlots.removeNode:b19cf26a5acb9da715ef31df8cb8cd3b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/fleet-replication-slot.ts#openSqliteReplicationSlots.invalidateOffline:6282ad4328b549def92b875631028e02",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/fleet-replication-slot.ts#openReplicationSlots.claim:460103765887b7383122e357de782d71",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/fleet-replication-slot.ts#openSqliteReplicationSlots.claim"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/migration/projection.ts#withMigrationProjection:70b4cd7f14606a5fa5e5b5d606fd9be9",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/migration/sqlite-endpoint.ts#openSqliteMigrationEndpoint.change:9edcf36db3ebfb57fbebb82deb222a18",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/migration/sqlite-endpoint.ts#openSqliteMigrationEndpoint.change:fed6c255cff0e5fb0d590825e072de36",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/migration/sqlite-endpoint.ts#openSqliteMigrationEndpoint.change:4010a6147ab11072cf8ec32981cee083",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/migration/sqlite-endpoint.ts#openSqliteMigrationEndpoint.import:aa78a0238cb1e84b6de796363e2db4cd",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-task-query-reader.ts#createPgTaskQueryReader:f4f67a0092ae65b768463d9ff4bc7057",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pg/pg-task-query-reader.ts#PgQueryEndpoint.terminate"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-task-query-reader.ts#createPgTaskQueryReader.request:f4f67a0092ae65b768463d9ff4bc7057",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pg/pg-task-query-reader.ts#PgQueryEndpoint.terminate"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-task-query-reader.ts#waitForWorker:f4f67a0092ae65b768463d9ff4bc7057",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pg/pg-task-query-reader.ts#PgQueryEndpoint.terminate"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-task-query-reader.ts#waitForWorker:f4f67a0092ae65b768463d9ff4bc7057:2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pg/pg-task-query-reader.ts#PgQueryEndpoint.terminate"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-task-query-worker.ts#startWorker.handle:adb9d65a6d21f06aede396f4178618b0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/postgres/pg-epoch-transaction.ts#pgEpochTransactions.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-task-query-worker.ts#startWorker.handle.operation:53cf6ca3396ab48590213b8b0ed52d7e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/postgres/pg-task-event-store.ts#makePostgresTaskEventStore.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-text-search.ts#filterLiteralTextRows:e4e69f9c9500eb5868671a82ab95f005",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-text-search.ts#unicode61Positions:ad195fbf0f01f2514b88f872d9ab39aa",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pglite/query-owner-epochs.ts#pgliteOwnerEpochs.client.execute:bebd7c2a7c00f698e005ba7e3af41fc8",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/postgres/pg-epoch-transaction.ts#pgEpochTransactions.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pglite/query-owner-epochs.ts#pgliteOwnerEpochs.client.execute.result:bebd7c2a7c00f698e005ba7e3af41fc8",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/postgres/pg-epoch-transaction.ts#pgEpochTransactions.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pglite/query-owner-epochs.ts#pgliteOwnerEpochs.client.execute:493436d6db69f2b79ab913d484083df6",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/postgres/pg-epoch-transaction.ts#pgEpochTransactions.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pglite/query-owner-worker.ts#startOwner.dispatch.run:4ded1d566bd0e27824c30f26ae7c5dc2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pglite/query-owner-worker.ts#startOwner.dispatch.run.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pglite/query-owner-worker.ts#startOwner.dispatch:973c6c969683351bc4fdb5c8534d57f0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pglite/query-owner-worker.ts#startOwner.dispatch.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pglite/query-owner-worker.ts#startOwner.dispatch:270975457dcef2052bf9e1be1e22c398",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pglite/query-owner-worker.ts#startOwner.dispatch"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pglite/query-owner-worker.ts#startOwner:41fc0e2640187233af3e76d4a7bcf474",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pglite/query-owner-worker.ts#startOwner.dispatch"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pglite/query-owner.ts#acquireOwner:f4f67a0092ae65b768463d9ff4bc7057",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/worker_threads.d.ts#worker_threads.Worker.terminate"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pglite/query-owner.ts#acquireOwner.release:b6e9c3192426fa3406b5f93826649bfb",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/worker_threads.d.ts#worker_threads.Worker.terminate"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.head:0c5977f53622e945ce3a877cf87ffc7d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pg/pg-task-query-reader.ts#PgTaskQueryReader.executeCanonical"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.readEvents:efb56aa38979c4d17decfa79c0f9d545",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pg/pg-task-query-reader.ts#PgTaskQueryReader.executeCanonical"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.checkpointSource.eventIdentityAtRevision.event:1b8b94ada7c0571fd0d7c002a438a4a6",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pg/pg-task-query-reader.ts#PgTaskQueryReader.executeCanonical"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.readContentBlob:6fad0eadb5339ef64cd0bef8492a6f70",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pg/pg-task-query-reader.ts#PgTaskQueryReader.executeCanonical"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.readContentBlobRange:ea26d765c0dd06fe9f40dfe87933af31",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pg/pg-task-query-reader.ts#PgTaskQueryReader.executeCanonical"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.readContentBlobSize:807c2f9a84e8f4c1e55fbdb240d099c8",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pg/pg-task-query-reader.ts#PgTaskQueryReader.executeCanonical"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.readEvent:4d0af4004d30a9dc8cd96d12bb981dbc",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pg/pg-task-query-reader.ts#PgTaskQueryReader.executeCanonical"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.read:4fcc760bab69bc9e0959504a1e6a95ad",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pg/pg-task-query-reader.ts#PgTaskQueryReader.executeCanonical"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.readEventAtRevision:2d416b5df879869e98df33cd5d2d11ca",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pg/pg-task-query-reader.ts#PgTaskQueryReader.executeCanonical"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.readEventById:49339d7c323b4feb8915edf21ae310bf",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pg/pg-task-query-reader.ts#PgTaskQueryReader.executeCanonical"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.queryEvents:73bfb3f8aba2319eaa9741a8ddce8bb2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pg/pg-task-query-reader.ts#PgTaskQueryReader.executeCanonical"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.readEntityDeclarations:f320c08a0bd3ae610b08a42014bd3b1a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pg/pg-task-query-reader.ts#PgTaskQueryReader.executeCanonical"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.readCommandOutcome:50ca722a09b23bfb78384174fb46df91",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pg/pg-task-query-reader.ts#PgTaskQueryReader.executeCanonical"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.readBatch:df1c98573f6dee8b94d628365cadd2c2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pg/pg-task-query-reader.ts#PgTaskQueryReader.executeCanonical"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.append.receipt:29016f917b950da5be3360c222b286f8",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pg/pg-task-query-reader.ts#PgTaskQueryReader.executeCanonical"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.appendRejection:db55bbfb68e47830c2be1e28a7dc502a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pg/pg-task-query-reader.ts#PgTaskQueryReader.executeCanonical"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.pruneReplicationLog:32667ffd4c5bd049e36517c59ad80352",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pg/pg-task-query-reader.ts#PgTaskQueryReader.executeCanonical"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-event-store.ts#executePostgresAppend:d46dfe562b7c2878cfb10f47ef8d82e8",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-task-event-store.ts#makePostgresTaskEventStore.execute:4075f3a0b2ae6629f31ce101cd97835c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/postgres/pg-task-event-store.ts#makePostgresTaskEventStore.append"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-writer-epoch.ts#openPgWriterEpoch.fenced:58aacc9b949f56d44dc981c57f1e8752",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/postgres/pg-writer-epoch.ts#openPgWriterEpoch.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-writer-epoch.ts#openPgWriterEpoch.fenced:5d9b6f45357eb1fbf0a2b05163d50651",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/postgres/pg-writer-epoch.ts#openPgWriterEpoch.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-writer-epoch.ts#openPgWriterEpoch.acquire:a5748b3d2d4f971d09927423099ec412",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/postgres/pg-writer-epoch.ts#openPgWriterEpoch.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-writer-epoch.ts#openPgWriterEpoch.current:2b7367cec9923618ad1eff94fbce8367",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/postgres/pg-writer-epoch.ts#openPgWriterEpoch.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-writer-epoch.ts#openPgWriterEpoch.highWatermark:e1af013aa137aa5ad54c835e23e41c08",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/postgres/pg-writer-epoch.ts#openPgWriterEpoch.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-writer-epoch.ts#openPgWriterEpoch.retireCurrent:a94827e8d8b3b88bb3a5abbfe6e835c4",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/postgres/pg-writer-epoch.ts#openPgWriterEpoch.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#reduceDecisionEvent:d41efd54c9cd78aa77b1926122cde91f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#reduceDecisionEvent:768da72d05562899b3fb70d71cc35a8a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#reduceDecisionEvent:83f81833c0cc9d0c2a52078e7f15206a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#reduceDecisionEvent:e32d1f2cb411a0e6d7ad37e2713bc41a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#reduceDecisionEvent:63e14604ea99f034f814c620ea62702c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#reduceDecisionEvent:9abb21a526f7b96de051ba5b49d0920b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#reduceDecisionEvent:7ab33927af1a8627a47031a8e9edc08f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#reduceDecisionEvent:c2b66bfe96afc7aed8d03d4531a8eb7a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#reduceDecisionEvent:7e6b44fc9e4afe2c50b77b36b3ff3075",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#reduceDecisionEvent:c87c09b7c2957f525c8ad2a554f0de08",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#reduceDecisionEvent:d316c6513b2c6749f70842b035b9a9cb",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#reduceDecisionEvent:c87c09b7c2957f525c8ad2a554f0de08:2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#reduceDecisionEvent:39f932640f396a1e8f43fbb3b1caf66c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#reduceDecisionEvent:d39669831dcf235e83f8f6a9847207bf",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#reduceDecisionEvent:10b86d253dbcee5a1530c8c3631dec90",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#reduceDecisionEvent:d24d776df997c549a5a7b10beac89a57",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#reduceDecisionEvent:21dd707e783f8880f3271500ffc04bde",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#reduceDecisionEvent:23ace4670377b7bade0be33e5e0bfa8f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#reduceDecisionEvent:50ea690b854ed0c00c99ee39a3d70d42",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#reduceDecisionEvent:cfb22710dc5e899ad0e74547ab169d52",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#reduceDecisionEvent:7c4ec02432da6283e3760b7a8f7d26d4",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#reduceDecisionEvent:0011eb071519030f6645b6a192644028",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#reduceDecisionEvent:4268d53dd1c56c4bce2122b86828d5a3",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#reduceDecisionEvent:65aa828f23e06bd78200cf98e8df025c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#insertDecisionPin:26fba496413f1b195d3f6f0c87a7fcf4",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#refreshDecisionFts:e77d8021520db30ff05e7f95bff52a03",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#refreshDecisionFts:3a443031b96bcdb5e402caf4ead7b77e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-readiness-projection.ts#projectDecisionReadiness.tree:8461a4da3966d77427a99ba680f20dfc",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/projection/decision-readiness-projection.ts#DecisionReadinessSource.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-readiness-projection.ts#projectDecisionReadiness.driftRead:900a19963930fc93872fc0aa41a24f01",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/projection/decision-readiness-projection.ts#DecisionReadinessSource.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-readiness-projection.ts#projectDecisionReadiness.conflictRead:d9908638a8c77617eec074b0e2c6eff8",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/projection/decision-readiness-projection.ts#DecisionReadinessSource.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/fact-event-projection.ts#reduceFactEvent:cc2e903381e7879eb1d064d54aa5b19e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/fact-event-projection.ts#reduceFactEvent:b970e717da8c034945e3b5d4de78328f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/fact-event-projection.ts#reduceFactEvent:fcba7a6833d30d7eaad98808b84298c1",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/fact-event-projection.ts#reduceFactEvent:4777bf9d696aac4285352cd11b4a72f5",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/fact-event-projection.ts#reduceFactEvent:0a62c8e6ca21eda4585ecfccf8a7f24c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/fact-event-projection.ts#reduceFactEvent:c986b0f1347b65b6d7f49b48a9a98b53",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-database.ts#discardDatabase:54dd0e0e0a9234ac174d8245f064b192",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/local/local-layout-file-system.ts#localRuntimeStateFileSystem.remove"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-runtime.ts#replayClaim:8b6af719525ad0543790fe96a233ab8d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-runtime.ts#replayClaim:6d29e2ad88b7be34095a7976447c2ace",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-runtime.ts#replayClaim:53c3bebb0775e094657d6c50f8411e9a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-runtime.ts#replayRenew:9b2ad3ce12eebfa7a8a9e4b32bb7e80a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-runtime.ts#replayRenew:d0885464eac2d77b256112b092128084",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-runtime.ts#replayRelease:4127186551356913b5cab5818b568906",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-runtime.ts#replayRelease:f17e79b2320bfdc7d09d9d9d21f51da0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-runtime.ts#reserve:ad21e4635fa1bc9a508793f848ad8299",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-sql.ts#transaction.value:973c6c969683351bc4fdb5c8534d57f0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/projection/rebuildable-task-projection-sql.ts#transaction.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-sql.ts#queryTransaction:973c6c969683351bc4fdb5c8534d57f0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/projection/rebuildable-task-projection-sql.ts#queryTransaction.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-sql.ts#queryTransaction.value:973c6c969683351bc4fdb5c8534d57f0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/projection/rebuildable-task-projection-sql.ts#queryTransaction.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-sql.ts#runSql:39f3253cf67d775e7cd376ba53375dcd",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-sql.ts#closeProjectionConnection:243db5bec70e6536db8f0a9d7b23dbf7",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#WeakMap.delete"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/task-query-projection.ts#refreshTaskRelationProjection:631a95f8ed8d588606aebcff4fee8c19",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/task-query-projection.ts#refreshTaskRelationProjection:e30f32194a198e5e323788e5622510c7",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/attach-migrations.ts#applyAttachMigrations:4aaa920159e53ce290ed7717ec66a3dd",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/completion-generation-conversion.ts#runCompletionGenerationConversion:49a371bfa421cd001893e3db7af6ce8e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/local/local-layout-file-system.ts#localRuntimeStateFileSystem.remove"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/durable-follower-publisher.ts#createDurableFollowerPublisher.publish.receipt:bb0ae6d00d531e8549225b70b0b08dd7",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/durable-follower-publisher.ts#createDurableFollowerPublisher.input.publish"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/durable-follower-publisher.ts#createDurableFollowerPublisher.request:386acfac256b11365f3a27a84cfcc8a9",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/durable-follower-publisher.ts#createDurableFollowerPublisher.publish"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/event-shape-migration.ts#replayRewrites:bb67cb365351f86c73a76b9341595b57",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/local/local-layout-file-system.ts#localRuntimeStateFileSystem.remove"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/generation-three-activation.ts#publishGenerationThreeActivation:1489cb1579b373a18ee12b986258f892",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/local/local-layout-file-system.ts#localRuntimeStateFileSystem.remove"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/ledger-backup-retention.ts#applyLedgerBackupRetention.removeOne:8b9d0075d5cf9781e7d5a2e0fee60a30",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/local/local-layout-file-system.ts#localLedgerBackupFileSystem.remove"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/ledger-backup.ts#stageLedgerBackup:1497e662480d96fd8c30c2aa5208b0ea",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/local/local-layout-file-system.ts#localLedgerBackupFileSystem.remove"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/ledger-backup.ts#createLedgerBackup:776b7e28a2138d4ee1ce94746af93d3e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/ledger-backup.ts#createLedgerBackup:1497e662480d96fd8c30c2aa5208b0ea",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/local/local-layout-file-system.ts#localLedgerBackupFileSystem.remove"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/ledger-backup.ts#drillLedgerBackup:d44ff86881e3a9401d2f26eaba544568",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/local/local-layout-file-system.ts#localLedgerBackupFileSystem.remove"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/ledger-backup.ts#removeVanishedStagedEntries:c85e592b22527726ab5d1feec03e06ee",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/local/local-layout-file-system.ts#localLedgerBackupFileSystem.remove"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/ledger-backup.ts#copyVanishingTree:38630272cd3f8b359c0d0f78ea9eab52",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/local/local-layout-file-system.ts#localLedgerBackupFileSystem.remove"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/ledger-backup.ts#copyVanishingTree:38630272cd3f8b359c0d0f78ea9eab52:2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/local/local-layout-file-system.ts#localLedgerBackupFileSystem.remove"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/ledger-backup.ts#copyVanishingTree:38630272cd3f8b359c0d0f78ea9eab52:3",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/local/local-layout-file-system.ts#localLedgerBackupFileSystem.remove"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-commands.ts#makeLocalVersionControlCommands.isIgnored:a8697d13c6b480d652ab797daafec809",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/local-version-control-commands.ts#LocalVersionControlCommandAdapter.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-commands.ts#makeLocalVersionControlCommands.add:bee1024e09024034f5a1bf11ed90fe8d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/local-version-control-commands.ts#LocalVersionControlCommandAdapter.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-commands.ts#makeLocalVersionControlCommands.workingTreeFiles:8b364d22b61026f5c50b5d291cf1ca22",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/local-version-control-commands.ts#LocalVersionControlCommandAdapter.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-commands.ts#makeLocalVersionControlCommands.stagedFiles:af0171eed59414922380f57914ff4169",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/local-version-control-commands.ts#LocalVersionControlCommandAdapter.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-commands.ts#makeLocalVersionControlCommands.currentHead:5267d03726c161895fbfd35a802baee9",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/local-version-control-commands.ts#LocalVersionControlCommandAdapter.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-commands.ts#makeLocalVersionControlCommands.currentBranch.name:7c1e1c2d5128707779589e5c90b54227",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/local-version-control-commands.ts#LocalVersionControlCommandAdapter.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-commands.ts#makeLocalVersionControlCommands.originHeadBranch.ref:7673a9b4a1ef8a1fe5478c3f6e703e62",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/local-version-control-commands.ts#LocalVersionControlCommandAdapter.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-commands.ts#makeLocalVersionControlCommands.refExists:fe27b3aded9b8d51334eafb3a3445bda",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/local-version-control-commands.ts#LocalVersionControlCommandAdapter.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-commands.ts#makeLocalVersionControlCommands.commitExists:d08efc5238a9c59b81c411c0d1643898",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/local-version-control-commands.ts#LocalVersionControlCommandAdapter.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-commands.ts#makeLocalVersionControlCommands.pathExistsAtCommit:6895ec44d358e3836b9410bef6a27676",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/local-version-control-commands.ts#LocalVersionControlCommandAdapter.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-commands.ts#makeLocalVersionControlCommands.checkout:caeb27f38b135051509253e0c49ad37a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/local-version-control-commands.ts#LocalVersionControlCommandAdapter.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-commands.ts#makeLocalVersionControlCommands.createBranch:6866fe065fa584dc696e2674a3da45cb",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/local-version-control-commands.ts#LocalVersionControlCommandAdapter.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-commands.ts#makeLocalVersionControlCommands.mergeNoFf:4ca13f972d2ff254b828b4e3bf03b35e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/local-version-control-commands.ts#LocalVersionControlCommandAdapter.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-commands.ts#makeLocalVersionControlCommands.deleteBranch:83a830f041c917d9452dd3fd81ed4463",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/local-version-control-commands.ts#LocalVersionControlCommandAdapter.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-commands.ts#makeLocalVersionControlCommands.abortMerge:58b2bc3f97c45a2a6e63b3fe2fedee06",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/local-version-control-commands.ts#LocalVersionControlCommandAdapter.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-commands.ts#makeLocalVersionControlCommands.sessionBranches:fd76c219a0ce3b90ac4e0d2831437496",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/local-version-control-commands.ts#LocalVersionControlCommandAdapter.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-commands.ts#makeLocalVersionControlCommands.commitsNotInTrunk:9a6f29f65c7d321f0c5c77ae45b19506",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/local-version-control-commands.ts#LocalVersionControlCommandAdapter.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-commands.ts#makeLocalVersionControlCommands.changedFilesBetween:6cd83609e5eacf1661f2f8abb8ab2c31",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/local-version-control-commands.ts#LocalVersionControlCommandAdapter.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-commands.ts#makeLocalVersionControlCommands.resetQuiet:f361b5ca1eea5019e6f2a962a8d45e2f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/local-version-control-commands.ts#LocalVersionControlCommandAdapter.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-system.ts#installLedgerCommitGuard:dc1337a7e5b9551e3c08d08d56e0e5f2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-system.ts#withStdinFile:73ad7d35111a3a360cf47800ecd6daaf",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/local/local-layout-file-system.ts#localRuntimeStateFileSystem.remove"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-system.ts#localGitWorktreeSettlement.visible.pending:a67d3018b01d054daa7aadbd8dc91d9d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/local-version-control-system.ts#localGitWorktreeSettlement.visible.pending.create"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-system.ts#localGitWorktreeSettlement.visible.pending:1beda17ac907c48ef1c0f8fe4a33e265",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-system.ts#localGitWorktreeSettlement.visible:386acfac256b11365f3a27a84cfcc8a9",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/local-version-control-system.ts#localGitWorktreeSettlement.visible.publish"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-system.ts#localGitWorktreeSettlement.deleteVisible:94abc94cda7165d2eec0d56330477bc5",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/local-version-control-system.ts#localGitWorktreeSettlement.deleteVisible.remove"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-system.ts#localGitWorktreeSettlement.index:386acfac256b11365f3a27a84cfcc8a9",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/local-version-control-system.ts#localGitWorktreeSettlement.index.publish"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/local-version-control-system.ts#removeNode:006fcbc69a35b6efbfd9e12f1165999c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-event-store.ts#openSqliteEventStoreInternal.transaction.result:973c6c969683351bc4fdb5c8534d57f0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/sqlite-event-store.ts#openSqliteEventStoreInternal.transaction.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-event-store.ts#openSqliteEventStoreInternal.persistWriterLease:8c0080aa2764f4c001b384e6965a19d0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-event-store.ts#openSqliteEventStoreInternal.appendCommand:e519d1593ad1dde55996bcd50a163782",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-event-store.ts#openSqliteEventStoreInternal.appendCommand:1b17d07999fdb44a12bb75cc39b2665b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-event-store.ts#openSqliteEventStoreInternal.appendCommand:128ee81623a5f22188459d92f5b43408",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-event-store.ts#openSqliteEventStoreInternal.applyReplicationCommit:614225523c8f5799c5aa68aae994cf3c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-event-store.ts#createSchema:c6c628b982a738f8e28750241dd6ee0c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-task-event-store.ts#makeSqliteTaskEventStore.append:5450f82fbb898d30dd532ba52c4cadfd",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-task-event-store.ts#makeSqliteTaskEventStore.materialize:5d816a18cb88b2ffbb0adee0944a02fd",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/durable-follower-publisher.ts#createDurableFollowerPublisher.publish"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/writer-epoch.ts#openRepoEpochAuthority:96300d4907276e9f6647ef5d3ceeac30",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/writer-epoch.ts#openRepoEpochAuthority:09644971afced461ae584e6cf22760e8",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/writer-epoch.ts#openRepoEpochAuthority.acquire:184b9d5325b21b3a2581d54eae4eea17",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/writer-epoch.ts#openRepoEpochAuthority.acquire:f91003501ce0dc556b0912464ad66e0b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/writer-epoch.ts#openRepoEpochAuthority.retireCurrent:757461228dfd1b937bd389b7764d0760",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
       }
     ],
     "technical": true
@@ -1432,6 +2947,11 @@
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/local/local-layout-file-system.ts#localContentObjectFileSystem.replaceMany:a3b817611f2e76f6806c8312bba1c505",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/migration/engine.ts#migrateStorage:7d3b5188c44721926f05877cd32fe882",
         "route": "daemon:bin",
         "role": "effect"
       }

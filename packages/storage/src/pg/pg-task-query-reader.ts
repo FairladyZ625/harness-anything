@@ -99,7 +99,7 @@ export function createPgTaskQueryReader(
     { port1, port2 } = new MessageChannel(),
     ready = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT)),
     state = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT)),
-    worker =
+    worker: PgQueryEndpoint =
       connect?.({ ...options, path, ready, state, responsePort: port2, requestPort: port1 }) ??
       new Worker(new URL(`./pg-task-query-worker${extname(import.meta.filename)}`, import.meta.url), {
         workerData: {

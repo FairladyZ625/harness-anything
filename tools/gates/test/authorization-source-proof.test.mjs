@@ -131,3 +131,35 @@ test("a shadowed URL constructor cannot claim the built-in URL's dist boundary",
   const { graph, nodes } = fixture("class URL { constructor(...args) {} }" + build("../dist/assets/"));
   assert.equal(buildOutputWithinPackage(graph, [...nodes.values()][0]), false);
 });
+
+test("storage technical ports require the actual typed declaration, not a matching method name", async () => {
+  const { technicalPortEvidence } = await import("../authorization-source-proof.mjs");
+  const action = {
+    kind: "storage-io",
+    ontology: { technical: true, authority: "local-process" },
+    receiptSettlement: "none",
+  };
+  const port = "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run";
+  for (const [receiver, expected] of [
+    [
+      'import { DatabaseSync } from "node:sqlite"; const statement = new DatabaseSync(":memory:").prepare("SELECT 1");',
+      true,
+    ],
+    ["const statement = { run() { return 1; } };", false],
+  ]) {
+    const { graph, nodes } = fixture(receiver + "statement.run();");
+    const node = [...nodes.values()].at(-1);
+    const source = { port, route: action.kind, role: "technical-port" };
+    assert.equal(Boolean(technicalPortEvidence(graph, node, source, action)), expected);
+    assert.equal(Boolean(technicalPortEvidence(graph, node, { ...source, route: "task-delete" }, action)), false);
+    assert.equal(
+      Boolean(technicalPortEvidence(graph, node, source, { ...action, receiptSettlement: "canonical-acceptance" })),
+      false,
+    );
+    assert.equal(Boolean(technicalPortEvidence(graph, node, {}, action)), false);
+    assert.equal(
+      Boolean(technicalPortEvidence(graph, node, source, { ...action, ontology: { authority: "local-process" } })),
+      false,
+    );
+  }
+});
