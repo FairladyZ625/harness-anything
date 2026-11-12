@@ -1,4 +1,5 @@
 import type { ScheduleState } from "@harness-anything/kernel/internal/domain/schedule.ts";
+import { validateReceiptAcceptance } from "@harness-anything/kernel/internal/domain/receipt-acceptance.ts";
 import type { SquadControlResult } from "../squad-control-result.ts";
 import { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
 import { validateObserveTailResult, type DaemonProtocolErrorResult } from "./daemon-protocol-gui-types.ts";
@@ -9,7 +10,6 @@ import {
   DAEMON_TASK_DOCUMENT_LIST_SCHEMA,
 } from "./daemon-protocol-schema-ids.ts";
 import {
-  validateReceiptAcceptanceWire,
   validRiskTierAssessment,
   validSquadControlAuthorization,
   wireUnmetCriterion,
@@ -700,7 +700,7 @@ export function writeReceipt(value: JsonObject): string[] {
     ];
   const acceptanceAware = "status" in value || "acceptance" in value;
   if (acceptanceAware) {
-    const errors = validateReceiptAcceptanceWire(value);
+    const errors = validateReceiptAcceptance(value);
     if (errors.length > 0)
       return errors.map((error) => validationError(entityId, "acceptance", value.acceptance, error));
   }

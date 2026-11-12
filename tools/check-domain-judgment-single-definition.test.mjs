@@ -888,3 +888,61 @@ test("active writer admission is a canonical judgment with every live consumer",
     findings.join("\n"),
   );
 });
+
+// dec_7E44897ECDCAEF2B92EC66A260 CH1 (S2g): protocol query facet rules and command-receipt acceptance
+// resolve to canonical kernel judgments with live consumers; manual wire mirrors are refused.
+test("queryPayloadValidation and receiptAcceptance are canonical judgments with live daemon consumers", (t) => {
+  const kinds = loadOntologyClosureSnapshot(repoRoot).kinds,
+    judgments = kinds.flatMap((kind) => kind.judgments ?? []),
+    contracts = kinds.flatMap((kind) => kind.sourceContracts ?? []);
+
+  const queryJudgment = judgments.find(
+    (item) => item.symbol === "packages/kernel/src/domain/query-payload-validation.ts#queryPayloadValidation",
+  );
+  assert.ok(queryJudgment, "queryPayloadValidation must be registered as a canonical judgment");
+  assert.deepEqual([...queryJudgment.consumers].sort(), [
+    "packages/daemon/src/protocol/daemon-protocol-validate-relation-query.ts",
+  ]);
+
+  const receiptSymbol = "packages/kernel/src/domain/receipt-acceptance.ts#validateReceiptAcceptance",
+    receiptJudgment = judgments.find((item) => item.symbol === receiptSymbol);
+  assert.ok(receiptJudgment, "validateReceiptAcceptance must be promoted from syntax contract to canonical judgment");
+  assert.deepEqual([...receiptJudgment.consumers].sort(), [
+    "packages/daemon/src/gui-s3-control.ts",
+    "packages/daemon/src/protocol/daemon-protocol-validate-results.ts",
+    "packages/kernel/src/domain/receipt-domain-registry.ts",
+  ]);
+  assert.ok(
+    contracts.every(
+      (contract) =>
+        contract.symbol !== receiptSymbol &&
+        !contract.symbol.endsWith("#validateReceiptAcceptanceWire") &&
+        contract.sources.every(
+          (source) => source.route !== receiptSymbol && !source.route.endsWith("#validateReceiptAcceptanceWire"),
+        ),
+    ),
+    "neither validateReceiptAcceptance nor a deleted wire mirror may remain in sourceContracts",
+  );
+
+  const findings = fixtureFindings(t, kinds);
+  assert.ok(
+    findings.some(
+      (item) =>
+        item.includes("query-payload-copy.ts") && item.includes("consume the kernel queryPayloadValidation verdict"),
+    ),
+    findings.join("\n"),
+  );
+  assert.ok(
+    findings.some(
+      (item) => item.includes("one definition of validateReceiptAcceptance") && item.includes("judgment-copies.ts"),
+    ),
+    findings.join("\n"),
+  );
+  assert.ok(
+    findings.some(
+      (item) =>
+        item.includes("receipt-acceptance-copy.ts") && item.includes("consume the kernel receiptAcceptance verdict"),
+    ),
+    findings.join("\n"),
+  );
+});

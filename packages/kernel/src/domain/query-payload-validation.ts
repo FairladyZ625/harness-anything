@@ -1,8 +1,6 @@
-/** @slice-activation G4 registers the authority before the C phase-2 query
- * cutover removes the two in-flight consumers. */
-import { relationStates } from "./entity-relation.ts";
-import { isRecord } from "./write-chain.contract.ts";
+import { isRecord } from "./contract-validation.ts";
 import { domainStatuses } from "./lifecycle-status.ts";
+import { relationStates } from "./relation-state.ts";
 import { timestamp } from "./timestamp.ts";
 
 export type QueryPayloadKind = "task-list" | "relation-graph";

@@ -1013,9 +1013,17 @@
         "inputs": ["kind: QueryPayloadKind", "value: unknown"],
         "output": "readonly QueryPayloadValidationIssue[]",
         "failureCodes": [],
-        "explain": "Canonical queryPayloadValidation; existing unique kernel definition and result semantics are preserved.",
-        "consumers": [],
-        "sources": []
+        "explain": "Canonical query-facet validation for task-list and relation-graph reads (status vocabulary, non-negative integer changedAfterRevision, ordered UTC time window, 1..500 limit, non-empty cursor); protocol wrappers keep only selector routing, field closure, and wire error mapping.",
+        "consumers": ["packages/daemon/src/protocol/daemon-protocol-validate-relation-query.ts"],
+        "sources": [],
+        "consumerRules": [
+          {
+            "pathPattern": "^packages/daemon/src/(?:protocol|client|home|fleet)/",
+            "pattern": "\\bNumber\\(\\s*(?:value\\.)?changedAfterRevision\\s*\\)\\s*<\\s*0|\\b(?:after|updatedAfter)\\s*>\\s*(?:before|updatedBefore)\\b",
+            "reason": "consume the kernel queryPayloadValidation verdict",
+            "flags": "u"
+          }
+        ]
       },
       {
         "id": "statusVocabulary",
@@ -1053,6 +1061,34 @@
             "pathPattern": "^packages/",
             "pattern": "\\b(?:token|writerToken)\\.(?:generation|ownerId)\\s*(?:===|!==|==|!=)\\s*(?:active|activeWriter)\\.|writer token is not the active workspace generation and owner",
             "reason": "consume the kernel active writer admission verdict",
+            "flags": "u"
+          }
+        ]
+      },
+      {
+        "id": "receiptAcceptance",
+        "symbol": "packages/kernel/src/domain/receipt-acceptance.ts#validateReceiptAcceptance",
+        "declaration": "function",
+        "inputs": ["value: Readonly<Record<string, unknown>>"],
+        "output": "readonly string[]",
+        "failureCodes": [],
+        "explain": "Certify command-receipt/v2 SQLite acceptance intervals, determinate settled_no_write outcomes, verified facet cuts, and wait satisfaction invariants from one kernel authority.",
+        "consumers": [
+          "packages/daemon/src/gui-s3-control.ts",
+          "packages/daemon/src/protocol/daemon-protocol-validate-results.ts",
+          "packages/kernel/src/domain/receipt-domain-registry.ts"
+        ],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/receipt-acceptance.ts#validateReceiptAcceptance:0811f12983881e88316f4cdab8a5019d",
+            "route": "domain"
+          }
+        ],
+        "consumerRules": [
+          {
+            "pathPattern": "^packages/",
+            "pattern": "settled_no_write requires no_changes or applied|accepted_durable requires a committed acceptance interval|memberOpIds\\.length\\s*!==\\s*\\w+\\.revisionTo\\s*-\\s*\\w+\\.revisionFrom\\s*\\+\\s*1",
+            "reason": "consume the kernel receiptAcceptance verdict",
             "flags": "u"
           }
         ]
@@ -1727,17 +1763,6 @@
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/production-delta.ts#isProductionPath:a517fc3df9011cf0e97c40bd1604efa1",
             "route": "packages/kernel/src/domain/production-delta.ts#isProductionPath"
-          }
-        ]
-      },
-      {
-        "id": "kernel/src/domain/receipt-acceptance.ts#ReceiptAcceptanceFields",
-        "symbol": "packages/kernel/src/domain/receipt-acceptance.ts#validateReceiptAcceptance",
-        "explain": "ReceiptAcceptanceFields: Certified receipt facets and cut consistency contract.",
-        "sources": [
-          {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/receipt-acceptance.ts#validateReceiptAcceptance:0811f12983881e88316f4cdab8a5019d",
-            "route": "packages/kernel/src/domain/receipt-acceptance.ts#validateReceiptAcceptance"
           }
         ]
       },
@@ -3469,17 +3494,6 @@
         ]
       },
       {
-        "id": "daemon/src/protocol/daemon-protocol-validate-entities.ts#validateReceiptAcceptanceWire",
-        "symbol": "packages/daemon/src/protocol/daemon-protocol-validate-entities.ts#validateReceiptAcceptanceWire",
-        "explain": "Zero-kernel-dependency wire validator for `command-receipt/v2` SQLite acceptance intervals and progress facets, locked to kernel `validateReceiptAcceptance` by differential tests in `receipt-acceptance-wire.test.ts`.",
-        "sources": [
-          {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-entities.ts#validateReceiptAcceptanceWire:59fce29c4f0e5dd24dfc41b461f93833",
-            "route": "packages/daemon/src/protocol/daemon-protocol-validate-entities.ts#validateReceiptAcceptanceWire"
-          }
-        ]
-      },
-      {
         "id": "daemon/src/protocol/daemon-protocol-validate-relation-query.ts#validateDaemonWorkspaceSummary",
         "symbol": "packages/daemon/src/protocol/daemon-protocol-validate-relation-query.ts#validateDaemonWorkspaceSummary",
         "explain": "Thin-protocol wire-response validator for `repo.workspace.summary` task/decision count rollups, cross-checking by-status/by-state sums and inbox group invariants.",
@@ -3493,10 +3507,10 @@
       {
         "id": "daemon/src/protocol/daemon-protocol-validate-relation-query.ts#validateDaemonQueryPayload",
         "symbol": "packages/daemon/src/protocol/daemon-protocol-validate-relation-query.ts#validateDaemonQueryPayload",
-        "explain": "Portable thin-transport and Electron preload JSON-RPC query-parameter validator for `repo.tasks.list`, `repo.triadic.relationGraph` and `repo.artifacts.list` prior to C phase-2 query cutover (`queryPayloadValidation`).",
+        "explain": "Thin-protocol and Electron preload JSON-RPC query selector router and wire error-mapping adapter for `repo.tasks.list`, `repo.triadic.relationGraph` and `repo.artifacts.list`, enforcing relation selector field closure and delegating shared query constraints to kernel `queryPayloadValidation`.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-relation-query.ts#validateDaemonQueryPayload:488fcccf0e88587cb3ac4d2fefa8962e",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-relation-query.ts#validateDaemonQueryPayload:2b273b6233945a03b0a651bb983243b4",
             "route": "packages/daemon/src/protocol/daemon-protocol-validate-relation-query.ts#validateDaemonQueryPayload"
           }
         ]
@@ -3515,7 +3529,7 @@
       {
         "id": "daemon/src/protocol/daemon-protocol-validate-results.ts#validateDaemonGuiCommandReceipt",
         "symbol": "packages/daemon/src/protocol/daemon-protocol-validate-results.ts#validateDaemonGuiCommandReceipt",
-        "explain": "Wire-response validator for `command-receipt/v2` GUI mutation receipts across entity commands, checking cut fidelity and delegating acceptance intervals to `validateReceiptAcceptanceWire`.",
+        "explain": "Wire-response validator for `command-receipt/v2` GUI mutation receipts across entity commands, checking cut fidelity and delegating committed acceptance intervals to kernel `validateReceiptAcceptance`.",
         "sources": [
           {
             "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-results.ts#validateDaemonGuiCommandReceipt:1cc2daac1f7e8541fa106a8b80677a7a",

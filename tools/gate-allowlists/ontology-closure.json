@@ -11027,17 +11027,6 @@
         "removalSlice": "S3"
       },
       {
-        "id": "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-relation-query.ts#validateDaemonQueryPayload:ec896d991d08bfb812c866e4607b4f4d",
-        "category": "policy",
-        "path": "packages/daemon/src/protocol/daemon-protocol-validate-relation-query.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/daemon",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic policy candidate, semantic ownership to be resolved in S3: policy-shaped condition contains a literal: limit !== undefined && (!integer(limit) || Number(limit) < 1 || Number(limit) > 500)",
-        "replacementRef": "EntityKindContract.policies",
-        "removalSlice": "S3"
-      },
-      {
         "id": "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-results.ts#writeReceipt:c829de6b1cc9cc83ba7fc87034003f7b",
         "category": "policy",
         "path": "packages/daemon/src/protocol/daemon-protocol-validate-results.ts",

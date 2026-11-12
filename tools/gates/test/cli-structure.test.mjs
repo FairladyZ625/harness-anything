@@ -300,6 +300,116 @@ test("daemon transport graph rejects even a kernel leaf import reachable from th
   );
 });
 
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: thin protocol validators consume pure zero-builtin kernel domain
+// judgment leaves (`query-payload-validation.ts`, `receipt-acceptance.ts`) instead of maintaining wire mirrors.
+test("CLI and daemon transport graphs admit pure kernel protocol judgment leaves", async () => {
+  const root = await protocolKernelJudgmentFixture();
+  const result = run(root);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /CLI structure check passed/u);
+});
+
+for (const leaf of [
+  "packages/kernel/src/domain/query-payload-validation.ts",
+  "packages/kernel/src/domain/receipt-acceptance.ts",
+]) {
+  for (const dependency of ["index.ts", "domain/other-domain.ts"]) {
+    test(`CLI and daemon transport graphs reject ${path.basename(leaf)} importing ${dependency}`, async () => {
+      const root = await protocolKernelJudgmentFixture();
+      write(
+        root,
+        leaf,
+        `export { leaked } from '${dependency === "index.ts" ? "../index.ts" : "./other-domain.ts"}';\n` +
+          "export function queryPayloadValidation(): readonly string[] { return []; }\n" +
+          "export function validateReceiptAcceptance(): readonly string[] { return []; }\n",
+      );
+      write(root, `packages/kernel/src/${dependency}`, "export const leaked = true;\n");
+      const result = run(root);
+      assert.notEqual(result.status, 0);
+      assert.ok(result.stderr.includes(`packages/kernel/src/${dependency}`), result.stderr);
+    });
+  }
+}
+
+async function protocolKernelJudgmentFixture() {
+  const root = await fixture();
+  write(
+    root,
+    "packages/daemon/src/protocol/daemon-protocol.contract.ts",
+    [
+      "import { validateDaemonQueryPayload } from './daemon-protocol-validate-relation-query.ts';",
+      "import { validateDaemonGuiCommandReceipt } from './daemon-protocol-validate-results.ts';",
+      "export function resolveThinCliCommand(): void { void validateDaemonQueryPayload; void validateDaemonGuiCommandReceipt; }",
+      "",
+    ].join("\n"),
+  );
+  write(
+    root,
+    "packages/daemon/src/client/local-json-rpc-client.ts",
+    [
+      "import { validateDaemonQueryPayload } from '../protocol/daemon-protocol-validate-relation-query.ts';",
+      "import { validateDaemonGuiCommandReceipt } from '../protocol/daemon-protocol-validate-results.ts';",
+      "export function transport(): void { void validateDaemonQueryPayload; void validateDaemonGuiCommandReceipt; }",
+      "",
+    ].join("\n"),
+  );
+  write(
+    root,
+    "packages/daemon/src/protocol/daemon-protocol-validate-relation-query.ts",
+    [
+      "import { queryPayloadValidation } from '@harness-anything/kernel/internal/domain/query-payload-validation.ts';",
+      "export const validateDaemonQueryPayload = queryPayloadValidation;",
+      "",
+    ].join("\n"),
+  );
+  write(
+    root,
+    "packages/daemon/src/protocol/daemon-protocol-validate-results.ts",
+    [
+      "import { validateReceiptAcceptance } from '@harness-anything/kernel/internal/domain/receipt-acceptance.ts';",
+      "export const validateDaemonGuiCommandReceipt = validateReceiptAcceptance;",
+      "",
+    ].join("\n"),
+  );
+  write(
+    root,
+    "packages/kernel/src/domain/contract-validation.ts",
+    "export const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;\n",
+  );
+  write(
+    root,
+    "packages/kernel/src/domain/lifecycle-status.ts",
+    "export const TASK_LIFECYCLE_STATUSES = [] as const;\n",
+  );
+  write(root, "packages/kernel/src/domain/relation-state.ts", "export const relationStates = [] as const;\n");
+  write(root, "packages/kernel/src/domain/timestamp.ts", "export const isIsoUtcTimestamp = (): boolean => true;\n");
+  write(
+    root,
+    "packages/kernel/src/domain/query-payload-validation.ts",
+    [
+      "import { isRecord } from './contract-validation.ts';",
+      "import { TASK_LIFECYCLE_STATUSES } from './lifecycle-status.ts';",
+      "import { relationStates } from './relation-state.ts';",
+      "import { isIsoUtcTimestamp } from './timestamp.ts';",
+      "export function queryPayloadValidation(): readonly string[] {",
+      "  void isRecord; void TASK_LIFECYCLE_STATUSES; void relationStates; void isIsoUtcTimestamp;",
+      "  return [];",
+      "}",
+      "",
+    ].join("\n"),
+  );
+  write(
+    root,
+    "packages/kernel/src/domain/receipt-acceptance.ts",
+    [
+      "import { isIsoUtcTimestamp } from './timestamp.ts';",
+      "export function validateReceiptAcceptance(): readonly string[] { void isIsoUtcTimestamp; return []; }",
+      "",
+    ].join("\n"),
+  );
+  return root;
+}
+
 async function cliPolicyFixture() {
   const root = await fixture();
   write(
@@ -351,7 +461,7 @@ async function fixture() {
     "packages/kernel/package.json",
     JSON.stringify({
       name: "@harness-anything/kernel",
-      exports: { ".": "./src/index.ts", "./internal/*": "./src/*.ts" },
+      exports: { ".": "./src/index.ts", "./internal/domain/*.ts": "./src/domain/*.ts", "./internal/*": "./src/*.ts" },
     }),
   );
   write(
