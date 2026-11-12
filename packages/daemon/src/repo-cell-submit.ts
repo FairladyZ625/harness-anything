@@ -2,6 +2,10 @@ import path from "node:path";
 import { realpathSync } from "node:fs";
 import {
   completionContractGap,
+  evaluateTaskActionCapability,
+  getTaskActionForTransition,
+  TASK_LIFECYCLE_TRANSITIONS,
+  taskLifecycleNextActions,
   completionGuidance,
   currentExecutionCuts,
   heldLeaseForExecutionActor,
@@ -26,6 +30,14 @@ import {
   isAgentRuntimeEvent,
   type AgentRuntimeEventV1,
 } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
+import {
+  reviewResponseSubmissionIssues,
+  submitExecutionStateIssues,
+  submitPresetSnapshotIssues,
+} from "@harness-anything/kernel/internal/domain/task-lifecycle-command-transitions.ts";
+import { TaskLifecycleContractError } from "@harness-anything/kernel/internal/domain/task-lifecycle-event.ts";
+import { errorCode } from "@harness-anything/kernel/internal/domain/task-lifecycle-contract-support.ts";
+import { attributeCellCriterion } from "./repo-cell-errors.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { assertCurrentSubmittedExecution } from "./repo-cell-execution-selection.ts";
@@ -908,6 +920,56 @@ export async function submitTask(
   if (action.amend === true) assertCurrentSubmittedExecution(current.snapshot, taskId, executionId);
   if (!selected.submission && (!held || !sameWriteSource(current.snapshot.lease?.source, binding.source)))
     return cell.lifecycleAction(action, binding);
+  // Resume reuses a stored cut; only new submissions/amendments enter the transition.
+  // Document acceptance cannot change these lifecycle facts. Reject before inventory, sync or Git.
+  if (!selected.submission || action.amend === true) {
+    const issues = [
+      ...submitExecutionStateIssues(current.snapshot, {
+        executionId,
+        ...(action.amend === true ? { amend: true } : {}),
+      }),
+      ...submitPresetSnapshotIssues(current.snapshot),
+      ...reviewResponseSubmissionIssues(current.snapshot, current.snapshot.reviewResponses),
+    ];
+    if (issues.length) {
+      const contract = getTaskActionForTransition("submit")!,
+        criterionRef = contract.execution!.lifecycle!.validatorCriterionRef!,
+        evaluation = evaluateTaskActionCapability({
+          action: contract,
+          snapshot: current.snapshot,
+          actor: binding.actor,
+          invocation: {
+            taskId,
+            executionId,
+            amend: action.amend === true,
+            ...(action.asOwner === true ? { asOwner: true } : {}),
+          },
+        }).find((value) => value.criterionRef === criterionRef),
+        nextActions = evaluation?.nextActions.length
+          ? evaluation.nextActions
+          : taskLifecycleNextActions({
+              snapshot: current.snapshot,
+              actor: binding.actor,
+              taskId,
+              rejectedActionId: contract.id,
+              actions: [...new Set(TASK_LIFECYCLE_TRANSITIONS.map(({ actionId }) => actionId))].flatMap((actionId) => {
+                const candidate = getTaskActionForTransition(actionId);
+                return candidate && candidate.execution?.ingress !== action.kind ? [candidate] : [];
+              }),
+            });
+      return cell.failed(
+        cell.operationId(action, binding, cell.input.repoId, current.snapshot.revision),
+        attributeCellCriterion(
+          new TaskLifecycleContractError(errorCode(issues), issues),
+          contract.id,
+          criterionRef,
+          nextActions,
+        ),
+        contract,
+        action,
+      );
+    }
+  }
   if (Array.isArray(action.docChanges)) {
     // Reuse the existing atomic carried-document submission path. A submitted cut with
     // changed edge documents must be amended explicitly, never silently synchronized.

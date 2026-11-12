@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -87,7 +87,7 @@ const findingResponse = (reviewId: string, findingId: string, disposition: "adop
   rationale: "The second cut addresses the blocking review finding.",
 });
 
-test("a returned cut registers its response and re-freezes the delivery for the next review", async () => {
+test("a returned cut registers its response and re-freezes the delivery for the next review", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-respond-rework-")),
     repoId = workspaceId("respond-rework"),
     taskId = "task-respond-rework",
@@ -99,9 +99,22 @@ test("a returned cut registers its response and re-freezes the delivery for the 
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
-    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "respond-rework" });
+    // The real writer runs in a worker thread, which copies its environment at open.
+    // Give that worker its own Git trace before opening it; later parent mocks/env edits cannot observe it.
+    const workerTrace = path.join(rootDir, "submit-git.trace"),
+      savedTrace = process.env.GIT_TRACE;
+    process.env.GIT_TRACE = workerTrace;
+    try {
+      cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "respond-rework" });
+    } finally {
+      if (savedTrace === undefined) delete process.env.GIT_TRACE;
+      else process.env.GIT_TRACE = savedTrace;
+    }
     const store = () => makeTaskEventReader({ repoId, rootDir }),
-      created = await cell.run({ kind: "task-create", taskId, title: "Respond rework" }, owner);
+      created = await cell.run(
+        { kind: "task-create", taskId, title: "Respond rework", presetId: "standard-task" },
+        owner,
+      );
     assert.equal(created.outcome, "applied", JSON.stringify(created));
     await waitForFixturePublication(cell, created.opId, owner);
     const packagePath = String((created as Record<string, unknown>).packagePath);
@@ -177,6 +190,69 @@ test("a returned cut registers its response and re-freezes the delivery for the 
       [RESPONSE_VALIDATOR],
       JSON.stringify(unknownFinding),
     );
+
+    // Exercise the real writer with dirty documents: refusal must precede both Git and
+    // doc-submit. Inspect actual process calls and accepted document events, never elapsed time.
+    await t.test("missing blocking responses reject before Git or doc-submit", async (probe) => {
+      assert.equal(
+        (created as Record<string, unknown>).outputShape,
+        "repository-diff",
+        "exercise the Git delivery path",
+      );
+      await cell.settlePendingMaterialization("submit preflight trace baseline");
+      writeCloseout(rootDir, taskId, packagePath, "two");
+      const reader = store(),
+        before = reader.read().events.length,
+        trace = workerTrace,
+        previousTrace = process.env.GIT_TRACE;
+      probe.after(() => reader.drain());
+      process.env.GIT_TRACE = trace;
+      let refused: Awaited<ReturnType<typeof cell.run>>;
+      try {
+        git(rootDir, "rev-parse", "HEAD");
+        assert.match(
+          readFileSync(trace, "utf8"),
+          /built-in: git rev-parse/u,
+          "the observer records a real Git process",
+        );
+        writeFileSync(trace, "");
+        refused = await cell.run({ kind: "task-submit", taskId, executionId: secondExecutionId }, currentWorker);
+      } finally {
+        if (previousTrace === undefined) delete process.env.GIT_TRACE;
+        else process.env.GIT_TRACE = previousTrace;
+      }
+      const calls = readFileSync(trace, "utf8").trim();
+      const documentCalls = reader
+        .read()
+        .events.slice(before)
+        .filter((event) => event.type === "documents_written");
+      probe.diagnostic(
+        JSON.stringify({
+          gitCalls: calls,
+          documentEvents: documentCalls.map(({ type }) => type),
+          code: refused.code,
+          rejectionExplanation: refused.rejectionExplanation,
+          nextActions: refused.nextActions,
+        }),
+      );
+      assert.equal(refused.outcome, "op_rejected", JSON.stringify(refused));
+      assert.equal(refused.code, "invalid_transition");
+      assert.equal(
+        refused.rejectionExplanation,
+        `submission must include exactly one response for blocking finding ${reviewId}/F1`,
+      );
+      assert.deepEqual(
+        refused.unmetCriteria?.map(({ ref }) => ref),
+        ["task-lifecycle-command-transitions/submit.validate"],
+      );
+      assert.deepEqual(refused.nextActions, [
+        `ha task release ${taskId} [--reason <reason>]`,
+        `ha task transition ${taskId} <planned|active|blocked|in_review|done|cancelled> [--reason <reason>] [--force]`,
+        `ha task respond-review ${taskId} --execution-id <execution-id> [--from-file <from-file>] [--json-input <json|@->]`,
+      ]);
+      assert.equal(calls, "", "rejected submit must not start any Git child process");
+      assert.deepEqual(documentCalls, [], "rejected submit must not run doc-submit on dirty documents");
+    });
 
     const correctedResponse = {
         ...findingResponse(reviewId, "F1"),

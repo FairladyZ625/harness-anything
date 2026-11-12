@@ -44,6 +44,7 @@ import type {
   ReworkTaskCommand,
   ReworkTaskProof,
   TaskLifecycleSnapshot,
+  TaskLifecycleCommand,
   Transition,
   TransitionResult,
   TransitionTaskCommand,
@@ -425,83 +426,61 @@ export const cancel: Transition = {
   },
   reduce: (snapshot, raw) => transitionTask(snapshot, raw as TransitionTaskCommand, "cancelled"),
 };
+function validateSubmitExecution(
+  snapshot: TaskLifecycleSnapshot,
+  raw: TaskLifecycleCommand,
+  rawProof: unknown,
+): ContractValidationIssue[] {
+  const command = raw as SubmitExecutionCommand,
+    proof = rawProof as Partial<SubmitExecutionProof>,
+    issues = revisionIssues(snapshot, command),
+    task = snapshot.task,
+    current = execution(snapshot, command.executionId),
+    lease = snapshot.lease,
+    amendment = command.amend === true,
+    ownerAmendment = command.asOwner === true && task !== null && isSamePerson(task.createdBy, command.actor);
+  issues.push(...submitExecutionStateIssues(snapshot, command, command.submission));
+  if (amendment) {
+    if (
+      lease !== null ||
+      !proof.actorBinding ||
+      !isSameExecution(proof.actorBinding, command.actor) ||
+      (current !== undefined && !isSameExecution(current.actor, command.actor) && !ownerAmendment) ||
+      proof.leaseVersion !== null ||
+      !["complete", "partial", "unavailable"].includes(String(proof.sessionDisposition))
+    )
+      issues.push(
+        lifecycleContractIssue("invalid_proof", "submission amendment must bind the unleased submitted execution"),
+      );
+  } else {
+    if (
+      !lease ||
+      lease.phase !== "held" ||
+      lease.executionId !== command.executionId ||
+      !isSameExecution(lease.actor, command.actor) ||
+      stableStringify(lease.source) !== stableStringify(command.source) ||
+      !proof.actorBinding ||
+      !isSameExecution(proof.actorBinding, command.actor) ||
+      proof.leaseVersion !== lease.version ||
+      !["complete", "partial", "unavailable"].includes(String(proof.sessionDisposition))
+    )
+      issues.push(lifecycleContractIssue("invalid_proof", "submit must own and atomically release the active lease"));
+  }
+  issues.push(...submitPresetSnapshotIssues(snapshot));
+  issues.push(...validateSubmissionV1(command.submission));
+  if (
+    command.submission.riskTierAssessment !== undefined &&
+    !isTaskRiskTierAssessmentNonDecreasing(command.submission.riskTierAssessment)
+  )
+    issues.push(lifecycleContractIssue("invalid_submission", "effective tier must not be below declared tier"));
+  issues.push(...reviewResponseSubmissionIssues(snapshot, command.submission.reviewResponses));
+  return issues;
+}
+
 export const submit: Transition = {
   actionId: "submit",
   matches: (command) => command.type === "SubmitExecution",
-  validate: (snapshot, raw, rawProof) => {
-    const command = raw as SubmitExecutionCommand,
-      proof = rawProof as Partial<SubmitExecutionProof>,
-      issues = revisionIssues(snapshot, command),
-      task = snapshot.task,
-      current = execution(snapshot, command.executionId),
-      lease = snapshot.lease,
-      amendment = command.amend === true,
-      ownerAmendment = command.asOwner === true && task !== null && isSamePerson(task.createdBy, command.actor);
-    if (currentExecutionArrangement(snapshot)?.ready === false)
-      issues.push(
-        lifecycleContractIssue("invalid_proof", "The previous execution is being handed off; its submission is fenced"),
-      );
-    if (amendment) {
-      if (
-        !task ||
-        !["submitted", "in_review"].includes(task.status) ||
-        task.currentNode !== "review" ||
-        current?.state !== "submitted" ||
-        !current.submission
-      )
-        issues.push(
-          lifecycleContractIssue("invalid_transition", "submission amendment requires the current submitted execution"),
-        );
-      else if (submissionId(current.submission) === submissionId(command.submission))
-        issues.push(lifecycleContractIssue("invalid_transition", "submission amendment must change the packet"));
-      if (
-        lease !== null ||
-        !proof.actorBinding ||
-        !isSameExecution(proof.actorBinding, command.actor) ||
-        (current !== undefined && !isSameExecution(current.actor, command.actor) && !ownerAmendment) ||
-        proof.leaseVersion !== null ||
-        !["complete", "partial", "unavailable"].includes(String(proof.sessionDisposition))
-      )
-        issues.push(
-          lifecycleContractIssue("invalid_proof", "submission amendment must bind the unleased submitted execution"),
-        );
-    } else {
-      if (!task || task.status !== "active" || task.currentNode !== "implementation" || current?.state !== "active")
-        issues.push(
-          lifecycleContractIssue("invalid_transition", "SubmitExecution requires the active current execution"),
-        );
-      if (
-        !lease ||
-        lease.phase !== "held" ||
-        lease.executionId !== command.executionId ||
-        !isSameExecution(lease.actor, command.actor) ||
-        stableStringify(lease.source) !== stableStringify(command.source) ||
-        !proof.actorBinding ||
-        !isSameExecution(proof.actorBinding, command.actor) ||
-        proof.leaseVersion !== lease.version ||
-        !["complete", "partial", "unavailable"].includes(String(proof.sessionDisposition))
-      )
-        issues.push(lifecycleContractIssue("invalid_proof", "submit must own and atomically release the active lease"));
-    }
-    if (task?.presetSnapshotGap) {
-      const gap = completionContractGap(task);
-      issues.push(
-        lifecycleContractIssue(
-          "invalid_submission",
-          `Historical snapshot bytes are unavailable: ${task.presetSnapshotDigest}. ` +
-            `Run ${gap?.action ?? "ha task contract migrate --task <task-id> --to-preset <preset> --apply"} before a new submission.`,
-        ),
-      );
-    }
-    issues.push(...validateSubmissionV1(command.submission));
-    if (
-      command.submission.riskTierAssessment !== undefined &&
-      !isTaskRiskTierAssessmentNonDecreasing(command.submission.riskTierAssessment)
-    )
-      issues.push(lifecycleContractIssue("invalid_submission", "effective tier must not be below declared tier"));
-    issues.push(...reviewResponseSubmissionIssues(snapshot, command.submission));
-    return issues;
-  },
+  validate: (snapshot, raw, rawProof) => validateSubmitExecution(snapshot, raw, rawProof),
   reduce: (snapshot, raw) => {
     const command = raw as SubmitExecutionCommand,
       current = execution(snapshot, command.executionId) as ExecutionV1,
@@ -542,12 +521,58 @@ export const submit: Transition = {
     };
   },
 };
-function reviewResponseSubmissionIssues(
+/** Admission facts available before deriving a delivery packet. The transition remains authoritative. */
+export function submitExecutionStateIssues(
   snapshot: TaskLifecycleSnapshot,
-  submission: SubmitExecutionCommand["submission"],
+  command: Pick<SubmitExecutionCommand, "executionId" | "amend">,
+  submission?: SubmitExecutionCommand["submission"],
 ): ContractValidationIssue[] {
-  const responses = submission.reviewResponses ?? [],
-    keys = new Set<string>(),
+  const issues: ContractValidationIssue[] = [],
+    task = snapshot.task,
+    current = execution(snapshot, command.executionId);
+  if (currentExecutionArrangement(snapshot)?.ready === false)
+    issues.push(
+      lifecycleContractIssue("invalid_proof", "The previous execution is being handed off; its submission is fenced"),
+    );
+  if (command.amend === true) {
+    if (
+      !task ||
+      !["submitted", "in_review"].includes(task.status) ||
+      task.currentNode !== "review" ||
+      current?.state !== "submitted" ||
+      !current.submission
+    )
+      issues.push(
+        lifecycleContractIssue("invalid_transition", "submission amendment requires the current submitted execution"),
+      );
+    else if (submission && submissionId(current.submission) === submissionId(submission))
+      issues.push(lifecycleContractIssue("invalid_transition", "submission amendment must change the packet"));
+  } else if (!task || task.status !== "active" || task.currentNode !== "implementation" || current?.state !== "active")
+    issues.push(lifecycleContractIssue("invalid_transition", "SubmitExecution requires the active current execution"));
+  return issues;
+}
+
+export function submitPresetSnapshotIssues(snapshot: TaskLifecycleSnapshot): ContractValidationIssue[] {
+  const issues: ContractValidationIssue[] = [],
+    task = snapshot.task;
+  if (task?.presetSnapshotGap) {
+    const gap = completionContractGap(task);
+    issues.push(
+      lifecycleContractIssue(
+        "invalid_submission",
+        `Historical snapshot bytes are unavailable: ${task.presetSnapshotDigest}. ` +
+          `Run ${gap?.action ?? "ha task contract migrate --task <task-id> --to-preset <preset> --apply"} before a new submission.`,
+      ),
+    );
+  }
+  return issues;
+}
+
+export function reviewResponseSubmissionIssues(
+  snapshot: TaskLifecycleSnapshot,
+  responses: SubmitExecutionCommand["submission"]["reviewResponses"] = [],
+): ContractValidationIssue[] {
+  const keys = new Set<string>(),
     issues: ContractValidationIssue[] = [];
   for (const response of responses) {
     const key = `${response.reviewId}\0${response.findingId}`;
