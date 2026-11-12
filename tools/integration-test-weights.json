@@ -360,6 +360,7 @@
   "packages/daemon/test/studio-capabilities.integration.test.ts": 23700,
   "packages/daemon/test/submit-review-cli.integration.test.ts": 8000,
   "packages/daemon/test/submit-review-dispatch.integration.test.ts": 144300,
+  "packages/daemon/test/submit-risk-manifest.integration.test.ts": 81500,
   "packages/daemon/test/submit-task-worktree-documents.integration.test.ts": 5200,
   "packages/daemon/test/task-action-explanation-read.integration.test.ts": 27500,
   "packages/daemon/test/task-claimable.integration.test.ts": 14500,
