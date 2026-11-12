@@ -901,13 +901,8 @@ export async function openRepoWriterCell(
             releaseAction,
             startBinding,
             `runtime-rejected-${runtimeSessionId}`,
-          ),
-          released = await operationalContext.taskSurfaceWrite(releaseAction, releaseBinding);
-        if (released.outcome !== "applied")
-          throw cellCodedError(
-            released.code ?? "runtime_lease_release_failed",
-            "The unused dispatch lease could not be released.",
           );
+        operationalContext.taskSurfaceWrite(releaseAction, releaseBinding);
       },
     };
   };

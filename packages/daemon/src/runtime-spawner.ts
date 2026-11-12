@@ -851,7 +851,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       // attach takes none: it never asks for the handoff, so the frozen round's lease state stays untouched.
       taskLeaseHandoff =
         taskId && !input.remote && !reviewerBinding && !readOnlyAttach ? input.handoffTaskLease : undefined;
-      const handoff = taskLeaseHandoff
+      const leaseHandoff = taskLeaseHandoff
         ? await taskLeaseHandoff({
             taskId: taskId!,
             runtimeSessionId,
@@ -860,8 +860,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             binding,
           })
         : null;
-      activeBinding = handoff?.binding ?? binding;
-      releaseUnadmittedLease = handoff?.releaseUnadmittedLease;
+      activeBinding = leaseHandoff?.binding ?? binding;
+      releaseUnadmittedLease = leaseHandoff?.releaseUnadmittedLease;
       const lease = taskId && !input.remote ? projection!.currentLease(taskId) : null;
       if (
         taskId &&

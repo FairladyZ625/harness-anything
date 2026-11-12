@@ -181,6 +181,18 @@ test("self escalation settles in the writer before one resolve and a plain redis
     assert.equal(denied.code, "execution_credential_rejected", JSON.stringify(denied));
     const resolved = await resolving;
     assert.equal(resolved.outcome, "applied", JSON.stringify(resolved));
+    const outcomes = events().filter((event) => event.type === "runtime_session_outcome_observed");
+    assert.equal(outcomes.length, 2, "the refused worker answer must not append an outcome");
+    assert.equal(
+      outcomes[1]!.payload.resultRef,
+      outcomes[0]!.payload.resultRef,
+      "owner resolution preserves the stopped attempt's result",
+    );
+    assert.deepEqual(
+      outcomes[1]!.payload.runtimeMetrics,
+      outcomes[0]!.payload.runtimeMetrics,
+      "owner resolution preserves its usage evidence",
+    );
     const lifecycle = await cell.readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatchId] });
     assert.equal(lifecycle.status, "ready");
     if (lifecycle.status === "ready") {

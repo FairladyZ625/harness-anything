@@ -25,6 +25,7 @@ import {
 import { validateAgentRuntimeOverview } from "../src/agent-runtime-contract.ts";
 import { makeAgentRuntimeStreamHub } from "../src/agent-runtime-stream.ts";
 import { readFleetRuntimeSessionsPaged } from "../src/fleet-edge-runtime.ts";
+import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 import {
   daemonGuiReadMethods,
   daemonStreamFacets,
@@ -140,7 +141,7 @@ test("historical runtime sessions with no snapshot event degrade without failing
     assert.deepEqual(validateAgentRuntimeOverview(overview), []);
   }));
 
-test("runtime status reports unknown without local process evidence, for local and remote owners", () =>
+test("runtime status reports unknown without local process evidence, for local and remote owners", (t) =>
   withRuntime(({ rootDir, store, projection }) => {
     const dispatchId = "dispatch_abcdefabcdefabcdefabcdef",
       projectionForDispatch = (source?: { readonly kind: "node"; readonly nodeId: string }) =>
@@ -182,7 +183,8 @@ test("runtime status reports unknown without local process evidence, for local a
       instanceId: "instance-runtime",
       startedAt: new Date().toISOString(),
     });
-    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: process.pid });
+    const worker = fixtureRuntimeProcess(t);
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: worker.pid });
     assert.equal(
       readRuntimeSessionActivityEvidence(rootDir, dispatchId)?.workerHostAlive,
       true,

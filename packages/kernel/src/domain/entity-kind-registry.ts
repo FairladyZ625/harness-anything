@@ -1001,6 +1001,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
       sources: [
       { candidateId: "policy:packages/daemon:packages/daemon/src/repo-cell-task-mutation.ts#taskMutation:4254517165b44213a35c3638508ba56d", route: "packages/daemon/src/repo-cell-task-mutation.ts#taskMutation" },
       { candidateId: "policy:packages/daemon:packages/daemon/src/repo-cell-task-mutation.ts#taskMutation:c2a07f207dff3812d7cd929fca87048e", route: "packages/daemon/src/repo-cell-task-mutation.ts#taskMutation" },
+      { candidateId: "policy:packages/daemon:packages/daemon/src/repo-cell-open.ts#openRepoWriterCell.releaseUnadmittedLease.releaseAction:1548d05acb20300aa42a5aa0827c30db", route: "rejected dispatch → task/release with the exact claimOpId" },
       ],
     }, {
       id: "submit-lease-proof", ownerRef: "task", unit: "SubmitExecution proof",

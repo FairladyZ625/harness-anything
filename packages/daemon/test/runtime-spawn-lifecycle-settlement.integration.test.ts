@@ -560,7 +560,15 @@ test(
             (event) =>
               event.type === "runtime_dispatch_requested" && event.payload.dispatchKey === "pre-session-start-failure",
           ),
-          preSessionRuntimeSessionId = preSessionDispatch?.payload.runtimeSessionId;
+          preSessionClaim = preSessionEvents.findLast(
+            (event) => event.type === "execution_started" && event.taskId === preSessionTaskId,
+          ),
+          preSessionRuntimeSessionId =
+            preSessionClaim?.type === "execution_started"
+              ? preSessionClaim.payload.lease.actor.executor?.id.slice("runtime-session:".length)
+              : undefined;
+        // dec_AEB05951C69E47FCE53E53C341 CH1: refused admission must not invent an attempt to release its unused claim.
+        assert.equal(preSessionDispatch, undefined, "preparation failure must not publish a ghost dispatch");
         assert.equal(typeof preSessionRuntimeSessionId, "string");
         const preSessionExitedIndex = preSessionEvents.findIndex(
             (event) =>
@@ -571,8 +579,7 @@ test(
               event.type === "runtime_session_started" && event.payload.runtimeSessionId === preSessionRuntimeSessionId,
           ),
           preSessionReleasedIndex = preSessionEvents.findIndex(
-            (event, index) =>
-              index > preSessionExitedIndex && event.type === "lease_released" && event.taskId === preSessionTaskId,
+            (event) => event.type === "lease_released" && event.taskId === preSessionTaskId,
           ),
           preSessionProjection = makeTaskProjection({
             rootDir: root,
@@ -582,11 +589,8 @@ test(
         try {
           preSessionProjection.catchUp();
           assert.equal(preSessionStarted, false, "pre-session failure must precede session-start acceptance");
-          assert.ok(preSessionExitedIndex >= 0, "pre-session cleanup must accept the canonical stop proof");
-          assert.ok(
-            preSessionReleasedIndex > preSessionExitedIndex,
-            "pre-session cleanup releases the lease only after stop proof",
-          );
+          assert.equal(preSessionExitedIndex, -1, "an unlaunched runtime has no process stop event");
+          assert.ok(preSessionReleasedIndex >= 0, "refused admission releases its exact unused lease claim");
           assert.equal(preSessionProjection.read(preSessionTaskId).snapshot.lease, null);
           const lifecycle = preSessionProjection.readDispatchLifecycle({
             by: "session",
@@ -594,8 +598,16 @@ test(
           });
           assert.equal(lifecycle.status, "ready");
           if (lifecycle.status === "ready") {
-            assert.equal(lifecycle.rows[0]?.policy.attemptSettled, true);
-            assert.equal(lifecycle.rows[0]?.attempt.outcome, "failed");
+            assert.equal(lifecycle.rows.length, 0, "refused admission creates no lifecycle attempt");
+            assert.equal(
+              preSessionEvents.some(
+                (event) =>
+                  event.type === "runtime_session_outcome_observed" &&
+                  event.payload.runtimeSessionId === preSessionRuntimeSessionId,
+              ),
+              false,
+              "there is no fabricated terminal outcome",
+            );
           }
         } finally {
           preSessionProjection.close();

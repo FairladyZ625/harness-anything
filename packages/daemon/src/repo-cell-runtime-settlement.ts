@@ -67,7 +67,7 @@ export async function commitRuntimeSettlement(
       page.rows.some(
         (row) =>
           row.attemptGroupId !== current.attemptGroupId &&
-          row.groupPhase !== "closed" &&
+          !row.policy.groupSettled &&
           !row.policy.canResolveRuling &&
           row.attempt.task?.taskId === task.taskId &&
           row.attempt.task.executionId === task.executionId &&

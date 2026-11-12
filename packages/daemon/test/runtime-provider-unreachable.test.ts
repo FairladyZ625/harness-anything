@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 import type {
   AgentRuntimeEventV1,
   RuntimeInstallation,
@@ -148,8 +149,9 @@ function projection(startedAt: string, providerUnreachable: RuntimeProviderUnrea
   } as unknown as TaskProjection;
 }
 
-test("provider reconnect frames surface as stalled, keep last progress and the raw error, and clear on recovery", () => {
+test("provider reconnect frames surface as stalled, keep last progress and the raw error, and clear on recovery", (t) => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "ha-provider-unreachable-")),
+    worker = fixtureRuntimeProcess(t),
     now = Date.now(),
     startedAt = new Date(now - 30 * 60_000).toISOString(),
     progressAt = new Date(now - 20 * 60_000).toISOString(),
@@ -176,7 +178,7 @@ test("provider reconnect frames surface as stalled, keep last progress and the r
     appendRuntimeWorkerRecord(rootDir, dispatchId, {
       kind: "process_started",
       occurredAt: startedAt,
-      pid: process.pid,
+      pid: worker.pid,
     });
     // A real turn starts, then the provider reports a failed connection. The reconnect must not
     // move the progress clock: that bug is what kept the runtime looking "thinking" for 2h16m.
@@ -224,8 +226,9 @@ test("provider reconnect frames surface as stalled, keep last progress and the r
   }
 });
 
-test("bounded summary keeps the exact last real progress when reconnect frames overflow the tail window", () => {
+test("bounded summary keeps the exact last real progress when reconnect frames overflow the tail window", (t) => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "ha-provider-long-stream-")),
+    worker = fixtureRuntimeProcess(t),
     now = Date.now(),
     startedAt = new Date(now - 60 * 60_000).toISOString(),
     recentProgressAt = new Date(now - 60_000).toISOString(),
@@ -245,7 +248,7 @@ test("bounded summary keeps the exact last real progress when reconnect frames o
     appendRuntimeWorkerRecord(rootDir, dispatchId, {
       kind: "process_started",
       occurredAt: startedAt,
-      pid: process.pid,
+      pid: worker.pid,
     });
     // Push the recent real progress beyond the 16KB head window without adding a newer event.
     appendRuntimeWorkerRecord(rootDir, dispatchId, {
@@ -294,8 +297,9 @@ test("bounded summary keeps the exact last real progress when reconnect frames o
   }
 });
 
-test("legacy reconnect tails without a progress stamp use a conservative bound and do not fire early", () => {
+test("legacy reconnect tails without a progress stamp use a conservative bound and do not fire early", (t) => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "ha-provider-legacy-stream-")),
+    worker = fixtureRuntimeProcess(t),
     now = Date.now(),
     startedAt = new Date(now - 60 * 60_000).toISOString(),
     recentProgressAt = new Date(now - 60_000).toISOString(),
@@ -315,7 +319,7 @@ test("legacy reconnect tails without a progress stamp use a conservative bound a
     appendRuntimeWorkerRecord(rootDir, dispatchId, {
       kind: "process_started",
       occurredAt: startedAt,
-      pid: process.pid,
+      pid: worker.pid,
     });
     appendRuntimeWorkerRecord(rootDir, dispatchId, {
       kind: "provider_event",
@@ -694,8 +698,9 @@ test("remote fleet adoption reads the replica unsettled set and clears the repor
   }
 });
 
-test("an old head marker does not mask a newer tail progress stamp", () => {
+test("an old head marker does not mask a newer tail progress stamp", (t) => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "ha-provider-marker-order-")),
+    worker = fixtureRuntimeProcess(t),
     now = Date.now(),
     startedAt = new Date(now - 60 * 60_000).toISOString(),
     oldMarkerAt = new Date(now - 40 * 60_000).toISOString(),
@@ -716,7 +721,7 @@ test("an old head marker does not mask a newer tail progress stamp", () => {
     appendRuntimeWorkerRecord(rootDir, dispatchId, {
       kind: "process_started",
       occurredAt: startedAt,
-      pid: process.pid,
+      pid: worker.pid,
     });
     // An old daemon marker sits in the head window.
     appendRuntimeWorkerRecord(rootDir, dispatchId, {

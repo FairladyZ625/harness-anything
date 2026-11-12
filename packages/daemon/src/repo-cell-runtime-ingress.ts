@@ -308,7 +308,14 @@ export function appendAuxiliaryRuntimeIngress(
       binding.authorizationDecision!,
       () => publicationKillpoints(cell.input.killpoint),
     );
-    return { ...receipt, opId: value.opId, event: value } as unknown as JsonObject;
+    return {
+      schema: "command-receipt/v2",
+      ok: receipt.outcome === "applied",
+      command: "runtime-ingress",
+      ...receipt,
+      opId: value.opId,
+      event: value,
+    } as unknown as JsonObject;
   }
   cell.store.append({
     event: value,
