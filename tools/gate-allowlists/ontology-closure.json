@@ -29104,30 +29104,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "judgment:tools:tools/check-docs-release-map.mjs#validateReadmePrivateBoundary:1c7ae1814fc13d78834f982209b854e0",
-        "category": "judgment",
-        "path": "tools/check-docs-release-map.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateReadmePrivateBoundary; branches=2; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/check-docs-release-map.mjs#validateReadmePrivateBoundary:1c7ae1814fc13d78834f982209b854e0",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/check-docs-release-map.mjs#validateLocalLinks:6206d1d73687f556337864e159580d58",
-        "category": "judgment",
-        "path": "tools/check-docs-release-map.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateLocalLinks; branches=4; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/check-docs-release-map.mjs#validateLocalLinks:6206d1d73687f556337864e159580d58",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/check-domain-judgment-single-definition.mjs#scanDispatchLifecycleObservationSites.add.fingerprint:3f4b06f4413994f9c8905df870d7189d",
         "category": "action",
         "path": "tools/check-domain-judgment-single-definition.mjs",
@@ -29140,18 +29116,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "judgment:tools:tools/check-fallback-boundaries.mjs#isFullHistoryCall:6cc09f85c2ba48e55f83c8d6c0937683",
-        "category": "judgment",
-        "path": "tools/check-fallback-boundaries.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped isFullHistoryCall; branches=5; booleanReturns=3",
-        "exemptionId": "judgment:tools:tools/check-fallback-boundaries.mjs#isFullHistoryCall:6cc09f85c2ba48e55f83c8d6c0937683",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/check-fallback-boundaries.mjs#<module>:c6278e84e541b9f01426cdcb78f230dc",
         "category": "action",
         "path": "tools/check-fallback-boundaries.mjs",
@@ -29160,78 +29124,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: writeFile() may change state or trigger execution",
         "exemptionId": "action:tools:tools/check-fallback-boundaries.mjs#<module>:c6278e84e541b9f01426cdcb78f230dc",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/check-gate-manifest-invariants.mjs#checkProtectedSurfaceCoverage:c3b68ccf23fcd873b78fc1533a2b8905",
-        "category": "judgment",
-        "path": "tools/check-gate-manifest-invariants.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped checkProtectedSurfaceCoverage; branches=3; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/check-gate-manifest-invariants.mjs#checkProtectedSurfaceCoverage:c3b68ccf23fcd873b78fc1533a2b8905",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/check-import-boundaries.mjs#checkOrphanPackageModules:55f5060778fd9cf995dd8d9284f067c0",
-        "category": "judgment",
-        "path": "tools/check-import-boundaries.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped checkOrphanPackageModules; branches=17; booleanReturns=7",
-        "exemptionId": "judgment:tools:tools/check-import-boundaries.mjs#checkOrphanPackageModules:55f5060778fd9cf995dd8d9284f067c0",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/check-integration-test-shards.mjs#validateIntegrationShardWorkflowMatrix:f09821df367c7ab3513aa89e0dac72a2",
-        "category": "judgment",
-        "path": "tools/check-integration-test-shards.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateIntegrationShardWorkflowMatrix; branches=2; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/check-integration-test-shards.mjs#validateIntegrationShardWorkflowMatrix:f09821df367c7ab3513aa89e0dac72a2",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/check-integration-test-shards.mjs#validateIntegrationShardRequiredContexts:9cbb9142d8468247e9600bbd3218f908",
-        "category": "judgment",
-        "path": "tools/check-integration-test-shards.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateIntegrationShardRequiredContexts; branches=6; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/check-integration-test-shards.mjs#validateIntegrationShardRequiredContexts:9cbb9142d8468247e9600bbd3218f908",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/check-integration-test-shards.mjs#validateIntentionalTestDeletions:a9c7238e2cc2415caea07e1a910f3cde",
-        "category": "judgment",
-        "path": "tools/check-integration-test-shards.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateIntentionalTestDeletions; branches=7; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/check-integration-test-shards.mjs#validateIntentionalTestDeletions:a9c7238e2cc2415caea07e1a910f3cde",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/check-kernel-dead-exports.mjs#isKernelImport:b94e840ed5b4100e811ee260ac782546",
-        "category": "judgment",
-        "path": "tools/check-kernel-dead-exports.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped isKernelImport; branches=3; booleanReturns=3",
-        "exemptionId": "judgment:tools:tools/check-kernel-dead-exports.mjs#isKernelImport:b94e840ed5b4100e811ee260ac782546",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -29280,18 +29172,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: rmSync() may change state or trigger execution",
         "exemptionId": "action:tools:tools/check-legacy-intake-readiness.mjs#runGitCheckIgnoreChunk:7f97d2fdcfbc6aefb02ca16c73f65a00",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/check-locale-content.mjs#hasFiles:d8b4e1266c541a947591e0049d090ce9",
-        "category": "judgment",
-        "path": "tools/check-locale-content.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped hasFiles; branches=1; booleanReturns=1",
-        "exemptionId": "judgment:tools:tools/check-locale-content.mjs#hasFiles:d8b4e1266c541a947591e0049d090ce9",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -29536,66 +29416,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "judgment:tools:tools/check-schema-field-coverage.mjs#checkEntityFieldCoverage:93a90c685758c20b158f7c24de400bbf",
-        "category": "judgment",
-        "path": "tools/check-schema-field-coverage.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped checkEntityFieldCoverage; branches=19; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/check-schema-field-coverage.mjs#checkEntityFieldCoverage:93a90c685758c20b158f7c24de400bbf",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/check-status-vocabulary.mjs#checkInlineFieldCoverage:0f89353e5a32849f8a8b2e3aca4cda37",
-        "category": "judgment",
-        "path": "tools/check-status-vocabulary.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped checkInlineFieldCoverage; branches=8; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/check-status-vocabulary.mjs#checkInlineFieldCoverage:0f89353e5a32849f8a8b2e3aca4cda37",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/check-status-vocabulary.mjs#checkStatusVocabularyCoverage:6c858c8e4bddd02b6fb2349d096cdb3e",
-        "category": "judgment",
-        "path": "tools/check-status-vocabulary.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped checkStatusVocabularyCoverage; branches=14; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/check-status-vocabulary.mjs#checkStatusVocabularyCoverage:6c858c8e4bddd02b6fb2349d096cdb3e",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/check-status-vocabulary.mjs#isAnchorImportedElsewhere:5f910eb70db47701022b86ba29961630",
-        "category": "judgment",
-        "path": "tools/check-status-vocabulary.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped isAnchorImportedElsewhere; branches=5; booleanReturns=2",
-        "exemptionId": "judgment:tools:tools/check-status-vocabulary.mjs#isAnchorImportedElsewhere:5f910eb70db47701022b86ba29961630",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/check-status-vocabulary.mjs#hasPersistentWrite:6e4e7540622aaae288b53a985268a3a3",
-        "category": "judgment",
-        "path": "tools/check-status-vocabulary.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped hasPersistentWrite; branches=3; booleanReturns=3",
-        "exemptionId": "judgment:tools:tools/check-status-vocabulary.mjs#hasPersistentWrite:6e4e7540622aaae288b53a985268a3a3",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/check-supply-chain.mjs#sbomOutput:b1ce588e6149dfb994e07782807a1129",
         "category": "action",
         "path": "tools/check-supply-chain.mjs",
@@ -29604,114 +29424,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: run() may change state or trigger execution",
         "exemptionId": "action:tools:tools/check-supply-chain.mjs#sbomOutput:b1ce588e6149dfb994e07782807a1129",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/check-supply-chain.mjs#validatePackageMetadata:95b437d1ade7772b96d447d0affb4d38",
-        "category": "judgment",
-        "path": "tools/check-supply-chain.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validatePackageMetadata; branches=8; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/check-supply-chain.mjs#validatePackageMetadata:95b437d1ade7772b96d447d0affb4d38",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/check-supply-chain.mjs#validatePublicReadyPackageMetadata:3e174f9105b5a39c4171b4e325a9fde3",
-        "category": "judgment",
-        "path": "tools/check-supply-chain.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validatePublicReadyPackageMetadata; branches=7; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/check-supply-chain.mjs#validatePublicReadyPackageMetadata:3e174f9105b5a39c4171b4e325a9fde3",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/check-supply-chain.mjs#validatePackageLock:846b7ad85981aa0863c7bd9b6c048465",
-        "category": "judgment",
-        "path": "tools/check-supply-chain.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validatePackageLock; branches=9; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/check-supply-chain.mjs#validatePackageLock:846b7ad85981aa0863c7bd9b6c048465",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/check-supply-chain.mjs#validateDependabot:86887c6b516dc176fe5d174952416daa",
-        "category": "judgment",
-        "path": "tools/check-supply-chain.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateDependabot; branches=3; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/check-supply-chain.mjs#validateDependabot:86887c6b516dc176fe5d174952416daa",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/check-supply-chain.mjs#validateDocsAndWorkflow:eb4d4eb3b3771cdd28069963ee89fa45",
-        "category": "judgment",
-        "path": "tools/check-supply-chain.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateDocsAndWorkflow; branches=2; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/check-supply-chain.mjs#validateDocsAndWorkflow:eb4d4eb3b3771cdd28069963ee89fa45",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/check-supply-chain.mjs#validateSbom:d0043c6fb20e4a6c523480699a00392a",
-        "category": "judgment",
-        "path": "tools/check-supply-chain.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateSbom; branches=6; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/check-supply-chain.mjs#validateSbom:d0043c6fb20e4a6c523480699a00392a",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/check-supply-chain.mjs#isAllowedDependencyLicense:7373b5eed290460f6dd1550d6e45c491",
-        "category": "judgment",
-        "path": "tools/check-supply-chain.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped isAllowedDependencyLicense; branches=1; booleanReturns=1",
-        "exemptionId": "judgment:tools:tools/check-supply-chain.mjs#isAllowedDependencyLicense:7373b5eed290460f6dd1550d6e45c491",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/check-template-command-surface.mjs#hasFiles:d8b4e1266c541a947591e0049d090ce9",
-        "category": "judgment",
-        "path": "tools/check-template-command-surface.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped hasFiles; branches=1; booleanReturns=1",
-        "exemptionId": "judgment:tools:tools/check-template-command-surface.mjs#hasFiles:d8b4e1266c541a947591e0049d090ce9",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/check-write-road-registry.mjs#hasWritableSqliteConstructionSite:fa28757ec4468e080b39d6fd7f47b83b",
-        "category": "judgment",
-        "path": "tools/check-write-road-registry.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped hasWritableSqliteConstructionSite; branches=1; booleanReturns=2",
-        "exemptionId": "judgment:tools:tools/check-write-road-registry.mjs#hasWritableSqliteConstructionSite:fa28757ec4468e080b39d6fd7f47b83b",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -29736,18 +29448,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: update() may change state or trigger execution",
         "exemptionId": "action:tools:tools/ci/electron-runtime.mjs#electronCacheDirectory:bcc284a1fc36def479b6c3a553a4f5c6",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/ci/electron-runtime.mjs#hasZipMagic:1fe08a7e2358f6719628d5b90b54f82a",
-        "category": "judgment",
-        "path": "tools/ci/electron-runtime.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped hasZipMagic; branches=2; booleanReturns=1",
-        "exemptionId": "judgment:tools:tools/ci/electron-runtime.mjs#hasZipMagic:1fe08a7e2358f6719628d5b90b54f82a",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -30076,42 +29776,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "judgment:tools:tools/gate-allowlists/load-gate-allowlist.mjs#validateEntryTree:fc6f8e2358d3ff304ab36cd844302572",
-        "category": "judgment",
-        "path": "tools/gate-allowlists/load-gate-allowlist.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateEntryTree; branches=2; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/gate-allowlists/load-gate-allowlist.mjs#validateEntryTree:fc6f8e2358d3ff304ab36cd844302572",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/gate-allowlists/load-gate-allowlist.mjs#validateEntry:235bced2ea119d1773ece827a3689e29",
-        "category": "judgment",
-        "path": "tools/gate-allowlists/load-gate-allowlist.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateEntry; branches=4; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/gate-allowlists/load-gate-allowlist.mjs#validateEntry:235bced2ea119d1773ece827a3689e29",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/gates/authorization-flow-trace.mjs#makeAuthorizationTracer.derived:82d6a563eb5977f127bfd66b3bfeee25",
-        "category": "judgment",
-        "path": "tools/gates/authorization-flow-trace.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped derived; branches=10; booleanReturns=3",
-        "exemptionId": "judgment:tools:tools/gates/authorization-flow-trace.mjs#makeAuthorizationTracer.derived:82d6a563eb5977f127bfd66b3bfeee25",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/gates/authorization-flow-trace.mjs#makeAuthorizationTracer.traceDescriptor.visit:1eac277935cdb8eca8746986f90055e4",
         "category": "action",
         "path": "tools/gates/authorization-flow-trace.mjs",
@@ -30156,30 +29820,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: update() may change state or trigger execution",
         "exemptionId": "action:tools:tools/gates/authorization-provider-boundary.mjs#providerLineFingerprint:3af3461df438d6c33b9b341f9691dddf",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/gates/canonical-event-compat.mjs#validateCanonicalFixtureChanges:9afc32a55ae6943fd668a894332b3b1c",
-        "category": "judgment",
-        "path": "tools/gates/canonical-event-compat.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateCanonicalFixtureChanges; branches=6; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/gates/canonical-event-compat.mjs#validateCanonicalFixtureChanges:9afc32a55ae6943fd668a894332b3b1c",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/gates/canonical-event-compat.mjs#validateFrozenCanonicalEvents:2582637f1b90aac672a331c73402f7e5",
-        "category": "judgment",
-        "path": "tools/gates/canonical-event-compat.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateFrozenCanonicalEvents; branches=16; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/gates/canonical-event-compat.mjs#validateFrozenCanonicalEvents:2582637f1b90aac672a331c73402f7e5",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -30240,30 +29880,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: rmSync() may change state or trigger execution",
         "exemptionId": "action:tools:tools/gates/canonical-event-compat.mjs#projectFrozenDaemonResponses:adafbf90e7de339d1089ee2fde9068a2",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/gates/canonical-event-compat.mjs#validateProjectedDaemonResponses:e6d4158eebcb5cf4cf32e4dd62e449f6",
-        "category": "judgment",
-        "path": "tools/gates/canonical-event-compat.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateProjectedDaemonResponses; branches=2; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/gates/canonical-event-compat.mjs#validateProjectedDaemonResponses:e6d4158eebcb5cf4cf32e4dd62e449f6",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/gates/canonical-event-compat.mjs#validateFrozenDaemonReadside:42645a4e56c1b426dd674804bd2489eb",
-        "category": "judgment",
-        "path": "tools/gates/canonical-event-compat.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateFrozenDaemonReadside; branches=2; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/gates/canonical-event-compat.mjs#validateFrozenDaemonReadside:42645a4e56c1b426dd674804bd2489eb",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -30340,18 +29956,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "judgment:tools:tools/gates/cost-budget.mjs#validateMetricMap:24db0398026749da2291e98b7235b171",
-        "category": "judgment",
-        "path": "tools/gates/cost-budget.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateMetricMap; branches=3; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/gates/cost-budget.mjs#validateMetricMap:24db0398026749da2291e98b7235b171",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/gates/cost-budget.mjs#measureProjectionRebuild:993bd809507d4cd45ed0185330aaf94e",
         "category": "action",
         "path": "tools/gates/cost-budget.mjs",
@@ -30372,18 +29976,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: append() may change state or trigger execution",
         "exemptionId": "action:tools:tools/gates/cost-budget.mjs#measureProjectionRebuild:766e193fc233a1d8dc72555108501fc3",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/gates/cost-budget.mjs#validateG1OperationMap:6e99fb9031d1b407a40c4949dea43c8e",
-        "category": "judgment",
-        "path": "tools/gates/cost-budget.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateG1OperationMap; branches=4; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/gates/cost-budget.mjs#validateG1OperationMap:6e99fb9031d1b407a40c4949dea43c8e",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -30412,90 +30004,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "judgment:tools:tools/gates/dependency-policy.mjs#validateLockfile:626c9d6e20e6171b50a45409c3f9e525",
-        "category": "judgment",
-        "path": "tools/gates/dependency-policy.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateLockfile; branches=5; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/gates/dependency-policy.mjs#validateLockfile:626c9d6e20e6171b50a45409c3f9e525",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/gates/derived-contracts.mjs#validateCliCommandInputs:12bae5335aaad1e762accb54debd9841",
-        "category": "judgment",
-        "path": "tools/gates/derived-contracts.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateCliCommandInputs; branches=7; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/gates/derived-contracts.mjs#validateCliCommandInputs:12bae5335aaad1e762accb54debd9841",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/gates/derived-contracts.mjs#assertPhaseAppendOnly:40df835dd01780ba602a16cfd96dd2b3",
-        "category": "judgment",
-        "path": "tools/gates/derived-contracts.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped assertPhaseAppendOnly; branches=2; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/gates/derived-contracts.mjs#assertPhaseAppendOnly:40df835dd01780ba602a16cfd96dd2b3",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/gates/derived-contracts.mjs#validateWorkflowProjection:74665fa3f2d46fa861e12ddcfe243fcb",
-        "category": "judgment",
-        "path": "tools/gates/derived-contracts.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateWorkflowProjection; branches=9; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/gates/derived-contracts.mjs#validateWorkflowProjection:74665fa3f2d46fa861e12ddcfe243fcb",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/gates/derived-contracts.mjs#validateDerivedContracts:5003a82cf18883bca104bc9d5d8b2dfe",
-        "category": "judgment",
-        "path": "tools/gates/derived-contracts.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateDerivedContracts; branches=10; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/gates/derived-contracts.mjs#validateDerivedContracts:5003a82cf18883bca104bc9d5d8b2dfe",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/gates/entity-id-links.mjs#isActivatableElement:edd84a8d6d44b4c570f3258b1b2345a2",
-        "category": "judgment",
-        "path": "tools/gates/entity-id-links.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped isActivatableElement; branches=5; booleanReturns=4",
-        "exemptionId": "judgment:tools:tools/gates/entity-id-links.mjs#isActivatableElement:edd84a8d6d44b4c570f3258b1b2345a2",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/gates/entity-id-links.mjs#hasActivatableAncestor:c1b40639ff110c5a92c54b65a7d350c8",
-        "category": "judgment",
-        "path": "tools/gates/entity-id-links.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped hasActivatableAncestor; branches=1; booleanReturns=2",
-        "exemptionId": "judgment:tools:tools/gates/entity-id-links.mjs#hasActivatableAncestor:c1b40639ff110c5a92c54b65a7d350c8",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/gates/eslint-rules/no-swallowed-failure.js#contentHash:f893be47d4243e8385792b15695da48a",
         "category": "action",
         "path": "tools/gates/eslint-rules/no-swallowed-failure.js",
@@ -30520,54 +30028,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "judgment:tools:tools/gates/evidence-contract.mjs#validateEvidenceBody:aac26dfc4f24f079537888136ae8a3e1",
-        "category": "judgment",
-        "path": "tools/gates/evidence-contract.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateEvidenceBody; branches=9; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/gates/evidence-contract.mjs#validateEvidenceBody:aac26dfc4f24f079537888136ae8a3e1",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/gates/import-cycle-graph.mjs#isValueDeclaration:89969ee81be240bbd6cee0e592c55922",
-        "category": "judgment",
-        "path": "tools/gates/import-cycle-graph.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped isValueDeclaration; branches=1; booleanReturns=1",
-        "exemptionId": "judgment:tools:tools/gates/import-cycle-graph.mjs#isValueDeclaration:89969ee81be240bbd6cee0e592c55922",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/gates/import-cycle-graph.mjs#isTypePosition:f34229b2ef904a1253fb554a9ade0d45",
-        "category": "judgment",
-        "path": "tools/gates/import-cycle-graph.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped isTypePosition; branches=3; booleanReturns=3",
-        "exemptionId": "judgment:tools:tools/gates/import-cycle-graph.mjs#isTypePosition:f34229b2ef904a1253fb554a9ade0d45",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/gates/import-cycle-graph.mjs#isMemberNamePosition:395e5e049e45ae6fe41e534f7d0adc61",
-        "category": "judgment",
-        "path": "tools/gates/import-cycle-graph.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped isMemberNamePosition; branches=10; booleanReturns=11",
-        "exemptionId": "judgment:tools:tools/gates/import-cycle-graph.mjs#isMemberNamePosition:395e5e049e45ae6fe41e534f7d0adc61",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/gates/import-cycle-graph.mjs#stronglyConnectedComponents.strongConnect:434b6ab508f8aa39e89e6c109814caea",
         "category": "action",
         "path": "tools/gates/import-cycle-graph.mjs",
@@ -30576,18 +30036,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: delete() may change state or trigger execution",
         "exemptionId": "action:tools:tools/gates/import-cycle-graph.mjs#stronglyConnectedComponents.strongConnect:434b6ab508f8aa39e89e6c109814caea",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/gates/ontology-closure-audit.mjs#validateClosureBaseline:98729e36f7c0f6446d0ae042374c6aec",
-        "category": "judgment",
-        "path": "tools/gates/ontology-closure-audit.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateClosureBaseline; branches=5; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/gates/ontology-closure-audit.mjs#validateClosureBaseline:98729e36f7c0f6446d0ae042374c6aec",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -30628,18 +30076,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "judgment:tools:tools/gates/ontology-kind-authority.mjs#validateOperationalStore:2128d9ae91f4c52cf9e702c2d1df384d",
-        "category": "judgment",
-        "path": "tools/gates/ontology-kind-authority.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateOperationalStore; branches=4; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/gates/ontology-kind-authority.mjs#validateOperationalStore:2128d9ae91f4c52cf9e702c2d1df384d",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/gates/production-delta.mjs#reportComputedDelta:9ea27a44f572af95f8221c54bd0e5573",
         "category": "action",
         "path": "tools/gates/production-delta.mjs",
@@ -30660,18 +30096,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: update() may change state or trigger execution",
         "exemptionId": "action:tools:tools/gates/receipt-verify.mjs#signReceipt:567a8699abbecee9cd9c3fa9a200f5f6",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/gates/receipt-verify.mjs#validateReceiptSchema:863e6ec3989af726604da9100ea9ed74",
-        "category": "judgment",
-        "path": "tools/gates/receipt-verify.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateReceiptSchema; branches=9; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/gates/receipt-verify.mjs#validateReceiptSchema:863e6ec3989af726604da9100ea9ed74",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -30748,18 +30172,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "judgment:tools:tools/gates/schema-closure.mjs#validateSchemaClosure:d57d377296c0e1ac2dbe97dd31b0cb2b",
-        "category": "judgment",
-        "path": "tools/gates/schema-closure.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateSchemaClosure; branches=9; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/gates/schema-closure.mjs#validateSchemaClosure:d57d377296c0e1ac2dbe97dd31b0cb2b",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/gates/state-residency.mjs#finding.digest:fde6027e18350fed38b01c2061a88804",
         "category": "action",
         "path": "tools/gates/state-residency.mjs",
@@ -30768,18 +30180,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: update() may change state or trigger execution",
         "exemptionId": "action:tools:tools/gates/state-residency.mjs#finding.digest:fde6027e18350fed38b01c2061a88804",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/gates/syntax-boundary-utils.mjs#isProductionSource:6e022cc1a822529bfb9e33b124433034",
-        "category": "judgment",
-        "path": "tools/gates/syntax-boundary-utils.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped isProductionSource; branches=2; booleanReturns=1",
-        "exemptionId": "judgment:tools:tools/gates/syntax-boundary-utils.mjs#isProductionSource:6e022cc1a822529bfb9e33b124433034",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -30876,18 +30276,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: writeFileSync() may change state or trigger execution",
         "exemptionId": "action:tools:tools/gui-e2e.mjs#main:4f0a13c67b8e4e1187d0f9e04a7a1022",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/integration-test-shards.mjs#validateIntegrationTestShards:4b4a5203e7f04764be9f0c627b94cd85",
-        "category": "judgment",
-        "path": "tools/integration-test-shards.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateIntegrationTestShards; branches=9; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/integration-test-shards.mjs#validateIntegrationTestShards:4b4a5203e7f04764be9f0c627b94cd85",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -31344,42 +30732,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: delete() may change state or trigger execution",
         "exemptionId": "action:tools:tools/measure-gui-read-baseline.mjs#pairDaemonRequests:601acbee567c6d6505f5187beb378d23",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/node-test-failure-reporter.mjs#isTestFailureWrapper:69ff4ed259540cc2efe2560fd81217bd",
-        "category": "judgment",
-        "path": "tools/node-test-failure-reporter.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped isTestFailureWrapper; branches=1; booleanReturns=1",
-        "exemptionId": "judgment:tools:tools/node-test-failure-reporter.mjs#isTestFailureWrapper:69ff4ed259540cc2efe2560fd81217bd",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/node-test-runner-lib.mjs#coverageReporterArgs:888649c2ac0eb8dbec9cdca11df53152",
-        "category": "judgment",
-        "path": "tools/node-test-runner-lib.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped coverageReporterArgs; branches=1; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/node-test-runner-lib.mjs#coverageReporterArgs:888649c2ac0eb8dbec9cdca11df53152",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/node-test-runner-lib.mjs#validateManifest:75f37cb6e1f0f09b5c820e512ee8b7e6",
-        "category": "judgment",
-        "path": "tools/node-test-runner-lib.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateManifest; branches=3; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/node-test-runner-lib.mjs#validateManifest:75f37cb6e1f0f09b5c820e512ee8b7e6",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -32236,18 +31588,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "judgment:tools:tools/public-workspaces.mjs#assertPublicDependencyClosure:ca9fd04ccbf53ae46e8a5aaea1aa3578",
-        "category": "judgment",
-        "path": "tools/public-workspaces.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped assertPublicDependencyClosure; branches=2; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/public-workspaces.mjs#assertPublicDependencyClosure:ca9fd04ccbf53ae46e8a5aaea1aa3578",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/public-workspaces.mjs#publicWorkspaceNamesTopologically.visit:34da76f88e1dd672f44594fa3a071938",
         "category": "action",
         "path": "tools/public-workspaces.mjs",
@@ -32568,18 +31908,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: rmSync() may change state or trigger execution",
         "exemptionId": "action:tools:tools/run-local-check.mjs#acquireLock:8d07d7746aed3a43d027ea3c0c3e6fec:2",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/run-manifest-gates.mjs#validateLocalPathGlobs:4edea96400e14262a47a383aedf9a6f6",
-        "category": "judgment",
-        "path": "tools/run-manifest-gates.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateLocalPathGlobs; branches=1; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/run-manifest-gates.mjs#validateLocalPathGlobs:4edea96400e14262a47a383aedf9a6f6",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -33376,18 +32704,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "judgment:tools:tools/scale/cli-entity-bench.report.mjs#coverage:a16f3aa9c966c84b6b1ffddf3de4e4d0",
-        "category": "judgment",
-        "path": "tools/scale/cli-entity-bench.report.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped coverage; branches=1; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/scale/cli-entity-bench.report.mjs#coverage:a16f3aa9c966c84b6b1ffddf3de4e4d0",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/scale/cli-entity-bench.workload.mjs#nonce:e12dfa488326ae21981cbd35c6f54785",
         "category": "action",
         "path": "tools/scale/cli-entity-bench.workload.mjs",
@@ -33832,18 +33148,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "judgment:tools:tools/smoke-cli-package.mjs#assertUnstartableDaemonFailedClosed:c628c4232ddf6700ae43ecffa6a691fa",
-        "category": "judgment",
-        "path": "tools/smoke-cli-package.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped assertUnstartableDaemonFailedClosed; branches=4; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/smoke-cli-package.mjs#assertUnstartableDaemonFailedClosed:c628c4232ddf6700ae43ecffa6a691fa",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/smoke-cli-package.mjs#runJson.result:c520951b69be645559aee0d0fe47a36e",
         "category": "action",
         "path": "tools/smoke-cli-package.mjs",
@@ -34144,18 +33448,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "judgment:tools:tools/stress/core/oracles.mjs#validateAcceptedRange:60e63358ff29fdd49d16fdc8b4d6e647",
-        "category": "judgment",
-        "path": "tools/stress/core/oracles.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateAcceptedRange; branches=5; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/stress/core/oracles.mjs#validateAcceptedRange:60e63358ff29fdd49d16fdc8b4d6e647",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/stress/core/receipt-log.mjs#openReceiptLog:79afce2a5881faca7e080fa4f54d1b17",
         "category": "action",
         "path": "tools/stress/core/receipt-log.mjs",
@@ -34200,18 +33492,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: append() may change state or trigger execution",
         "exemptionId": "action:tools:tools/stress/core/receipt-log.mjs#openReceiptLog.close:a775f678bfab198689673d35232b20d7",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/stress/core/receipt-log.mjs#assertOutside:096407304ffa72d84cf86ae0e943681c",
-        "category": "judgment",
-        "path": "tools/stress/core/receipt-log.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped assertOutside; branches=1; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/stress/core/receipt-log.mjs#assertOutside:096407304ffa72d84cf86ae0e943681c",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       },
@@ -35020,30 +34300,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "judgment:tools:tools/sync-runtime-skills.mjs#assertSkillTarget:e633b226d2a5011ed4d885e05a3c832f",
-        "category": "judgment",
-        "path": "tools/sync-runtime-skills.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped assertSkillTarget; branches=2; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/sync-runtime-skills.mjs#assertSkillTarget:e633b226d2a5011ed4d885e05a3c832f",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/task-risk-floor.mjs#isProductionPath:7e6008d5955ba06b8b4b4c1bba00ae7f",
-        "category": "judgment",
-        "path": "tools/task-risk-floor.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped isProductionPath; branches=1; booleanReturns=1",
-        "exemptionId": "judgment:tools:tools/task-risk-floor.mjs#isProductionPath:7e6008d5955ba06b8b4b4c1bba00ae7f",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "action:tools:tools/task-risk-floor.mjs#main:d6041af412b76b230008ba5685699b97",
         "category": "action",
         "path": "tools/task-risk-floor.mjs",
@@ -35160,54 +34416,6 @@
         "ref": "dec_7E44897ECDCAEF2B92EC66A260",
         "reason": "Repository tooling/schema mechanics rather than a domain operation: spawn() may change state or trigger execution",
         "exemptionId": "action:tools:tools/test-fixtures/watchdog-signal-order.mjs#<module>:023c177399c2dc5abe51665d38e73632",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/test-quarantine.mjs#validateTestQuarantine:b4fc84b8e390d087e862d76bbb6d66fb",
-        "category": "judgment",
-        "path": "tools/test-quarantine.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateTestQuarantine; branches=8; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/test-quarantine.mjs#validateTestQuarantine:b4fc84b8e390d087e862d76bbb6d66fb",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/tool-command-contract.mjs#validateNonNegativeInteger:d55563b5984088fbd27a4a34d83cfb11",
-        "category": "judgment",
-        "path": "tools/tool-command-contract.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateNonNegativeInteger; branches=1; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/tool-command-contract.mjs#validateNonNegativeInteger:d55563b5984088fbd27a4a34d83cfb11",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/tool-command-contract.mjs#validateTestPrefix:3b961934dca71ba82463044b559f9c75",
-        "category": "judgment",
-        "path": "tools/tool-command-contract.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateTestPrefix; branches=1; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/tool-command-contract.mjs#validateTestPrefix:3b961934dca71ba82463044b559f9c75",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "judgment:tools:tools/tool-command-contract.mjs#validateTestFile:e06045b5f7ae3593c7899f004b138537",
-        "category": "judgment",
-        "path": "tools/tool-command-contract.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: predicate-shaped validateTestFile; branches=1; booleanReturns=0",
-        "exemptionId": "judgment:tools:tools/tool-command-contract.mjs#validateTestFile:e06045b5f7ae3593c7899f004b138537",
         "reviewer": "sol initial classification; closeout-reviewer approval required",
         "expiresOn": "2027-02-11"
       }

@@ -589,6 +589,34 @@ test("gui judgment candidates leave the migration baseline", () => {
   );
 });
 
+// dec_7E44897ECDCAEF2B92EC66A260/CH1 S2f: tools engineering contracts are owned
+// by their exact helpers and cannot return as frozen judgment debt.
+test("tools judgment candidates leave the migration baseline and undeclared helpers fail closed", () => {
+  const baseline = loadGateAllowlist("ontology-closure", {
+    allowlistRoot: path.join(repoRoot, "tools/gate-allowlists"),
+    report: false,
+  }).candidates;
+  assert.deepEqual(
+    baseline.filter((row) => row.category === "judgment" && row.owner === "tools"),
+    [],
+  );
+
+  const snapshot = loadOntologyClosureSnapshot(repoRoot);
+  const undeclared = scanOntologyText(
+    "tools/unregistered-judgment.mjs",
+    "export function isUnregisteredToolRow(v) { if (!v || typeof v !== 'object') return false; return 'ok' in v; }\n",
+  );
+  assert.equal(undeclared.length, 1);
+  assert.deepEqual(
+    audit(undeclared, { snapshot }).findings.map((row) => row.code),
+    ["ONTOLOGY_JUDGMENT_UNDECLARED"],
+  );
+  assert.deepEqual(
+    audit(undeclared, { snapshot, baseline: [debt(undeclared[0])], previous: [] }).findings.map((row) => row.code),
+    ["ONTOLOGY_BASELINE_GROWTH"],
+  );
+});
+
 // dec_7E44897ECDCAEF2B92EC66A260/CH1 S3c: technical tool settings are not domain defaults.
 test("tool technical syntax is classified without relaxing identical product policies", () => {
   const cases = JSON.parse(
