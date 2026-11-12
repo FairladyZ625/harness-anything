@@ -1,4 +1,4 @@
-import { dshBrokerPolicy } from "@harness-anything/kernel/internal/domain/dsh-plugin-policy.ts";
+import { dshBrokerPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { readFileSync, statSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";

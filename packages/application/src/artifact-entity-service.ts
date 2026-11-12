@@ -1,4 +1,4 @@
-import { artifactLocatorPolicy } from "@harness-anything/kernel/internal/domain/application-policy.ts";
+import { artifactLocatorPolicy } from "@harness-anything/kernel/internal/domain/task-submission-policy.ts";
 import {
   artifactLocatorKinds,
   artifactEntityContractSnapshot,

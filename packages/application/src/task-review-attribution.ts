@@ -1,4 +1,4 @@
-import { taskReviewAttributionPolicy } from "@harness-anything/kernel/internal/domain/application-policy.ts";
+import { taskReviewAttributionPolicy } from "@harness-anything/kernel/internal/domain/task-submission-policy.ts";
 import {
   isSameExecution,
   runtimeSessionIdFromActor,

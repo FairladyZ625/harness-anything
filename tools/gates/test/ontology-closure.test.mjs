@@ -140,13 +140,13 @@ test("leaf Policy bindings preserve defaults and distinguish exact presentation 
   const snapshot = loadOntologyClosureSnapshot(repoRoot);
   for (const [target, from, to] of [
     [
-      "packages/kernel/src/domain/application-policy.ts",
+      "packages/kernel/src/domain/task-submission-policy.ts",
       'snapshotAdmissionKind: "repository-path"',
       'snapshotAdmissionKind: "url"',
     ],
-    ["packages/kernel/src/domain/application-policy.ts", "pageLimit: 100", "pageLimit: 101"],
-    ["packages/kernel/src/domain/dsh-plugin-policy.ts", "outputLimit: 1_000_000", "outputLimit: 1_000_001"],
-    ["packages/kernel/src/domain/dsh-plugin-policy.ts", "terminationGraceMs: 5_000", "terminationGraceMs: 5_001"],
+    ["packages/kernel/src/domain/task-submission-policy.ts", "pageLimit: 100", "pageLimit: 101"],
+    ["packages/kernel/src/domain/cli-operational-policy.ts", "outputLimit: 1_000_000", "outputLimit: 1_000_001"],
+    ["packages/kernel/src/domain/cli-operational-policy.ts", "terminationGraceMs: 5_000", "terminationGraceMs: 5_001"],
     [
       "packages/authorization-builtin/src/builtin-policy-adapter.ts",
       'policyRef = "builtin-policy@1"',
