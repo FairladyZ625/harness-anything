@@ -910,10 +910,7 @@ export function openFleetEdgeRuntime(input: {
             surfaces: executionSurfaces,
           });
         }
-        const sanitizedReceipt = {
-          ...receipt,
-          ...(typeof executionPrincipalId === "string" ? { executionPrincipalId } : {}),
-        } as JsonObject;
+        const sanitizedReceipt = receipt as JsonObject;
         if (draft.type === "runtime_session_cancelled" && typeof draft.payload.runtimeSessionId === "string")
           runtimeControlReceipts.set(draft.payload.runtimeSessionId, sanitizedReceipt);
         return {
