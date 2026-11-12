@@ -7,11 +7,13 @@ import test from "node:test";
 import {
   compileTaskLifecycleWrite,
   applyTransition,
+  emptyTaskLifecycleSnapshot,
   lifecycleDocumentPaths,
   normalizeTaskLifecycleCommand,
   sha256Text,
   submissionDigest,
 } from "@harness-anything/kernel";
+import { reduceTaskEvent } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
 import { openSqliteEventStore } from "@harness-anything/storage";
 import { executionId, fixture, taskId } from "./task-completion-review.fixture.ts";
 
@@ -32,11 +34,15 @@ async function deliveryFixture(t: test.TestContext) {
 }
 
 async function seedLegacyCut(f: Awaited<ReturnType<typeof fixture>>) {
-  const shown = await f.run({ kind: "task-show", taskId }),
-    snapshot = JSON.parse(String(shown.evidence)),
-    original = f.events().findLast((event) => event.type === "execution_submitted");
+  let snapshot = emptyTaskLifecycleSnapshot();
+  for (const event of f.events()) {
+    if ((event.schema === "task-event/v1" || event.schema === "task-bootstrap-event/v1") && event.taskId === taskId)
+      snapshot = reduceTaskEvent(snapshot, event);
+  }
+  const original = f.events().findLast((event) => event.type === "execution_submitted");
   assert.ok(original?.type === "execution_submitted");
   const frozen = original.payload.execution.submission!;
+  assert.ok(frozen.riskTierAssessment, "the modern seed owns its frozen assessment");
   const { riskTierAssessment: _assessment, ...legacy } = frozen;
   await f.cell().settlePendingMaterialization("seed historical risk-less cut");
   await f.cell().close();
@@ -55,7 +61,6 @@ async function seedLegacyCut(f: Awaited<ReturnType<typeof fixture>>) {
           { type: "SubmitExecution", taskId, executionId, submission: legacy, amend: true },
         ),
         eventId: sha256Text("historical-risk-less-submission"),
-        opId: "historical-risk-less-submission",
         workspaceRevision: store.revision() + 1,
         occurredAt: new Date().toISOString(),
       },
@@ -67,7 +72,7 @@ async function seedLegacyCut(f: Awaited<ReturnType<typeof fixture>>) {
       event = changed.event,
       written = compileTaskLifecycleWrite({
         event,
-        snapshot: changed.snapshot,
+        snapshot: reduceTaskEvent(snapshot, event),
         packagePath: f.packagePath,
         currentDocuments: lifecycleDocumentPaths(event, f.packagePath).flatMap((target) => {
           const head = store.documentHead(target);
@@ -108,6 +113,7 @@ for (const legacy of [false, true]) {
       const cuts = () => f.events().filter((event) => event.type === "execution_submitted"),
         frozen = cuts().at(-1)!;
       assert.ok(frozen.type === "execution_submitted");
+      assert.equal(frozen.payload.execution.submission?.riskTierAssessment === undefined, legacy);
       const count = cuts().length,
         manifest = path.join(f.root, "tools", "task-risk-manifest.json");
       mkdirSync(path.dirname(manifest), { recursive: true });
