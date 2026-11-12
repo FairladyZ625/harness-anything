@@ -17,9 +17,8 @@ test(
     f.observe("archive-guard-input", before);
     assert.equal(before.liveExists, true);
     assert.equal(before.archiveExists, false);
-    assert.notEqual(before.evidenceSidecar, "pending");
-    assert.notEqual(before.evidenceSummary, "pending");
-    assert.ok(before.evidenceTrackingVersion !== 1 || before.evidenceSidecar !== null);
+    assert.equal(before.evidenceSidecar, "stored");
+    assert.equal(before.evidenceSummary, "stored");
     f.releaseTerminal();
     const after = await f.awaitArchive();
     f.observe("archive-complete", after);
@@ -32,10 +31,10 @@ test(
 );
 
 test(
-  "reproducer: canonical terminal alone does not establish the original final probe premise",
+  "terminal scope refusal precedes local identity retirement and the strict entry refusal",
   { timeout: 120_000 },
   async (t) => {
-    assert.equal(legalControlPassed, true, "the legal side must pass before the controlled counterexample");
+    assert.equal(legalControlPassed, true, "the archived control must pass before the held-terminal case");
     const f = await settledIdentityFixture(t, "terminal-live");
     assert.equal((await f.direct()).outcome, "applied");
     await f.finish();
@@ -45,22 +44,28 @@ test(
     assert.equal(before.archiveExists, false);
     assert.equal(before.principalReadable, true);
     assert.equal(before.unexpired, true);
-    assert.notEqual(before.evidenceSidecar, "pending");
-    assert.notEqual(before.evidenceSummary, "pending");
-    assert.ok(before.evidenceTrackingVersion !== 1 || before.evidenceSidecar !== null);
+    assert.equal(before.evidenceSidecar, "stored");
+    assert.equal(before.evidenceSummary, "stored");
+    // Start the same wait consumed by the logout probe while the accepted response is held.
+    // The completed call sequence below proves the consumer enters only after release/archive.
+    const archivedProbe = (async () => {
+      await f.awaitArchive();
+      const after = f.state(),
+        entered = f.observe("retired-consumer-entered", after);
+      return { after, entered, receipt: await f.direct() };
+    })();
     const liveReceipt = await f.direct();
     assert.equal(liveReceipt.code, "execution_credential_rejected", JSON.stringify(liveReceipt));
     assert.match(String(liveReceipt.rejectionExplanation), /^Execution request is outside its dispatch scope\./u);
     assert.equal((liveReceipt.authorizationDecision as { outcome: string }).outcome, "allowed");
-    f.releaseTerminal();
-    const after = await f.awaitArchive();
-    f.observe("controlled-archive-input", after);
+    const released = f.releaseTerminal();
+    const { after, entered, receipt: archivedReceipt } = await archivedProbe;
+    assert.equal(archivedReceipt.code, "authorization_denied", JSON.stringify(archivedReceipt));
+    assert.match(String(archivedReceipt.rejectionExplanation), /unknown or expired on this edge runtime/u);
+    assert.ok(entered.sequence > released.sequence, "the consumer must enter after the held response is released");
+    assert.equal(after.liveExists, false);
+    assert.equal(after.archiveExists, true);
     assert.equal(after.principalReadable, false);
     assert.equal(after.unexpired, true);
-    const archivedReceipt = await f.direct();
-    assert.equal(archivedReceipt.code, "authorization_denied", JSON.stringify(archivedReceipt));
-    // Expected-red observation draft: preserve the original strict final assertion on its
-    // terminal-only premise. This is not a permanent prevention gate or a semantic ruling.
-    assert.equal(liveReceipt.code, "authorization_denied", JSON.stringify(liveReceipt));
   },
 );

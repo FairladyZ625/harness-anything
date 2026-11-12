@@ -1,17 +1,13 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { once } from "node:events";
 import { createServer } from "node:net";
 import path from "node:path";
 import type { TestContext } from "node:test";
-import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { waitForArrival, watchDirectoryArrival } from "../../../../../tools/fixtures/event-arrival.ts";
 import { requestDaemonJsonRpcAt } from "../../../src/client/local-json-rpc-client.ts";
-import { readDispatchEvidenceState } from "../../../src/dispatch-evidence-state.ts";
-import { readDispatchStreamSummary } from "../../../src/dispatch-stream.ts";
 import { applyFleetMirrorCut } from "../../../src/fleet-edge-mirror.ts";
 import { listenFleetTls } from "../../../src/fleet/center.ts";
-import { readRuntimeExecutionPrincipal } from "../../../src/runtime-execution-principal-store.ts";
 import { authenticateRuntimeExecutionPrincipal } from "../../../src/runtime-execution-credential.ts";
 import { startDaemon } from "../../../src/runtime.ts";
 import { fleetFixture, git } from "../../fleet-runtime-recovery.fixtures.ts";
@@ -21,6 +17,7 @@ import { catchUpReplica } from "../../replica-catch-up.fixture.ts";
 import { registerBootstrappedDaemonRepo } from "../../repo-settings.fixture.ts";
 import { spawnCli } from "../runtime-ingress.ts";
 import { writeProviderExecutable } from "../runtime-stub.ts";
+import { readLocalIdentity, waitForLocalIdentityRetirement } from "./local-identity.ts";
 
 function signal<T>() {
   let resolve!: (value: T) => void;
@@ -265,25 +262,13 @@ export async function settledIdentityFixture(t: TestContext, label: string) {
   const env = await environment.promise;
   const credential = env.HARNESS_EXECUTION_CREDENTIAL;
   assert.ok(credential);
-  const live = path.join(resolveHarnessLayout(edgeRoot).localRoot, "runtime/dispatches", `${dispatchId}.jsonl`),
-    archived = path.join(path.dirname(live), "archive", path.basename(live));
-  const state = () => {
-    const summary = readDispatchStreamSummary(edgeRoot, dispatchId),
-      principal = readRuntimeExecutionPrincipal(edgeRoot, credential);
-    return {
-      live,
-      archived,
-      liveExists: existsSync(live),
-      archiveExists: existsSync(archived),
-      principalReadable: principal !== null,
-      principalDispatchId: principal?.dispatchId ?? null,
-      unexpired: Date.parse(env.HARNESS_EXECUTION_EXPIRES_AT!) > Date.now(),
-      evidenceSidecar: readDispatchEvidenceState(edgeRoot, dispatchId),
-      evidenceSummary: summary?.evidenceState ?? null,
-      evidenceTrackingVersion: summary?.header.evidenceTrackingVersion ?? null,
-      localTerminal: summary?.terminalOutcome?.payload.outcome ?? null,
-    };
+  const identity = {
+    rootDir: edgeRoot,
+    dispatchId,
+    credential,
+    expiresAt: env.HARNESS_EXECUTION_EXPIRES_AT!,
   };
+  const state = () => readLocalIdentity(identity);
   const direct = async () => {
     const result = await spawnCli(
       [
@@ -328,10 +313,11 @@ export async function settledIdentityFixture(t: TestContext, label: string) {
     return read;
   };
   const releaseTerminal = () => {
-    observe("release-requested", { dispatchId });
+    const entry = observe("release-requested", { dispatchId });
     release.resolve();
+    return entry;
   };
   const awaitArchive = () =>
-    waitForArrival(() => (existsSync(archived) && !existsSync(live) ? state() : null), watchDirectoryArrival(f.root));
+    waitForLocalIdentityRetirement(identity, (value) => observe("identity-retirement-observed", value));
   return { observe, state, direct, lifecycle, finish, releaseTerminal, awaitArchive };
 }
