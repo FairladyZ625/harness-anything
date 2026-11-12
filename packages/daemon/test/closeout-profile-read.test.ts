@@ -113,7 +113,12 @@ function projection(
   requireMerged = false,
   outputShape: string | null = "repository-diff",
 ): TaskProjectionQueries {
+  const reviewReads = {
+    readRuntimeDispatchesByTaskExecution: () => [],
+    readRuntimeSessionEventsByType: () => [],
+  } satisfies Pick<TaskProjectionQueries, "readRuntimeDispatchesByTaskExecution" | "readRuntimeSessionEventsByType">;
   return {
+    ...reviewReads,
     read: () => ({
       snapshot: submitted,
       packagePath: "harness/tasks/task-1",
@@ -178,6 +183,7 @@ test("strict profile read side keeps demanding review and consent", () => {
   });
   assert.equal(Object.hasOwn(context.closeoutGates, "fact"), false);
   assert.equal(strictSubmitted.task?.status, "in_review");
+  assert.deepEqual(context.activeReviewDispatchIds, []);
   assert.equal(taskCompletionNext(strictSubmitted, context).blocker?.code, "review_pending");
 });
 

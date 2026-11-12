@@ -73,7 +73,7 @@ export async function runTaskCommandWithDocs(
     const current = await cell.service.read(taskId),
       decision = taskCompletionNext(
         current.snapshot,
-        readCompletionContext(cell.projection, taskId, current.snapshot, current.status, cell.rootDir),
+        readCompletionContext(cell.projection, taskId, current.snapshot, current.status, cell.rootDir, binding.actor),
         typeof taskAction.executionId === "string" ? taskAction.executionId : undefined,
       );
     if (decision.blocker)
@@ -249,7 +249,14 @@ export async function runTaskCommandWithDocs(
   const current = await cell.service.read(taskId);
   let completionExecutionId: string | null = null;
   if (taskAction.kind === "task-complete" && taskAction.resolvedBy === undefined) {
-    const context = readCompletionContext(cell.projection, taskId, current.snapshot, current.status, cell.rootDir),
+    const context = readCompletionContext(
+        cell.projection,
+        taskId,
+        current.snapshot,
+        current.status,
+        cell.rootDir,
+        binding.actor,
+      ),
       decision = taskCompletionNext(
         current.snapshot,
         context,

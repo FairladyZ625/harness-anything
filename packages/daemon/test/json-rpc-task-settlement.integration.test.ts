@@ -82,12 +82,42 @@ test("work-closeout uses the normal completion facade, review, and gates exactly
     initRepo(rootDir); mkdirSync(path.join(rootDir, "harness"), { recursive: true }); writeFileSync(path.join(rootDir, "harness/harness.yaml"), "settings:\n  closeout:\n    profile: strict\n"); /* The completion facade is a strict-profile closeout gate. */ cell = await openRepoCell({ repoId: workspaceId("completion-facade"), rootDir: canonicalRoot(rootDir), ownerId: "completion-daemon" }); await seedBuiltinSchedules({ cell, binding: repoWriteBinding }); const store = () => makeTaskEventReader({ repoId: "completion-facade", rootDir });
     const created = await cell.run({ kind: "task-create", taskId, title: "Completion facade", presetId: "work-closeout", riskTier: "high" }, binding); const createdVisible = await waitForAcceptedReceipt(cell, created, binding); assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible)); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding)); await cell.run({ kind: "task-start", taskId, executionId }, binding);
     const activeRow = (await cell.read("repo.tasks.list")).rows.find((row) => row.taskId === taskId)!,
-      guiActive = (await cell.read("repo.tasks.completion.read", { taskId })).completionNext, eventsBefore = store().read().events,
+      guiActive = (await cell.read("repo.tasks.completion.read", { taskId }, binding)).completionNext,
+      eventsBefore = store().read().events,
       dispatchesBefore = readDispatchStreamHeaders(rootDir).length;
     const shown = await cell.run({ kind: "task-show", taskId }, binding);
     assert.deepEqual(JSON.parse(shown.evidence!).completionNext, guiActive);
+    const neutralActive = (await cell.read("repo.tasks.completion.read", { taskId })).completionNext;
+    assert.match(neutralActive.reason, /held by person-owner/u);
+    assert.doesNotMatch(neutralActive.reason, /held by you/u);
     assert.equal(Object.hasOwn(activeRow, "completionNext"), false);
-    const activeRevision = store().read().revision, active = await cell.run({ kind: "task-complete", taskId, executionId }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: active.outcome, code: active.code, stoppedAt: active.stoppedAt, next: active.next }, { outcome: "op_rejected", code: "not_in_review", stoppedAt: "not_in_review", next: [{ action: `ha task submit ${taskId}`, reason: `Fill harness/${packagePath}/closeout.md with the verified delivery before submitting execution ${executionId}; the execution is held by ${actor.executor!.id}.`, authority: actor.executor!.id, readCut: { revision: (active.next as { readCut: { revision: number } }[])[0]!.readCut.revision, iteration: 0, executionId } }] }); assert.equal(store().read().revision, activeRevision); assert.deepEqual((active.next as unknown[])[0], guiActive);
+    const activeRevision = store().read().revision,
+      active = (await cell.run({ kind: "task-complete", taskId, executionId }, binding)) as unknown as Record<
+        string,
+        unknown
+      >;
+    assert.deepEqual(
+      { outcome: active.outcome, code: active.code, stoppedAt: active.stoppedAt, next: active.next },
+      {
+        outcome: "op_rejected",
+        code: "not_in_review",
+        stoppedAt: "not_in_review",
+        next: [
+          {
+            action: `ha task submit ${taskId}`,
+            reason: `The execution lease is held by you (${actor.principal.personId}, executor=${actor.executor.id}, execution=${executionId}). Fill harness/${packagePath}/closeout.md with the verified delivery before submitting execution ${executionId}.`,
+            authority: actor.executor!.id,
+            readCut: {
+              revision: (active.next as { readCut: { revision: number } }[])[0]!.readCut.revision,
+              iteration: 0,
+              executionId,
+            },
+          },
+        ],
+      },
+    );
+    assert.equal(store().read().revision, activeRevision);
+    assert.deepEqual((active.next as unknown[])[0], guiActive);
     const carriedActive = await cell.run({ kind: "task-complete", taskId, docChanges: [] }, binding) as unknown as Record<string, unknown>;
     assert.deepEqual(carriedActive.next, active.next);
     assert.deepEqual(store().read().events, eventsBefore);
