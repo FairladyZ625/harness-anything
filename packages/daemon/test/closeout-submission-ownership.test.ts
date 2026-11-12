@@ -112,7 +112,7 @@ test("a task without its own commit delivers accepted artifacts, not the baselin
     [{ path: `${packagePath}/artifacts/report.md`, revision: 7 }],
   );
   assert.deepEqual(packet.deliverables, []);
-  assert.deepEqual(packet.outputs, [`Artifact-Anchor: ${packagePath}/artifacts/report.md@7`]);
+  assert.deepEqual(packet.outputs, []);
   assert.equal(packet.artifacts?.length, 1);
   assert.deepEqual(
     (

@@ -147,14 +147,14 @@ export function finalizeCloseoutSubmission(
   }
   const { commitSha, deliverables, outputs: commitOutputs, changedFiles, productionDelta } = prepared.facts!;
   // Deliverables stay paths of the delivery commit: anchored in-package artifacts ride in the
-  // artifacts field and outputs lines so commit-based gates never verify ledger paths against
+  // artifacts field so commit-based gates never verify ledger paths against
   // the public cut.
   const delivery = {
     ...prose,
     ...(artifacts.length ? { artifacts } : {}),
     deliverables,
     ...(changedFiles ? { changedFiles } : {}),
-    outputs: [...commitOutputs, ...artifacts.map((anchor) => `Artifact-Anchor: ${anchor.path}@${anchor.revision}`)],
+    outputs: commitOutputs,
     ...(productionDelta ? { productionDelta } : {}),
     ...(frozenReviewResponses === undefined ? {} : { reviewResponses: frozenReviewResponses }),
   };
@@ -625,7 +625,7 @@ export async function submitTask(
       prepared.delivery,
       undefined,
       undefined,
-      Boolean(selected?.submission),
+      Boolean(selected?.submission) && action.amend !== true,
     );
   if (!derived.ok)
     return submissionStopped(
@@ -763,9 +763,18 @@ export function readCloseoutSubmission(
       preserveLegacyCut = args[7] === true,
       [cell, taskId, executionId, snapshot] = deriveArgs,
       derived = finalizeCloseoutSubmission(...deriveArgs);
-    const frozen = snapshot.executions.find((execution) => execution.executionId === executionId)?.submission,
-      sameCut = sameFrozenSubmissionCut(derived.submission, frozen),
-      legacyFrozenCut = preserveLegacyCut && isLegacyFrozenSubmissionCut(derived.submission, frozen),
+    const frozen = snapshot.executions.find((execution) => execution.executionId === executionId)?.submission;
+    // Resume old cuts byte-for-byte, but only if their non-artifact outputs still match.
+    // Amendments use the new construction above; artifacts remain part of the exact cut comparison.
+    const candidate =
+        preserveLegacyCut &&
+        frozen &&
+        stableStringify(derived.submission.outputs) ===
+          stableStringify(frozen.outputs.filter((output) => !output.startsWith("Artifact-Anchor: ")))
+          ? { ...derived.submission, outputs: frozen.outputs }
+          : derived.submission,
+      sameCut = sameFrozenSubmissionCut(candidate, frozen),
+      legacyFrozenCut = preserveLegacyCut && isLegacyFrozenSubmissionCut(candidate, frozen),
       riskTierAssessment = legacyFrozenCut
         ? undefined
         : sameCut && frozen?.riskTierAssessment
@@ -784,7 +793,7 @@ export function readCloseoutSubmission(
               return risk.assessment;
             })(),
       submission: SubmissionV1 = submissionForRiskTierRetry(
-        derived.submission,
+        candidate,
         frozen,
         riskTierAssessment,
         () => riskTierCompletionContract(derived.submission.completionContract, riskTierAssessment),

@@ -5,7 +5,7 @@ import { mkdtempSync, renameSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { submissionAnchorDriftWarnings, submissionStopped } from "../src/repo-cell-submit.ts";
+import { sameFrozenSubmissionCut, submissionAnchorDriftWarnings, submissionStopped } from "../src/repo-cell-submit.ts";
 import { deriveCloseoutSubmission, readCloseoutSubmission } from "./closeout-submission.fixture.ts";
 
 import {
@@ -37,6 +37,7 @@ test("explicit structured commit derives mixed deletion evidence without a dispa
 test("repository delivery automatically freezes accepted report without a Summary anchor", async (t) => {
   const { root } = fixture(t),
     { store, blobSha256 } = artifactStore();
+  rmSync(path.join(root, "src/old.ts"));
   put(root, "src/live.ts", "export const liveValue = 6;\n");
   const sha = commit(root),
     packet = await derive(
@@ -54,6 +55,7 @@ test("repository delivery automatically freezes accepted report without a Summar
     );
   assert.equal(packet.commitSha, sha);
   assert.deepEqual(packet.artifacts, [{ path: `${packagePath}/artifacts/report.md`, revision: 7, blobSha256 }]);
+  assert.deepEqual(packet.outputs, ["Deleted-Production-Paths: src/old.ts"]);
   assert.deepEqual(packet.deliverables, ["src/live.ts"]);
 });
 
@@ -429,23 +431,32 @@ test("anchor drift warning fires only when the delivery cut moved under unchange
     submitted = {
       completionClaim: "Delivered the report.",
       deliverables: ["src/live.ts"],
-      outputs: [`Artifact-Anchor: ${anchor.path}@${anchor.revision}`],
+      outputs: [],
       verificationNotes: ["Tests passed."],
       knownGaps: [],
       residualRisks: [],
       commitSha: "a".repeat(40),
       artifacts: [anchor],
+      completionContract: {
+        presetSnapshotDigest: `sha256:${"a".repeat(64)}`,
+        gates: [],
+        closeoutGates: { review: false, consent: false, factDisposition: false, codeDoc: true },
+      },
     };
   // The artifact anchor (or any other delivery-cut field) moved while closeout prose did not.
   for (const drifted of [
     { ...submitted, artifacts: [{ ...anchor, revision: 8 }] },
+    { ...submitted, artifacts: [{ ...anchor, blobSha256: "b".repeat(64) }] },
     { ...submitted, deliverables: ["src/live.ts", "src/extra.ts"] },
     { ...submitted, commitSha: "b".repeat(40) },
-  ])
+  ]) {
+    assert.equal(sameFrozenSubmissionCut(drifted, submitted), false);
     assert.deepEqual(submissionAnchorDriftWarnings(submitted, drifted), [
       "Anchored artifact deliveries changed while the closeout prose did not; " +
         "verify the closeout claim still describes the delivered artifacts.",
     ]);
+  }
+  assert.equal(sameFrozenSubmissionCut(submitted, submitted), true);
   // No previous submission, an identical cut, or revised prose: no advisory.
   assert.deepEqual(submissionAnchorDriftWarnings(null, submitted), []);
   assert.deepEqual(submissionAnchorDriftWarnings(submitted, submitted), []);
