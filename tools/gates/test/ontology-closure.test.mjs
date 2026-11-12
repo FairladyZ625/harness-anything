@@ -82,11 +82,11 @@ test("the full repository passes the classified closure gate", (t) => {
   );
   assert.ok(owned.length > 0);
   assert.ok(owned.every((row) => row.status === "registered"));
-  // dec_7E44897E CH1 / S2b: syntax candidates must resolve to the real semantic owner.
+  // dec_7E44897E CH1 / S2b-S2c: syntax candidates must resolve to the real semantic owner.
   const judgments = result.classified.filter(
     (row) =>
       row.category === "judgment" &&
-      /^packages\/(?:kernel|preset|cli|application|authorization-[^/]+|dsh-plugin)\//u.test(row.file),
+      /^packages\/(?:kernel|storage|preset|cli|application|authorization-[^/]+|dsh-plugin)\//u.test(row.file),
   );
   assert.ok(judgments.length > 0);
   assert.deepEqual(
@@ -483,4 +483,17 @@ test("every registered source contract names its own exact helper", () => {
     for (const contract of kind.sourceContracts ?? [])
       for (const source of contract.sources)
         assert.equal(contract.symbol, source.route, `${contract.id} must name the actual source helper`);
+});
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1 S2c: storage decoding and transaction
+// witnesses keep their exact source owner, with no frozen judgment debt.
+test("storage judgment candidates leave the migration baseline", () => {
+  const baseline = loadGateAllowlist("ontology-closure", {
+    allowlistRoot: path.join(repoRoot, "tools/gate-allowlists"),
+    report: false,
+  }).candidates;
+  assert.deepEqual(
+    baseline.filter((row) => row.category === "judgment" && row.path.startsWith("packages/storage/")),
+    [],
+  );
 });
