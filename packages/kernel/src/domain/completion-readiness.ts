@@ -20,8 +20,9 @@ import {
 } from "./review.ts";
 import { disposedReviewIdsForSubmission } from "./review-consent-validity.ts";
 import { reviewReverifyRoute } from "./review-reverify.ts";
-import { leaseIsEffective, submissionDigest, type ExecutionV1 } from "./execution.ts";
-import { isWorkRoot, type TaskV2 } from "./task.ts";
+import { submissionDigest, type ExecutionV1 } from "./execution.ts";
+import { isWorkRoot, type ActorAxes, type TaskV2 } from "./task.ts";
+import { taskLeaseGuidance } from "./task-lease-guidance.ts";
 
 export type CompletionBlockerCode =
   | "projection_unknown"
@@ -56,6 +57,9 @@ export interface CompletionBlocker {
   readonly next: CompletionNext;
 }
 export interface CompletionReadinessContext {
+  readonly actor?: ActorAxes;
+  /** Active reviewer attempts for this exact submitted cut, read from the dispatch projection. */
+  readonly activeReviewDispatchIds?: readonly string[];
   /** `missing`: the task contract declares no closeout document (an older contract generation). */
   readonly closeout: "ready" | "missing";
   readonly closeoutPath: string;
@@ -251,7 +255,7 @@ function evaluateCompletion(
       `ha task contract migrate --apply --task ${task.taskId}`,
       "The task contract declares no closeout document; migrate the contract before continuing completion.",
     );
-  const restart = releasedLeaseRestartNext(snapshot, execution);
+  const restart = releasedLeaseRestartNext(snapshot, execution, context.actor);
   if (restart) return [{ code: "not_in_review" as const, gate: "lifecycle", next: restart }];
   // A work root is a map, not an execution (dec_mr7v4h6t): its status derives from the subtree at
   // read time, so a root off the corridor never reaches completion — say so instead of pointing at start.
@@ -269,14 +273,22 @@ function evaluateCompletion(
   if (!task || task.currentNode !== "review" || execution?.state !== "submitted" || !execution.submission) {
     // A task with zero executions has never started, so "not submitted" reads as a dead end when
     // the work already happened outside Harness; the settle chain is that task's real next step.
-    const neverStarted = snapshot.executions.length === 0;
+    const neverStarted = snapshot.executions.length === 0,
+      lease = taskLeaseGuidance(task.taskId, snapshot.lease, context.actor),
+      otherHolder = snapshot.lease !== null && lease.heldByCaller === false;
     return one(
       "not_in_review",
       "lifecycle",
-      task.status === "active" && execution ? `ha task submit ${task.taskId}` : `ha task start ${task.taskId}`,
+      otherHolder
+        ? lease.releaseAction
+        : task.status === "active" && execution
+          ? `ha task submit ${task.taskId}`
+          : `ha task start ${task.taskId}`,
       snapshot.lease
-        ? `Fill harness/${context.closeoutPath} with the verified delivery before submitting execution ${executionId}; ` +
-            `the execution is held by ${snapshot.lease.actor.executor?.id ?? snapshot.lease.actor.principal.personId}.`
+        ? `${lease.reason} ` +
+            (otherHolder
+              ? `The current holder must run ${lease.releaseAction} before you reconnect with ${lease.reconnectAction}.`
+              : `Fill harness/${context.closeoutPath} with the verified delivery before submitting execution ${executionId}.`)
         : neverStarted
           ? `No execution has started. Work already completed outside Harness closes through the same chain: ` +
             `record the verification evidence as a Fact and in closeout.md, then run ha task settle ${task.taskId} ` +
@@ -316,13 +328,15 @@ function evaluateCompletion(
       `ha task show ${task.taskId}`,
       "The Task status does not match its review node; inspect the lifecycle record before completion.",
     );
-  if (snapshot.lease !== null)
+  if (snapshot.lease !== null) {
+    const lease = taskLeaseGuidance(task.taskId, snapshot.lease, context.actor);
     return one(
       "lease_held",
       "lease",
-      `ha task release ${task.taskId}`,
-      "The held execution lease must be released by its current holder.",
+      lease.releaseAction,
+      `${lease.reason} Release the lease record before completion.`,
     );
+  }
   const closeoutGates = context.closeoutGates ?? {
       review: true,
       consent: true,
@@ -384,6 +398,14 @@ function evaluateCompletion(
           "The cut waits on the owner to verify the fixes and consent citing that review.",
       );
     }
+    if (context.activeReviewDispatchIds?.length)
+      return one(
+        "review_pending",
+        "review",
+        `ha task dispatches ${task.taskId}`,
+        `The reviewer is already dispatched for this submitted cut (${context.activeReviewDispatchIds.join(", ")}); ` +
+          "inspect its progress and wait for its verdict.",
+      );
     if (route.kind === "re-review")
       return one(
         "review_pending",
@@ -529,24 +551,25 @@ export function reviewDispositionCommand(taskId: string, executionId: string, re
 
 /**
  * The one judgment behind both `ha task show`'s "start reconnects" guidance and the agenda's
- * owner-action group: an active execution whose lease was released has no worker, so the owner's
- * next move is `ha task start` (which reconnects to that execution) or a transition off the round.
+ * owner-action group: an active execution with a released or expired lease needs reconnection.
+ * The projected phase and holder stay intact in the narration; expiry is not a release.
  * Callers that can see runtime evidence must only use this when no dispatch is still live; the
  * command and reason stay defined here so no surface invents a second copy.
  */
 export function releasedLeaseRestartNext(
   snapshot: TaskLifecycleSnapshot,
   execution: { readonly executionId: string; readonly state: string } | undefined,
+  actor?: ActorAxes,
 ): CompletionNext | null {
-  const task = snapshot.task;
-  if (!task || task.status !== "active" || leaseIsEffective(snapshot.lease) || execution?.state !== "active")
-    return null;
+  const task = snapshot.task,
+    lease = taskLeaseGuidance(task?.taskId ?? "<task-id>", snapshot.lease, actor);
+  if (!task || task.status !== "active" || !lease.reconnect || execution?.state !== "active") return null;
   return completionGuidance(
     snapshot,
     execution.executionId,
-    `ha task start ${task.taskId}`,
-    "The execution lease was released and the execution is still active; start reconnects to that execution. " +
-      `To abandon the round instead, run ha task transition ${task.taskId} planned --reason <why>.`,
+    lease.reconnectAction,
+    `${lease.reason} The execution is still active; start reconnects to that execution. ` +
+      `To abandon the round instead, ${snapshot.lease === null ? "" : `run ${lease.releaseAction}, then `}run ha task transition ${task.taskId} planned --reason <why>.`,
   );
 }
 

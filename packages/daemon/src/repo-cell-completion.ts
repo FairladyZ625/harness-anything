@@ -20,6 +20,7 @@ import {
   type RepositorySettingsV1,
   type TaskProjectionQueries,
   type CompletionEvidenceV1,
+  type ActorIdentity,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import type { RepoCellBinding, Snapshot } from "./repo-cell-types.ts";
@@ -146,16 +147,12 @@ export function completionKillpoint(cell: RepoCellActionContext, point: EventPub
   }
 }
 
-export async function showTask(cell: RepoCellActionContext, taskId: string): Promise<WriteReceipt> {
-  await cell.service.read(cell.requiredCellText(taskId, "taskId"));
-  return taskShowFromProjection(cell.rootDir, cell.projection, taskId);
-}
-
 export function taskShowFromProjection(
   rootDir: string,
   projection: TaskProjectionQueries,
   taskId: string,
   directChildCount = projection.readTaskChildCounts([taskId])[taskId] ?? 0,
+  actor?: ActorIdentity,
 ): WriteReceipt {
   const layout = resolveHarnessLayout(rootDir),
     read = projection.read(taskId),
@@ -171,7 +168,7 @@ export function taskShowFromProjection(
       taskId,
       projection.readTaskIndex().rows.map(({ taskId: candidate }) => candidate),
     );
-    if (prefixed.matched) return taskShowFromProjection(rootDir, projection, prefixed.id);
+    if (prefixed.matched) return taskShowFromProjection(rootDir, projection, prefixed.id, undefined, actor);
     if (prefixed.candidates.length > 1)
       return failed(
         `read:${taskId}`,
@@ -218,7 +215,7 @@ export function taskShowFromProjection(
           rootSetting.threshold,
         )
       : null,
-    completion = readTaskCompletion(projection, taskId, rootDir),
+    completion = readTaskCompletion(projection, taskId, rootDir, actor),
     workspace = taskWorkspaceView(
       rootDir,
       task,

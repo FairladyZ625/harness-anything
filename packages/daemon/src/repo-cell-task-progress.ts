@@ -242,7 +242,14 @@ export async function completeTask(
       applied = cell.completionApplied(completed, settled, "", archive.receipt ? [archive.receipt] : []);
     return archive.warning ? { ...applied, warnings: [...(applied.warnings ?? []), archive.warning] } : applied;
   }
-  const initialContext = readCompletionContext(cell.projection, taskId, initial.snapshot, initial.status, cell.rootDir),
+  const initialContext = readCompletionContext(
+      cell.projection,
+      taskId,
+      initial.snapshot,
+      initial.status,
+      cell.rootDir,
+      binding.actor,
+    ),
     decision = taskCompletionNext(
       initial.snapshot,
       { ...initialContext, authorization: binding.authorizationDecision?.outcome === "allowed" ? "allowed" : "denied" },
@@ -467,7 +474,7 @@ export function completionContext(
 ): CompletionReadinessContext {
   if (presetSnapshotDigest !== snapshot.task?.presetSnapshotDigest)
     throw cell.cellCodedError("preset_snapshot_mismatch", `Run ha preset upgrade ${taskId} before completion.`);
-  const canonical = readCompletionContext(cell.projection, taskId, snapshot, "ready", cell.rootDir),
+  const canonical = readCompletionContext(cell.projection, taskId, snapshot, "ready", cell.rootDir, binding.actor),
     // Node task commands carry their changed documents through the atomic task route, just
     // like submission. The center's worktree is not that caller's candidate inventory.
     rows =

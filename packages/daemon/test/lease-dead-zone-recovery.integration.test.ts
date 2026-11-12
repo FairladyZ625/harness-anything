@@ -30,7 +30,7 @@ const peerBinding: RepoCellBinding = withPolicyGroup(
   "admin",
 );
 
-test("an expired current-round lease is recoverable by any repo-write actor through ha task start", async () => {
+test("an expired current-round lease is recoverable by any repo-write actor through ha task start", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lease-dead-zone-"));
   let clock = new Date("2026-09-12T00:00:00.000Z");
   let cell: Cell | undefined;
@@ -63,6 +63,22 @@ test("an expired current-round lease is recoverable by any repo-write actor thro
     // orphaned, and before the fix both `ha task start` forms rejected with invalid_transition
     // while the round's execution stayed active (T1-random-baseline).
     clock = new Date("2026-09-12T02:00:00.000Z");
+    for (const [binding, holder] of [
+      [holderBinding, /held by you/u],
+      [peerBinding, /held by another actor/u],
+    ] as const) {
+      const shown = await cell.run({ kind: "task-show", taskId: "task_dead_zone" }, binding),
+        evidence = JSON.parse(String(shown.evidence)) as {
+          lease: { phase: string };
+          completionNext: { action: string; reason: string };
+        };
+      t.diagnostic(JSON.stringify(evidence.completionNext));
+      assert.equal(evidence.lease.phase, "orphaned");
+      assert.match(evidence.completionNext.reason, /orphaned/u);
+      assert.match(evidence.completionNext.reason, holder);
+      assert.doesNotMatch(evidence.completionNext.reason, /lease was released/u);
+      assert.equal(evidence.completionNext.action, "ha task start task_dead_zone");
+    }
     const rejoined = (await cell.run({ kind: "task-start", taskId: "task_dead_zone" }, peerBinding)) as WriteReceipt;
     assert.equal(rejoined.outcome, "applied", JSON.stringify(rejoined));
     assert.equal(rejoined.executionId, "exe_dead_zone", "the plain form rejoins the round's active execution");

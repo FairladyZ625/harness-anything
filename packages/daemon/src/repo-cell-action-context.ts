@@ -23,7 +23,6 @@ import { buildCommand, withServerMeta } from "./repo-cell-command.ts";
 import {
   completionKillpoint as completionKillpointImpl,
   publishGateWitness as publishGateWitnessImpl,
-  showTask as showTaskImpl,
 } from "./repo-cell-completion.ts";
 import { cellCodedError, errorOperationId, publishGeneratedArtifact } from "./repo-cell-errors.ts";
 import { decodeEvidencePayload, renderEvidencePayload } from "./repo-cell-evidence.ts";
@@ -157,7 +156,6 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly now: () => string;
   readonly operationId: typeof operationId;
   readonly receiptForOperation: Bound<typeof receiptForOperationImpl>;
-  readonly showTask: Bound<typeof showTaskImpl>;
   readonly listTasks: Bound<typeof listTasksImpl>;
   readonly listRelations: Bound<typeof listRelationsImpl>;
   readonly listEvents: Bound<typeof listEventsImpl>;
@@ -294,7 +292,6 @@ export function createRepoCellActionContext(bindings: {
     now: bindings.now,
     operationId,
     receiptForOperation: bind(receiptForOperationImpl),
-    showTask: bind(showTaskImpl),
     listTasks: bind(listTasksImpl),
     listRelations: bind(listRelationsImpl),
     listEvents: bind(listEventsImpl),

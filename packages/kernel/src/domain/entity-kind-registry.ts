@@ -83,6 +83,7 @@ import { gateMappingPolicy, gateMappingPolicyJudgments } from "./gate-mapping-po
 import { storageReplayPolicy, storageReplayJudgments } from "./storage-replay-policy.ts";
 import { completionGateOverridePolicy, completionGateOverrideJudgment } from "./completion-gate-policy.ts";
 import { guiQueryPacing } from "./gui-query-pacing.ts";
+import { taskLeaseGuidancePolicy, returnToPlannedJudgment } from "./task-lease-guidance.ts";
 import sourceContractFacets from "./source-contract-facets.json" with { type: "json" };
 
 const sourceContracts = sourceContractFacets as Readonly<
@@ -978,7 +979,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     relations: relationsFor("task"),
     canonicalProjection: null,
     stateStores: stateStoresForKind("task"),
-    judgments: [...taskLeasePolicyJudgments, completionGateOverrideJudgment, {
+    judgments: [...taskLeasePolicyJudgments, completionGateOverrideJudgment, returnToPlannedJudgment, {
       id: "submit-validation",
       symbol: "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#validateSubmitExecution",
       inputs: ["TaskLifecycleSnapshot", "SubmitExecutionCommand", "SubmitExecutionProof"],
@@ -991,7 +992,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
         route: "submitTask → shared snapshot checks; applyTransition → submit.validate → validateSubmitExecution",
       }],
     }],
-    policies: [taskLeasePolicy, completionGateOverridePolicy, {
+    policies: [taskLeasePolicy, completionGateOverridePolicy, taskLeaseGuidancePolicy, {
       id: "runtime-dispatch-mutation", ownerRef: "task/release", unit: "task lease generation",
       bounds: "claimOpId must identify the same task, execution and lease version; held/reserving leases fence mutations except contract migration and parent-only amendment.",
       defaultValue: null, version: 1, scope: "center task mutation",

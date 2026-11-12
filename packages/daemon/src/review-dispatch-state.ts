@@ -1,9 +1,8 @@
-import type { ExecutionV1 } from "@harness-anything/kernel";
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { ExecutionV1, TaskProjectionQueries } from "@harness-anything/kernel";
 import { reviewDispatchKey } from "./review-dispatch-key.ts";
 
 export function reviewAttemptEnded(
-  cell: Pick<RepoCellOperationalContext, "projection">,
+  cell: { readonly projection: Pick<TaskProjectionQueries, "readRuntimeSessionEventsByType"> },
   runtimeSessionId: string,
 ): boolean {
   return (
@@ -17,10 +16,15 @@ export function reviewAttemptEnded(
 
 /** A task cut can have only one active primary reviewer, including keys written before migration. */
 export function activeCutReviewDispatches(
-  cell: Pick<RepoCellOperationalContext, "projection">,
+  cell: {
+    readonly projection: Pick<
+      TaskProjectionQueries,
+      "readRuntimeDispatchesByTaskExecution" | "readRuntimeSessionEventsByType"
+    >;
+  },
   taskId: string,
   execution: ExecutionV1,
-): ReturnType<RepoCellOperationalContext["projection"]["readRuntimeDispatchesByTaskExecution"]> {
+): ReturnType<TaskProjectionQueries["readRuntimeDispatchesByTaskExecution"]> {
   const baseKey = reviewDispatchKey(taskId, execution);
   return cell.projection.readRuntimeDispatchesByTaskExecution(taskId, execution.executionId).filter(({ event }) => {
     const payload = event.payload,

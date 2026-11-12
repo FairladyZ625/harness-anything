@@ -217,6 +217,7 @@ export type {
   SubmissionV1,
   TaskRiskTierAssessmentV1,
 } from "./domain/execution.ts";
+export { taskLeaseGuidance } from "./domain/task-lease-guidance.ts";
 export {
   EXECUTION_DELIVERY_BASELINE_NOTE,
   executionAnnotationKinds,

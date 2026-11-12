@@ -5,7 +5,6 @@ import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak"
 import { fakeKeycloak } from "../keycloak.fixtures.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { taskShowFromProjection } from "../../src/repo-cell-completion.ts";
 import { createRepoCellActionContext } from "../../src/repo-cell-action-context.ts";
 import { createRepoCellApi } from "../../src/repo-cell-api.ts";
 import { makeRepoCellSettingsState } from "../../src/repo-cell-settings-state.ts";
@@ -54,7 +53,6 @@ export async function createReadFixtureRuntime({ projection, store, rootDir }, n
   Object.assign(context, {
     mode: "local",
     runtimeSpawner: { spawn: unsupportedWrite },
-    showTask: (id) => taskShowFromProjection(rootDir, projection, id),
   });
   settings = makeRepoCellSettingsState(context);
   Object.assign(context, { settings });
