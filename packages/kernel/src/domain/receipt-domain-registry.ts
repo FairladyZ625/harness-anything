@@ -177,9 +177,9 @@ export interface WriteReceiptDraft extends Partial<Omit<ReceiptAcceptanceFields,
   readonly revision?: number;
   /**
    * The entity projection revision an optimistic-concurrency command must resend as
-   * `--expected-version`. Read receipts (task-show) state it so the value a mutation needs is
-   * visible at the receipt top level instead of buried in the evidence snapshot, where the
-   * aggregate revision is indistinguishable from the global ledger `revision` beside it.
+   * `--expected-version`. Task-show repeats this task snapshot version in `revision` so either
+   * displayed value can be sent back for task CAS. Its global ledger cut remains in
+   * `proof.appliedCut`; it is independent of the task version.
    */
   readonly expectedVersion?: number;
   readonly code?: string;
