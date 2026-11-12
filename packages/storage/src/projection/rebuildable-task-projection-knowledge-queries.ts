@@ -24,7 +24,7 @@ import type { TaskProjection } from "@harness-anything/kernel";
 import type { ProjectionContext } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
 import { withDatabase } from "./rebuildable-task-projection-database.ts";
 import { readDecisionDocumentState } from "./decision-projection-reads.ts";
-import { catchUpRound } from "./rebuildable-task-projection-event-application.ts";
+import { catchUpProjectionRound } from "./rebuildable-task-projection-reads.ts";
 import { readProjectionCut } from "./rebuildable-task-projection-sql.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "@harness-anything/kernel";
@@ -52,9 +52,9 @@ export function knowledgeQueryApi(
 > {
   const { eventStore, limit, projectionPath, readHead } = context;
   return {
-    admitFact: (event) =>
-      withDatabase(projectionPath, readHead, (db) => {
-        const round = catchUpRound(db, eventStore, limit);
+    admitFact: (event) => {
+      const round = catchUpProjectionRound(projectionPath, eventStore, limit);
+      return withDatabase(projectionPath, readHead, (db) => {
         if (round.watermark !== round.sourceRevision)
           throw new FactProjectionError(
             "content_not_ready",
@@ -62,7 +62,8 @@ export function knowledgeQueryApi(
               `current watermark is ${round.watermark}.`,
           );
         assertFactAdmissionAtCut(readFactAdmissionState(db, event), event);
-      }),
+      });
+    },
     readFact: (factId) =>
       withDatabase(projectionPath, readHead, (db) => {
         const cut = readProjectionCut(db, readHead);
@@ -115,9 +116,9 @@ export function knowledgeQueryApi(
           sourceRevision: cut.sourceRevision,
         };
       }),
-    admitDecision: (event) =>
-      withDatabase(projectionPath, readHead, (db) => {
-        const round = catchUpRound(db, eventStore, limit);
+    admitDecision: (event) => {
+      const round = catchUpProjectionRound(projectionPath, eventStore, limit);
+      return withDatabase(projectionPath, readHead, (db) => {
         if (round.watermark !== round.sourceRevision)
           throw new FactProjectionError(
             "content_not_ready",
@@ -125,7 +126,8 @@ export function knowledgeQueryApi(
               `current watermark is ${round.watermark}.`,
           );
         assertDecisionAdmission(db, event);
-      }),
+      });
+    },
     readDecisionDocumentState: (decisionId) =>
       withDatabase(projectionPath, readHead, (db) => readDecisionDocumentState(db, decisionId)),
     readDecision: (decisionId, withBody = true) =>

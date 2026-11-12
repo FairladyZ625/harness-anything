@@ -1,3 +1,4 @@
+import { pgEventShapeReplayInput } from "./pg-event-shape-replay.ts";
 import { decideRawTaskLease } from "@harness-anything/kernel/internal/domain/task-lease-policy.ts";
 import { relationCreatedEventForReplay } from "@harness-anything/kernel";
 import { initializePgDecisionReadStatus } from "./pg-decision-read-status.ts";
@@ -104,7 +105,14 @@ export async function materializePgProjectionEvent(
   input: PgProjectionEventInput,
 ): Promise<PgProjectionMaterializationReceipt> {
   await admitProjectionGeneration(client, scope);
-  return materializeProjectionEvent(client, scope, input);
+  const replay = await pgEventShapeReplayInput(
+    client,
+    scope,
+    [input.event],
+    input.sourceHeadRevision ?? input.sourceRevision ?? input.event.workspaceRevision,
+    input.readContentBlob,
+  );
+  return replay ? rebuildPgProjection(client, scope, replay) : materializeProjectionEvent(client, scope, input);
 }
 
 async function admitProjectionGeneration(client: PoolClient, scope: PgProjectionScope): Promise<void> {
@@ -192,6 +200,11 @@ export async function materializePgProjectionEvents(
     return body === undefined ? null : Uint8Array.from(body);
   };
   await admitProjectionGeneration(client, scope);
+  const replay = await pgEventShapeReplayInput(client, scope, input.events, input.revision, readContentBlob);
+  if (replay) {
+    await rebuildPgProjection(client, scope, replay);
+    return;
+  }
   const artifacts = new Map<string, import("./pg-artifact-timeline.ts").PgArtifactTimelineEntry | null>();
   for (const event of input.events)
     await materializeProjectionEvent(client, scope, {
