@@ -11,8 +11,27 @@ import { createPGliteStorageBackend } from "../../src/pglite/storage-backend.ts"
 import { applyAttachMigrations } from "../../src/store/attach-migrations.ts";
 import { warmProjectionFixture } from "../store/event-shape-warm-projection.fixtures.ts";
 import { pgliteIntegrationSuite } from "./pglite-runtime.fixture.ts";
+import { assertCrossRepoShapeReplay } from "../postgres/event-shape-warm-replay.fixture.ts";
 
 pgliteIntegrationSuite("PGlite event-shape warm projection", () => {
+  test("a low-revision migration replays its repository and retains a higher-revision neighbor", async () => {
+    const dataDir = mkdtempSync(path.join(tmpdir(), "ha-pglite-multi-shape-")),
+      backend = await createPGliteStorageBackend({
+        repoId: "pool-owner",
+        storage: {
+          backend: "pglite",
+          dataDir,
+          scope: { tenantId: "bootstrap", projectId: "bootstrap", policyEpoch: 1, readers: [] },
+        },
+      });
+    try {
+      await assertCrossRepoShapeReplay(backend.pool);
+    } finally {
+      await backend.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
   test("canonical acceptance replays old reduced rows once and preserves authorization", async () => {
     const dataDir = mkdtempSync(path.join(tmpdir(), "ha-pglite-shape-")),
       repoId = "warm-shape",

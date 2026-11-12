@@ -98,7 +98,8 @@ export interface PgProjectionRebuildInput {
   readonly readEventReaders?: (event: PersistedCanonicalEventV1) => readonly string[];
 }
 
-/** Materialize one canonical event in the caller's existing transaction; schema setup is a migration concern. */
+/** Materialize one newly accepted canonical event in the caller's transaction.
+ * Canonical admission owns idempotency; historical replay uses rebuildPgProjection. */
 export async function materializePgProjectionEvent(
   client: PoolClient,
   scope: PgProjectionScope,
@@ -179,7 +180,8 @@ async function materializeProjectionEvent(
   return { revision, taskId, snapshot, tables: [...tables].sort() };
 }
 
-/** A2's append hook calls this with the committed batch while still inside the ledger transaction. */
+/** A2 calls this only for a newly accepted batch, inside the ledger transaction.
+ * Replayed commands return at canonical op-id admission before invoking this hook. */
 export async function materializePgProjectionEvents(
   client: PoolClient,
   scope: PgProjectionScope,

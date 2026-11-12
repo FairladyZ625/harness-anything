@@ -1,14 +1,13 @@
 import type { PoolClient } from "pg";
 import { isEventShapeMigrationEvent } from "@harness-anything/kernel/internal/domain/event-shape-migration-event.ts";
 import type { PersistedCanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync-types.ts";
-import { requiresEventShapeReplay } from "../projection/event-shape-replay.ts";
 import type {
   PgProjectionEventInput,
   PgProjectionRebuildInput,
   PgProjectionScope,
 } from "./pg-task-event-materialize.ts";
 
-/** The append transaction already owns the writer fence: replay and its new cut commit atomically. */
+/** Newly accepted events only: canonical op-id admission returns before this hook on replay. */
 export async function pgEventShapeReplayInput(
   client: PoolClient,
   scope: PgProjectionScope,
@@ -23,7 +22,8 @@ export async function pgEventShapeReplayInput(
       "SELECT watermark FROM ha_projection_meta WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND projection_name='task/v1'",
       keys,
     );
-  if (!requiresEventShapeReplay(events, Number(meta.rows[0]?.watermark ?? 0))) return null;
+  // This is only a warm-state check. The scope maximum cannot order a repository's revisions.
+  if (Number(meta.rows[0]?.watermark ?? 0) <= 0) return null;
   // Projection tables belong to the whole scope, so retain every scoped repository and each
   // event's original readers instead of relabeling history with the migration writer's readers.
   const rows = await client.query<{ event_json: string; readers: string[] }>(
@@ -37,7 +37,8 @@ export async function pgEventShapeReplayInput(
     readers = new Map(replay.map((row) => [row.event, row.readers]));
   return {
     events: replay.map((row) => row.event),
-    sourceRevision,
+    // Rebuild owns the entire scope, including repositories ahead of the accepting writer.
+    sourceRevision: replay.reduce((head, { event }) => Math.max(head, event.workspaceRevision), sourceRevision),
     readContentBlob,
     readEventReaders: (event) => readers.get(event)!,
   };
