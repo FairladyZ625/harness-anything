@@ -1,4 +1,24 @@
 {
+  "task-submit": {
+    "owner": "task",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-submit.ts#finalizeCloseoutSubmission:9b41d05f65de8d9e3c9872c2007b849d",
+        "route": "task-submit",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-submit.ts#finalizeCloseoutSubmission:db3440bd02f587e907b52795a61c8838",
+        "route": "task-submit",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/submission-delivery.ts#refreshOrigin:b7aa8072f6624318e22cd65584fdbb97",
+        "route": "task-submit",
+        "role": "support"
+      }
+    ]
+  },
   "agent-install": {
     "owner": "agent",
     "sources": [

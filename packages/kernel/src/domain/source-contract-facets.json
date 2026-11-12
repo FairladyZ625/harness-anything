@@ -568,6 +568,28 @@
     ],
     "contracts": [
       {
+        "id": "daemon/submission-preparation#prepared-input-fence",
+        "symbol": "packages/daemon/src/submission-preparation.ts#prepareTaskSubmission.assertCurrent",
+        "explain": "Technical equality fence for the prepared Git/risk inputs at the queued publication cut. Task authority stays in the aggregate; unrelated reviewer/executor bookkeeping is not a delivery-input change.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/submission-preparation.ts#prepareTaskSubmission.assertCurrent:e78bca9f7069b1c7a3389fe88e7d02a5",
+            "route": "packages/daemon/src/submission-preparation.ts#prepareTaskSubmission.assertCurrent"
+          }
+        ]
+      },
+      {
+        "id": "daemon/submission-preparation#fresh-submission-input-fence",
+        "symbol": "packages/daemon/src/submission-preparation.ts#prepareTaskSubmission.result.delivery.assertFresh",
+        "explain": "Technical equality fence for the prior delivery and assessment input cut, checked only when a new candidate is consumed. Exact canonical frozen-cut reuse stays in sameFrozenSubmissionCut.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/submission-preparation.ts#prepareTaskSubmission.result.delivery.assertFresh:90df87a4b3925762d7d3e8fa5fc248f8",
+            "route": "packages/daemon/src/submission-preparation.ts#prepareTaskSubmission.result.delivery.assertFresh"
+          }
+        ]
+      },
+      {
         "id": "application/src/task-lifecycle-service.ts#TaskLifecycleService",
         "symbol": "packages/application/src/task-lifecycle-service.ts#assertWriteTargetDeclared",
         "explain": "TaskLifecycleService: Frozen publication plan contract before calling an external writer.",

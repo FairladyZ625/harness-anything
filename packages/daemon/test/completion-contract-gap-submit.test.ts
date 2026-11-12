@@ -6,7 +6,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { completionSnapshot } from "../../kernel/test/domain/completion.fixtures.ts";
-import { readCloseoutSubmission, submitTask } from "../src/repo-cell-submit.ts";
+import { submitTask } from "../src/repo-cell-submit.ts";
+import { readCloseoutSubmission } from "../src/repo-cell-submit.ts";
 
 const closeoutBody =
   "## Summary\nReport delivered.\n## Verification\nChecked.\n" +
@@ -84,7 +85,13 @@ function fixture(t: TestContext) {
     settings: { readRepository: () => ({ gates: [] }) },
     cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
   } as unknown as Parameters<typeof readCloseoutSubmission>[0];
-  return () => readCloseoutSubmission(cell, "task-1", "execution-1", snapshot, undefined, git("rev-parse", "HEAD"));
+  return () =>
+    readCloseoutSubmission(cell, "task-1", "execution-1", snapshot, {
+      facts: null,
+      publicPullRequest: false,
+      risk: { ok: true, assessment: undefined, manifest: { scripts: [] } },
+      assertCurrent: async () => {},
+    });
 }
 
 test("submit names the unavailable preset snapshot instead of reading completion from null", async (t) => {

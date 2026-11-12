@@ -1,244 +1,45 @@
 // harness-test-tier: fast
-import { completionSnapshot } from "../../kernel/test/domain/completion.fixtures.ts";
+import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, renameSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test, { type TestContext } from "node:test";
-import { sha256Bytes } from "@harness-anything/kernel";
+
+import { submissionAnchorDriftWarnings, submissionStopped } from "../src/repo-cell-submit.ts";
+import { deriveCloseoutSubmission, readCloseoutSubmission } from "./closeout-submission.fixture.ts";
+
 import {
-  deriveCloseoutSubmission,
-  readCloseoutSubmission,
-  submissionAnchorDriftWarnings,
-  submissionStopped,
-} from "../src/repo-cell-submit.ts";
-import { reviewPathHits, reviewPathRules } from "../src/review-path-matching.ts";
-import { openDispatchStream } from "../src/dispatch-stream.ts";
+  packagePath,
+  documentPath,
+  git,
+  put,
+  commit,
+  closeout,
+  fixture,
+  artifactStore,
+  deriveInput,
+  derive,
+  dispatch,
+} from "./closeout-submission-cut.fixture.ts";
 
-const packagePath = "tasks/task-1";
-const documentPath = `${packagePath}/closeout.md`;
-const git = (root: string, ...args: string[]) =>
-  execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
-const put = (root: string, file: string, body: string) => {
-  mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
-  writeFileSync(path.join(root, file), body);
-};
-const commit = (root: string) => {
-  git(root, "add", "-A");
-  git(root, "commit", "-qm", "test: delivery cut");
-  return git(root, "rev-parse", "HEAD");
-};
-const closeout = (summary: string) =>
-  `## Summary\n${summary}\n## Verification\nTests passed.\n` +
-  "## Residual Risk\n已知缺口：publication pending.\n" +
-  "## Same Mechanism Elsewhere\nSibling delivery remains unverified.\n";
-
-function fixture(t: TestContext, sharedGit = false) {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-closeout-cut-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
-  const init = (directory: string) => {
-    mkdirSync(directory, { recursive: true });
-    git(directory, "init", "-q", "-b", "main");
-    git(directory, "config", "user.name", "Harness Test");
-    git(directory, "config", "user.email", "harness@example.test");
-    git(directory, "config", "commit.gpgsign", "false");
-  };
-  init(root);
-  put(root, ".gitignore", "harness/\n.harness/\n");
-  put(root, "src/old.ts", "export const oldValue = 1;\n");
-  put(root, "src/live.ts", "export const liveValue = 1;\n");
-  const base = commit(root);
-  git(root, "update-ref", "refs/remotes/origin/main", base);
-  const ledger = path.join(root, "harness");
-  if (sharedGit) mkdirSync(ledger, { recursive: true });
-  else {
-    init(ledger);
-    put(ledger, "README.md", "Private ledger.\n");
-    commit(ledger);
-  }
-  return { root, ledger, base };
-}
-
-function artifactStore() {
-  const artifactPath = `${packagePath}/artifacts/report.md`,
-    bytes = Buffer.from("Frozen report.\n"),
-    blobSha256 = sha256Bytes(bytes);
-  return {
-    blobSha256,
-    store: {
-      readEventAtRevision: (revision: number) =>
-        revision === 7
-          ? {
-              schema: "doc-event/v1",
-              workspaceRevision: 7,
-              opId: "accepted-7",
-              payload: {
-                changes: [artifactPath, `${packagePath}/artifacts/reports/authored.md`].map((path) => ({
-                  path,
-                  candidate: { sha256: blobSha256 },
-                })),
-              },
-            }
-          : null,
-      readContentBlob: () => bytes,
-      readContentBlobRange: (_hash: string, offset: number, maxBytes: number) =>
-        bytes.subarray(offset, offset + maxBytes),
-      readContentBlobSize: () => bytes.byteLength,
-    },
-  };
-}
-
-/** The execution's start-frozen baseline: the repository root commit by default. */
-function baseline(root: string) {
-  return { kind: "commit" as const, commitSha: git(root, "rev-list", "--max-parents=0", "HEAD") };
-}
-
-function deriveInput(
-  rootDir: string,
-  summary: string,
-  missingPath?: string,
-  gates: readonly string[] = ["lint"],
-  store: Parameters<typeof deriveCloseoutSubmission>[0]["store"] = {} as Parameters<
-    typeof deriveCloseoutSubmission
-  >[0]["store"],
-  deliveryBaseline:
-    | {
-        readonly kind: "commit";
-        readonly commitSha: string;
-        readonly stackOn?: { readonly taskId: string; readonly executionId: string };
-      }
-    | { readonly kind: "empty-tree" }
-    | null
-    | undefined = rootDir === "/nonexistent" ? { kind: "empty-tree" } : baseline(rootDir),
-  commitSha?: string,
-  // The delivery falls to this output shape, never the completion gate set: a repository-diff task always
-  // carries a public delivery commit, even with an empty (lightweight) gate list.
-  outputShape: "repository-diff" | "task-package-artifact" = "repository-diff",
-  priorCommit?: string,
-  frozenSubmission?: ReturnType<typeof deriveCloseoutSubmission>,
-  accepted: readonly { readonly path: string; readonly revision: number }[] = [],
-  reviews: readonly { readonly reviewId: string }[] = [],
-  reviewerDispatches: readonly string[] = [],
-  closeoutBody?: string,
-): Parameters<typeof deriveCloseoutSubmission> {
-  const snapshot = {
-      reviews,
-      executions: [
-        ...(priorCommit ? [{ executionId: "earlier-execution", submission: { commitSha: priorCommit } }] : []),
-        {
-          schema: "execution/v1",
-          executionId: "execution-1",
-          taskId: "task-1",
-          nodeId: "implementation",
-          iteration: 0,
-          state: "active",
-          actor: { principal: { personId: "owner" }, executor: null },
-          claimedAt: "2026-09-12T00:00:00.000Z",
-          submittedAt: null,
-          closedAt: null,
-          submission: frozenSubmission ?? null,
-          ...(deliveryBaseline == null ? {} : { deliveryBaseline }),
-        },
-      ],
-      task: {
-        taskId: "task-1",
-        taskClass: "standard",
-        presetSnapshotDigest: "snapshot-task-1",
-        completionGateIds: gates,
-      },
-    } as unknown as Parameters<typeof deriveCloseoutSubmission>[3],
-    body = closeoutBody ?? closeout(summary),
-    projection = {
-      readDocuments: () => ({ documents: accepted }),
-      readPresetSnapshot: () => ({ snapshot: { ...completionSnapshot, profile: { outputShape } } }),
-      readRuntimeDispatchesByTaskExecution: () =>
-        reviewerDispatches.map((dispatchId) => ({ event: { payload: { role: "reviewer", dispatchId } } })),
-      read: () => ({ watermark: 1, sourceRevision: 1, snapshot: { ...snapshot, task: {} }, packagePath }),
-      readDocument: (target: string) => ({
-        watermark: 1,
-        sourceRevision: 1,
-        document:
-          target === missingPath
-            ? null
-            : {
-                body: target.endsWith("task-contract.json")
-                  ? JSON.stringify({
-                      documents: [
-                        {
-                          slot: "task.closeout",
-                          path: "closeout.md",
-                          templateRef: "template://planning/closeout@1",
-                          locale: "en-US",
-                        },
-                      ],
-                    })
-                  : body,
-                blobSha256: "test-blob",
-                workspaceRevision: accepted.find((entry) => entry.path === target)?.revision ?? 1,
-              },
-      }),
-    } as unknown as Parameters<typeof deriveCloseoutSubmission>[0]["projection"];
-  return [
-    {
-      rootDir,
-      projection,
-      store,
-      cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
-      settings: {
-        readRepository: () => ({
-          gates: [
-            {
-              gateId: "lint",
-              adapter: "research/check",
-              appliesTo: "code",
-            },
-          ],
-        }),
-      } as unknown as Parameters<typeof deriveCloseoutSubmission>[0]["settings"],
-    },
-    "task-1",
-    "execution-1",
-    snapshot,
-    undefined,
-    commitSha,
-  ];
-}
-
-function derive(...args: Parameters<typeof deriveInput>) {
-  return deriveCloseoutSubmission(...deriveInput(...args));
-}
-
-function dispatch(root: string, cwd: string, dispatchId = "dispatch_111111111111111111111111") {
-  openDispatchStream(root, {
-    dispatchId,
-    taskId: "task-1",
-    executionId: "execution-1",
-    runtimeSessionId: "runtime_111111111111111111111111",
-    instanceId: "instance-1",
-    startedAt: "2026-09-12T00:00:00.000Z",
-    cwd,
-  });
-}
-
-test("explicit structured commit derives mixed deletion evidence without a dispatch", (t) => {
+test("explicit structured commit derives mixed deletion evidence without a dispatch", async (t) => {
   const { root } = fixture(t);
   rmSync(path.join(root, "src/old.ts"));
   put(root, "src/live.ts", "export const liveValue = 2;\n");
   const sha = commit(root),
-    packet = derive(root, "Delivered the implementation.", undefined, ["lint"], undefined, undefined, sha);
+    packet = await derive(root, "Delivered the implementation.", undefined, ["lint"], undefined, undefined, sha);
   assert.equal(packet.commitSha, sha);
   assert.deepEqual(packet.deliverables, ["src/live.ts"]);
   assert.deepEqual(packet.outputs, ["Deleted-Production-Paths: src/old.ts"]);
   assert.deepEqual(packet.knownGaps, ["已知缺口：publication pending.", "Sibling delivery remains unverified."]);
 });
 
-test("repository delivery automatically freezes accepted report without a Summary anchor", (t) => {
+test("repository delivery automatically freezes accepted report without a Summary anchor", async (t) => {
   const { root } = fixture(t),
     { store, blobSha256 } = artifactStore();
   put(root, "src/live.ts", "export const liveValue = 6;\n");
   const sha = commit(root),
-    packet = derive(
+    packet = await derive(
       root,
       "Delivered the implementation and report.",
       undefined,
@@ -256,26 +57,26 @@ test("repository delivery automatically freezes accepted report without a Summar
   assert.deepEqual(packet.deliverables, ["src/live.ts"]);
 });
 
-test("pure deletion cut has no surviving anchor paths and keeps the deletion list", (t) => {
+test("pure deletion cut has no surviving anchor paths and keeps the deletion list", async (t) => {
   const { root } = fixture(t);
   rmSync(path.join(root, "src/old.ts"));
   const sha = commit(root),
-    packet = derive(root, "Delivered the deletion.", undefined, ["lint"], undefined, undefined, sha);
+    packet = await derive(root, "Delivered the deletion.", undefined, ["lint"], undefined, undefined, sha);
   assert.deepEqual(packet.deliverables, []);
   assert.deepEqual(packet.outputs, ["Deleted-Production-Paths: src/old.ts"]);
 });
 
-test("rename cut anchors the surviving target path", (t) => {
+test("rename cut anchors the surviving target path", async (t) => {
   const { root } = fixture(t);
   git(root, "config", "diff.renames", "true");
   renameSync(path.join(root, "src/old.ts"), path.join(root, "src/renamed.ts"));
   const sha = commit(root),
-    packet = derive(root, "Delivered the rename.", undefined, ["lint"], undefined, undefined, sha);
+    packet = await derive(root, "Delivered the rename.", undefined, ["lint"], undefined, undefined, sha);
   assert.deepEqual(packet.deliverables, ["src/renamed.ts"]);
   assert.deepEqual(packet.outputs, []);
 });
 
-test("task worktree HEAD is the delivery commit without a runtime dispatch", (t) => {
+test("task worktree HEAD is the delivery commit without a runtime dispatch", async (t) => {
   const { root } = fixture(t),
     worktree = path.join(root, ".worktrees/task-1");
   git(root, "worktree", "add", "-qb", "task-1", worktree);
@@ -283,12 +84,12 @@ test("task worktree HEAD is the delivery commit without a runtime dispatch", (t)
   const sha = commit(worktree),
     old = git(root, "rev-parse", "HEAD");
   assert.equal(
-    derive(root, `Completed the bound task worktree; prior cut was ${old}.`, undefined, ["lint"]).commitSha,
+    (await derive(root, `Completed the bound task worktree; prior cut was ${old}.`, undefined, ["lint"])).commitSha,
     sha,
   );
 });
 
-test("a rebase may advance the bound delivery commit without rewriting closeout prose", (t) => {
+test("a rebase may advance the bound delivery commit without rewriting closeout prose", async (t) => {
   const { root } = fixture(t),
     worktree = path.join(root, ".worktrees/task-1"),
     closeout = "Completed the implementation; execution records the delivery cut.";
@@ -300,12 +101,12 @@ test("a rebase may advance the bound delivery commit without rewriting closeout 
   git(worktree, "rebase", "main");
   const afterRebase = git(worktree, "rev-parse", "HEAD");
   assert.notEqual(afterRebase, beforeRebase);
-  const submission = derive(root, closeout, undefined, ["lint"]);
+  const submission = await derive(root, closeout, undefined, ["lint"]);
   assert.equal(submission.commitSha, afterRebase);
   assert.equal(submission.completionClaim, closeout);
 });
 
-test("lightweight task worktree HEAD is the delivery commit though its gate set is empty", (t) => {
+test("lightweight task worktree HEAD is the delivery commit though its gate set is empty", async (t) => {
   const { root } = fixture(t),
     worktree = path.join(root, ".worktrees/task-1");
   git(root, "worktree", "add", "-qb", "task-1", worktree);
@@ -314,22 +115,25 @@ test("lightweight task worktree HEAD is the delivery commit though its gate set 
     old = git(root, "rev-parse", "HEAD");
   // RED under the old completion-gate-based test: an empty gate set (the lightweight profile) used to
   // route this repository-diff task to the ledger outbox commit instead of the bound worktree HEAD.
-  assert.equal(derive(root, `Completed the lightweight worktree; prior cut was ${old}.`, undefined, []).commitSha, sha);
+  assert.equal(
+    (await derive(root, `Completed the lightweight worktree; prior cut was ${old}.`, undefined, [])).commitSha,
+    sha,
+  );
 });
 
-test("missing dispatch requires an explicit structured delivery commit", (t) => {
+test("missing dispatch requires an explicit structured delivery commit", async (t) => {
   const { root, base } = fixture(t);
   put(root, "src/live.ts", "export const liveValue = 3;\n");
   const sha = commit(root);
-  assert.throws(() => derive(root, "Completed the live path."), { code: "invalid_submission" });
+  await assert.rejects(async () => await derive(root, "Completed the live path."), { code: "invalid_submission" });
   assert.equal(
-    derive(root, `Earlier cuts: ${base} and ${"f".repeat(40)}.`, undefined, ["lint"], undefined, undefined, sha)
+    (await derive(root, `Earlier cuts: ${base} and ${"f".repeat(40)}.`, undefined, ["lint"], undefined, undefined, sha))
       .commitSha,
     sha,
   );
 });
 
-test("an old dispatch cwd in another checkout never stands in for the bound worktree HEAD", (t) => {
+test("an old dispatch cwd in another checkout never stands in for the bound worktree HEAD", async (t) => {
   const { root } = fixture(t),
     canonical = path.join(root, "canonical");
   // An earlier dispatch ran with --cwd pointed at another checkout; its HEAD is not this task's delivery.
@@ -337,65 +141,77 @@ test("an old dispatch cwd in another checkout never stands in for the bound work
   put(canonical, "src/foreign.ts", "foreign\n");
   commit(canonical);
   dispatch(root, canonical);
-  assert.throws(() => derive(root, "Completed the live path."), {
+  await assert.rejects(async () => await derive(root, "Completed the live path."), {
     code: "invalid_submission",
     message: /No readable bound worktree HEAD exists; rerun with --commit/u,
   });
   put(root, "src/live.ts", "export const liveValue = 5;\n");
   const sha = commit(root);
-  assert.equal(derive(root, "Completed.", undefined, ["lint"], undefined, undefined, sha).commitSha, sha);
+  assert.equal((await derive(root, "Completed.", undefined, ["lint"], undefined, undefined, sha)).commitSha, sha);
 });
 
-test("a plain directory at the bound worktree path never lends the canonical HEAD", (t) => {
+test("a plain directory at the bound worktree path never lends the canonical HEAD", async (t) => {
   const { root } = fixture(t);
   // A leftover ordinary directory at .worktrees/task-1: rev-parse there walks up to the canonical checkout.
   put(root, ".worktrees/task-1/leftover.txt", "not a worktree\n");
-  assert.throws(() => derive(root, "Completed the live path.", undefined, ["lint"]), {
+  await assert.rejects(async () => await derive(root, "Completed the live path.", undefined, ["lint"]), {
     code: "invalid_submission",
     message: /No readable bound worktree HEAD exists; rerun with --commit/u,
   });
 });
 
-test("explicit delivery commit must match a bound worktree HEAD and reports both values", (t) => {
+test("explicit delivery commit must match a bound worktree HEAD and reports both values", async (t) => {
   const { root, base } = fixture(t),
     worktree = path.join(root, ".worktrees/task-1");
   git(root, "worktree", "add", "-qb", "task-1", worktree);
   put(worktree, "src/live.ts", "export const liveValue = 3;\n");
   const head = commit(worktree);
-  assert.throws(() => derive(root, "Complete.", undefined, ["lint"], undefined, undefined, base), {
+  await assert.rejects(async () => await derive(root, "Complete.", undefined, ["lint"], undefined, undefined, base), {
     code: "invalid_submission",
     message: new RegExp(`${base}.*${head}`, "u"),
   });
 });
 
-test("a private Git commit cannot substitute for an artifact acceptance revision", (t) => {
+test("a private Git commit cannot substitute for an artifact acceptance revision", async (t) => {
   const { root, ledger } = fixture(t);
   put(ledger, `${packagePath}/artifacts/report.md`, "Evidence.\n");
   const sha = commit(ledger);
-  assert.throws(() => derive(root, `Delivered ${sha}.`), { code: "invalid_submission" });
+  await assert.rejects(async () => await derive(root, `Delivered ${sha}.`), { code: "invalid_submission" });
 });
 
-test("missing ledger artifact paths and missing projected documents fail closed", (t) => {
+test("missing ledger artifact paths and missing projected documents fail closed", async (t) => {
   const { root, ledger } = fixture(t);
   put(ledger, "tasks/task-2/artifacts/report.md", "Other evidence.\n");
   const sha = commit(ledger);
-  assert.throws(() => derive(root, `Delivered ${sha}.`), { code: "invalid_submission" });
+  await assert.rejects(async () => await derive(root, `Delivered ${sha}.`), { code: "invalid_submission" });
   for (const missing of [documentPath, `${packagePath}/task-contract.json`])
-    assert.throws(() => derive(root, `Delivered ${sha}.`, missing), { code: "content_not_ready" });
+    await assert.rejects(
+      async () =>
+        await derive(
+          root,
+          `Delivered ${sha}.`,
+          missing,
+          ["lint"],
+          undefined,
+          undefined,
+          git(root, "rev-parse", "HEAD"),
+        ),
+      { code: "content_not_ready" },
+    );
   dispatch(root, path.join(root, "missing-worktree"));
-  assert.throws(() => derive(root, "Completed the live path."), { code: "invalid_submission" });
+  await assert.rejects(async () => await derive(root, "Completed the live path."), { code: "invalid_submission" });
 });
 
-test("shared public and authored Git root keeps a code delivery on its public cut", (t) => {
+test("shared public and authored Git root keeps a code delivery on its public cut", async (t) => {
   const { root } = fixture(t, true);
   put(root, "src/live.ts", "export const liveValue = 4;\n");
   const sha = commit(root),
-    packet = derive(root, "Delivered the implementation.", undefined, ["lint"], undefined, undefined, sha);
+    packet = await derive(root, "Delivered the implementation.", undefined, ["lint"], undefined, undefined, sha);
   assert.equal(packet.commitSha, sha);
   assert.deepEqual(packet.deliverables, ["src/live.ts"]);
 });
 
-test("unpublished bound worktree HEAD preserves every branch commit before main", (t) => {
+test("unpublished bound worktree HEAD preserves every branch commit before main", async (t) => {
   const { root } = fixture(t);
   // The main checkout leaves the default branch below, so only origin/HEAD, as a clone records it, names main.
   git(root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
@@ -405,12 +221,12 @@ test("unpublished bound worktree HEAD preserves every branch commit before main"
   commit(worktree);
   put(worktree, "src/second.ts", "second\n");
   const head = commit(worktree),
-    packet = derive(root, "Worktree delivery.", undefined, ["lint"]);
+    packet = await derive(root, "Worktree delivery.", undefined, ["lint"]);
   assert.deepEqual(packet.deliverables, ["src/first.ts", "src/second.ts"]);
   assert.equal(packet.commitSha, head);
 });
 
-test("removed dispatch worktree resolves an explicit delivery cut in the canonical repository", (t) => {
+test("removed dispatch worktree resolves an explicit delivery cut in the canonical repository", async (t) => {
   const { root } = fixture(t),
     cwd = path.join(root, "worker");
   git(root, "worktree", "add", "-qb", "worker", cwd);
@@ -421,24 +237,28 @@ test("removed dispatch worktree resolves an explicit delivery cut in the canonic
   const merged = git(root, "rev-parse", "HEAD");
   git(root, "update-ref", "refs/remotes/origin/main", merged);
   git(root, "worktree", "remove", cwd);
-  assert.equal(derive(root, "Delivery complete.", undefined, ["lint"], undefined, undefined, merged).commitSha, merged);
-  assert.deepEqual(derive(root, "Delivery complete.", undefined, ["lint"], undefined, undefined, merged).deliverables, [
-    "src/delivery.ts",
-  ]);
-  assert.throws(() => derive(root, "Delivery complete."), /No readable bound worktree HEAD/u);
-  assert.throws(
-    () => derive(root, "Delivery complete.", undefined, ["lint"], undefined, undefined, "f".repeat(40)),
+  assert.equal(
+    (await derive(root, "Delivery complete.", undefined, ["lint"], undefined, undefined, merged)).commitSha,
+    merged,
+  );
+  assert.deepEqual(
+    (await derive(root, "Delivery complete.", undefined, ["lint"], undefined, undefined, merged)).deliverables,
+    ["src/delivery.ts"],
+  );
+  await assert.rejects(async () => await derive(root, "Delivery complete."), /No readable bound worktree HEAD/u);
+  await assert.rejects(
+    async () => await derive(root, "Delivery complete.", undefined, ["lint"], undefined, undefined, "f".repeat(40)),
     /not in any local clone/u,
   );
   put(root, "src/unpublished.ts", "unpublished\n");
   const unpublished = commit(root);
   assert.equal(
-    derive(root, "Delivery complete.", undefined, ["lint"], undefined, undefined, unpublished).commitSha,
+    (await derive(root, "Delivery complete.", undefined, ["lint"], undefined, undefined, unpublished)).commitSha,
     unpublished,
   );
 });
 
-test("one execution with two dispatch directories and no bound worktree names no delivery from Summary prose", (t) => {
+test("one execution with two dispatch directories and no bound worktree names no delivery from Summary prose", async (t) => {
   const { root } = fixture(t),
     worker = path.join(root, "worker");
   git(root, "worktree", "add", "-qb", "worker", worker);
@@ -449,10 +269,13 @@ test("one execution with two dispatch directories and no bound worktree names no
   git(root, "update-ref", "refs/remotes/origin/main", merged);
   dispatch(root, worker);
   dispatch(root, root, "dispatch_222222222222222222222222");
-  assert.throws(() => derive(root, `Unrelated published merge ${merged}.`), /No readable bound worktree HEAD/u);
+  await assert.rejects(
+    async () => await derive(root, `Unrelated published merge ${merged}.`),
+    /No readable bound worktree HEAD/u,
+  );
 });
 
-test("a structured commit differing from the bound HEAD is rejected", (t) => {
+test("a structured commit differing from the bound HEAD is rejected", async (t) => {
   const { root } = fixture(t),
     worker = path.join(root, ".worktrees/task-1");
   git(root, "worktree", "add", "-qb", "task-1", worker);
@@ -465,17 +288,17 @@ test("a structured commit differing from the bound HEAD is rejected", (t) => {
   // cut nor an ancestor of it.
   put(worker, "src/unrelated.ts", "unrelated\n");
   commit(worker);
-  assert.throws(
-    () => derive(root, "Delivery complete.", undefined, ["lint"], undefined, undefined, merged),
+  await assert.rejects(
+    async () => await derive(root, "Delivery complete.", undefined, ["lint"], undefined, undefined, merged),
     /does not match bound worktree HEAD/u,
   );
 });
 
-test("documentation task ignores unrelated Summary SHA and freezes accepted artifacts", (t) => {
+test("documentation task ignores unrelated Summary SHA and freezes accepted artifacts", async (t) => {
   const { root, ledger } = fixture(t);
   put(ledger, `${packagePath}/artifacts/report.md`, "Evidence.\n");
   commit(ledger);
-  const packet = derive(
+  const packet = await derive(
     root,
     `Audited unrelated PR ${"f".repeat(40)}.`,
     undefined,
@@ -496,11 +319,11 @@ test("documentation task ignores unrelated Summary SHA and freezes accepted arti
 
 // Negative control (dec_BBA713052997C3EF5F5D3DD952): a task-package-artifact task keeps its ledger delivery
 // even with a non-empty gate set, proving the shape-based determinant never keyed private delivery to gates.
-test("a task-package-artifact task freezes accepted artifacts with a non-empty gate set", (t) => {
+test("a task-package-artifact task freezes accepted artifacts with a non-empty gate set", async (t) => {
   const { root, ledger } = fixture(t);
   put(ledger, `${packagePath}/artifacts/report.md`, "Evidence.\n");
   commit(ledger);
-  const packet = derive(
+  const packet = await derive(
     root,
     `Audited unrelated PR ${"f".repeat(40)}.`,
     undefined,
@@ -518,18 +341,28 @@ test("a task-package-artifact task freezes accepted artifacts with a non-empty g
   assert.deepEqual(packet.deliverables, [`${packagePath}/artifacts/report.md`]);
 });
 
-test("implicit delivery fails closed when the task has no accepted artifacts", (t) => {
+test("implicit delivery fails closed when the task has no accepted artifacts", async (t) => {
   const { root } = fixture(t);
   git(root, "commit", "-q", "--allow-empty", "-m", "test: empty product cut");
   const empty = git(root, "rev-parse", "HEAD");
   dispatch(root, root);
-  assert.throws(
-    () => derive(root, `Delivered ${empty}.`, undefined, [], undefined, undefined, undefined, "task-package-artifact"),
+  await assert.rejects(
+    async () =>
+      await derive(
+        root,
+        `Delivered ${empty}.`,
+        undefined,
+        [],
+        undefined,
+        undefined,
+        undefined,
+        "task-package-artifact",
+      ),
     { code: "invalid_submission", message: /artifacts/u },
   );
 });
 
-test("an artifactless private delivery guides the next action at artifacts/, not closeout.md", (t) => {
+test("an artifactless private delivery guides the next action at artifacts/, not closeout.md", async (t) => {
   const { root } = fixture(t);
   const stop = (error: unknown) =>
     submissionStopped(
@@ -553,7 +386,16 @@ test("an artifactless private delivery guides the next action at artifacts/, not
     ) as { readonly code: string; readonly next: readonly { readonly action: string }[] };
   let thrown: unknown;
   try {
-    derive(root, "Delivered nothing yet.", undefined, [], undefined, undefined, undefined, "task-package-artifact");
+    await derive(
+      root,
+      "Delivered nothing yet.",
+      undefined,
+      [],
+      undefined,
+      undefined,
+      undefined,
+      "task-package-artifact",
+    );
     assert.fail("the artifactless private delivery must stop");
   } catch (error) {
     thrown = error;
@@ -612,7 +454,7 @@ test("anchor drift warning fires only when the delivery cut moved under unchange
 
 // -- comparison-cut anchor (F-70FB11C4): the manifest belongs to the commit, not the clock ------
 
-test("a root-commit delivery on an unborn repository diffs against the empty tree", (t) => {
+test("a root-commit delivery on an unborn repository diffs against the empty tree", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-closeout-unborn-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   git(root, "init", "-q", "-b", "main");
@@ -620,23 +462,23 @@ test("a root-commit delivery on an unborn repository diffs against the empty tre
   git(root, "config", "user.email", "harness@example.test");
   put(root, "src/first.ts", "export const first = 1;\n");
   const sha = commit(root);
-  const packet = derive(root, `Delivered ${sha}.`, undefined, ["lint"], undefined, { kind: "empty-tree" }, sha);
+  const packet = await derive(root, `Delivered ${sha}.`, undefined, ["lint"], undefined, { kind: "empty-tree" }, sha);
   assert.equal(packet.commitSha, sha);
   assert.deepEqual(packet.deliverables, ["src/first.ts"]);
 });
 
-test("a multi-commit delivery lists every path changed since the frozen baseline", (t) => {
+test("a multi-commit delivery lists every path changed since the frozen baseline", async (t) => {
   const { root } = fixture(t);
   put(root, "src/first.ts", "first\n");
   commit(root);
   put(root, "src/second.ts", "second\n");
   const sha = commit(root);
-  const packet = derive(root, `Delivered ${sha}.`, undefined, ["lint"], undefined, undefined, sha);
+  const packet = await derive(root, `Delivered ${sha}.`, undefined, ["lint"], undefined, undefined, sha);
   assert.equal(packet.commitSha, sha);
   assert.deepEqual(packet.deliverables, ["src/first.ts", "src/second.ts"]);
 });
 
-test("submission facts freeze the full changed-path set and G33 result at the delivery base", (t) => {
+test("submission facts freeze the full changed-path set and G33 result at the delivery base", async (t) => {
   const { root, base } = fixture(t);
   put(root, "docs/retired.md", "retired documentation\n");
   put(root, "packages/kernel/src/retired.ts", "export const retired = 1;\n");
@@ -647,7 +489,7 @@ test("submission facts freeze the full changed-path set and G33 result at the de
   put(root, "packages/kernel/src/added.ts", "export const first = 1;\nexport const second = 2;\n");
   git(root, "rm", "-q", "docs/retired.md", "packages/kernel/src/retired.ts");
   const sha = commit(root),
-    packet = derive(
+    packet = await derive(
       root,
       `Delivered ${sha}.`,
       undefined,
@@ -675,7 +517,7 @@ test("submission facts freeze the full changed-path set and G33 result at the de
   });
 });
 
-test("a reworked cut recomputes production delta from its new commit, not the previous submission", (t) => {
+test("a reworked cut recomputes production delta from its new commit, not the previous submission", async (t) => {
   const { root } = fixture(t);
   put(root, "packages/daemon/src/retired.ts", "export const retired = 1;\n");
   put(root, "packages/storage/src/keep.ts", "export const keep = 1;\n");
@@ -686,7 +528,7 @@ test("a reworked cut recomputes production delta from its new commit, not the pr
   put(root, "packages/daemon/src/runtime.ts", "export const runtime = 1;\n");
   git(root, "rm", "-q", "packages/daemon/src/retired.ts");
   const firstSha = commit(root),
-    first = derive(
+    first = await derive(
       root,
       `Delivered ${firstSha}.`,
       undefined,
@@ -701,7 +543,7 @@ test("a reworked cut recomputes production delta from its new commit, not the pr
   put(root, "packages/storage/src/rework.ts", "export const rework = 1;\n");
   put(root, "packages/daemon/src/follow-up.ts", "export const follow = 1;\nexport const up = 2;\n");
   const secondSha = commit(root),
-    second = derive(
+    second = await derive(
       root,
       `Reworked ${secondSha}.`,
       undefined,
@@ -733,11 +575,11 @@ test("a reworked cut recomputes production delta from its new commit, not the pr
   ]);
 });
 
-test("amending the same legacy commit recomputes missing submission facts", (t) => {
+test("amending the same legacy commit recomputes missing submission facts", async (t) => {
   const { root, base } = fixture(t);
   put(root, "packages/kernel/src/new.ts", "export const added = 1;\n");
   const sha = commit(root),
-    first = derive(
+    first = await derive(
       root,
       "Delivered the change.",
       undefined,
@@ -748,8 +590,8 @@ test("amending the same legacy commit recomputes missing submission facts", (t) 
     ),
     legacyFrozen = Object.fromEntries(
       Object.entries(first).filter(([key]) => !["changedFiles", "productionDelta"].includes(key)),
-    ) as ReturnType<typeof deriveCloseoutSubmission>,
-    amended = derive(
+    ) as Awaited<ReturnType<typeof deriveCloseoutSubmission>>,
+    amended = await derive(
       root,
       "Amended the legacy cut.",
       undefined,
@@ -850,19 +692,19 @@ test("submit accepts the original Event-Migration import and the client-local mi
   }
 });
 
-test("an execution started before the baseline froze keeps the comparison cut in force when it started", (t) => {
+test("an execution started before the baseline froze keeps the comparison cut in force when it started", async (t) => {
   const { root } = fixture(t);
   put(root, "src/earlier.ts", "export const earlierValue = 8;\n");
   commit(root);
   put(root, "src/live.ts", "export const liveValue = 9;\n");
   const sha = commit(root);
   // The pre-freeze rule compares against the merge base with origin/main, so both commits are delivered.
-  const packet = derive(root, `Delivered ${sha}.`, undefined, ["lint"], undefined, null, sha);
+  const packet = await derive(root, `Delivered ${sha}.`, undefined, ["lint"], undefined, null, sha);
   assert.equal(packet.commitSha, sha);
   assert.deepEqual(packet.deliverables, ["src/earlier.ts", "src/live.ts"]);
 });
 
-test("a frozen baseline unreadable in an unanchored repository fails closed", (t) => {
+test("a frozen baseline unreadable in an unanchored repository fails closed", async (t) => {
   const { root } = fixture(t);
   // Only repositories without a default branch consult the frozen observation: no remote, and the main
   // checkout on a detached HEAD.
@@ -870,9 +712,9 @@ test("a frozen baseline unreadable in an unanchored repository fails closed", (t
   git(root, "checkout", "-q", "--detach");
   put(root, "src/live.ts", "export const liveValue = 10;\n");
   const sha = commit(root);
-  assert.throws(
-    () =>
-      derive(
+  await assert.rejects(
+    async () =>
+      await derive(
         root,
         `Delivered ${sha}.`,
         undefined,
@@ -885,7 +727,7 @@ test("a frozen baseline unreadable in an unanchored repository fails closed", (t
   );
 });
 
-test("a repository without a remote anchors its cut on the local default branch, not the start observation", (t) => {
+test("a repository without a remote anchors its cut on the local default branch, not the start observation", async (t) => {
   const { root, base } = fixture(t);
   git(root, "update-ref", "-d", "refs/remotes/origin/main");
   // Ledger publications share the repository Git and land on main after the execution started.
@@ -899,7 +741,7 @@ test("a repository without a remote anchors its cut on the local default branch,
   commit(root);
   const started = { kind: "commit" as const, commitSha: base };
   assert.deepEqual(
-    derive(root, "Delivered the worker cut.", undefined, ["lint"], undefined, started, delivery).deliverables,
+    (await derive(root, "Delivered the worker cut.", undefined, ["lint"], undefined, started, delivery)).deliverables,
     ["src/delivery.ts"],
   );
   // Delivered straight onto main after more ledger writes: the cut is that commit's own change.
@@ -909,17 +751,17 @@ test("a repository without a remote anchors its cut on the local default branch,
   const direct = commit(root);
   git(root, "worktree", "remove", worker);
   assert.deepEqual(
-    derive(root, "Delivered the direct cut.", undefined, ["lint"], undefined, started, direct).deliverables,
+    (await derive(root, "Delivered the direct cut.", undefined, ["lint"], undefined, started, direct)).deliverables,
     ["src/direct.ts"],
   );
 });
 
-test("the comparison cut follows the delivery fork point, not the project HEAD at start", (t) => {
+test("the comparison cut follows the delivery fork point, not the project HEAD at start", async (t) => {
   const { root, base } = fixture(t);
   put(root, "src/delivery.ts", "delivery\n");
   const sha = commit(root);
   // The execution's start observation (base) predates the delivery; only the fork point counts.
-  const packet = derive(
+  const packet = await derive(
     root,
     `Delivered ${sha}.`,
     undefined,
@@ -929,615 +771,4 @@ test("the comparison cut follows the delivery fork point, not the project HEAD a
     sha,
   );
   assert.deepEqual(packet.deliverables, ["src/delivery.ts"]);
-});
-
-/** A moving-main world: sibling PRs land on main before and after this delivery merges. */
-function movingMain(t: TestContext) {
-  const { root, base } = fixture(t);
-  // A sibling PR lands on main after this execution started (its start observation is `base`).
-  put(root, "src/other-pr.ts", "other\n");
-  commit(root);
-  git(root, "update-ref", "refs/remotes/origin/main", "HEAD");
-  // The delivery worktree forks from the advanced main and merges back with a merge commit.
-  const worker = path.join(root, "worker");
-  git(root, "worktree", "add", "-qb", "codex/delivery", worker);
-  put(worker, "src/delivery.ts", "delivery\n");
-  commit(worker);
-  git(root, "merge", "--no-ff", "-qm", "test: merge delivery", "codex/delivery");
-  const merged = git(root, "rev-parse", "HEAD");
-  git(root, "update-ref", "refs/remotes/origin/main", merged);
-  // A later PR advances main past the publication while the cut waits for review.
-  put(root, "src/later-pr.ts", "later\n");
-  const later = commit(root);
-  git(root, "update-ref", "refs/remotes/origin/main", later);
-  return { root, base, merged, later };
-}
-
-test("a cut merged after sibling PRs reports only its own files, never the start-era diff", (t) => {
-  const { root, base, merged } = movingMain(t);
-  // The execution started when the project HEAD sat at `base`; the sibling PR's file lies between
-  // that observation and the merge commit, so the frozen-start diff would claim it (F-70FB11C4).
-  const packet = derive(
-    root,
-    "Delivery complete.",
-    undefined,
-    ["lint"],
-    undefined,
-    { kind: "commit", commitSha: base },
-    merged,
-  );
-  assert.equal(packet.commitSha, merged);
-  assert.deepEqual(packet.deliverables, ["src/delivery.ts"]);
-});
-
-test("a cut named after main passed it reports its own files, never a reverse diff", (t) => {
-  const { root, merged, later } = movingMain(t);
-  // A restarted execution observed the project HEAD at `later`, a descendant of the named cut;
-  // diffing from that observation reverses the comparison and credits the later PR's file.
-  const packet = derive(
-    root,
-    "Delivery complete.",
-    undefined,
-    ["lint"],
-    undefined,
-    { kind: "commit", commitSha: later },
-    merged,
-  );
-  assert.equal(packet.commitSha, merged);
-  assert.deepEqual(packet.deliverables, ["src/delivery.ts"]);
-});
-
-test("one commit derives one manifest whatever start observation the execution froze", (t) => {
-  const { root, base, merged, later } = movingMain(t);
-  for (const deliveryBaseline of [
-    { kind: "commit" as const, commitSha: base }, // started before the sibling PRs
-    { kind: "commit" as const, commitSha: merged }, // restarted exactly at the cut (was the empty cut)
-    { kind: "commit" as const, commitSha: later }, // restarted after publication
-    { kind: "empty-tree" as const }, // observed before any commit existed
-    null, // legacy execution started before the baseline field froze
-  ])
-    assert.deepEqual(
-      derive(
-        root,
-        "Delivery complete.",
-        undefined,
-        ["lint"],
-        undefined,
-        deliveryBaseline,
-        merged,
-        "repository-diff",
-        git(root, "rev-parse", `${merged}^2`),
-      ).deliverables,
-      ["src/delivery.ts"],
-      `start observation ${JSON.stringify(deliveryBaseline)}`,
-    );
-});
-
-test("a task without its own commit delivers accepted artifacts, not the baseline merge", (t) => {
-  const { root, merged } = movingMain(t),
-    worker = path.join(root, ".worktrees/task-1");
-  git(root, "worktree", "add", "-qb", "task-1", worker, merged);
-  const packet = derive(
-    root,
-    "Delivered artifact:artifacts/report.md@7.",
-    undefined,
-    ["lint"],
-    artifactStore().store as Parameters<typeof deriveCloseoutSubmission>[0]["store"],
-    { kind: "commit", commitSha: merged },
-    undefined,
-    "repository-diff",
-    undefined,
-    undefined,
-    [{ path: `${packagePath}/artifacts/report.md`, revision: 7 }],
-  );
-  assert.deepEqual(packet.deliverables, []);
-  assert.deepEqual(packet.outputs, [`Artifact-Anchor: ${packagePath}/artifacts/report.md@7`]);
-  assert.equal(packet.artifacts?.length, 1);
-  assert.deepEqual(
-    derive(
-      root,
-      "Delivered artifact:artifacts/report.md@7.",
-      undefined,
-      ["lint"],
-      artifactStore().store as Parameters<typeof deriveCloseoutSubmission>[0]["store"],
-      null,
-      undefined,
-      "repository-diff",
-      undefined,
-      undefined,
-      [{ path: `${packagePath}/artifacts/report.md`, revision: 7 }],
-    ).deliverables,
-    [],
-  );
-  const closeoutOnly = derive(root, "Completed ledger coordination.", undefined, ["lint"], undefined, {
-    kind: "commit",
-    commitSha: merged,
-  });
-  assert.equal(closeoutOnly.commitSha, null);
-  assert.deepEqual(closeoutOnly.deliverables, []);
-  assert.deepEqual(closeoutOnly.outputs, []);
-  assert.deepEqual(closeoutOnly.artifacts, []);
-});
-
-test("a restarted task retains the first-parent diff for its earlier delivery ancestor", (t) => {
-  const { root, merged } = movingMain(t),
-    worker = path.join(root, ".worktrees/task-1"),
-    delivery = git(root, "rev-parse", `${merged}^2`);
-  git(root, "worktree", "add", "-qb", "task-1", worker, merged);
-  const packet = derive(
-    root,
-    "Re-delivered.",
-    undefined,
-    ["lint"],
-    undefined,
-    { kind: "commit", commitSha: merged },
-    undefined,
-    "repository-diff",
-    delivery,
-  );
-  assert.deepEqual(packet.deliverables, ["src/delivery.ts"]);
-  // The commit below the delivery tip is the fork point on old main: reachable from the merged
-  // branch, yet not introduced by the merge, so it evidences no delivery of this task.
-  const forkPointPrior = derive(
-    root,
-    "Prior cut named an old main commit.",
-    undefined,
-    ["lint"],
-    undefined,
-    { kind: "commit", commitSha: merged },
-    undefined,
-    "repository-diff",
-    git(root, "rev-parse", `${delivery}^1`),
-  );
-  assert.deepEqual(forkPointPrior.deliverables, []);
-  assert.deepEqual(forkPointPrior.outputs, []);
-  assert.deepEqual(forkPointPrior.artifacts, []);
-  const foreignPrior = derive(
-    root,
-    "Foreign prior cut.",
-    undefined,
-    ["lint"],
-    undefined,
-    { kind: "commit", commitSha: merged },
-    undefined,
-    "repository-diff",
-    git(root, "rev-parse", "HEAD"),
-  );
-  assert.equal(foreignPrior.commitSha, null);
-  assert.deepEqual(foreignPrior.deliverables, []);
-  assert.deepEqual(foreignPrior.outputs, []);
-  assert.deepEqual(foreignPrior.artifacts, []);
-});
-
-/** A stale-checkout world: the bound task worktree sits at another PR's merge behind an advanced main. */
-function foreignMerge(t: TestContext) {
-  const { root } = fixture(t);
-  const branch = path.join(root, "foreign");
-  git(root, "worktree", "add", "-qb", "foreign/pr", branch);
-  put(branch, "src/foreign-pr.ts", "foreign\n");
-  commit(branch);
-  git(root, "merge", "--no-ff", "-qm", "test: merge foreign PR", "foreign/pr");
-  const stale = git(root, "rev-parse", "HEAD");
-  // Main advances past the foreign merge while the task checkout never moves.
-  put(root, "src/later-pr.ts", "later\n");
-  const later = commit(root);
-  git(root, "update-ref", "refs/remotes/origin/main", later);
-  git(root, "worktree", "remove", branch);
-  const worker = path.join(root, ".worktrees/task-1");
-  git(root, "worktree", "add", "-qb", "task-1", worker, stale);
-  return { root, stale, later };
-}
-
-test("a stale worktree HEAD behind the frozen baseline claims no foreign merge files", (t) => {
-  const { root, later } = foreignMerge(t);
-  const packet = derive(root, "Review-only round with no repository work.", undefined, ["lint"], undefined, {
-    kind: "commit",
-    commitSha: later,
-  });
-  assert.equal(packet.commitSha, null);
-  assert.deepEqual(packet.deliverables, []);
-  assert.deepEqual(packet.outputs, []);
-});
-
-test("a prior cut that only recorded the stale merge inherits nothing on resubmit", (t) => {
-  const { root, stale, later } = foreignMerge(t);
-  const packet = derive(
-    root,
-    "Second review round.",
-    undefined,
-    ["lint"],
-    undefined,
-    { kind: "commit", commitSha: later },
-    undefined,
-    "repository-diff",
-    stale,
-  );
-  assert.equal(packet.commitSha, null);
-  assert.deepEqual(packet.deliverables, []);
-  assert.deepEqual(packet.outputs, []);
-});
-
-// Negative control: the restarted checkout sits at this task's own merge behind an advanced
-// baseline, and the earlier cut recorded the merged branch tip — the manifest must survive.
-test("a restarted delivery whose own branch merged keeps its manifest under an advanced baseline", (t) => {
-  const { root, merged, later } = movingMain(t),
-    worker = path.join(root, ".worktrees/task-1");
-  git(root, "worktree", "add", "-qb", "task-1", worker, merged);
-  const packet = derive(
-    root,
-    "Re-delivered after restart.",
-    undefined,
-    ["lint"],
-    undefined,
-    { kind: "commit", commitSha: later },
-    undefined,
-    "repository-diff",
-    git(root, "rev-parse", `${merged}^2`),
-  );
-  assert.equal(packet.commitSha, merged);
-  assert.deepEqual(packet.deliverables, ["src/delivery.ts"]);
-});
-
-test("documentation amendments pin new accepted bytes while unrelated publication preserves the cut", (t) => {
-  const { root, ledger } = fixture(t),
-    report = `${packagePath}/artifacts/report.md`,
-    added = `${packagePath}/artifacts/new-evidence.md`,
-    bodies = new Map([[7, new Map([[report, "First accepted report.\n"]])]]);
-  let accepted = [{ path: report, revision: 7 }];
-  const store = {
-    readEventAtRevision: (revision: number) => ({
-      schema: "doc-event/v1",
-      workspaceRevision: revision,
-      opId: `accept-${revision}`,
-      payload: {
-        changes: [...bodies.get(revision)!].map(([path, body]) => ({
-          path,
-          candidate: { sha256: sha256Bytes(Buffer.from(body)) },
-        })),
-      },
-    }),
-    readContentBlob: (hash: string) => {
-      for (const documents of bodies.values())
-        for (const body of documents.values()) if (sha256Bytes(Buffer.from(body)) === hash) return Buffer.from(body);
-      return null;
-    },
-    readContentBlobRange: (hash: string, offset: number, maxBytes: number) => {
-      for (const documents of bodies.values())
-        for (const body of documents.values())
-          if (sha256Bytes(Buffer.from(body)) === hash) return Buffer.from(body).subarray(offset, offset + maxBytes);
-      return null;
-    },
-    readContentBlobSize: (hash: string) => {
-      for (const documents of bodies.values())
-        for (const body of documents.values())
-          if (sha256Bytes(Buffer.from(body)) === hash) return Buffer.byteLength(body);
-      return null;
-    },
-  } as unknown as Parameters<typeof deriveCloseoutSubmission>[0]["store"];
-  const read = (frozen?: ReturnType<typeof deriveCloseoutSubmission>) =>
-    derive(
-      root,
-      "Audited report.",
-      undefined,
-      [],
-      store,
-      undefined,
-      undefined,
-      "task-package-artifact",
-      undefined,
-      frozen,
-      accepted,
-    );
-  const first = read();
-  put(ledger, "other-task/notes.md", "Unrelated publication.\n");
-  commit(ledger);
-  assert.deepEqual(read(first), first);
-  bodies.set(
-    8,
-    new Map([
-      [report, "Corrected report.\n"],
-      [added, "New accepted evidence.\n"],
-    ]),
-  );
-  accepted = [
-    { path: report, revision: 8 },
-    { path: added, revision: 8 },
-  ];
-  const amended = read(first);
-  assert.equal(amended.commitSha, null);
-  assert.ok(amended.deliverables.includes(added));
-  assert.notEqual(
-    amended.artifacts!.find((anchor) => anchor.path === report)!.blobSha256,
-    first.artifacts![0]!.blobSha256,
-  );
-  put(ledger, `${packagePath}/executions/execution-1.md`, "Submission bookkeeping.\n");
-  commit(ledger);
-  assert.deepEqual(read(amended), amended);
-});
-
-test("implicit delivery excludes another task and independent reviewer credentials", (t) => {
-  const { root } = fixture(t),
-    report = `${packagePath}/artifacts/report.md`,
-    reviewerReport = `${packagePath}/artifacts/reports/old.md`;
-  const packet = derive(
-    root,
-    "Completed report.",
-    undefined,
-    [],
-    artifactStore().store as unknown as Parameters<typeof deriveCloseoutSubmission>[0]["store"],
-    undefined,
-    undefined,
-    "task-package-artifact",
-    undefined,
-    undefined,
-    [
-      { path: report, revision: 7 },
-      { path: `${packagePath}/artifacts/reports/authored.md`, revision: 7 },
-      { path: `${packagePath}/artifacts/.gitkeep`, revision: 1 },
-      { path: "tasks/other/artifacts/report.md", revision: 7 },
-      { path: reviewerReport, revision: 7 },
-      { path: reviewerReport.replace(/md$/u, "json"), revision: 7 },
-      { path: `${packagePath}/artifacts/reports/dispatch_pending.md`, revision: 7 },
-    ],
-    [{ reviewId: "review-old" }],
-    ["dispatch_pending"],
-  );
-  assert.deepEqual(packet.deliverables, [report, `${packagePath}/artifacts/reports/authored.md`]);
-});
-
-test("stacked delivery uses its approved baseline for merged files and deletions, excluding upstream files", (t) => {
-  const { root } = fixture(t);
-  git(root, "checkout", "-qb", "upstream");
-  put(root, "src/upstream.ts", "approved upstream\n");
-  const anchor = commit(root);
-  git(root, "checkout", "main");
-  put(root, "src/live.ts", "main advances\n");
-  git(root, "rm", "src/old.ts");
-  const main = commit(root);
-  git(root, "update-ref", "refs/remotes/origin/main", main);
-  git(root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
-  git(root, "checkout", "-qb", "integration", anchor);
-  git(root, "merge", "--no-ff", "main", "-m", "test: CEO merges main");
-  put(root, "src/ceo.ts", "CEO contribution\n");
-  const delivery = commit(root);
-  const packet = derive(
-    root,
-    "Integrated delivery.",
-    undefined,
-    ["lint"],
-    undefined,
-    {
-      kind: "commit",
-      commitSha: anchor,
-      stackOn: { taskId: "upstream", executionId: "exe-upstream" },
-    },
-    delivery,
-  );
-  assert.deepEqual(packet.deliverables, ["src/ceo.ts", "src/live.ts"]);
-  assert.deepEqual(packet.outputs, ["Deleted-Production-Paths: src/old.ts"]);
-  assert.equal(packet.commitSha, delivery);
-  assert.deepEqual(
-    derive(
-      root,
-      "Ordinary delivery.",
-      undefined,
-      ["lint"],
-      undefined,
-      {
-        kind: "commit",
-        commitSha: anchor,
-      },
-      delivery,
-    ).deliverables,
-    ["src/ceo.ts", "src/upstream.ts"],
-  );
-});
-
-// -- an empty task branch rebased onto an advanced main (task_96720a8e) ------------------------
-/**
- * A zero-commit delivery branch rebased onto main that advanced after the execution started: the
- * branch tip IS main's tip, a merge commit another task's PR produced. The frozen baseline sits
- * behind it, so the checkout did "move", but no commit in the range belongs to this task.
- */
-function emptyBranchOnAdvancedMain(t: TestContext) {
-  const { root, base } = fixture(t);
-  // Another task's PR lands on main after this execution started.
-  git(root, "checkout", "-qb", "foreign/pr");
-  put(root, "packages/storage/src/store/foreign-migration.ts", "export const foreignMigration = 1;\n");
-  commit(root);
-  git(root, "checkout", "-q", "main");
-  git(root, "merge", "--no-ff", "-qm", "Merge pull request #3859 from other/task_9777b4a1", "foreign/pr");
-  const merged = git(root, "rev-parse", "HEAD");
-  git(root, "update-ref", "refs/remotes/origin/main", merged);
-  // The task's own branch carries no commit of its own; the pre-handoff rebase makes its tip main's.
-  const worker = path.join(root, ".worktrees/task-1");
-  git(root, "worktree", "add", "-qb", "task-1", worker, base);
-  git(worker, "rebase", "--quiet", "origin/main");
-  return { root, base, merged, worker, branchTip: git(worker, "rev-parse", "HEAD") };
-}
-
-test("an artifact-only cut whose empty branch rebased onto an advanced main freezes no foreign files", (t) => {
-  const { root, base, merged, branchTip } = emptyBranchOnAdvancedMain(t),
-    packet = derive(root, "Analysis delivered as accepted artifacts.", undefined, [], undefined, {
-      kind: "commit",
-      commitSha: base,
-    });
-  assert.equal(branchTip, merged);
-  // RED: the published-cut first-parent rule used to adopt #3859's whole manifest here.
-  assert.equal(packet.commitSha, null);
-  assert.deepEqual(packet.deliverables, []);
-  assert.deepEqual(packet.outputs, []);
-});
-
-test("the artifact-only cut drives no path-review lane while the same mechanism still fires for its own migration commit", (t) => {
-  const { root, base, worker } = emptyBranchOnAdvancedMain(t),
-    laneEntries = ["data-migration packages/storage/src/store/"],
-    lanes = reviewPathRules(laneEntries),
-    emptyCut = derive(root, "Analysis delivered as accepted artifacts.", undefined, [], undefined, {
-      kind: "commit",
-      commitSha: base,
-    });
-  assert.equal(reviewPathHits(emptyCut, lanes).size, 0);
-  // Positive control: a real persisted-shape change on the task's own branch still hits the lane.
-  put(worker, "packages/storage/src/store/own-migration.ts", "export const ownMigration = 1;\n");
-  commit(worker);
-  const realCut = derive(root, "Migrated the stored shape.", undefined, [], undefined, {
-    kind: "commit",
-    commitSha: base,
-  });
-  assert.deepEqual(realCut.deliverables, ["packages/storage/src/store/own-migration.ts"]);
-  assert.equal(reviewPathHits(realCut, lanes).get("data-migration")?.length, 1);
-});
-
-// Positive control for the same gate: a real delivery already merged into main keeps its own
-// first-parent manifest when the execution re-derives it after the merge, with no --commit.
-test("an inferred re-derivation at this task's own merged tip keeps its first-parent manifest", (t) => {
-  const { root } = fixture(t),
-    // This task's PR merges into main; its branch tip is the merge's second parent.
-    branch = path.join(root, "own"),
-    worker = path.join(root, ".worktrees/task-1");
-  git(root, "worktree", "add", "-qb", "own/pr", branch);
-  put(branch, "src/own-delivery.ts", "own\n");
-  commit(branch);
-  git(root, "merge", "--no-ff", "-qm", "Merge pull request #1 from x/task-1", "own/pr");
-  const merged = git(root, "rev-parse", "HEAD");
-  git(root, "update-ref", "refs/remotes/origin/main", merged);
-  git(root, "worktree", "remove", branch);
-  git(root, "worktree", "add", "-qb", "task-1", worker, merged);
-  // No --commit: the bound worktree HEAD is the merged tip, the execution started before main
-  // advanced to it, and the earlier cut recorded this task's own merged branch.
-  const packet = derive(
-    root,
-    "Re-derived the merged delivery.",
-    undefined,
-    [],
-    undefined,
-    { kind: "commit", commitSha: git(root, "rev-parse", `${merged}^1`) },
-    undefined,
-    "repository-diff",
-    git(root, "rev-parse", `${merged}^2`),
-  );
-  assert.equal(packet.commitSha, merged);
-  assert.deepEqual(packet.deliverables, ["src/own-delivery.ts"]);
-  // Without that earlier cut nothing proves the merge is this task's: the cut freezes empty.
-  const unproven = derive(root, "Re-derived without a prior cut.", undefined, [], undefined, {
-    kind: "commit",
-    commitSha: git(root, "rev-parse", `${merged}^1`),
-  });
-  assert.equal(unproven.commitSha, null);
-  assert.deepEqual(unproven.deliverables, []);
-});
-
-// The amendment variant of the same gate: the frozen cut belongs to THIS execution, not an
-// earlier one. `ha task submit --amend` after the task's own PR merged re-derives at the merged
-// tip with no --commit (review F1 on the first cut of this fix).
-test("a same-execution amendment at its own merged tip keeps the manifest and its migration lane", (t) => {
-  const { root, base } = fixture(t),
-    worker = path.join(root, ".worktrees/task-1");
-  git(root, "worktree", "add", "-qb", "task-1", worker, base);
-  put(worker, "packages/storage/src/store/own-migration.ts", "export const ownMigration = 1;\n");
-  commit(worker);
-  const branchTip = git(worker, "rev-parse", "HEAD"),
-    frozenCut = derive(root, "Migrated the stored shape.", undefined, [], undefined, {
-      kind: "commit",
-      commitSha: base,
-    });
-  assert.equal(frozenCut.commitSha, branchTip);
-  git(root, "merge", "--no-ff", "-qm", "Merge pull request #1 from x/task-1", "task-1");
-  const merged = git(root, "rev-parse", "HEAD");
-  git(root, "update-ref", "refs/remotes/origin/main", merged);
-  git(root, "worktree", "remove", worker);
-  git(root, "branch", "-D", "task-1");
-  git(root, "worktree", "add", "-qb", "task-1", worker, merged);
-  const packet = derive(
-    root,
-    "Amended after the merge.",
-    undefined,
-    [],
-    undefined,
-    { kind: "commit", commitSha: base },
-    undefined,
-    "repository-diff",
-    undefined,
-    frozenCut,
-  );
-  assert.equal(packet.commitSha, merged);
-  assert.deepEqual(packet.deliverables, ["packages/storage/src/store/own-migration.ts"]);
-  const lanes = reviewPathRules(["data-migration packages/storage/src/store/"]);
-  assert.equal(reviewPathHits(packet, lanes).get("data-migration")?.length, 1);
-});
-
-// The PR body generator rejects a closeout without the two Chinese sections; submit is the writing
-// boundary that must reject the same cut, through the same kernel judgment, while the worker can
-// still see and fix the file. A recognized public hosting origin is what makes the delivery a PR.
-test("a public PR delivery refuses a closeout without Chinese summary and verification", (t) => {
-  const { root } = fixture(t);
-  git(root, "remote", "add", "origin", "https://github.com/acme/project.git");
-  put(root, "src/live.ts", "export const liveValue = 7;\n");
-  const sha = commit(root),
-    englishOnly = "# Closeout\n\n## Summary\n\nEnglish only.\n\n## Verification\n\n- exit 0.\n";
-  assert.throws(
-    () =>
-      derive(
-        root,
-        "Delivered.",
-        undefined,
-        ["lint"],
-        undefined,
-        undefined,
-        sha,
-        "repository-diff",
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        englishOnly,
-      ),
-    (error: unknown) => {
-      assert.ok(error instanceof Error);
-      assert.equal((error as Error & { readonly code?: string }).code, "invalid_submission");
-      assert.match(error.message, /harness\/tasks\/task-1\/closeout\.md/u, "the rejection names the closeout path");
-      assert.match(error.message, /## 摘要/u, "the rejection names the missing Chinese summary");
-      assert.match(error.message, /## 验证/u, "the rejection names the missing Chinese verification");
-      return true;
-    },
-  );
-});
-
-test("a public PR delivery accepts a closeout carrying both Chinese sections", (t) => {
-  const { root } = fixture(t),
-    // `git remote get-url` still names a GitHub host, while the transport rewrite keeps the fetch
-    // inside the fixture instead of reaching the network.
-    origin = mkdtempSync(path.join(tmpdir(), "ha-closeout-public-origin-"));
-  t.after(() => rmSync(origin, { recursive: true, force: true }));
-  git(origin, "init", "--bare", "-q", "--initial-branch=main");
-  git(root, "remote", "add", "origin", "https://github.com/acme/project.git");
-  git(root, "config", `url.file://${origin}.insteadOf`, "https://github.com/acme/project.git");
-  git(root, "push", "-q", "--set-upstream", "origin", "main");
-  git(root, "fetch", "--quiet", "origin", "refs/heads/main:refs/remotes/origin/main");
-  git(root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
-  put(root, "src/live.ts", "export const liveValue = 8;\n");
-  const sha = commit(root),
-    bilingual =
-      "# Closeout\n\n## Summary\n\nDelivered English.\n\n## Verification\n\n- exit 0.\n\n" +
-      "## 摘要\n\n交付完成。\n\n## 验证\n\n- 退出码 0。\n",
-    packet = derive(
-      root,
-      "Delivered.",
-      undefined,
-      ["lint"],
-      undefined,
-      undefined,
-      sha,
-      "repository-diff",
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      bilingual,
-    );
-  assert.equal(packet.commitSha, sha);
-  assert.equal(packet.completionClaim, "Delivered English.");
 });

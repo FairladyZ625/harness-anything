@@ -1,70 +1,44 @@
 import path from "node:path";
-import { realpathSync } from "node:fs";
 import {
   completionContractGap,
-  evaluateTaskActionCapability,
-  getTaskActionForTransition,
-  TASK_LIFECYCLE_TRANSITIONS,
-  taskLifecycleNextActions,
   completionGuidance,
-  currentExecutionCuts,
-  heldLeaseForExecutionActor,
-  isNativeExecution,
-  isSameExecution,
-  isSamePerson,
-  isTaskEvent,
   missingChineseCloseoutSections,
   resolveCompletionContract,
-  productionDeltaFromNumstat,
-  parseNumstatRecords,
   submissionFromCloseout,
   submissionDigest,
-  sameWriteSource,
   sha256Text,
+  stableStringify,
   type DocEventChange,
   type ExecutionV1,
   type SubmissionV1,
-  type WriteSource,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
 import {
   isAgentRuntimeEvent,
   type AgentRuntimeEventV1,
 } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
-import {
-  reviewResponseSubmissionIssues,
-  submitExecutionStateIssues,
-  submitPresetSnapshotIssues,
-} from "@harness-anything/kernel/internal/domain/task-lifecycle-command-transitions.ts";
-import { TaskLifecycleContractError } from "@harness-anything/kernel/internal/domain/task-lifecycle-event.ts";
-import { errorCode } from "@harness-anything/kernel/internal/domain/task-lifecycle-contract-support.ts";
-import { attributeCellCriterion } from "./repo-cell-errors.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoCellContinuationWrite, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
-import { assertCurrentSubmittedExecution } from "./repo-cell-execution-selection.ts";
+import { readSubmissionAdmission } from "./submission-admission.ts";
 import { createSubmissionArtifactReader } from "./submission-artifacts.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
-import { makeGitReadinessSource, runProcessText, runProcessTextAsync } from "./process-port.ts";
-import { repositoryBaseRef } from "./schedule-occurrence-workspace.ts";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
 import { dispatchInReviewCutReview } from "./task-review-dispatch.ts";
 import { presetSnapshotReader, taskOutputShape, taskWorktreeBinding } from "./task-worktree.ts";
 import { taskWorktreeCandidateInventory, taskWorktreeRoot } from "./task-worktree-candidates.ts";
 import { isReviewerDispatch, readTaskLineageDispatches } from "./dispatch-read.ts";
-import { assessTaskRiskTier, type TaskRiskTierScriptInput } from "./task-risk-tier.ts";
-import { assertNoIgnoredLedgerDelivery } from "./ignored-ledger-delivery.ts";
 import { assertOldDataCopyReceipt, oldDataCopyReceiptPath } from "./submit-old-data-copy.ts";
-import { publishesPublicPullRequest } from "./hosting-provider.ts";
 import { publishSubmittedCut } from "./submitted-cut-publication.ts";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { taskExecutionPlacement } from "./task-execution-placement.ts";
 import { taskPrBodyRenderer } from "./task-pr-body-render.ts";
+import { readTaskRiskManifest } from "./task-risk-tier.ts";
 
-/** Git resolves the empty-tree object id virtually; it exists in every repository. */
-const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+import type { PreparedSubmissionDelivery } from "./submission-delivery.ts";
+import { preparedSubmission, type PreparedSubmissionAction } from "./submission-preparation.ts";
 
 /** Structured execution binding selects the public delivery commit; Accepted task documents select artifacts. */
-function deriveCloseoutSubmissionData(
+export function finalizeCloseoutSubmission(
   cell: Pick<
     RepoCellOperationalContext,
     "rootDir" | "projection" | "store" | "cellCodedError" | "settings" | "projection"
@@ -72,16 +46,12 @@ function deriveCloseoutSubmissionData(
   taskId: string,
   executionId: string,
   snapshot: Snapshot,
+  prepared: PreparedSubmissionDelivery,
   bodyOverrides?: ReadonlyMap<string, string>,
-  requestedCommit?: string,
-  source?: WriteSource,
   carried?: { readonly changes: readonly DocEventChange[]; readonly revision: number },
 ): {
   readonly submission: SubmissionV1;
-  readonly rootDir: string;
   readonly packagePath: string;
-  readonly baseSha: string | null;
-  readonly headSha: string | null;
 } {
   const document = readTaskTransitionDocument({
       projection: cell.projection,
@@ -90,7 +60,7 @@ function deriveCloseoutSubmissionData(
       bodyOverrides,
     }),
     frozen = snapshot.executions.find((execution) => execution.executionId === executionId)?.submission,
-    // Parse/validate before reading any Git cut. No risk or verification line is filtered.
+    // Accepted prose and artifacts are frozen after doc-submit; Git facts were prepared earlier.
     parsed = submissionFromCloseout(document.body, {
       commitSha: "0".repeat(40),
       deliverables: [],
@@ -112,7 +82,7 @@ function deriveCloseoutSubmissionData(
   // A public PR delivery publishes the closeout's Chinese mirror. The PR body generator judges this
   // at publication time; submit calls the same kernel judgment so the worker sees the missing
   // section next to the file it must fix instead of the CEO seeing it after the cut is frozen.
-  if (!privateDelivery && publishesPublicPullRequest(cell.rootDir)) {
+  if (!privateDelivery && prepared.publicPullRequest) {
     const missing = missingChineseCloseoutSections(document.body),
       listed = missing.map((title) => `## ${title}`).join(" and ");
     if (missing.length > 0)
@@ -172,204 +142,10 @@ function deriveCloseoutSubmissionData(
         ...(frozenReviewResponses === undefined ? {} : { reviewResponses: frozenReviewResponses }),
         completionContract: frozen?.completionContract ?? freezeCompletionContract(cell, snapshot),
       },
-      rootDir: cell.rootDir,
       packagePath: document.packagePath,
-      baseSha: null,
-      headSha: null,
     };
   }
-  // An assignment's checkout belongs to its node. Its delivery was fetched from the
-  // center's configured origin before enqueue; a leftover center checkout is not that node's HEAD.
-  const remoteDelivery = typeof source === "object" && source.kind === "node";
-  const dispatches = cell.projection
-      .readRuntimeDispatchesByTaskExecution(taskId, executionId)
-      .map(({ event }) => event.payload)
-      .filter((dispatch) => dispatch.role !== "reviewer" && dispatch.cwd),
-    binding = taskWorktreeBinding(snapshot.task, readPresetSnapshot),
-    taskRoot = binding && !remoteDelivery ? path.join(cell.rootDir, binding.path) : null,
-    git = makeGitReadinessSource(),
-    // Only the bound task worktree names a delivery implicitly: a dispatch cwd may be any checkout,
-    // canonical included, so it only locates an explicitly requested commit below.
-    // A plain directory at the bound path would resolve to the enclosing checkout, so the path must be its own top level.
-    boundHead = taskRoot ? git.run(taskRoot, ["rev-parse", "--show-toplevel", "HEAD"]) : null,
-    [boundTop, boundSha] = boundHead?.ok ? boundHead.stdout.split("\n") : [],
-    bound = boundTop && boundSha && realpathSync(boundTop) === realpathSync(taskRoot!) ? boundSha : undefined,
-    uniqueDirectories = remoteDelivery
-      ? [cell.rootDir]
-      : [...new Set([...(taskRoot ? [taskRoot] : []), ...dispatches.map((dispatch) => dispatch.cwd!)])],
-    namedCommit = requestedCommit ?? bound;
-  if (!namedCommit)
-    throw cell.cellCodedError(
-      "invalid_submission",
-      "No readable bound worktree HEAD exists; rerun with --commit <40-character-sha>.",
-    );
-  if (requestedCommit && bound && requestedCommit !== bound)
-    throw cell.cellCodedError(
-      "invalid_submission",
-      `Requested delivery commit ${requestedCommit} does not match bound worktree HEAD ${bound}.`,
-    );
-  const publishedRoot = [...new Set([...uniqueDirectories, cell.rootDir])].find(
-    (candidate) => git.run(candidate, ["cat-file", "-e", `${namedCommit}^{commit}`]).ok,
-  );
-  if (!publishedRoot)
-    throw cell.cellCodedError(
-      "invalid_submission",
-      `Delivery commit ${namedCommit} is not in any local clone of the bound or canonical repository; ` +
-        "if it was just merged or pushed, run git fetch origin in the canonical checkout and rerun this command.",
-    );
-  const root = publishedRoot,
-    commitSha = git.run(root, ["rev-parse", `${namedCommit}^{commit}`]).stdout;
-  // Task delivery is not a Git publication state: a resolvable commit may be reviewed before it
-  // becomes a bound worktree HEAD or reaches the default branch. The merge base below derives the cut's
-  // file manifest only; it is not submission admission.
-  const execution = snapshot.executions.find((value) => value.executionId === executionId),
-    baseline = execution !== undefined && isNativeExecution(execution) ? execution.deliveryBaseline : undefined,
-    origin = git.run(root, ["remote", "get-url", "origin"]);
-  if (origin.ok) {
-    try {
-      runProcessText("git", ["fetch", "--quiet", "origin"], root, { ...process.env, GIT_TERMINAL_PROMPT: "0" }, 30_000);
-    } catch (error) {
-      const details =
-        error instanceof Error && "stderr" in error && typeof error.stderr === "string" && error.stderr !== ""
-          ? error.stderr.trim()
-          : error instanceof Error
-            ? error.message
-            : String(error);
-      throw cell.cellCodedError(
-        "invalid_submission",
-        `Could not refresh origin before deriving delivery facts; refusing to freeze against a stale default branch. ${details}`,
-      );
-    }
-  }
-  const defaultBranch = repositoryBaseRef(root),
-    mergeBase = defaultBranch ? git.run(root, ["merge-base", defaultBranch, commitSha]) : { ok: false, stdout: "" },
-    // The delivery commit is the default branch's own tip. A delivery lands there as a merge commit
-    // (ordinary merge, never squash), and an artifact-only branch rebased onto an advanced main is
-    // that very merge commit too — so its first-parent diff is the merged PR of whichever task wrote
-    // it. Such a commit belongs to this task only through its own record: a frozen cut naming it,
-    // this execution's own included, or an earlier cut this merge introduced (the ownership test
-    // below) (task_96720a8e).
-    publishedMerge =
-      mergeBase.ok && mergeBase.stdout === commitSha
-        ? git.run(root, ["rev-parse", "--verify", "--quiet", `${commitSha}^2`])
-        : null,
-    unclaimedPublishedMerge =
-      requestedCommit === undefined && frozen?.commitSha !== commitSha && publishedMerge?.ok === true,
-    // No new work: an inferred delivery commit at or behind the frozen baseline never moved past
-    // where its delivery began — the branch's fork for a bound task, where the project HEAD sat at
-    // start otherwise — and one main publishes without this task's record produced no commit of its
-    // own, so its first-parent merge diff would bill another task's PR here. An explicitly requested
-    // commit stays the operator's own cut assertion and keeps the fork-point manifest rule
-    // (F-70FB11C4).
-    unchanged =
-      baseline?.kind === "commit"
-        ? baseline.commitSha === commitSha ||
-          (requestedCommit === undefined &&
-            (unclaimedPublishedMerge ||
-              git.run(root, ["merge-base", "--is-ancestor", commitSha, baseline.commitSha]).ok))
-        : baseline === undefined && bound === commitSha;
-  let deliverables: readonly string[],
-    commitOutputs: readonly string[],
-    riskBaseSha: string | null = null,
-    changedFiles: readonly string[] | undefined,
-    productionDelta: SubmissionV1["productionDelta"];
-  // An unchanged published HEAD is a delivery only when this task's record owns it: another
-  // execution's cut, or this execution's own frozen cut — an amendment re-derived at its merged
-  // tip froze that merge's second parent. The execution baseline detects new work; task history,
-  // rather than that observation, distinguishes a restarted delivery from another task's merge.
-  const secondParent = unchanged ? publishedMerge : null,
-    priorDelivery =
-      unchanged &&
-      snapshot.executions.some((prior) => {
-        const sha = prior.submission?.commitSha;
-        // Only a commit the merge introduced — reachable from its second parent yet absent from
-        // main before it — evidences an earlier delivery of this cut. Any older main commit is
-        // also reachable from the merged branch and would adopt another PR's manifest.
-        return (
-          !!sha &&
-          (secondParent?.ok === true
-            ? git.run(root, ["merge-base", "--is-ancestor", sha, secondParent.stdout]).ok &&
-              !git.run(root, ["merge-base", "--is-ancestor", sha, `${commitSha}^1`]).ok
-            : sha === commitSha)
-        );
-      });
-  if (unchanged && mergeBase.ok && mergeBase.stdout === commitSha && !priorDelivery) {
-    deliverables = [];
-    commitOutputs = [];
-  } else if (
-    frozen?.commitSha === commitSha &&
-    frozen.changedFiles !== undefined &&
-    frozen.productionDelta !== undefined
-  ) {
-    // A submitted commit already owns its file manifest. Advancing main must not
-    // shrink a branch-wide diff to the last commit; prose and artifacts remain freshly derived.
-    deliverables = frozen.deliverables;
-    commitOutputs = frozen.outputs.filter((output) => !output.startsWith("Artifact-Anchor: "));
-    changedFiles = frozen.changedFiles;
-    productionDelta = frozen.productionDelta;
-  } else {
-    // One delivery commit owns one manifest: the comparison cut derives from the commit's own fork
-    // point on the default branch unless start explicitly pinned an approved upstream delivery; never
-    // from where the project HEAD happened to sit when the execution
-    // started (F-70FB11C4). Advancing main cannot move a merge base, so the manifest stays identical
-    // across submit, publication, and re-derivation. A repository without a remote, or without origin/HEAD,
-    // anchors on the branch its main checkout has out: that local branch is where its deliveries land.
-    let base: string;
-    if (baseline?.kind === "commit" && baseline.stackOn) {
-      // A stacked execution owns the cut from its approved upstream delivery, including CEO merges.
-      // Main's merge-base would omit files brought in by those merges and include upstream work.
-      base = baseline.commitSha;
-    } else if (mergeBase.ok && mergeBase.stdout !== commitSha) {
-      // Unpublished fork: everything reachable from the commit and not from the default branch.
-      base = mergeBase.stdout;
-    } else if (mergeBase.ok || baseline === undefined) {
-      // A published cut — the merge base is the commit itself — compares against its first parent:
-      // the pre-merge main of a merge commit is exactly that PR's branch-wide diff. Executions from
-      // before the baseline freeze (dec_D23B9787328EF7E0FACB70F9FE) keep the same first-parent rule. A root
-      // commit has no first parent: it delivers its whole tree only when the execution started before any commit.
-      const firstParent = git.run(root, ["rev-parse", "--verify", "--quiet", `${commitSha}^1`]);
-      base = firstParent.ok ? firstParent.stdout : baseline?.kind === "empty-tree" ? EMPTY_TREE_SHA : "";
-    } else {
-      // Repositories with no default branch to anchor against (unborn, or a main checkout on a detached HEAD) have
-      // no derivable fork point; the start-frozen observation is the only record of where the delivery began.
-      base = baseline.kind === "commit" ? baseline.commitSha : EMPTY_TREE_SHA;
-      if (baseline.kind === "commit" && !git.run(root, ["cat-file", "-e", `${baseline.commitSha}^{commit}`]).ok)
-        throw cell.cellCodedError(
-          "invalid_submission",
-          `Frozen delivery baseline ${baseline.commitSha} is not readable in the delivery repository.`,
-        );
-    }
-    if (!base) throw cell.cellCodedError("invalid_submission", "Delivery commit has no verifiable comparison cut.");
-    riskBaseSha = base;
-    changedFiles = runProcessText("git", ["diff", "--name-only", "--no-renames", "-z", base, commitSha, "--"], root)
-      .split("\0")
-      .filter(Boolean)
-      .sort();
-    const numstatOutput = runProcessText(
-        "git",
-        ["diff", "--no-renames", "--numstat", "-z", base, commitSha, "--"],
-        root,
-      ),
-      numstat = (() => {
-        try {
-          return parseNumstatRecords(numstatOutput);
-        } catch (error) {
-          throw cell.cellCodedError("invalid_submission", error instanceof Error ? error.message : String(error));
-        }
-      })();
-    productionDelta = { baseSha: base, ...productionDeltaFromNumstat(numstat) };
-    deliverables = runProcessText(
-      "git",
-      ["diff", "--name-only", "-z", "--diff-filter=ACMRT", base, commitSha, "--"],
-      root,
-    )
-      .split("\0")
-      .filter(Boolean);
-    commitOutputs = runProcessText("git", ["diff", "--name-only", "-z", "--diff-filter=D", base, commitSha, "--"], root)
-      .split("\0")
-      .filter(Boolean)
-      .map((target) => `Deleted-Production-Paths: ${target}`);
-  }
+  const { commitSha, deliverables, outputs: commitOutputs, changedFiles, productionDelta } = prepared.facts!;
   // Deliverables stay paths of the delivery commit: anchored in-package artifacts ride in the
   // artifacts field and outputs lines so commit-based gates never verify ledger paths against
   // the public cut.
@@ -386,18 +162,14 @@ function deriveCloseoutSubmissionData(
     assessedDelivery: SubmissionV1 = { ...delivery, completionContract: contractBase };
   // An empty public manifest has no code cut to witness, including when HEAD is an empty commit.
   let submission: SubmissionV1;
-  if (deliverables.length || commitOutputs.length) submission = { ...assessedDelivery, commitSha };
+  if (commitSha && (deliverables.length || commitOutputs.length)) submission = { ...assessedDelivery, commitSha };
   else {
     const artifactOnly = { ...assessedDelivery };
     delete artifactOnly.changedFiles;
     delete artifactOnly.productionDelta;
     submission = { ...artifactOnly, commitSha: null, artifacts };
   }
-  return { submission, rootDir: root, packagePath: document.packagePath, baseSha: riskBaseSha, headSha: commitSha };
-}
-
-export function deriveCloseoutSubmission(...args: Parameters<typeof deriveCloseoutSubmissionData>): SubmissionV1 {
-  return deriveCloseoutSubmissionData(...args).submission;
+  return { submission, packagePath: document.packagePath };
 }
 
 /** Accepted task artifacts select implicit deliveries; reviewer outputs are credentials, not deliveries. */
@@ -651,102 +423,6 @@ export function submissionForRiskTierRetry(
   return { ...derived, riskTierAssessment: assessment, completionContract: completionContract() };
 }
 
-function taskRiskIdentity(snapshot: Snapshot, taskId: string): TaskRiskTierScriptInput["task"] {
-  const metadata = snapshot.task?.metadata;
-  return {
-    taskId,
-    declaredTier: metadata?.riskTier ?? "medium",
-    verticalId: metadata?.verticalId ?? "software/coding",
-    presetId: metadata?.presetId ?? "standard-task",
-    workKind: metadata?.workKind ?? null,
-  };
-}
-
-async function readDeliveryRiskDiff(
-  rootDir: string,
-  baseSha: string,
-  headSha: string,
-): Promise<TaskRiskTierScriptInput["delivery"]> {
-  const gitArgs = ["--find-renames", baseSha, headSha, "--"],
-    [statusText, numstatText] = await Promise.all([
-      runProcessTextAsync(
-        "git",
-        ["diff", "--name-status", "-z", ...gitArgs],
-        rootDir,
-        undefined,
-        undefined,
-        undefined,
-        {
-          timeoutMs: 30_000,
-          maxBuffer: 16 * 1024 * 1024,
-        },
-      ),
-      runProcessTextAsync("git", ["diff", "--numstat", "-z", ...gitArgs], rootDir, undefined, undefined, undefined, {
-        timeoutMs: 30_000,
-        maxBuffer: 16 * 1024 * 1024,
-      }),
-    ]),
-    statusTokens = statusText.split("\0").filter(Boolean),
-    numstatTokens = numstatText.split("\0").filter(Boolean),
-    statuses = new Map<string, TaskRiskTierScriptInput["delivery"]["files"][number]["status"]>(),
-    counts = new Map<string, { additions: number; deletions: number; binary: boolean }>();
-  for (let index = 0; index < statusTokens.length; ) {
-    const code = statusTokens[index++]!,
-      oldPath = statusTokens[index++]!;
-    if (code.startsWith("R") || code.startsWith("C")) {
-      const newPath = statusTokens[index++]!;
-      statuses.set(newPath, code.startsWith("R") ? "renamed" : "copied");
-    } else {
-      statuses.set(
-        oldPath,
-        code === "A" ? "added" : code === "D" ? "deleted" : code === "T" ? "type-changed" : "modified",
-      );
-    }
-  }
-  for (let index = 0; index < numstatTokens.length; ) {
-    const row = numstatTokens[index++]!,
-      firstTab = row.indexOf("\t"),
-      secondTab = row.indexOf("\t", firstTab + 1),
-      added = row.slice(0, firstTab),
-      removed = row.slice(firstTab + 1, secondTab),
-      inlinePath = row.slice(secondTab + 1),
-      oldPath = inlinePath || (numstatTokens[index++] ?? ""),
-      finalPath = inlinePath || (numstatTokens[index++] ?? oldPath);
-    if (!finalPath) continue;
-    const binary = added === "-" || removed === "-";
-    counts.set(finalPath, {
-      additions: binary ? 0 : Number(added),
-      deletions: binary ? 0 : Number(removed),
-      binary,
-    });
-  }
-  const paths = [...statuses.keys()].sort(),
-    files: TaskRiskTierScriptInput["delivery"]["files"][number][] = [];
-  for (let offset = 0; offset < paths.length; offset += 4) {
-    const batch = await Promise.all(
-      paths.slice(offset, offset + 4).map(async (filePath) => {
-        const patch = await runProcessTextAsync(
-          "git",
-          ["diff", "--no-ext-diff", "--binary", "--find-renames", baseSha, headSha, "--", filePath],
-          rootDir,
-          undefined,
-          undefined,
-          undefined,
-          { timeoutMs: 30_000, maxBuffer: 16 * 1024 * 1024 },
-        );
-        return {
-          path: filePath,
-          status: statuses.get(filePath)!,
-          ...(counts.get(filePath) ?? { additions: 0, deletions: 0, binary: false }),
-          patch,
-        };
-      }),
-    );
-    files.push(...batch);
-  }
-  return { baseSha, headSha, files };
-}
-
 /**
  * The submit/amend advisory: accepted artifact deliveries moved under an unchanged closeout.
  * `outputs`, `deliverables`, `commitSha`, and `artifacts` all derive from the delivery cut rather
@@ -775,21 +451,6 @@ export function submissionAnchorDriftWarnings(
     "Anchored artifact deliveries changed while the closeout prose did not; " +
       "verify the closeout claim still describes the delivered artifacts.",
   ];
-}
-
-/**
- * The owning creator who is not the submission holder has one real lane onto a submitted cut that
- * is not the plain resume this refusal just denied: replace the cut in place with an owner
- * amendment. Reopen-on-findings is the reviewer's verdict, not an owner command.
- */
-function ownerResumeLanes(snapshot: Snapshot, taskId: string, actor: RepoCellBinding["actor"]): string {
-  const task = snapshot.task;
-  if (!task || !isSamePerson(task.createdBy, actor)) return "";
-  return (
-    ` The owning creator may instead replace the cut with ha task submit ${taskId} --amend --as-owner, ` +
-    "or wait for the reviewer verdict: changes_requested reopens rework only while the automatic rework budget " +
-    `remains; after it is exhausted, the owner can return the cut with ha task rework ${taskId} --reason <why>.`
-  );
 }
 
 /**
@@ -895,137 +556,18 @@ export async function submitTask(
   if (action.asOwner === true && action.amend !== true) return settleTask(cell, { ...action, asOwner: false }, binding);
   const taskId = cell.requiredCellText(action.taskId, "taskId"),
     current = await cell.service.read(taskId),
-    held = heldLeaseForExecutionActor(current.snapshot, undefined, binding.actor),
-    cuts = currentExecutionCuts(current.snapshot),
-    selected =
-      typeof action.executionId === "string"
-        ? current.snapshot.executions.find((execution) => execution.executionId === action.executionId)
-        : held
-          ? current.snapshot.executions.find((execution) => execution.executionId === held.executionId)
-          : cuts.length === 1
-            ? cuts[0]
-            : undefined;
-  // The completion-contract judgment already names these tasks. Submit answers with the same named
-  // refusal and the explicit migration instead of walking into a null snapshot below.
-  const contractGap = completionContractGap(current.snapshot.task);
-  if (contractGap)
-    return {
-      ...cell.rejected(
-        cell.operationId(action, binding, cell.input.repoId, current.snapshot.revision),
-        contractGap.code,
-      ),
-      rejectionExplanation: `${contractGap.reason} Run ${contractGap.action}.`,
-      next: [
-        completionGuidance(
-          current.snapshot,
-          typeof action.executionId === "string" ? action.executionId : "",
-          contractGap.action,
-          contractGap.reason,
-        ),
-      ],
-    } as WriteReceiptDraft;
-  const ownerAmendment =
-    action.amend === true &&
-    action.asOwner === true &&
-    current.snapshot.task !== null &&
-    isSamePerson(current.snapshot.task.createdBy, binding.actor);
-  // An owning principal who rejoined from a terminal holds the lease without an executor
-  // descriptor; the execution still records the runtime that did the work. First submission
-  // through that held lease is admitted on person identity alone — the ordinary lease, source,
-  // version, and CAS checks below still gate it.
-  const ownerSubmission =
-    action.amend !== true &&
-    selected !== undefined &&
-    selected.submission === null &&
-    current.snapshot.task !== null &&
-    isSamePerson(current.snapshot.task.createdBy, binding.actor) &&
-    isSamePerson(selected.actor, binding.actor);
-  // Recovery authority is the submission event caller, not the retained execution attribution.
-  const submissionOpId =
-      selected?.submission && action.amend !== true
-        ? cell.projection.readTaskSubmissionOperation(taskId, selected.executionId)
-        : null,
-    event = submissionOpId === null ? null : cell.store.readEvent(submissionOpId);
-  if (selected?.submission && action.amend !== true) {
-    if (
-      !event ||
-      !isTaskEvent(event) ||
-      event.type !== "execution_submitted" ||
-      event.taskId !== taskId ||
-      event.payload.execution.executionId !== selected.executionId ||
-      !event.payload.execution.submission ||
-      submissionDigest(event.payload.execution.submission) !== submissionDigest(selected.submission) ||
-      !isSameExecution(event.actor, binding.actor) ||
-      !sameWriteSource(event.source, binding.source)
-    )
-      throw cell.cellCodedError(
-        "lease_required",
-        `Only the original submission holder may resume this cut.${ownerResumeLanes(current.snapshot, taskId, binding.actor)}`,
-      );
-  }
-  if (!selected || (!isSameExecution(selected.actor, binding.actor) && !ownerAmendment && !ownerSubmission && !event))
-    return cell.lifecycleAction(action, binding);
-  const executionId = selected.executionId,
-    amendCommand = `ha task submit ${taskId} --amend${
-      current.snapshot.task &&
-      isSamePerson(current.snapshot.task.createdBy, binding.actor) &&
-      !isSameExecution(selected.actor, binding.actor)
-        ? " --as-owner"
-        : ""
-    }`;
-  if (action.amend === true) assertCurrentSubmittedExecution(current.snapshot, taskId, executionId);
-  if (!selected.submission && (!held || !sameWriteSource(current.snapshot.lease?.source, binding.source)))
-    return cell.lifecycleAction(action, binding);
-  // Resume reuses a stored cut; only new submissions/amendments enter the transition.
-  // Document acceptance cannot change these lifecycle facts. Reject before inventory, sync or Git.
-  if (!selected.submission || action.amend === true) {
-    const issues = [
-      ...submitExecutionStateIssues(current.snapshot, {
-        executionId,
-        ...(action.amend === true ? { amend: true } : {}),
-      }),
-      ...submitPresetSnapshotIssues(current.snapshot),
-      ...reviewResponseSubmissionIssues(current.snapshot, current.snapshot.reviewResponses),
-    ];
-    if (issues.length) {
-      const contract = getTaskActionForTransition("submit")!,
-        criterionRef = contract.execution!.lifecycle!.validatorCriterionRef!,
-        evaluation = evaluateTaskActionCapability({
-          action: contract,
-          snapshot: current.snapshot,
-          actor: binding.actor,
-          invocation: {
-            taskId,
-            executionId,
-            amend: action.amend === true,
-            ...(action.asOwner === true ? { asOwner: true } : {}),
-          },
-        }).find((value) => value.criterionRef === criterionRef),
-        nextActions = evaluation?.nextActions.length
-          ? evaluation.nextActions
-          : taskLifecycleNextActions({
-              snapshot: current.snapshot,
-              actor: binding.actor,
-              taskId,
-              rejectedActionId: contract.id,
-              actions: [...new Set(TASK_LIFECYCLE_TRANSITIONS.map(({ actionId }) => actionId))].flatMap((actionId) => {
-                const candidate = getTaskActionForTransition(actionId);
-                return candidate && candidate.execution?.ingress !== action.kind ? [candidate] : [];
-              }),
-            });
-      return cell.failed(
-        cell.operationId(action, binding, cell.input.repoId, current.snapshot.revision),
-        attributeCellCriterion(
-          new TaskLifecycleContractError(errorCode(issues), issues),
-          contract.id,
-          criterionRef,
-          nextActions,
-        ),
-        contract,
-        action,
-      );
-    }
-  }
+    admission = readSubmissionAdmission(cell, action, binding, current.snapshot);
+  if (!admission.ok) return admission.reject();
+  const { selected, executionId, event, amendCommand } = admission,
+    prepared = (action as PreparedSubmissionAction)[preparedSubmission];
+  if (!prepared)
+    throw cell.cellCodedError(
+      "invalid_transition",
+      "Submission was not prepared before the write queue; retry task submit.",
+    );
+  await prepared.assertCurrent(current.snapshot);
+  if (!prepared.delivery)
+    return submissionStopped(cell, action, binding, current.snapshot, executionId, current.packagePath, prepared.error);
   if (Array.isArray(action.docChanges)) {
     // Reuse the existing atomic carried-document submission path. A submitted cut with
     // changed edge documents must be amended explicitly, never silently synchronized.
@@ -1080,9 +622,8 @@ export async function submitTask(
       taskId,
       executionId,
       fresh.snapshot,
+      prepared.delivery,
       undefined,
-      typeof action.commitSha === "string" ? action.commitSha : undefined,
-      binding.source,
       undefined,
       Boolean(selected?.submission),
     );
@@ -1166,33 +707,8 @@ export async function settleTask(
   binding: RepoCellBinding,
 ): Promise<WriteReceiptDraft> {
   const taskId = cell.requiredCellText(action.taskId, "taskId"),
-    current = await cell.service.read(taskId);
-  if (!current.snapshot.task) throw cell.cellCodedError("entity_not_found", `Task ${taskId} does not exist.`);
-  const held = heldLeaseForExecutionActor(current.snapshot, undefined, binding.actor),
-    submittedCut = currentExecutionCuts(current.snapshot).find((execution) => execution.state === "submitted"),
-    alreadySubmitted = submittedCut !== undefined,
-    steps: WriteReceiptDraft[] = [];
-  // A submitted current round needs no lease — the holder checks inside submitTask decide
-  // whether this caller may resume or amend that cut. Everything else needs a held lease;
-  // the ordinary start path rejoins the active round execution or starts a fresh one and
-  // rejects with its own guidance when admission is impossible.
-  if (!held && !alreadySubmitted) {
-    cell.assertTaskWipCapacity(taskId, "active");
-    const started = await cell.lifecycleAction({ kind: "task-start", taskId }, binding);
-    steps.push(started);
-    if (!["applied", "no_changes"].includes(started.outcome))
-      return {
-        ...started,
-        // A nested start/submit receipt names the criteria of its own contract. The settle catalog
-        // contract cannot resolve those refs, so keep the nested code and guidance but report no
-        // settle criteria; the step receipt in `steps` carries the nested explanation.
-        unmetCriteria: [],
-        opId: cell.operationId(action, binding, cell.input.repoId, current.snapshot.revision),
-        steps,
-      } as WriteReceiptDraft;
-  }
-  const submitted = await submitTask(cell, { ...action, kind: "task-submit", taskId }, binding),
-    mergedSteps = [...steps, ...((submitted as { readonly steps?: readonly WriteReceiptDraft[] }).steps ?? [])];
+    submitted = await submitTask(cell, { ...action, kind: "task-submit", taskId, asOwner: false }, binding),
+    mergedSteps = (submitted as { readonly steps?: readonly WriteReceiptDraft[] }).steps ?? [];
   if (submitted.outcome !== "applied")
     return { ...submitted, unmetCriteria: [], steps: mergedSteps } as WriteReceiptDraft;
   return { ...submitted, steps: mergedSteps } as WriteReceiptDraft;
@@ -1237,42 +753,36 @@ export function submissionStopped(
   } as WriteReceiptDraft;
 }
 
-export async function readCloseoutSubmission(
-  ...args: [...Parameters<typeof deriveCloseoutSubmission>, preserveLegacyCut?: boolean]
-): Promise<
+export function readCloseoutSubmission(
+  ...args: [...Parameters<typeof finalizeCloseoutSubmission>, preserveLegacyCut?: boolean]
+):
   | { readonly ok: true; readonly submission: SubmissionV1; readonly warnings: readonly string[] }
-  | { readonly ok: false; readonly error: Error }
-> {
+  | { readonly ok: false; readonly error: Error } {
   try {
-    const deriveArgs = args.slice(0, 8) as Parameters<typeof deriveCloseoutSubmission>,
-      preserveLegacyCut = args[8] === true,
+    const deriveArgs = args.slice(0, 7) as Parameters<typeof finalizeCloseoutSubmission>,
+      preserveLegacyCut = args[7] === true,
       [cell, taskId, executionId, snapshot] = deriveArgs,
-      derived = deriveCloseoutSubmissionData(...deriveArgs);
-    if (derived.submission.productionDelta && derived.submission.commitSha)
-      await assertNoIgnoredLedgerDelivery(
-        derived.rootDir,
-        derived.submission.productionDelta.baseSha,
-        derived.submission.commitSha,
-      );
+      derived = finalizeCloseoutSubmission(...deriveArgs);
     const frozen = snapshot.executions.find((execution) => execution.executionId === executionId)?.submission,
       sameCut = sameFrozenSubmissionCut(derived.submission, frozen),
       legacyFrozenCut = preserveLegacyCut && isLegacyFrozenSubmissionCut(derived.submission, frozen),
-      riskDelivery =
-        legacyFrozenCut || derived.baseSha === null || derived.headSha === null
-          ? { baseSha: derived.baseSha, headSha: derived.headSha, files: [] }
-          : await readDeliveryRiskDiff(derived.rootDir, derived.baseSha, derived.headSha),
       riskTierAssessment = legacyFrozenCut
         ? undefined
         : sameCut && frozen?.riskTierAssessment
           ? frozen.riskTierAssessment
-          : await assessTaskRiskTier({
-              rootDir: cell.rootDir,
-              task: taskRiskIdentity(snapshot, taskId),
-              delivery: riskDelivery,
-              pathReviewers: cell.settings.readRepository().review?.pathReviewers,
-              matchedPathReviewers: [],
-              ...(frozen?.riskTierAssessment ? { previousEffectiveTier: frozen.riskTierAssessment.effectiveTier } : {}),
-            }),
+          : (() => {
+              const risk = deriveArgs[4].risk;
+              if (!risk.ok) throw risk.error;
+              deriveArgs[4].assertFresh?.();
+              // Current configuration belongs only to a new assessment. Frozen modern/legacy
+              // resumes must not parse it or invalidate their already accepted risk conclusion.
+              if (stableStringify(readTaskRiskManifest(cell.rootDir)) !== stableStringify(risk.manifest))
+                throw cell.cellCodedError(
+                  "invalid_transition",
+                  "Risk manifest changed during submission preparation; retry task submit.",
+                );
+              return risk.assessment;
+            })(),
       submission: SubmissionV1 = submissionForRiskTierRetry(
         derived.submission,
         frozen,
@@ -1290,7 +800,7 @@ export async function readCloseoutSubmission(
       packagePath,
       submission,
       readReceipt: () =>
-        deriveArgs[4]?.get(receiptPath) ?? cell.projection.readDocument(receiptPath).document?.body ?? null,
+        deriveArgs[5]?.get(receiptPath) ?? cell.projection.readDocument(receiptPath).document?.body ?? null,
     });
     return {
       ok: true,
