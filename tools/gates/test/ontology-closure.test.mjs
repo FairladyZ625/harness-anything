@@ -1399,3 +1399,244 @@ test("dec_7E44897ECDCAEF2B92EC66A260/CH1: daemon repo/writer/submission/doc-sync
     audit(mutatedStoragePolicy, { snapshot }).findings.some((row) => row.code === "ONTOLOGY_POLICY_UNDECLARED"),
   );
 });
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: the final daemon runtime slice is a closed
+// world boundary. Removing its frozen rows is safe only while every live source is
+// bound to the shared ActionDeclaration or EntityKindContract Policy registry.
+test("dec_7E44897ECDCAEF2B92EC66A260/CH1: daemon runtime/terminal/evaluation closure is ratcheted", () => {
+  const scopePath = /^packages\/daemon\/src\/(?:runtime|agent-runtime-instance|terminal-|process-port|skill-eval-)/u;
+  const baseline = loadGateAllowlist("ontology-closure", {
+    allowlistRoot: path.join(repoRoot, "tools/gate-allowlists"),
+    report: false,
+  }).candidates;
+  assert.deepEqual(
+    baseline.filter((row) => row.owner === "packages/daemon" && scopePath.test(row.path)),
+    [],
+    "daemon runtime, terminal and evaluation paths must have no migration baseline rows",
+  );
+
+  const result = evaluateOntologyClosure({ rootDir: repoRoot, base: "HEAD" });
+  const inScope = result.classified.filter((row) => scopePath.test(row.file));
+  // Shared Policy consolidation removes leaf candidates. Verify discovery by
+  // subsystem rather than imposing a minimum on the debt that CH1 removes.
+  for (const file of [
+    "runtime.ts",
+    "agent-runtime-instance-storage.ts",
+    "terminal-host.ts",
+    "process-port.ts",
+    "skill-eval-runner.ts",
+  ]) {
+    assert.ok(
+      inScope.some((row) => row.file === `packages/daemon/src/${file}`),
+      `missing scanned subsystem: ${file}`,
+    );
+  }
+  assert.deepEqual(
+    inScope.filter((row) => row.status !== "registered"),
+    [],
+  );
+  assert.deepEqual(
+    inScope.filter((row) => row.category === "action" && row.declarationRef === "action:cli-local-effects"),
+    [],
+    "daemon runtime actions must never bind to cli-local-effects",
+  );
+
+  const snapshot = loadOntologyClosureSnapshot(repoRoot);
+  const undeclaredAction = scanOntologyText(
+    "packages/daemon/src/runtime-ontology-mutation.ts",
+    "export function unregisteredRuntimeAction() { dispatch(); }\n",
+  );
+  assert.deepEqual(
+    audit(undeclaredAction, { snapshot }).findings.map((row) => row.code),
+    ["ONTOLOGY_ACTION_UNDECLARED"],
+  );
+  const undeclaredPolicy = scanOntologyText(
+    "packages/daemon/src/runtime-ontology-mutation.ts",
+    "export const UNREGISTERED_RUNTIME_TIMEOUT_MS = 123;\n",
+  );
+  assert.deepEqual(
+    audit(undeclaredPolicy, { snapshot }).findings.map((row) => row.code),
+    ["ONTOLOGY_POLICY_UNDECLARED"],
+  );
+});
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1 review F1: operating defaults belong to the
+// shared Policy declaration, and consumers must derive them instead of retaining leaves.
+test("daemon runtime Policy owns concrete defaults and consumers have no leaf budgets", async () => {
+  const { daemonRuntimePolicy } = await import("../../../packages/kernel/src/domain/cli-operational-policy.ts");
+  const snapshot = loadOntologyClosureSnapshot(repoRoot);
+  assert.deepEqual(daemonRuntimePolicy.defaultValue, {
+    batch: { defaultConcurrency: 2, maximumConcurrency: 32 },
+    process: {
+      providerErrorLimit: 64 * 1024,
+      resumeAdmissionTimeoutMs: 30_000,
+      exitNotificationTimeoutMs: 30_000,
+      processTableTimeoutMs: 10_000,
+      exitPollMs: 25,
+      terminationGraceMs: 500,
+      streamPollMs: 250,
+      firstRecordPollMs: 10,
+      groupSweepAttempts: 80,
+      groupKillAttempt: 40,
+      lockHolderProbeTimeoutMs: 8_000,
+      authFileRemovalRetries: 5,
+      authFileRemovalRetryDelayMs: 20,
+    },
+    acp: { cancelGraceMs: 2_000 },
+    daemon: { shutdownDeadlineMs: 30_000, drainRecheckMs: 1_000, fleetDrainDeadlineMs: 30 * 60_000 },
+    evidence: {
+      snapshotLimitBytes: 4 * 1024 * 1024,
+      promptLimitBytes: 128 * 1024,
+      traceLimitBytes: 512 * 1024,
+      correlationValueLimit: 256,
+      providerTranscriptLimitBytes: 16 * 1024 * 1024,
+      maximumCompressedFrames: 4096,
+      correlationIdsLimit: 64,
+    },
+    health: { cooldownBaseSeconds: 30, cooldownMaxSeconds: 300, freezeAfter: 5, freezeDurationSeconds: 1_800 },
+    runtime: {
+      subscriptionProbeTimeoutMs: { status: 5_000, standard: 10_000, extended: 15_000, modelListing: 60_000 },
+      unsettledTurnMaxContinuations: 3,
+      nativePrintTimeout: "120m",
+      recoveryStuckAfterMs: 2 * 60_000,
+      workspaceActivityIntervalMs: 1_000,
+      handoffLifetimeMs: 86_400_000,
+      localContextWindow: { nCtx: 40_960, outputReserve: 4_096 },
+      modelSlots: {
+        globalCapacity: 64,
+        perOwnerCapacity: 64,
+        defaultCapacity: 1,
+        maximumCapacity: 64,
+        defaultWaitMs: 30 * 60 * 1000,
+        maximumWaitMs: 24 * 3600 * 1000,
+      },
+      currentWorktreeHeadTimeoutMs: 5_000,
+      githubCredentialProbeTimeoutMs: 10_000,
+      handoffGitTimeoutMs: 30_000,
+      taskPublicationTimeoutMs: 30_000,
+      workerPushTimeoutMs: 60_000,
+      workerPushDetailLimit: 512,
+      workerHistoryLimitBytes: 1 << 20,
+      windowsProcessGroupTimeoutMs: 15_000,
+      continuationConclusionLimit: 8_192,
+      outcomeRecheckMs: 5_000,
+      cloudDispatchRelay: {
+        maxBodyBytes: 2 * 1024 * 1024,
+        maxResponseBytes: 8 * 1024 * 1024,
+        outputCapTokens: 32_768,
+        requestOverheadTokens: 20_000,
+        codeReserveMicros: 2_000_000,
+        defaultMaxGenerations: 16,
+        maximumGenerations: 10_000,
+        upstreamTimeoutMs: 600_000,
+        requestTimeoutMs: 125_000,
+        headersTimeoutMs: 10_000,
+        defaultMaxUpstreamConcurrency: 2,
+      },
+    },
+    terminal: {
+      defaultCols: 80,
+      defaultRows: 24,
+      minimumDimension: 2,
+      maximumDimension: 500,
+      frameOverheadBytes: 96,
+      loginShellSnapshotTimeoutMs: 4_000,
+      scrollbackLimit: 1024 * 1024,
+      replayLimit: 256 * 1024,
+      subscriberLimit: 256 * 1024,
+      ptyExitDrainMs: 5_000,
+      activityPersistIntervalMs: 10_000,
+    },
+    skillEvaluation: {
+      maxBodyLength: 100_000,
+      maxNameLength: 200,
+      maxUsageMarkerLength: 1_000,
+      maxRequiredTextCount: 100,
+      maxRequiredTextLength: 1_000,
+      maximumObservePolls: 1_000,
+      diagnosticLimit: 200,
+      defaultThreshold: 1,
+      maxCases: 20,
+      maxCaseIdLength: 64,
+      maxInputLength: 20_000,
+      modelSlots: 2,
+    },
+  });
+
+  const consumers = [
+    [
+      "packages/daemon/src/runtime-inventory.ts",
+      [
+        "daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs",
+        "daemonRuntimePolicy.defaultValue.runtime.unsettledTurnMaxContinuations",
+      ],
+    ],
+    ["packages/daemon/src/runtime.ts", ["daemonRuntimePolicy.defaultValue.daemon"]],
+    ["packages/daemon/src/runtime-dispatch-evidence.ts", ["daemonRuntimePolicy.defaultValue.evidence"]],
+    ["packages/daemon/src/runtime-spawn-deepseek-session.ts", ["daemonRuntimePolicy.defaultValue.evidence"]],
+    ["packages/daemon/src/runtime-worker-control.ts", ["daemonRuntimePolicy.defaultValue.process"]],
+    ["packages/daemon/src/runtime-spawn-provider-stream.ts", ["daemonRuntimePolicy.defaultValue.process"]],
+    ["packages/daemon/src/runtime/process-group-reconciler.ts", ["daemonRuntimePolicy.defaultValue.process"]],
+    ["packages/daemon/src/runtime/model-slot-queue.ts", ["daemonRuntimePolicy.defaultValue.runtime.modelSlots"]],
+    ["packages/daemon/src/agent-runtime-instance-storage.ts", ["daemonRuntimePolicy.defaultValue.process"]],
+    [
+      "packages/daemon/src/runtime-orchestration.ts",
+      [
+        "daemonRuntimePolicy.defaultValue.batch.defaultConcurrency",
+        "daemonRuntimePolicy.defaultValue.batch.maximumConcurrency",
+      ],
+    ],
+    ["packages/daemon/src/runtime-spawn-process.ts", ["daemonRuntimePolicy.defaultValue.process"]],
+    ["packages/daemon/src/runtime-spawner.ts", ["daemonRuntimePolicy.defaultValue.process"]],
+    ["packages/daemon/src/runtime-worker-acp.ts", ["daemonRuntimePolicy.defaultValue.acp.cancelGraceMs"]],
+    ["packages/daemon/src/runtime-provider-health.ts", ["daemonRuntimePolicy.defaultValue.health"]],
+    ["packages/daemon/src/runtime-continuation-context.ts", ["daemonRuntimePolicy.defaultValue.runtime"]],
+    ["packages/daemon/src/runtime-github-credentials.ts", ["daemonRuntimePolicy.defaultValue.runtime"]],
+    ["packages/daemon/src/runtime-handoff-native.ts", ["daemonRuntimePolicy.defaultValue.runtime"]],
+    ["packages/daemon/src/runtime-task-publication.ts", ["daemonRuntimePolicy.defaultValue.runtime"]],
+    ["packages/daemon/src/runtime-worker-push.ts", ["daemonRuntimePolicy.defaultValue.runtime"]],
+    ["packages/daemon/src/runtime-settlement.ts", ["daemonRuntimePolicy.defaultValue.runtime.outcomeRecheckMs"]],
+    [
+      "packages/daemon/src/runtime/cloud-dispatch-relay.ts",
+      ["daemonRuntimePolicy.defaultValue.runtime.cloudDispatchRelay"],
+    ],
+    ["packages/daemon/src/runtime/windows-process-group-port.ts", ["daemonRuntimePolicy.defaultValue.runtime"]],
+    [
+      "packages/daemon/src/terminal-environment.ts",
+      ["daemonRuntimePolicy.defaultValue.terminal.loginShellSnapshotTimeoutMs"],
+    ],
+    ["packages/daemon/src/terminal-host.ts", ["daemonRuntimePolicy.defaultValue.terminal"]],
+    ["packages/daemon/src/skill-eval-runner.ts", ["daemonRuntimePolicy.defaultValue.skillEvaluation"]],
+    ["packages/daemon/src/skill-eval-production.ts", ["daemonRuntimePolicy.defaultValue.skillEvaluation"]],
+  ];
+  for (const [target, references] of consumers) {
+    const source = readFileSync(path.join(repoRoot, target), "utf8");
+    for (const reference of references)
+      assert.match(source, new RegExp(reference.replaceAll(".", "\\.")), `${target} must read ${reference}`);
+  }
+  const spawnLimits = readFileSync(path.join(repoRoot, "packages/daemon/src/runtime-spawn-limits.ts"), "utf8");
+  assert.match(spawnLimits, /daemonRuntimePolicy\.defaultValue\.process/u);
+  assert.doesNotMatch(spawnLimits, /(?:64 \* 1024|30_000)/u, "the compatibility exports must not own defaults");
+  const cloudRelay = readFileSync(path.join(repoRoot, "packages/daemon/src/runtime/cloud-dispatch-relay.ts"), "utf8");
+  assert.doesNotMatch(cloudRelay, /(?:600_000|125_000|10_000|\?\? 2|> 10_000)/u, "the relay must not own budgets");
+  const daemonTarget = "packages/daemon/src/runtime-orchestration.ts",
+    daemonSource = readFileSync(path.join(repoRoot, daemonTarget), "utf8"),
+    restoredLeaf = daemonSource.replace("daemonRuntimePolicy.defaultValue.batch.defaultConcurrency", "2");
+  assert.notEqual(restoredLeaf, daemonSource);
+  assert.ok(
+    audit(scanOntologyText(daemonTarget, restoredLeaf), { snapshot }).findings.some(
+      (row) => row.code === "ONTOLOGY_POLICY_UNDECLARED",
+    ),
+    "restoring a former leaf default must not reuse a stale source registration",
+  );
+  const policyTarget = "packages/kernel/src/domain/cli-operational-policy.ts",
+    policySource = readFileSync(path.join(repoRoot, policyTarget), "utf8"),
+    changedDefault = policySource.replace("resumeAdmissionTimeoutMs: 30_000", "resumeAdmissionTimeoutMs: 31_000");
+  assert.notEqual(changedDefault, policySource);
+  assert.ok(
+    audit(scanOntologyText(policyTarget, changedDefault), { snapshot }).findings.some(
+      (row) => row.code === "ONTOLOGY_POLICY_UNDECLARED",
+    ),
+    "a changed shared runtime default must fail closed",
+  );
+});

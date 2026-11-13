@@ -1,3 +1,4 @@
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { setTimeout as delay } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
 import { globSync, readFileSync } from "node:fs";
@@ -453,10 +454,12 @@ export async function consumeDurableOutput(
   // The first durable record is the event; the attempt count is the product budget, not a clock.
   for (
     let attempt = 0;
-    durableSeen === 0 && workerRunning && attempt < Math.ceil(waitForFirstRecordMs / 10);
+    durableSeen === 0 &&
+    workerRunning &&
+    attempt < Math.ceil(waitForFirstRecordMs / daemonRuntimePolicy.defaultValue.process.firstRecordPollMs);
     attempt += 1
   ) {
-    await delay(10);
+    await delay(daemonRuntimePolicy.defaultValue.process.firstRecordPollMs);
     scan();
   }
   for (const line of pending) await context.consumeLine(active, line, true);

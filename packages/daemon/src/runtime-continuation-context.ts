@@ -1,4 +1,5 @@
 import type { TaskProjection } from "@harness-anything/kernel";
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { runProcessExitAsync } from "./process-port.ts";
 
@@ -17,7 +18,7 @@ export interface RuntimeContinuationSeed {
   readonly exitHead: string | null;
 }
 
-const conclusionLimit = 8_192;
+const conclusionLimit = daemonRuntimePolicy.defaultValue.runtime.continuationConclusionLimit;
 
 export function continuationContext(
   seed: RuntimeContinuationSeed | null,
@@ -96,7 +97,7 @@ export async function currentWorktreeHead(cwd: string): Promise<string | null> {
     undefined,
     undefined,
     undefined,
-    { timeoutMs: 5_000 },
+    { timeoutMs: daemonRuntimePolicy.defaultValue.runtime.currentWorktreeHeadTimeoutMs },
   );
   return result.exitCode === 0 ? result.stdout.trim() || null : null;
 }

@@ -1,3 +1,4 @@
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { runProcessText } from "./process-text.ts";
 import { statSync } from "node:fs";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
@@ -277,7 +278,7 @@ export function processLockHolderDead(lockPath: string, pid: number): boolean {
     ],
     undefined,
     undefined,
-    8_000,
+    daemonRuntimePolicy.defaultValue.process.lockHolderProbeTimeoutMs,
   ).trim();
   if (!/^[0-9]+$/u.test(output) || BigInt(output) <= 0n)
     throw new Error(`Cannot determine Windows process creation time for PID ${pid}`);

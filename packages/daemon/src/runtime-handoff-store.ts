@@ -1,3 +1,4 @@
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import path from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import {
@@ -258,7 +259,9 @@ function buildRuntimeHandoffPacket(input: {
     handoffId: input.dispatchId,
     revision: 1,
     mode: "transfer",
-    expiresAt: new Date(Date.parse(input.exportedAt) + 86_400_000).toISOString(),
+    expiresAt: new Date(
+      Date.parse(input.exportedAt) + daemonRuntimePolicy.defaultValue.runtime.handoffLifetimeMs,
+    ).toISOString(),
     work: {
       id: input.task.taskId,
       title: input.task.title,

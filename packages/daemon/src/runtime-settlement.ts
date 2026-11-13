@@ -1,4 +1,5 @@
 import type { DispatchLifecycleRead } from "@harness-anything/kernel";
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import type { AgentRuntimeSessionDto, AgentRuntimeSettlement } from "./agent-runtime-contract.ts";
 
 function lifecycleRow(read: DispatchLifecycleRead) {
@@ -6,7 +7,7 @@ function lifecycleRow(read: DispatchLifecycleRead) {
 }
 
 /** Bounded wake interval; each wake re-reads the lifecycle projection before returning. */
-export const runtimeOutcomeRecheckMs = 5_000;
+export const runtimeOutcomeRecheckMs = daemonRuntimePolicy.defaultValue.runtime.outcomeRecheckMs;
 
 /** A waiter completes only after the lifecycle projection accepted the terminal outcome. */
 export function runtimeOutcomeSettled(read: DispatchLifecycleRead): boolean {

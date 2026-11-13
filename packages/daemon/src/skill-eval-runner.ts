@@ -1,4 +1,5 @@
 import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { createHash } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
@@ -18,9 +19,11 @@ import {
   type SkillEvalOutcome,
 } from "@harness-anything/kernel";
 
-const MAX_CASES = 20;
-const MAX_CASE_ID = 64;
-const MAX_INPUT_LENGTH = 20_000;
+const {
+  maxCases: MAX_CASES,
+  maxCaseIdLength: MAX_CASE_ID,
+  maxInputLength: MAX_INPUT_LENGTH,
+} = daemonRuntimePolicy.defaultValue.skillEvaluation;
 
 export type SkillEvalRole = "operator" | "admin" | "reviewer" | "drafter";
 
@@ -215,14 +218,24 @@ export class SkillEvalRunner {
       ) ||
       typeof input.body !== "string" ||
       !input.body.trim() ||
-      input.body.length > 100_000 ||
-      (input.name !== undefined && (typeof input.name !== "string" || !input.name.trim() || input.name.length > 200)) ||
+      input.body.length > daemonRuntimePolicy.defaultValue.skillEvaluation.maxBodyLength ||
+      (input.name !== undefined &&
+        (typeof input.name !== "string" ||
+          !input.name.trim() ||
+          input.name.length > daemonRuntimePolicy.defaultValue.skillEvaluation.maxNameLength)) ||
       (input.usageMarker !== undefined &&
-        (typeof input.usageMarker !== "string" || !input.usageMarker.trim() || input.usageMarker.length > 1_000)) ||
+        (typeof input.usageMarker !== "string" ||
+          !input.usageMarker.trim() ||
+          input.usageMarker.length > daemonRuntimePolicy.defaultValue.skillEvaluation.maxUsageMarkerLength)) ||
       (input.requiredText !== undefined &&
         (!Array.isArray(input.requiredText) ||
-          input.requiredText.length > 100 ||
-          input.requiredText.some((value) => typeof value !== "string" || !value.trim() || value.length > 1_000)))
+          input.requiredText.length > daemonRuntimePolicy.defaultValue.skillEvaluation.maxRequiredTextCount ||
+          input.requiredText.some(
+            (value) =>
+              typeof value !== "string" ||
+              !value.trim() ||
+              value.length > daemonRuntimePolicy.defaultValue.skillEvaluation.maxRequiredTextLength,
+          )))
     )
       throw skillEvalRunnerError("VALIDATION_ERROR", "skill version draft is invalid");
     const skill: SkillEvalSkill = {
@@ -281,7 +294,7 @@ export class SkillEvalRunner {
       throw skillEvalRunnerError("INVALID_TRANSITION", "only draft skills may be evaluated");
     const binding = this.#options.binding;
     if (!binding) throw skillEvalRunnerError("EVAL_RUNTIME_UNAVAILABLE", "no admitted evaluation runtime is available");
-    const threshold = input.threshold ?? 1;
+    const threshold = input.threshold ?? daemonRuntimePolicy.defaultValue.skillEvaluation.defaultThreshold;
     if (!(threshold > 0 && threshold <= 1))
       throw skillEvalRunnerError("VALIDATION_ERROR", "evaluation threshold must be in (0, 1]");
     const cases = [...(await this.#store.listCases(skillId))];
@@ -361,14 +374,18 @@ export class SkillEvalRunner {
         binding,
       });
       let polls = 0;
-      while (observed.status === "running" && this.#runtime.observe && polls++ < 1_000)
+      while (
+        observed.status === "running" &&
+        this.#runtime.observe &&
+        polls++ < daemonRuntimePolicy.defaultValue.skillEvaluation.maximumObservePolls
+      )
         observed = await this.#runtime.observe(attemptId);
       if (observed.status === "running" && this.#runtime.stop) observed = await this.#runtime.stop(attemptId);
       runtimeStatus = observed.status;
       output = runtimeOutput(observed);
     } catch (error) {
       consumeKnownError(error);
-      runtimeStatus = `failed: ${errorText(error).slice(0, 200)}`;
+      runtimeStatus = `failed: ${errorText(error).slice(0, daemonRuntimePolicy.defaultValue.skillEvaluation.diagnosticLimit)}`;
     } finally {
       if (acquired) this.#options.queue!.release(attemptId);
     }

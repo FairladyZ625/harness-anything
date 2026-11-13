@@ -1,5 +1,6 @@
-// Timeouts and byte budgets shared by the spawner and the process launcher. Kept in a leaf
-// module so the launcher never has to import the spawner that drives it.
-export const providerErrorLimit = 64 * 1024;
-export const resumeAdmissionTimeoutMs = 30_000;
-export const exitNotificationTimeoutMs = 30_000;
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
+
+// Compatibility exports for callers that need the process budget names. The shared
+// Policy declaration is the only source of the values.
+export const { providerErrorLimit, resumeAdmissionTimeoutMs, exitNotificationTimeoutMs } =
+  daemonRuntimePolicy.defaultValue.process;

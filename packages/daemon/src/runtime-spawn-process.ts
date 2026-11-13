@@ -3,6 +3,7 @@ import { StringDecoder } from "node:string_decoder";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import type { CanonicalEventStore, TaskProjection } from "@harness-anything/kernel";
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import type { DispatchAttemptOutcome } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 import { cmdShellInvocation } from "@harness-anything/storage";
 import { consumeKnownError } from "@harness-anything/kernel";
@@ -30,9 +31,11 @@ import type {
   RuntimeProcess,
   RuntimeProcessObservation,
 } from "./runtime-spawn-types.ts";
-import { exitNotificationTimeoutMs, providerErrorLimit, resumeAdmissionTimeoutMs } from "./runtime-spawn-limits.ts";
 import { runProcessTextAsync } from "./process-port.ts";
 import { requestProcessGroupStop } from "./runtime/process-group-reconciler.ts";
+
+const { providerErrorLimit, resumeAdmissionTimeoutMs, exitNotificationTimeoutMs } =
+  daemonRuntimePolicy.defaultValue.process;
 
 export function requiredRuntimeStore(input: { readonly store?: () => CanonicalEventStore }): CanonicalEventStore {
   if (!input.store)
@@ -239,7 +242,7 @@ async function readPosixProcessRows(): Promise<readonly PosixProcessRow[]> {
     undefined,
     undefined,
     undefined,
-    { timeoutMs: 10_000 },
+    { timeoutMs: daemonRuntimePolicy.defaultValue.process.processTableTimeoutMs },
   );
   return output.split(/\r?\n/u).flatMap((line) => {
     const match = /^\s*(\d+)\s+(\d+)\s+(\d+)/u.exec(line);
@@ -312,8 +315,13 @@ async function awaitRuntimeProcessExit(pids: readonly number[], timeoutMs: numbe
   // A fixed number of attempts, not a clock deadline: survivors are the durable read, and the
   // attempt count is the product budget.
   let survivors = pids.filter(runtimePidIsAlive);
-  for (let attempt = 0; survivors.length > 0 && attempt < Math.max(1, Math.ceil(timeoutMs / 25)); attempt += 1) {
-    await delay(25);
+  for (
+    let attempt = 0;
+    survivors.length > 0 &&
+    attempt < Math.max(1, Math.ceil(timeoutMs / daemonRuntimePolicy.defaultValue.process.exitPollMs));
+    attempt += 1
+  ) {
+    await delay(daemonRuntimePolicy.defaultValue.process.exitPollMs);
     survivors = survivors.filter(runtimePidIsAlive);
   }
   return survivors;
@@ -347,7 +355,7 @@ export async function terminateRuntimeTree(rootDir: string, dispatchId: string, 
     processGroupIds,
   });
   signalRuntimeTargets(rows, rootPid, ownProcessGroupId, "SIGTERM");
-  let survivors = await awaitRuntimeProcessExit(pids, 500);
+  let survivors = await awaitRuntimeProcessExit(pids, daemonRuntimePolicy.defaultValue.process.terminationGraceMs);
   if (survivors.length > 0) {
     signalRuntimeTargets(
       rows.filter(({ pid }) => survivors.includes(pid)),
@@ -355,7 +363,7 @@ export async function terminateRuntimeTree(rootDir: string, dispatchId: string, 
       ownProcessGroupId,
       "SIGKILL",
     );
-    survivors = await awaitRuntimeProcessExit(pids, 500);
+    survivors = await awaitRuntimeProcessExit(pids, daemonRuntimePolicy.defaultValue.process.terminationGraceMs);
   }
   appendRuntimeWorkerRecord(rootDir, dispatchId, {
     kind: "process_descendants_terminated",
@@ -661,7 +669,7 @@ function observeDispatchProcess(
       consumeKnownError(error);
     }
   };
-  const timer = setInterval(drain, 250);
+  const timer = setInterval(drain, daemonRuntimePolicy.defaultValue.process.streamPollMs);
   timer.unref();
   queueMicrotask(drain);
   return {

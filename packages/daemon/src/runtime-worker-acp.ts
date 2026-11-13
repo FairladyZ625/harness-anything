@@ -19,6 +19,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { ChildProcess } from "node:child_process";
 import { consumeKnownError, DEFAULT_PROVIDER_HANDSHAKE_TIMEOUT_MS } from "@harness-anything/kernel";
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import type { RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
@@ -48,7 +49,7 @@ export interface AcpWorkerManifest {
 type JsonRpcId = number;
 type Append = (value: Readonly<Record<string, unknown>>) => void;
 
-const cancelGraceMs = 2_000;
+const cancelGraceMs = daemonRuntimePolicy.defaultValue.acp.cancelGraceMs;
 
 // Updates worth persisting. Agents emit plenty of configuration chatter
 // (available_commands_update, session_info_update, …) that carries no runtime

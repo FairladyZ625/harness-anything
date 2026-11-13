@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 
 export type RuntimeProviderHealth = {
   readonly instanceId: string;
@@ -59,10 +60,10 @@ export function openRuntimeProviderHealthStore(userRoot: string) {
   }): RuntimeProviderHealth => {
     const previous = get(input.instanceId),
       streak = previous.failureStreak + 1,
-      base = Math.max(0, input.cooldownBaseSeconds ?? 30),
-      cap = Math.max(base, input.cooldownMaxSeconds ?? 300),
+      base = Math.max(0, input.cooldownBaseSeconds ?? daemonRuntimePolicy.defaultValue.health.cooldownBaseSeconds),
+      cap = Math.max(base, input.cooldownMaxSeconds ?? daemonRuntimePolicy.defaultValue.health.cooldownMaxSeconds),
       cooldownSeconds = Math.min(cap, base * 2 ** Math.max(0, streak - 1)),
-      threshold = Math.max(1, input.freezeAfter ?? 5),
+      threshold = Math.max(1, input.freezeAfter ?? daemonRuntimePolicy.defaultValue.health.freezeAfter),
       frozen = input.permanentFreeze === true || previous.frozen,
       proposedCooldownUntil =
         input.resetAt ??
@@ -76,7 +77,12 @@ export function openRuntimeProviderHealthStore(userRoot: string) {
         ? null
         : streak >= threshold
           ? new Date(
-              Date.parse(input.occurredAt) + Math.max(0, input.freezeDurationSeconds ?? 1800) * 1_000,
+              Date.parse(input.occurredAt) +
+                Math.max(
+                  0,
+                  input.freezeDurationSeconds ?? daemonRuntimePolicy.defaultValue.health.freezeDurationSeconds,
+                ) *
+                  1_000,
             ).toISOString()
           : previous.frozenUntil;
     const next = {

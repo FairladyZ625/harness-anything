@@ -1,3 +1,4 @@
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 // Type-only: a value import would pull the effectful kernel barrel (stable-hash → node:crypto)
 // into the GUI renderer bundle. runtimeKindIds is derived from the runtimeKinds catalog below.
 import type { RuntimeInstallation, RuntimeKind, RuntimeKindId } from "@harness-anything/kernel";
@@ -81,7 +82,7 @@ const acpSteer = { strategy: "cancel-reprompt" } as const;
 // runtime-worker-acp.ts), so no acp kind carries a per-kind launch flag or capability entry.
 const acpDeclaredCapabilities = ["structured_witness", "resume", "attach", "session_identity"] as const;
 const runtimeUnsettledTurnContinuation = {
-  maxContinuations: 3,
+  maxContinuations: daemonRuntimePolicy.defaultValue.runtime.unsettledTurnMaxContinuations,
   prompt: "Continue the current task from where it left off.",
 } as const;
 
@@ -235,7 +236,7 @@ export const runtimeKinds = [
       shape: "api-override",
       modes: ["subscription", "api-key"],
       subscriptionProbe: ["auth", "status", "--json"],
-      subscriptionProbeTimeoutMs: 5_000,
+      subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.status,
       // The API override sets ANTHROPIC_BASE_URL; empty falls back to the official endpoint.
       endpoints: { baseUrl: "optional" },
     },
@@ -382,7 +383,7 @@ export const runtimeKinds = [
       modes: ["subscription", "api-key"],
       apiKeyIsolation: "enforced",
       subscriptionProbe: ["login", "status"],
-      subscriptionProbeTimeoutMs: 5_000,
+      subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.status,
       // Codex signs in through `codex login`/`codex logout`, not `codex auth <action>`.
       commands: { login: ["login"], logout: ["logout"] },
       // API-key instances write model_providers.<id>.base_url into the generated
@@ -502,7 +503,7 @@ export const runtimeKinds = [
       // `agy models` boots a language server, resolves OAuth, then fetches the model
       // list: measured 5-22s end to end, so the probe budget must clear that tail.
       subscriptionProbe: ["models"],
-      subscriptionProbeTimeoutMs: 60_000,
+      subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.modelListing,
       endpoints: { baseUrl: "none" },
     },
     isolation: { defaultState: "operator-environment", states: ["operator-environment"] },
@@ -519,7 +520,7 @@ export const runtimeKinds = [
         "--output-format",
         "stream-json",
         "--print-timeout",
-        "120m",
+        daemonRuntimePolicy.defaultValue.runtime.nativePrintTimeout,
         "--model",
         "$model",
         "$permission",
@@ -575,7 +576,7 @@ export const runtimeKinds = [
       modes: ["subscription", "api-key"],
       apiKeyIsolation: "enforced",
       subscriptionProbe: ["doctor"],
-      subscriptionProbeTimeoutMs: 5_000,
+      subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.status,
       // API-key instances write provider options.baseURL into the generated
       // cli/config.json; absent means the provider's default endpoint (default: zai).
       endpoints: { baseUrl: "optional" },
@@ -648,7 +649,7 @@ export const runtimeKinds = [
       // consumes is the windsurf_api_key entry in credentials.toml, so presence
       // of that key is the meaningful local readiness check.
       subscriptionProbe: { kind: "file-key" },
-      subscriptionProbeTimeoutMs: 10_000,
+      subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
       acpCredentialKey: "windsurf_api_key",
       // ACP local binary: the key rides authenticate's _meta.api_key; no endpoint exists.
       endpoints: { baseUrl: "none" },
@@ -717,7 +718,7 @@ export const runtimeKinds = [
       shape: "subscription-only",
       modes: ["subscription"],
       subscriptionProbe: ["status"],
-      subscriptionProbeTimeoutMs: 10_000,
+      subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
       // `cursor_login` consumes the linked cli-config.json and accepts an empty
       // api_key; it is the only advertised method anyway.
       acpAuthMethod: "cursor_login",
@@ -788,7 +789,7 @@ export const runtimeKinds = [
       // weakest available presence probe. The ACP `authenticate` handshake is
       // the authoritative check at launch time.
       subscriptionProbe: ["--version"],
-      subscriptionProbeTimeoutMs: 10_000,
+      subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
       // Advertised methods are ["api-key", "chat-gpt"]; the ChatGPT login in
       // the linked auth.json answers "chat-gpt" with an empty api_key.
       acpAuthMethod: { subscription: "chat-gpt", "api-key": "api-key" },
@@ -859,7 +860,7 @@ export const runtimeKinds = [
       shape: "subscription-only",
       modes: ["subscription"],
       subscriptionProbe: ["--version"],
-      subscriptionProbeTimeoutMs: 10_000,
+      subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
       endpoints: { baseUrl: "none" },
     },
     isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
@@ -899,20 +900,20 @@ export const runtimeKinds = [
     shape: "subscription-only",
     modes: ["subscription"],
     subscriptionProbe: ["--version"],
-    subscriptionProbeTimeoutMs: 10_000,
+    subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
     acpAuthMethod: "copilot-login",
   }),
   acpKind("auggie", "Auggie CLI", "auggie", ["--acp"], ".auggie", {
     shape: "subscription-only",
     modes: ["subscription"],
     subscriptionProbe: ["--version"],
-    subscriptionProbeTimeoutMs: 10_000,
+    subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
   }),
   acpKind("droid", "Factory Droid", "droid", ["exec", "--output-format", "acp-daemon"], ".factory", {
     shape: "separate",
     modes: ["subscription", "api-key"],
     subscriptionProbe: ["--version"],
-    subscriptionProbeTimeoutMs: 10_000,
+    subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
     acpAuthMethod: "factory-api-key",
     acpCredentialKey: "factory_api_key",
   }),
@@ -920,20 +921,20 @@ export const runtimeKinds = [
     shape: "subscription-only",
     modes: ["subscription"],
     subscriptionProbe: ["--version"],
-    subscriptionProbeTimeoutMs: 10_000,
+    subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
     acpAuthMethod: "grok.com",
   }),
   acpKind("kimi", "Kimi CLI", "kimi", ["acp"], ".kimi", {
     shape: "subscription-only",
     modes: ["subscription"],
     subscriptionProbe: ["--version"],
-    subscriptionProbeTimeoutMs: 15_000,
+    subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.extended,
   }),
   acpKind("qwen-code", "Qwen Code", "qwen", ["--acp"], ".qwen-code", {
     shape: "separate",
     modes: ["api-key"],
     subscriptionProbe: ["--version"],
-    subscriptionProbeTimeoutMs: 10_000,
+    subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
     acpAuthMethod: "openai",
     acpCredentialKey: "openai_api_key",
   }),
@@ -958,7 +959,7 @@ export const runtimeKinds = [
         readyStatus: "authenticated",
         expiresAtField: "expiresAtMs",
       },
-      subscriptionProbeTimeoutMs: 10_000,
+      subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
       commands: { login: ["login"], logout: ["logout"] },
     },
     "open",
@@ -968,33 +969,33 @@ export const runtimeKinds = [
     shape: "subscription-only",
     modes: ["subscription"],
     subscriptionProbe: ["--version"],
-    subscriptionProbeTimeoutMs: 10_000,
+    subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
     acpAuthMethod: "browser-auth",
   }),
   acpKind("junie", "Junie", "junie", ["--acp=true"], ".junie", {
     shape: "subscription-only",
     modes: ["subscription"],
     subscriptionProbe: ["--version"],
-    subscriptionProbeTimeoutMs: 10_000,
+    subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
   }),
   acpKind("codebuddy", "Codebuddy Code", "codebuddy", ["--acp"], ".codebuddy", {
     shape: "subscription-only",
     modes: ["subscription"],
     subscriptionProbe: ["--version"],
-    subscriptionProbeTimeoutMs: 10_000,
+    subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
   }),
   acpKind("glm-acp", "GLM (ACP)", "glm-acp-agent", [], ".glm-acp-agent", {
     shape: "separate",
     modes: ["subscription", "api-key"],
     subscriptionProbe: ["--version"],
-    subscriptionProbeTimeoutMs: 10_000,
+    subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
     acpAuthMethod: "z-ai-api-key",
   }),
   acpKind("agy-acp", "AGY (ACP)", "agy_acp_server", [], ".gemini", {
     shape: "separate",
     modes: ["subscription", "api-key"],
     subscriptionProbe: ["--notices"],
-    subscriptionProbeTimeoutMs: 15_000,
+    subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.extended,
     acpAuthMethod: "gemini-api-key",
   }),
   {
@@ -1024,7 +1025,7 @@ export const runtimeKinds = [
       shape: "subscription-only",
       modes: ["subscription"],
       subscriptionProbe: ["--version"],
-      subscriptionProbeTimeoutMs: 10_000,
+      subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
       // `opencode-login` consumes the linked auth.json and accepts an empty
       // api_key; it is the only advertised method.
       acpAuthMethod: "opencode-login",
@@ -1108,7 +1109,7 @@ export const runtimeKinds = [
       // initialize advertises authMethods: [] — the App's login is the whole credential story,
       // so presence (--version exits 0 in 0.2s) is the only local readiness check.
       subscriptionProbe: ["--version"],
-      subscriptionProbeTimeoutMs: 10_000,
+      subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
       endpoints: { baseUrl: "optional" },
     },
     acp: {

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { consumeKnownError } from "@harness-anything/kernel";
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import type { AgentRuntimeSessionResult, AgentRuntimeSettlement } from "./agent-runtime-contract.ts";
 import { taskDispatchRowsSettled } from "./dispatch-read.ts";
@@ -8,8 +9,8 @@ import type { DaemonTaskDispatchesResult } from "./protocol/daemon-protocol.cont
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { isRuntimeMcpPolicy } from "./runtime-inventory.ts";
 
-export const runtimeBatchDefaultConcurrency = 2,
-  runtimeBatchMaxConcurrency = 32;
+export const runtimeBatchDefaultConcurrency = daemonRuntimePolicy.defaultValue.batch.defaultConcurrency,
+  runtimeBatchMaxConcurrency = daemonRuntimePolicy.defaultValue.batch.maximumConcurrency;
 
 const runtimeRunEntryFields = Object.freeze([
   "instance",

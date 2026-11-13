@@ -1,3 +1,7 @@
+import {
+  SETTINGS_FIELD_DECLARATIONS,
+  type SettingsFieldDeclaration,
+} from "@harness-anything/kernel/internal/domain/settings-field-declarations.ts";
 import { randomUUID } from "node:crypto";
 import type { ActiveRuntime, ResumeProcessObservation, RuntimeProcessObservation } from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
@@ -72,9 +76,13 @@ type ActiveRuntimeBase = Omit<
   readonly stalledAt?: string | null;
 };
 
+const runtimeStallMinimumMs = (SETTINGS_FIELD_DECLARATIONS as readonly SettingsFieldDeclaration[]).find(
+  ({ path }) => path[0] === "runtime" && path[1] === "stallTimeoutMs",
+)!.minimum!;
+
 export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
   const stallTimeoutMs =
-      Number.isSafeInteger(base.stallTimeoutMs) && base.stallTimeoutMs >= 10_000
+      Number.isSafeInteger(base.stallTimeoutMs) && base.stallTimeoutMs >= runtimeStallMinimumMs
         ? base.stallTimeoutMs
         : DEFAULT_RUNTIME_STALL_TIMEOUT_MS,
     lastProgressAtMs = Number.isFinite(base.lastProgressAtMs) ? base.lastProgressAtMs : Date.now(),

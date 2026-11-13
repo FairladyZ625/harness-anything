@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { openRuntimeProviderHealthStore } from "../src/runtime-provider-health.ts";
 
 test("provider health persists bounded cooldowns and freezes after the configured streak", () => {
@@ -88,6 +89,23 @@ test("separately opened node stores merge updates instead of overwriting another
     assert.equal(first.get("codex-b").failureStreak, 1);
     assert.equal(second.list().length, 2);
   } finally {
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test("provider health fallback cooldown reads the shared policy default", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-provider-health-policy-")),
+    previousBase = daemonRuntimePolicy.defaultValue.health.cooldownBaseSeconds;
+  try {
+    daemonRuntimePolicy.defaultValue.health.cooldownBaseSeconds = 7;
+    const row = openRuntimeProviderHealthStore(root).recordFailure({
+      instanceId: "codex-policy-default",
+      reason: "HTTP 429",
+      occurredAt: "2026-10-12T00:00:00.000Z",
+    });
+    assert.equal(row.cooldownUntil, "2026-10-12T00:00:07.000Z");
+  } finally {
+    daemonRuntimePolicy.defaultValue.health.cooldownBaseSeconds = previousBase;
     rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });

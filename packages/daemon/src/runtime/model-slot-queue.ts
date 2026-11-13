@@ -1,3 +1,4 @@
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 /**
  * Fair admission for local model generations.
  *
@@ -56,7 +57,7 @@ interface Waiter extends SlotRequest {
   timer: NodeJS.Timeout | null;
 }
 
-export const DEFAULT_SLOT_WAIT_MS = 30 * 60 * 1000;
+export const DEFAULT_SLOT_WAIT_MS = daemonRuntimePolicy.defaultValue.runtime.modelSlots.defaultWaitMs;
 
 const positiveInteger = (value: number, name: string, max: number): number => {
   if (!Number.isSafeInteger(value) || value < 1 || value > max)
@@ -79,9 +80,21 @@ export class ModelSlotQueue {
   private closed = false;
 
   constructor(options: SlotQueueOptions = {}) {
-    this.globalCapacity = positiveInteger(options.globalCapacity ?? 1, "globalCapacity", 64);
-    this.perOwnerCapacity = positiveInteger(options.perOwnerCapacity ?? 1, "perOwnerCapacity", 64);
-    this.maxWaitMs = positiveInteger(options.maxWaitMs ?? DEFAULT_SLOT_WAIT_MS, "maxWaitMs", 24 * 3600 * 1000);
+    this.globalCapacity = positiveInteger(
+      options.globalCapacity ?? daemonRuntimePolicy.defaultValue.runtime.modelSlots.defaultCapacity,
+      "globalCapacity",
+      daemonRuntimePolicy.defaultValue.runtime.modelSlots.maximumCapacity,
+    );
+    this.perOwnerCapacity = positiveInteger(
+      options.perOwnerCapacity ?? daemonRuntimePolicy.defaultValue.runtime.modelSlots.defaultCapacity,
+      "perOwnerCapacity",
+      daemonRuntimePolicy.defaultValue.runtime.modelSlots.maximumCapacity,
+    );
+    this.maxWaitMs = positiveInteger(
+      options.maxWaitMs ?? DEFAULT_SLOT_WAIT_MS,
+      "maxWaitMs",
+      daemonRuntimePolicy.defaultValue.runtime.modelSlots.maximumWaitMs,
+    );
     this.now = options.now ?? Date.now;
     this.scheduleTimeout = options.scheduleTimeout ?? ((callback, delayMs) => setTimeout(callback, delayMs));
     this.clearTimer = options.clearTimeout ?? ((timer) => clearTimeout(timer));
@@ -262,7 +275,7 @@ export class ModelSlotQueue {
   }
 }
 
-export const LOCAL_CONTEXT_WINDOW = Object.freeze({ nCtx: 40_960, outputReserve: 4_096 });
+export const LOCAL_CONTEXT_WINDOW = Object.freeze(daemonRuntimePolicy.defaultValue.runtime.localContextWindow);
 
 /** Conservative token estimate without requiring a provider-specific tokenizer. */
 export function estimateInputTokens(text: string): number {

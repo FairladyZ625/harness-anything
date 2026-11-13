@@ -1,3 +1,4 @@
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import {
   chmodSync,
   copyFileSync,
@@ -304,8 +305,8 @@ export function ensureSharedAuthFile(src: string, dst: string): void {
     if (existing)
       /* @gate-identity state-store/runtime-instance.provider-home */ rmSync(dst, {
         force: true,
-        maxRetries: 5,
-        retryDelay: 20,
+        maxRetries: daemonRuntimePolicy.defaultValue.process.authFileRemovalRetries,
+        retryDelay: daemonRuntimePolicy.defaultValue.process.authFileRemovalRetryDelayMs,
       });
     /* @gate-identity state-store/runtime-instance.provider-home */ symlinkSync(src, dst);
   } catch (error) {

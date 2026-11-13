@@ -9020,6 +9020,1122 @@
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-instance-storage.ts#ensureSharedAuthFile:e7c7fe2694ae129d1aaf336f54ea6b6b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-instance-storage.ts#writeCodexConfig:983c8fc5334e766c48cc79198746156c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-instance-storage.ts#writeCodexConfig:80d25e7706455ad7bd1dc54360a69e48",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-instance-storage.ts#writeZcodeConfig:628f6ed5fcc56d5cf507641c275c3b28",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-instance-storage.ts#writeZcodeConfig:80d25e7706455ad7bd1dc54360a69e48",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-instance-store.ts#openRuntimeInstanceStore.remove:b6a072f6a46c6e93db843a63f07a9fc8",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-instance-store.ts#openRuntimeInstanceStore.remove:64927c6305060610ac0bfca6d0898137",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-instance-store.ts#openRuntimeInstanceStore.command.finish:6cbae649cf33b3084c1aa5c99f7a25af",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-instance-store.ts#openRuntimeInstanceStore.command:370dae9915533839044582bd2bce7f71",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/agent-runtime-instance-store.ts#openRuntimeInstanceStore.remove"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-instance-store.ts#openRuntimeInstanceStore.reclaimRuntimeTempDirectory:a6375b6925f287852d668f524241466b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-instance-store.ts#openRuntimeInstanceStore.persist:48caf35afde41e45f663d2d29775369a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-instance-store.ts#openRuntimeInstanceStore.persist:80d25e7706455ad7bd1dc54360a69e48",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-instance-values.ts#runtimeInstanceError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/process-port.ts#startDetachedProcess.child:8caa9f79ede7a93fbbed2b9c653a491c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/process-port.ts#startDetachedProcessChecked:37469a6d5db4a3e67da401e750e3cca4",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/process-port.ts#launchProcessText.child.settle.error:29b6df84293de08a4d2a6ad0285981d4",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/process-port.ts#launchProcessText.child:87dec94c55a86cac746c606159f08b6e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/process-port.ts#launchProcessText.child.settle"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/process-port.ts#launchProcessText.child:87dec94c55a86cac746c606159f08b6e:2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/process-port.ts#launchProcessText.child.settle"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-callback-relay.ts#createRuntimeCallbackRelay.server.closeBoth:6b02bc08b50fb843e2840b9d3cc34d7b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-callback-relay.ts#createRuntimeCallbackRelay.server.closeBoth:5512dfb65150b964c062c74ed83e98f1",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-callback-relay.ts#createRuntimeCallbackRelay.server:6b02bc08b50fb843e2840b9d3cc34d7b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-callback-relay.ts#createRuntimeCallbackRelay.server:5512dfb65150b964c062c74ed83e98f1",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-callback-relay.ts#removeRuntimeCallbackRelay:296f74ff78ecb22906da7f110ee7e4f0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-callback-relay.ts#removeStaleRelay:006fcbc69a35b6efbfd9e12f1165999c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-callback-relay.ts#executionCredentialInjector.transform:19c56f3ec720810bc34978b66eb0cc26",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/string_decoder.d.ts#string_decoder.StringDecoder.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-command-interception-files.ts#compileCommandInterceptionFiles:fc8f6532b6725239a67a0a4ec09a9e4b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-command-interception-files.ts#compileCommandInterceptionFiles.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-command-interception-files.ts#compileCommandInterceptionFiles:8ed636607867997f15f688822755d6f4",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-command-interception-files.ts#compileCommandInterceptionFiles.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-command-interception-files.ts#compileCommandInterceptionFiles:f0a3127a3ce59ead9607b576e06bb1f0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-command-interception-files.ts#compileCommandInterceptionFiles.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-command-interception-files.ts#compileCommandInterceptionFiles:3835a9132c4b2003471ef67216cc4173",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-command-interception-files.ts#compileCommandInterceptionFiles.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-command-interception-files.ts#compileCommandInterceptionFiles:2d07c1adacbf55899b1e0ce8fc5e8489",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-command-interception-files.ts#compileCommandInterceptionFiles.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-command-interception-files.ts#compileCommandInterceptionFiles:a284049132639a02a52869c66f32b6e9",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-command-interception-files.ts#compileCommandInterceptionFiles.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-command-interception-files.ts#compileCommandInterceptionFiles:769545b3df17e7181c7d197b889b25f5",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-command-interception-files.ts#compileCommandInterceptionFiles.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-command-interception-files.ts#compileCommandInterceptionFiles:90237b4a6720202311e31de717901f0e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-command-interception-files.ts#compileCommandInterceptionFiles.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-command-interceptions.ts#intercept.deny:6370e80452262a58d67e9cec1168ee5a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-command-interceptions.ts#intercept.deny:5362396af878cab437dd9e0176a178c6",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-command-interceptions.ts#intercept.deny:8b3a86e1f0da66456cc9b88be55dd7fa",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-command-interceptions.ts#intercept:66222f2a6c296f5c3f985111848b3d5e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-execution-principal-store.ts#executionCredentialDigest:b399939d85b2773ccc57f37dc5988fe0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-execution-scope.ts#requireExecutionActionScope:35232f4a59602878deb3699ba33528b2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-execution-scope.ts#requireCurrentExecutionScope:e295323bf40ec46bde9a2462672cfb70",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-handoff.ts#runRuntimeHandoff.resumed:24d47fcf905fedae03ff2f7e1687d8ff",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-handoff.ts#runRuntimeHandoff.input.spawn"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-imported-settlement.ts#importedRuntimeTerminalResult.sha256:07fb0719c0e380aa92e66e718e8f3691",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-instance-credentials.ts#runtimeInstanceCredentialService.command:b62e8f0640bcc28a9ad46d540b02b130",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-instance-credentials.ts#runtimeInstanceCredentialService.execute"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-instance-credentials.ts#runtimeInstanceCredentialService.command:0a527407745556565571ad1df2f520ed",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-instance-credentials.ts#runtimeInstanceCredentialService.enqueue"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-instance-credentials.ts#runtimeInstanceCredentialService.removeUnused:73f922d30e1da1a76b9b773eb21131be",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/agent-runtime-credential-port.ts#CredentialPort.remove"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-instance-credentials.ts#runtimeInstanceCredentialService.prepareLaunch:9f8a977e77af649095c239100247190a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-instance-credentials.ts#runtimeInstanceCredentialService.enqueue"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-permissions.ts#permissionError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-provider-health.ts#openRuntimeProviderHealthStore.persist:6c5106b666949a5b99ae6533a28fcb7d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-publication-queue.ts#enqueueRuntimePublication.pending:a8845217146238950bed7daa12dda416",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-publication-queue.ts#enqueueRuntimePublication.pending.result:c5c1aa693494d88bf54edfbbbe274d24",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-publication-queue.ts#enqueueRuntimePublication.execute"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-recovery-watch.ts#runtimeRecoveryError:065d1f530ff276025104399896471009",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-recovery-work.ts#makeRuntimeRecoveryWork.run:f9bd33ed21c91059c593e794b0c1af6f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/async_hooks.d.ts#async_hooks.AsyncLocalStorage.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-recovery-work.ts#makeRuntimeRecoveryWork.write:3d881b8a4832e87f63ab0af5c5b16515",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-recovery-work.ts#makeRuntimeRecoveryWork.enqueue"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-result-read.ts#readCanonicalRuntimeResult:ea5b5e740df5862ddf2bfeacaa8e4cff",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-result-read.ts#readCanonicalRuntimeResult:49344e873b6dd4b33142ef8620ea4e69",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-result-read.ts#readEdgeRuntimeResult:fe52197bc07b80bdd3ece44a33378632",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-result-read.ts#readEdgeViewBlob:2cf0760af434998c0c3b572986f461a1",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-result-read.ts#readEdgeViewBlobRange:fe52197bc07b80bdd3ece44a33378632",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-result-read.ts#edgeObject:fe52197bc07b80bdd3ece44a33378632",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-result-read.ts#edgeObject:450256aac14c2cad209fd0472c930018",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-result-read.ts#decodeRuntimeResult:f2bbb220d827d2e9ab8876b7c7a72f4b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-session-action-runtime.ts#commitRuntimeSessionAction:6b9912cf6275235185d5ae52d6c5d97d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-session-action-runtime.ts#commitRuntimeSessionAction:90f4e24e9eb57a785b203141176e73ec",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-session-action-runtime.ts#invalidRuntimeSessionAction.error:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-settlement.ts#createRuntimeOutcomeWaiters.park.waiter:d803ca09bcefde75b59378926cd00c91",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-settlement.ts#createRuntimeOutcomeWaiters.park.timer:d803ca09bcefde75b59378926cd00c91",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-settlement.ts#createRuntimeOutcomeWaiters.park.timer:c6b743bbb5e17669998ffafa97db0bf6",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/timers.d.ts#timers.global.setTimeout"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-active.ts#releaseActiveRuntimeObservations:c3cf707d1ea3396ee3f3ad03e18383a4",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#WeakMap.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-active.ts#settleStalledRuntime:a48ffbebb821cbbf655b0d95183d27dd",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-spawn-types.ts#RuntimeProcess.terminate"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-active.ts#attachRuntimeObservations.error:1b03b71e40889f0494d73a08205f1304",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-active.ts#retireObservationFault:a48ffbebb821cbbf655b0d95183d27dd",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-spawn-types.ts#RuntimeProcess.terminate"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-adoption.ts#adoptRuntimes.attempts:0b9c11c0fffca9c4b734b69d159ecd89",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-adoption.ts#settleMissingDispatchStream.resultSha256:f55a7e963406acfe4ea0e843aceee270",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-adoption.ts#restoreRuntime:91b80ae0d0c0e11112ab36c0cae5de51",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-adoption.ts#attachAdoptedObservations:91b80ae0d0c0e11112ab36c0cae5de51",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-adoption.ts#attachAdoptedObservations:a48ffbebb821cbbf655b0d95183d27dd",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-spawn-types.ts#RuntimeProcess.terminate"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-control.ts#cancelRuntime.hash:48d3bad0823a459ec4f5fa0ce3df2240",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-control.ts#cancelRuntime.resultSha256:f55a7e963406acfe4ea0e843aceee270",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-control.ts#cancelRuntime.resultSha256:f55a7e963406acfe4ea0e843aceee270:2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-control.ts#enforceRuntimeSpendCap:a48ffbebb821cbbf655b0d95183d27dd",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-spawn-types.ts#RuntimeProcess.terminate"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-control.ts#steerRuntime.opId:49e476875b50c9d155910cd3dca5691f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-errors.ts#runtimeSpawnError:26338a5e62aa1d48e801bb1301ff804b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-fallback.ts#scheduleFallbackContinuation.publishTerminal.result:4c532f984c0c5bc7ef96d032c5062289",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-process.ts#launchRuntimeProcess:60bacab7d538fc093e20ddade365d715",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-spawn-types.ts#RuntimeProcess.terminate"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-process.ts#launchExitNotification:98ad40af9c82a704835ebc2945a71ffb",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-process.ts#launchNative:cd5e990b3b9eae3a884ce53f2f01078f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-process.ts#launchNative:ee79f2b2d9e4547be10fb4d8751cfaf3",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/stream.d.ts#stream.Stream.Writable.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-process.ts#observeDispatchProcess.drain:6a2fc0754d15aa103a2b93408e9777ba",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/string_decoder.d.ts#string_decoder.StringDecoder.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-provider-stream.ts#publishRuntimeEvent.published:36620b40f708fe618cdd921ac2fc75c2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-spawn-types.ts#RemoteRuntimePersistence.publish"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-provider-stream.ts#consumeProviderLine:e78c20edbc582e97e647347875e69af3",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/agent-runtime-stream.ts#AgentRuntimeStreamHub.publish"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-provider-stream.ts#observeStrayWrites:97a16dcfcfd90be213b34974f54e7262",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/agent-runtime-stream.ts#AgentRuntimeStreamHub.publish"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-provider-stream.ts#consumeDurableOutput.scan:bfb22f972ea270a59b180c3903154c24",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/string_decoder.d.ts#string_decoder.StringDecoder.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-provider-stream.ts#markProtocolError:62240174b558962fdb48d986635d4301",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/agent-runtime-stream.ts#AgentRuntimeStreamHub.publish"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-settlement.ts#publishExit:91b80ae0d0c0e11112ab36c0cae5de51",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-settlement.ts#publishExit:8e8f79b4991fc5d571c1c65ac5d0d4b0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/agent-runtime-stream.ts#AgentRuntimeStreamHub.publish"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-settlement.ts#publishExit.sha256:98350a69023f5557ad3864aab246cd81",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-settlement.ts#publishExit.archived:f3b7c64e6ed12c20120992722f6f344f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-spawn-types.ts#RemoteRuntimePersistence.archive"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-settlement.ts#publishExit:98350a69023f5557ad3864aab246cd81",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-settlement.ts#publishExit:91b80ae0d0c0e11112ab36c0cae5de51:2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-settlement.ts#publishExit:91b80ae0d0c0e11112ab36c0cae5de51:3",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-settlement.ts#publishExit:91b80ae0d0c0e11112ab36c0cae5de51:4",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-settlement.ts#publishExit:2302a89121445c03910de0591cb57b76",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-settlement.ts#runtimeProcessTreeStopped:76a0be1c9e1a2a9678fec15a632a872f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-spawn-types.ts#RuntimeProcess.terminate"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-settlement.ts#publishTerminalOutcome:99d1ec9c2e1428a4e93b2a5dad4faa52",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/agent-runtime-stream.ts#AgentRuntimeStreamHub.publish"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawner.ts#releaseFailedTaskClaim:a4c79400f8bbc7780ad07b314430de1e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-spawner.ts#releaseFailedTaskClaim.spawn"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawner.ts#makeRuntimeSpawner.spawnClaimAttempt.cleanupFailedLaunch:60bacab7d538fc093e20ddade365d715",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-spawn-types.ts#RuntimeProcess.terminate"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-steer-target.ts#readRuntimeSteerVersion.lines:6a2fc0754d15aa103a2b93408e9777ba",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/string_decoder.d.ts#string_decoder.StringDecoder.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-task-publication.ts#publishTaskWorkerBranch:79fcf49885b990b38cecd1709be6ba41",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-task-publication.ts#publishTaskPullRequest:11888f18490efcb316f57fd6f83496c5",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-task-publication.ts#publishTaskPullRequest.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-task-publication.ts#publishTaskPullRequest:11888f18490efcb316f57fd6f83496c5:2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-task-publication.ts#publishTaskPullRequest.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-worker-acp.ts#runAcpProviderSession.send:7c42c2d4bdae421b9920a928f865b1e7",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/stream.d.ts#stream.Stream.Writable.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-worker-acp.ts#runAcpProviderSession.request.timeout:7d5ae8029ff2a48eb9dc152b0df4483f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-worker-acp.ts#runAcpProviderSession.request.timeout:51b0dd75f1b803a2c76bc9b0915fb162",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/timers.d.ts#timers.global.setTimeout"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-worker-acp.ts#runAcpProviderSession.event:da1adb6e7444693ad2581413a0220356",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-worker-acp.ts#Append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-worker-acp.ts#runAcpProviderSession.handleMessage:914000dfa783eddd148a2fbee1301a8a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-worker-acp.ts#runAcpProviderSession:41b9fe4b8b47af7194213b86c1d904dc",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-worker-acp.ts#Append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-worker-acp.ts#runAcpProviderSession.steer:c2cc317bb89e9ac7d76b63d523cfeffb",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-worker-acp.ts#Append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-worker-acp.ts#runAcpProviderSession.steer:33848c8e83a0b25eeb1447c58aebed42",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-worker-acp.ts#Append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-worker-control.ts#tailRuntimeSteerCommands.drain:6a2fc0754d15aa103a2b93408e9777ba",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/string_decoder.d.ts#string_decoder.StringDecoder.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-worker-host.ts#runRuntimeWorkerHost.append:13646c2e44ca6a7a1847cf201bb6ac45",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/dispatch-stream.ts#DispatchStreamAppender.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-worker-host.ts#runRuntimeWorkerHost.steerTail:33848c8e83a0b25eeb1447c58aebed42",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-worker-host.ts#runRuntimeWorkerHost.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-worker-host.ts#runRuntimeWorkerHost:e3d8ec371581625d4e60ff719c7c774b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-worker-host.ts#runRuntimeWorkerHost.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-worker-host.ts#runRuntimeWorkerHost:8bb32f6164139074234fa300f14b9ab3",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-worker-host.ts#runRuntimeWorkerHost.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-worker-host.ts#runRuntimeWorkerHost:955298051ef6bb6e3585b560ad159877",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-worker-host.ts#runRuntimeWorkerHost.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-worker-host.ts#runRuntimeWorkerHost:fd3fdbb9a33e5b801237642ac65ac8cc",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/timers.d.ts#timers.global.setTimeout"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-worker-host.ts#runRuntimeWorkerHost:32f7eb5655e093d3bec2422cec927422",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-worker-host.ts#runRuntimeWorkerHost:542d9993f72a6e3088666888ce27d2ba",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-worker-host.ts#runRuntimeWorkerHost.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-worker-host.ts#runRuntimeWorkerHost.consumeOutput:6b36109553f6ad3c870ac9d8aa86428f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-worker-host.ts#runRuntimeWorkerHost.finish:fb611a1cd8d4858e492c8d4217a7b46d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-worker-host.ts#runRuntimeWorkerHost.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-worker-host.ts#runRuntimeWorkerHost:43dd53d0ac2682cbc4bcc74003a31926",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-worker-host.ts#runRuntimeWorkerHost.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-worker-host.ts#runRuntimeWorkerHost:06c0bdffc63217c971ce78813888d368",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-worker-host.ts#runRuntimeWorkerHost.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-worker-host.ts#runRuntimeWorkerHost:fb7e2d9c87f4d94eff6dd2643f6cd709",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-worker-host.ts#runRuntimeWorkerHost.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-worker-host.ts#runRuntimeWorkerHost:f7da553228e79a4cb0adda32bbdf53e7",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-worker-host.ts#runRuntimeWorkerHost.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-worker-host.ts#appendProviderLine:61dd95dd67bb2da524a7ce61e1827559",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-worker-host.ts#appendProviderLine.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-worker-host.ts#appendProviderLine:41b9fe4b8b47af7194213b86c1d904dc",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-worker-host.ts#appendProviderLine.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-worker-host.ts#continuationArgs:ba1790aed428e9c82712413d93d66d9f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-worker-host.ts#continuationArgs.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-workspace-monitor-thread.ts#openRuntimeWorkspaceMonitor:9edd2af998d5792a21707afd45d2c207",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-workspace-monitor-thread.ts#openRuntimeWorkspaceMonitor.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-workspace-monitor-thread.ts#openRuntimeWorkspaceMonitor:d83da4ecd137088bf79dd6f2a7baca4c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-workspace-monitor-thread.ts#openRuntimeWorkspaceMonitor.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-workspace-monitor-thread.ts#openRuntimeWorkspaceMonitor:9eba92c610890f438c6997a24698feb8",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-workspace-monitor-thread.ts#openRuntimeWorkspaceMonitor.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-workspace-monitor.ts#observeRuntimeWorkspace.fail:c1a539f55429598872cb5ea1baea51e9",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-workspace-monitor.ts#observeRuntimeWorkspace.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-workspace-monitor.ts#observeRuntimeWorkspace.fail:2f40599dd70fb5fd0a9d1c5c33d8ca98",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-workspace-monitor.ts#observeRuntimeWorkspace.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-workspace-monitor.ts#observeRuntimeWorkspace.flush:c1a539f55429598872cb5ea1baea51e9",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-workspace-monitor.ts#observeRuntimeWorkspace.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-workspace-monitor.ts#observeRuntimeWorkspace.flush:717866d418a2896f08744fc69affa029",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-workspace-monitor.ts#observeRuntimeWorkspace.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-workspace-monitor.ts#observeRuntimeWorkspace:c1a539f55429598872cb5ea1baea51e9",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-workspace-monitor.ts#observeRuntimeWorkspace.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-workspace-monitor.ts#observeRuntimeWorkspace:c1a539f55429598872cb5ea1baea51e9:2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-workspace-monitor.ts#observeRuntimeWorkspace.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-workspace-watch-linux.ts#attempt.value:973c6c969683351bc4fdb5c8534d57f0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-workspace-watch-linux.ts#attempt.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-workspace-watch-linux.ts#watchLinuxWorkspace.forget:16f8a046d438e4980ec330e0769857f7",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-workspace-watch-linux.ts#watchLinuxWorkspace.forget:2d54ccf3bb9354bc580e111e27f0d4d4",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime.ts#startDaemon:170ecfce36bc9cd8c05ec5c64b204334",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime.ts#startDaemon.stop:d0d3b2a344a0c55e28a416c06a653f11",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/conn-log.ts#DaemonConnLog.settle"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime.ts#startDaemon.stop:7446df4c7a645beb05bffc785b844bd0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/request-log.ts#DaemonRequestLog.settle"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime.ts#startDaemon.stop:52e843ba898bdfe1c21d4941bada4855",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime.ts#startDaemon.recordLifecycle:56a1304ef27856cc683e2a9119757858",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime.ts#startDaemon.createProtocolServer.executionPrincipal:60477ceb6aa0daab6ef9b627b03596ac",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime.ts#startDaemon:d0d3b2a344a0c55e28a416c06a653f11",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/conn-log.ts#DaemonConnLog.settle"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime.ts#startDaemon:52e843ba898bdfe1c21d4941bada4855",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime/cloud-dispatch-relay.ts#AttemptLedger.refund:f642eeedae48553fd84afc5f15042605",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime/cloud-dispatch-relay.ts#AttemptLedger.keep:f642eeedae48553fd84afc5f15042605",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime/cloud-dispatch-relay.ts#AttemptLedger.abort:f642eeedae48553fd84afc5f15042605",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime/cloud-dispatch-relay.ts#AttemptLedger.settleUsage:f642eeedae48553fd84afc5f15042605",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime/cloud-dispatch-relay.ts#CloudDispatchRelay.release:774aafde68a82cb934b272a5909e1add",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime/cloud-dispatch-relay.ts#CloudDispatchRelay.limited:973c6c969683351bc4fdb5c8534d57f0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime/cloud-dispatch-relay.ts#CloudDispatchRelay.limited.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime/model-slot-queue.ts#ModelSlotQueue.release:2b142c38f532ff06d8cdb4f4529573c9",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime/model-slot-queue.ts#ModelSlotQueue.remove"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime/model-slot-queue.ts#ModelSlotQueue.release:dcfd98c9b45b480d13afe2eea62c1ecb",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime/model-slot-queue.ts#ModelSlotQueue.pump:8979cfa368ff066a3ed0f7eb62f1bda7",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime/model-slot-queue.ts#ModelSlotQueue.remove"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime/model-slot-queue.ts#ModelSlotQueue.projectedOrder:0dc099311b039e0a3b3be53a9aaea236",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime/model-slot-queue.ts#ModelSlotQueue.remove:fddeb0764a65938cdf24a2b14417a86d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime/model-slot-queue.ts#ModelSlotQueue.expire:8979cfa368ff066a3ed0f7eb62f1bda7",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime/model-slot-queue.ts#ModelSlotQueue.remove"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime/process-group-reconciler.ts#requestProcessGroupStop:9aabc761a9f259d62e2ee0a077c7a951",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/skill-eval-production.ts#openSkillEvalCatalogStore.persist:5a158ca0b32ce3cbeca639375229fc8c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.writeFile"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/skill-eval-production.ts#openSkillEvalCatalogStore.updateCatalog.operation:1310bf458aa68b1ea081777a4124fc32",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/skill-eval-production.ts#openSkillEvalCatalogStore.updateCatalog.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/skill-eval-production.ts#openSkillEvalCatalogStore.registerSkill:eee42e3fa99c3c06318a41b40f4d6a2b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/skill-eval-production.ts#openSkillEvalCatalogStore.appendCase:15b41fd33d8c8687d61aa8612457efa6",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/skill-eval-production.ts#defaultPolicy.scope:51ddcd860ec1c298a8d86459ddd4d968",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/skill-eval-production.ts#openSkillEvalProduction.service.run:ef67c1aa251e684237b509e8038bcca2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/skill-eval-runner.ts#SkillEvalRunner.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/skill-eval-runner.ts#SkillEvalRunner.runCase.observed:cbbd8951eb6f5d545ff8e23fc1367311",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/skill-eval-runner.ts#SkillEvalRuntimePort.dispatch"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/skill-eval-runner.ts#sha256:ed35f90e307750d3519268d2434125b0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/skill-eval-runner.ts#skillEvalRunnerError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/terminal-awaits-retirement.ts#retireAwaitsInitiatedBy.opId:cccf30449f9ce3be8cdbb6d07b19ac0d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/terminal-environment.ts#captureLoginShellEnvironment.output:d3b16c967caf5c6ffde61fb1957216c2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/process-text.ts#runProcessText"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/terminal-host.ts#openTerminalHost.input:494ec531b255440abc4b4ff8ce536480",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/node-pty/typings/node-pty.d.ts#node-pty.IPty.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/terminal-host.ts#openTerminalHost.control.operationId:3189a2bd37b074089868be3ad2415f4f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/terminal-host.ts#detachSubscriber:4802f2e2ab5c310d920a4d8a703b2e34",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/terminal-host.ts#terminalSessionId:43788833235138cd0775808d472a6caf",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/terminal-host.ts#terminalHostError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/terminal-tmux.ts#terminalTmuxNamespace.digest:30c68830816beb4c06d66f82ed2c16b4",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
       }
     ],
     "technical": true

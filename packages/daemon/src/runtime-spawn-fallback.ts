@@ -1,3 +1,4 @@
+import { INITIAL_SETTINGS_V1 } from "@harness-anything/kernel/internal/domain/settings.ts";
 import {
   archiveDispatchStream,
   readDispatchStream,
@@ -276,7 +277,10 @@ export async function settleFallbackAttempt(
     nextCandidateIndex = currentCandidateIndex + 1,
     retryRound = fallback.retryRound ?? 0,
     runtimeSettings = input.readSettings?.()?.runtime,
-    maxRetries = Math.max(0, Number(runtimeSettings?.providerMaxRetries ?? 3)),
+    maxRetries = Math.max(
+      0,
+      Number(runtimeSettings?.providerMaxRetries ?? INITIAL_SETTINGS_V1.runtime.providerMaxRetries),
+    ),
     observedAt = Date.parse(input.now()),
     selection =
       nextCandidateIndex >= fallback.candidates.length
@@ -301,8 +305,18 @@ export async function settleFallbackAttempt(
         `Candidates: ${fallbackAvailabilitySummary(fallback.candidates, input.runtimeProviderHealth)}`,
     );
   const next = fallback.candidates[exhausted ? 0 : selection!.index]!,
-    roundBaseMs = Math.max(0, Number(runtimeSettings?.providerRoundBackoffBaseSeconds ?? 5) * 1_000),
-    roundMaxMs = Math.max(roundBaseMs, Number(runtimeSettings?.providerRoundBackoffMaxSeconds ?? 60) * 1_000),
+    roundBaseMs = Math.max(
+      0,
+      Number(
+        runtimeSettings?.providerRoundBackoffBaseSeconds ?? INITIAL_SETTINGS_V1.runtime.providerRoundBackoffBaseSeconds,
+      ) * 1_000,
+    ),
+    roundMaxMs = Math.max(
+      roundBaseMs,
+      Number(
+        runtimeSettings?.providerRoundBackoffMaxSeconds ?? INITIAL_SETTINGS_V1.runtime.providerRoundBackoffMaxSeconds,
+      ) * 1_000,
+    ),
     delayMs = Math.min(roundMaxMs, roundBaseMs * 2 ** retryRound),
     resetAt =
       !exhausted && outcome.classification === "provider_quota" && outcome.resetAt
@@ -314,7 +328,10 @@ export async function settleFallbackAttempt(
       : exhausted || recoverAt !== null
         ? observedAt
         : null,
-    maxWaitMs = Math.max(0, Number(runtimeSettings?.providerMaxWaitSeconds ?? 300) * 1_000);
+    maxWaitMs = Math.max(
+      0,
+      Number(runtimeSettings?.providerMaxWaitSeconds ?? INITIAL_SETTINGS_V1.runtime.providerMaxWaitSeconds) * 1_000,
+    );
   if (waitStartedAt !== null && observedAt - waitStartedAt + Math.max(0, notBeforeMs - observedAt) > maxWaitMs)
     return exhaustedTerminal(
       `Provider fallback wait budget exhausted after ${String(Math.max(0, observedAt - waitStartedAt))}ms. ` +

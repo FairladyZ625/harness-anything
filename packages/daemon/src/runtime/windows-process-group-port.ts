@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { runProcessText } from "../process-text.ts";
 import { runProcessTextAsync } from "../process-port.ts";
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 
 // Use Windows' own job accounting, including descendants whose immediate parent has exited.
 // PowerShell's in-memory P/Invoke needs no addon, compiler toolchain or installed helper binary.
@@ -121,7 +122,7 @@ export async function establishWindowsProcessGroup(): Promise<string> {
     undefined,
     undefined,
     undefined,
-    { timeoutMs: 15_000 },
+    { timeoutMs: daemonRuntimePolicy.defaultValue.runtime.windowsProcessGroupTimeoutMs },
   );
   return name;
 }
@@ -145,7 +146,7 @@ export function observeWindowsProcessGroup(
     ),
     undefined,
     undefined,
-    15_000,
+    daemonRuntimePolicy.defaultValue.runtime.windowsProcessGroupTimeoutMs,
   );
   const value = JSON.parse(output) as WindowsGroupObservation;
   // External process output is decoded here; malformed/partial accounting cannot authorize release.

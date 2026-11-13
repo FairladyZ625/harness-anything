@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import * as pty from "node-pty";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import {
   writeTerminalAttach,
@@ -30,11 +31,8 @@ import {
 import { resolveContainedPath } from "./contained-path.ts";
 import { terminalEnvironment } from "./terminal-environment.ts";
 
-const scrollbackLimit = 1024 * 1024,
-  replayLimit = 256 * 1024,
-  subscriberLimit = 256 * 1024,
-  ptyExitDrainMs = 5_000,
-  activityPersistIntervalMs = 10_000;
+const { scrollbackLimit, replayLimit, subscriberLimit, ptyExitDrainMs, activityPersistIntervalMs } =
+  daemonRuntimePolicy.defaultValue.terminal;
 type Frame = JsonObject & {
   readonly schema: "terminal-attach-event/v1";
   readonly sessionId: string;
@@ -397,8 +395,8 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
   function spawnProcess(launch: SpawnLaunch): TerminalControlReceipt {
     const child = spawnPty(launch.command, typeof launch.args === "string" ? launch.args : [...launch.args], {
       name: "xterm-256color",
-      cols: 80,
-      rows: 24,
+      cols: daemonRuntimePolicy.defaultValue.terminal.defaultCols,
+      rows: daemonRuntimePolicy.defaultValue.terminal.defaultRows,
       cwd: launch.cwd,
       env: { ...launch.env, TERM: "xterm-256color" },
     });
@@ -485,8 +483,8 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
     }
     const child = spawnPty(tmuxProbe.executable, ["-u", "attach-session", "-t", session.tmuxNamespace], {
       name: "xterm-256color",
-      cols: 80,
-      rows: 24,
+      cols: daemonRuntimePolicy.defaultValue.terminal.defaultCols,
+      rows: daemonRuntimePolicy.defaultValue.terminal.defaultRows,
       cwd: session.spawnCwd,
       env: resolveTerminalEnvironment(platform, shell(session.shellProfile, platform)),
     });
@@ -730,7 +728,7 @@ function tmuxEnvironmentArgs(environment: Readonly<Record<string, string>>): str
   return Object.entries(environment).flatMap(([key, value]) => ["-e", `${key}=${value}`]);
 }
 function frameSize(frame: Frame): number {
-  return Buffer.byteLength(frame.utf8, "utf8") + 96;
+  return Buffer.byteLength(frame.utf8, "utf8") + daemonRuntimePolicy.defaultValue.terminal.frameOverheadBytes;
 }
 function terminalBackend(value: unknown): LocalTerminalBackend {
   if (value === "direct-pty" || value === "tmux") return value;
@@ -752,7 +750,11 @@ function positiveInteger(value: unknown, field: string): number {
 }
 function dimension(value: unknown, field: string): number {
   const result = positiveInteger(value, field);
-  if (result < 2 || result > 500) throw terminalHostError("invalid_terminal_request", `${field} must be 2..500.`);
+  if (
+    result < daemonRuntimePolicy.defaultValue.terminal.minimumDimension ||
+    result > daemonRuntimePolicy.defaultValue.terminal.maximumDimension
+  )
+    throw terminalHostError("invalid_terminal_request", `${field} must be 2..500.`);
   return result;
 }
 function terminalHostError(code: string, message: string): Error {

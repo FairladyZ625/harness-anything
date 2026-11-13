@@ -137,10 +137,11 @@ import {
   type TaskWorktreeCheckout,
 } from "./task-worktree.ts";
 import { assertTaskDispatchPrerequisites, taskDispatchLeaseQualifies } from "./task-dispatch-admission.ts";
-import { providerErrorLimit } from "./runtime-spawn-limits.ts";
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { admitTaskDispatch, runtimeDispatchIdentity } from "./task-dispatch-recovery.ts";
 import { runtimeSpawnReceipt } from "./runtime-spawn-receipt.ts";
 export const resultMediaType = "text/plain; charset=utf-8" as const;
+const { providerErrorLimit } = daemonRuntimePolicy.defaultValue.process;
 // Captured at module level: spawnAttempt's local `process` names the launched RuntimeProcess.
 const hostPlatform = process.platform;
 type RuntimeTaskClaimScope = { release?: () => Promise<void> };
@@ -170,7 +171,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     prepareDaemonGitEnvironment = (instanceId: string, provider: "github" | "gitlab" = "github") =>
       input.prepareDaemonGitEnvironment?.(instanceId, provider, input.repoId).then((value) => value ?? undefined) ??
       Promise.resolve(undefined);
-  const modelSlotQueue = input.modelSlotQueue ?? new ModelSlotQueue({ globalCapacity: 64, perOwnerCapacity: 64 });
+  const modelSlotQueue =
+    input.modelSlotQueue ??
+    new ModelSlotQueue({
+      globalCapacity: daemonRuntimePolicy.defaultValue.runtime.modelSlots.globalCapacity,
+      perOwnerCapacity: daemonRuntimePolicy.defaultValue.runtime.modelSlots.perOwnerCapacity,
+    });
   const ownsModelSlotQueue = input.modelSlotQueue === undefined;
   let fallbackClosed = false;
   const preflightRuntimeSelection = async (payload: JsonObject): Promise<void> => {

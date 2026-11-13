@@ -3,6 +3,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { readDispatchStream } from "./dispatch-stream.ts";
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { writeFileDurably } from "../../storage/src/durable-file.ts";
@@ -44,7 +45,7 @@ export async function prepareRuntimeHandoff(rootDir: string, dispatchId: string)
     (
       await git("git", args, {
         cwd,
-        timeout: 30_000,
+        timeout: daemonRuntimePolicy.defaultValue.runtime.handoffGitTimeoutMs,
         env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
       })
     ).stdout.trim();
