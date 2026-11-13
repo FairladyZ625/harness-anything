@@ -327,8 +327,8 @@ function decisionMaterializationState(
     states = new Map<string, { readonly ref: string; readonly state: string; readonly kind: "decision" | "task" }>();
   states.set(`decision/${row.decision_id}`, { ref: `decision/${row.decision_id}`, state: row.state, kind: "decision" });
   for (const ref of refs) {
-    const decision = /^decision\/([^/]+)(?:\/[^/]+)?$/u.exec(ref)?.[1],
-      task = /^task\/(.+)$/u.exec(ref)?.[1];
+    const decision = ref.match(/^decision\/([^/]+)(?:\/[^/]+)?$/u)?.[1],
+      task = ref.match(/^task\/(.+)$/u)?.[1];
     if (decision) {
       const value = queryRows<{ readonly state: string }>(
         db,

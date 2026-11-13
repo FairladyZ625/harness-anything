@@ -101,8 +101,12 @@ export function runDocMaterialize(input: Input): DocSettlementReceipt {
 function materializePaths(input: Input): readonly string[] | null | undefined {
   const action = input.action;
   if (typeof action.taskId === "string") {
-    if (!hasExactDocSyncActionFields(action, ["kind", "paths", "taskId"]))
-      throw docSyncError("invalid_command", "doc materialize --task cannot be combined with another selection");
+    const taskFields = Object.hasOwn(action, "paths") ? ["kind", "paths", "taskId"] : ["kind", "taskId"];
+    if (!hasExactDocSyncActionFields(action, taskFields))
+      throw docSyncError(
+        "invalid_command",
+        `doc materialize --task cannot be combined with another selection (fields: ${Object.keys(action).sort().join(", ")})`,
+      );
     const task = input.projection.read(action.taskId);
     if (!task.snapshot.task || task.packagePath === null)
       throw docSyncError("entity_not_found", `Task ${action.taskId} has no materialized package path`);

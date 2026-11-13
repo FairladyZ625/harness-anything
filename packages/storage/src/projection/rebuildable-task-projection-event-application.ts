@@ -100,6 +100,7 @@ import {
   projectMigration,
   projectProgress,
   projectRelationDocuments,
+  settleTerminalMaterializationForEvent,
 } from "./rebuildable-task-projection-write-model.ts";
 import {
   deleteEntityProjectionRow,
@@ -182,6 +183,7 @@ export function applyEvent(
   readBlob: EventStreamPort["readContentBlob"],
 ): void {
   applyEventProjection(db, event, eventJson, readBlob);
+  settleTerminalMaterializationForEvent(db, event);
   refreshDirtyRelationFreshness(db);
 }
 

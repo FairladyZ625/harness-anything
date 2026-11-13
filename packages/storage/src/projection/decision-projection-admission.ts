@@ -35,7 +35,7 @@ export function assertDecisionAdmission(db: DatabaseSync, event: DecisionEventV1
   );
 }
 
-function decisionMaterializationHeld(db: DatabaseSync, decisionId: string, state: string): boolean {
+export function decisionMaterializationHeld(db: DatabaseSync, decisionId: string, state: string): boolean {
   const ref = `decision/${decisionId}`,
     pattern = `${ref}/*`,
     source = queryRows<{
@@ -74,8 +74,8 @@ function decisionMaterializationHeld(db: DatabaseSync, decisionId: string, state
     endpointRefs = [
       ...new Set(relations.flatMap(({ source: from, target: to }) => [from, to]).map(materializationEntityRef)),
     ],
-    decisionIds = endpointRefs.flatMap((endpoint) => /^decision\/([^/]+)$/u.exec(endpoint)?.[1] ?? []),
-    taskIds = endpointRefs.flatMap((endpoint) => /^task\/(.+)$/u.exec(endpoint)?.[1] ?? []),
+    decisionIds = endpointRefs.flatMap((endpoint) => endpoint.match(/^decision\/([^/]+)$/u)?.[1] ?? []),
+    taskIds = endpointRefs.flatMap((endpoint) => endpoint.match(/^task\/(.+)$/u)?.[1] ?? []),
     states = new Map<string, MaterializationEntityState>([[ref, { ref, state, kind: "decision" }]]);
   if (decisionIds.length)
     for (const row of queryRows<{ readonly decision_id: string; readonly state: string }>(
@@ -89,7 +89,7 @@ function decisionMaterializationHeld(db: DatabaseSync, decisionId: string, state
   if (taskIds.length)
     for (const row of queryRows<{ readonly task_id: string; readonly status: string }>(
       db,
-      "SELECT task_id, status FROM task_snapshot WHERE task_id IN (SELECT value FROM json_each(?))",
+      "SELECT task_id, CASE WHEN json_extract(snapshot_json,'$.task.packageDisposition')='archived' THEN 'archived' ELSE status END AS status FROM task_snapshot WHERE task_id IN (SELECT value FROM json_each(?))",
       JSON.stringify(taskIds),
     )) {
       const endpoint = `task/${row.task_id}`;

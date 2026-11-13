@@ -266,6 +266,7 @@ export const documentClaimPolicy = {
     "policy:packages/kernel:packages/kernel/src/domain/vertical-declaration.ts#compileVerticalDeclarationEvent.claim:f62a5570b4f7e93c3e03b6b5ef4f6a21",
     "policy:packages/kernel:packages/kernel/src/domain/vertical-declaration.ts#validateVerticalDeclarationEventFields:d4dc862d5ef94e8a70fbccc06673d527",
     "policy:packages/kernel:packages/kernel/src/ports/canonical-document-claims.ts#canonicalDocumentMode:b3f67ec951607c83f05f8cbef2456012",
+    "policy:packages/kernel:packages/kernel/src/ports/canonical-document-claims.ts#canonicalDocumentRetirements:afd89875f98737624175aff62b12dbf2",
     "policy:packages/kernel:packages/kernel/src/ports/canonical-event-validation.ts#assertContentInputs:178cd98afee4576447e81ff686681ab8",
   ].map((candidateId) => ({ candidateId, route: "canonical document claim policyId" })),
 } as const satisfies OntologyPolicyDeclaration;

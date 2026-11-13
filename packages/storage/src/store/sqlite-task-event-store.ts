@@ -65,6 +65,14 @@ export interface SqliteCanonicalEventStore extends CanonicalEventStore {
   readonly pruneReplicationLog: (beforeSequence: number) => void;
 }
 
+export interface MaterializationDocumentDescriptor {
+  readonly path: string;
+  readonly blobSha256: string;
+  readonly size: number;
+  readonly mediaType: string;
+  readonly policyId: string | null;
+}
+
 export interface SqliteTaskEventStoreOptions {
   readonly storage?: SqliteStorageBackendConfig;
   readonly repoId: string;
@@ -81,6 +89,10 @@ export interface SqliteTaskEventStoreOptions {
     point: import("@harness-anything/kernel/internal/ports/task-event-store.ts").EventPublicationKillpoint,
   ) => void;
   readonly onOpenProgress?: (progress: { readonly applied: number; readonly total: number }) => void;
+  /** Current active projection documents; null means the projection has not reached the accepted cut yet. */
+  readonly readMaterializationDocuments?: (
+    includePolicySkippedPaths?: readonly string[],
+  ) => readonly MaterializationDocumentDescriptor[] | null;
 }
 
 export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): SqliteCanonicalEventStore {
@@ -269,8 +281,8 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
    * runs that same whole-closure read and reports the plan without writing anything.
    */
   const publishFollower = (restoreMissing = false, preview = false): MaterializationReceipt => {
-    const accepted = cut(),
-      currentLedger = ledger(),
+    const accepted = cut();
+    const currentLedger = ledger(),
       currentRef = authoredRef(),
       parent = localGitObjectRefStore.resolveCommit(currentLedger.rootDir, currentRef);
     if (accepted.revision === 0) {
@@ -354,7 +366,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       files,
       baseline,
       commit,
-      followerDirectories(currentLedger, closure.events),
+      followerDirectories(currentLedger, closure.events, files),
       restoreMissing,
     );
     const skipped = new Set(settled.conflicts);
@@ -425,6 +437,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     authoredRef,
     sqlite,
     readContent,
+    readMaterializationDocuments: options.readMaterializationDocuments,
     acceptedWorktree,
     worktreeConflicts,
     layout: () => resolveHarnessLayout(input),

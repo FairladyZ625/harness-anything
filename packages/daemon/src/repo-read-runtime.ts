@@ -197,6 +197,7 @@ export function makeRepoReadRuntime(
       actionContext = createRepoCellActionContext({
         input: {
           repoId: input.repoId,
+          nodeTaskMaterializationPolicy: input.storage?.nodeTaskMaterializationPolicy,
           ...(input.runtimeInstances ? { runtimeInstances: input.runtimeInstances } : {}),
         },
         rootDir: input.rootDir,
@@ -230,6 +231,7 @@ export function makeRepoReadRuntime(
         now,
         sessionIdentity: unsupportedWrite,
         readSettings: () => settings.readRepository(),
+        nodeTaskMaterializationPolicy: input.storage?.nodeTaskMaterializationPolicy,
       }),
       operationalContext = Object.defineProperty(runtimeContext, "settings", {
         value: settings,

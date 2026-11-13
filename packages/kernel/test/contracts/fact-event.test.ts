@@ -24,7 +24,7 @@ import {
 import { DecisionEventSchema } from "../../src/schemas/decision-event.ts";
 import { validateCurrentDecisionEvent, validateDecisionEvent } from "../../src/domain/decision-event.ts";
 import { validateCurrentFactEvent, validateFactEvent } from "../../src/domain/fact-event.ts";
-import { assertFactAdmissionAtCut, FactProjectionError } from "../../src/domain/fact-admission.ts";
+import { assertFactAdmissionAtCut } from "../../src/domain/fact-admission.ts";
 import { assertDecisionAdmissionAtCut } from "../../src/domain/decision-admission.ts";
 import {
   activeMaterializationHolds,
@@ -513,7 +513,7 @@ test("cancelled Tasks remain materialized while an active Task depends on them",
   assert.equal(materializationState({ ...target, state: "done" }, [], states), "materialized");
 });
 
-test("active canonical holds refuse terminal Fact and Decision admissions", () => {
+test("active canonical holds defer terminal document retirement without blocking admissions", () => {
   const fact = compileFactWrite({ event: draft }).event,
     archive = {
       ...fact,
@@ -534,25 +534,19 @@ test("active canonical holds refuse terminal Fact and Decision admissions", () =
       relations: [],
       materializationHeld: true,
     };
-  assert.throws(
-    () => assertFactAdmissionAtCut(factState, archive),
-    (error) => error instanceof FactProjectionError && error.code === "relation_invalid",
-  );
-  assert.doesNotThrow(() => assertFactAdmissionAtCut({ ...factState, materializationHeld: false }, archive));
+  assert.doesNotThrow(() => assertFactAdmissionAtCut(factState, archive));
 
   const terminalDecision = { ...decision.event, type: "decision_retired" } as DecisionEventV1;
-  assert.throws(
-    () =>
-      assertDecisionAdmissionAtCut(
-        {
-          document: { state: "in_effect" } as DecisionDocumentState,
-          hasSupersedes: false,
-          relations: [],
-          materializationHeld: true,
-        },
-        terminalDecision,
-      ),
-    (error) => error instanceof FactProjectionError && error.code === "relation_invalid",
+  assert.doesNotThrow(() =>
+    assertDecisionAdmissionAtCut(
+      {
+        document: { state: "in_effect" } as DecisionDocumentState,
+        hasSupersedes: false,
+        relations: [],
+        materializationHeld: true,
+      },
+      terminalDecision,
+    ),
   );
 });
 

@@ -680,7 +680,10 @@ export async function openRepoWriterCell(
     reread: async (payload) => (await getCatalog()).reread(payload),
   };
   const extracted = createRepoCellActionContext({
-    input,
+    input: {
+      ...input,
+      nodeTaskMaterializationPolicy: input.storage?.nodeTaskMaterializationPolicy,
+    },
     rootDir,
     now,
     publicPublication,

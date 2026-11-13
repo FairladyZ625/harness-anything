@@ -71,7 +71,11 @@ export function readFactAdmissionState(db: DatabaseSync, event: FactEventV1) {
   };
 }
 
-function factMaterializationHeld(db: DatabaseSync, factRef: string, state: "archived" | "superseded_fact"): boolean {
+export function factMaterializationHeld(
+  db: DatabaseSync,
+  factRef: string,
+  state: "archived" | "superseded_fact",
+): boolean {
   const relations = queryRows<{
     readonly source_ref: string;
     readonly target_ref: string;
@@ -91,8 +95,8 @@ function factMaterializationHeld(db: DatabaseSync, factRef: string, state: "arch
     }),
   );
   const sourceRefs = [...new Set(relations.map(({ source }) => materializationEntityRef(source)))],
-    decisionIds = sourceRefs.flatMap((source) => /^decision\/([^/]+)$/u.exec(source)?.[1] ?? []),
-    taskIds = sourceRefs.flatMap((source) => /^task\/(.+)$/u.exec(source)?.[1] ?? []),
+    decisionIds = sourceRefs.flatMap((source) => source.match(/^decision\/([^/]+)$/u)?.[1] ?? []),
+    taskIds = sourceRefs.flatMap((source) => source.match(/^task\/(.+)$/u)?.[1] ?? []),
     states = new Map<string, MaterializationEntityState>([[factRef, { ref: factRef, state, kind: "fact" }]]);
   if (decisionIds.length)
     for (const row of queryRows<{ readonly decision_id: string; readonly state: string }>(
@@ -106,7 +110,7 @@ function factMaterializationHeld(db: DatabaseSync, factRef: string, state: "arch
   if (taskIds.length)
     for (const row of queryRows<{ readonly task_id: string; readonly status: string }>(
       db,
-      "SELECT task_id, status FROM task_snapshot WHERE task_id IN (SELECT value FROM json_each(?))",
+      "SELECT task_id, CASE WHEN json_extract(snapshot_json,'$.task.packageDisposition')='archived' THEN 'archived' ELSE status END AS status FROM task_snapshot WHERE task_id IN (SELECT value FROM json_each(?))",
       JSON.stringify(taskIds),
     )) {
       const ref = `task/${row.task_id}`;
@@ -268,8 +272,8 @@ function decodeFactRows(db: DatabaseSync, records: readonly FactRecord[]): reado
       >();
     states.set(row.ref, { ref: row.ref, state, kind: "fact" });
     for (const ref of new Set(endpointRefs)) {
-      const decision = /^decision\/([^/]+)(?:\/[^/]+)?$/u.exec(ref)?.[1],
-        task = /^task\/(.+)$/u.exec(ref)?.[1];
+      const decision = ref.match(/^decision\/([^/]+)(?:\/[^/]+)?$/u)?.[1],
+        task = ref.match(/^task\/(.+)$/u)?.[1];
       if (decision) {
         const value = queryRows<{ readonly state: string }>(
           db,

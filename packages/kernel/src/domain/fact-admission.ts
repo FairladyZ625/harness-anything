@@ -37,8 +37,6 @@ export function assertFactAdmissionAtCut(
       fail("invalid_transition", `Fact ${ownRef} is already archived.`);
     if (event.type === "fact_unarchived" && row.archived !== true)
       fail("invalid_transition", `Fact ${ownRef} is not archived.`);
-    if (event.type === "fact_archived" && state.materializationHeld)
-      fail("relation_invalid", `Fact ${ownRef} is held by an active Decision or in-flight Task relation.`);
     return;
   }
   if (event.type === "fact_recorded" && row) fail("invalid_transition", `Fact ${ownRef} already exists.`);
@@ -73,8 +71,6 @@ export function assertFactAdmissionAtCut(
     }
   const supersedes = event.payload.supersedes,
     target = state.supersededTarget;
-  if (event.type === "fact_recorded" && supersedes && target && state.materializationHeld)
-    fail("relation_invalid", `Fact ${supersedes.factRef} is held by an active Decision or in-flight Task relation.`);
   if (supersedes && target && factLiveness(target, state.relations) === "superseded_fact")
     fail("relation_invalid", `Superseded endpoint ${supersedes.factRef} is already superseded.`);
 }

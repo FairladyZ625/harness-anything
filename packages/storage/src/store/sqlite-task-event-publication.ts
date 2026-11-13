@@ -15,7 +15,7 @@ import {
   canonicalOwnedDirectories,
 } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 import { canonicalLedgerCut } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
-import { resolveLedgerGitLayout, ledgerGitPath } from "./ledger-git-layout.ts";
+import { resolveLedgerGitLayout, ledgerAuthoredPath, ledgerGitPath } from "./ledger-git-layout.ts";
 import { localGitObjectRefStore, localGitWorktreeSettlement } from "./local-version-control-system.ts";
 import { openSqliteEventStore } from "./sqlite-event-store.ts";
 import type { SqliteEventStore } from "./sqlite-event-store.ts";
@@ -200,6 +200,7 @@ export interface FollowerDirectorySettlement {
 export function followerDirectories(
   ledger: ReturnType<typeof resolveLedgerGitLayout>,
   events: readonly CanonicalEventV1[],
+  files: readonly (PublicationWrite | PublicationDelete)[] = [],
 ): FollowerDirectorySettlement {
   const declaredByOwner = new Map<string, readonly string[]>(),
     retiredByOwner = new Map<string, readonly string[]>();
@@ -209,6 +210,15 @@ export function followerDirectories(
     declaredByOwner.set(owned.ownerRef, owned.directories);
     retiredByOwner.set(owned.ownerRef, owned.retirements);
   }
+  const retiredFromDocumentSet = files.flatMap((file) => {
+    if (!("delete" in file)) return [];
+    const logical = ledgerAuthoredPath(ledger, file.delete),
+      parts = logical.split("/"),
+      taskRoot = parts[0] === "tasks" && parts.length > 2 ? parts.slice(0, 2) : null,
+      decisionRoot = parts[0] === "decisions" && parts.length > 2 ? parts.slice(0, 2) : null,
+      root = taskRoot ?? decisionRoot;
+    return root === null ? [] : root.map((_, index) => root.slice(0, index + 1).join("/"));
+  });
   const create = [...new Set([...declaredByOwner.values()].flat())]
       .map((logical) => ledgerGitPath(ledger, logical))
       .sort(),
@@ -216,7 +226,7 @@ export function followerDirectories(
   return {
     create,
     // Reverse path order is depth order: `a/b/c` sorts after `a/b`, which sorts after `a`.
-    retire: [...new Set([...retiredByOwner.values()].flat())]
+    retire: [...new Set([...retiredByOwner.values()].flat().concat(retiredFromDocumentSet))]
       .map((logical) => ledgerGitPath(ledger, logical))
       .filter((directory) => !held.has(directory))
       .sort()

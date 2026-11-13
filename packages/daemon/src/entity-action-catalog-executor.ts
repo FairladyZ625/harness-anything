@@ -34,6 +34,7 @@ import {
 } from "@harness-anything/kernel";
 import { docByteLength, type DocumentState } from "@harness-anything/kernel/internal/domain/doc-sync.contract";
 import { relationStrengthForType } from "@harness-anything/kernel/internal/domain/entity-relation";
+import type { NodeTaskMaterializationPolicy } from "@harness-anything/kernel/internal/domain/task-wip-policy.ts";
 import { prepareDecisionAmend, validateDecisionPackages } from "./decision-surface-actions.ts";
 import {
   decisionFilters,
@@ -112,6 +113,7 @@ export function makeEntityActionCatalogExecutor(input: {
   readonly sessionIdentity: (binding: RepoCellBinding) => SessionIdentity;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
   readonly readSettings: () => RepositorySettingsV1;
+  readonly nodeTaskMaterializationPolicy?: NodeTaskMaterializationPolicy;
 }) {
   const decisions = makeDecisionService({ eventStore: input.store, projection: input.projection }),
     facts = makeFactService({ eventStore: input.store, projection: input.projection });
@@ -125,8 +127,13 @@ export function makeEntityActionCatalogExecutor(input: {
     const contract = executableAction(action.kind);
     if (contract.execution.read) {
       if (action.kind === "fact-type-list") return readReceipt("fact-type-list", facts.listDomainTypes());
-      if (action.kind === "fact-show")
-        return readReceipt("fact-show", facts.show(requiredCommandText(action.factId, "factId")));
+      if (action.kind === "fact-show") {
+        const read = facts.show(requiredCommandText(action.factId, "factId"));
+        return readReceipt("fact-show", {
+          ...read,
+          fact: withNodeMaterializationState(read.fact, input.nodeTaskMaterializationPolicy),
+        });
+      }
       if (action.kind === "decision-list") {
         const read = decisions.list(decisionFilters(action));
         return readReceipt("decision-list", { ...read, decisions: read.decisions.map(decisionSummary) });
@@ -136,7 +143,7 @@ export function makeEntityActionCatalogExecutor(input: {
         return readReceipt("decision-show", {
           ...read,
           decision: {
-            ...read.decision,
+            ...withNodeMaterializationState(read.decision, input.nodeTaskMaterializationPolicy),
             ...decisionReviewState(read.decision, input.readSettings().decisionReviewRequirement),
             body: action.includeBody === true ? read.decision.body : null,
           },
@@ -626,6 +633,14 @@ export function makeEntityActionCatalogExecutor(input: {
   };
 
   return Object.freeze({ run });
+}
+
+function withNodeMaterializationState<T extends { readonly materializationState?: string }>(
+  row: T,
+  policy: NodeTaskMaterializationPolicy | undefined,
+): T {
+  if (policy !== "none" || row.materializationState === "dematerialized_terminal") return row;
+  return { ...row, materializationState: "skipped_by_node_policy" } as T;
 }
 
 export function deriveActionResult(

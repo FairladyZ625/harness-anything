@@ -257,6 +257,16 @@ export const nodeTaskMaterializationPolicy = {
         "policy:packages/kernel:packages/kernel/src/domain/task-wip-policy.ts#nodeTaskMaterializationPolicy.defaultValue:dec_D0460C1DBD540A8641B4E78F7F",
       route: "nodeTaskMaterializationPolicy",
     },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/repo-cell.ts#initializeRepoCell.readMaterializationDocuments.dependencies:a2367e27a5ccb47b2ce11d79cff5b495",
+      route: "nodeTaskMaterializationPolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/task-wip-policy.ts#taskIncludedByNodeMaterializationPolicy:673356004ac1c02b75205dd3c6783a0c",
+      route: "nodeTaskMaterializationPolicy",
+    },
   ],
 } as const satisfies OntologyPolicyDeclaration;
 

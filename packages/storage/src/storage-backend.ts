@@ -1,9 +1,11 @@
 import type { StorageScope } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
+import type { NodeTaskMaterializationPolicy } from "@harness-anything/kernel/internal/domain/task-wip-policy.ts";
 export type { StorageScope } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
 
 export interface SqliteStorageBackendConfig {
   readonly backend?: "sqlite";
   readonly scope?: StorageScope;
+  readonly nodeTaskMaterializationPolicy?: NodeTaskMaterializationPolicy;
 }
 
 export interface PostgresStorageBackendConfig {
@@ -16,6 +18,7 @@ export interface PostgresStorageBackendConfig {
   readonly gitFollower?: { readonly branch: string };
   /** Centers without agents may leave their authored tree unmaterialized. */
   readonly materialize?: boolean;
+  readonly nodeTaskMaterializationPolicy?: NodeTaskMaterializationPolicy;
 }
 
 export interface PGliteStorageBackendConfig {
@@ -25,6 +28,7 @@ export interface PGliteStorageBackendConfig {
   readonly scope?: StorageScope;
   readonly gitFollower?: { readonly branch: string };
   readonly materialize?: boolean;
+  readonly nodeTaskMaterializationPolicy?: NodeTaskMaterializationPolicy;
 }
 
 export type StorageBackendConfig =

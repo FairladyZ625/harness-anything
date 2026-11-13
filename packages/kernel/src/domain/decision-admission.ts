@@ -33,11 +33,6 @@ export function assertDecisionAdmissionAtCut(state: DecisionAdmissionState, even
   const supersedingProposedDecision = event.type === "decision_superseded" && row.state === "proposed";
   if (transition && row.state !== transition.sourceState && !supersedingProposedDecision)
     fail("invalid_transition", `${event.type} requires ${transition.sourceState} state.`);
-  if (
-    ["decision_rejected", "decision_superseded", "decision_retired"].includes(event.type) &&
-    state.materializationHeld
-  )
-    fail("relation_invalid", `Decision ${event.decisionId} is held by an active canonical relation.`);
   if (supersedingProposedDecision && !state.hasSupersedes)
     fail(
       "invalid_transition",

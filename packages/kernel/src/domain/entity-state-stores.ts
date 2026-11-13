@@ -190,6 +190,7 @@ const taskProjectionTables = Object.freeze(
     "projection_meta",
     "event_source",
     "document",
+    "document_history",
     "preset_snapshot",
     "task_generation",
     "task_progress",

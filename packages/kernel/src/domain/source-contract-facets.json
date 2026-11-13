@@ -183,7 +183,7 @@
         "explain": "SQLite event-cut adapter reads the preceding document and relation witnesses and delegates the entire admission verdict to kernel assertDecisionAdmissionAtCut; no present-day Decision acceptance is applied to historical decoding.",
         "sources": [
           {
-            "candidateId": "judgment:packages/storage:packages/storage/src/projection/decision-projection-admission.ts#assertDecisionAdmission:4ac1167544ae1ee34b23b543ab316452",
+            "candidateId": "judgment:packages/storage:packages/storage/src/projection/decision-projection-admission.ts#assertDecisionAdmission:5f914b5b7b98257495b8c62c5f638e67",
             "route": "packages/storage/src/projection/decision-projection-admission.ts#assertDecisionAdmission"
           }
         ]
@@ -238,7 +238,7 @@
         "explain": "Wire-response validator for `repo.decisions.list` summary and full `decision-row/v1` envelopes, amendments and content pins; Decision lifecycle and review readiness stay kernel-owned.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-projections.ts#validateDaemonDecisionList:9ae6ed1f3fdcba40919b9e4ca0f09b7f",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-projections.ts#validateDaemonDecisionList:cdf4610fd27d3cc7d30767a56c492a2f",
             "route": "packages/daemon/src/protocol/daemon-protocol-validate-projections.ts#validateDaemonDecisionList"
           }
         ]

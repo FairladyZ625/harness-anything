@@ -38,6 +38,15 @@ export interface MaterializeStoreContext {
   readonly authoredRef: () => string;
   readonly sqlite: ReturnType<typeof openSqliteEventStore>;
   readonly readContent: (sha256: string) => Uint8Array | null;
+  readonly readMaterializationDocuments?: (includePolicySkippedPaths?: readonly string[]) =>
+    | readonly {
+        readonly path: string;
+        readonly blobSha256: string;
+        readonly size: number;
+        readonly mediaType: string;
+        readonly policyId: string | null;
+      }[]
+    | null;
   readonly acceptedWorktree: Map<string, { readonly fingerprint: string; readonly preserve: boolean }>;
   readonly worktreeConflicts: Map<string, string>;
   readonly layout: () => HarnessLayout;
@@ -129,7 +138,54 @@ export function closureFiles(
   context: MaterializeStoreContext,
   accepted: LedgerCutIdentity,
   from: number,
+  includePolicySkippedPaths: readonly string[] = [],
 ): { readonly events: readonly CanonicalEventV1[]; readonly files: readonly (PublicationWrite | PublicationDelete)[] } {
+  const projectionDocuments = context.readMaterializationDocuments?.(includePolicySkippedPaths);
+  if (context.readMaterializationDocuments && projectionDocuments === null)
+    throw new TaskEventStoreError(
+      "publication_indeterminate",
+      "materialization projection has not reached the accepted cut",
+    );
+  if (projectionDocuments !== undefined && projectionDocuments !== null) {
+    const events = from === 0 ? [] : readPendingEvents(context.sqlite, from),
+      indexed = new Map(
+        projectionDocuments.map((document) => [
+          document.path,
+          { sha256: document.blobSha256, size: document.size, nodeKind: "file" as const },
+        ]),
+      ),
+      currentHeads = context.sqlite.documentHeads(),
+      parent = localGitObjectRefStore.resolveCommit(context.ledger().rootDir, context.authoredRef()),
+      canonicalPaths = new Set(currentHeads.map(({ path }) => path)),
+      previouslyMaterializedManagedPaths = localGitObjectRefStore
+        .listTree(
+          context.ledger().rootDir,
+          parent,
+          [...canonicalPaths].map((path) => ledgerGitPath(context.ledger(), path)),
+        )
+        .map(({ target }) => ledgerAuthoredPath(context.ledger(), target))
+        .filter((path) => canonicalPaths.has(path) && projectionManagedPath(path)),
+      staleManagedHeads = previouslyMaterializedManagedPaths
+        .filter((path) => !indexed.has(path))
+        .map((path) => ({ path, sha256: null, size: null, nodeKind: null })),
+      // Facts, Decisions, and Task packages are projected with active-hold and node-policy
+      // semantics. Other authored documents keep the event-store's existing head index.
+      heads = [
+        ...currentHeads.filter(({ path }) => !projectionManagedPath(path)),
+        ...[...indexed].map(([path, value]) => ({ path, ...value })),
+        ...staleManagedHeads,
+      ];
+    return {
+      events,
+      files: followerFilesFromDocumentHeads(
+        context.ledger(),
+        heads,
+        context.readContent,
+        accepted,
+        context.sqlite.metadata().generation,
+      ),
+    };
+  }
   if (from === 0) {
     return {
       events: [],
@@ -149,6 +205,15 @@ export function closureFiles(
   };
 }
 
+export function projectionManagedPath(path: string): boolean {
+  return (
+    path.startsWith("facts/") ||
+    path.startsWith("decisions/decision-") ||
+    path.startsWith("tasks/") ||
+    /\.(?:md|mdx|markdown)$/u.test(path)
+  );
+}
+
 /**
  * Restores the named documents to their canonical bytes, keeping the operator's current bytes beside them as a
  * conflict copy: the path-by-path selection an operator confirmed explicitly. Retired paths are refused — the
@@ -166,7 +231,7 @@ export function restoreRequestedDocuments(
   // The named selection still reads the whole closure — the same start the whole-cut pass settles from —
   // because any document in the cut may be named.
   const canonical = new Map(
-      closureFiles(context, accepted, 0).files.flatMap((file) =>
+      closureFiles(context, accepted, 0, logicals).files.flatMap((file) =>
         "target" in file ? [[ledgerAuthoredPath(currentLedger, file.target), file] as const] : [],
       ),
     ),

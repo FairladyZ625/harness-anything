@@ -4,7 +4,11 @@ import { DECISION_DOCUMENT_POLICY_ID } from "@harness-anything/kernel/internal/d
 import { DatabaseSync } from "node:sqlite";
 import { emptyTaskLifecycleSnapshot } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
 import { currentTaskForWrite } from "@harness-anything/kernel/internal/domain/task.ts";
-import { docByteLength, type DocumentState } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
+import {
+  docByteLength,
+  type DocumentState,
+  type PersistedCanonicalEventV1,
+} from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import { requireEntityKindContract } from "@harness-anything/kernel/internal/domain/entity-kind-registry.ts";
 import { type TaskProgressEventV1 } from "@harness-anything/kernel/internal/domain/task-progress-event.ts";
 import { type DecisionEventV1 } from "@harness-anything/kernel/internal/domain/decision-event.ts";
@@ -22,7 +26,12 @@ import {
   reduceDecisionEvent,
   refreshDecisionDocumentSearch,
 } from "./decision-event-projection.ts";
-import { reduceFactEvent } from "./fact-event-projection.ts";
+import { factMaterializationHeld, readFactRow, reduceFactEvent } from "./fact-event-projection.ts";
+import { decisionMaterializationHeld } from "./decision-projection-admission.ts";
+import {
+  materializationEntityRef,
+  terminalDecisionMaterializationStates,
+} from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 import { refreshTaskRelationProjection } from "./task-query-projection.ts";
 import type { EventStreamPort } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
 import { canonicalJson, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
@@ -161,7 +170,8 @@ export function projectFact(
       event.taskId ?? null,
       eventJson,
     );
-    archiveDocument(db, retirement.path, event.workspaceRevision);
+    if (!factMaterializationHeld(db, `fact/${event.factId}`, "archived"))
+      archiveDocument(db, retirement.path, event.workspaceRevision);
     return;
   }
   const claim = event.payload.factsDocumentClaim;
@@ -203,7 +213,10 @@ export function projectFact(
     policyId: supersededClaim.policyId,
     workspaceRevision: event.workspaceRevision,
   };
-  storeHistoricalDocument(db, supersededDocument);
+  const supersededFactId = supersededClaim.path.match(/^facts\/(F-[0-9A-HJKMNP-TV-Z]{8})\.md$/u)?.[1];
+  if (supersededFactId && factMaterializationHeld(db, `fact/${supersededFactId}`, "superseded_fact"))
+    upsertActiveDocument(db, supersededClaim.path, event.workspaceRevision, supersededDocument);
+  else storeHistoricalDocument(db, supersededDocument);
 }
 
 export function projectDecision(
@@ -242,8 +255,9 @@ export function projectDecision(
     event.workspaceRevision,
     eventJson,
   );
-  const terminal = !canonicalDocumentClaims(event).some(({ path }) => path === claim.path);
-  if (terminal) {
+  const terminal = !canonicalDocumentClaims(event).some(({ path }) => path === claim.path),
+    held = terminal && decisionMaterializationHeld(db, event.decisionId, state.state);
+  if (terminal && !held) {
     storeHistoricalDocument(db, document);
   } else {
     upsertActiveDocument(db, claim.path, event.workspaceRevision, document);
@@ -267,12 +281,121 @@ export function projectDecision(
         workspaceRevision: event.workspaceRevision,
       };
       const carriedTerminal = !canonicalDocumentClaims(event).some(({ path }) => path === change.path);
-      if (carriedTerminal) storeHistoricalDocument(db, carriedDocument);
+      if (carriedTerminal && !held) storeHistoricalDocument(db, carriedDocument);
       else {
         upsertActiveDocument(db, change.path, event.workspaceRevision, carriedDocument);
         refreshDecisionDocumentSearch(db, carriedDocument);
       }
     }
+  if (terminal && !held) archiveDecisionCarriedDocuments(db, event.decisionId, event.workspaceRevision);
+}
+
+/** Release terminal documents whose last active canonical hold changed in this projection transaction. */
+export function settleTerminalMaterializationForEvent(db: DatabaseSync, event: PersistedCanonicalEventV1): void {
+  const changedRefs = materializationReleaseRefs(db, event);
+  if (changedRefs.length === 0) return;
+  const candidates = new Set<string>();
+  for (const ref of changedRefs) {
+    const normalized = ref.startsWith("decision/") ? `decision/${ref.split("/")[1]}` : ref;
+    candidates.add(normalized);
+    for (const edge of incidentMaterializationRelations(db, normalized)) {
+      candidates.add(materializationEntityRef(edge.source));
+      candidates.add(materializationEntityRef(edge.target));
+    }
+  }
+  for (const ref of candidates) {
+    const decision = ref.match(/^decision\/([^/]+)$/u)?.[1],
+      fact = ref.match(/^fact\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u)?.[1];
+    if (fact) {
+      const row = readFactRow(db, fact),
+        terminalState = row?.archived ? "archived" : row?.state === "superseded_fact" ? "superseded_fact" : null;
+      if (terminalState && !factMaterializationHeld(db, ref, terminalState))
+        archiveDocument(db, `facts/${fact}.md`, event.workspaceRevision);
+    } else if (decision) {
+      const state = readDecisionDocumentState(db, decision);
+      if (
+        state &&
+        (terminalDecisionMaterializationStates as readonly string[]).includes(state.state) &&
+        !decisionMaterializationHeld(db, decision, state.state)
+      ) {
+        archiveDocument(db, `decisions/decision-${decision}/decision.md`, event.workspaceRevision);
+        archiveDecisionCarriedDocuments(db, decision, event.workspaceRevision);
+      }
+    }
+  }
+}
+
+function archiveDecisionCarriedDocuments(db: DatabaseSync, decisionId: string, revision: number): void {
+  const prefix = `decisions/decision-${decisionId}/`;
+  for (const row of queryRows<{ readonly path: string }>(
+    db,
+    "SELECT path FROM document WHERE path GLOB ?",
+    `${prefix}*`,
+  ))
+    archiveDocument(db, row.path, revision);
+}
+
+function materializationReleaseRefs(db: DatabaseSync, event: PersistedCanonicalEventV1): readonly string[] {
+  if (event.schema === "relation-event/v1") {
+    const ids = [event.relationId, ...(event.type === "relation_replaced" ? [event.payload.previousRelationId] : [])],
+      refs = queryRows<{ readonly source_ref: string; readonly target_ref: string }>(
+        db,
+        "SELECT source_ref,target_ref FROM relation_edge WHERE relation_id IN (SELECT value FROM json_each(?))",
+        JSON.stringify(ids),
+      );
+    return [...new Set(refs.flatMap(({ source_ref: source, target_ref: target }) => [source, target]))];
+  }
+  if (
+    event.schema === "decision-event/v1" &&
+    (event.type === "decision_relation_retired" || event.type === "decision_relation_replaced")
+  ) {
+    const ids = [
+        event.payload.relationId,
+        ...(event.type === "decision_relation_replaced" ? [event.payload.replacement.relation_id] : []),
+      ],
+      refs = queryRows<{ readonly source_ref: string; readonly target_ref: string }>(
+        db,
+        "SELECT source_ref,target_ref FROM relation_edge WHERE relation_id IN (SELECT value FROM json_each(?))",
+        JSON.stringify(ids),
+      );
+    return [...new Set(refs.flatMap(({ source_ref: source, target_ref: target }) => [source, target]))];
+  }
+  if (
+    event.schema === "decision-event/v1" &&
+    (
+      ["decision_rejected", "decision_superseded", "decision_retired", "decision_deferred"] as readonly string[]
+    ).includes(event.type)
+  )
+    return [`decision/${event.decisionId}`];
+  if (event.schema === "task-event/v1") {
+    const row = queryRows<{ readonly status: string | null; readonly disposition: string | null }>(
+      db,
+      "SELECT status,json_extract(snapshot_json,'$.task.packageDisposition') AS disposition FROM task_snapshot WHERE task_id=?",
+      event.taskId,
+    )[0];
+    return row && (["done", "cancelled"].includes(row.status ?? "") || row.disposition === "archived")
+      ? [`task/${event.taskId}`]
+      : [];
+  }
+  return [];
+}
+
+function incidentMaterializationRelations(
+  db: DatabaseSync,
+  ref: string,
+): readonly { readonly source: string; readonly target: string }[] {
+  const decision = ref.match(/^decision\/([^/]+)$/u)?.[1],
+    exact = decision ? `decision/${decision}` : ref,
+    prefix = decision ? `${exact}/*` : `${exact}/__no_clause__`;
+  return queryRows<{ readonly source_ref: string; readonly target_ref: string }>(
+    db,
+    "SELECT source_ref,target_ref FROM relation_edge WHERE source_ref=? OR source_ref GLOB ? " +
+      "OR target_ref=? OR target_ref GLOB ?",
+    exact,
+    prefix,
+    exact,
+    prefix,
+  ).map(({ source_ref: source, target_ref: target }) => ({ source, target }));
 }
 
 export function projectEntityDocumentRematerialization(

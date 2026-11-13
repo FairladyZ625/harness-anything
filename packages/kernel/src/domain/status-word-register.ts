@@ -1024,6 +1024,29 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
   // ---- AuthoredDocument candidate state and replica syncState (status-word-register-authored-document.ts) ----
   ...authoredDocumentStatusWordRegister,
 
+  // Canonical object-store materialization and terminal retention states.
+  ...(["materialized", "dematerialized_terminal", "skipped_by_node_policy"] as const).map((word) => ({
+    word,
+    entity: "AuthoredDocument" as const,
+    field: "materialization state",
+    meaning: "Canonical document presence in the node working tree.",
+    divergence: "entity-scoped" as const,
+  })),
+  ...(["archived", "superseded_fact"] as const).map((word) => ({
+    word,
+    entity: "FactRecord" as const,
+    field: "terminal materialization state",
+    meaning: "Fact terminal state eligible for de-materialization after canonical holds clear.",
+    divergence: "entity-scoped" as const,
+  })),
+  ...(["outcome_retired", "superseded", "rejected"] as const).map((word) => ({
+    word,
+    entity: "Decision" as const,
+    field: "terminal materialization state",
+    meaning: "Decision terminal state eligible for de-materialization after canonical holds clear.",
+    divergence: "entity-scoped" as const,
+  })),
+
   // ---- Task.sessionBinding disposition (witness availability) ----
   {
     word: "complete",

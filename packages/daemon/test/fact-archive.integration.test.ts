@@ -77,7 +77,13 @@ test("fact archive retires the managed document, leaves the projection row, and 
     }
 
     const heldArchive = await cell.run({ kind: "fact-archive", factId, reason: "still referenced" }, binding);
-    assert.equal(heldArchive.outcome, "op_rejected", JSON.stringify(heldArchive));
+    assert.equal(heldArchive.outcome, "applied", JSON.stringify(heldArchive));
+    await waitForFixturePublication(cell, heldArchive.opId, binding);
+    assert.equal(
+      projection.readFact(factId).fact?.archived,
+      true,
+      "holds guard materialization, not lifecycle transitions",
+    );
     assert.equal(
       existsSync(path.join(canonical, "harness", factPath)),
       true,
@@ -85,7 +91,7 @@ test("fact archive retires the managed document, leaves the projection row, and 
     );
     const activeHolds = projection.readRelationQuery({ target: factRef, state: "active" }).rows;
     assert.equal(activeHolds.length, 2);
-    for (const relation of activeHolds) {
+    for (const [index, relation] of activeHolds.entries()) {
       const retired = await cell.run(
         {
           kind: "relation-unrelate",
@@ -97,7 +103,18 @@ test("fact archive retires the managed document, leaves the projection row, and 
       );
       assert.equal(retired.outcome, "applied", JSON.stringify(retired));
       await waitForFixturePublication(cell, retired.opId, binding);
+      assert.equal(
+        existsSync(path.join(canonical, "harness", factPath)),
+        index < activeHolds.length - 1,
+        "only releasing the final hold dematerializes the already-terminal Fact",
+      );
     }
+    const restoredForArchiveCases = await cell.run(
+      { kind: "fact-unarchive", factId, reason: "exercise archive validation" },
+      binding,
+    );
+    assert.equal(restoredForArchiveCases.outcome, "applied", JSON.stringify(restoredForArchiveCases));
+    await waitForFixturePublication(cell, restoredForArchiveCases.opId, binding);
 
     // Negative: unknown id and unarchive-before-archive are rejected per item.
     const missing = await cell.run({ kind: "fact-archive", factId: "F-ABCDEFGH", reason: "no such fact" }, binding);
