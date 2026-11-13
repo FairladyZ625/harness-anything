@@ -328,6 +328,8 @@ export function validateRuntimeSpawnReceipt(value: unknown): readonly string[] {
       runtimeSelection: "optional-object",
       // Effective Codex native-search tier; a receipt-level fact, never account configuration.
       webSearch: "optional-string",
+      // Effective host MCP inheritance policy resolved across dispatch > agent > instance.
+      mcpPolicy: "optional-string",
       // Operator notices appended by the host layer (e.g. the missing hosting-credential
       // warning); the CLI renders them through its generic warnings channel.
       warnings: "optional-array",

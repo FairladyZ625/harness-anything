@@ -51,6 +51,74 @@ test("parseThinCommand forwards --mcp-policy on runtime instance, dispatch, agen
     assert.equal(updateDisabledParsed.command.action.mcpPolicy, "disabled");
   }
 
+  const clearInstanceParsed = parseThinCommand(["runtime", "instance", "update", "rti-codex", "--clear-mcp-policy"]);
+  assert.equal(clearInstanceParsed.ok, true);
+  if (clearInstanceParsed.ok) {
+    assert.equal(clearInstanceParsed.command.method, "daemon.runtimeInstance.update");
+    assert.equal(clearInstanceParsed.command.action.mcpPolicy, "");
+  }
+  assert.equal(
+    parseThinCommand(["runtime", "instance", "update", "rti-codex", "--mcp-policy", "inherit", "--clear-mcp-policy"])
+      .ok,
+    false,
+  );
+
+  const agentInstallSourceSet = parseThinCommand([
+    "agent",
+    "install",
+    "--source",
+    "agents/terra.json",
+    "--mcp-policy",
+    "inherit",
+  ]);
+  assert.equal(agentInstallSourceSet.ok, true);
+  if (agentInstallSourceSet.ok) {
+    assert.equal(agentInstallSourceSet.command.method, "repo.task.run");
+    assert.equal(agentInstallSourceSet.command.action.kind, "agent-install");
+    assert.equal(agentInstallSourceSet.command.action.mcpPolicy, "inherit");
+  }
+
+  const agentInstallIdSet = parseThinCommand([
+    "agent",
+    "install",
+    "--id",
+    "terra",
+    "--mcp-policy",
+    "inherit",
+    "--expected-version",
+    "2",
+  ]);
+  assert.equal(agentInstallIdSet.ok, true);
+  if (agentInstallIdSet.ok) {
+    assert.equal(agentInstallIdSet.command.method, "repo.task.run");
+    assert.equal(agentInstallIdSet.command.action.kind, "agent-install");
+    assert.equal(agentInstallIdSet.command.action.agentId, "terra");
+    assert.equal(agentInstallIdSet.command.action.mcpPolicy, "inherit");
+    assert.equal(agentInstallIdSet.command.action.expectedVersion, 2);
+  }
+
+  const agentInstallIdClear = parseThinCommand(["agent", "install", "--id", "terra", "--clear-mcp-policy"]);
+  assert.equal(agentInstallIdClear.ok, true);
+  if (agentInstallIdClear.ok) {
+    assert.equal(agentInstallIdClear.command.method, "repo.task.run");
+    assert.equal(agentInstallIdClear.command.action.kind, "agent-install");
+    assert.equal(agentInstallIdClear.command.action.agentId, "terra");
+    assert.equal(agentInstallIdClear.command.action.clearMcpPolicy, true);
+  }
+
+  assert.equal(parseThinCommand(["agent", "install"]).ok, false);
+  assert.equal(parseThinCommand(["agent", "install", "--id", "terra"]).ok, false);
+  assert.equal(parseThinCommand(["agent", "install", "--id", "terra", "--mcp-policy", "bogus"]).ok, false);
+  assert.equal(
+    parseThinCommand(["agent", "install", "--id", "terra", "--mcp-policy", "inherit", "--clear-mcp-policy"]).ok,
+    false,
+  );
+  assert.equal(
+    parseThinCommand(["agent", "install", "--source", "agents/terra.json", "--id", "terra", "--mcp-policy", "inherit"])
+      .ok,
+    false,
+  );
+
   const runtimeRunParsed = parseThinCommand([
     "runtime",
     "run",

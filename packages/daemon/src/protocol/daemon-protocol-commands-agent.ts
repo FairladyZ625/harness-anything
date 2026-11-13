@@ -688,15 +688,36 @@ export const agentProtocolCommands = Object.freeze([
     phase: "Runtime-B",
     path: ["agent", "install"],
     summary:
-      "Install an Agent declaration, or update an existing one in place; --expected-version guards the update against concurrent edits.",
+      "Install an Agent declaration, or update an existing one in place (including --mcp-policy / --clear-mcp-policy); --expected-version guards concurrent edits.",
     method: "repo.task.run",
     inputs: [
       cliInput(
         "--source",
         "single",
-        true,
+        false,
         { code: "missing_field" },
-        { field: "packageSource", pathKind: "host-path" },
+        { field: "packageSource", pathKind: "host-path", conflictsWith: ["--id"] },
+      ),
+      cliInput(
+        "--id",
+        "single",
+        false,
+        { code: "missing_field" },
+        { field: "agentId", pathKind: "non-path", conflictsWith: ["--source"] },
+      ),
+      cliInput(
+        "--mcp-policy",
+        "single",
+        false,
+        { code: "invalid_runtime_mcp_policy" },
+        { pathKind: "non-path", enum: ["disabled", "inherit"], conflictsWith: ["--clear-mcp-policy"] },
+      ),
+      cliInput(
+        "--clear-mcp-policy",
+        "boolean",
+        false,
+        { code: "invalid_runtime_mcp_policy" },
+        { field: "clearMcpPolicy", conflictsWith: ["--mcp-policy"] },
       ),
       cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
       cliInput(

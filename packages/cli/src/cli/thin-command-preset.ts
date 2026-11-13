@@ -68,6 +68,12 @@ export function parsePreset(
     offset = route.path.length + (positionalField ? 1 : 0),
     f = readFlags(route.id, args.slice(offset), inputs);
   if (!f.ok) return rejected(f.code, f.nextAction, json);
+  if (route.id === "agent-install") {
+    if (!f.one.has("--source") && !f.one.has("--id"))
+      return rejected("missing_field", "Use ha agent install --source <path> or --id <agent-id>.", json);
+    if (f.one.has("--id") && !f.one.has("--mcp-policy") && !f.booleans.has("--clear-mcp-policy"))
+      return rejected("missing_field", "ha agent install --id requires --mcp-policy or --clear-mcp-policy.", json);
+  }
   if (positionalField && !nonEmpty(positional))
     return rejected("missing_field", `${positionalField} is required.`, json);
   const matched =

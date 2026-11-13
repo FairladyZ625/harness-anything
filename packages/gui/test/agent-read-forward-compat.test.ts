@@ -80,3 +80,74 @@ test("a GUI read survives additive daemon fields and keeps the unknown field out
     rmSync(parent, { recursive: true, force: true });
   }
 });
+
+test("a GUI reads Agent list and detail payloads from a previous daemon that omits mcpPolicy", async (t) => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-gui-agent-prev-")),
+    socketPath = localUserDaemonEndpoint(parent, "agent-prev"),
+    previous = {
+      root: process.env.HARNESS_DAEMON_USER_ROOT,
+      id: process.env.HARNESS_DAEMON_ID,
+      endpoint: process.env.HARNESS_DAEMON_ENDPOINT,
+    },
+    { mcpPolicy: _omitMcp, futureOptionalField: _omitFuture, ...previousRow } = futureCatalog.agents[0]!,
+    previousCatalog = { schema: "agent-entity-catalog/v1", ok: true, agents: [previousRow] },
+    previousDetail = {
+      schema: "agent-entity-detail/v1",
+      ok: true,
+      agent: {
+        id: "terra",
+        name: "Terra",
+        runtimes: [{ type: "codex" }],
+        instance: null,
+        permissionMode: null,
+        hostAccess: "operator",
+        hostAccessSource: "default",
+        role: "worker",
+        instructions: "Execute carefully.",
+        skills: [],
+        prompts: [],
+        preset: null,
+        revision: 1,
+        retirement: null,
+      },
+    },
+    server = net.createServer((socket) => {
+      createInterface({ input: socket }).on("line", (line) => {
+        const request = JSON.parse(line) as { readonly id: number; readonly method: string },
+          result =
+            request.method === "protocol.hello"
+              ? fixtureDaemonHello()
+              : request.method === "repo.agent.entity.read"
+                ? previousDetail
+                : previousCatalog;
+        socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
+      });
+    }),
+    warn = t.mock.method(console, "warn", () => undefined);
+  mkdirSync(path.dirname(socketPath), { recursive: true });
+  registerDaemonConnection({ id: "center", endpoint: "tcp://127.0.0.1:19912", userRoot: parent });
+  registerDaemonRepo({ repoId: "proxy-repo", mode: "remote-proxy", connectionId: "center", userRoot: parent });
+  await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+  process.env.HARNESS_DAEMON_USER_ROOT = parent;
+  process.env.HARNESS_DAEMON_ID = "agent-prev";
+  process.env.HARNESS_DAEMON_ENDPOINT = socketPath;
+  try {
+    const bridge = createLocalGuiServiceBridge(),
+      catalog = (await bridge.invoke("listAgents", { repoId: "proxy-repo" })) as { readonly ok: boolean },
+      detail = (await bridge.invoke("showAgent", { repoId: "proxy-repo", agentId: "terra" })) as {
+        readonly ok: boolean;
+      };
+    assert.equal(catalog.ok, true, `previous catalog without mcpPolicy failed: ${JSON.stringify(catalog)}`);
+    assert.equal(detail.ok, true, `previous detail without mcpPolicy failed: ${JSON.stringify(detail)}`);
+    assert.equal(warn.mock.calls.length, 0);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (previous.root === undefined) delete process.env.HARNESS_DAEMON_USER_ROOT;
+    else process.env.HARNESS_DAEMON_USER_ROOT = previous.root;
+    if (previous.id === undefined) delete process.env.HARNESS_DAEMON_ID;
+    else process.env.HARNESS_DAEMON_ID = previous.id;
+    if (previous.endpoint === undefined) delete process.env.HARNESS_DAEMON_ENDPOINT;
+    else process.env.HARNESS_DAEMON_ENDPOINT = previous.endpoint;
+    rmSync(parent, { recursive: true, force: true });
+  }
+});

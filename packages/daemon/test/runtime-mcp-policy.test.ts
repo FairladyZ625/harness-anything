@@ -1,15 +1,21 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import { parseAgentDeclarationV1 } from "@harness-anything/kernel";
 import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { launchArgs } from "../src/agent-runtime-launch-config.ts";
+import { readAgentEntityGuiProjection } from "../src/agent-entities.ts";
 import { diffAgentDeclarations } from "../src/agent-version-read.ts";
+import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { runtimeKinds } from "../src/runtime-inventory.ts";
 import { resolveRuntimeMcpPolicy, runtimeMcpPolicy, runtimeSupportsMcpPolicy } from "../src/runtime-permissions.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { initRepo } from "./task-surface.fixtures.ts";
 
 const installations: readonly RuntimeInstallationWitness[] = [
   {
@@ -223,4 +229,167 @@ test("Agent declaration schema accepts mcpPolicy and version diff reports mcpPol
   assert.equal(v1.mcpPolicy, "inherit");
   const diff = diffAgentDeclarations({ ...v1, mcpPolicy: "disabled" }, v1);
   assert.deepEqual(diff.fields, [{ field: "mcpPolicy", kind: "changed", from: "disabled", to: "inherit" }]);
+});
+
+test("Runtime instance update with cleared mcpPolicy deletes persisted override and show returns default", () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-instance-clear-mcp-"));
+  try {
+    const store = createStore(userRoot);
+    store.command({
+      kind: "runtime-instance-create",
+      instanceId: "codex-clear",
+      name: "Codex Clear",
+      kindId: "codex",
+      installationId: "codex-install-mcp",
+      providerId: "openai",
+      models: ["gpt-5.6-sol"],
+      defaultModel: "gpt-5.6-sol",
+      authMode: "subscription",
+      mcpPolicy: "inherit",
+    });
+    const instancesFile = path.join(userRoot, "runtime-instances.json"),
+      readPersistedEntry = () =>
+        (
+          JSON.parse(readFileSync(instancesFile, "utf8")) as {
+            readonly instances: ReadonlyArray<Record<string, unknown>>;
+          }
+        ).instances.find((entry) => entry.instanceId === "codex-clear")!;
+
+    assert.equal(readPersistedEntry().mcpPolicy, "inherit");
+    assert.equal(
+      store.command({ kind: "runtime-instance-show", instanceId: "codex-clear" }).instance.mcpPolicy,
+      "inherit",
+    );
+
+    store.command({ kind: "runtime-instance-update", instanceId: "codex-clear", mcpPolicy: "disabled" });
+    assert.equal(Object.hasOwn(readPersistedEntry(), "mcpPolicy"), true);
+    assert.equal(readPersistedEntry().mcpPolicy, "disabled");
+
+    store.command({ kind: "runtime-instance-update", instanceId: "codex-clear", mcpPolicy: "" });
+    assert.equal(Object.hasOwn(readPersistedEntry(), "mcpPolicy"), false);
+    assert.equal(store.read("codex-clear")?.mcpPolicy, undefined);
+    const shownAfterClear = store.command({ kind: "runtime-instance-show", instanceId: "codex-clear" });
+    assert.equal(shownAfterClear.instance.mcpPolicy, "disabled");
+    assert.match(shownAfterClear.summary, /mcpPolicy: disabled/u);
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("agent-install sets and clears mcpPolicy by source or agentId, updates inspect, and returns dispatch to instance default", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-clear-mcp-"));
+  initRepo(rootDir);
+  const cell = await openRepoCell({
+      repoId: workspaceId("agent-mcp-policy"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "agent-mcp-policy-test",
+    }),
+    binding = withPolicyGroup(
+      {
+        actor: { principal: { personId: "person-agent-mcp" }, executor: null },
+        source: "local" as const,
+      },
+      "contributor",
+    );
+  try {
+    const manifestPath = path.join(rootDir, "mcp-worker.json");
+    writeFileSync(
+      manifestPath,
+      `${JSON.stringify(
+        {
+          schema: "agent-declaration/v1",
+          id: "mcp-worker",
+          name: "MCP Worker",
+          role: "worker",
+          instructions: "Verify MCP policy updates across canonical agent revisions.",
+          runtimes: [{ type: "codex" }],
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    const installed = await cell.run(
+      {
+        kind: "agent-install",
+        packageSource: manifestPath,
+        mcpPolicy: "inherit",
+        expectedVersion: 0,
+        idempotencyKey: "mcp-agent-v1",
+      },
+      binding,
+    );
+    assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+    assert.equal(
+      resolveRuntimeMcpPolicy({ kindId: "codex", instanceMcpPolicy: "disabled", agentMcpPolicy: "inherit" }),
+      "inherit",
+    );
+
+    const inspectV1 = await cell.run({ kind: "agent-inspect", agentId: "mcp-worker" }, binding);
+    assert.equal(inspectV1.outcome, "applied", JSON.stringify(inspectV1));
+    const inspectV1Body = JSON.parse(String(inspectV1.evidence)) as {
+      readonly expectedVersion?: number;
+      readonly agent: { readonly mcpPolicy?: string };
+    };
+    assert.equal(inspectV1Body.agent.mcpPolicy, "inherit");
+
+    const updated = await cell.run(
+      {
+        kind: "agent-install",
+        agentId: "mcp-worker",
+        mcpPolicy: "disabled",
+        expectedVersion: inspectV1Body.expectedVersion ?? installed.revision,
+        idempotencyKey: "mcp-agent-v2",
+      },
+      binding,
+    );
+    assert.equal(updated.outcome, "applied", JSON.stringify(updated));
+    const inspectV2 = await cell.run({ kind: "agent-inspect", agentId: "mcp-worker" }, binding);
+    const inspectV2Body = JSON.parse(String(inspectV2.evidence)) as {
+      readonly expectedVersion?: number;
+      readonly agent: { readonly mcpPolicy?: string };
+    };
+    assert.equal(inspectV2Body.agent.mcpPolicy, "disabled");
+    assert.equal(
+      resolveRuntimeMcpPolicy({ kindId: "codex", instanceMcpPolicy: "inherit", agentMcpPolicy: "disabled" }),
+      "disabled",
+    );
+
+    const cleared = await cell.run(
+      {
+        kind: "agent-install",
+        agentId: "mcp-worker",
+        clearMcpPolicy: true,
+        expectedVersion: inspectV2Body.expectedVersion ?? updated.revision,
+        idempotencyKey: "mcp-agent-v3",
+      },
+      binding,
+    );
+    assert.equal(cleared.outcome, "applied", JSON.stringify(cleared));
+    const inspectV3 = await cell.run({ kind: "agent-inspect", agentId: "mcp-worker" }, binding);
+    const inspectedAgent = JSON.parse(String(inspectV3.evidence)).agent as Record<string, unknown>;
+    assert.equal(Object.hasOwn(inspectedAgent, "mcpPolicy"), false);
+    const projection = makeTaskProjection({
+      rootDir: canonicalRoot(rootDir),
+      eventStore: makeTaskEventStore({ repoId: "agent-mcp-policy", rootDir: canonicalRoot(rootDir) }),
+    });
+    projection.catchUp();
+    const guiDetail = readAgentEntityGuiProjection({
+      kind: "agent-inspect",
+      entityId: "mcp-worker",
+      projection,
+    });
+    assert.equal(guiDetail.agent.mcpPolicy, null);
+    assert.equal(
+      resolveRuntimeMcpPolicy({
+        kindId: "codex",
+        instanceMcpPolicy: "inherit",
+        agentMcpPolicy: inspectedAgent.mcpPolicy as "disabled" | "inherit" | undefined,
+      }),
+      "inherit",
+    );
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
 });

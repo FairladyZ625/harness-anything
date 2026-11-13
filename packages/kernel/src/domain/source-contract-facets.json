@@ -4161,7 +4161,7 @@
         "explain": "GUI S3 control wire-response validator for `runtime-spawn` `command-receipt/v2` envelopes, delegating committed cut/facet invariants to kernel `validateReceiptAcceptance`.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/gui-s3-control.ts#validateRuntimeSpawnReceipt:42c49c8d3785f380c1830f285a65ed3e",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/gui-s3-control.ts#validateRuntimeSpawnReceipt:ee377e1813248d09041382688bbf31ae",
             "route": "packages/daemon/src/gui-s3-control.ts#validateRuntimeSpawnReceipt"
           }
         ]

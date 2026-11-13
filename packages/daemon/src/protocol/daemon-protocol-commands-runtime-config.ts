@@ -800,7 +800,16 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         {
           code: "invalid_runtime_mcp_policy",
         },
-        { pathKind: "non-path", enum: ["disabled", "inherit"] },
+        { pathKind: "non-path", enum: ["disabled", "inherit"], conflictsWith: ["--clear-mcp-policy"] },
+      ),
+      cliInput(
+        "--clear-mcp-policy",
+        "boolean",
+        false,
+        {
+          code: "invalid_runtime_mcp_policy",
+        },
+        { conflictsWith: ["--mcp-policy"] },
       ),
       cliInput(
         "--isolation",

@@ -105,3 +105,50 @@ test("the same client-inbound tolerance covers every read shape, not only Agent 
   assert.throws(() => parseDaemonGuiReadResult("daemon.gui.system.read", systemStatus), /futureOptionalField/u);
   assert.equal(parseDaemonGuiReadResponse("daemon.gui.system.read", systemStatus).ok, true);
 });
+
+test("client inbound accepts previous-daemon Agent list and detail payloads without mcpPolicy while rejecting invalid values", (t) => {
+  const warn = t.mock.method(console, "warn", () => undefined),
+    { mcpPolicy: _omitRow, futureOptionalField: _omitRowFuture, ...previousAgentRow } = futureAgentRow,
+    previousCatalog = { schema: "agent-entity-catalog/v1", ok: true, agents: [previousAgentRow] },
+    previousDetail = {
+      schema: "agent-entity-detail/v1",
+      ok: true,
+      agent: {
+        id: "terra",
+        name: "Terra",
+        runtimes: [{ type: "codex" }],
+        instance: null,
+        permissionMode: null,
+        hostAccess: "operator",
+        hostAccessSource: "default",
+        role: "worker",
+        instructions: "Execute carefully.",
+        skills: [],
+        prompts: [],
+        preset: null,
+        revision: 1,
+        retirement: null,
+      },
+    };
+
+  assert.equal(parseDaemonGuiReadResponse("repo.agent.entities.list", previousCatalog).ok, true);
+  assert.equal(parseDaemonGuiReadResponse("repo.agent.entity.read", previousDetail).ok, true);
+  assert.equal(warn.mock.calls.length, 0);
+
+  assert.throws(
+    () =>
+      parseDaemonGuiReadResponse("repo.agent.entities.list", {
+        ...previousCatalog,
+        agents: [{ ...previousAgentRow, mcpPolicy: "always" }],
+      }),
+    /mcpPolicy must be null, disabled, or inherit/u,
+  );
+  assert.throws(
+    () =>
+      parseDaemonGuiReadResponse("repo.agent.entity.read", {
+        ...previousDetail,
+        agent: { ...previousDetail.agent, mcpPolicy: 123 },
+      }),
+    /mcpPolicy must be null, disabled, or inherit/u,
+  );
+});
