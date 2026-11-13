@@ -275,7 +275,7 @@ const dependsOnEdge = {
  * One snapshot cut with a row per board column plus an archived package: planned, planned-behind-a
  * -dependency, active-with-lease, in_review-with-a-submitted-execution, done, cancelled, archived.
  */
-function fixtureRows(): readonly unknown[] {
+function fixtureRows() {
   return [
     taskRow("task_planned", "planned"),
     taskRow("task_blocked", "planned"),
@@ -290,12 +290,16 @@ function fixtureRows(): readonly unknown[] {
 function projectionStub(): TaskProjection {
   const rows = fixtureRows();
   const statuses = rows.map((row) => {
-    const task = (row as { snapshot: { task: { taskId: string; status: string } } }).snapshot.task;
+    const task = row.snapshot.task;
     return { taskId: task.taskId, status: task.status };
   });
   return {
-    readTaskIndex: () => ({ ...cut, rows: [], page: null, warnings: [] }),
-    list: (_query: TaskProjectionListQuery = {}) => ({ ...cut, rows, warnings: [] }),
+    readTaskIndex: () => ({ ...cut, rows: rows.map(({ taskId }) => ({ taskId })), page: null, warnings: [] }),
+    list: (query: TaskProjectionListQuery = {}) => ({
+      ...cut,
+      rows: rows.filter((row) => query.taskIds === undefined || query.taskIds.includes(row.taskId)),
+      warnings: [],
+    }),
     readTaskDependencyClosure: (sourceRefs: readonly string[]) => ({
       ...cut,
       rows: [dependsOnEdge].filter((edge) => sourceRefs.includes(edge.sourceRef)),
