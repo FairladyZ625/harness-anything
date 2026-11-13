@@ -105,6 +105,7 @@
     "harness:check-entity-id-links": "node tools/gates/entity-id-links.mjs",
     "harness:check-dependency-policy": "node tools/gates/dependency-policy.mjs",
     "harness:check-cost-budget": "node tools/gates/cost-budget.mjs",
+    "postinstall": "node -e \"if(!process.env.ELECTRON_SKIP_BINARY_DOWNLOAD&&require('node:fs').existsSync('node_modules/electron/install.js'))require('./node_modules/electron/install.js')\"",
     "pr:doctor": "node tools/pr-doctor.mjs"
   },
   "engines": {

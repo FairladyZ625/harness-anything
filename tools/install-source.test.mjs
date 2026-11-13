@@ -8,7 +8,9 @@ import test from "node:test";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const installScript = path.join(repoRoot, "scripts/install-source.sh");
+const psInstallScript = path.join(repoRoot, "scripts/install-source.ps1");
 const skipOnWindows = process.platform === "win32" ? "requires POSIX shell semantics and executable-bit stubs" : false;
+const powershellShell = process.platform === "win32" ? "powershell.exe" : null;
 const headSha = "a".repeat(40);
 const otherSha = "b".repeat(40);
 
@@ -39,12 +41,22 @@ const npmStub = `#!/bin/sh
 printf 'npm %s\\n' "$*" >> "$STUB_NPM_LOG"
 if [ "$1" = "ci" ]; then mkdir -p node_modules; fi
 if [ "$1" = "link" ] && [ "\${STUB_SKIP_LINK:-}" != 1 ]; then
-  mkdir -p "$STUB_NPM_PREFIX/bin"
-  cat > "$STUB_NPM_PREFIX/bin/ha" <<'HA'
+  if [ "\${STUB_WIN_PREFIX:-}" = 1 ]; then
+    mkdir -p "$STUB_NPM_PREFIX"
+    cat > "$STUB_NPM_PREFIX/ha" <<'HA'
+#!/bin/sh
+printf 'fixture win ha: %s\\n' "$*"
+HA
+    chmod +x "$STUB_NPM_PREFIX/ha"
+    : > "$STUB_NPM_PREFIX/ha.cmd"
+  else
+    mkdir -p "$STUB_NPM_PREFIX/bin"
+    cat > "$STUB_NPM_PREFIX/bin/ha" <<'HA'
 #!/bin/sh
 printf 'fixture ha: %s\\n' "$*"
 HA
-  chmod +x "$STUB_NPM_PREFIX/bin/ha"
+    chmod +x "$STUB_NPM_PREFIX/bin/ha"
+  fi
 fi
 exit 0
 `;
@@ -183,6 +195,83 @@ test(
   },
 );
 
+test("installer supports root-level npm prefix entries produced on Windows", { skip: skipOnWindows }, () => {
+  withFixture((fixture) => {
+    const result = runInstall(fixture, ["--offline"], { STUB_WIN_PREFIX: "1" });
+    assert.equal(result.status, 0, result.stderr);
+    const entry = path.join(fixture.npmPrefix, "ha");
+    assert.equal(lineWithPrefix(result.stdout, "CLI entry: "), `CLI entry: ${entry}`);
+    assert.equal(lineWithPrefix(result.stdout, "export PATH="), `export PATH="${fixture.npmPrefix}:$PATH"`);
+  });
+});
+
+test(
+  "PowerShell installer completes offline source flow and prints prefix root PATH",
+  { skip: powershellShell ? false : "PowerShell source installer test runs on Windows" },
+  () => {
+    const root = mkdtempSync(path.join(tmpdir(), "ha-ps-install-source-"));
+    try {
+      const installRoot = path.join(root, "install");
+      const binDir = path.join(root, "bin");
+      const npmPrefix = path.join(root, "npm");
+      mkdirSync(path.join(installRoot, ".git"), { recursive: true });
+      mkdirSync(path.join(installRoot, "packages", "cli"), { recursive: true });
+      mkdirSync(binDir, { recursive: true });
+      writeFileSync(path.join(installRoot, "package.json"), '{"name":"fixture","private":true}\n');
+      writeFileSync(
+        path.join(installRoot, "package-lock.json"),
+        '{"name":"fixture","lockfileVersion":3,"requires":true,"packages":{}}\n',
+      );
+      writeFileSync(path.join(installRoot, "packages/cli/package.json"), '{"name":"@fixture/cli"}\n');
+      const electronRoot = path.join(installRoot, "node_modules", "electron");
+      mkdirSync(path.join(electronRoot, "dist"), { recursive: true });
+      writeFileSync(path.join(electronRoot, "package.json"), '{"name":"electron","version":"0.0.0"}\n');
+      writeFileSync(path.join(electronRoot, "path.txt"), "electron.exe\n");
+      writeFileSync(path.join(electronRoot, "install.js"), "process.exit(0);\n");
+      writeFileSync(path.join(electronRoot, "dist", "electron.exe"), "stub");
+      writeFileSync(path.join(binDir, "git.cmd"), '@echo off\r\nif "%1"=="-C" shift\r\nexit /b 0\r\n');
+      writeFileSync(
+        path.join(binDir, "npm.cmd"),
+        [
+          "@echo off",
+          'echo npm %*>> "%STUB_NPM_LOG%"',
+          'if "%1"=="ci" if not exist node_modules mkdir node_modules',
+          'if "%1"=="link" (',
+          '  if not exist "%STUB_NPM_PREFIX%" mkdir "%STUB_NPM_PREFIX%"',
+          '  echo @echo off> "%STUB_NPM_PREFIX%\\ha.cmd"',
+          '  echo echo fixture ps ha: %*>> "%STUB_NPM_PREFIX%\\ha.cmd"',
+          ")",
+          "exit /b 0",
+          "",
+        ].join("\r\n"),
+      );
+      const npmLog = path.join(root, "npm.log");
+      const result = spawnSync(
+        powershellShell,
+        ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", psInstallScript, "--offline"],
+        {
+          cwd: repoRoot,
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ""}`,
+            HARNESS_INSTALL_ROOT: installRoot,
+            HARNESS_NPM_PREFIX: npmPrefix,
+            STUB_NPM_LOG: npmLog,
+            STUB_NPM_PREFIX: npmPrefix,
+          },
+        },
+      );
+      assert.equal(result.status, 0, result.stderr);
+      const entry = path.join(npmPrefix, "ha.cmd");
+      assert.equal(lineWithPrefix(result.stdout, "CLI entry: "), `CLI entry: ${entry}`);
+      assert.equal(lineWithPrefix(result.stdout, "$env:PATH = "), `$env:PATH = "${npmPrefix};$env:PATH"`);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
 test(
   "installer fails before printing hints when npm link creates no executable CLI entry",
   { skip: skipOnWindows },
@@ -261,7 +350,7 @@ function runInstall(fixture, args, env = {}) {
 }
 
 function lineWithPrefix(text, prefix) {
-  const line = text.split("\n").find((candidate) => candidate.startsWith(prefix));
+  const line = text.split(/\r?\n/u).find((candidate) => candidate.startsWith(prefix));
   assert.ok(line, `missing a line starting with ${JSON.stringify(prefix)}:\n${text}`);
   return line;
 }

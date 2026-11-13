@@ -41,9 +41,9 @@ git clone --depth 1 --branch main https://github.com/FairladyZ625/harness-anythi
 
 源码不能放临时目录：技能链接和守护进程随后都依赖这个持久位置。
 
-开始装依赖前先把等待成本告诉用户，不要等命令跑起来才说。`npm ci` 只负责 JS 依赖；Electron 二进制由它自带的安装器单独下载。当前锁文件里的 `electron@42.11.16` 已经没有 `postinstall`，npm 的 install-scripts 列表里也没有它，所以 `allowScripts` 放行不了不存在的脚本，必须显式跑 `node node_modules/electron/install.js`。本机 macOS arm64 三次干净 clone 实测（2026-11-01，Node 26.8.2 / npm 11.19.1，干净 npm 与 Electron 缓存）：`npm ci` 45–80 秒，Electron 下载 98–149 秒，三包构建 53–57 秒（daemon 23–26 秒、CLI 25–28 秒、GUI 3–4 秒），从 `npm ci` 到构建完成 3 分 24 秒–4 分 39 秒；npm 缓存约 149 MiB，Electron 下载缓存约 128 MiB（合计约 277 MiB），装完 `node_modules` 约 993 MiB，其中 Electron 约 295 MiB。用户机器和网络会不同，按同一数量级预告即可。等待期间可以继续读第 2 节的技能目标目录、确认要接入的 Agent，但不要重复开第二个安装、不要删除 `node_modules`。进度直接看命令输出；Electron 下载阶段可以另开终端跑 `du -sh node_modules/electron/dist` 看增长。安装失败时读真实构建错误，不用 `--ignore-scripts` 把失败掩盖到守护进程启动阶段。
+开始装依赖前先把等待成本告诉用户，不要等命令跑起来才说。当前锁文件里的 `electron@42.11.16` 本身不声明 `postinstall`，npm 11 提示的 `allow-scripts` 未审批警告来自 `@openrouter/sdk` 与 `better-sqlite3`，与 Electron 无关；根 `package.json` 的 `postinstall` 会在 `npm ci` 时自动调用 `node_modules/electron/install.js`（也可设 `ELECTRON_SKIP_BINARY_DOWNLOAD=1` 跳过），下面的显式执行与 `path.txt` 校验作为幂等保护与落地验收保留。本机 macOS arm64 三次干净 clone 实测（2026-11-01，Node 26.8.2 / npm 11.19.1，干净 npm 与 Electron 缓存）：`npm ci` 45–80 秒，Electron 下载 98–149 秒，三包构建 53–57 秒（daemon 23–26 秒、CLI 25–28 秒、GUI 3–4 秒），从 `npm ci` 到构建完成 3 分 24 秒–4 分 39 秒；npm 缓存约 149 MiB，Electron 下载缓存约 128 MiB（合计约 277 MiB），装完 `node_modules` 约 993 MiB，其中 Electron 约 295 MiB。用户机器和网络会不同，按同一数量级预告即可。等待期间可以继续读第 2 节的技能目标目录、确认要接入的 Agent，但不要重复开第二个安装、不要删除 `node_modules`。进度直接看命令输出；Electron 下载阶段可以另开终端跑 `du -sh node_modules/electron/dist` 看增长。安装失败时读真实构建错误，不用 `--ignore-scripts` 把失败掩盖到守护进程启动阶段。
 
-在源码目录执行（一次装齐 CLI、daemon、GUI）：
+在源码目录执行（一次装齐 CLI、daemon、GUI；Windows 也可直接运行 `scripts/install-source.ps1`）：
 
 ```bash
 npm ci --no-audit --no-fund
@@ -69,6 +69,8 @@ macOS 也可以直接看 `node_modules/electron/dist/Electron.app`；Linux/Windo
 
 不碰宿主 npm 全局前缀、先让当前会话可用：
 
+macOS / Linux（bash / zsh）：
+
 ```bash
 npm_config_prefix="$HOME/.harness-anything/npm-global" npm link -w @harness-anything/cli
 export PATH="$HOME/.harness-anything/npm-global/bin:$PATH"
@@ -76,7 +78,17 @@ command -v ha
 ha --version
 ```
 
-这会把链接放进 `$HOME/.harness-anything/npm-global`，不写宿主 npm 全局前缀；删除该目录即可撤销。Windows PowerShell 用 `$env:npm_config_prefix` 和 `$env:PATH` 的等价写法。
+Windows PowerShell（Windows 下 `npm link` 会把 `ha.ps1` / `ha.cmd` 直接写进前缀根目录，**没有** `bin\` 子目录）：
+
+```powershell
+$env:npm_config_prefix = "$HOME\.harness-anything\npm-global"
+npm link -w @harness-anything/cli
+$env:PATH = "$HOME\.harness-anything\npm-global;$env:PATH"
+(Get-Command ha).Source
+ha --version
+```
+
+这会把链接放进 `$HOME/.harness-anything/npm-global`，不写宿主 npm 全局前缀；删除该目录即可撤销。
 
 如果用户要的是“以后每个 shell 都有 `ha`”，再展示修改宿主 npm 全局前缀的提案，取得同意后执行：
 
@@ -163,7 +175,7 @@ Windows 使用目录联接（junction），无需开发者模式；仍不静默�
 
 交付源码位置与版本、可重复执行的 CLI 命令、技能链接及所选 Agent、目标工作区与知识入口、首任务真实状态和未完成原因。下一次可直接调用 `harness-ceo`；另一个仓库调用 `harness-install`，不用再下载一次工具。
 
-本技能第 1 节已经把构建后的 `ha` 链接到隔离的 npm 前缀（`~/.harness-anything/npm-global/bin/ha`；一键安装器用 `~/.local/share/harness-anything-npm/bin/ha` 并打印该绝对路径）。交付时给出 `ha` 的绝对路径和可选的 PATH 导出命令；需要改 shell 启动文件或执行宿主全局 `npm link` 时先展示提案取得同意。不要静默全局 npm 安装，也不要再让用户回到 `node packages/cli/src/index.ts`——那是故障排查入口，不是交付命令。普通安装不改测试专用环境，不在临时 daemon 根里创建一个离开本会话就失联的正式工作区。
+本技能第 1 节已经把构建后的 `ha` 链接到隔离的 npm 前缀（macOS/Linux 为 `~/.harness-anything/npm-global/bin/ha`，Windows 为 `$HOME\.harness-anything\npm-global\ha.cmd`；一键安装器对应 `~/.local/share/harness-anything-npm/bin/ha` 或 `$HOME\.local\share\harness-anything-npm\ha.cmd` 并打印实际绝对路径）。交付时给出 `ha` 的绝对路径和可选的 PATH 导出命令；需要改 shell 启动文件或执行宿主全局 `npm link` 时先展示提案取得同意。不要静默全局 npm 安装，也不要再让用户回到 `node packages/cli/src/index.ts`——那是故障排查入口，不是交付命令。普通安装不改测试专用环境，不在临时 daemon 根里创建一个离开本会话就失联的正式工作区。
 
 源码升级前检查在飞执行与共享服务归属，使用支持的更新路径；更新后同步相同技能链接。用户知识矩阵和问题记录在项目工作区，源码更新不得覆盖。
 
