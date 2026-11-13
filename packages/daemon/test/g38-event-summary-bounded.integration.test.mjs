@@ -535,11 +535,32 @@ if (!isMainThread) {
             "UPDATE ha_repo_heads SET revision=$5, head_op_id=$6 WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4",
             [scope.tenantId, scope.projectId, scope.policyEpoch, repoId, headRev, loneSurrogateEvent.opId],
           );
-          await rebuildPgProjection(client, scope, {
+          let canonicalRowsRead = 0;
+          const summaryBatchSizes = [];
+          const replayClient = Object.create(client);
+          replayClient.query = async (...args) => {
+            if (/UPDATE ha_events AS e\s+SET default_summary_json/u.test(args[0]))
+              summaryBatchSizes.push(Math.max(...args[1].filter(Array.isArray).map((values) => values.length)));
+            const result = await client.query(...args);
+            for (const part of Array.isArray(result) ? result : [result])
+              canonicalRowsRead += part.rows.filter((row) => Object.hasOwn(row, "event_json")).length;
+            return result;
+          };
+          await rebuildPgProjection(replayClient, scope, {
             events: [...appended, retiredCi, surrogateFactSeed.event],
             sourceRevision: headRev,
             readContentBlob: (sha) => blobs.get(sha) ?? null,
           });
+          assert.equal(
+            canonicalRowsRead,
+            0,
+            "rebuild must reuse its canonical input instead of reading event bodies again",
+          );
+          assert.ok(summaryBatchSizes.length > 0);
+          assert.ok(
+            summaryBatchSizes.every((size) => size <= 64),
+            "summary SQL batches must stay at most 64 rows",
+          );
           await client.query(
             "UPDATE ha_events SET event_json = $5 WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4 AND revision=$6",
             [

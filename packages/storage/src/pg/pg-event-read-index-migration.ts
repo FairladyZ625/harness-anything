@@ -1,5 +1,5 @@
 import type { PoolClient } from "pg";
-import type { CanonicalEventV1 } from "@harness-anything/kernel";
+import type { PersistedCanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync-types.ts";
 import { canonicalEventSummary } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
 import { normalizeHistoricalEvent } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";
 import {
@@ -326,8 +326,8 @@ export async function backfillPgDefaultEventSummariesPage(
   );
   if (batch.rows.length === 0) return { processed: 0, done: true };
   const revisions = batch.rows.map((row) => row.revision),
-    summaries = batch.rows.map((row) =>
-      JSON.stringify(canonicalEventSummary(normalizeHistoricalEvent(JSON.parse(row.event_json) as CanonicalEventV1))),
+    summaries = batch.rows.map(
+      (row) => pgDefaultEventSummaryEntry(JSON.parse(row.event_json) as PersistedCanonicalEventV1).summaryJson,
     );
   await client.query(
     `UPDATE ha_events AS e
@@ -338,4 +338,58 @@ export async function backfillPgDefaultEventSummariesPage(
     [scope.tenantId, scope.projectId, scope.policyEpoch, repoId, revisions, summaries],
   );
   return { processed: batch.rows.length, done: false };
+}
+
+export function pgDefaultEventSummaryEntry(
+  rawEvent: PersistedCanonicalEventV1,
+  sourceRevision?: number,
+): {
+  readonly revision: number;
+  readonly opId: string;
+  readonly eventId: string;
+  readonly summaryJson: string;
+} {
+  const normalized = normalizeHistoricalEvent(rawEvent);
+  return {
+    revision: sourceRevision ?? normalized.workspaceRevision,
+    opId: rawEvent.opId,
+    eventId: rawEvent.eventId,
+    summaryJson: JSON.stringify(canonicalEventSummary(normalized)),
+  };
+}
+
+export async function fillPgDefaultEventSummaries(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  entries: readonly {
+    readonly revision: number;
+    readonly opId: string;
+    readonly eventId: string;
+    readonly summaryJson: string;
+  }[],
+): Promise<void> {
+  if (entries.length === 0) return;
+  await client.query(
+    `UPDATE ha_events AS e
+     SET default_summary_json = batch.summary_json
+     FROM unnest($4::bigint[], $5::text[], $6::text[], $7::text[])
+       AS batch(revision, op_id, event_id, summary_json),
+       ha_repo_heads AS h
+     WHERE h.tenant_id = $1 AND h.project_id = $2 AND h.policy_epoch = $3
+       AND e.tenant_id = h.tenant_id AND e.project_id = h.project_id
+       AND e.repo_id = h.repo_id AND e.policy_epoch = $3
+       AND e.revision = batch.revision
+       AND e.op_id = batch.op_id
+       AND e.event_id = batch.event_id
+       AND e.default_summary_json IS NULL`,
+    [
+      scope.tenantId,
+      scope.projectId,
+      scope.policyEpoch,
+      entries.map((entry) => entry.revision),
+      entries.map((entry) => entry.opId),
+      entries.map((entry) => entry.eventId),
+      entries.map((entry) => entry.summaryJson),
+    ],
+  );
 }

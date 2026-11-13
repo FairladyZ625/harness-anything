@@ -1,3 +1,4 @@
+import { fillPgDefaultEventSummaries, pgDefaultEventSummaryEntry } from "./pg-event-read-index-migration.ts";
 import { pgEventShapeReplayInput } from "./pg-event-shape-replay.ts";
 import { decideRawTaskLease } from "@harness-anything/kernel/internal/domain/task-lease-policy.ts";
 import { relationCreatedEventForReplay } from "@harness-anything/kernel";
@@ -20,7 +21,7 @@ import { derivedRelationRecordsForReplay } from "../projection/relation-entity-p
 import { materializePgQueryModels } from "./pg-query-model-materialize.ts";
 import { flushPgArtifactDocuments } from "./pg-artifact-timeline.ts";
 import type { PoolClient } from "pg";
-import { canonicalEventSummary } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { normalizeHistoricalEvent } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";
 import {
   emptyTaskLifecycleSnapshot,
@@ -116,7 +117,7 @@ export async function materializePgProjectionEvent(
   );
   if (replay) return rebuildPgProjection(client, scope, replay);
   const receipt = await materializeProjectionEvent(client, scope, input);
-  await fillPgDefaultEventSummaries(client, scope, [defaultSummaryEntry(input.event, input.sourceRevision)]);
+  await fillPgDefaultEventSummaries(client, scope, [pgDefaultEventSummaryEntry(input.event, input.sourceRevision)]);
   return receipt;
 }
 
@@ -228,7 +229,7 @@ export async function materializePgProjectionEvents(
   await fillPgDefaultEventSummaries(
     client,
     scope,
-    input.events.map((event) => defaultSummaryEntry(event, event.workspaceRevision)),
+    input.events.map((event) => pgDefaultEventSummaryEntry(event, event.workspaceRevision)),
   );
 }
 
@@ -281,39 +282,14 @@ export async function rebuildPgProjection(
      WHERE tenant_id = $4 AND project_id = $5 AND policy_epoch = $6 AND projection_name = 'task/v1'`,
     [stateDigest, sourceHeadRevision, PG_PROJECTION_SCHEMA_VERSION, scope.tenantId, scope.projectId, scope.policyEpoch],
   );
-  // Rebuild/import clears derived readiness with the other scoped projections. Publish it in
-  // the same transaction as the new cut, from the canonical rows (including every scoped repo).
-  const pendingSummaries = await client.query<{
-    readonly repo_id: string;
-    readonly revision: string;
-    readonly event_json: string;
-  }>(
-    `SELECT repo_id, revision::text AS revision, event_json FROM ha_events
-     WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND default_summary_json IS NULL
-     ORDER BY repo_id, revision`,
-    scopeValues,
-  );
-  if (pendingSummaries.rows.length > 0) {
-    await client.query(
-      `UPDATE ha_events AS e
-       SET default_summary_json = filled.summary_json
-       FROM unnest($4::text[], $5::bigint[], $6::text[]) AS filled(repo_id, revision, summary_json)
-       WHERE e.tenant_id=$1 AND e.project_id=$2 AND e.policy_epoch=$3
-         AND e.repo_id=filled.repo_id AND e.revision=filled.revision`,
-      [
-        scope.tenantId,
-        scope.projectId,
-        scope.policyEpoch,
-        pendingSummaries.rows.map((row) => row.repo_id),
-        pendingSummaries.rows.map((row) => row.revision),
-        pendingSummaries.rows.map((row) =>
-          JSON.stringify(
-            canonicalEventSummary(normalizeHistoricalEvent(JSON.parse(row.event_json) as PersistedCanonicalEventV1)),
-          ),
-        ),
-      ],
+  // Reuse replay input in bounded batches, committed with the existing atomic rebuild cut.
+  const summaryPageSize = storageReadPolicy.defaultValue.pageSizes.sessions;
+  for (let offset = 0; offset < input.events.length; offset += summaryPageSize)
+    await fillPgDefaultEventSummaries(
+      client,
+      scope,
+      input.events.slice(offset, offset + summaryPageSize).map((event) => pgDefaultEventSummaryEntry(event)),
     );
-  }
   await client.query(
     `INSERT INTO ha_event_summary_state(tenant_id,project_id,policy_epoch,repo_id,ready)
      SELECT h.tenant_id,h.project_id,h.policy_epoch,h.repo_id,
@@ -328,60 +304,6 @@ export async function rebuildPgProjection(
     scopeValues,
   );
   return receipt;
-}
-
-function defaultSummaryEntry(
-  rawEvent: PersistedCanonicalEventV1,
-  sourceRevision?: number,
-): {
-  readonly revision: number;
-  readonly opId: string;
-  readonly eventId: string;
-  readonly summaryJson: string;
-} {
-  const normalized = normalizeHistoricalEvent(rawEvent);
-  return {
-    revision: sourceRevision ?? normalized.workspaceRevision,
-    opId: rawEvent.opId,
-    eventId: rawEvent.eventId,
-    summaryJson: JSON.stringify(canonicalEventSummary(normalized)),
-  };
-}
-
-async function fillPgDefaultEventSummaries(
-  client: PoolClient,
-  scope: PgProjectionScope,
-  entries: readonly {
-    readonly revision: number;
-    readonly opId: string;
-    readonly eventId: string;
-    readonly summaryJson: string;
-  }[],
-): Promise<void> {
-  if (entries.length === 0) return;
-  await client.query(
-    `UPDATE ha_events AS e
-     SET default_summary_json = batch.summary_json
-     FROM unnest($4::bigint[], $5::text[], $6::text[], $7::text[])
-       AS batch(revision, op_id, event_id, summary_json),
-       ha_repo_heads AS h
-     WHERE h.tenant_id = $1 AND h.project_id = $2 AND h.policy_epoch = $3
-       AND e.tenant_id = h.tenant_id AND e.project_id = h.project_id
-       AND e.repo_id = h.repo_id AND e.policy_epoch = $3
-       AND e.revision = batch.revision
-       AND e.op_id = batch.op_id
-       AND e.event_id = batch.event_id
-       AND e.default_summary_json IS NULL`,
-    [
-      scope.tenantId,
-      scope.projectId,
-      scope.policyEpoch,
-      entries.map((entry) => entry.revision),
-      entries.map((entry) => entry.opId),
-      entries.map((entry) => entry.eventId),
-      entries.map((entry) => entry.summaryJson),
-    ],
-  );
 }
 
 async function reduceAndStoreTaskSnapshot(
