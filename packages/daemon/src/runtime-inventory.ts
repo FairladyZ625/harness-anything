@@ -187,6 +187,18 @@ const codexFreshPermissionArgs = {
     "read-only": ["--config", 'sandbox_mode="read-only"'],
   } as const;
 
+// Declared on every Codex launch so operator or project config.toml files with
+// `inherit = "core"`, `ignore_default_excludes = false`, or filters cannot strip
+// HARNESS_* credentials, GH_TOKEN, or GIT_CONFIG_KEY_* before spawning tool shells.
+const codexToolEnvironmentToml =
+  'shell_environment_policy={inherit="all",ignore_default_excludes=true,exclude=[],include_only=[]}';
+export const codexToolEnvironmentConfig = {
+  inherit: "all",
+  ignore_default_excludes: true,
+  exclude: [],
+  include_only: [],
+} as const;
+
 export const runtimeKinds = [
   {
     kindId: "claude",
@@ -386,6 +398,8 @@ export const runtimeKinds = [
         "$effort-config",
         "$fast",
         "$web-search",
+        "--config",
+        codexToolEnvironmentToml,
         "$session",
         "-",
       ],

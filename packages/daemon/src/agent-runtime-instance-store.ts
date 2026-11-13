@@ -71,6 +71,7 @@ import {
   credentialUnavailableHint,
   isolatedEnvironment,
   launchArgs,
+  launchEnvironment,
   providerSubscriptionReadiness,
 } from "./agent-runtime-launch-config.ts";
 import { runtimePermissionMode, type RuntimeIsolationState } from "./runtime-permissions.ts";
@@ -81,7 +82,6 @@ import {
   runtimeEffortRidesProviderConfig,
   runtimeKindForId,
   runtimeKindIds,
-  type RuntimeProviderDeclaration,
 } from "./runtime-inventory.ts";
 import { hostingCredentialReference } from "./runtime-hosting-credentials.ts";
 import { runtimeVersionGate, runtimeWebSearchVersionGate } from "./runtime-version.ts";
@@ -445,19 +445,17 @@ export function openRuntimeInstanceStore(input: {
       throw runtimeInstanceError("invalid_runtime_launch", "Runtime cwd must be absolute and prompt is required.");
     if (config.isolationState === "enforced") ensureStateRoot(config);
     const declaration = runtimeKindForId(config.kindId),
-      launch: RuntimeProviderDeclaration["launch"] = declaration.launch,
       protocolFamily = declaration.protocolFamily,
       launchTempDirectory =
         config.isolationState === "enforced" && request.runtimeSessionId !== undefined
           ? runtimeTempDirectory(instancesRoot, config.instanceId, request.runtimeSessionId)
           : null,
-      env: NodeJS.ProcessEnv = {
-        ...authEnvironment(config, launchTempDirectory ?? undefined),
-        ...(permissionMode ? launch.permissionEnvironment?.[permissionMode] : undefined),
-        ...(config.kindId === "claude" && request.commandInterceptions?.length
-          ? { CLAUDE_CODE_SIMPLE: undefined }
-          : {}),
-      },
+      env = launchEnvironment(
+        config,
+        authEnvironment(config, launchTempDirectory ?? undefined),
+        permissionMode,
+        request.commandInterceptions,
+      ),
       nativeInterceptionFiles =
         request.commandInterceptions?.length && commandInterceptionNeedsFiles(config.kindId)
           ? compileCommandInterceptionFiles(
