@@ -1,7 +1,8 @@
 import { consumeKnownError } from "@harness-anything/kernel";
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { runProcessText } from "./process-port.ts";
 
-const loginShellSnapshotTimeoutMs = 4_000;
+const loginShellSnapshotTimeoutMs = daemonRuntimePolicy.defaultValue.terminal.loginShellSnapshotTimeoutMs;
 
 const sessionEnvironmentKeys = [
   // Keeps launchd's ssh-agent channel available when profiles do not recreate it.

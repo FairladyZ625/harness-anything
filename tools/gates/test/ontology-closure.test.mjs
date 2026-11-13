@@ -1446,3 +1446,51 @@ test("dec_7E44897ECDCAEF2B92EC66A260/CH1: daemon runtime/terminal/evaluation clo
     ["ONTOLOGY_POLICY_UNDECLARED"],
   );
 });
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1 review F1: operating defaults belong to the
+// shared Policy declaration, and consumers must derive them instead of retaining leaves.
+test("daemon runtime Policy owns concrete defaults and consumers have no leaf budgets", async () => {
+  const { daemonRuntimePolicy } = await import("../../../packages/kernel/src/domain/cli-operational-policy.ts");
+  const snapshot = loadOntologyClosureSnapshot(repoRoot);
+  assert.deepEqual(daemonRuntimePolicy.defaultValue, {
+    batch: { defaultConcurrency: 2, maximumConcurrency: 32 },
+    process: { providerErrorLimit: 64 * 1024, resumeAdmissionTimeoutMs: 30_000, exitNotificationTimeoutMs: 30_000 },
+    acp: { cancelGraceMs: 2_000 },
+    terminal: { loginShellSnapshotTimeoutMs: 4_000 },
+  });
+
+  const consumers = [
+    [
+      "packages/daemon/src/runtime-orchestration.ts",
+      [
+        "daemonRuntimePolicy.defaultValue.batch.defaultConcurrency",
+        "daemonRuntimePolicy.defaultValue.batch.maximumConcurrency",
+      ],
+    ],
+    ["packages/daemon/src/runtime-spawn-process.ts", ["daemonRuntimePolicy.defaultValue.process"]],
+    ["packages/daemon/src/runtime-spawner.ts", ["daemonRuntimePolicy.defaultValue.process"]],
+    ["packages/daemon/src/runtime-worker-acp.ts", ["daemonRuntimePolicy.defaultValue.acp.cancelGraceMs"]],
+    [
+      "packages/daemon/src/terminal-environment.ts",
+      ["daemonRuntimePolicy.defaultValue.terminal.loginShellSnapshotTimeoutMs"],
+    ],
+  ];
+  for (const [target, references] of consumers) {
+    const source = readFileSync(path.join(repoRoot, target), "utf8");
+    for (const reference of references)
+      assert.match(source, new RegExp(reference.replaceAll(".", "\\.")), `${target} must read ${reference}`);
+  }
+  const spawnLimits = readFileSync(path.join(repoRoot, "packages/daemon/src/runtime-spawn-limits.ts"), "utf8");
+  assert.match(spawnLimits, /daemonRuntimePolicy\.defaultValue\.process/u);
+  assert.doesNotMatch(spawnLimits, /(?:64 \* 1024|30_000)/u, "the compatibility exports must not own defaults");
+  const policyTarget = "packages/kernel/src/domain/cli-operational-policy.ts",
+    policySource = readFileSync(path.join(repoRoot, policyTarget), "utf8"),
+    changedDefault = policySource.replace("resumeAdmissionTimeoutMs: 30_000", "resumeAdmissionTimeoutMs: 31_000");
+  assert.notEqual(changedDefault, policySource);
+  assert.ok(
+    audit(scanOntologyText(policyTarget, changedDefault), { snapshot }).findings.some(
+      (row) => row.code === "ONTOLOGY_POLICY_UNDECLARED",
+    ),
+    "a changed shared runtime default must fail closed",
+  );
+});

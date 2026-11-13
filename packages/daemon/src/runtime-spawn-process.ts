@@ -3,6 +3,7 @@ import { StringDecoder } from "node:string_decoder";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import type { CanonicalEventStore, TaskProjection } from "@harness-anything/kernel";
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import type { DispatchAttemptOutcome } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 import { cmdShellInvocation } from "@harness-anything/storage";
 import { consumeKnownError } from "@harness-anything/kernel";
@@ -30,9 +31,11 @@ import type {
   RuntimeProcess,
   RuntimeProcessObservation,
 } from "./runtime-spawn-types.ts";
-import { exitNotificationTimeoutMs, providerErrorLimit, resumeAdmissionTimeoutMs } from "./runtime-spawn-limits.ts";
 import { runProcessTextAsync } from "./process-port.ts";
 import { requestProcessGroupStop } from "./runtime/process-group-reconciler.ts";
+
+const { providerErrorLimit, resumeAdmissionTimeoutMs, exitNotificationTimeoutMs } =
+  daemonRuntimePolicy.defaultValue.process;
 
 export function requiredRuntimeStore(input: { readonly store?: () => CanonicalEventStore }): CanonicalEventStore {
   if (!input.store)

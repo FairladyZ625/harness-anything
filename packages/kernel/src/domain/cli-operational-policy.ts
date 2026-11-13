@@ -179,22 +179,61 @@ export const cliContractPolicy = {
 
 /**
  * dec_7E44897ECDCAEF2B92EC66A260/CH1: daemon runtime, terminal and evaluation
- * boundaries share the existing host Policy registry. Values stay in their daemon
- * consumers; this declaration records ownership without introducing a new budget.
+ * boundaries share the existing host Policy registry. These are the unchanged
+ * operating defaults; daemon consumers derive their values from this declaration.
  */
 export const daemonRuntimePolicy = {
   id: "daemon-runtime",
   ownerRef: "host",
-  unit: "existing daemon runtime values and branch literals",
+  unit: "concurrency / bytes / milliseconds",
   bounds:
-    "Runtime, terminal, process-port and skill-evaluation branches retain their existing literals and failure behavior; this is an ownership declaration, not a new limit.",
-  defaultValue: null,
+    "Runtime batches default to two and cap at 32; provider diagnostics cap at 65536 bytes; resume admission and exit notification each wait at most 30000ms; ACP cancellation waits 2000ms before SIGTERM; login-shell snapshots wait at most 4000ms.",
+  defaultValue: {
+    batch: { defaultConcurrency: 2, maximumConcurrency: 32 },
+    process: {
+      providerErrorLimit: 64 * 1024,
+      resumeAdmissionTimeoutMs: 30_000,
+      exitNotificationTimeoutMs: 30_000,
+    },
+    acp: { cancelGraceMs: 2_000 },
+    terminal: { loginShellSnapshotTimeoutMs: 4_000 },
+  },
   version: 1,
   scope: "daemon runtime, terminal, process-port and skill-evaluation subsystems",
   reason:
-    "Close the daemon runtime ontology boundary through the existing host Policy registry while preserving every online default.",
+    "Close the daemon runtime ontology boundary through the existing host Policy registry while preserving every online default; consumers must derive operating budgets from this single declaration.",
   fixtures: ["tools/gates/test/ontology-closure.test.mjs"],
   sources: [
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.batch.defaultConcurrency:ffa507c0146c322f150ed794f7b88053",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.batch.maximumConcurrency:609031f5e815e6e2754e6b70e0bc56d6",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.process.resumeAdmissionTimeoutMs:49eb6422ac7e9067ff76aeed9c09ac84",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.process.exitNotificationTimeoutMs:d70f9a5cbbf923c472d612c37b4981a1",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.acp.cancelGraceMs:abf02fbf305350f4cc499a130e5d152b",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.terminal.loginShellSnapshotTimeoutMs:29a5fa63f10f805cd8161f6d18d680e5",
+      route: "daemonRuntimePolicy",
+    },
     {
       candidateId:
         "policy:packages/daemon:packages/daemon/src/agent-runtime-instance-config.ts#runtimeInstanceConfig:3e75c917fa97f3f11361b120ecb27cd4",

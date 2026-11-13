@@ -137,10 +137,11 @@ import {
   type TaskWorktreeCheckout,
 } from "./task-worktree.ts";
 import { assertTaskDispatchPrerequisites, taskDispatchLeaseQualifies } from "./task-dispatch-admission.ts";
-import { providerErrorLimit } from "./runtime-spawn-limits.ts";
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { admitTaskDispatch, runtimeDispatchIdentity } from "./task-dispatch-recovery.ts";
 import { runtimeSpawnReceipt } from "./runtime-spawn-receipt.ts";
 export const resultMediaType = "text/plain; charset=utf-8" as const;
+const { providerErrorLimit } = daemonRuntimePolicy.defaultValue.process;
 // Captured at module level: spawnAttempt's local `process` names the launched RuntimeProcess.
 const hostPlatform = process.platform;
 type RuntimeTaskClaimScope = { release?: () => Promise<void> };
