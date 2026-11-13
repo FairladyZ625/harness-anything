@@ -5,6 +5,7 @@ import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { writeFileDurably, removeFileDurably } from "../../storage/src/durable-file.ts";
 import { queryPayloadFacets as sharedQueryPayloadFacets, taskListQueryFromPayload } from "./repo-query-payload.ts";
 import { runRuntimeHandoff } from "./runtime-handoff.ts";
@@ -358,7 +359,9 @@ export function createRepoCellApi(
       ...readReckoningSignals(
         context.projection,
         typeof payload.generatedAt === "string" ? payload.generatedAt : context.now(),
-        typeof payload.windowHours === "number" ? payload.windowHours : 24,
+        typeof payload.windowHours === "number"
+          ? payload.windowHours
+          : storageReadPolicy.defaultValue.reckoningWindowHours,
       ),
     }),
     // settings 原样返回(含 locale);values 为 kernel 拍平的动作值面(键 = 契约字段)。
@@ -763,7 +766,8 @@ export function createRepoCellApi(
       return queryRead().relationGraphFacet(payload as DaemonRelationGraphFacetPayload);
     }
     const common = queryPayloadFacets(payload, "repo.triadic.relationGraph");
-    if (!common.explicit) return queryRead().relationGraphPage({ limit: 500 });
+    if (!common.explicit)
+      return queryRead().relationGraphPage({ limit: storageReadPolicy.defaultValue.pageSizes.standard });
     return queryRead().relationGraphPage({
       ...(common.status ? { state: common.status } : {}),
       ...(common.updatedAfter ? { updatedAfter: common.updatedAfter } : {}),
@@ -1173,7 +1177,12 @@ export function createRepoCellApi(
     readNodeAutoClaimAssignments: async (binding) => {
       const graph = await read(
         "repo.triadic.relationGraph",
-        { facet: "edges", relationType: "assigned-to", state: "active", limit: 500 },
+        {
+          facet: "edges",
+          relationType: "assigned-to",
+          state: "active",
+          limit: storageReadPolicy.defaultValue.pageSizes.standard,
+        },
         binding,
       );
       return graph.edges.map((relation) => ({

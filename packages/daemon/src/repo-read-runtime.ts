@@ -1,6 +1,7 @@
 import { readRuntimeCanAttach } from "./agent-runtime-read.ts";
 import { taskListQueryFromPayload } from "./repo-query-payload.ts";
 import { type TaskProjection, type TaskProjectionQueries, type WriteReceiptDraft } from "@harness-anything/kernel";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { makeDaemonProjectionReader, makeTaskEventReader } from "@harness-anything/storage";
 import type { FleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { makeEntityActionCatalogExecutor, type EntityActionCatalogRuntimes } from "./entity-action-catalog-executor.ts";
@@ -384,7 +385,12 @@ export function makeRepoReadRuntime(
         const graph = readAtCut(
           projection,
           "repo.triadic.relationGraph",
-          { facet: "edges", relationType: "assigned-to", state: "active", limit: 500 },
+          {
+            facet: "edges",
+            relationType: "assigned-to",
+            state: "active",
+            limit: storageReadPolicy.defaultValue.pageSizes.standard,
+          },
           binding,
         ) as { readonly edges: readonly import("./repo-cell-types.ts").RepoCellAutoClaimRelation[] };
         return graph.edges.map((relation) => ({
@@ -406,7 +412,11 @@ export function makeRepoReadRuntime(
         for (const status of ["in_review", "active"] as const) {
           let cursor: string | undefined;
           while (true) {
-            const page = projection.list({ status, limit: 500, ...(cursor ? { cursor } : {}) });
+            const page = projection.list({
+              status,
+              limit: storageReadPolicy.defaultValue.pageSizes.standard,
+              ...(cursor ? { cursor } : {}),
+            });
             rows.push(...page.rows);
             const next = page.page?.nextCursor;
             if (!next) break;

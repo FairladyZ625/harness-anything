@@ -9,6 +9,7 @@ import {
   isSamePerson,
   stableStringify,
 } from "@harness-anything/kernel";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { authorizeRuntimeRepoAction } from "./repo-cell-authorization.ts";
 import { commitRuntimeSessionBundle, type RuntimeSessionBundle } from "./entity-action-runtime-session.ts";
 import { publicationKillpoints } from "./entity-action-relation.ts";
@@ -61,7 +62,11 @@ export async function commitRuntimeSettlement(
   )
     return commit(bundle);
   for (let cursor: string | undefined; ; ) {
-    const page = cell.projection.readDispatchLifecycle({ by: "active", limit: 100, ...(cursor ? { cursor } : {}) });
+    const page = cell.projection.readDispatchLifecycle({
+      by: "active",
+      limit: storageReadPolicy.defaultValue.listDefaults.dispatchLifecycleLimit,
+      ...(cursor ? { cursor } : {}),
+    });
     if (page.status !== "ready") throw cell.cellCodedError("projection_pending", "Active dispatches are not ready.");
     if (
       page.rows.some(

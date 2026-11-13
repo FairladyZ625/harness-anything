@@ -110,6 +110,10 @@ export const storageScopePolicy = {
     "policy:packages/kernel:packages/kernel/src/domain/storage-scope-policy.ts#assertPostgresClaims:5312ed68cf1379a960ba250924adeb03",
     "policy:packages/kernel:packages/kernel/src/domain/storage-scope-policy.ts#assertSqliteMigrationScope:e9df009a089b3adb05b87c3d43c6a0a5",
     "policy:packages/kernel:packages/kernel/src/domain/storage-scope-policy.ts#assertPostgresStoreScope:65ffee98d53d13b57074855fe60cdec4",
+    "policy:packages/daemon:packages/daemon/src/repo-mode.ts#entityActionCommandTopology.admission:a4d055f9412c87a6ddbcd189bb633bf5",
+    "policy:packages/daemon:packages/daemon/src/repo-mode.ts#builtinOccurrenceCommandTopology:86945640cccf42d8d1e1bae20f80699e",
+    "policy:packages/daemon:packages/daemon/src/repo-mode.ts#builtinOccurrenceCommandTopology.admission:5cd53ec8e9001a6c5d3b05646f3ef3fa",
+    "policy:packages/daemon:packages/daemon/src/repo-read-runtime.ts#makeRepoReadRuntime.run:465f466485692736d9d306d2ea8069b5",
   ].map((candidateId) => ({ candidateId, route: "storage-scope" })),
 } as const satisfies OntologyPolicyDeclaration;
 export const storageScopePolicyJudgments = [

@@ -16,6 +16,101 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/submission-delivery.ts#refreshOrigin:b7aa8072f6624318e22cd65584fdbb97",
         "route": "task-submit",
         "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/ignored-ledger-delivery.ts#assertNoIgnoredLedgerDelivery:c7cc0fb965292eb518e3c2a014550918",
+        "route": "task-submit",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/ignored-ledger-delivery.ts#assertNoIgnoredLedgerDelivery:952cd8a423ce45648e49eff738a75fd8",
+        "route": "task-submit",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-command-run.ts#bindCurrentPersonIdentityWitnesses:49292c8e2692c0cfa8020c261605be4e",
+        "route": "task-submit",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-command-run.ts#bindCurrentPersonIdentityWitnesses:473c81131d4b416acb086e52bd0358cf",
+        "route": "task-submit",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-command-run.ts#bindCurrentPersonIdentityWitnesses:90f9e763b64833b8393ba39acb9cf3cf",
+        "route": "task-submit",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-command-run.ts#bindCurrentPersonIdentityWitnesses:7cbba593ffc359331cd3f1deabcb0574",
+        "route": "task-submit",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-command-run.ts#bindCurrentPersonIdentityWitnesses:162cecb9cc5aa00e075bc6aef2aee891",
+        "route": "task-submit",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-command-run.ts#bindCurrentPersonIdentityWitnesses:c187b04986c00aa822e3826ac9361f52",
+        "route": "task-submit",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-command-run.ts#requiredPublishedGitCommit:b2efaf2976ac33398307c3c8b6d8bdb0",
+        "route": "task-submit",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-command.ts#buildCommand.consentId:b9052ef2fbe53bfc59ffe5aebe958a1c",
+        "route": "task-submit",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-submit.ts#freezeCompletionContract:c9307bf2f42dc90e530d1d2a9498a8a0",
+        "route": "task-submit",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-submit.ts#freezeCompletionContract:ecdf955b79694fe6e22586e24d5bc044",
+        "route": "task-submit",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-task-command-docs.ts#prepareTaskSurfaceWriteAt.event.eventId:a29f1d8dc5945125c2c24bf5941ea324",
+        "route": "task-submit",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/submission-artifacts.ts#createSubmissionArtifactReader:a90fd32eb02c5973cfcf0c346fb48244",
+        "route": "task-submit",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/submission-artifacts.ts#verifyAcceptedContent:891cf706fc2f3e7e9e9d4577001c173f",
+        "route": "task-submit",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/submission-artifacts.ts#resolveSubmissionArtifact:a90fd32eb02c5973cfcf0c346fb48244",
+        "route": "task-submit",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/submit-old-data-copy.ts#assertOldDataCopyReceipt:6967751b566de79ff2404196a344ab6c",
+        "route": "task-submit",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/submit-old-data-copy.ts#assertOldDataCopyReceipt:74c954cfb56fa3a3801ddd89e73c417d",
+        "route": "task-submit",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/submit-old-data-copy.ts#assertOldDataCopyReceipt:351011a6f1db501070b52a6abec52476",
+        "route": "task-submit",
+        "role": "support"
       }
     ]
   },
@@ -681,6 +776,26 @@
         "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-task-event-store.ts#makeSqliteTaskEventStore.publishFollower:d62f8d4b82b1ee00a9938f5f5c49ae49:2",
         "route": "repository-read",
         "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/artifacts-gui-read.ts#invalidCursor:e9ccb15dcdc0b83955f1816ca9133553",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-completion.ts#taskShowFromProjection:075dcf316b4196718a3fede6787d9008",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-read-pool.ts#openRepoReadClient.request.settled:d6be87a1ada55d2111056fb29af5e364",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-read-pool.ts#readError:c6e3ef20ab1e44dd47021d577c3818c4",
+        "route": "repository-read",
+        "role": "support"
       }
     ],
     "concurrency": {
@@ -1310,6 +1425,11 @@
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/transition-document-readiness.ts#transitionDocumentAccessLikeError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
         "route": "doc-sync-submit",
         "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/doc-sync-publication.ts#archiveRuntimeDispatch.opId:8d60cf376eb8e28aa476cfcf88934a6c",
+        "route": "doc-sync-submit",
+        "role": "support"
       }
     ]
   },
@@ -1441,6 +1561,11 @@
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/squad-action-contract.ts#squadCriterionError:c8274bba014f1045c705d06594560238",
+        "route": "squad-run",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-squad-child.ts#reacquireSquadTaskLease:55b6ea8d15ae07239a82ee995fa9bf04",
         "route": "squad-run",
         "role": "support"
       }
@@ -3902,6 +4027,701 @@
         "candidateId": "action:packages/authorization-keycloak-gui:packages/authorization-keycloak-gui/src/PolicyGroupsTab.tsx#createPolicyGroupsTab.toggled:06f9e884b2ffae34fe22c027283eee85",
         "route": "daemon-local-state",
         "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/doc-sync-candidate-scanner.ts#scanDocCandidates.scanOne:fa9d35969d4f16fb4103fd6f4aced3a3",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/doc-sync-command-actions.ts#runDocAction:6ef31a5baa64b07e65e4c201a2fa5d88",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/doc-sync-command-actions.ts#runDocAction:1ea150a3e9169db01ef6384ea99a32da",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/doc-sync-details.ts#recycleClaims:006fcbc69a35b6efbfd9e12f1165999c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/doc-sync-publication.ts#publishDocIntent:e4f3644d444483efaec0b4fab0499d96",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/doc-sync-settlement.ts#scopeRequiredRejection:ddaa2f38e59af094a58309e49eb8b29a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/entity-document-rematerialize.ts#runEntityDocumentRematerialize:3f59762dc7d2b18ec71a86a7dac3a222",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-bootstrap.ts#bootstrapRepo:62b16a27addba3ccc59f1d09975db70c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-bootstrap.ts#isolateLedgerFromProject:c06aaba09f2e3fb00594cede9d0b5bdc",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-action-dispatch.ts#executeRepoAction:073d5757a6e0e2e07b4a3ac8182c84e7",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-action-dispatch.ts#executeRepoAction:d968548a3c3abc18da11dccf63fa01f0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-action-dispatch.ts#executeRepoAction:52611581169a40a1e2837621f5283a0e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-action-dispatch.ts#executeRepoAction:637566ea505b09a9bcb2aa877d15f5fd",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-action-dispatch.ts#executeRepoAction:ce79acf571ea0efb525a2f827d323d11",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-action-dispatch.ts#executeRepoAction:22d36d14c5f63204e2009bf6a24413a9",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-action-dispatch.ts#executeRepoAction:e77ad20a42955aa3c80e3e574f1e0668",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-action-dispatch.ts#runTaskEscalation.cancel:364b37e490c16d5d9a18e01abc959f42",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-spawner.ts#makeRuntimeSpawner.cancel"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-action-dispatch.ts#declareExecutionExecutor.appended:45d7f1624d843b4db4ce2ba40a15919d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-action-dispatch.ts#annotateExecution.appended:45d7f1624d843b4db4ce2ba40a15919d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-api.ts#createRepoCellApi.presetRun.publish.receipt:df398ed9020e19dad3e0b1812455a220",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/repo-cell-command-run.ts#makeRepoCellCommandRunner"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-api.ts#createRepoCellApi.decisionListFromPayload.projectHead:78c8ad42b0163516a8ba746e704de3aa",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/process-port.ts#makeGitReadinessSource.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-api.ts#createRepoCellApi:e26a22e78fb64aa7019c372ef172cd04",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-api.ts#createRepoCellApi.spawnRuntime:a390c9793c2dd8b9601b9c833c7e7442",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-spawner.ts#makeRuntimeSpawner.spawn"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-api.ts#createRepoCellApi.handoffRuntime.command:5c9abcc81840f9b2117e6dc65d953da2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/repo-cell-command-run.ts#makeRepoCellCommandRunner"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-api.ts#createRepoCellApi.continueBuiltin.pending.runInternal.result:9d937b7e01cb905b85d32f1fc2f1dba0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/repo-cell-command-run.ts#makeRepoCellCommandRunner"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-api.ts#createRepoCellApi.continueBuiltin.pending:153e77dfbc0041544af1fcead4d5afb6",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-api.ts#createRepoCellApi.runCommand.receipt:ce5a24e194c8bdccb57d01e2067ee833",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/repo-cell-command-run.ts#makeRepoCellCommandRunner"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-authorization.ts#invalidExecutorBindingFor:6f717ebf761b2cf9ff2ba884357e310c",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-bootstrap-ledger.ts#initializeBootstrapLedger:f3230868763663a91ac99e4678b4e5c7",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-command-run.ts#makeRepoCellCommandRunner.run.enqueuePublication.pending.executed:1822a991692ab36e35599a32a05d7dfc",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/repo-cell-command-run.ts#makeRepoCellCommandRunner.run.enqueuePublication.execute"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-command-run.ts#makeRepoCellCommandRunner.run:6a7d68811e2bab5a3d015921bf3b2898",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/write-queue-external-reads.ts#QueuedPublication"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-command-run.ts#makeRepoCellCommandRunner.receipt:718a5ab0fd0a90123a11fc45b3117e21",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/repo-cell-command-run.ts#makeRepoCellCommandRunner.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-command-witness.ts#collectCommandWitness:518cd50c995fbd3b7439ee72129b9edf",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-command.ts#withServerMeta.eventId:5e8932d5c3cf1264c7612c5743388ea6",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-completion.ts#publishGateWitness.appended:45d7f1624d843b4db4ce2ba40a15919d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-errors.ts#migrationError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-errors.ts#publishGeneratedArtifact:eaf7527f8a5a1d73e2cd9106f542243a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-fact-action.ts#runFactActionNow:e12b337955ca378488b468293cb6ca75",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-lock.ts#acquireWorkspaceLock:40cd7c19cc5ce15809235b9b48edbbf2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-lock.ts#acquireWorkspaceLock:4980eb5e0f52ed8f36219f1ea5d8842b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-lock.ts#acquireWorkspaceLock:40cd7c19cc5ce15809235b9b48edbbf2:2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-lock.ts#acquireWorkspaceLock.close:40cd7c19cc5ce15809235b9b48edbbf2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-open.ts#openRepoWriterCell.runtimeStream.publish.event:92a3a573a762a2333f765a67fb7ea700",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/agent-runtime-stream.ts#AgentRuntimeStreamHub.publish"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-open.ts#openRepoWriterCell.runtimeSpawner.recoverReviewerReview.receipt:6b14ecf9e88716f257a10607ce13e891",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-recovery-work.ts#makeRuntimeRecoveryWork.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-open.ts#openRepoWriterCell.runtimeSpawner.recoverReviewerReview:6a21861fed64d0e11912c1c6f5bd0486",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-recovery-work.ts#makeRuntimeRecoveryWork.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-open.ts#openRepoWriterCell.runtimeSpawner.recoverReviewerReview:77a344a29edebf2526a9dd56ef46bdf6",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-recovery-work.ts#makeRuntimeRecoveryWork.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-open.ts#openRepoWriterCell.runtimeContext:f5668e2eb8baf8d04bf00c18075c7d36",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-open.ts#openRepoWriterCell:00da4a8eeb1d40c99ca28669574ea668",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-open.ts#openRepoWriterCell:536bf9a97a944c928786b6e0178517fe",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-open.ts#openRepoWriterCell:86b49fcc8aa54880b86b42d0081f80bf",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-recovery-work.ts#makeRuntimeRecoveryWork.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-proof.ts#observeDeliveryBaseline.top:4da578b47d509eae45a165c8341ff0a8",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/process-port.ts#makeGitReadinessSource.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-proof.ts#observeDeliveryBaseline.head:1de78e7a3dfbf5ba236b71c5aa097cb5",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/process-port.ts#makeGitReadinessSource.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-proof.ts#observeDeliveryBaseline.commits:eb177aae553fed3bbdbcb7b1d6a0f4d7",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/process-port.ts#makeGitReadinessSource.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-proof.ts#deliveryBranchFork.tip:1acecfcd77652a68902e15f43fe8af01",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/process-port.ts#makeGitReadinessSource.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-proof.ts#deliveryBranchFork.point:b06e1585338127c5780fa06de4f0fa05",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/process-port.ts#makeGitReadinessSource.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-proxy.ts#openRepoCellProxy.pokeOutcomeWaiters:57c3c71964558070a98a9f5b31ddd282",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-proxy.ts#openRepoCellProxy.replicaStatus.causeClass:f48df147155d630e8f94152d96e26091",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-proxy.ts#openRepoCellProxy.terminal.spawn:0d47af55eed795e32a2489c92efb1403",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/terminal-host.ts#TerminalHost.spawn"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-proxy.ts#openRepoCellProxy.terminal.terminate:ef55a813d946064143bf64af7036fdaa",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/terminal-host.ts#TerminalHost.terminate"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-proxy.ts#parkRuntimeWait.finish:4cc5dfca76968ccb789c2342b24ffafc",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-runtime-ingress.ts#appendAuxiliaryRuntimeIngress.hash:71c0d35125115beaf04163597a708bf9",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-runtime-ingress.ts#appendAuxiliaryRuntimeIngress.value.eventId:687911d812ad3dd8448841c30d9e0a67",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-runtime-ingress.ts#appendAuxiliaryRuntimeIngress:7a543ba57f398207d00fde0347b460a8",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-settings-state.ts#makeRepoCellSettingsState.appendInitialization.appended:3f59762dc7d2b18ec71a86a7dac3a222",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-squad-coordinator.ts#makeRepoCellSquadCoordinator.settleScheduleOccurrence:b43ad24105a5a234eb5a1976cc2c4665",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-squad-coordinator.ts#makeRepoCellSquadCoordinator.runtimeSpawner.cancel:d326c1bab9a65326ebef1517535867d1",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-spawner.ts#makeRuntimeSpawner.cancel"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-task-command-docs.ts#acceptPreparedTaskSurfaceWrites.appended:341d50df1544fc68ad60716abe1e396c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-task-create.ts#createTask.appended:5fd2e2095eaf647f9cf91139534d45be",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-task-create.ts#prepareTaskCreateAt:8783b86458c8239a053a7c08eba61a4a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-task-create.ts#upgradePresetSnapshot.appended:45d7f1624d843b4db4ce2ba40a15919d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-task-maintenance.ts#supersedeWithNewTask.appended:89353d53597b54042ab71b577e208dc1",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-task-maintenance.ts#taskValidationContext.context:9cc48e7ded6570b80293b7e21ed0f385",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es5.d.ts#ObjectConstructor.create"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-task-maintenance.ts#migrateTaskPreset.appended:45d7f1624d843b4db4ce2ba40a15919d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-task-maintenance.ts#upsertEntity.appended:45d7f1624d843b4db4ce2ba40a15919d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-task-progress.ts#appendProgress.appended:67fd293f13744cdb1dd5cb40ed04452a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell.ts#chainRepoCellWrite:1bf1a85c4aacea32a818272521107e2c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/repo-cell.ts#remove"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell.ts#chainRepoCellWrite:1bf1a85c4aacea32a818272521107e2c:2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/repo-cell.ts#remove"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-read-pool.ts#stop:f4f67a0092ae65b768463d9ff4bc7057",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/worker_threads.d.ts#worker_threads.Worker.terminate"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-read-runtime.ts#makeRepoReadRuntime.readRuntime.runtimeContext:0f5e51a62eb1e7064554d8af2593ea75",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-read-worker.ts#executeRead:48732fe26292a56cb79223860f475df5",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/repo-read-runtime.ts#makeRepoReadRuntime.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-protocol.ts#deserializeWriterError:4c3bd0c2574f452e3fd17a638185be8b",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker:b569c88504f365e9fbcf0b481723c9cd",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker:8440c69dc1101c79ebefafbc5363d9fc",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker:7222a08952f5ab4cd9563e1b9060a0ed",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/worker_threads.d.ts#worker_threads.MessagePort.on"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker.handleRequest:c8e44ae0e78006f274b215ee46db21c7",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker.handleRequest:506571496933f073a3dca72649230368",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker.handleRequest:ca27dc97f17f18a5b6c8df00f8bb3a2a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/repo-cell-types.ts#RepoCell.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker.handleRequest:c8e44ae0e78006f274b215ee46db21c7:2",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker.remoteRuntimeLaunch.release:27b7c66a287139d6a23eeeeb91da1148",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/transition-document-access.ts#assertTaskTransitionDocumentReady:e1e8e098ecc1f3f7c9ce7f57124e16b4",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/workspace-link-integrity.ts#workspaceLinkFailure:036ac940fa44a62a8b16495ee7b63429",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/workspace-text-port.ts#portError:987c5d7575327d5aaee0a3b88388c39c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/worktree-setup-node-modules.ts#nodeModulesSetupAdapter.prepare:63fa1a001af4c06a956c193770de6f4d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/worktree-setup-node-modules.ts#nodeModulesSetupAdapter.cleanup:dd9124ddc18d7048b5eb645774bf63ed",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/worktree-setup.ts#runWorktreeSetup:61281e14453f8ca854c046dcbe3e234b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/worktree-setup.ts#runWorktreeSetup:920128437d8e33f5273386243858ad52",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/worktree-setup.ts#cleanupWorktreeSetup:e91e535ebf85abcb7a8e4c6db27aadfe",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/worktree-setup.ts#runStep:6dc884291fb0d3cf6405cc57dae3b42e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.appendFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/worktree-setup.ts#spawnShell:15b63065ed120072a5d56049a88d9ba1",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/worktree-setup.ts#removeMirrorEntry:006fcbc69a35b6efbfd9e12f1165999c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/worktree-setup.ts#linkWorktreeLedger:9d190f568731bc21af9a1dc9fe9df35b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/worktree-setup.ts#linkWorktreeLedger:5a160aa3e8f10038f81dbca3e07b0011",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/worktree-setup.ts#linkWorktreeLedger:b0b0a4cca0d79023d3df75ba41775e3e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/worktree-setup.ts#linkWorktreeLedger:56cb59fd115c57c4b66cc47246195699",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/worktree-setup.ts#linkWorktreeLedger:b0b0a4cca0d79023d3df75ba41775e3e:2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/worktree-setup.ts#writeTaskWorktreeDocumentBase:db649643eaef855ae6fa043290fdf7c5",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/worktree-setup.ts#recoverTaskWorktreeDocumentBases:35242aa04eb957847e422355ff6aa085",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/worktree-setup.ts#unlinkWorktreeLedger:9d190f568731bc21af9a1dc9fe9df35b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/worktree-setup.ts#unlinkWorktreeLedger:5a160aa3e8f10038f81dbca3e07b0011",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/worktree-setup.ts#unlinkWorktreeLedger:b0b0a4cca0d79023d3df75ba41775e3e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/worktree-setup.ts#ensureRealDirectory:7bd87f69c9c03efe8f09856afd6e4073",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#resolveWriterReadyWatchdogMs:a48d1bee893fbde95c0e4dad2adaf506",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.startWriterWorker.readyInactive:678c62736f3245cbebb1fe3d62ce934e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/worker_threads.d.ts#worker_threads.Worker.terminate"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.startWriterWorker:aa8df76bb0596b015428c0289d985936",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.startWriterWorker:678c62736f3245cbebb1fe3d62ce934e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/worker_threads.d.ts#worker_threads.Worker.terminate"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.capabilityValue:2b660751bd6341d64a3ec971f636fa97",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.capabilityValue:50a1d1bf1d5353f70cad7a21fe007b87",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-spawn-types.ts#RuntimeProcess.terminate"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.capabilityValue:27b7c66a287139d6a23eeeeb91da1148",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.releaseSessionToken:cc097f038cceffe182542f8d0d62b720",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#abortError:7dd7a0e3c8cf1f23a2c47fec8281182b",
+        "route": "daemon-local-state",
+        "role": "support"
       }
     ],
     "technical": true
@@ -4009,6 +4829,237 @@
         "candidateId": "action:packages/storage:packages/storage/src/migration/engine.ts#migrateStorage:7d3b5188c44721926f05877cd32fe882",
         "route": "daemon:bin",
         "role": "effect"
+      }
+    ]
+  },
+  "doc-materialize": {
+    "owner": "document",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/doc-sync-materialize-action.ts#runDocMaterialize:7c03e74857c479aa3e6a14e60dc37d6e",
+        "route": "doc-materialize",
+        "role": "effect"
+      }
+    ],
+    "concurrency": {
+      "expectedVersion": {
+        "authority": "not-applicable"
+      },
+      "leasePolicy": {
+        "authority": "daemon-host"
+      },
+      "occurrenceClaim": {
+        "authority": "not-applicable"
+      },
+      "idempotency": {
+        "authority": "caller-owned"
+      },
+      "artifactOwnership": {
+        "owner": "host-local",
+        "refTemplate": "daemon-host"
+      }
+    },
+    "execution": {
+      "ingress": "doc-materialize",
+      "read": false
+    }
+  },
+  "repo-purge": {
+    "owner": "repository",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-bootstrap.ts#removeHarnessIgnoreRules:5278c7481d1d150392ca4b1d75471fd2",
+        "route": "repo-purge",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cache-purge.ts#purgeRepoCache:f5978c15af3f9674ff06cefe4883fc0d",
+        "route": "repo-purge",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cache-purge.ts#removeRepoHarnessRoots:f5978c15af3f9674ff06cefe4883fc0d",
+        "route": "repo-purge",
+        "role": "effect"
+      }
+    ],
+    "concurrency": {
+      "expectedVersion": {
+        "authority": "not-applicable"
+      },
+      "leasePolicy": {
+        "authority": "daemon-host"
+      },
+      "occurrenceClaim": {
+        "authority": "not-applicable"
+      },
+      "idempotency": {
+        "authority": "caller-owned"
+      },
+      "artifactOwnership": {
+        "owner": "host-local",
+        "refTemplate": "daemon-host"
+      }
+    },
+    "execution": {
+      "ingress": "repo-purge",
+      "read": false
+    }
+  },
+  "repo-bootstrap": {
+    "owner": "repository",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-bootstrap.ts#bootstrapContentHash:98350a69023f5557ad3864aab246cd81",
+        "route": "repo-bootstrap",
+        "role": "support"
+      }
+    ]
+  },
+  "task-declare-executor": {
+    "owner": "task",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-action-dispatch.ts#declareExecutionExecutor.declaration.eventId:a29f1d8dc5945125c2c24bf5941ea324",
+        "route": "task-declare-executor",
+        "role": "support"
+      }
+    ]
+  },
+  "task-annotate": {
+    "owner": "task",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-action-dispatch.ts#annotateExecution.annotation.eventId:a29f1d8dc5945125c2c24bf5941ea324",
+        "route": "task-annotate",
+        "role": "support"
+      }
+    ]
+  },
+  "runtime-cancel": {
+    "owner": "runtime-session",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-api.ts#createRepoCellApi.cancelRuntime:a18308d7308b5ea641dc16ec8a995fa1",
+        "route": "runtime-cancel",
+        "role": "effect"
+      }
+    ],
+    "concurrency": {
+      "expectedVersion": {
+        "authority": "not-applicable"
+      },
+      "leasePolicy": {
+        "authority": "runtime-host"
+      },
+      "occurrenceClaim": {
+        "authority": "not-applicable"
+      },
+      "idempotency": {
+        "authority": "caller-owned"
+      },
+      "artifactOwnership": {
+        "owner": "runtime-local",
+        "refTemplate": "runtime-host"
+      }
+    },
+    "execution": {
+      "ingress": "runtime-cancel",
+      "read": false
+    }
+  },
+  "task-attest": {
+    "owner": "task",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-completion.ts#publishGateWitness.compiled.eventId:a29f1d8dc5945125c2c24bf5941ea324",
+        "route": "task-attest",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-witness-adapters.ts#attestGateWitness.evidence.evidenceId:fed86534c9b2a548f4bc0aa80290d35c",
+        "route": "task-attest",
+        "role": "support"
+      }
+    ]
+  },
+  "task-review-execution": {
+    "owner": "task",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-packets.ts#packetDigest:98350a69023f5557ad3864aab246cd81",
+        "route": "task-review-execution",
+        "role": "support"
+      }
+    ]
+  },
+  "settings-update": {
+    "owner": "settings",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-settings-state.ts#makeRepoCellSettingsState.appendInitialization.bundle.eventId:a29f1d8dc5945125c2c24bf5941ea324",
+        "route": "settings-update",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-settings-state.ts#makeRepoCellSettingsState.initialize.digest:411148ad2d2fb4f023b190dd56d5f02d",
+        "route": "settings-update",
+        "role": "support"
+      }
+    ]
+  },
+  "task-create": {
+    "owner": "task",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-task-create.ts#createTask:c3bfaace0cc21c86a4e5e7ba0bfbfbd0",
+        "route": "task-create",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-task-create.ts#prepareTaskCreateAt.opId:e38a030d75845133725d797cc736efe2",
+        "route": "task-create",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-task-create.ts#prepareTaskCreateAt.eventId:a29f1d8dc5945125c2c24bf5941ea324",
+        "route": "task-create",
+        "role": "support"
+      }
+    ]
+  },
+  "preset-upgrade": {
+    "owner": "task",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-task-create.ts#upgradePresetSnapshot.compiled.eventId:a29f1d8dc5945125c2c24bf5941ea324",
+        "route": "preset-upgrade",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-task-maintenance.ts#migrateTaskPreset.compiled.eventId:a29f1d8dc5945125c2c24bf5941ea324",
+        "route": "preset-upgrade",
+        "role": "support"
+      }
+    ]
+  },
+  "task-amend": {
+    "owner": "task",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-task-maintenance.ts#upsertEntity.compiled.eventId:e38a030d75845133725d797cc736efe2",
+        "route": "task-amend",
+        "role": "support"
+      }
+    ]
+  },
+  "task-progress-append": {
+    "owner": "task",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-task-progress.ts#appendProgress.compiled.eventId:a29f1d8dc5945125c2c24bf5941ea324",
+        "route": "task-progress-append",
+        "role": "support"
       }
     ]
   }

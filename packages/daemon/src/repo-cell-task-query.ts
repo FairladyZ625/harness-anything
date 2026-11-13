@@ -27,8 +27,9 @@ import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { taskPackageDisposition, type TaskQueryReadModel } from "./task-query-read.ts";
 import { projectedTaskSettings, resolveTaskRootThreshold, resolveTaskWipLimit } from "./task-wip-settings.ts";
 import { selectTaskIndex } from "./task-index-query.ts";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 
-export const DEFAULT_TASK_LIST_LIMIT = 50;
+export const DEFAULT_TASK_LIST_LIMIT = storageReadPolicy.defaultValue.listDefaults.taskLimit;
 
 export interface TaskQueryCell {
   readonly input: { readonly repoId: string };
@@ -368,7 +369,11 @@ function occupyingWipSnapshotEntries(cell: TaskQueryCell): readonly TaskWipSnaps
 
 export function listRelations(cell: TaskQueryCell, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
   const query = cell.relationQueryFromAction(action),
-    read = cell.queryRead().relationGraphPage(Object.keys(query).length ? query : { limit: 500 }),
+    read = cell
+      .queryRead()
+      .relationGraphPage(
+        Object.keys(query).length ? query : { limit: storageReadPolicy.defaultValue.pageSizes.standard },
+      ),
     rows = read.edges.filter(
       (edge) =>
         (!action.entity || edge.sourceRef === action.entity || edge.targetRef === action.entity) &&

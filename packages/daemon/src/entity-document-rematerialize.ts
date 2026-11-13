@@ -330,7 +330,7 @@ function taskDocumentUpdates(
     completionContext: readCompletionContext(projection, taskId, read.snapshot, read.status, rootDir),
   }).map(({ path, body }) => ({
     path,
-    policyId: "typed-machine-writer/v1",
+    policyId: FACT_DOCUMENT_POLICY_ID,
     mediaType: path.endsWith(".json") ? ("application/json" as const) : ("text/markdown" as const),
     body,
   }));

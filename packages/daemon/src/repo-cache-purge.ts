@@ -1,5 +1,6 @@
 import { existsSync, realpathSync, rmSync } from "node:fs";
 import path from "node:path";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { readDispatchStreamHeaders, readDispatchStreamSummary, removeDispatchStream } from "./dispatch-stream.ts";
 import { readDispatchEvidenceState } from "./dispatch-evidence-state.ts";
@@ -57,8 +58,8 @@ export function purgeRepoCache(rootDir: string): readonly string[] {
     /* @gate-identity non-state/environment-io.a4b2ae42a0d210f8 */ rmSync(target, {
       recursive: true,
       force: true,
-      maxRetries: 5,
-      retryDelay: 20,
+      maxRetries: storageReadPolicy.defaultValue.cachePurgeRetry.maxRetries,
+      retryDelay: storageReadPolicy.defaultValue.cachePurgeRetry.retryDelayMs,
     });
     removed.push(`${path.relative(layout.rootDir, path.join(localRoot, ...relative.split("/")))}`);
   }
@@ -97,8 +98,8 @@ export function removeRepoHarnessRoots(rootDir: string): readonly string[] {
     /* @gate-identity non-state/environment-io.9bc5b49b9a770b83 */ rmSync(target, {
       recursive: true,
       force: true,
-      maxRetries: 5,
-      retryDelay: 20,
+      maxRetries: storageReadPolicy.defaultValue.cachePurgeRetry.maxRetries,
+      retryDelay: storageReadPolicy.defaultValue.cachePurgeRetry.retryDelayMs,
     });
     removed.push(receiptPath);
   }

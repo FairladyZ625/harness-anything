@@ -5,10 +5,11 @@ import type {
   WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import type { EventListQuery, TaskProjectionQueries } from "@harness-anything/kernel";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
-export const DEFAULT_EVENT_LIST_LIMIT = 50;
-export const EVENT_LIST_LIMIT_MAX = 500;
+export const DEFAULT_EVENT_LIST_LIMIT = storageReadPolicy.defaultValue.listDefaults.eventLimit;
+export const EVENT_LIST_LIMIT_MAX = storageReadPolicy.defaultValue.pageSizes.standard;
 
 export interface EventQueryCell {
   readonly input: { readonly repoId: string };
@@ -30,7 +31,11 @@ export function eventListQueryFromAction(
   action: RepoTaskAction,
 ): EventListQuery {
   const limit = action.limit === undefined ? DEFAULT_EVENT_LIST_LIMIT : Number(action.limit);
-  if (!Number.isSafeInteger(limit) || limit < 1 || limit > EVENT_LIST_LIMIT_MAX)
+  if (
+    !Number.isSafeInteger(limit) ||
+    limit < storageReadPolicy.defaultValue.minimumRows ||
+    limit > EVENT_LIST_LIMIT_MAX
+  )
     throw cell.cellCodedError(
       "invalid_command",
       `Event list --limit must be an integer between 1 and ${EVENT_LIST_LIMIT_MAX}.`,

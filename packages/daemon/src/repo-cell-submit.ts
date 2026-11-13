@@ -13,6 +13,7 @@ import {
   type SubmissionV1,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import {
   isAgentRuntimeEvent,
   type AgentRuntimeEventV1,
@@ -320,7 +321,7 @@ function readSubmittedImplementationDispatches(
   const events = cell.store.queryEvents?.({
     type: "runtime_dispatch_requested",
     entity: `task/${taskId}`,
-    limit: 500,
+    limit: storageReadPolicy.defaultValue.pageSizes.standard,
   });
   if (!events) return [];
   return events

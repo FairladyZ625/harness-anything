@@ -6,15 +6,16 @@ import {
   type CausalGraphNodeInfo,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { requireSameProjectionCut, type ProjectionCut } from "./projection-cut.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { TaskQueryCell } from "./repo-cell-task-query.ts";
 
 const GRAPH_MAX_DEPTH = 16,
-  GRAPH_NODE_BUDGET = 500,
+  GRAPH_NODE_BUDGET = storageReadPolicy.defaultValue.pageSizes.standard,
   // Neighborhood reads are indexed per seed; this caps how many seeds (root + decision
   // anchors discovered along the way) one graph call may expand.
-  GRAPH_SEED_BUDGET = 128;
+  GRAPH_SEED_BUDGET = storageReadPolicy.defaultValue.graph.seedBudget;
 
 /**
  * `ha graph <ref>`: one read-only causal tree over Work/Task → Decision/claim → Fact.

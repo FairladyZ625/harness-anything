@@ -21,6 +21,7 @@ import {
   resolveHarnessLayout,
   type RepositorySettingsV1,
 } from "@harness-anything/kernel";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { posixShellFallback, runProcessExitAsync, runProcessTextAsync, startDetachedProcess } from "./process-port.ts";
 import { nodeModulesSetupAdapter } from "./worktree-setup-node-modules.ts";
 import type { CanonicalEventStore } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
@@ -434,7 +435,10 @@ export function recoverTaskWorktreeDocumentBases(
     executions = new Set(executionIds);
   let revisionBound: number | undefined;
   while (pending.size > 0) {
-    const events = store.queryEvents({ revisionBound, limit: 1_000 });
+    const events = store.queryEvents({
+      revisionBound,
+      limit: storageReadPolicy.defaultValue.recovery.worktreeDocumentBatchLimit,
+    });
     if (events.length === 0) break;
     for (const event of events) {
       const executionWrite =

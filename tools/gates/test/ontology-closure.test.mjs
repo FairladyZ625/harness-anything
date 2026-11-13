@@ -1137,3 +1137,99 @@ test("dec_7E44897ECDCAEF2B92EC66A260/CH1 S2h: repository-wide judgment baseline 
     );
   }
 });
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: daemon repo, writer, submission, doc-sync and workspace
+// action and policy candidates leave the migration baseline cleanly via semantic action owners and
+// shared kernel policy declarations (never cli-local-effects).
+test("dec_7E44897ECDCAEF2B92EC66A260/CH1: daemon repo/writer/submission/doc-sync/workspace action & policy closure", () => {
+  const scopePath =
+    /^packages\/daemon\/src\/(?:repo-|writer-|submission-|doc-sync|artifacts-gui-read|entity-document-|ignored-ledger-|submit-old-|transition-document-|workspace-|worktree-)/u;
+  const baseline = loadGateAllowlist("ontology-closure", {
+    allowlistRoot: path.join(repoRoot, "tools/gate-allowlists"),
+    report: false,
+  }).candidates;
+  assert.deepEqual(
+    baseline.filter((row) => row.owner === "packages/daemon" && scopePath.test(row.path)),
+    [],
+    "dec_7E44897ECDCAEF2B92EC66A260/CH1 requires 0 allowlist entries for daemon repo/writer/submission/doc-sync/workspace paths",
+  );
+
+  const result = evaluateOntologyClosure({ rootDir: repoRoot, base: "HEAD" });
+  const inScope = result.classified.filter((row) => scopePath.test(row.file));
+  assert.ok(inScope.length >= 240);
+  assert.deepEqual(
+    inScope.filter((row) => row.status !== "registered"),
+    [],
+  );
+
+  const daemonActions = result.classified.filter(
+    (row) => row.category === "action" && row.file.startsWith("packages/daemon/"),
+  );
+  assert.deepEqual(
+    daemonActions.filter((row) => row.declarationRef === "action:cli-local-effects"),
+    [],
+    "daemon actions must never bind to cli-local-effects",
+  );
+
+  for (const [symbol, action] of [
+    ["removeHarnessIgnoreRules", "repo-purge"],
+    ["purgeRepoCache", "repo-purge"],
+    ["removeRepoHarnessRoots", "repo-purge"],
+    ["runDocMaterialize", "doc-materialize"],
+    ["createRepoCellApi.cancelRuntime", "runtime-cancel"],
+  ]) {
+    const matches = inScope.filter((row) => row.category === "action" && row.symbol === symbol);
+    assert.ok(matches.length > 0, symbol);
+    assert.ok(
+      matches.every((row) => row.declarationRef === `action:${action}`),
+      symbol,
+    );
+  }
+
+  const snapshot = loadOntologyClosureSnapshot(repoRoot);
+  for (const target of [
+    "packages/daemon/src/repo-unregistered-probe.ts",
+    "packages/daemon/src/writer-unregistered-probe.ts",
+    "packages/daemon/src/submission-unregistered-probe.ts",
+    "packages/daemon/src/doc-sync-unregistered-probe.ts",
+  ]) {
+    const inlinePolicy = scanOntologyText(target, "export const DEFAULT_EVENT_LIST_LIMIT = 50;\n");
+    assert.equal(inlinePolicy.length, 1, target);
+    assert.deepEqual(
+      audit(inlinePolicy, { snapshot }).findings.map((row) => row.code),
+      ["ONTOLOGY_POLICY_UNDECLARED"],
+      target,
+    );
+    assert.deepEqual(
+      audit(inlinePolicy, { snapshot, baseline: [debt(inlinePolicy[0])], previous: [] }).findings.map(
+        (row) => row.code,
+      ),
+      ["ONTOLOGY_BASELINE_GROWTH"],
+      target,
+    );
+
+    const undeclaredEffect = scanOntologyText(
+      target,
+      "import { rmSync } from 'node:fs'; export function clean(p: string) { rmSync(p); }\n",
+    );
+    assert.equal(undeclaredEffect.filter((row) => row.category === "action").length, 1, target);
+    assert.deepEqual(
+      audit(undeclaredEffect, { snapshot }).findings.map((row) => row.code),
+      ["ONTOLOGY_ACTION_UNDECLARED"],
+      target,
+    );
+  }
+
+  const storagePolicyFile = "packages/kernel/src/domain/storage-read-policy.ts";
+  const storagePolicyText = readFileSync(path.join(repoRoot, storagePolicyFile), "utf8");
+  const crlfStoragePolicy = scanOntologyText(storagePolicyFile, storagePolicyText.replace(/\r?\n/gu, "\r\n"));
+  assert.deepEqual(audit(crlfStoragePolicy, { snapshot }).findings, []);
+
+  const mutatedStoragePolicy = scanOntologyText(
+    storagePolicyFile,
+    storagePolicyText.replace("artifacts: { defaultLimit: 100 }", "artifacts: { defaultLimit: 101 }"),
+  );
+  assert.ok(
+    audit(mutatedStoragePolicy, { snapshot }).findings.some((row) => row.code === "ONTOLOGY_POLICY_UNDECLARED"),
+  );
+});

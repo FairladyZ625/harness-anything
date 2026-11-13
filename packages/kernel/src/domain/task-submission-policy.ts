@@ -50,6 +50,40 @@ export const taskSubmissionPolicies = [
       },
     ],
   },
+  {
+    id: "task-submission-execution-admission",
+    ownerRef: "task",
+    unit: "admission constraints",
+    bounds:
+      "Enforce declared task admission, review packet shaping, risk-tier closeout consent, runtime settlement, and WIP capacity at canonical task boundaries.",
+    defaultValue: null,
+    version: 1,
+    scope: "task submission, review packets, doc-sync candidates, and runtime settlement",
+    reason: "Keep all daemon task admission and packet-shaping policy branches declared under the task ontology.",
+    fixtures: [
+      "packages/daemon/test/submit-pre-write.integration.test.ts",
+      "packages/daemon/test/task-respond-review-rework.integration.test.ts",
+    ],
+    sources: [
+      "policy:packages/daemon:packages/daemon/src/doc-sync-candidate-scanner.ts#canonicalProseBytes:b2d84d2b4a75d2fc7382602739140955",
+      "policy:packages/daemon:packages/daemon/src/repo-cell-action-parse.ts#decisionProposalAction:088fa772b5013ced4a1aeca07bd199d2",
+      "policy:packages/daemon:packages/daemon/src/repo-cell-doctor.ts#orphanLeaseCheck.items:aa16b1884f267de8d0a26d9ac87289ff",
+      "policy:packages/daemon:packages/daemon/src/repo-cell-doctor.ts#wipPressureCheck.ratio:9b6b5b5b0576f68d90d59a1ded00f034",
+      "policy:packages/daemon:packages/daemon/src/repo-cell-packets.ts#reviewPacket:0a25a881aeb9a19d6795b5b3bbf10e3f",
+      "policy:packages/daemon:packages/daemon/src/repo-cell-packets.ts#reviewResponsePacket:0c42a732aaaaf0102ef1e0796fc2c0d1",
+      "policy:packages/daemon:packages/daemon/src/repo-cell-packets.ts#reviewWaiverLine:2e7ae01cc1c087ae8565a706aade5b43",
+      "policy:packages/daemon:packages/daemon/src/repo-cell-review-lint.ts#legacyReviewLint:8e6baab2b4eb85717878a94e39926346",
+      "policy:packages/daemon:packages/daemon/src/repo-cell-runtime-ingress.ts#appendAuxiliaryRuntimeIngress.blobs:1ec753ce74a9f77e25994bf96c47611c",
+      "policy:packages/daemon:packages/daemon/src/repo-cell-runtime-settlement.ts#commitRuntimeSettlement:dcc7932611b6c3eed8d717c028fbdfb4",
+      "policy:packages/daemon:packages/daemon/src/repo-cell-submit.ts#riskTierCloseoutGates.consent:9aaa76c67c4beb1ba16d08a5cb0fda83",
+      "policy:packages/daemon:packages/daemon/src/repo-cell-submit.ts#riskTierCloseoutGates.consent:0a8f90b7b22409ed000115b2fb101145",
+      "policy:packages/daemon:packages/daemon/src/repo-cell-task-command-docs.ts#runTaskCommandWithDocs.intent.executionId:aa0cc6f684939e370d5ac3d320a8ec40",
+      "policy:packages/daemon:packages/daemon/src/repo-cell-task-command-docs.ts#runTaskCommandWithDocs.adjudication:99a191fc7935690958517f8e16fdcea2",
+      "policy:packages/daemon:packages/daemon/src/repo-cell-task-create.ts#prepareTaskCreateAt:ccc677f351a521b1422a8d39f3e21176",
+      "policy:packages/daemon:packages/daemon/src/repo-cell-task-create.ts#prepareTaskCreateAt:be478a9d7bb8fe037b15d730854afaee",
+      "policy:packages/daemon:packages/daemon/src/repo-cell-task-query.ts#assertTaskWipCapacity:a36502dfe96f03ebd1a4dce6b96b8bb6",
+    ].map((candidateId) => ({ candidateId, route: "taskSubmissionPolicies" })),
+  },
 ] as const satisfies readonly OntologyPolicyDeclaration[];
 
 /** The locator vocabulary is shared; a snapshot still obeys its kind's declared admission set. */

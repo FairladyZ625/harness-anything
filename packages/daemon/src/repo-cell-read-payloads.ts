@@ -1,6 +1,7 @@
 import type { DaemonTaskDispatchesPayload } from "./protocol/daemon-protocol-gui-types.ts";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
 import { decisionReadSurfaces } from "@harness-anything/kernel";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 
 export function agendaQueryFromPayload(
   context: RepoCellApiContext,
@@ -14,7 +15,9 @@ export function agendaQueryFromPayload(
   if (
     Object.keys(payload).some((field) => !["limit", "cursor", "work", "attentionOnly"].includes(field)) ||
     (payload.limit !== undefined &&
-      (!Number.isSafeInteger(payload.limit) || Number(payload.limit) < 1 || Number(payload.limit) > 500)) ||
+      (!Number.isSafeInteger(payload.limit) ||
+        Number(payload.limit) < storageReadPolicy.defaultValue.minimumRows ||
+        Number(payload.limit) > storageReadPolicy.defaultValue.pageSizes.standard)) ||
     (payload.cursor !== undefined && (typeof payload.cursor !== "string" || !payload.cursor)) ||
     (payload.work !== undefined && (typeof payload.work !== "string" || !payload.work)) ||
     (payload.attentionOnly !== undefined && typeof payload.attentionOnly !== "boolean")
@@ -54,7 +57,13 @@ export function taskDispatchesPayloadFromCell(
       agentId = payload.agentId === undefined ? undefined : context.requiredCellText(payload.agentId, "agentId"),
       squadId = payload.squadId === undefined ? undefined : context.requiredCellText(payload.squadId, "squadId"),
       limit = payload.limit;
-    if (both || typeof limit !== "number" || !Number.isSafeInteger(limit) || limit < 1 || limit > 500)
+    if (
+      both ||
+      typeof limit !== "number" ||
+      !Number.isSafeInteger(limit) ||
+      limit < storageReadPolicy.defaultValue.minimumRows ||
+      limit > storageReadPolicy.defaultValue.pageSizes.standard
+    )
       throw context.cellCodedError(
         "invalid_command",
         "Task dispatch member reads require exactly one of agentId or squadId and a limit of 1..500.",
@@ -76,9 +85,12 @@ export function taskDispatchesPayloadFromCell(
     throw context.cellCodedError("invalid_command", "Task dispatch latestOnly must be a boolean.");
   if (
     taskIds.length === 0 ||
-    taskIds.length > 500 ||
+    taskIds.length > storageReadPolicy.defaultValue.pageSizes.standard ||
     new Set(taskIds).size !== taskIds.length ||
-    (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1 || limit > 500))
+    (limit !== undefined &&
+      (!Number.isSafeInteger(limit) ||
+        limit < storageReadPolicy.defaultValue.minimumRows ||
+        limit > storageReadPolicy.defaultValue.pageSizes.standard))
   )
     throw context.cellCodedError(
       "invalid_command",
