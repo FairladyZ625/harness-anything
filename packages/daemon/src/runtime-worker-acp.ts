@@ -649,14 +649,22 @@ function acpToolEvidence(update: Record<string, unknown>): {
       update.kind === "execute" ||
       /(?:\b(?:bash|sh|zsh|shell|terminal|powershell)\b|(?:^|\s)ha\s+(?:task|doc|fact)\b)/iu.test(commandText),
     settle = command && settleCommand.test(commandText),
-    writeTool = ["write", "edit", "delete", "move"].includes(String(update.kind)),
-    destinations = writeTool ? acpToolDestinations(input, rawInput, standardInput) : [],
+    toolKind = String(update.kind),
+    destinationFields =
+      toolKind === "write" || toolKind === "edit"
+        ? ["path", "filePath", "file_path", "destination", "to", "newPath"]
+        : toolKind === "move"
+          ? ["destination", "to", "newPath"]
+          : [],
+    destinations = acpToolDestinations(destinationFields, input, rawInput, standardInput),
     ruling = destinations.some((destination) => rulingArtifactPath.test(destination));
   return { command, settle, ruling };
 }
 
-function acpToolDestinations(...inputs: readonly (Record<string, unknown> | null)[]): string[] {
-  const destinationFields = ["path", "filePath", "file_path", "destination", "to", "newPath"];
+function acpToolDestinations(
+  destinationFields: readonly string[],
+  ...inputs: readonly (Record<string, unknown> | null)[]
+): string[] {
   return inputs.flatMap((input) =>
     input === null
       ? []

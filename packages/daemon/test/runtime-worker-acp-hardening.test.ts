@@ -44,6 +44,32 @@ function groupedFixture(options: Parameters<typeof writeAcpProviderStub>[2] = {}
 function fixture() {
   return groupedFixture({}, { configOptions: [] });
 }
+async function continuationForRulingTool(
+  rulingTool: NonNullable<Parameters<typeof writeAcpProviderStub>[2]>["rulingTool"],
+): Promise<boolean> {
+  const { parent, executablePath } = groupedFixture({ unsettledTurn: true, rulingTool }, { configOptions: [] });
+  try {
+    const { records, append } = collect(),
+      child = launch(executablePath, ["acp"], { HOME: parent, PATH: process.env.PATH }),
+      session = runAcpProviderSession(
+        child,
+        {
+          kindId: "codex-acp",
+          cwd: "/tmp",
+          env: { HOME: parent },
+          prompt: "do work",
+          acpApiKey: "test-manifest-key",
+          unsettledTurnContinuation: { maxContinuations: 1 },
+        },
+        append,
+      );
+    await session.done;
+    assert.equal(await closed(child), 0, JSON.stringify(records));
+    return records.some((record) => (record.event as Record<string, unknown> | undefined)?.type === "acp.continuation");
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+}
 test("acp worker selects the declaration's api-key auth method when the instance route is api-key", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-acp-worker-")),
     capture = path.join(parent, "capture.jsonl"),
@@ -633,7 +659,7 @@ test("acp worker treats a completed write to a ruling artifact as settlement evi
     capture = path.join(parent, "capture.jsonl"),
     executablePath = writeAcpProviderStub(path.join(parent, "codex-stub"), capture, {
       unsettledTurn: true,
-      rulingWrite: true,
+      rulingTool: { kind: "edit", input: { path: "artifacts/rulings/request.md" } },
     });
   writeFileSync(capture, "");
   try {
@@ -660,6 +686,33 @@ test("acp worker treats a completed write to a ruling artifact as settlement evi
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }
+});
+
+test("acp worker does not treat deleting a ruling artifact as settlement evidence", async () => {
+  assert.equal(
+    await continuationForRulingTool({ kind: "delete", input: { path: "artifacts/rulings/request.md" } }),
+    true,
+  );
+});
+
+test("acp worker ignores a ruling artifact used only as a move source", async () => {
+  assert.equal(
+    await continuationForRulingTool({
+      kind: "move",
+      input: { path: "artifacts/rulings/request.md", destination: "notes/request.md" },
+    }),
+    true,
+  );
+});
+
+test("acp worker recognizes a ruling artifact used as a move destination", async () => {
+  assert.equal(
+    await continuationForRulingTool({
+      kind: "move",
+      input: { path: "notes/request.md", destination: "artifacts/rulings/request.md" },
+    }),
+    false,
+  );
 });
 
 test("acp worker does not continue command work that never completed", async () => {

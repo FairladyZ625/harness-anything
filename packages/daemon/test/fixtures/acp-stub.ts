@@ -35,8 +35,11 @@ export function writeAcpProviderStub(
     readonly settledCommand?: boolean;
     /** Command output mentions settlement/ruling text while the actual command only reads a plan. */
     readonly unsettledOutputMentions?: boolean;
-    /** A completed write tool targets a ruling artifact after command work. */
-    readonly rulingWrite?: boolean;
+    /** A write-like tool update follows command work to exercise ruling-path evidence. */
+    readonly rulingTool?: {
+      readonly kind: "write" | "edit" | "delete" | "move";
+      readonly input: Record<string, unknown>;
+    };
     /** Emit an explicit ACP protocol error update before the final result. */
     readonly protocolError?: Record<string, unknown>;
     /** Replace the normal final text with an upstream error payload and emit no tools. */
@@ -83,7 +86,7 @@ const unsettledCommandStatus = ${JSON.stringify(options.unsettledCommandStatus ?
 const unsettledTurnAlways = ${JSON.stringify(options.unsettledTurnAlways === true)};
 const settledCommand = ${JSON.stringify(options.settledCommand === true)};
 const unsettledOutputMentions = ${JSON.stringify(options.unsettledOutputMentions === true)};
-const rulingWrite = ${JSON.stringify(options.rulingWrite === true)};
+const rulingTool = ${JSON.stringify(options.rulingTool ?? null)};
 const modelConfigOptions = ${JSON.stringify(options.modelConfigOptions ?? {})};
 const protocolError = ${JSON.stringify(options.protocolError ?? null)};
 const upstreamError = ${JSON.stringify(options.upstreamError ?? null)};
@@ -111,8 +114,8 @@ const finishPrompt = (id, text) => {
     update({ sessionUpdate: "tool_call", toolCallId: "tc-command", title: "shell", kind: "command", input: { command: unsettledOutputMentions ? "cat task_plan.md" : "echo progress" }, status: unsettledCommandStatus });
     if (unsettledOutputMentions)
       update({ sessionUpdate: "tool_call_update", toolCallId: "tc-command", status: "completed", rawOutput: "ha task submit task_1234567890 artifacts/rulings/request.md" });
-    if (rulingWrite) {
-      update({ sessionUpdate: "tool_call", toolCallId: "tc-write", title: "Edit ruling", kind: "edit", input: { path: "artifacts/rulings/request.md" }, status: "in_progress" });
+    if (rulingTool !== null) {
+      update({ sessionUpdate: "tool_call", toolCallId: "tc-write", title: "Write ruling", kind: rulingTool.kind, input: rulingTool.input, status: "in_progress" });
       update({ sessionUpdate: "tool_call_update", toolCallId: "tc-write", status: "completed" });
     }
     update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "progress" } });
