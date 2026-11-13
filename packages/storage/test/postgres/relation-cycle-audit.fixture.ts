@@ -18,6 +18,9 @@ import {
   backfillPgRelationCycleAuditPage,
   PG_RELATION_CYCLE_TABLES,
 } from "../../src/pg/pg-relation-cycle-audit.ts";
+import { taskCreated } from "../store/relation-graph-projection.fixtures.ts";
+import type { TaskEventV1 } from "@harness-anything/kernel";
+import { materializePgProjectionEvents } from "../../src/pg/pg-task-event-materialize.ts";
 import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
 import { readRelationsInTransaction } from "../../src/pg/pg-relation-queries.ts";
 import type { PgTaskProjectionSource } from "../../src/pg/pg-task-source.ts";
@@ -255,6 +258,205 @@ export function relationCycleAuditCases(open: OpenBackend): Readonly<Record<stri
       assert.ok(measurements[1]!.baseline.returnedRows > measurements[0]!.baseline.returnedRows);
       assert.deepEqual(measurements[0]!.read, measurements[1]!.read);
       assert.deepEqual(measurements[0]!.write, measurements[1]!.write);
+    },
+    "ordinary target amendments preserve a ready cycle audit without extra maintenance": async () => {
+      await withTempStoreAsync(async (root) => {
+        const scope = { tenantId: "amend", projectId: "amend", policyEpoch: 1 },
+          backend = await open(root, scope, "amend"),
+          created = taskCreated(1, "target");
+        try {
+          await withPostgresTransaction(
+            backend.pool,
+            (client) => materializePgProjectionEvents(client, scope, { revision: 1, events: [created] }),
+            scope,
+          );
+          await insertEdges(backend.pool, scope, [
+            { id: "a-target", source: "task/a", target: "task/target", type: "depends-on" },
+          ]);
+          await maintainUntilDone(backend.pool, scope);
+          const before = await readScopeAudit(backend.pool, scope);
+          assert.equal(created.type, "task_created");
+          if (created.type !== "task_created") throw new Error("fixture must create a task");
+          const amended: TaskEventV1 = {
+            ...created,
+            eventId: "amended",
+            opId: "amended",
+            workspaceRevision: 2,
+            type: "task_amended",
+            payload: {
+              task: { ...created.payload.task, title: "New title" },
+              mutation: { command: "amend", reason: "title", fields: ["title"] },
+              documentClaims: [],
+            },
+          };
+          await withPostgresTransaction(
+            backend.pool,
+            (client) => materializePgProjectionEvents(client, scope, { revision: 2, events: [amended] }),
+            scope,
+          );
+          assert.deepEqual(await readScopeAudit(backend.pool, scope), before);
+          await updateEdge(backend.pool, scope, "a-target", "task/other", "active");
+          await assert.rejects(readScopeAudit(backend.pool, scope), { code: "projection_pending" });
+          await maintainUntilDone(backend.pool, scope);
+          assert.deepEqual(await readScopeAudit(backend.pool, scope), before);
+        } finally {
+          await backend.close();
+        }
+      });
+    },
+    "dirty pages merge into old cyclic components beyond the selected page without duplicate members": async () => {
+      await withTempStoreAsync(async (root) => {
+        const scope = { tenantId: "dirty-pages", projectId: "dirty-pages", policyEpoch: 1 },
+          backend = await open(root, scope, "dirty-pages"),
+          sqlite = createSqliteAudit(),
+          cycle: Edge[] = [
+            { id: "z12", source: "task/z1", target: "task/z2", type: "depends-on" },
+            { id: "z21", source: "task/z2", target: "task/z1", type: "depends-on" },
+          ],
+          added: Edge[] = [
+            { id: "az", source: "task/a", target: "task/z1", type: "depends-on" },
+            ...Array.from({ length: 128 }, (_, i) => ({
+              id: `f${i}`,
+              source: `task/b${String(i).padStart(3, "0")}`,
+              target: `task/c${String(i).padStart(3, "0")}`,
+              type: "depends-on" as const,
+            })),
+          ];
+        try {
+          await insertEdges(backend.pool, scope, cycle);
+          for (const edge of cycle) insertSqliteEdge(sqlite, edge);
+          await maintainUntilDone(backend.pool, scope);
+          refreshRelationCycleAudit(sqlite);
+          await insertEdges(backend.pool, scope, added);
+          for (const edge of added) insertSqliteEdge(sqlite, edge);
+          await assert.rejects(
+            withPostgresTransaction(
+              backend.pool,
+              async (client) => {
+                await maintainPgRelationCycleAuditPage(client, scope);
+                throw new Error("rollback after cross-page refresh");
+              },
+              scope,
+            ),
+            /rollback after cross-page refresh/u,
+          );
+          await maintainUntilDone(backend.pool, scope);
+          refreshRelationCycleAudit(sqlite);
+          assertAuditEqual(await readScopeAudit(backend.pool, scope), auditRelationCycles(sqlite));
+          // Repeating maintenance must be idempotent after the cross-page merge.
+          await maintainUntilDone(backend.pool, scope);
+          await updateEdge(backend.pool, scope, "z21", "task/z1", "retired");
+          updateSqliteEdge(sqlite, "z21", "task/z1", "retired");
+          await maintainUntilDone(backend.pool, scope);
+          refreshRelationCycleAudit(sqlite);
+          assertAuditEqual(await readScopeAudit(backend.pool, scope), auditRelationCycles(sqlite));
+        } finally {
+          sqlite.close();
+          await backend.close();
+        }
+      });
+    },
+    "repairing one cyclic component never reads all 200 or 2000 historical cycle summaries": async () => {
+      const costs = [];
+      for (const size of [200, 2000])
+        await withTempStoreAsync(async (root) => {
+          const scope = { tenantId: "cycle-winner-cost", projectId: "cycle-winner-cost", policyEpoch: 1 },
+            backend = await open(root, scope, "cycle-winner-cost"),
+            sqlite = createSqliteAudit(),
+            edges: Edge[] = Array.from({ length: size }, (_, i) => {
+              // Deliberately mix case and punctuation: binary SQL ordering is not localeCompare.
+              const prefix = ["A", "a_", "a-", "ä"][i % 4]!,
+                key = `${prefix}${String(i).padStart(4, "0")}`;
+              return [
+                { id: `cycle-${i}-a`, source: `task/${key}/a`, target: `task/${key}/b`, type: "depends-on" as const },
+                { id: `cycle-${i}-b`, source: `task/${key}/b`, target: `task/${key}/a`, type: "depends-on" as const },
+              ];
+            }).flat();
+          try {
+            await insertEdges(backend.pool, scope, edges);
+            for (const edge of edges) insertSqliteEdge(sqlite, edge);
+            await maintainUntilDone(backend.pool, scope);
+            refreshRelationCycleAudit(sqlite);
+            const first = await readScopeAudit(backend.pool, scope);
+            assertAuditEqual(first, auditRelationCycles(sqlite));
+            const retired = first.issues[0]!.relationIds[0]!,
+              target = edges.find(({ id }) => id === retired)!.target,
+              counters = { size, clientStatements: 0, returnedRows: 0, summaryRows: 0 };
+            await withPostgresTransaction(
+              backend.pool,
+              async (client) => {
+                const measured = {
+                  query: async (sql: string, values?: unknown[]) => {
+                    const result = await client.query(sql, values);
+                    counters.clientStatements++;
+                    counters.returnedRows += result.rows.length;
+                    if (/SELECT[^;]*issue_json[^;]*FROM ha_relation_cycle_component/u.test(sql))
+                      counters.summaryRows += result.rows.length;
+                    return result;
+                  },
+                } as unknown as PoolClient;
+                await measured.query(
+                  "UPDATE ha_relations SET relation_state='retired' WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND relation_id=$4",
+                  [scope.tenantId, scope.projectId, scope.policyEpoch, retired],
+                );
+                assert.equal((await maintainPgRelationCycleAuditPage(measured, scope)).done, true);
+              },
+              scope,
+            );
+            costs.push(counters);
+            updateSqliteEdge(sqlite, retired, target, "retired");
+            refreshRelationCycleAudit(sqlite);
+            assertAuditEqual(await readScopeAudit(backend.pool, scope), auditRelationCycles(sqlite));
+          } finally {
+            sqlite.close();
+            await backend.close();
+          }
+        });
+      console.log(JSON.stringify({ cyclicComponentRepairCosts: costs, node: process.versions.node }));
+      for (const cost of costs) {
+        assert.ok(cost.summaryRows <= 1, "a local repair returns at most the winning cycle summary");
+        assert.ok(
+          cost.returnedRows <= 10 * Math.ceil(Math.log2(cost.size + 1)) + 32,
+          "summary maintenance must use a logarithmic index path",
+        );
+      }
+    },
+    "cycle winner order survives internal-node removals and rotations with kernel collation": async () => {
+      await withTempStoreAsync(async (root) => {
+        const scope = { tenantId: "winner-order", projectId: "winner-order", policyEpoch: 1 },
+          backend = await open(root, scope, "winner-order"),
+          sqlite = createSqliteAudit(),
+          keys = ["a_", "A", "a-", "ä", "Z", "z", "a9", "a10", "a2", "b", "B", "é", "e", "c", "C", "d", "D"],
+          edges: Edge[] = keys.flatMap((key, i) => [
+            { id: `order-${i}-a`, source: `task/${key}/a`, target: `task/${key}/b`, type: "depends-on" as const },
+            { id: `order-${i}-b`, source: `task/${key}/b`, target: `task/${key}/a`, type: "depends-on" as const },
+          ]);
+        try {
+          await insertEdges(backend.pool, scope, edges);
+          for (const edge of edges) insertSqliteEdge(sqlite, edge);
+          await maintainUntilDone(backend.pool, scope);
+          refreshRelationCycleAudit(sqlite);
+          assertAuditEqual(await readScopeAudit(backend.pool, scope), auditRelationCycles(sqlite));
+          for (const i of [8, 4, 12, 2, 6, 10, 14, 0, 16, 1, 3, 5, 7, 9, 11, 13, 15]) {
+            const edge = edges[i * 2]!;
+            await updateEdge(backend.pool, scope, edge.id, edge.target, "retired");
+            updateSqliteEdge(sqlite, edge.id, edge.target, "retired");
+            await maintainUntilDone(backend.pool, scope);
+            refreshRelationCycleAudit(sqlite);
+            assertAuditEqual(await readScopeAudit(backend.pool, scope), auditRelationCycles(sqlite));
+          }
+          assert.deepEqual((await readScopeAudit(backend.pool, scope)).issues, []);
+          // Empty index -> insertion must establish a fresh root.
+          await updateEdge(backend.pool, scope, edges[0]!.id, edges[0]!.target, "active");
+          updateSqliteEdge(sqlite, edges[0]!.id, edges[0]!.target, "active");
+          await maintainUntilDone(backend.pool, scope);
+          refreshRelationCycleAudit(sqlite);
+          assertAuditEqual(await readScopeAudit(backend.pool, scope), auditRelationCycles(sqlite));
+        } finally {
+          sqlite.close();
+          await backend.close();
+        }
+      });
     },
     "reader sets never reuse another visible graph's cycle witness or count": async () => {
       await withTempStoreAsync(async (root) => {

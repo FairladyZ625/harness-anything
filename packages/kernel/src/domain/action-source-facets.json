@@ -994,6 +994,11 @@
         "route": "repository-read",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-relation-cycle-winners.ts#PgRelationCycleWinners.remove:d1ce1014bbc19446d5a0706412f7c4a6",
+        "route": "repository-read",
+        "role": "support"
       }
     ],
     "concurrency": {
@@ -10136,6 +10141,24 @@
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-relation-cycle-audit.ts#refreshPgRelationCycleAuditPage:21b4e7147726f599dcb8cf5d3565d803",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pg/pg-relation-cycle-winners.ts#PgRelationCycleWinners.remove"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-relation-cycle-audit.ts#refreshPgRelationCycleAuditPage:7594e54414ae4d5ccae93b6910eb538c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pg/pg-relation-cycle-winners.ts#PgRelationCycleWinners.insert"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-relation-cycle-audit.ts#refreshPgRelationCycleAuditPage:074e64443e1e98ffd6fabadeda042050",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pg/pg-relation-cycle-winners.ts#PgRelationCycleWinners.publish"
       }
     ],
     "technical": true

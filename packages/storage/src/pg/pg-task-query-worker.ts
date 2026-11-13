@@ -148,7 +148,12 @@ function startWorker(
 
   const initialize = async () => {
     const client = await pool.connect();
+    let borrowedReadOnly = false;
     try {
+      if (options.readSessions)
+        borrowedReadOnly =
+          (await client.query<{ transaction_read_only: string }>("SHOW transaction_read_only")).rows[0]!
+            .transaction_read_only === "on";
       if (input.requireRuntimeRole) {
         const row = (
           await client.query<{ unsafe: boolean }>(
@@ -163,10 +168,9 @@ function startWorker(
     } finally {
       await client.release();
     }
-    // The embedded physical owner initializes its cache before admitting readers. A logical
-    // facade can open inside another facade's read-only snapshot; it must not repeat writes.
-    // Further scoped caches are maintained by projection apply/catch-up, never by nested reads.
-    if (!options.readSessions)
+    // An embedded facade may borrow another reader's snapshot. Only that actual read-only
+    // transaction must skip writes; ordinary opens still prepare their scoped cache.
+    if (!borrowedReadOnly)
       for (;;) {
         const page = await withPostgresTransaction(
           pool,

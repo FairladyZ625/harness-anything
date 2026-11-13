@@ -7,9 +7,13 @@ import type { Pool } from "pg";
 import { startPgQuerySession } from "../../src/pg/pg-task-query-worker.ts";
 import { pgliteGroupReadPool } from "../../src/pglite/read-session-pool.ts";
 
-for (const embedded of [false, true])
+for (const { embedded, readOnly } of [
+  { embedded: false, readOnly: false },
+  { embedded: true, readOnly: false },
+  { embedded: true, readOnly: true },
+])
   test(
-    `closing a ${embedded ? "shared embedded" : "standalone"} query endpoint drains its active operation before returning the client`,
+    `closing a ${readOnly ? "borrowed read-only" : embedded ? "embedded" : "standalone"} query endpoint drains its active operation before returning the client`,
     { timeout: 5_000 },
     async () => {
       let unblock!: () => void, observed!: () => void;
@@ -25,7 +29,9 @@ for (const embedded of [false, true])
       const client = Object.assign(new EventEmitter(), {
         async query(sql: string) {
           assert.equal(checkedOut, true, "an unfinished operation used a returned pool client");
-          if (embedded)
+          if (sql === "SHOW transaction_read_only")
+            return { rows: [{ transaction_read_only: readOnly ? "on" : "off" }], rowCount: 1 };
+          if (readOnly)
             assert.doesNotMatch(
               sql,
               /\b(?:INSERT|UPDATE|DELETE)\b/u,
@@ -87,7 +93,7 @@ for (const embedded of [false, true])
         assert.equal(closed, false, "close returned while its query still owned the connection");
         assert.equal(
           releases,
-          embedded ? 1 : 2,
+          readOnly ? 1 : 2,
           "only initialization and standalone maintenance have released clients",
         );
         unblock();
@@ -95,7 +101,7 @@ for (const embedded of [false, true])
         assert.equal(reply.error, undefined);
         assert.equal(reply.result, null);
         await closing;
-        assert.equal(releases, embedded ? 2 : 3);
+        assert.equal(releases, readOnly ? 2 : 3);
         assert.equal(checkedOut, false);
       } finally {
         unblock();

@@ -1,3 +1,4 @@
+import { PgRelationCycleWinners } from "./pg-relation-cycle-winners.ts";
 import type { PoolClient } from "pg";
 import {
   findRelationCycleWitnesses,
@@ -52,7 +53,7 @@ export function relationCycleAuditDdl(): readonly string[] {
     )`,
     /* @gate-identity state-store/task.projection.ha_relation_cycle_component */ `CREATE TABLE IF NOT EXISTS ha_relation_cycle_component (
       ${POSTGRES_SCOPE_COLUMNS_SQL}, reader_key text[] NOT NULL, component_id text NOT NULL, relation_type text NOT NULL,
-      priority text NOT NULL, issue_json jsonb NOT NULL,
+      priority text NOT NULL, issue_json jsonb NOT NULL, left_id text, right_id text, height integer NOT NULL DEFAULT 1,
       PRIMARY KEY (tenant_id,project_id,policy_epoch,reader_key,component_id)
     )`,
     /* @gate-identity state-store/task.projection.ha_relation_cycle_member */ `CREATE TABLE IF NOT EXISTS ha_relation_cycle_member (
@@ -60,7 +61,7 @@ export function relationCycleAuditDdl(): readonly string[] {
       PRIMARY KEY (tenant_id,project_id,policy_epoch,reader_key,relation_type,node_ref)
     )`,
     /* @gate-identity state-store/task.projection.ha_relation_cycle_result */ `CREATE TABLE IF NOT EXISTS ha_relation_cycle_result (
-      ${POSTGRES_SCOPE_COLUMNS_SQL}, reader_key text[] NOT NULL, relation_type text NOT NULL, issue_json jsonb NOT NULL,
+      ${POSTGRES_SCOPE_COLUMNS_SQL}, reader_key text[] NOT NULL, relation_type text NOT NULL, root_component_id text NOT NULL, issue_json jsonb NOT NULL,
       PRIMARY KEY (tenant_id,project_id,policy_epoch,reader_key,relation_type)
     )`,
     "CREATE INDEX IF NOT EXISTS ha_relation_cycle_edge_source ON ha_relation_cycle_edge (tenant_id,project_id,policy_epoch,relation_type,source_ref)",
@@ -80,6 +81,11 @@ export function relationCycleAuditDdl(): readonly string[] {
     `CREATE OR REPLACE FUNCTION ha_relation_cycle_sync() RETURNS trigger
       LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
       BEGIN
+        IF TG_OP = 'UPDATE' AND
+          (NEW.tenant_id,NEW.project_id,NEW.policy_epoch,NEW.relation_id,NEW.source_ref,NEW.target_ref,NEW.relation_type,NEW.relation_state,NEW.value->>'direction',NEW.readers)
+          IS NOT DISTINCT FROM
+          (OLD.tenant_id,OLD.project_id,OLD.policy_epoch,OLD.relation_id,OLD.source_ref,OLD.target_ref,OLD.relation_type,OLD.relation_state,OLD.value->>'direction',OLD.readers)
+        THEN RETURN NEW; END IF;
         INSERT INTO ha_relation_cycle_count(tenant_id,project_id,policy_epoch,reader_key,singleton,edge_count)
         VALUES (COALESCE(NEW.tenant_id,OLD.tenant_id),COALESCE(NEW.project_id,OLD.project_id),
           COALESCE(NEW.policy_epoch,OLD.policy_epoch),'{}',true,0)
@@ -230,29 +236,9 @@ async function refreshPgRelationCycleAuditPage(
     const seeds = new Set(
         dirty.rows.filter((row) => row.relation_type === relationType).map(({ node_ref }) => node_ref),
       ),
-      oldComponents = await client.query<{ component_id: string }>(
-        `SELECT DISTINCT component_id FROM ha_relation_cycle_member
-         WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND reader_key=$4 AND relation_type=$5 AND node_ref = ANY($6::text[])`,
-        [...keys, relationType, [...seeds]],
-      ),
-      oldIds = oldComponents.rows.map(({ component_id }) => component_id);
-    if (oldIds.length) {
-      const oldNodes = await client.query<{ node_ref: string }>(
-        `SELECT node_ref FROM ha_relation_cycle_member WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND reader_key=$4 AND component_id=ANY($5::text[])`,
-        [...keys, oldIds],
-      );
-      for (const { node_ref } of oldNodes.rows) seeds.add(node_ref);
-      await client.query(
-        "DELETE FROM ha_relation_cycle_member WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND reader_key=$4 AND component_id=ANY($5::text[])",
-        [...keys, oldIds],
-      );
-      await client.query(
-        "DELETE FROM ha_relation_cycle_component WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND reader_key=$4 AND component_id=ANY($5::text[])",
-        [...keys, oldIds],
-      );
-    }
-    const visited = new Set<string>();
-    let changedCycles = oldIds.length > 0;
+      visited = new Set<string>();
+    let winners: PgRelationCycleWinners | undefined;
+    const index = async () => (winners ??= await PgRelationCycleWinners.open(client, [...keys, relationType]));
     for (const seed of seeds) {
       if (visited.has(seed)) continue;
       const nodes = new Set([seed]),
@@ -272,6 +258,21 @@ async function refreshPgRelationCycleAuditPage(
              AND (source_ref=$6 OR target_ref=$6)`,
           [...keys, relationType, node],
         );
+        // A selected dirty seed may enter an old cyclic component whose own dirty marker
+        // is beyond this page. Invalidate every component reached, and revisit its old members
+        // as separate seeds: deletions may have split them into several current components.
+        const previous = await client.query<{ component_id: string }>(
+          "SELECT component_id FROM ha_relation_cycle_member WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND reader_key=$4 AND relation_type=$5 AND node_ref=$6",
+          [...keys, relationType, node],
+        );
+        for (const { component_id } of previous.rows) {
+          const oldNodes = await client.query<{ node_ref: string }>(
+            "DELETE FROM ha_relation_cycle_member WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND reader_key=$4 AND component_id=$5 RETURNING node_ref",
+            [...keys, component_id],
+          );
+          for (const { node_ref } of oldNodes.rows) seeds.add(node_ref);
+          await (await index()).remove(component_id);
+        }
         for (const row of rows.rows) {
           edges.set(row.relation_id, {
             relationId: row.relation_id,
@@ -291,7 +292,6 @@ async function refreshPgRelationCycleAuditPage(
         [...keys, relationType, [...nodes]],
       );
       if (!witness) continue;
-      changedCycles = true;
       const reaching = new Set(witness.nodeRefs),
         reverse = new Map<string, string[]>();
       for (const edge of edges.values())
@@ -300,32 +300,14 @@ async function refreshPgRelationCycleAuditPage(
       const priority = [...reaching].sort((left, right) => left.localeCompare(right))[0]!;
       const componentId = `${relationType}:${[...nodes].sort()[0]}`;
       const issue = { code: "relation_cycle_detected" as const, ...witness };
-      await client.query(
-        `INSERT INTO ha_relation_cycle_component(tenant_id,project_id,policy_epoch,reader_key,component_id,relation_type,priority,issue_json)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)`,
-        [...keys, componentId, relationType, priority, JSON.stringify(issue)],
-      );
+      await (await index()).insert(componentId, priority, issue);
       await client.query(
         `INSERT INTO ha_relation_cycle_member(tenant_id,project_id,policy_epoch,reader_key,relation_type,node_ref,component_id)
          SELECT $1,$2,$3,$4,$5,node,$6 FROM unnest($7::text[]) AS node`,
         [...keys, relationType, componentId, [...nodes]],
       );
     }
-    if (!changedCycles) continue;
-    const candidates = await client.query<{ priority: string; issue_json: RelationCycleIssue }>(
-      `SELECT priority,issue_json FROM ha_relation_cycle_component WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND reader_key=$4 AND relation_type=$5`,
-      [...keys, relationType],
-    );
-    candidates.rows.sort((left, right) => left.priority.localeCompare(right.priority));
-    await client.query(
-      "DELETE FROM ha_relation_cycle_result WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND reader_key=$4 AND relation_type=$5",
-      [...keys, relationType],
-    );
-    if (candidates.rows[0])
-      await client.query(
-        "INSERT INTO ha_relation_cycle_result(tenant_id,project_id,policy_epoch,reader_key,relation_type,issue_json) VALUES ($1,$2,$3,$4,$5,$6::jsonb)",
-        [...keys, relationType, JSON.stringify(candidates.rows[0].issue_json)],
-      );
+    if (winners) await winners.publish();
   }
   const remaining = await client.query(
     "SELECT 1 FROM ha_relation_cycle_dirty WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND reader_key=$4 LIMIT 1",
