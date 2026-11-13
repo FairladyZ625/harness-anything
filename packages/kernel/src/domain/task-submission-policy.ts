@@ -99,3 +99,111 @@ export const taskReviewAttributionPolicy = {
     },
   ],
 } as const satisfies OntologyPolicyDeclaration;
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: task aggregate rules declared at their existing kernel owners.
+export const taskKernelPolicies = [
+  {
+    id: "task-review-completion",
+    ownerRef: "task",
+    unit: "review consent / completion override / return budgets",
+    bounds:
+      "Manual gates cannot be mandatory-signoff or overridable; only a declared allowOverride gate may be waived and only without a human waiver or submission-bound automated witness. Owner consent accepts a selected changes_requested review only after its disposition. A high effective risk tier requires consent. Review return and rework budgets are positive safe integers, and receipts carry only valid risk-tier advice and assessments.",
+    defaultValue: { consentRequiredAt: "high", minimumReturns: 1 },
+    version: 1,
+    scope: "Task completion contract, closeout readiness, review consent and write receipts",
+    reason: "Completion and review admission keep their existing rules under one task-owned declaration.",
+    fixtures: [
+      "packages/kernel/test/domain/completion-contract.test.ts",
+      "packages/kernel/test/domain/review-consent-validity.test.ts",
+      "packages/kernel/test/domain/task-completion-consent-reason.test.ts",
+      "packages/kernel/test/domain/task-review-response-transitions.test.ts",
+    ],
+    sources: [
+      "policy:packages/kernel:packages/kernel/src/domain/closeout-readiness.ts#judgeGateWitnesses.waivable:9763e9b894cb805db2cc1ed85f5102da",
+      "policy:packages/kernel:packages/kernel/src/domain/closeout-readiness.ts#judgeGateWitnesses:2dfe854b2c340a4f5eae2629dcdc5d4d",
+      "policy:packages/kernel:packages/kernel/src/domain/completion-contract.ts#frozenRequirement:51e8bf471d3f1a3849bb737046f71225",
+      "policy:packages/kernel:packages/kernel/src/domain/completion-contract.ts#resolveCompletionContract:959520ff2d88fdf1a286f08f7941aef6",
+      "policy:packages/kernel:packages/kernel/src/domain/completion-contract.ts#resolveCompletionContract.allowOverride:0307849d69caa87c2ee562f1caed0b74",
+      "policy:packages/kernel:packages/kernel/src/domain/completion-readiness.ts#consentRequirementReason:f5a3bbe33ef78f3f1f178a954ff55a71",
+      "policy:packages/kernel:packages/kernel/src/domain/receipt-domain-registry.ts#validateWriteReceipt:94c47af45c68062c1cb5bb10c32858d5",
+      "policy:packages/kernel:packages/kernel/src/domain/receipt-domain-registry.ts#validateWriteReceipt:7c2363e466cf91526ca5da57e4640d5f",
+      "policy:packages/kernel:packages/kernel/src/domain/review-consent-validity.ts#reviewConsentConflicts:424b0c5db7b0f8ea9c56368eda72d159",
+      "policy:packages/kernel:packages/kernel/src/domain/review.ts#consentedApprovedReviewForExecution:cdb7b219afb311fb3f3d84bc68945810",
+      "policy:packages/kernel:packages/kernel/src/domain/review.ts#consentedApprovedReviewForExecution.allowSelectedChangesRequested:f9f6564242ed8c8938724d1e0e3af0f3",
+      "policy:packages/kernel:packages/kernel/src/domain/settings.ts#gateSettingsSchema.items.properties.allowOverride:c468b7690a370b7628b20578c485512d",
+      "policy:packages/kernel:packages/kernel/src/domain/task-lifecycle-review-transitions.ts#reviewIssues:251cf8523701cd132b73931063fecda0",
+      "policy:packages/kernel:packages/kernel/src/domain/task-lifecycle-review-transitions.ts#consent.validate.conflicts.allowSelectedChangesRequested:f9f6564242ed8c8938724d1e0e3af0f3",
+      "policy:packages/kernel:packages/kernel/src/domain/task.ts#validateTaskV2:33b6554c913b9aef09af1b983d538dd5",
+    ].map((candidateId) => ({ candidateId, route: "task review and completion" })),
+  },
+  {
+    id: "task-status-transition",
+    ownerRef: "task",
+    unit: "domain status transition",
+    bounds:
+      "A status may stay unchanged or move only along allowedStatusTransitions; terminal statuses explain terminal_status and other refusals unsupported_transition. Block, unblock and cancel additionally require no live lease and a different target status; block also requires the implementation node.",
+    defaultValue: null,
+    version: 1,
+    scope: "explainStatusTransition and the task block/unblock/cancel commands",
+    reason: "Status moves are explained by one table; the commands reuse it without a second transition rule.",
+    fixtures: [
+      "packages/kernel/test/domain/domain-status.test.ts",
+      "packages/kernel/test/contracts/task-lifecycle-initialization.test.ts",
+    ],
+    sources: [
+      "policy:packages/kernel:packages/kernel/src/domain/lifecycle-status.ts#explainStatusTransition.allowed:d3583fbbe4fa23918ff42c68ae84c60d",
+      "policy:packages/kernel:packages/kernel/src/domain/lifecycle-status.ts#explainStatusTransition.allowed:d3583fbbe4fa23918ff42c68ae84c60d:2",
+      "policy:packages/kernel:packages/kernel/src/domain/lifecycle-status.ts#explainStatusTransition.allowed:f0ce3ef598574b1ebe708af042563f87",
+      "policy:packages/kernel:packages/kernel/src/domain/task-lifecycle-command-transitions.ts#block.validate:0d2653ace56ef051d0e46cb12990af45",
+      "policy:packages/kernel:packages/kernel/src/domain/task-lifecycle-command-transitions.ts#unblock.validate:2a003ff1b0c7caf9d44f0e6d19a5ae05",
+      "policy:packages/kernel:packages/kernel/src/domain/task-lifecycle-command-transitions.ts#cancel.validate:914f6222d9e61c4faca6f533cc2e353d",
+    ].map((candidateId) => ({ candidateId, route: "explainStatusTransition" })),
+  },
+  {
+    id: "completion-gate-run",
+    ownerRef: "task/witness",
+    unit: "gate run fence / pass ratio / CI run attempt",
+    bounds:
+      "Only the holder of the current submission run and fence may publish a gate run, before it expires; a renewed source run retires only an expired GitHub Actions claim. Skill evaluations start at fence 1 and pass when passed/total meets a threshold in (0, 1]. GitHub and GitLab observations bind runId to databaseRunId.runAttempt and require positive verification attempts.",
+    defaultValue: { initialFence: 1, passRatioMaximum: 1 },
+    version: 1,
+    scope: "Completion gate runs, skill evaluation gates and CI run observations",
+    reason: "Gate witnesses keep their existing fencing and pass rules under the task completion owner.",
+    fixtures: [
+      "packages/kernel/test/completion-source.test.ts",
+      "packages/kernel/test/skill-eval-gate.test.ts",
+      "packages/kernel/test/contracts/ci-run-observation-event.test.ts",
+      "packages/kernel/test/contracts/task-lifecycle-replay.test.ts",
+    ],
+    sources: [
+      "policy:packages/kernel:packages/kernel/src/domain/ci-run-observation-v4.ts#validateCiRunObservationEventV4:1e8f75d71d8d6f3750ab7cf35244e123",
+      "policy:packages/kernel:packages/kernel/src/domain/ci-run-observation-v4.ts#validateCiRunObservationEventV4:d5e1b9c24e2b268c9290e9362955417c",
+      "policy:packages/kernel:packages/kernel/src/domain/gate-run-publication.ts#replaceClaimedRun:8d9bee6ae5bb0fabb7e16fde1c4443ef",
+      "policy:packages/kernel:packages/kernel/src/domain/gate-run.ts#settleGateRun:a7c50f9c787678735f5d423db50ba677",
+      "policy:packages/kernel:packages/kernel/src/domain/task-lifecycle-replay.ts#assertReplay:7313f9e102e78c1bb95ae1504c19750b",
+      "policy:packages/kernel:packages/kernel/src/skill-eval-gate.ts#declaration.sources.resultSchema.properties.threshold:886d706450fc9d9e0b62e8b8ec383400",
+      "policy:packages/kernel:packages/kernel/src/skill-eval-gate.ts#judgeSkillEvaluation.run.claimFence:be29b81881629307de842e8efbde4fb8",
+      "policy:packages/kernel:packages/kernel/src/skill-eval-gate.ts#validateOutcome:75c0c9685011761e76f3c4d9437401cf",
+    ].map((candidateId) => ({ candidateId, route: "completion gate run" })),
+  },
+] as const satisfies readonly OntologyPolicyDeclaration[];
+
+export const executionDelegationPolicy = {
+  id: "execution-delegation",
+  ownerRef: "execution",
+  unit: "delegated actions / executor declaration",
+  bounds:
+    "A delegated execution token lists at least one valid action name; an executor declaration names an eligible agent executor on the current execution with a reason and a workspace revision newer than the snapshot.",
+  defaultValue: null,
+  version: 1,
+  scope: "Delegated execution tokens and execution executor declarations",
+  reason: "Delegation admission is declared once; token and replay validation keep their existing checks.",
+  fixtures: [
+    "packages/kernel/test/contracts/delegated-execution-token.test.ts",
+    "packages/kernel/test/contracts/task-lifecycle-replay.test.ts",
+  ],
+  sources: [
+    "policy:packages/kernel:packages/kernel/src/domain/delegated-execution-token.ts#validateDelegatedExecutionToken:b269eb7a26a1eb6e4cbd1c8c88f896bd",
+    "policy:packages/kernel:packages/kernel/src/domain/task-lifecycle-replay.ts#compileExecutionExecutorDeclaration:3f38832e263dbb1a4535c6c3df71c0c3",
+  ].map((candidateId) => ({ candidateId, route: "execution delegation" })),
+} as const satisfies OntologyPolicyDeclaration;

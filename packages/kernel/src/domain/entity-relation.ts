@@ -8,6 +8,7 @@ import { isRecord } from "./write-chain.contract.ts";
 import { relationStates } from "./relation-state.ts";
 import { relationTypes } from "./relation-type-registry.ts";
 import type { RelationType } from "./relation-type-registry.ts";
+import type { OntologyPolicyDeclaration } from "./ontology-source.ts";
 export { relationStates } from "./relation-state.ts";
 export { relationTypes } from "./relation-type-registry.ts";
 export type { RelationType } from "./relation-type-registry.ts";
@@ -421,3 +422,29 @@ function hostOwnsSource(host: ParsedEntityRef, source: ParsedEntityRef): boolean
   if (host.kind !== source.kind) return false;
   return host.id === source.id;
 }
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: relation endpoint eligibility and migrated relation history.
+export const relationEndpointPolicy = {
+  id: "relation-endpoint",
+  ownerRef: "relation",
+  unit: "endpoint eligibility / history source",
+  bounds:
+    "Base entities declare relationEndpoint.eligible exactly true; an active relation record must be allowed for its source and target kinds by the relation registry; a migration import may seed a relation aggregate only with relation history.",
+  defaultValue: true,
+  version: 1,
+  scope: "Base entity validation, host relation records and relation replay",
+  reason: "Relation endpoints stay closed to declared kinds; the existing checks are declared once.",
+  fixtures: [
+    "packages/kernel/test/contracts/relation-entity.test.ts",
+    "packages/kernel/test/contracts/governed-relation-authority.test.ts",
+  ],
+  sources: [
+    "policy:packages/kernel:packages/kernel/src/domain/base-entity.ts#relationEndpointEligibility.eligible:0ecdd0a0ec441b6e03ee52034d48cd94",
+    "policy:packages/kernel:packages/kernel/src/domain/base-entity.ts#validateBaseEntity:3926f1bb9d17ce3780e7f23e77339a6e",
+    "policy:packages/kernel:packages/kernel/src/domain/entity-relation.ts#validateRelationRecordsForHost:e4d3cd475704884284e9f0d73d9ef466",
+    "policy:packages/kernel:packages/kernel/src/domain/relation-event.ts#reduceRelationEntity:624727f95a694da5377215c75d07eac8",
+    "policy:packages/kernel:packages/kernel/src/domain/relation-event.ts#reduceRelationEntity.relation:f6ee9662cecef44f2036765a9d3053c2",
+    "policy:packages/kernel:packages/kernel/src/domain/relation-event.ts#reduceRelationEntity.id:4b3233fa7f066611c638d65dff01bf1b",
+    "policy:packages/kernel:packages/kernel/src/domain/relation-event.ts#reduceRelationEntity:1e4d3986e0f07bc9ded9beec9628ca06",
+  ].map((candidateId) => ({ candidateId, route: "relation endpoint" })),
+} as const satisfies OntologyPolicyDeclaration;

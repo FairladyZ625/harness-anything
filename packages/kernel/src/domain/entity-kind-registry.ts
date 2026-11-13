@@ -3,17 +3,24 @@ import {
   cliContractPolicy,
   dshBrokerPolicy,
   dshPresentationPolicy,
+  hostKernelPolicies,
 } from "./cli-operational-policy.ts";
 import { presetExecutionPolicy, taskRemoteEdgePolicy } from "./preset-execution-policy.ts";
 import {
   taskSubmissionPolicies,
   artifactLocatorPolicy,
   taskReviewAttributionPolicy,
+  taskKernelPolicies,
+  executionDelegationPolicy,
 } from "./task-submission-policy.ts";
 import { dispatchLifecyclePolicies, dispatchLifecycleJudgment } from "./dispatch-lifecycle-ontology.ts";
 import { todoSchema } from "./todo.ts";
 import { createTodoActionCatalog } from "./todo-action-contract.ts";
-import { AGENT_DECLARATION_V1_SCHEMA, SQUAD_DECLARATION_V1_SCHEMA } from "./agent-squad-schema.ts";
+import {
+  AGENT_DECLARATION_V1_SCHEMA,
+  SQUAD_DECLARATION_V1_SCHEMA,
+  squadLeaderTurnPolicy,
+} from "./agent-squad-schema.ts";
 import { createAgentActionCatalog } from "./agent-action-contract.ts";
 import { runtimeSessionEntityV1Schema } from "./agent-runtime.ts";
 import {
@@ -53,6 +60,7 @@ import {
   relationTypes,
   type RelationDirection,
   type RelationType,
+  relationEndpointPolicy,
 } from "./entity-relation.ts";
 import { boundedContextExceptions, type BoundedContextActionException } from "./entity-bounded-context-exceptions.ts";
 import { relationSchema } from "./entity-kind-relation-schema.ts";
@@ -87,12 +95,27 @@ import { guiInteractionPolicy, identityGuiRejectionPolicy } from "./gui-interact
 import { runtimeReleasePolicy, runtimeReleasePolicyJudgment } from "./runtime-release-readiness.ts";
 import { supplyChainReleasePolicy, supplyChainReleasePolicyJudgment } from "./supply-chain-release-readiness.ts";
 import { storageReadPolicy, storageReadJudgment, storageReadAdditionalJudgments } from "./storage-read-policy.ts";
-import { decisionAdmissionPolicy, decisionAdmissionJudgments } from "./decision-admission.ts";
+import {
+  decisionAdmissionPolicy,
+  decisionAdmissionJudgments,
+  decisionStandingClassPolicy,
+} from "./decision-admission.ts";
 import { storageScopePolicy, storageScopePolicyJudgments } from "./storage-scope-policy.ts";
-import { taskLeasePolicy, taskLeasePolicyJudgments } from "./task-lease-policy.ts";
+import { taskLeasePolicy, taskLeasePolicyJudgments, taskLeasePhasePolicy } from "./task-lease-policy.ts";
+import { taskExecutionWipPolicy } from "./task-wip-policy.ts";
+import { todoSoftLimitPolicy } from "./todo-soft-limit.ts";
+import { settingsDefaultsPolicy } from "./settings-field-declarations.ts";
+import { scheduleOccurrencePolicy } from "./schedule-action-contract.ts";
 import { guiAdmissionPolicy, guiAdmissionPolicyJudgments } from "./gui-admission-policy.ts";
 import { gateMappingPolicy, gateMappingPolicyJudgments } from "./gate-mapping-policy.ts";
-import { storageReplayPolicy, storageReplayJudgments } from "./storage-replay-policy.ts";
+import {
+  storageReplayPolicy,
+  storageReplayJudgments,
+  canonicalContractDecodePolicy,
+  documentClaimPolicy,
+  documentSyncRoutingPolicy,
+  verticalDecodeDetailPolicy,
+} from "./storage-replay-policy.ts";
 import { completionGateOverridePolicy, completionGateOverrideJudgment } from "./completion-gate-policy.ts";
 import { writerLifecyclePolicy } from "./writer-lifecycle-policy.ts";
 import {
@@ -1018,7 +1041,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
         route: "submitTask → shared snapshot checks; applyTransition → submit.validate → validateSubmitExecution",
       }],
     }],
-    policies: [presetExecutionPolicy, taskRemoteEdgePolicy, ...taskSubmissionPolicies, taskLeasePolicy, completionGateOverridePolicy, taskLeaseGuidancePolicy, {
+    policies: [presetExecutionPolicy, taskRemoteEdgePolicy, ...taskSubmissionPolicies, taskLeasePolicy, taskLeasePhasePolicy, ...taskKernelPolicies, taskExecutionWipPolicy, completionGateOverridePolicy, taskLeaseGuidancePolicy, {
       id: "runtime-dispatch-mutation", ownerRef: "task/release", unit: "task lease generation",
       bounds: "claimOpId must identify the same task, execution and lease version; held/reserving leases fence mutations except contract migration and parent-only amendment.",
       defaultValue: null, version: 1, scope: "center task mutation",
@@ -1201,7 +1224,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     relations: relationsFor("decision"),
     canonicalProjection: null,
     stateStores: stateStoresForKind("decision"),
-    policies: [decisionAdmissionPolicy,{
+    policies: [decisionAdmissionPolicy, decisionStandingClassPolicy,{
       id: "acceptance-draft-fields", ownerRef: "decision", unit: "decision-event/v1 acceptance draft",
       bounds: "standingPolicy starts false; policyRevision is copied only when numeric; the acceptance writer retains final admission.",
       defaultValue: false, version: 1, scope: "Decision accept action compilation",
@@ -1242,6 +1265,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     entityStore: null,
     authoring: { kind: "relation-event", contractRef: "relation-event/v1" },
     sdkExposure: noSdkExposure,
+    policies: [relationEndpointPolicy],
   },
   {
     kind: "todo",
@@ -1257,6 +1281,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     entityStore: genericEntityStore("todos/{id}.json"),
     authoring: genericAuthoring,
     sdkExposure: noSdkExposure,
+    policies: [todoSoftLimitPolicy],
   },
   {
     kind: "agent",
@@ -1293,6 +1318,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     entityStore: genericEntityStore("squads/{id}.json"),
     authoring: genericAuthoring,
     sdkExposure: noSdkExposure,
+    policies: [squadLeaderTurnPolicy],
   },
   {
     kind: "execution",
@@ -1328,6 +1354,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     entityStore: null,
     authoring: { kind: "task-lifecycle", contractRef: "task-event/v1" },
     sdkExposure: noSdkExposure,
+    policies: [executionDelegationPolicy],
   },
   {
     kind: "review",
@@ -1419,6 +1446,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     entityStore: null,
     authoring: { kind: "schedule-event", contractRef: "schedule-event/v1" },
     sdkExposure: noSdkExposure,
+    policies: [scheduleOccurrencePolicy],
   },
   {
     kind: "settings",
@@ -1433,6 +1461,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     entityStore: null,
     authoring: { kind: "settings-event", contractRef: "settings-event/v1" },
     sdkExposure: noSdkExposure,
+    policies: [settingsDefaultsPolicy],
   },
   {
     kind: "person",
@@ -1457,6 +1486,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     entityStore: null,
     authoring: null,
     sdkExposure: noSdkExposure,
+    policies: [documentClaimPolicy, documentSyncRoutingPolicy],
   },
   {
     kind: "migration",
@@ -1493,6 +1523,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     entityStore: null,
     authoring: null,
     sdkExposure: noSdkExposure,
+    policies: [verticalDecodeDetailPolicy],
   },
   {
     ...hostEntityTypeContract,
@@ -1507,6 +1538,8 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
       gateMappingPolicy,
       storageReadPolicy,
       storageReplayPolicy,
+      canonicalContractDecodePolicy,
+      ...hostKernelPolicies,
       storageScopePolicy,
       runtimeReleasePolicy,
       supplyChainReleasePolicy,

@@ -1,6 +1,7 @@
 import type { ProjectedExecution } from "./execution.ts";
 import type { DomainStatus } from "./lifecycle-status.ts";
 import type { TaskClass } from "./task.ts";
+import type { OntologyPolicyDeclaration } from "./ontology-source.ts";
 
 /**
  * Default execution work-in-progress limit. This is a default, not the truth:
@@ -211,3 +212,23 @@ function compareTaskWipSuggestions(left: TaskWipSnapshotEntryV1, right: TaskWipS
   const rightRank = right.status in rank ? rank[right.status as keyof typeof rank] : 3;
   return leftRank - rightRank || left.taskId.localeCompare(right.taskId);
 }
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: the worktable defaults are declared beside the constants they bind.
+export const taskExecutionWipPolicy = {
+  id: "task-execution-wip",
+  ownerRef: "task/start",
+  unit: "occupying tasks",
+  bounds:
+    "The resolved limit and root threshold must be positive safe integers; the default limit is 30 open execution tasks and a task with at least 3 direct children and no own execution is a derived root that does not occupy the worktable. Entering execution is refused once the occupying count reaches the limit, unless closeout evidence writes the work off.",
+  defaultValue: { openExecutionTasks: DEFAULT_TASK_WIP_LIMIT, derivedRootChildren: DEFAULT_TASK_ROOT_THRESHOLD },
+  version: 1,
+  scope: "Task execution worktable admission",
+  reason: "Workspace settings and the environment override the declared defaults; the counting rule is unchanged.",
+  fixtures: ["packages/kernel/test/domain/task-wip-policy.test.ts"],
+  sources: [
+    "policy:packages/kernel:packages/kernel/src/domain/task-wip-policy.ts#DEFAULT_TASK_WIP_LIMIT:d7fd6df8fc166c8ee7990ffdf37f35d0",
+    "policy:packages/kernel:packages/kernel/src/domain/task-wip-policy.ts#DEFAULT_TASK_ROOT_THRESHOLD:6a2085b082b9ac2f198e32b0b1da73f0",
+    "policy:packages/kernel:packages/kernel/src/domain/task-wip-policy.ts#admitTaskExecutionWip:750d34e0e433a86d9139e7942f502c01",
+    "policy:packages/kernel:packages/kernel/src/domain/task-wip-policy.ts#admitTaskExecutionWip:453898490fcb824f7f8237a9aad9e2b1",
+  ].map((candidateId) => ({ candidateId, route: "admitTaskExecutionWip" })),
+} as const satisfies OntologyPolicyDeclaration;

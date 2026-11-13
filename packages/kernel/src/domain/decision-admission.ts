@@ -238,6 +238,23 @@ export const decisionAdmissionPolicy = {
     "policy:packages/kernel:packages/kernel/src/domain/decision-admission.ts#assertDecisionAdmissionAtCut:8e977063238352e3d2ae4431900f862c",
   ].map((candidateId) => ({ candidateId, route: "decisionAdmissionPolicy" })),
 } as const satisfies OntologyPolicyDeclaration;
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: standing-policy classification read by projections and coverage.
+export const decisionStandingClassPolicy = {
+  id: "decision-standing-class",
+  ownerRef: "decision",
+  unit: "decision class / claim fulfillment",
+  bounds:
+    "Only a decision_accepted event whose payload sets standingPolicy reclassifies the Decision as standing_policy; coverage reports a standing_policy claim fulfillment as standing-policy.",
+  defaultValue: "standing_policy",
+  version: 1,
+  scope: "Decision document projection and claim coverage",
+  reason: "The class literal has one producer and one coverage spelling; both stay unchanged.",
+  fixtures: ["packages/kernel/test/domain/decision-review.test.ts"],
+  sources: [
+    "policy:packages/kernel:packages/kernel/src/domain/decision-coverage.ts#coverageOf.fulfillment:65e5110f9bd7afa53cf70009d35c0122",
+    "policy:packages/kernel:packages/kernel/src/domain/decision-event-document.ts#reduceDecisionDocument.decisionClass:5050d0d349d3d3b63ca9a4bdb497fddf",
+  ].map((candidateId) => ({ candidateId, route: "reduceDecisionDocument" })),
+} as const satisfies OntologyPolicyDeclaration;
 export const decisionAdmissionJudgments = [
   {
     id: "assertDecisionAdmissionAtCut",

@@ -7,6 +7,7 @@ import {
   type EntityDocumentJsonSchema,
 } from "./entity-json-schema.ts";
 import { runtimeEffortValues, type RuntimeEffort } from "./runtime-effort.ts";
+import type { OntologyPolicyDeclaration } from "./ontology-source.ts";
 
 export { runtimeEffortValues, type RuntimeEffort };
 
@@ -248,3 +249,20 @@ export function requiredPreparedText(entity: "Agent" | "Squad", value: unknown, 
   if (typeof value !== "string" || !value.trim()) throw new Error(`Prepared ${entity} ${field} is required.`);
   return value;
 }
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: the Squad leader turn budget schema bound.
+export const squadLeaderTurnPolicy = {
+  id: "squad-leader-turns",
+  ownerRef: "squad",
+  unit: "leader turns per Squad run",
+  bounds:
+    "When declared, leaderTurnBudget is an integer from 1 to Number.MAX_SAFE_INTEGER counting the initial, callback and retry leader turns of one run.",
+  defaultValue: null,
+  version: 1,
+  scope: "Squad declaration schema",
+  reason: "The declaration schema owns the only admissible range; no default budget is introduced.",
+  fixtures: ["packages/kernel/test/contracts/entity-store.test.ts"],
+  sources: [
+    "policy:packages/kernel:packages/kernel/src/domain/agent-squad-schema.ts#SQUAD_DECLARATION_V1_SCHEMA.properties.leaderTurnBudget:99331d04107f982fe2caac04edd7dc17",
+  ].map((candidateId) => ({ candidateId, route: "SQUAD_DECLARATION_V1_SCHEMA" })),
+} as const satisfies OntologyPolicyDeclaration;

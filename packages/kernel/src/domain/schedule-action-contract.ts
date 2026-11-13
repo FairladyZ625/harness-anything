@@ -28,6 +28,7 @@ import {
 } from "./schedule.ts";
 import { timestamp } from "./timestamp.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
+import type { OntologyPolicyDeclaration } from "./ontology-source.ts";
 
 type ScheduleEventBundle = ScheduleDefinitionEventBundle | ScheduleDeletedEventBundle | ScheduleRunEventBundle;
 
@@ -909,3 +910,21 @@ function reject(code: string, message: string): never {
 function rejectCriterion(actionId: string, criterionRef: string, code: string, message: string): never {
   throw attributeEntityActionCriterion(Object.assign(new Error(message), { code }), actionId, criterionRef);
 }
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: schedule occurrence claims start at attempt zero and settle on their fence.
+export const scheduleOccurrencePolicy = {
+  id: "schedule-occurrence-claim",
+  ownerRef: "schedule",
+  unit: "attempt index / claim fence",
+  bounds:
+    "A claimed occurrence starts at attemptIndex 0; link and settle require the active run with the same claim fence on the same node, otherwise schedule_claim_stale.",
+  defaultValue: 0,
+  version: 1,
+  scope: "Schedule occurrence claim, link and settle actions",
+  reason: "Occurrence ownership stays fenced by the existing claim; no retry or attempt budget is added.",
+  fixtures: ["packages/kernel/test/schedule.test.ts", "packages/kernel/test/contracts/schedule-event.test.ts"],
+  sources: [
+    "policy:packages/kernel:packages/kernel/src/domain/schedule-action-contract.ts#claimOccurrence.updated.status.activeRun.attemptIndex:0c8160023357cb0919341e53873bd02d",
+    "policy:packages/kernel:packages/kernel/src/domain/schedule-action-contract.ts#matchingClaim:abab1710689c6107ab2c50e8a3fc9da2",
+  ].map((candidateId) => ({ candidateId, route: "schedule occurrence claim" })),
+} as const satisfies OntologyPolicyDeclaration;
