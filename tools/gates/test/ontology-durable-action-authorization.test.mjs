@@ -609,7 +609,7 @@ partitionedTest(
           },
         },
         { only: [target.kind] },
-      ).sourceRows.map(({ candidateId, ok, violations }) => ({ candidateId, ok, violations }));
+      ).sourceRows.map(({ id, ok, violations }) => ({ id, ok, violations }));
     const tools = build.ontology.sources.filter((source) => source.candidateId.startsWith("action:tools:"));
     assert.ok(tools.some((source) => source.role === "technical-port"));
     assert.ok(tools.some((source) => source.role === "support"));
@@ -632,7 +632,7 @@ partitionedTest(
 
     const clientKinds = ["task-create", "task-start", "runtime-run", "agent-install"];
     const clientAudit = auditDurableActionAuthorization(repoRoot, inputs, { only: clientKinds });
-    const clientRows = clientAudit.sourceRows.filter((row) => row.candidateId.startsWith("action:tools:"));
+    const clientRows = clientAudit.sourceRows.filter((row) => row.id.startsWith("action:tools:"));
     assert.equal(clientRows.length, 6);
     assert.deepEqual(
       clientRows.filter((row) => !row.ok),
@@ -650,7 +650,14 @@ partitionedTest(
         ok,
         violations,
       })),
-      [{ ok: false, violations: ["tools client source needs a matching business client port and command/kind route"] }],
+      [
+        {
+          ok: false,
+          violations: [
+            "root tooling client source needs a typed client port whose command/action argument matches its declared route",
+          ],
+        },
+      ],
     );
     assert.deepEqual(
       audit([{ ...dispatchCreateClient, role: "technical-port", route: build.kind }], build).map(
