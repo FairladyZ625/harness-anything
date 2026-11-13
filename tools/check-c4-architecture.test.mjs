@@ -135,6 +135,52 @@ test("resolves package self-reference exports before enforcing daemon plane dire
   );
 });
 
+test("selects the active import and require export conditions independently", async (t) => {
+  const root = await fixture(t);
+  await workspacePackage(root, "daemon", {
+    "./dual": {
+      import: "./src/writer-cell/write.ts",
+      require: "./src/daemon-host/open.cts",
+    },
+  });
+  await source(root, "daemon", "src/runtime-engine/dynamic.mts", 'import("@harness-anything/daemon/dual");\n');
+  await source(root, "daemon", "src/runtime-engine/require.cts", 'require("@harness-anything/daemon/dual");\n');
+  await source(root, "daemon", "src/writer-cell/write.ts", "export {};\n");
+  await source(root, "daemon", "src/daemon-host/open.cts", "export {};\n");
+
+  const result = await checkArchitecture(root);
+
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.violations.some((message) =>
+      message.includes("src/runtime-engine/require.cts:1: runtime-engine -> daemon-host is forbidden"),
+    ),
+  );
+  assert.equal(
+    result.violations.some((message) => message.includes("src/runtime-engine/dynamic.mts:1:")),
+    false,
+  );
+});
+
+test("ignores inactive browser export conditions for Node imports", async (t) => {
+  const root = await fixture(t);
+  await workspacePackage(root, "daemon", {
+    "./entry": {
+      browser: "./src/daemon-host/browser-entry.ts",
+      import: "./src/writer-cell/node-entry.ts",
+      default: "./src/writer-cell/fallback-entry.ts",
+    },
+  });
+  await source(root, "daemon", "src/runtime-engine/run.mts", 'import("@harness-anything/daemon/entry");\n');
+  await source(root, "daemon", "src/daemon-host/browser-entry.ts", "export {};\n");
+  await source(root, "daemon", "src/writer-cell/node-entry.ts", "export {};\n");
+  await source(root, "daemon", "src/writer-cell/fallback-entry.ts", "export {};\n");
+
+  const result = await checkArchitecture(root);
+
+  assert.equal(result.ok, true, result.violations.join("\n"));
+});
+
 test("rejects model relations that drift from deterministic package rules", async (t) => {
   const root = await fixture(t);
   await writeFile(path.join(root, "package.json"), "{}");

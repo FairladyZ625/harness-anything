@@ -142,7 +142,13 @@ function importsFromSource(source, file) {
         imports,
         sourceFile,
         statement.moduleSpecifier,
-        ts.isImportDeclaration(statement) ? "import" : "reexport",
+        ts.isImportDeclaration(statement)
+          ? statement.importClause?.isTypeOnly
+            ? "import-type"
+            : "import"
+          : statement.isTypeOnly
+            ? "import-type"
+            : "reexport",
       );
     } else if (ts.isImportEqualsDeclaration(statement) && ts.isExternalModuleReference(statement.moduleReference)) {
       addSpecifier(imports, sourceFile, statement.moduleReference.expression, "require");
@@ -239,11 +245,16 @@ function sourceFileForTarget(target, packageRoot, root, workspace) {
   return null;
 }
 
-function exportTargets(entry) {
+function exportTargets(entry, conditions) {
   if (typeof entry === "string") return [entry];
-  if (Array.isArray(entry)) return entry.flatMap(exportTargets);
+  if (Array.isArray(entry)) return entry.flatMap((target) => exportTargets(target, conditions));
   if (!entry || typeof entry !== "object") return [];
-  return Object.values(entry).flatMap(exportTargets);
+  for (const [condition, target] of Object.entries(entry)) {
+    if (condition !== "default" && !conditions.has(condition)) continue;
+    const targets = exportTargets(target, conditions);
+    if (targets.length > 0) return targets;
+  }
+  return [];
 }
 
 function wildcardCapture(value, pattern) {
@@ -255,13 +266,16 @@ function wildcardCapture(value, pattern) {
   return value.slice(prefix.length, value.length - suffix.length);
 }
 
-function resolveExportTargets(workspacePackage, specifier) {
+function resolveExportTargets(workspacePackage, specifier, kind) {
   const segments = specifier.split("/");
   const packageNameLength = workspacePackage.name.startsWith("@") ? 2 : 1;
   const packagePath = segments.slice(packageNameLength).join("/");
   const exportKey = packagePath ? `./${packagePath}` : ".";
   const exports = workspacePackage.exports;
-  if (typeof exports === "string" || Array.isArray(exports)) return exportKey === "." ? exportTargets(exports) : [];
+  const conditions = new Set(["node", "node-addons", kind === "require" ? "require" : "import"]);
+  if (kind === "import-type") conditions.add("types");
+  if (typeof exports === "string" || Array.isArray(exports))
+    return exportKey === "." ? exportTargets(exports, conditions) : [];
   if (!exports || typeof exports !== "object") return [];
 
   const hasSubpathKeys = Object.keys(exports).some((key) => key.startsWith("."));
@@ -277,10 +291,10 @@ function resolveExportTargets(workspacePackage, specifier) {
       capture = match.capture;
     }
   }
-  return exportTargets(entry).map((target) => target.replaceAll("*", capture));
+  return exportTargets(entry, conditions).map((target) => target.replaceAll("*", capture));
 }
 
-function resolveTarget(importer, specifier, root, workspace) {
+function resolveTarget(importer, specifier, root, workspace, kind = "import") {
   if (specifier.startsWith(".")) {
     const resolved = path.resolve(root, path.dirname(importer), specifier);
     for (const candidate of [resolved, ...[...sourceExtensions].map((extension) => `${resolved}${extension}`)]) {
@@ -297,7 +311,7 @@ function resolveTarget(importer, specifier, root, workspace) {
   const packageName = specifier.startsWith("@") ? segments.slice(0, 2).join("/") : segments[0];
   const workspacePackage = workspace.packagesByName.get(packageName);
   if (workspacePackage) {
-    for (const target of resolveExportTargets(workspacePackage, specifier)) {
+    for (const target of resolveExportTargets(workspacePackage, specifier, kind)) {
       const sourceFile = sourceFileForTarget(target, workspacePackage.root, root, workspace);
       if (sourceFile) return sourceFile;
     }
@@ -478,7 +492,7 @@ export async function checkArchitecture(root = process.cwd()) {
     if (sourcePackage?.id === "daemon" && file.startsWith("packages/daemon/src/") && !sourcePlane)
       violations.push(`${file}: daemon source file must be assigned to one of ${planeOrder.join(", ")}`);
     for (const imported of imports) {
-      const target = resolveTarget(file, imported.specifier, absoluteRoot, workspace);
+      const target = resolveTarget(file, imported.specifier, absoluteRoot, workspace, imported.kind);
       const targetPackage = resolveWorkspaceTargetPackage(file, imported.specifier, absoluteRoot, workspace);
       const targetPlane = targetPackage?.id === "daemon" && target ? planeForPath(target) : null;
       if (sourcePackage && targetPackage && sourcePackage.id !== targetPackage.id) {
