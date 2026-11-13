@@ -329,7 +329,7 @@ test("agenda labels each task row with its nearest work root and --work keeps on
           ...readyCut,
           rows: rows
             .filter(
-              ({ taskId, snapshot: { task } }) =>
+              ({ taskId }) =>
                 (query.taskIds === undefined || query.taskIds.includes(taskId)) &&
                 (scopeIds === null || scopeIds.has(taskId)),
             )
