@@ -1541,4 +1541,44 @@ export const nonStateIoDeclarations = Object.freeze([
     api: "rmSync",
     scope: "existingSnapshotIsVerified",
   },
+  {
+    id: "environment-io.2bb077b1f356c458",
+    path: "packages/gui/src/main/gui-launch-channel.ts",
+    category: "environment-io",
+    subtype: "gui-profile-migration",
+    reason:
+      "Records local Electron userData legacy-profile migration completion beside Chromium storage; carries no workflow entity state. Signal: mkdirSync in writeLegacyMigrationMarkerAtomic.",
+    api: "mkdirSync",
+    scope: "writeLegacyMigrationMarkerAtomic",
+  },
+  {
+    id: "environment-io.84d45ca9d1ba58bb",
+    path: "packages/gui/src/main/gui-launch-channel.ts",
+    category: "environment-io",
+    subtype: "gui-profile-migration",
+    reason:
+      "Records local Electron userData legacy-profile migration completion beside Chromium storage; carries no workflow entity state. Signal: writeFileSync in writeLegacyMigrationMarkerAtomic.",
+    api: "writeFileSync",
+    scope: "writeLegacyMigrationMarkerAtomic",
+  },
+  {
+    id: "environment-io.184b4306d46e0dce",
+    path: "packages/gui/src/main/gui-launch-channel.ts",
+    category: "environment-io",
+    subtype: "gui-profile-migration",
+    reason:
+      "Records local Electron userData legacy-profile migration completion beside Chromium storage; carries no workflow entity state. Signal: renameSync in writeLegacyMigrationMarkerAtomic.",
+    api: "renameSync",
+    scope: "writeLegacyMigrationMarkerAtomic",
+  },
+  {
+    id: "environment-io.7523d5591544ecd6",
+    path: "packages/gui/src/main/gui-launch-channel.ts",
+    category: "environment-io",
+    subtype: "gui-profile-migration",
+    reason:
+      "Records local Electron userData legacy-profile migration completion beside Chromium storage; carries no workflow entity state. Signal: rmSync in writeLegacyMigrationMarkerAtomic.",
+    api: "rmSync",
+    scope: "writeLegacyMigrationMarkerAtomic",
+  },
 ]);

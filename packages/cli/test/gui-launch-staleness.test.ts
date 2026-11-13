@@ -37,6 +37,7 @@ test("ha gui rebuilds a GUI bundle older than the source commit before launching
           spawned += 1;
           return { pid: 4242 };
         },
+        waitForReady: async () => ({ ok: true }),
       },
       (receipt) => receipts.push(receipt as Receipt),
     );
@@ -66,6 +67,7 @@ test("a missing dist marker in a source checkout counts as stale and is rebuilt"
         resolveElectronRuntime: () => ({ binary: "/electron", remedy: "unused" }),
         ensureDaemon: async () => ({ ok: true, hint: "reachable", attempts: 0 }),
         startDetached: () => ({ pid: 4242 }),
+        waitForReady: async () => ({ ok: true }),
       },
       (receipt) => receipts.push(receipt as Receipt),
     );
@@ -95,6 +97,7 @@ test("a fresh dist marker launches without rebuilding", async () => {
             spawned += 1;
             return { pid: 4242 };
           },
+          waitForReady: async () => ({ ok: true }),
         },
         (receipt) => receipts.push(receipt as Receipt),
       );
@@ -124,6 +127,7 @@ test("an installed GUI package without a src tree never triggers a rebuild", asy
           spawned += 1;
           return { pid: 4242 };
         },
+        waitForReady: async () => ({ ok: true }),
       },
       () => undefined,
     );
@@ -150,6 +154,7 @@ test("an unresolvable source build id skips the staleness check", async () => {
           spawned += 1;
           return { pid: 4242 };
         },
+        waitForReady: async () => ({ ok: true }),
       },
       () => undefined,
     );
@@ -219,6 +224,7 @@ test("the default rebuild path runs the package's build script in the GUI packag
             spawned += 1;
             return { pid: 4242 };
           },
+          waitForReady: async () => ({ ok: true }),
         },
         (receipt) => receipts.push(receipt as Receipt),
       );
@@ -308,6 +314,7 @@ test("a lockfile the installed tree satisfies does not block the rebuild", async
           spawned += 1;
           return { pid: 4242 };
         },
+        waitForReady: async () => ({ ok: true }),
       },
       () => undefined,
     );
@@ -340,6 +347,7 @@ test("an optional lockfile entry the installed tree skips never blocks the rebui
           spawned += 1;
           return { pid: 4242 };
         },
+        waitForReady: async () => ({ ok: true }),
       },
       () => undefined,
     );

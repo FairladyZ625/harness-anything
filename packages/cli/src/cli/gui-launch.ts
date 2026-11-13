@@ -1,7 +1,12 @@
-import { cliContractPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
+import {
+  cliContractPolicy,
+  cliOperationalPolicy,
+} from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
+import { randomBytes } from "node:crypto";
 import { accessSync, constants, existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
+import net from "node:net";
 import path from "node:path";
 import type { DaemonAutostartResult } from "@harness-anything/daemon/internal/client/daemon-autostart";
 import { daemonBuildStamp, readDistBuildId } from "@harness-anything/daemon/internal/build-identity";
@@ -17,10 +22,19 @@ import { isBrowserGuiParentOrigin, startBrowserGuiBroker, type BrowserGuiBroker 
 type ReceiptEmitter = (receipt: Record<string, unknown>, json: boolean) => void;
 type LockfileEntry = { readonly optional?: boolean; readonly resolved?: string; readonly version?: string };
 const DESKTOP_GUI_RELEASES_URL = cliContractPolicy.defaultValue.desktopReleasesUrl;
+const GUI_LAUNCH_TIMEOUT_MS = cliOperationalPolicy.defaultValue.waitMaximumMs;
+const LOOPBACK_HOST = "127.0.0.1";
 export interface GuiElectronRuntime {
   readonly binary?: string;
   readonly installScript?: string;
   readonly remedy: string;
+}
+export interface GuiLaunchReadinessSignal {
+  readonly ok: boolean;
+  readonly mode?: string;
+  readonly pid?: number;
+  readonly reason?: string;
+  readonly detail?: string;
 }
 export interface GuiLaunchDependencies {
   readonly resolveElectronRuntime?: (guiPackageRoot: string) => GuiElectronRuntime;
@@ -32,6 +46,12 @@ export interface GuiLaunchDependencies {
   readonly rebuildGuiBundle?: (guiPackageRoot: string) => void;
   readonly startBrowserBroker?: typeof startBrowserGuiBroker;
   readonly waitForBrowserClose?: (broker: BrowserGuiBroker) => Promise<void>;
+  readonly waitForReady?: (context: {
+    readonly child: ReturnType<typeof startDetachedProcess>;
+    readonly logPath: string;
+    readonly addr: string;
+    readonly token: string;
+  }) => Promise<GuiLaunchReadinessSignal>;
 }
 
 export async function runGuiLaunch(
@@ -117,10 +137,41 @@ export async function runGuiLaunch(
       return 0;
     }
     const logPath = guiStdioLogPath(daemonUserRoot(), daemonIdFromEnv());
+    return await launchDesktopGui({
+      launch,
+      rebuilt: bundle.rebuilt,
+      guiPackageRoot,
+      mainBundle,
+      electronRuntime: electronRuntime!,
+      logPath,
+      dependencies,
+      finish,
+      reject,
+    });
+  } catch (error) {
+    return reject("gui_launch_failed", `Electron could not start the GUI. Cause: ${cliErrorMessage(error)}`);
+  }
+}
+
+async function launchDesktopGui(context: {
+  readonly launch: { readonly rootDir: string; readonly explicitRoot: boolean };
+  readonly rebuilt: boolean;
+  readonly guiPackageRoot: string;
+  readonly mainBundle: string;
+  readonly electronRuntime: GuiElectronRuntime;
+  readonly logPath: string;
+  readonly dependencies: GuiLaunchDependencies;
+  readonly finish: (receipt: Record<string, unknown>, exitCode: number) => number;
+  readonly reject: (errorCode: string, hint: string, exitCode?: number) => number;
+}): Promise<number> {
+  const { launch, rebuilt, guiPackageRoot, mainBundle, electronRuntime, logPath, dependencies, finish, reject } =
+    context;
+  const channel = await startGuiLaunchReadinessServer();
+  try {
     const child = (dependencies.startDetached ?? startDetachedProcess)(
-      electronRuntime!.binary!,
+      electronRuntime.binary!,
       [mainBundle],
-      guiLaunchEnvironment(launch.rootDir),
+      guiLaunchEnvironment(launch.rootDir, launch.explicitRoot, channel.addr, channel.token),
       logPath,
       guiPackageRoot,
       false, // Electron owns a visible window; background daemon launches keep the hidden default.
@@ -129,22 +180,33 @@ export async function runGuiLaunch(
     if (child.pid === undefined)
       return reject(
         "gui_launch_failed",
-        `Electron at ${electronRuntime!.binary} could not be started. Re-run its installer ` +
-          `(\`node ${electronRuntime!.installScript}\`), then retry \`ha gui\`.`,
+        `Electron at ${electronRuntime.binary} could not be started. Re-run its installer ` +
+          `(\`node ${electronRuntime.installScript}\`), then retry \`ha gui\`.`,
       );
+    const signal = dependencies.waitForReady
+      ? await dependencies.waitForReady({ child, logPath, addr: channel.addr, token: channel.token })
+      : await awaitGuiLaunchReadiness({ child, spawnedPid: child.pid, logPath, channel });
+    if (!signal.ok) {
+      return reject("gui_launch_failed", formatGuiLaunchFailure(signal, logPath));
+    }
+    const activePid = signal.pid ?? child.pid;
+    const summary =
+      signal.mode === "second_instance"
+        ? `Harness Anything GUI activated existing window (pid ${activePid}) for ${launch.rootDir}; logs: ${logPath}`
+        : `Harness Anything GUI launched (pid ${activePid}) for ${launch.rootDir}; logs: ${logPath}`;
     return finish(
       {
         ok: true,
         command: "gui",
-        pid: child.pid,
+        pid: activePid,
         log: logPath,
-        ...(bundle.rebuilt ? { rebuilt: true } : {}),
-        summary: `Harness Anything GUI launched (pid ${child.pid}) for ${launch.rootDir}; logs: ${logPath}`,
+        ...(rebuilt ? { rebuilt: true } : {}),
+        summary,
       },
       0,
     );
-  } catch (error) {
-    return reject("gui_launch_failed", `Electron could not start the GUI. Cause: ${cliErrorMessage(error)}`);
+  } finally {
+    channel.close();
   }
 }
 
@@ -276,10 +338,14 @@ function resolveGuiPackageRoot(): string | undefined {
     return undefined;
   }
 }
-function parseGuiLaunch(
-  argv: readonly string[],
-):
-  | { readonly ok: true; readonly rootDir: string; readonly browser: boolean; readonly parentOrigin?: string }
+function parseGuiLaunch(argv: readonly string[]):
+  | {
+      readonly ok: true;
+      readonly rootDir: string;
+      readonly explicitRoot: boolean;
+      readonly browser: boolean;
+      readonly parentOrigin?: string;
+    }
   | { readonly ok: false; readonly code: string; readonly hint: string } {
   let root: string | undefined,
     parentOrigin: string | undefined,
@@ -322,7 +388,13 @@ function parseGuiLaunch(
   }
   if (parentOrigin !== undefined && !browser)
     return { ok: false, code: "invalid_field", hint: "--parent-origin requires --browser." };
-  return { ok: true, rootDir: path.resolve(root ?? process.cwd()), browser, parentOrigin };
+  return {
+    ok: true,
+    rootDir: path.resolve(root ?? process.cwd()),
+    explicitRoot: root !== undefined,
+    browser,
+    parentOrigin,
+  };
 }
 
 function waitForBrowserClose(broker: BrowserGuiBroker): Promise<void> {
@@ -332,9 +404,193 @@ function waitForBrowserClose(broker: BrowserGuiBroker): Promise<void> {
     process.once("SIGTERM", close);
   });
 }
-function guiLaunchEnvironment(rootDir: string): NodeJS.ProcessEnv {
-  const environment: NodeJS.ProcessEnv = { ...process.env, HARNESS_GUI_ROOT: rootDir };
+function guiLaunchEnvironment(
+  rootDir: string,
+  explicitRoot: boolean,
+  launchAddr: string,
+  launchToken: string,
+): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = {
+    ...process.env,
+    HARNESS_GUI_ROOT: rootDir,
+    HARNESS_GUI_ROOT_EXPLICIT: explicitRoot ? "1" : "0",
+    HARNESS_GUI_LAUNCH_ADDR: launchAddr,
+    HARNESS_GUI_LAUNCH_TOKEN: launchToken,
+  };
   delete environment.ELECTRON_RENDERER_URL;
   delete environment.ELECTRON_RUN_AS_NODE;
   return environment;
+}
+
+interface GuiLaunchReadinessChannel {
+  readonly addr: string;
+  readonly token: string;
+  readonly signalPromise: Promise<GuiLaunchReadinessSignal>;
+  whenIdle(): Promise<void>;
+  close(): void;
+}
+
+function tryParseJsonLine(line: string): { readonly valid: true; readonly value: unknown } | { readonly valid: false } {
+  try {
+    return { valid: true, value: JSON.parse(line) };
+  } catch {
+    return { valid: false };
+  }
+}
+
+function parseReadinessPayload(line: string, expectedToken: string): GuiLaunchReadinessSignal | null {
+  const parsed = tryParseJsonLine(line);
+  if (!parsed.valid || typeof parsed.value !== "object" || parsed.value === null) return null;
+  const record = parsed.value as Record<string, unknown>;
+  if (record.token !== expectedToken || typeof record.ok !== "boolean") return null;
+  return {
+    ok: record.ok,
+    ...(typeof record.mode === "string" ? { mode: record.mode } : {}),
+    ...(typeof record.pid === "number" ? { pid: record.pid } : {}),
+    ...(typeof record.reason === "string" ? { reason: record.reason } : {}),
+    ...(typeof record.detail === "string" ? { detail: record.detail } : {}),
+  };
+}
+
+async function startGuiLaunchReadinessServer(): Promise<GuiLaunchReadinessChannel> {
+  const token = randomBytes(16).toString("hex");
+  const sockets: net.Socket[] = [];
+  const idleResolvers: Array<() => void> = [];
+  let resolveSignal: ((signal: GuiLaunchReadinessSignal) => void) | null = null;
+  const signalPromise = new Promise<GuiLaunchReadinessSignal>((resolve) => {
+    resolveSignal = resolve;
+  });
+  let settled = false;
+  const flushIdle = () => {
+    if (sockets.length > 0) return;
+    while (idleResolvers.length > 0) idleResolvers.shift()?.();
+  };
+  const server = net.createServer((socket) => {
+    sockets.push(socket);
+    let buffer = "";
+    socket.setEncoding("utf8");
+    socket.on("close", () => {
+      const index = sockets.indexOf(socket);
+      if (index !== -1) sockets.splice(index, 1);
+      flushIdle();
+    });
+    socket.on("data", (chunk) => {
+      buffer += chunk;
+      const newline = buffer.indexOf("\n");
+      if (newline === -1) return;
+      const payload = parseReadinessPayload(buffer.slice(0, newline), token);
+      if (payload === null) {
+        socket.destroy();
+        return;
+      }
+      socket.end("ack\n");
+      if (!settled) {
+        settled = true;
+        resolveSignal?.(payload);
+      }
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, LOOPBACK_HOST, () => {
+      server.removeListener("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    server.close();
+    throw new Error("Could not bind GUI launch readiness socket.");
+  }
+  return {
+    addr: `${LOOPBACK_HOST}:${address.port}`,
+    token,
+    signalPromise,
+    whenIdle: () => (sockets.length === 0 ? Promise.resolve() : new Promise((resolve) => idleResolvers.push(resolve))),
+    close: () => {
+      for (const socket of sockets.splice(0)) socket.destroy();
+      flushIdle();
+      server.close();
+    },
+  };
+}
+
+async function awaitGuiLaunchReadiness(options: {
+  readonly child: ReturnType<typeof startDetachedProcess>;
+  readonly spawnedPid: number;
+  readonly logPath: string;
+  readonly channel: GuiLaunchReadinessChannel;
+}): Promise<GuiLaunchReadinessSignal> {
+  const { child, spawnedPid, channel } = options;
+  return new Promise<GuiLaunchReadinessSignal>((resolve) => {
+    let done = false;
+    const finish = (signal: GuiLaunchReadinessSignal) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      child.removeListener?.("error", onError);
+      child.removeListener?.("exit", onExit);
+      resolve(signal);
+    };
+    const onError = (error: Error) => {
+      finish({ ok: false, reason: "gui_launch_failed", detail: `Electron process failed to start: ${error.message}` });
+    };
+    const onExit = (code: number | null, sig: NodeJS.Signals | null) => {
+      const exitDetail =
+        sig !== null
+          ? `Electron exited via signal ${sig} before opening a visible GUI window.`
+          : `Electron exited with code ${code ?? "unknown"} before opening a visible GUI window.`;
+      // Let any already-connected readiness socket finish delivering its frame before
+      // concluding the process died without opening a window.
+      void channel.whenIdle().then(() => {
+        setImmediate(() => finish({ ok: false, reason: "gui_process_exited", detail: exitDetail }));
+      });
+    };
+    const timer = setTimeout(() => {
+      void terminateLaunchedPid(spawnedPid);
+      finish({
+        ok: false,
+        reason: "gui_launch_timeout",
+        detail: `Timed out after ${GUI_LAUNCH_TIMEOUT_MS / 1000}s waiting for the Harness Anything GUI window to become visible.`,
+      });
+    }, GUI_LAUNCH_TIMEOUT_MS);
+    timer.unref?.();
+    child.once?.("error", onError);
+    child.once?.("exit", onExit);
+    void channel.signalPromise.then(finish);
+  });
+}
+
+function terminateLaunchedPid(pid: number): { readonly terminated: boolean } {
+  try {
+    process.kill(pid);
+    return { terminated: true };
+  } catch {
+    return { terminated: false };
+  }
+}
+
+function readLogFileResult(logPath: string): { readonly ok: true; readonly content: string } | { readonly ok: false } {
+  try {
+    return { ok: true, content: readFileSync(logPath, "utf8") };
+  } catch {
+    return { ok: false };
+  }
+}
+
+function readGuiLogTail(logPath: string): string {
+  if (!existsSync(logPath)) return "";
+  const read = readLogFileResult(logPath);
+  if (!read.ok) return "";
+  const lines = read.content
+    .split(/\r?\n/u)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0);
+  return lines.slice(-12).join(" | ").slice(0, 800);
+}
+
+function formatGuiLaunchFailure(signal: GuiLaunchReadinessSignal, logPath: string): string {
+  const headline = signal.detail ?? signal.reason ?? "The GUI failed to open a visible desktop window.";
+  const tail = readGuiLogTail(logPath);
+  return tail ? `${headline} Recent log: ${tail} (logs: ${logPath})` : `${headline} Logs: ${logPath}`;
 }

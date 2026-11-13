@@ -4722,6 +4722,18 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#abortError:7dd7a0e3c8cf1f23a2c47fec8281182b",
         "route": "daemon-local-state",
         "role": "support"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/gui-launch-channel.ts#writeLegacyMigrationMarkerAtomic:c95d852228c4374d46de5a76af1e8d6e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/gui-launch-channel.ts#writeLegacyMigrationMarkerAtomic:83f636c16d98abd4813994d8dbdc64dc",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
       }
     ],
     "technical": true
