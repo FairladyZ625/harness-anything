@@ -4,7 +4,10 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import * as pty from "node-pty";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
-import { cliOperationalPolicy, daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
+import {
+  cliOperationalPolicy,
+  daemonRuntimePolicy,
+} from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import {
   writeTerminalAttach,

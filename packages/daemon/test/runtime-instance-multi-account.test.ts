@@ -192,6 +192,62 @@ test("account login for a direct provider uses the instance-bound installation",
   }
 });
 
+test("AGY login, catalog and quota probes, and launch use the same bound installation", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-agy-bound-installation-")),
+    bin = path.join(userRoot, "bin"),
+    trace = path.join(userRoot, "executions.jsonl"),
+    firstPath = path.join(bin, process.platform === "win32" ? "agy-first.cmd" : "agy-first"),
+    secondPath = path.join(bin, process.platform === "win32" ? "agy-second.cmd" : "agy-second"),
+    first = { ...agyInstallation, installationId: "agy-first", executablePath: firstPath },
+    second = { ...agyInstallation, installationId: "agy-second", executablePath: secondPath };
+  mkdirSync(bin, { recursive: true });
+  const stub = (installationId: string) =>
+    `const fs = require("node:fs"); const args = process.argv.slice(2); fs.appendFileSync(${JSON.stringify(trace)}, JSON.stringify({ installationId: ${JSON.stringify(installationId)}, args }) + "\\n"); if (args[0] === "models") console.log("gemini-4-hydrogen-low\\tmodel"); else if (args[0] === "-p") console.log(JSON.stringify({ command: { data: { groups: [{ buckets: [{ remaining_fraction: 1, reset_time: "2026-11-15T12:00:00.000Z" }] }] } } }));`;
+  writeProviderExecutable(firstPath, stub(first.installationId));
+  writeProviderExecutable(secondPath, stub(second.installationId));
+  try {
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      platform: "darwin",
+      env: { PATH: bin, HOME: path.join(userRoot, "operator-home") },
+      discover: () => [first, second],
+    });
+    store.command({
+      kind: "runtime-instance-create",
+      instanceId: "agy-bound-installation",
+      name: "AGY bound installation",
+      kindId: "agy",
+      installationId: second.installationId,
+      providerId: "google",
+      models: ["gemini-4-hydrogen-low"],
+      authMode: "subscription",
+      credentialSource: "instance",
+    });
+
+    assert.equal(store.prepareAuthCommand("agy-bound-installation", "login").executablePath, secondPath);
+    assert.equal((await store.authStatus("agy-bound-installation")).status, "ready");
+    const launch = await store.prepareLaunch("agy-bound-installation", {
+      cwd: userRoot,
+      prompt: "Verify the bound provider executable.",
+    });
+    assert.equal(launch.executablePath, secondPath);
+    const executions = readFileSync(trace, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { readonly installationId: string; readonly args: readonly string[] });
+    assert.deepEqual(
+      executions.map(({ installationId, args }) => [installationId, args[0], args[1]]),
+      [
+        [second.installationId, "models", "--gemini-dir"],
+        [second.installationId, "-p", "/quota"],
+        [second.installationId, "models", "--gemini-dir"],
+      ],
+    );
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
 test("ACP credential-command account login fails closed when its CLI witness is ambiguous", () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-acp-account-ambiguity-")),
     acp = {

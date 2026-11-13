@@ -305,6 +305,12 @@ export { validSquadDispatchContext, validSquadRunSubject } from "./domain/squad-
 
 export { publicRuntimeSession, publicRuntimeInstallation } from "./domain/runtime-public-query.ts";
 
+export {
+  findRuntimeOperatorSubscriptionConflict,
+  runtimeInstanceAccountCutMatches,
+  type RuntimeInstanceAccountCut,
+} from "./domain/runtime-instance-contract.ts";
+
 export type { CanonicalEventSummary } from "./domain/canonical-event-summary.ts";
 
 export type { EventListQuery } from "./domain/event-list.ts";

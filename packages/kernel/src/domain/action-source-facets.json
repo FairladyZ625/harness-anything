@@ -129,22 +129,6 @@
         "route": "task-submit",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/task-actions.ts#useTaskActions.once.promise:3b403a1962c149fd9c57583b420b75eb",
-        "route": "task.submit",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/task-actions.ts#useTaskActions.once.promise:3b403a1962c149fd9c57583b420b75eb:2",
-        "route": "task.submit",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.submitTask:b033a0ee2396af58ed4a783d2b5c2b35",
-        "route": "task.submit",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ]
   },
@@ -192,18 +176,6 @@
         "route": "agent-install",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-entity-client.ts#agentEntityClient.saveAgent:f4724355c960d7726d7da77b5fcae8e8",
-        "route": "agent.entity.write",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useAgentSquadWorkspace.saveAgent.saved:399418174a647f473f1a326270e2d6ee",
-        "route": "agent.entity.write",
-        "role": "client",
-        "port": "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useRuntimeChannel.run"
       }
     ]
   },
@@ -1024,384 +996,6 @@
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/browser/browser-gui-transport.ts#browserTransportError:7363a317a9f16931ef96bc4d90acd386",
-        "route": "repository-read",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#invoke:f48df147155d630e8f94152d96e26091",
-        "route": "repository-read",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/daemon-startup.ts#daemonBridgeError:7363a317a9f16931ef96bc4d90acd386",
-        "route": "repository-read",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/repository-read-frame.ts#repositoryReadFailure:362e51233062884aa04d04ce7db699d9",
-        "route": "repository-read",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/result-validation.ts#rendererReadError:604ae3cb0cfa2525378c105aa12ef6c9",
-        "route": "repository-read",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/task-dispatch-client.ts#readAllTaskDispatches.pages:7316fee8c3c8671ed2dcce03b479df79",
-        "route": "repository-read",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/center-settings-preload.ts#centerSettingsPreloadApi.listener:4b81329bb3208033d26269846dfd633d",
-        "route": "center-listener-read",
-        "role": "client",
-        "port": "packages/gui/src/preload/center-settings-preload.ts#centerSettingsPreloadApi.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/edge-join-entry-preload.ts#edgeJoinEntryPreloadApi.poll:b09c8815718069f926c8c7e5f63addfe",
-        "route": "edge-join-poll",
-        "role": "client",
-        "port": "packages/gui/src/preload/edge-join-entry-preload.ts#edgeJoinEntryPreloadApi.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/edge-join-entry-preload.ts#edgeJoinEntryPreloadApi.progress:162552574072ac55c249f76874126a89",
-        "route": "edge-join-progress",
-        "role": "client",
-        "port": "packages/gui/src/preload/edge-join-entry-preload.ts#edgeJoinEntryPreloadApi.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#invoke.reply:adb2476fab32a91dc3190457c81820b1",
-        "route": "repository-read",
-        "role": "client",
-        "port": "node_modules/electron/electron.d.ts#Electron.IpcRenderer.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedApi:20e2602cac98e0bc1b0b2fc7fab98831",
-        "route": "repository-read",
-        "role": "client",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.request:20e2602cac98e0bc1b0b2fc7fab98831",
-        "route": "repository-read",
-        "role": "client",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.connections.status:39e45501d15a27a2cfe3e47f471a060c",
-        "route": "daemon-status",
-        "role": "client",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.auth.status:05c63b1c2b2d3bf9ffda917c26c15995",
-        "route": "oidc-status-read",
-        "role": "client",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.auth.bindingStatus:d79a33d00c599cebc3700d4f4c38b76e",
-        "route": "oidc-status-read",
-        "role": "client",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.auth.openConsole:17a8779624f7a32a75e10e87b2e733c9",
-        "route": "oidc-status-read",
-        "role": "client",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.auth.bootstrapStatus:fdb06b926747b6d4cb5ab525c42a32bb",
-        "route": "oidc-status-read",
-        "role": "client",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-runtime-client.ts#agentRuntimeClient.overview.readPage:90b5e55c2d1d80aa794d2e3cd9d86bb2",
-        "route": "runtime-status",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-runtime-client.ts#agentRuntimeClient.session:3cb70830404db29f8084187724f669d8",
-        "route": "agentRuntime.sessions.read",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-runtime-client.ts#agentRuntimeClient.events:f3c5fddf849f0d95ac9e643e05d0e137",
-        "route": "agentRuntime.events.read",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-runtime-client.ts#agentRuntimeClient.tokenUsage:28ec0e1050457574498a121387396f1b",
-        "route": "agentRuntime.tokenUsage",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-runtime-client.ts#agentRuntimeClient.tokenUsageDetail:193885f835a098645bd8498f15fc3ccf",
-        "route": "agentRuntime.tokenUsageDetail",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getHomeOverview:2faaae1657200d2935d516a7c1873815",
-        "route": "gui.home.read",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getSystemStatus:a485696e1cbc7a06e41cf8e8c713debc",
-        "route": "gui.system.read",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getDaemonControlReceipt:41250b8770c69b3b34d3619d6aebec22",
-        "route": "gui.control.receipt",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.tailObservability:9d065f26e23ef2c868dbd30dbda883f0",
-        "route": "observe.tail",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getTaskAssignmentDirectory.result:4ea0f705f3dcecf3abc1554ab62a9a18",
-        "route": "tasks.assignmentDirectory",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getTasks:16362be549efd070ab5b92a3087872d2",
-        "route": "tasks.list",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getTaskWip:902ccb48212ca1b1f616cc32505120a7",
-        "route": "tasks.wip",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getWorkIndex.result:7670610fd8e281536ceb8b1bd7cf5bac",
-        "route": "works.index",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getWorkTopology.result:cd284a6dfc0f140733a47407d975937f",
-        "route": "work.topology.read",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getWorkBriefs.result:4330811c82f30b9db0dfd47ffc6b7671",
-        "route": "works.briefs.read",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getAgenda:ab82ed002c736f9207e6793737aaa9cc",
-        "route": "agenda",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getSettings:6ef2f469c7ad3930012ac1018940f597",
-        "route": "settings.read",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getWorkspaceSummary:a5ed96161ee5a1493be311a78dda2db3",
-        "route": "workspace.summary.read",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getWorkspaceScope.result:42a610ad27c31ff406d08db4c9a5d0b8",
-        "route": "workspace.scope.read",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getTaskDocument:f87205ecc035cb7073ee32a246771fee",
-        "route": "tasks.document.read",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getTaskCompletion.result:f435e14a4801d13f816f4e4cb0b1390f",
-        "route": "tasks.completion.read",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getTaskDocuments:cdf5076417610018771ceb4689a5d8a4",
-        "route": "tasks.documents.list",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getTaskDeliveryDiff:86fcb58f455e95f3231539a3112ea510",
-        "route": "tasks.deliveryDiff.read",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getTaskDispatches:8c5b79c8b6646692456047815961230a",
-        "route": "task-dispatches",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getRelationGraph:c18877fe899c2857473f7f32eeba22f9",
-        "route": "triadic.relationGraph",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getRelationFacts:c18877fe899c2857473f7f32eeba22f9",
-        "route": "triadic.relationGraph",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getDecisions:8df8e11157f6b32b143292623ef5c51c",
-        "route": "decisions.list",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getDecisionSummaries:30c6e8d3c8e07cf349a22b59b7883dd1",
-        "route": "decisions.list",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.listDecisionControls:31ec9a940ed5bf8c956bb5ec11418a0e",
-        "route": "decision.list",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.showDecision:5173d69c1683356a671be2e617d2af3e",
-        "route": "decision.show",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.showDocument:3f9483da625fbf4bffeed02e5c917e0f",
-        "route": "doc.show",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.showReceipt:f71770499e4cd1aa87c3c4579831f9ff",
-        "route": "receipt.show",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getCatalogSnapshot:ca430d16c2fa623b5f231375340079ed",
-        "route": "gui.catalog.snapshot",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getCatalogPreset:486fc8276a95e9cf0ff3a90af48cc44e",
-        "route": "gui.catalog.preset.read",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.rereadCatalog:fb96d4a9dda534f850ac8e10669509bc",
-        "route": "gui.catalog.reread",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/cadence-feed.ts#useCadenceFeed:973c6c969683351bc4fdb5c8534d57f0",
-        "route": "observe.tail",
-        "role": "client",
-        "port": "packages/gui/src/renderer/cadence-feed.ts#useCadenceFeed.run"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/observe/DaemonTailPane.tsx#useObserveTail:973c6c969683351bc4fdb5c8534d57f0",
-        "route": "observe.tail",
-        "role": "client",
-        "port": "packages/gui/src/renderer/components/observe/DaemonTailPane.tsx#useObserveTail.run"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/runtime-command-client.ts#runtimeCommandClient.showReceipt:40d479cda832cdaa9de9dec5e0ff9301",
-        "route": "receipt.show",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/squad-run-client.ts#squadRunsClient.list.value:261bf58cb6f41aff10a998a578f2eb19",
-        "route": "squad.runs.list",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/squad-run-client.ts#squadRunsClient.read.value:44f35bfa5eaa65b25772e4ed8f327104",
-        "route": "squad.run.read",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/task-rework-client.ts#taskReworkClient.read.receipt:8b48c71b700e09f5b439cbffd6541aa4",
-        "route": "task.show",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/terminal-client.ts#terminalClient.list:5739a4395a132a41b098a29e540e028a",
-        "route": "terminal.sessions.list",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/terminal-client.ts#terminalClient.detach.result:4e5c4b7a34bfcc82a66fef106054ff6e",
-        "route": "terminal.detach",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/todos-client.ts#todosClient.list.receipt:a652b6d16482ee1193b8a907c2eb0a3a",
-        "route": "todo.list",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/todos-client.ts#todosClient.show:31495ffb310e26cc20369ef26b523d19",
-        "route": "todo.show",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/use-case-projection-client.ts#readUseCaseProjection.value:caaa5a232fea35759385b56824e8b340",
-        "route": "projection.read",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/TerminalView.tsx#TerminalView.closeFocused:e5ee92fe8e676bd614867e5bb8a49dfc",
-        "route": "terminal.detach",
-        "role": "client",
-        "port": "packages/gui/src/renderer/views/TerminalView.tsx#TerminalView.run"
-      },
-      {
         "candidateId": "action:packages/storage:packages/storage/src/pg/pg-relation-cycle-winners.ts#PgRelationCycleWinners.remove:d1ce1014bbc19446d5a0706412f7c4a6",
         "route": "repository-read",
         "role": "support"
@@ -1782,54 +1376,6 @@
         "route": "rbac-bootstrap",
         "role": "client",
         "port": "tools/smoke-cli-package.mjs#run"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/center-settings-preload.ts#centerSettingsPreloadApi.setCertificate:95e53b98792b6fb5dfc5290b77b07fd4",
-        "route": "rbac-bootstrap",
-        "role": "client",
-        "port": "packages/gui/src/preload/center-settings-preload.ts#centerSettingsPreloadApi.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/edge-join-entry-preload.ts#edgeJoinEntryPreloadApi.begin:5b77279af952c0a78aa0f93e6a2cd7d6",
-        "route": "edge-join",
-        "role": "client",
-        "port": "packages/gui/src/preload/edge-join-entry-preload.ts#edgeJoinEntryPreloadApi.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.auth.login:5fe0d78f4981722bfb662a769a64bf6e",
-        "route": "rbac-bootstrap",
-        "role": "client",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.auth.logout:a833e93e41b45001abfc1ab9fabefe41",
-        "route": "rbac-bootstrap",
-        "role": "client",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.auth.configure:4e982cde6f7a04cf1c6b5a3dd39c5f77",
-        "route": "rbac-bootstrap",
-        "role": "client",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.auth.bootstrapAdmin:c0326faad225d9d7fe921e0fb960f455",
-        "route": "rbac-bootstrap",
-        "role": "client",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/EdgeJoinWizard.tsx#EdgeJoinWizard:790d81aaf624cc8b028232493d5875ad",
-        "route": "edge-join",
-        "role": "client",
-        "port": "packages/gui/src/renderer/components/EdgeJoinWizard.tsx#EdgeJoinWizard.submit"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/EdgeJoinWizard.tsx#EdgeJoinWizard:790d81aaf624cc8b028232493d5875ad:2",
-        "route": "edge-join",
-        "role": "client",
-        "port": "packages/gui/src/renderer/components/EdgeJoinWizard.tsx#EdgeJoinWizard.submit"
       }
     ],
     "concurrency": {
@@ -2007,12 +1553,6 @@
         "route": "daemon-repo-register",
         "role": "client",
         "port": "tools/old-data-copy-evidence.mjs#run"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.repoAdmin.register:2090a987130b51d419102e2d4e9f3de9",
-        "route": "daemon-repo-register",
-        "role": "client",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
       }
     ],
     "concurrency": {
@@ -2045,12 +1585,6 @@
         "candidateId": "action:packages/kernel:packages/kernel/src/daemon/registry.ts#remoteEndpointConnectionId:496e3eecd616f2dae1ac60b975384638",
         "route": "daemon-connection-add",
         "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.connections.register:056b19f60a08561c93d6c6dff402f8dd",
-        "route": "daemon-connection-add",
-        "role": "client",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
       }
     ],
     "concurrency": {
@@ -2103,18 +1637,6 @@
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/agent-action-contract.ts#agentCriterionError:c8274bba014f1045c705d06594560238",
         "route": "agent-retire",
         "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-entity-client.ts#agentEntityClient.retireAgent:b052c063c4b52ea0ce195f372ca4f9ed",
-        "route": "agent.entity.retire",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useAgentSquadWorkspace.retireAgent.saved:5093c53badef83e30fde16f888455578",
-        "route": "agent.entity.retire",
-        "role": "client",
-        "port": "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useRuntimeChannel.run"
       }
     ]
   },
@@ -2145,12 +1667,6 @@
         "candidateId": "action:packages/kernel:packages/kernel/src/schemas/vertical-definition.ts#outdatedVerticalDeclaration:a9fdcb6734340958b6e5ec1bb16b2ec0",
         "route": "vertical-kind-upsert",
         "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/vertical-kind-client.ts#upsertVerticalKind:690552b85216ff610415b79ada9ee644",
-        "route": "vertical.kind.upsert",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ]
   },
@@ -2298,12 +1814,6 @@
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/policy-groups.ts#assertAcyclicPolicyGroups.visit:7807a0e94b23574aa2522a8559e81c6e",
         "route": "node-unregister",
         "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/access-admin-preload.ts#accessAdminPreloadApi.ask:75004a184ce307908d72c1093cd0e04c",
-        "route": "node-unregister",
-        "role": "client",
-        "port": "packages/gui/src/preload/access-admin-preload.ts#accessAdminPreloadApi.invoke"
       }
     ],
     "concurrency": {
@@ -2373,18 +1883,6 @@
         "route": "schedule-create",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/schedules-client.ts#schedulesClient.create:36ad0386e520e41ba1f5566bd060ea08",
-        "route": "schedule.create",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/SchedulesView.tsx#ScheduleWorkspace.saveDefinition.next:cc81f9ddbb8ce7d88b8737dc02a70a42",
-        "route": "schedule.create",
-        "role": "client",
-        "port": "packages/gui/src/renderer/schedules-client.ts#schedulesClient.create"
       }
     ]
   },
@@ -2904,10 +2402,6 @@
       "npm:preset:build": {
         "file": "packages/preset/scripts/copy-assets.mjs",
         "script": "build:publish"
-      },
-      "npm:gui:build": {
-        "file": "packages/gui/scripts/write-build-id.mjs",
-        "script": "build"
       }
     },
     "execution": {
@@ -5372,11 +4866,6 @@
         "route": "package-assets-build",
         "role": "technical-port",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/scripts/write-build-id.mjs#<module>:cb7dde155c5cf050a5a93e874afab44b",
-        "route": "npm:gui:build",
-        "role": "effect"
       }
     ],
     "technical": true
@@ -10654,635 +10143,6 @@
         "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/public/early-theme.js#<module>:a5deea7d9cadf18ebc6894d1d4f71c9d",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/typescript/lib/lib.dom.d.ts#DOMTokenList.remove"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/scripts/dev-electron.mjs#vite:28144144b6316258c2d774e9877f26d1",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/scripts/dev-electron.mjs#<module>:bd31342c48b775b09f3cd2b0a023c788",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/scripts/dev-electron.mjs#<module>:e1d8cec8a45b1671e9b412873c7d17d9",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/scripts/dev-electron.mjs#electron:4f63ff673d0060ca2e402d8c0051d560",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/scripts/prepare-desktop-runtime.mjs#invalidateGuiTypecheckCache:d09cd050e607dd4ff2db535cb41f71f3",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/scripts/prepare-desktop-runtime.mjs#prepareNodeRuntime:1e4a7220b9f89c42f31a94cd031f8ba9",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.rm"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/scripts/prepare-desktop-runtime.mjs#prepareNodeRuntime:17728c0f428dfbc6009feba0fb21a3c2",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.rm"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/scripts/prepare-desktop-runtime.mjs#prepareDaemonNodeModules:64de4c0283d7e28d22f974cc944cccb4",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/scripts/prepare-desktop-runtime.mjs#prepareDaemonNodeModules:4b6127eb45a623700a492851390b4b72",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.rm"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/scripts/prepare-desktop-runtime.mjs#download:3607cda122a905f55c6c73ef62aab4c9",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.rm"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/center-settings-preload.ts#centerSettingsPreloadApi.selectFile:80c1ec417871c99cb37d612a4cab9b70",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/preload/center-settings-preload.ts#centerSettingsPreloadApi.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/edge-join-entry-preload.ts#edgeJoinEntryPreloadApi.openLogin:7319a255acc6ed9dc5ae45ebca5afd5d",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/preload/edge-join-entry-preload.ts#edgeJoinEntryPreloadApi.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.firstRun.desktopStatus:acd8bb085f39c64be3c11797d061a9be",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.firstRun.desktopSetup:1ecd9efc6518f6f12ad0441b04add23b",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.firstRun.chooseRepository:ce288e5cdfe59cc3cab8891ffbf5bcd0",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.artifacts.openExternal:0a79dc2cf2be46eee7b664b9b3eeee1c",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.localDoc.extractWordText:71ba6af512744ca839cd646656b2766d",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.localDoc.read:d3b68877cc7e0ae076d0f10e5bc4a312",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.localDoc.write:26bbd45342342271b176e67edc25acdf",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.localDoc.pptx:811aa3d6789642e2e6a88bcea79dab92",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.repoAdmin.inspectWorkspace:cfb74042a81d228ed1edff499cdd583c",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.auth.cancelLogin:4f8dff3a34645caecf78a196d7ccb995",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.projects.openDirectory:7f4f3d32fa3083da6812e8c932ffbbfd",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.windows.openProject:d0427c522164d21f5835567fbdc0593b",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.windows.setActiveProject:e55e679eb6b23cb250875884c7c2042f",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.updates.check:ad6a16788a2850d95e6562bbfb02c54a",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.updates.install:3295c7fd1bb12e24fcdd72ec97d98854",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.updates.status:b5752ed2c098316f1302962585a4464f",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/account-login-request.ts#subscribeAccountLoginRequest:f1bc38fa56c8370d3616f2b68139bd99",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/BinaryDocumentPreview.tsx#PptxDocumentPreview.render:b2314ab22b78e71e96c478f5b0d27aa6",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/typescript/lib/lib.dom.d.ts#ParentNode.append"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/BinaryDocumentPreview.tsx#PdfDocumentPreview.render:4af1e9f9f98bce798180cdceae071748",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/typescript/lib/lib.dom.d.ts#ParentNode.append"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/BinaryDocumentPreview.tsx#PdfDocumentPreview:aa22cd5b5256cedc2b364a3f86b96819",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/pdfjs-dist/types/src/display/api.d.ts#RenderTask.cancel"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/GraphFilterPanel.tsx#GraphFilterPanel.toggleType:d95cbcb82cb001aac9b48a9804cd1762",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/GraphFilterPanel.tsx#GraphFilterPanel.toggleKind:251b60aa4aa499cce5a624d1f54cd935",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/GraphFilterPanel.tsx#GraphFilterPanel.toggleTaskStatus:23e6b081d2ff78bcfc0b15210102486d",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/GraphFilterPanel.tsx#GraphFilterPanel.toggleDecisionState:23e6b081d2ff78bcfc0b15210102486d",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/HtmlArtifactPreview.tsx#HtmlArtifactPreview:66a2a495fe833a6b9911a67e08735fb0",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/typescript/lib/lib.dom.d.ts#ChildNode.remove"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/ScheduleFormDialog.tsx#ScheduleForm:334165af728a8867c75a455a2cc59354",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/agent-ui/AgentTree.tsx#AgentTree.toggle:a11ef8526459d035f68028df24b7f73f",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/cadence/TaskRhythmTrack.tsx#TaskRhythmTrack.toggleExpanded:07c9a606fdc37ae0457464009d48013f",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/catalog/ComponentCatalog.tsx#ComponentCatalog:21151a469be89beeaef8610c6f5e95d6",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/xlsx/types/index.d.ts#write"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/decisionReview/DecisionJudgeTab.tsx#DecisionJudgeTab:2623207b8166b80175dabedfe2af95bd",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/decisionReview/DecisionRespondTab.tsx#DecisionRespondTab:723eee5e25bb1b8a7986721cc183303d",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/components/decisionReview/DecisionRespondTab.tsx#DecisionRespondTab.update"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/decisionReview/DecisionRespondTab.tsx#DecisionRespondTab:4355f141d66df3e639f07c6d2acac8be",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/components/decisionReview/DecisionRespondTab.tsx#DecisionRespondTab.update"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/decisionReview/DecisionRespondTab.tsx#DecisionRespondTab:998ada3af2630cc2954b91c87543e97d",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/components/decisionReview/DecisionRespondTab.tsx#DecisionRespondTab.update"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/entityDoc/EntityDirectoryBrowser.tsx#DirectoryChildren:6f545e4c97f458b98464739317f01306",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/entityDoc/EntityManagedContent.tsx#ContentChildren:6f545e4c97f458b98464739317f01306",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/primitives/EntryBoundary.tsx#useEntryBoundary:2cac242a9f154cb5a59d3fa117359418",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/motion-dom/dist/index.d.ts#AnimationPlaybackControls.complete"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/primitives/page-region-pane.tsx#RegionPanel:f962c494cfb3bb5cb48cb11732089da0",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/components/primitives/page-region-pane.tsx#drag.cancel"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/primitives/page-region-pane.tsx#RegionHandleCluster:f962c494cfb3bb5cb48cb11732089da0",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/components/primitives/page-region-pane.tsx#drag.cancel"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/SquadCard.tsx#SlotConfig:92630493b4f60d5bd78db739ff4fcea5",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/components/runtime/SquadCard.tsx#SlotConfig.assign"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/sessions/SquadRunList.tsx#SquadRunList.toggle:c207bca6efe2317fcb4d6af6eafec6bd",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/taskDetail/DocTree.tsx#DocTree.toggle:6f545e4c97f458b98464739317f01306",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/terminal/TerminalPane.tsx#TerminalPane:ff41ff6c5b52a11abc26a8c8505ef9e9",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@xterm/xterm/typings/xterm.d.ts#@xterm/xterm.Terminal.write"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/terminal/TerminalTaskTreePicker.tsx#TreeBody:075a19782f20b582558362072beb2551",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/daemon-observe-model.ts#applyObserveTailPage:c637be68c656fdb2279c7ce4dbe1e176",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/daemon-observe-model.ts#ObserveRowLog.append"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/daemon-observe-model.ts#filterObserveRowsLog:12545064b88f0e75ec4606dbb920ced5",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/daemon-observe-model.ts#ObserveRowLog.append"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/daemon-observe-model.ts#filterObserveRowsLog:73b6df3d21dce5404bbc182d77ab89f1",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/daemon-observe-model.ts#ObserveRowLog.append"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/daemon-observe-model.ts#ObserveRowLog.dropOldest:e8836c2ce4c2a6dd39b40d025a32c622",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/daemon-observe-model.ts#ObserveRowLog.dropOldest:b1bf62099811764f1dcf63dea72bbc98",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/daemon-observe-stats.ts#ObserveStatsState.pruneSparse:be3fd62dc77b9c415159a151a08447ae",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/daemon-observe-stats.ts#ObserveStatsState.pruneSparse:4ada0cdbe0016e6857959c1556204ce2",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-actions.ts#useDecisionActions.failure:6661c020d9234e5cb59170e4d23219f1",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/decision-actions.ts#useDecisionActions.publish"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-actions.ts#useDecisionActions.once.promise:314e696f7bad098d697eed2ce587cd0f",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/decision-actions.ts#useDecisionActions.publish"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-actions.ts#useDecisionActions.propose:57e49631e2570bea16c7de230670dae6",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/decision-actions.ts#useDecisionActions.publish"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-actions.ts#useDecisionActions.propose.finish:c2ed8caea0413c4804360fe81bb450ca",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/decision-actions.ts#useDecisionActions.publish"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-actions.ts#useDecisionActions.propose.finish:8930f751f777d50a21c8da3678f84f4a",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/decision-actions.ts#useDecisionActions.publish"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-actions.ts#useDecisionActions.judge:85bd6b624dbd0ac21db516d52fcde3a8",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/decision-actions.ts#useDecisionActions.publish"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-actions.ts#useDecisionActions.judge.finish:e451c2ced8e11826939fb68b87b93f4b",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/decision-actions.ts#useDecisionActions.publish"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-actions.ts#useDecisionActions.checkReceipt:2f0e1858099fc55f5371259fe2071a03",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/decision-actions.ts#useDecisionActions.publish"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-actions.ts#useDecisionActions.checkReceipt:b185e0d9a9bc34b8a29cacfb48c64734",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/decision-actions.ts#useDecisionActions.publish"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/graph/RelationCanvas.tsx#RelationCanvas:14dbcc3d14a299e60a6613308188a733",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/react/index.d.ts#React.ActionDispatch"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/graph/RelationCanvas.tsx#RelationCanvas.goBack:cd2dc764d1172c8db8f98b1513ed8e4d",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/react/index.d.ts#React.ActionDispatch"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/graph/RelationCanvas.tsx#RelationCanvas.goForward:66ccbdec2b80d9bcd6389d1cb4c8dc50",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/react/index.d.ts#React.ActionDispatch"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/graph/RelationCanvas.tsx#RelationCanvas.clearFocus:8c2b5898d9eac2a25dcdb1a6723a8c3b",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/react/index.d.ts#React.ActionDispatch"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/graph/genealogy.ts#findGenealogyCycles.visit:168f55fc33ffb298aab977ecf494e2df",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/graph/useEgoCanvas.ts#useEgoCanvas.collapseNode:a11ef8526459d035f68028df24b7f73f",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/graph/useGraphDensity.ts#useGraphDensity.setDensityFilters.next:10803de0aae3aa8433168999dbde93d3",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/react/index.d.ts#React.SetStateAction"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/local-doc/local-doc-client.ts#saveLocalDocument.value:172b59ca8770bf568c85f63193f6b308",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/local-doc/local-doc-client.ts#LocalDocBridge.write"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/model/favorites.ts#useFavorites.toggleFavorite:07c9a606fdc37ae0457464009d48013f",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/navigation/useViewHistory.ts#useViewHistory.setHistory.history:3f2274a794b5ce18d67dda9a37b53376",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/navigation/useViewHistory.ts#useViewHistory.setHistory.update"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/session-transcript-model.ts#sessionTranscriptTurns.fillCompactedSegments:309de56e3c4571b64ed0dd5d37795ca4",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/task-actions.ts#useTaskActions.reread:e0a0373f40ecefce5eb18109e23d6cab",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/task-actions.ts#useTaskActions.publish"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/task-actions.ts#useTaskActions.reread:e67fc150c0f52f0dc339a45afea08d35",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/task-actions.ts#useTaskActions.publish"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/task-actions.ts#useTaskActions.once.promise:1222388b5ce68d75069af7538ec77062",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/task-actions.ts#useTaskActions.publish"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/task-actions.ts#useTaskActions.startTask:63d8cdaf5d22a852bf88da336b1ab22f",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/task-actions.ts#useTaskActions.publish"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/task-actions.ts#useTaskActions.reworkTask:2e3c8c5369ae35306483e4088372a7ad",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/task-actions.ts#useTaskActions.publish"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/task-actions.ts#useTaskActions.appendProgress:02d1595a5281a81f5779e64db60b4516",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/task-actions.ts#useTaskActions.publish"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/task-actions.ts#useTaskActions.submitTask:576ff8247c82fb5001c28c7087d6a187",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/task-actions.ts#useTaskActions.publish"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/task-actions.ts#useTaskActions.completeTask:378f7cdc8f458b0228a263753a28f079",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/task-actions.ts#useTaskActions.publish"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/task-actions.ts#useTaskActions.consentReview:8132713dfd17af2962e282b8685987fb",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/task-actions.ts#useTaskActions.publish"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/task-actions.ts#useTaskActions.consentReview:ebc81c93133762b7c330692cd2d611f1",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/task-actions.ts#useTaskActions.publish"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/task-actions.ts#useTaskActions.setTaskPin:e9a4476514e337482ca4f7c4ebda7c64",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/task-actions.ts#useTaskActions.publish"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/task-actions.ts#useTaskActions.attestGate:98b5dac7850a9e6162500c7dc7d05451",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/task-actions.ts#useTaskActions.publish"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/theme.tsx#applyTheme:461256ce4cac091c201d1129a2846ad7",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/typescript/lib/lib.dom.d.ts#DOMTokenList.remove"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/BrowserView.tsx#BrowserView:559c9dc0bd10f6ac0c3425954cca634e",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/typescript/lib/lib.dom.d.ts#ChildNode.remove"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/GenealogyTimelineView.tsx#GenealogyTimelineView:4bdfdecc12e83483d861663810fac326",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/views/GenealogyTimelineView.tsx#GenealogyTimelineView.update"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/GenealogyTimelineView.tsx#GenealogyTimelineView:97aa051f217b59a36ecd27a457595000",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/GraphView.tsx#GraphViewInner.toggleZone:b4ccc4bcefb3d6b021c154d3e5c26ad6",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/GraphView.tsx#GraphViewInner.toggleZone:b4ccc4bcefb3d6b021c154d3e5c26ad6:2",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/SessionsView.tsx#SessionsView.toggleGroup:23e6b081d2ff78bcfc0b15210102486d",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/SessionsView.tsx#SessionsView.toggleWork:23e6b081d2ff78bcfc0b15210102486d",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/TerminalView.tsx#TerminalView:1d60246c150be0d990fc17d86c6e5e55",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/TerminalView.tsx#TerminalView.closeSession:974837f89e4200409a64e93a5f29d8a8",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/TerminalView.tsx#TerminalView.onKey:50309aba0befa31f8ffec69f696abfe6",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/views/TerminalView.tsx#TerminalView.run"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/settings/CommandInterceptionsEditor.tsx#CommandInterceptionsEditor:d95bc43dd43b6530f14e435bf4a6a2f8",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/views/settings/CommandInterceptionsEditor.tsx#CommandInterceptionsEditor.update"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/settings/CommandInterceptionsEditor.tsx#CommandInterceptionsEditor:27aa5a676f08a8d4a45595bba7a92cc0",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/renderer/views/settings/CommandInterceptionsEditor.tsx#CommandInterceptionsEditor.update"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/settings/ConnectionDetailPanel.tsx#ConnectionDetailPanel.toggleRepo:83f6a92280770fe0c8938868dfccdc2b",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/settings/EdgeInvitePanel.tsx#EdgeInvitePanel:74e044ff4accfe250f1cde7d671c5c42",
-        "route": "daemon:bin",
-        "role": "support"
-      },
-      {
         "candidateId": "action:packages/storage:packages/storage/src/pg/pg-relation-cycle-audit.ts#refreshPgRelationCycleAuditPage:21b4e7147726f599dcb8cf5d3565d803",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -11526,12 +10386,6 @@
         "route": "repo-bootstrap",
         "role": "client",
         "port": "tools/smoke-cli-package.mjs#run"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.firstRun.bootstrap:122fb2512c3cea9897f3f3ed26ee3eba",
-        "route": "repo-bootstrap",
-        "role": "client",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
       }
     ],
     "execution": {
@@ -11590,30 +10444,6 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-api.ts#createRepoCellApi.cancelRuntime:a18308d7308b5ea641dc16ec8a995fa1",
         "route": "runtime-cancel",
         "role": "effect"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useSessionsWorkspace.cancelSession:0bfb9cc0e197e87332d6cfe3c65a60bc",
-        "route": "agentRuntime.cancel",
-        "role": "client",
-        "port": "packages/gui/src/renderer/runtime-command-client.ts#runtimeCommandClient.cancel"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useSessionsWorkspace.cancelSession:193423933da930c026afa9d1c101c83f",
-        "route": "agentRuntime.cancel",
-        "role": "client",
-        "port": "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useRuntimeChannel.run"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/taskDetail/TaskExecutionPanel.tsx#TaskExecutionPanel:466de88c4f61574f96f924d53d98ab35",
-        "route": "agentRuntime.cancel",
-        "role": "client",
-        "port": "packages/gui/src/renderer/runtime-command-client.ts#runtimeCommandClient.cancel"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/runtime-command-client.ts#runtimeCommandClient.cancel:d86b4e6c164cc66f728770798ea80b0d",
-        "route": "agentRuntime.cancel",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ],
     "concurrency": {
@@ -11651,12 +10481,6 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-witness-adapters.ts#attestGateWitness.evidence.evidenceId:fed86534c9b2a548f4bc0aa80290d35c",
         "route": "task-attest",
         "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.taskAttest:87d24f18be60ea6f0dc3e655258803ac",
-        "route": "task.attest",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ]
   },
@@ -11694,12 +10518,6 @@
         "route": "settings-update",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.updateSettings:5b93e91aa5680d5e59a8241e364474c6",
-        "route": "settings.update",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ]
   },
@@ -11768,12 +10586,6 @@
         "route": "task-create",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.createTask.result:226442d811323218e698ba12798e6150",
-        "route": "task.create",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ]
   },
@@ -11827,12 +10639,6 @@
         "route": "task-progress-append",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.appendTaskProgress:2d740341b7cfb2fb3402c512f02ec64e",
-        "route": "task.progress.append",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ]
   },
@@ -11861,18 +10667,6 @@
         "route": "task-start",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.startTask:a53872fd55711d489cea1f87ba416219",
-        "route": "task.start",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/task-actions.ts#useTaskActions.once.promise:973c6c969683351bc4fdb5c8534d57f0",
-        "route": "task.start",
-        "role": "client",
-        "port": "packages/gui/src/renderer/task-actions.ts#useTaskActions.once.run"
       }
     ],
     "owner": "task"
@@ -12004,12 +10798,6 @@
         "route": "task-pin",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.pinTask:6149bd0a55a417f0daffb9ed2929ee58",
-        "route": "task.pin",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ]
   },
@@ -12021,18 +10809,6 @@
         "route": "task-unpin",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.unpinTask:640c0ef12ebb1d1e31469ab9497d18c9",
-        "route": "task.unpin",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.unpinEntity:668c6c78d10fc1d8a11ee849415799f4",
-        "route": "entity.unpin",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ]
   },
@@ -12044,12 +10820,6 @@
         "route": "task-review-consent",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.consentReview:be076fb945e489eca9c0fe766e2549a3",
-        "route": "task.consent",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ]
   },
@@ -12061,12 +10831,6 @@
         "route": "task-complete",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.completeTask:f873e3ecd2a3dca145c526a351b3e5a0",
-        "route": "task.complete",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ]
   },
@@ -12210,43 +10974,6 @@
         "route": "decision-propose",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-actions.ts#useDecisionActions.once.promise:109448d88c53825ae00530f498006958",
-        "route": "decision.propose",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-actions.ts#useDecisionActions.once.promise:109448d88c53825ae00530f498006958:2",
-        "route": "decision.propose",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-actions.ts#useDecisionActions.propose.finish:c29490bfec1f1a357013aaaa9e974a9c",
-        "route": "decision.propose",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-actions.ts#useDecisionActions.checkReceipt:109448d88c53825ae00530f498006958",
-        "route": "decision.propose",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-actions.ts#useDecisionActions.checkReceipt:109448d88c53825ae00530f498006958:2",
-        "route": "decision.propose",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.proposeDecision:7d2b68817ed7f105f40ee76c81d89ac2",
-        "route": "decision.propose",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-actions.ts#useDecisionActions.once.promise:973c6c969683351bc4fdb5c8534d57f0",
-        "route": "decision.propose",
-        "role": "client",
-        "port": "packages/gui/src/renderer/decision-actions.ts#useDecisionActions.once.run"
       }
     ]
   },
@@ -12291,17 +11018,6 @@
         "route": "decision-accept",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-actions.ts#useDecisionActions.judge.finish:72148b3823de481e0c1d7a2e98497c53",
-        "route": "decision.accept",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.acceptDecision:ac89a327e96b6244918ed43699c6ecc5",
-        "route": "decision.accept",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ]
   },
@@ -12335,12 +11051,6 @@
         "route": "decision-defer",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.deferDecision:808a326d4c951cae6456786e3611a971",
-        "route": "decision.defer",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ]
   },
@@ -12352,12 +11062,6 @@
         "route": "decision-reject",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.rejectDecision:bdf41ffd7136a9afa2660d4892024739",
-        "route": "decision.reject",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ]
   },
@@ -12402,18 +11106,6 @@
         "route": "relation-unrelate",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.retireRelation:16a85e86c5917d11e6ce1d150f2e2cf5",
-        "route": "relation.unrelate",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/AwaitsAnswerPanel.tsx#AnswerForm:e4c75b9412efafb3fdef302bdb2856c5",
-        "route": "relation.unrelate",
-        "role": "client",
-        "port": "packages/gui/src/renderer/awaits-answer.ts#useAwaitsAnswer.submit"
       }
     ]
   },
@@ -12425,12 +11117,6 @@
         "route": "entity-import",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/entity-locator-client.ts#importEntity:2200cf48a7d78169c2436196c4aa300d",
-        "route": "entity.import",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ]
   },
@@ -12442,12 +11128,6 @@
         "route": "entity-update",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/entity-locator-client.ts#updateEntity:e5ed661e6961354848d01cf1fdec1bf0",
-        "route": "entity.update",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ]
   },
@@ -12459,12 +11139,6 @@
         "route": "entity-archive",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/entity-locator-client.ts#archiveEntity:93698e974134b5af63348836df80d255",
-        "route": "entity.archive",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ]
   },
@@ -12476,12 +11150,6 @@
         "route": "entity-delete",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/entity-locator-client.ts#deleteEntity:864817a2911c8c5a39f35c6f6b579de4",
-        "route": "entity.delete",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ]
   },
@@ -12493,18 +11161,6 @@
         "route": "squad-install",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-entity-client.ts#agentEntityClient.saveSquad:effb1871345ebc7bf8e7070e1e31f729",
-        "route": "squad.entity.write",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useAgentSquadWorkspace.saveSquad.saved:d9316692d5f77152ca7024063727363a",
-        "route": "squad.entity.write",
-        "role": "client",
-        "port": "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useRuntimeChannel.run"
       }
     ]
   },
@@ -12516,18 +11172,6 @@
         "route": "runtime-instance-create",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useProviderWorkspace.createInstance.created:b31b2fcf291cb85c7ac9cc04b515b523",
-        "route": "runtime-instance-create",
-        "role": "client",
-        "port": "packages/gui/src/renderer/runtime-instance-client.ts#runtimeInstanceClient.create"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useProviderWorkspace.createInstance.created:24ffc4b7ddd9a52ea22a895ee6562e47",
-        "route": "runtime-instance-create",
-        "role": "client",
-        "port": "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useRuntimeChannel.run"
       }
     ]
   },
@@ -12594,18 +11238,6 @@
         "route": "runtime-instance-show",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useProviderWorkspace.createInstance.probed:ae6ec65cf6d970114437ecc2429d54df",
-        "route": "runtime-instance-show",
-        "role": "client",
-        "port": "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useRuntimeChannel.run"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useProviderWorkspace.validateInstance:1d5d42183c050eacfc11e77509e74041",
-        "route": "runtime-instance-show",
-        "role": "client",
-        "port": "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useRuntimeChannel.run"
       }
     ]
   },
@@ -12619,40 +11251,19 @@
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useProviderWorkspace.updateInstance:3b5bddd7f00af7c5240d6cef283cc722",
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-instance-store.ts#openRuntimeInstanceStore.clearAccountState:2b3c494ecf29701732b9c965e179335f",
         "route": "runtime-instance-update",
-        "role": "client",
-        "port": "packages/gui/src/renderer/runtime-instance-client.ts#runtimeInstanceClient.update"
+        "role": "effect"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useProviderWorkspace.updateInstance:86572e9cee361710052b92ea156b1f79",
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-instance-store.ts#openRuntimeInstanceStore.detachInstanceCredential:d356ee8ef7ef0b8a7042ac442fa9fdee",
         "route": "runtime-instance-update",
-        "role": "client",
-        "port": "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useRuntimeChannel.run"
+        "role": "effect"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useProviderWorkspace.setInstanceEnabled:2e94d597422771a4df1a0918929d4d83",
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-instance-store.ts#openRuntimeInstanceStore.command.finish:6abe1ab0c1daa80d7a228ec790aa7dc5",
         "route": "runtime-instance-update",
-        "role": "client",
-        "port": "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useRuntimeChannel.run"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useProviderWorkspace.clearInstanceFreeze:efefaba6e7188cffd1c5006d49abf285",
-        "route": "runtime-instance-update",
-        "role": "client",
-        "port": "packages/gui/src/renderer/runtime-instance-client.ts#runtimeInstanceClient.update"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useProviderWorkspace.clearInstanceFreeze:768fff0f13b914025c627d3fe7afa4f4",
-        "route": "runtime-instance-update",
-        "role": "client",
-        "port": "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useRuntimeChannel.run"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/runtime-instance-client.ts#runtimeInstanceClient.setEnabled:30bddcc2e4bbb408803463aa0f265546",
-        "route": "runtime-instance-update",
-        "role": "client",
-        "port": "packages/gui/src/renderer/runtime-instance-client.ts#runtimeInstanceClient.update"
+        "role": "effect"
       }
     ]
   },
@@ -12664,18 +11275,6 @@
         "route": "schedule-update",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/schedules-client.ts#schedulesClient.update:e735249f6a0b5ff15f4cff1a46d28261",
-        "route": "schedule.update",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/SchedulesView.tsx#ScheduleWorkspace.saveDefinition.next:cadf224dd38cc054030bba0dcf1c2da3",
-        "route": "schedule.update",
-        "role": "client",
-        "port": "packages/gui/src/renderer/schedules-client.ts#schedulesClient.update"
       }
     ]
   },
@@ -12687,12 +11286,6 @@
         "route": "schedule-disable",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/schedules-client.ts#schedulesClient.disable:7d2f5e01124c51a611709954edf0203b",
-        "route": "schedule.disable",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ]
   },
@@ -12704,18 +11297,6 @@
         "route": "schedule-delete",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/schedules-client.ts#schedulesClient.delete:2649ce28782db549be81196ad9b2ca95",
-        "route": "schedule.delete",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/SchedulesView.tsx#ScheduleWorkspace.deleteSchedule.next:f92c2b7b449f8f77325de12d014735ff",
-        "route": "schedule.delete",
-        "role": "client",
-        "port": "packages/gui/src/renderer/schedules-client.ts#schedulesClient.delete"
       }
     ]
   },
@@ -12727,18 +11308,6 @@
         "route": "runtime-instance-delete",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useProviderWorkspace.deleteInstance:afd2f5d2d5b36b6a82b2f935ab7ec82f",
-        "route": "runtime-instance-delete",
-        "role": "client",
-        "port": "packages/gui/src/renderer/runtime-instance-client.ts#runtimeInstanceClient.delete"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useProviderWorkspace.deleteInstance:f44f6febec2689c1058f501a651b6aff",
-        "route": "runtime-instance-delete",
-        "role": "client",
-        "port": "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useRuntimeChannel.run"
       }
     ]
   },
@@ -12750,18 +11319,6 @@
         "route": "agent-delete",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-entity-client.ts#agentEntityClient.deleteAgent:6e187eac6e0edd6b467c5898fff89793",
-        "route": "agent.entity.delete",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useAgentSquadWorkspace.deleteAgent.saved:4e832c1fae75cc01a92b8c090cf7fc1c",
-        "route": "agent.entity.delete",
-        "role": "client",
-        "port": "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useRuntimeChannel.run"
       }
     ]
   },
@@ -12773,18 +11330,6 @@
         "route": "squad-delete",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-entity-client.ts#agentEntityClient.deleteSquad:3e6668f87e696b3a3197ac702ce66371",
-        "route": "squad.entity.delete",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useAgentSquadWorkspace.deleteSquad.saved:e96282eb11dcc33d3b410d438b89a660",
-        "route": "squad.entity.delete",
-        "role": "client",
-        "port": "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useRuntimeChannel.run"
       }
     ]
   },
@@ -12840,1100 +11385,6 @@
         "route": "ledger-restore-drill",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      }
-    ]
-  },
-  "fleet-overview-read": {
-    "owner": "fleet",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/center-settings-preload.ts#centerSettingsPreloadApi.fleetStatus:ede8fe7e2dd329316ac6d34086a6871b",
-        "route": "daemon.fleet.center.read",
-        "role": "client",
-        "port": "packages/gui/src/preload/center-settings-preload.ts#centerSettingsPreloadApi.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/center-settings-preload.ts#centerSettingsPreloadApi.externalAddress:fcf4373a32e6fdb607cb45caf5427634",
-        "route": "daemon.fleet.center.external-address.read",
-        "role": "client",
-        "port": "packages/gui/src/preload/center-settings-preload.ts#centerSettingsPreloadApi.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/fleet-client.ts#fleetClient.overview.result:6557bf9d98801443bd81881c93a17496",
-        "route": "fleet.overview.read",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      }
-    ],
-    "execution": {
-      "ingress": "fleet-overview-read",
-      "read": true
-    },
-    "concurrency": {
-      "expectedVersion": {
-        "authority": "canonical-ledger-cut"
-      },
-      "leasePolicy": {
-        "authority": "center-repo-cell"
-      },
-      "occurrenceClaim": {
-        "authority": "not-applicable"
-      },
-      "idempotency": {
-        "authority": "operation-id"
-      },
-      "artifactOwnership": {
-        "owner": "canonical",
-        "refTemplate": "center-repo-cell"
-      }
-    }
-  },
-  "daemon-fleet-center-start": {
-    "owner": "daemon",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/center-settings-preload.ts#centerSettingsPreloadApi.startCenter:e2a57d5e0e74b436c6aa1efca2a35d6c",
-        "route": "daemon-fleet-center-start",
-        "role": "client",
-        "port": "packages/gui/src/preload/center-settings-preload.ts#centerSettingsPreloadApi.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/center-settings-preload.ts#centerSettingsPreloadApi.setExternalAddress:835c55f8178b5f179d9fd4074a81d9c9",
-        "route": "daemon-fleet-center-start",
-        "role": "client",
-        "port": "packages/gui/src/preload/center-settings-preload.ts#centerSettingsPreloadApi.invoke"
-      }
-    ],
-    "execution": {
-      "ingress": "daemon-fleet-center-start",
-      "read": false
-    },
-    "concurrency": {
-      "expectedVersion": {
-        "authority": "not-applicable"
-      },
-      "leasePolicy": {
-        "authority": "daemon-host"
-      },
-      "occurrenceClaim": {
-        "authority": "not-applicable"
-      },
-      "idempotency": {
-        "authority": "caller-owned"
-      },
-      "artifactOwnership": {
-        "owner": "host-local",
-        "refTemplate": "daemon-host"
-      }
-    }
-  },
-  "daemon-connection-probe": {
-    "owner": "daemon",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.connections.probe:c07140b530e3dc314ddf071ebe720fe6",
-        "route": "daemon-connection-probe",
-        "role": "client",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      }
-    ],
-    "execution": {
-      "ingress": "daemon-connection-probe",
-      "read": false
-    },
-    "concurrency": {
-      "expectedVersion": {
-        "authority": "not-applicable"
-      },
-      "leasePolicy": {
-        "authority": "daemon-host"
-      },
-      "occurrenceClaim": {
-        "authority": "not-applicable"
-      },
-      "idempotency": {
-        "authority": "caller-owned"
-      },
-      "artifactOwnership": {
-        "owner": "host-local",
-        "refTemplate": "daemon-host"
-      }
-    }
-  },
-  "daemon-connection-update": {
-    "owner": "daemon",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.connections.update:2478a7de537bcb21055babbd76d8e87c",
-        "route": "daemon-connection-update",
-        "role": "client",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/connection-admin-client.ts#updateConnection:8465ba27e7a7cf67885be1354d108167",
-        "route": "daemon-connection-update",
-        "role": "client",
-        "port": "packages/gui/src/renderer/connection-admin-client.ts#ConnectionsBridge.update"
-      }
-    ],
-    "execution": {
-      "ingress": "daemon-connection-update",
-      "read": false
-    },
-    "concurrency": {
-      "expectedVersion": {
-        "authority": "not-applicable"
-      },
-      "leasePolicy": {
-        "authority": "daemon-host"
-      },
-      "occurrenceClaim": {
-        "authority": "not-applicable"
-      },
-      "idempotency": {
-        "authority": "caller-owned"
-      },
-      "artifactOwnership": {
-        "owner": "host-local",
-        "refTemplate": "daemon-host"
-      }
-    }
-  },
-  "daemon-connection-remove": {
-    "owner": "daemon",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.connections.unregister:cf9d9d6496a16532958ff0015765e9aa",
-        "route": "daemon-connection-remove",
-        "role": "client",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      }
-    ],
-    "execution": {
-      "ingress": "daemon-connection-remove",
-      "read": false
-    },
-    "concurrency": {
-      "expectedVersion": {
-        "authority": "not-applicable"
-      },
-      "leasePolicy": {
-        "authority": "daemon-host"
-      },
-      "occurrenceClaim": {
-        "authority": "not-applicable"
-      },
-      "idempotency": {
-        "authority": "caller-owned"
-      },
-      "artifactOwnership": {
-        "owner": "host-local",
-        "refTemplate": "daemon-host"
-      }
-    }
-  },
-  "daemon-repo-update": {
-    "owner": "daemon",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.repoAdmin.update:c77da61ffaa9b80c38344b73ee05592c",
-        "route": "daemon-repo-update",
-        "role": "client",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/connection-admin-client.ts#updateRepo:0bb5bf6b09e73d119dca98e025ce2232",
-        "route": "daemon-repo-update",
-        "role": "client",
-        "port": "packages/gui/src/renderer/connection-admin-client.ts#RepoAdminBridge.update"
-      }
-    ],
-    "execution": {
-      "ingress": "daemon-repo-update",
-      "read": false
-    },
-    "concurrency": {
-      "expectedVersion": {
-        "authority": "not-applicable"
-      },
-      "leasePolicy": {
-        "authority": "daemon-host"
-      },
-      "occurrenceClaim": {
-        "authority": "not-applicable"
-      },
-      "idempotency": {
-        "authority": "caller-owned"
-      },
-      "artifactOwnership": {
-        "owner": "host-local",
-        "refTemplate": "daemon-host"
-      }
-    }
-  },
-  "repo-unbind": {
-    "owner": "repository",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.repoAdmin.unregister:368a10688716ba48af9b8b76e71a8c4d",
-        "route": "repo-unbind",
-        "role": "client",
-        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
-      }
-    ],
-    "execution": {
-      "ingress": "repo-unbind",
-      "read": false
-    },
-    "concurrency": {
-      "expectedVersion": {
-        "authority": "not-applicable"
-      },
-      "leasePolicy": {
-        "authority": "daemon-host"
-      },
-      "occurrenceClaim": {
-        "authority": "not-applicable"
-      },
-      "idempotency": {
-        "authority": "caller-owned"
-      },
-      "artifactOwnership": {
-        "owner": "host-local",
-        "refTemplate": "daemon-host"
-      }
-    }
-  },
-  "daemon-control-request": {
-    "owner": "daemon",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.requestDaemonControl:e51cc3c1eb50c7fc4816647e9acb1416",
-        "route": "gui.control.request",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      }
-    ],
-    "execution": {
-      "ingress": "daemon-control-request",
-      "read": false
-    },
-    "concurrency": {
-      "expectedVersion": {
-        "authority": "not-applicable"
-      },
-      "leasePolicy": {
-        "authority": "daemon-host"
-      },
-      "occurrenceClaim": {
-        "authority": "not-applicable"
-      },
-      "idempotency": {
-        "authority": "caller-owned"
-      },
-      "artifactOwnership": {
-        "owner": "host-local",
-        "refTemplate": "daemon-host"
-      }
-    }
-  },
-  "decision-respond-review": {
-    "owner": "decision",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.respondDecisionReview:d172ec62f9f114f6c77d58824d0ca785",
-        "route": "decision.respondReview",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/decisionReview/DecisionRespondTab.tsx#DecisionRespondTab:790d81aaf624cc8b028232493d5875ad",
-        "route": "decision.respondReview",
-        "role": "client",
-        "port": "packages/gui/src/renderer/components/decisionReview/DecisionRespondTab.tsx#DecisionRespondTab.submit"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-review-actions.ts#useDecisionReviewActions.respond:2cff7710331cd19876052b0d0909800a",
-        "route": "decision.respondReview",
-        "role": "client",
-        "port": "packages/gui/src/renderer/decision-review-actions.ts#useDecisionReviewActions.run"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-review-actions.ts#useDecisionReviewActions.run.receipt:d132352a9aa80621aa573b0a6935dc15",
-        "route": "decision.respondReview",
-        "role": "client",
-        "port": "packages/gui/src/renderer/decision-review-actions.ts#useDecisionReviewActions.run.write"
-      }
-    ]
-  },
-  "decision-override-review": {
-    "owner": "decision",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.overrideDecisionReview:da2f27839fe03a5b58011ca493eb43e4",
-        "route": "decision.overrideReview",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-review-actions.ts#useDecisionReviewActions.override:08c8b65b4c96481f2db2464b6dfd32b9",
-        "route": "decision.overrideReview",
-        "role": "client",
-        "port": "packages/gui/src/renderer/decision-review-actions.ts#useDecisionReviewActions.run"
-      }
-    ]
-  },
-  "decision-dispatch-review": {
-    "owner": "decision",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.dispatchDecisionReview:e21aaf4d0cf8018a14375be7519f4828",
-        "route": "decision.dispatchReview",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/decisionDetail/DecisionDetailView.tsx#DecisionDetailView:50166f176aa2e7a770c6d242d1a98703",
-        "route": "decision.dispatchReview",
-        "role": "client",
-        "port": "packages/gui/src/renderer/decision-review-actions.ts#useDecisionReviewActions.dispatch"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-review-actions.ts#useDecisionReviewActions.dispatch:78c6abc72b5fc81ab2f9115b35484159",
-        "route": "decision.dispatchReview",
-        "role": "client",
-        "port": "packages/gui/src/renderer/decision-review-actions.ts#useDecisionReviewActions.run"
-      }
-    ]
-  },
-  "task-assign": {
-    "owner": "task",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.assignTask:29d360205efe04207eac2b551d480318",
-        "route": "task.assign",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      }
-    ]
-  },
-  "task-unassign": {
-    "owner": "task",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.unassignTask:4f335ccc75c88e18fef69d794ab6fa9b",
-        "route": "task.unassign",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      }
-    ]
-  },
-  "runtime-handoff-export": {
-    "owner": "runtime-session",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/RuntimeHandoff.tsx#RuntimeHandoff:95d50c74b537ca457d50493d1abfa6aa",
-        "route": "runtime-handoff-export",
-        "role": "client",
-        "port": "packages/gui/src/renderer/components/runtime/RuntimeHandoff.tsx#RuntimeHandoff.run"
-      }
-    ],
-    "execution": {
-      "ingress": "runtime-handoff-export",
-      "read": false
-    },
-    "concurrency": {
-      "expectedVersion": {
-        "authority": "not-applicable"
-      },
-      "leasePolicy": {
-        "authority": "daemon-host"
-      },
-      "occurrenceClaim": {
-        "authority": "not-applicable"
-      },
-      "idempotency": {
-        "authority": "caller-owned"
-      },
-      "artifactOwnership": {
-        "owner": "host-local",
-        "refTemplate": "daemon-host"
-      }
-    }
-  },
-  "runtime-handoff-revoke": {
-    "owner": "runtime-session",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/RuntimeHandoff.tsx#RuntimeHandoff:5888eb1ed0c1709f77f510d01f8a3675",
-        "route": "runtime-handoff-revoke",
-        "role": "client",
-        "port": "packages/gui/src/renderer/components/runtime/RuntimeHandoff.tsx#RuntimeHandoff.run"
-      }
-    ],
-    "execution": {
-      "ingress": "runtime-handoff-revoke",
-      "read": false
-    },
-    "concurrency": {
-      "expectedVersion": {
-        "authority": "not-applicable"
-      },
-      "leasePolicy": {
-        "authority": "daemon-host"
-      },
-      "occurrenceClaim": {
-        "authority": "not-applicable"
-      },
-      "idempotency": {
-        "authority": "caller-owned"
-      },
-      "artifactOwnership": {
-        "owner": "host-local",
-        "refTemplate": "daemon-host"
-      }
-    }
-  },
-  "runtime-handoff-claim": {
-    "owner": "runtime-session",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/RuntimeHandoff.tsx#RuntimeHandoff:42187f5880eec23070a3cf263db9bebc",
-        "route": "runtime-handoff-claim",
-        "role": "client",
-        "port": "packages/gui/src/renderer/components/runtime/RuntimeHandoff.tsx#RuntimeHandoff.run"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/runtime-command-client.ts#runtimeCommandClient.handoff:3051d1d61efdabc273baf47961eb5604",
-        "route": "agentRuntime.handoff",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      }
-    ],
-    "execution": {
-      "ingress": "runtime-handoff-claim",
-      "read": false
-    },
-    "concurrency": {
-      "expectedVersion": {
-        "authority": "not-applicable"
-      },
-      "leasePolicy": {
-        "authority": "daemon-host"
-      },
-      "occurrenceClaim": {
-        "authority": "not-applicable"
-      },
-      "idempotency": {
-        "authority": "caller-owned"
-      },
-      "artifactOwnership": {
-        "owner": "host-local",
-        "refTemplate": "daemon-host"
-      }
-    }
-  },
-  "runtime-spawn": {
-    "owner": "runtime-session",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useSessionsWorkspace.resumeDispatch:20867c7cdaa40acf5f632d5e58f75b5f",
-        "route": "agentRuntime.spawn",
-        "role": "client",
-        "port": "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useRuntimeChannel.spawn"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useAgentSquadWorkspace.dispatch.settled:2d5bdeaaef3d4c29b88528e0e2f01119",
-        "route": "agentRuntime.spawn",
-        "role": "client",
-        "port": "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useRuntimeChannel.spawn"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useProviderWorkspace.selfTest.result:adeccd911a2fdb0d8e458a71509fb6d8",
-        "route": "agentRuntime.spawn",
-        "role": "client",
-        "port": "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useRuntimeChannel.spawn"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#leaseAwareSpawn.first:9cf0d2ba7fe1d34d23b96f7c22829516",
-        "route": "agentRuntime.spawn",
-        "role": "client",
-        "port": "packages/gui/src/renderer/runtime-command-client.ts#runtimeCommandClient.spawn"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#leaseAwareSpawn:9cf0d2ba7fe1d34d23b96f7c22829516",
-        "route": "agentRuntime.spawn",
-        "role": "client",
-        "port": "packages/gui/src/renderer/runtime-command-client.ts#runtimeCommandClient.spawn"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/taskDetail/TaskExecutionPanel.tsx#TaskExecutionPanel:2782a54718daa070ed456809dfa6c5e5",
-        "route": "agentRuntime.spawn",
-        "role": "client",
-        "port": "packages/gui/src/renderer/runtime-command-client.ts#runtimeCommandClient.spawn"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/runtime-command-client.ts#runtimeCommandClient.spawn:d7b0f67f2de04e5c8cd965e68839a046",
-        "route": "agentRuntime.spawn",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/runtime-command-client.ts#runtimeCommandClient.preview:0b7bfc684d4b7796908f07cef762cf0e",
-        "route": "agentRuntime.spawn",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/runtime-control.ts#submitRuntimeSpawn.initial:206f07d839186fbb579157f521e06d01",
-        "route": "agentRuntime.spawn",
-        "role": "client",
-        "port": "packages/gui/src/renderer/runtime-control.ts#submitRuntimeSpawn.deps.spawn"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/AgentSquadView.tsx#AgentSquadView.dispatch.settled:584103b261f755dba8c414ed95cb1eab",
-        "route": "agentRuntime.spawn",
-        "role": "client",
-        "port": "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useAgentSquadWorkspace.dispatch"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/AgentSquadView.tsx#AgentSquadView:108777496d0e4936eaf1869865dcf56d",
-        "route": "agentRuntime.spawn",
-        "role": "client",
-        "port": "packages/gui/src/renderer/views/AgentSquadView.tsx#AgentSquadView.dispatch"
-      }
-    ],
-    "execution": {
-      "ingress": "runtime-spawn",
-      "read": false
-    },
-    "concurrency": {
-      "expectedVersion": {
-        "authority": "not-applicable"
-      },
-      "leasePolicy": {
-        "authority": "runtime-host"
-      },
-      "occurrenceClaim": {
-        "authority": "not-applicable"
-      },
-      "idempotency": {
-        "authority": "caller-owned"
-      },
-      "artifactOwnership": {
-        "owner": "runtime-local",
-        "refTemplate": "runtime-host"
-      }
-    }
-  },
-  "runtime-instance-login": {
-    "owner": "runtime-instance",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useProviderWorkspace.createInstance:9784b612b405465e54010f3f78b6c644",
-        "route": "runtime-instance-login",
-        "role": "client",
-        "port": "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useRuntimeChannel.run"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useProviderWorkspace.authInstance:79fb577fc003405ed27496f9c44defa2",
-        "route": "runtime-instance-login",
-        "role": "client",
-        "port": "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useRuntimeChannel.run"
-      }
-    ],
-    "execution": {
-      "ingress": "runtime-instance-login",
-      "read": false
-    },
-    "concurrency": {
-      "expectedVersion": {
-        "authority": "not-applicable"
-      },
-      "leasePolicy": {
-        "authority": "runtime-host"
-      },
-      "occurrenceClaim": {
-        "authority": "not-applicable"
-      },
-      "idempotency": {
-        "authority": "caller-owned"
-      },
-      "artifactOwnership": {
-        "owner": "runtime-local",
-        "refTemplate": "runtime-host"
-      }
-    }
-  },
-  "runtime-instance-logout": {
-    "owner": "runtime-instance",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useProviderWorkspace.authInstance:309fef4ddbc47433202cf62ea917a22f",
-        "route": "runtime-instance-logout",
-        "role": "client",
-        "port": "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#useRuntimeChannel.run"
-      }
-    ],
-    "execution": {
-      "ingress": "runtime-instance-logout",
-      "read": false
-    },
-    "concurrency": {
-      "expectedVersion": {
-        "authority": "not-applicable"
-      },
-      "leasePolicy": {
-        "authority": "runtime-host"
-      },
-      "occurrenceClaim": {
-        "authority": "not-applicable"
-      },
-      "idempotency": {
-        "authority": "caller-owned"
-      },
-      "artifactOwnership": {
-        "owner": "runtime-local",
-        "refTemplate": "runtime-host"
-      }
-    }
-  },
-  "provider-create": {
-    "owner": "provider",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-provider-data.ts#useDecisionProviderMutations.create.mutationFn:b40fd0b06cdc4f3505a352982aa0f65e",
-        "route": "provider-create",
-        "role": "client",
-        "port": "packages/gui/src/renderer/decision-provider-client.ts#decisionProviderClient.create"
-      }
-    ],
-    "execution": {
-      "ingress": "provider-create",
-      "read": false
-    },
-    "concurrency": {
-      "expectedVersion": {
-        "authority": "not-applicable"
-      },
-      "leasePolicy": {
-        "authority": "daemon-host"
-      },
-      "occurrenceClaim": {
-        "authority": "not-applicable"
-      },
-      "idempotency": {
-        "authority": "caller-owned"
-      },
-      "artifactOwnership": {
-        "owner": "host-local",
-        "refTemplate": "daemon-host"
-      }
-    }
-  },
-  "provider-update": {
-    "owner": "provider",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-provider-data.ts#useDecisionProviderMutations.update.mutationFn:07cc0edcf8ffc310eb8df52da5ae26e1",
-        "route": "provider-update",
-        "role": "client",
-        "port": "packages/gui/src/renderer/decision-provider-client.ts#decisionProviderClient.update"
-      }
-    ],
-    "execution": {
-      "ingress": "provider-update",
-      "read": false
-    },
-    "concurrency": {
-      "expectedVersion": {
-        "authority": "not-applicable"
-      },
-      "leasePolicy": {
-        "authority": "daemon-host"
-      },
-      "occurrenceClaim": {
-        "authority": "not-applicable"
-      },
-      "idempotency": {
-        "authority": "caller-owned"
-      },
-      "artifactOwnership": {
-        "owner": "host-local",
-        "refTemplate": "daemon-host"
-      }
-    }
-  },
-  "provider-delete": {
-    "owner": "provider",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-provider-data.ts#useDecisionProviderMutations.remove.mutationFn:1fa036c82a4dd04b20928d2d46499608",
-        "route": "provider-delete",
-        "role": "client",
-        "port": "packages/gui/src/renderer/decision-provider-client.ts#decisionProviderClient.delete"
-      }
-    ],
-    "execution": {
-      "ingress": "provider-delete",
-      "read": false
-    },
-    "concurrency": {
-      "expectedVersion": {
-        "authority": "not-applicable"
-      },
-      "leasePolicy": {
-        "authority": "daemon-host"
-      },
-      "occurrenceClaim": {
-        "authority": "not-applicable"
-      },
-      "idempotency": {
-        "authority": "caller-owned"
-      },
-      "artifactOwnership": {
-        "owner": "host-local",
-        "refTemplate": "daemon-host"
-      }
-    }
-  },
-  "runtime-steer": {
-    "owner": "runtime-session",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/runtime-command-client.ts#runtimeCommandClient.steer:22dc45de7226b9ef2a2b1220e6c58ae0",
-        "route": "agentRuntime.steer",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      }
-    ],
-    "execution": {
-      "ingress": "runtime-steer",
-      "read": false
-    },
-    "concurrency": {
-      "expectedVersion": {
-        "authority": "not-applicable"
-      },
-      "leasePolicy": {
-        "authority": "runtime-host"
-      },
-      "occurrenceClaim": {
-        "authority": "not-applicable"
-      },
-      "idempotency": {
-        "authority": "caller-owned"
-      },
-      "artifactOwnership": {
-        "owner": "runtime-local",
-        "refTemplate": "runtime-host"
-      }
-    }
-  },
-  "schedule-enable": {
-    "owner": "schedule",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/schedules-client.ts#schedulesClient.enable:c419fe5fb47489b732923c312c010ced",
-        "route": "schedule.enable",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      }
-    ]
-  },
-  "schedule-run-now": {
-    "owner": "schedule",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/schedules-client.ts#schedulesClient.runNow:e26e6cea76aaf59da17a57a34e23d3d9",
-        "route": "schedule.runNow",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      }
-    ]
-  },
-  "task-rework": {
-    "owner": "task",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/task-rework-client.ts#taskReworkClient.rework:7599564f6d6b3ef8ee0c4c16598c5ee4",
-        "route": "task.rework",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      }
-    ]
-  },
-  "terminal-spawn": {
-    "owner": "terminal",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/terminal-client.ts#terminalClient.spawn:f3891121a758014e36cb99f016e34356",
-        "route": "terminal.spawn",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/TerminalView.tsx#TerminalView.start.receipt:60af41e46d5f08fc6d51029386d8776b",
-        "route": "terminal.spawn",
-        "role": "client",
-        "port": "packages/gui/src/renderer/terminal-client.ts#terminalClient.spawn"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/TerminalView.tsx#TerminalView.onKey:6b6ecc34a4f0e4d2234aa1a452ad8730",
-        "route": "terminal.spawn",
-        "role": "client",
-        "port": "packages/gui/src/renderer/views/TerminalView.tsx#TerminalView.run"
-      }
-    ],
-    "execution": {
-      "ingress": "terminal-spawn",
-      "read": false
-    },
-    "concurrency": {
-      "expectedVersion": {
-        "authority": "not-applicable"
-      },
-      "leasePolicy": {
-        "authority": "runtime-host"
-      },
-      "occurrenceClaim": {
-        "authority": "not-applicable"
-      },
-      "idempotency": {
-        "authority": "caller-owned"
-      },
-      "artifactOwnership": {
-        "owner": "runtime-local",
-        "refTemplate": "runtime-host"
-      }
-    }
-  },
-  "terminal-input": {
-    "owner": "terminal",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/terminal-client.ts#terminalClient.input.result:75a680d4c58359d94c681a4ffb88c9fc",
-        "route": "terminal.input",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      }
-    ],
-    "execution": {
-      "ingress": "terminal-input",
-      "read": false
-    },
-    "concurrency": {
-      "expectedVersion": {
-        "authority": "not-applicable"
-      },
-      "leasePolicy": {
-        "authority": "runtime-host"
-      },
-      "occurrenceClaim": {
-        "authority": "not-applicable"
-      },
-      "idempotency": {
-        "authority": "caller-owned"
-      },
-      "artifactOwnership": {
-        "owner": "runtime-local",
-        "refTemplate": "runtime-host"
-      }
-    }
-  },
-  "terminal-resize": {
-    "owner": "terminal",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/terminal-client.ts#terminalClient.resize:2b100f5a9f7570c3be4b1505779d1486",
-        "route": "terminal.resize",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      }
-    ],
-    "execution": {
-      "ingress": "terminal-resize",
-      "read": false
-    },
-    "concurrency": {
-      "expectedVersion": {
-        "authority": "not-applicable"
-      },
-      "leasePolicy": {
-        "authority": "runtime-host"
-      },
-      "occurrenceClaim": {
-        "authority": "not-applicable"
-      },
-      "idempotency": {
-        "authority": "caller-owned"
-      },
-      "artifactOwnership": {
-        "owner": "runtime-local",
-        "refTemplate": "runtime-host"
-      }
-    }
-  },
-  "terminal-terminate": {
-    "owner": "terminal",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/terminal-client.ts#terminalClient.terminate:f891a693dad7bc575c836d86fca937ed",
-        "route": "terminal.terminate",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/terminal-model.ts#requestTerminalTermination:9d1e7841f388ee3a88e3b7790b3ef533",
-        "route": "terminal.terminate",
-        "role": "client",
-        "port": "packages/gui/src/renderer/terminal-model.ts#requestTerminalTermination.deps.terminate"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/TerminalView.tsx#TerminalView.paneActions.onTerminate:aba9b19de1b2f8c1fb3e8eaba8d3e6ce",
-        "route": "terminal.terminate",
-        "role": "client",
-        "port": "packages/gui/src/renderer/views/TerminalView.tsx#TerminalView.terminate"
-      }
-    ],
-    "execution": {
-      "ingress": "terminal-terminate",
-      "read": false
-    },
-    "concurrency": {
-      "expectedVersion": {
-        "authority": "not-applicable"
-      },
-      "leasePolicy": {
-        "authority": "runtime-host"
-      },
-      "occurrenceClaim": {
-        "authority": "not-applicable"
-      },
-      "idempotency": {
-        "authority": "caller-owned"
-      },
-      "artifactOwnership": {
-        "owner": "runtime-local",
-        "refTemplate": "runtime-host"
-      }
-    }
-  },
-  "todo-add": {
-    "owner": "todo",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/todos-client.ts#todosClient.add:63a88b979221c84a8d09e737293969b6",
-        "route": "todo.add",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/TodosView.tsx#TodosView.mutation.mutationFn:973c6c969683351bc4fdb5c8534d57f0",
-        "route": "todo.add",
-        "role": "client",
-        "port": "packages/gui/src/renderer/views/TodosView.tsx#TodosView.mutation.mutationFn.run"
-      }
-    ]
-  },
-  "todo-done": {
-    "owner": "todo",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/todos-client.ts#todosClient.done:9e17bb6c6856d3552782ceff9cd957c6",
-        "route": "todo.done",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/TodosView.tsx#TodosView:7d1b7ea9f8155e452928622ba99e0116",
-        "route": "todo.done",
-        "role": "client",
-        "port": "packages/gui/src/renderer/views/TodosView.tsx#TodosView.complete"
-      }
-    ]
-  },
-  "todo-reopen": {
-    "owner": "todo",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/todos-client.ts#todosClient.reopen:18b193529ae0e9d6ec68c8432be52f2b",
-        "route": "todo.reopen",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      }
-    ]
-  },
-  "todo-archive": {
-    "owner": "todo",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/todos-client.ts#todosClient.archive:582c5bb41bd30f3f39bf2dd7eb3a14e1",
-        "route": "todo.archive",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/TodosView.tsx#TodosView:39edaeb169f77ef986f9bbf1d6d2a58a",
-        "route": "todo.archive",
-        "role": "client",
-        "port": "packages/gui/src/renderer/todos-client.ts#todosClient.archive"
-      }
-    ]
-  },
-  "todo-relate": {
-    "owner": "todo",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/todos-client.ts#todosClient.relate:8973b32ac541a1b730ceeed3b4a8dc22",
-        "route": "todo.relate",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/TodosView.tsx#TodoActions:ffa05a440eacd661f20340c4e08e2785",
-        "route": "todo.relate",
-        "role": "client",
-        "port": "packages/gui/src/renderer/views/TodosView.tsx#TodoActions.run"
-      }
-    ]
-  },
-  "todo-promote": {
-    "owner": "todo",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/todos-client.ts#todosClient.promote:e97fb17563ac1debcc704278d4bd30a7",
-        "route": "todo.promote",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/TodosView.tsx#TodoActions:947893792bdb610b1919169405ac2f85",
-        "route": "todo.promote",
-        "role": "client",
-        "port": "packages/gui/src/renderer/views/TodosView.tsx#TodoActions.run"
-      }
-    ]
-  },
-  "vertical-kind-publish-schema": {
-    "owner": "vertical",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/vertical-kind-client.ts#publishVerticalKindSchema:e6eec1513918cacd9ecbb64cf6aeeae3",
-        "route": "vertical.kind.publishSchema",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      }
-    ]
-  },
-  "vertical-kind-retire": {
-    "owner": "vertical",
-    "sources": [
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/vertical-kind-client.ts#retireVerticalKind:0da007533baf6a36fc08a4767730f4b2",
-        "route": "vertical.kind.retire",
-        "role": "client",
-        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
     ]
   }

@@ -16,7 +16,12 @@ import {
 } from "node:fs";
 import { userInfo } from "node:os";
 import path from "node:path";
-import { consumeKnownError } from "@harness-anything/kernel";
+import {
+  consumeKnownError,
+  findRuntimeOperatorSubscriptionConflict,
+  runtimeInstanceAccountCutMatches,
+  type RuntimeInstanceAccountCut,
+} from "@harness-anything/kernel";
 import { writeFileDurably } from "../../storage/src/durable-file.ts";
 import { credentialPort } from "./agent-runtime-credential-port.ts";
 import type { FlatRuntimeInstanceConfig, LegacyRuntimeInstanceConfig } from "./agent-runtime-instance-config.ts";
@@ -145,15 +150,6 @@ type RuntimeSubscriptionProbeResult = {
   readonly availableModels?: readonly string[];
 };
 
-type RuntimeAccountCut = {
-  readonly instanceId: string;
-  readonly installationId: string;
-  readonly credentialSource: RuntimeInstanceConfig["credentialSource"];
-  readonly authMode: RuntimeInstanceConfig["auth"]["mode"];
-  readonly credentialRef?: string;
-  readonly revision: number;
-};
-
 export function openRuntimeInstanceStore(input: {
   readonly userRoot: string;
   readonly discover: () => readonly RuntimeInstallationWitness[];
@@ -228,22 +224,15 @@ export function openRuntimeInstanceStore(input: {
     config: RuntimeInstanceConfig,
     instances: readonly RuntimeInstanceConfig[],
   ): void {
-    assertOperatorInstanceUniqueness(
-      instances.some(({ instanceId }) => instanceId === config.instanceId) ? instances : [...instances, config],
-    );
-  }
-  function assertOperatorInstanceUniqueness(instances: readonly RuntimeInstanceConfig[]): void {
-    const owners = new Map<string, string>();
-    for (const config of instances) {
-      if (!config.enabled || config.auth.mode !== "subscription" || config.credentialSource !== "operator") continue;
-      const existing = owners.get(config.installationId);
-      if (existing !== undefined && existing !== config.instanceId)
-        throw runtimeInstanceError(
-          "runtime_operator_instance_exists",
-          `Installation ${config.installationId} already has enabled operator-credential subscription instances: ${existing}, ${config.instanceId}.`,
-        );
-      owners.set(config.installationId, config.instanceId);
-    }
+    const candidateInstances = instances.some(({ instanceId }) => instanceId === config.instanceId)
+      ? instances
+      : [...instances, config];
+    const conflict = findRuntimeOperatorSubscriptionConflict(candidateInstances);
+    if (conflict)
+      throw runtimeInstanceError(
+        "runtime_operator_instance_exists",
+        `Installation ${conflict.installationId} already has enabled operator-credential subscription instances: ${conflict.existingInstanceId}, ${conflict.conflictingInstanceId}.`,
+      );
   }
   function accountRevision(instanceId: string): number {
     return accountRevisions.get(instanceId) ?? 0;
@@ -251,7 +240,7 @@ export function openRuntimeInstanceStore(input: {
   function bumpAccountRevision(instanceId: string): void {
     accountRevisions.set(instanceId, accountRevision(instanceId) + 1);
   }
-  function accountCut(config: RuntimeInstanceConfig): RuntimeAccountCut {
+  function accountCut(config: RuntimeInstanceConfig): RuntimeInstanceAccountCut {
     return {
       instanceId: config.instanceId,
       installationId: config.installationId,
@@ -261,18 +250,9 @@ export function openRuntimeInstanceStore(input: {
       revision: accountRevision(config.instanceId),
     };
   }
-  function assertCurrentAccountCut(cut: RuntimeAccountCut): RuntimeInstanceConfig {
+  function currentAccountForCut(cut: RuntimeInstanceAccountCut): RuntimeInstanceConfig {
     const current = readOne(cut.instanceId);
-    if (
-      !current ||
-      accountRevision(cut.instanceId) !== cut.revision ||
-      current.installationId !== cut.installationId ||
-      current.credentialSource !== cut.credentialSource ||
-      current.auth.mode !== cut.authMode ||
-      (cut.authMode === "api-key" &&
-        current.auth.mode === "api-key" &&
-        current.auth.credentialRef !== cut.credentialRef)
-    )
+    if (!current || !runtimeInstanceAccountCutMatches(current, cut, accountRevision(cut.instanceId)))
       throw runtimeInstanceError(
         "runtime_instance_probe_stale",
         `Runtime instance ${cut.instanceId} changed while its account operation was running.`,
@@ -353,9 +333,9 @@ export function openRuntimeInstanceStore(input: {
   function persistAvailableModels(
     config: RuntimeInstanceConfig,
     models: readonly string[],
-    cut: RuntimeAccountCut,
+    cut: RuntimeInstanceAccountCut,
   ): RuntimeInstanceConfig {
-    const current = assertCurrentAccountCut(cut);
+    const current = currentAccountForCut(cut);
     if (current.auth.mode !== "subscription")
       throw runtimeInstanceError(
         "runtime_instance_probe_stale",
@@ -536,7 +516,7 @@ export function openRuntimeInstanceStore(input: {
             true,
           );
           if (result.readiness.status !== "ready") {
-            assertCurrentAccountCut(cut);
+            currentAccountForCut(cut);
             return result.readiness;
           }
           if (result.availableModels?.length) persistAvailableModels(config, result.availableModels, cut);
@@ -545,7 +525,7 @@ export function openRuntimeInstanceStore(input: {
               executablePath: probeTarget.installation.executablePath,
               env,
             });
-            assertCurrentAccountCut(cut);
+            currentAccountForCut(cut);
             if (resetAt)
               providerHealth.recordFailure({
                 instanceId: config.instanceId,
@@ -1419,7 +1399,12 @@ export function openRuntimeInstanceStore(input: {
         : normalized,
       installationMigrated = migrated.some((entry, index) => entry !== normalized[index]),
       instances = migrated.sort((a, b) => a.instanceId.localeCompare(b.instanceId));
-    assertOperatorInstanceUniqueness(instances);
+    const operatorConflict = findRuntimeOperatorSubscriptionConflict(instances);
+    if (operatorConflict)
+      throw runtimeInstanceError(
+        "runtime_operator_instance_exists",
+        `Installation ${operatorConflict.installationId} already has enabled operator-credential subscription instances: ${operatorConflict.existingInstanceId}, ${operatorConflict.conflictingInstanceId}.`,
+      );
     for (const config of instances)
       if (!accountRevisions.has(config.instanceId)) accountRevisions.set(config.instanceId, 0);
     if (value.instances.some(needsRuntimeInstanceNormalization) || installationMigrated) persist(instances);
