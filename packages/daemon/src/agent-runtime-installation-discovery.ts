@@ -7,15 +7,6 @@ import { runProcessExitAsync, runProcessTextAsync, type ProcessExitResult } from
 import { runtimeKindForId, runtimeKinds, type RuntimeProviderDeclaration } from "./runtime-inventory.ts";
 import { runtimeVersionGate } from "./runtime-version.ts";
 
-export const runtimeModelCatalogCache = new Map<
-  string,
-  Promise<{
-    readonly models: readonly string[];
-    readonly defaultModel: string;
-    readonly searchCapableModels?: readonly string[];
-  } | null>
->();
-
 export async function discoverRuntimeInstallations(
   input: {
     readonly env?: NodeJS.ProcessEnv;
@@ -62,8 +53,10 @@ export async function discoverRuntimeInstallations(
       }
     }
   }
-  const discovered = await Promise.all(
-      candidates.map(async ({ kindId, executableEntryPath, executablePath, key }) => {
+  const discovered = await mapConcurrent(
+      candidates,
+      2,
+      async ({ kindId, executableEntryPath, executablePath, key }) => {
         try {
           const version = await runExecutable(platform, executablePath, ["--version"], {
             env: versionProbeEnvironment(env, platform),
@@ -77,8 +70,8 @@ export async function discoverRuntimeInstallations(
             // configuration this gate exists to refuse. The witness itself stays, so the
             // operator still sees which build is installed and why it is refused.
             catalog =
-              runtimeVersionGate(kindId, version) === null
-                ? await discoverRuntimeModelCatalog({ platform, executablePath, kindId, env, version })
+              runtimeVersionGate(kindId, version) === null && kindId !== "agy"
+                ? await discoverRuntimeModelCatalog({ platform, executablePath, kindId, env })
                 : null;
           return {
             installationId,
@@ -93,7 +86,7 @@ export async function discoverRuntimeInstallations(
           consumeKnownError(error);
           return null;
         }
-      }),
+      },
     ),
     result = discovered.filter((entry): entry is Exclude<(typeof discovered)[number], null> => entry !== null);
   return result.sort((a, b) => a.installationId.localeCompare(b.installationId));
@@ -104,46 +97,33 @@ export function discoverRuntimeModelCatalog(input: {
   readonly executablePath: string;
   readonly kindId: RuntimeInstanceKind;
   readonly env: NodeJS.ProcessEnv;
-  readonly version: string;
+  readonly signal?: AbortSignal;
 }): Promise<{
   readonly models: readonly string[];
   readonly defaultModel: string;
   readonly searchCapableModels?: readonly string[];
 } | null> {
-  const cacheKey = `${input.kindId}\0${input.executablePath}\0${input.version}`;
-  const cached = runtimeModelCatalogCache.get(cacheKey);
-  if (cached) return cached;
-  const discovered = (async () => {
-    let models: string[] = [],
-      searchCapableModels: string[] = [];
-    try {
-      const declaration = runtimeKindForId(input.kindId);
-      // A null probe is an explicit unavailable catalog, never an empty successful probe.
-      if (declaration.executable.modelProbe === null) return null;
-      const args = declaration.executable.modelProbe,
-        output = await runExecutable(input.platform, input.executablePath, args, {
-          env: input.env,
-          timeoutMs: 8_000,
-          captureOutput: true,
-        });
-      models = [...modelProbeParsers[declaration.executable.modelProbeFormat](output)];
-      if (declaration.executable.modelProbeFormat === "json-models")
-        searchCapableModels = modelSearchCapableModels(output);
-    } catch (error) {
-      consumeKnownError(error);
-    }
-    const unique = [...new Set(models)],
-      capable = [...new Set(searchCapableModels)].filter((model) => unique.includes(model));
-    return unique[0]
+  const declaration = runtimeKindForId(input.kindId);
+  if (declaration.executable.modelProbe === null) return Promise.resolve(null);
+  const timeoutMs = declaration.auth.subscriptionProbeTimeoutMs;
+  return runExecutable(input.platform, input.executablePath, declaration.executable.modelProbe, {
+    env: input.env,
+    timeoutMs,
+    captureOutput: true,
+    signal: input.signal ?? AbortSignal.timeout(timeoutMs),
+  }).then((output) => {
+    const models = [...parseRuntimeModelCatalogOutput(input.kindId, output)],
+      searchCapableModels =
+        declaration.executable.modelProbeFormat === "json-models" ? modelSearchCapableModels(output) : [],
+      capable = [...new Set(searchCapableModels)].filter((model) => models.includes(model));
+    return models[0]
       ? {
-          models: unique,
-          defaultModel: unique[0],
+          models,
+          defaultModel: models[0],
           ...(capable.length > 0 ? { searchCapableModels: capable } : {}),
         }
       : null;
-  })();
-  runtimeModelCatalogCache.set(cacheKey, discovered);
-  return discovered;
+  });
 }
 
 type ModelProbeFormat = RuntimeProviderDeclaration["executable"]["modelProbeFormat"];
@@ -182,6 +162,13 @@ const modelProbeParsers: Record<ModelProbeFormat, (output: string) => readonly s
     ["fable", "sonnet", "opus"].filter((alias) => output.includes(`'${alias}'`) || output.includes(`"${alias}"`)),
 };
 
+export function parseRuntimeModelCatalogOutput(kindId: RuntimeInstanceKind, output: string): readonly string[] {
+  const declaration = runtimeKindForId(kindId);
+  return declaration.executable.modelProbe === null
+    ? []
+    : [...new Set(modelProbeParsers[declaration.executable.modelProbeFormat](output))];
+}
+
 /** Codex's bundled catalog marks models that expose the native hosted search tool. Other
  *  json-model providers do not publish this field and yield an empty (unknown) subset. */
 function modelSearchCapableModels(output: string): string[] {
@@ -196,35 +183,6 @@ function modelSearchCapableModels(output: string): string[] {
     .filter((model) => model.supports_search_tool === true)
     .map((model) => (typeof model.slug === "string" ? model.slug : typeof model.id === "string" ? model.id : ""))
     .filter(Boolean);
-}
-
-/** Merges models observed on the ACP `session/new` response into the catalog
- * cache that CLI probes feed, so a protocol-advertised model set reaches the
- * same consumption surface as a probed one. Union-only: observed models never
- * remove probed or user-entered entries. */
-export function observeRuntimeModels(input: {
-  readonly kindId: RuntimeInstanceKind;
-  readonly executablePath: string;
-  readonly version: string;
-  readonly models: readonly string[];
-  readonly currentModel?: string;
-}): void {
-  const observed = [...new Set(input.models.filter((model) => model !== ""))];
-  if (observed.length === 0) return;
-  const cacheKey = `${input.kindId}\0${input.executablePath}\0${input.version}`,
-    previous = runtimeModelCatalogCache.get(cacheKey),
-    merged = (async () => {
-      const base = previous ? await previous : null,
-        models = [...new Set([...(base?.models ?? []), ...observed])],
-        defaultModel = base?.defaultModel ?? input.currentModel ?? models[0]!,
-        searchCapableModels = (base?.searchCapableModels ?? []).filter((model) => models.includes(model));
-      return {
-        models,
-        defaultModel,
-        ...(searchCapableModels.length > 0 ? { searchCapableModels } : {}),
-      };
-    })();
-  runtimeModelCatalogCache.set(cacheKey, merged);
 }
 
 export function versionProbeEnvironment(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): NodeJS.ProcessEnv {
@@ -250,14 +208,23 @@ export async function runExecutable(
     readonly env: NodeJS.ProcessEnv;
     readonly timeoutMs: number;
     readonly captureOutput: boolean;
+    readonly signal?: AbortSignal;
   },
 ): Promise<string> {
   const invocation = executableInvocation(platform, executablePath, args),
     { command, argv, windowsVerbatimArguments } = invocation;
-  const stdout = await runProcessTextAsync(command, argv, undefined, options.env, undefined, undefined, {
-    timeoutMs: options.timeoutMs,
-    ...(windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
-  });
+  const stdout = await runProcessTextAsync(
+    command,
+    argv,
+    undefined,
+    options.env,
+    undefined,
+    options.signal ?? AbortSignal.timeout(options.timeoutMs),
+    {
+      timeoutMs: options.timeoutMs,
+      ...(windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+    },
+  );
   return options.captureOutput ? stdout.trim() : "";
 }
 
@@ -270,14 +237,37 @@ export function runExecutableResult(
     readonly timeoutMs: number;
     readonly cwd?: string;
     readonly input?: string;
+    readonly signal?: AbortSignal;
   },
 ): Promise<ProcessExitResult> {
   const invocation = executableInvocation(platform, executablePath, args),
     { command, argv, windowsVerbatimArguments } = invocation;
-  return runProcessExitAsync(command, argv, options.cwd, options.env, options.input, undefined, {
-    timeoutMs: options.timeoutMs,
-    ...(windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
-  });
+  return runProcessExitAsync(
+    command,
+    argv,
+    options.cwd,
+    options.env,
+    options.input,
+    options.signal ?? AbortSignal.timeout(options.timeoutMs),
+    {
+      timeoutMs: options.timeoutMs,
+      ...(windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+    },
+  );
+}
+
+async function mapConcurrent<T, R>(values: readonly T[], limit: number, map: (value: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(limit, values.length) }, async () => {
+      while (next < values.length) {
+        const index = next++;
+        results[index] = await map(values[index]!);
+      }
+    }),
+  );
+  return results;
 }
 
 function executableInvocation(

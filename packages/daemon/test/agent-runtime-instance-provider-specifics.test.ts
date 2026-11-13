@@ -666,10 +666,17 @@ test("agy uses the operator environment, OAuth-only auth, and a closed effort en
         }),
       (error: unknown) => codedAs(error, "invalid_runtime_auth"),
     );
-    assert.throws(
-      () => store.prepareAuthCommand("agy-review", "login"),
-      (error: unknown) => codedAs(error, "runtime_auth_interactive_only"),
-    );
+    const login = store.prepareAuthCommand("agy-review", "login");
+    assert.equal(login.executablePath, agy.executablePath);
+    assert.deepEqual(login.args, [
+      "acp",
+      "--login",
+      "--gemini-dir",
+      path.join("/operator/home", ".gemini"),
+      "--app-data-dir",
+      path.join("/operator/home", ".gemini", "antigravity-cli"),
+    ]);
+    assert.equal(login.env.HOME, "/operator/home");
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }
@@ -823,7 +830,7 @@ test("minimax-code readiness follows auth-state status and expiry, and its login
       providerId: "minimax-code",
       models: ["minimax/MiniMax-M3"],
       defaultModel: "minimax/MiniMax-M3",
-      enabled: true,
+      enabled: false,
       isolationState: "enforced",
       auth: { mode: "subscription" },
     });

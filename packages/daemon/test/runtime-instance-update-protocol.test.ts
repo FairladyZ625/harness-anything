@@ -5,6 +5,18 @@ import { parseDaemonRpcParams } from "../src/protocol/daemon-protocol.contract.t
 
 const parse = (payload: Record<string, unknown>) =>
   parseDaemonRpcParams("daemon.runtimeInstance.update", { payload: { instanceId: "claude-api-test", ...payload } });
+const parseCreate = (payload: Record<string, unknown>) =>
+  parseDaemonRpcParams("daemon.runtimeInstance.create", {
+    payload: {
+      instanceId: "agy-api-test",
+      name: "AGY API test",
+      kindId: "agy",
+      providerId: "google",
+      models: [],
+      authMode: "subscription",
+      ...payload,
+    },
+  });
 
 test("runtime instance RPC accepts clearing endpoint and effort through the existing update route", () => {
   const payload = {
@@ -21,6 +33,12 @@ test("runtime instance RPC accepts clearing endpoint and effort through the exis
   assert.equal(parse({ baseUrl: "https://example.test/", effort: "high" }).ok, true);
   assert.equal(parse({ webSearch: "live" }).ok, true);
   assert.equal(parse({ webSearch: "" }).ok, true);
+  assert.equal(parse({ credentialSource: "instance" }).ok, true);
+  assert.equal(parse({ credentialSource: "operator" }).ok, true);
+  assert.equal(parse({ credentialSource: "third-party" }).ok, false);
+  assert.equal(parseCreate({ credentialSource: "instance" }).ok, true);
+  assert.equal(parseCreate({ credentialSource: "operator" }).ok, true);
+  assert.equal(parseCreate({ credentialSource: "third-party" }).ok, false);
 });
 
 test("runtime instance RPC keeps non-clearable strings and clearable value types constrained", () => {

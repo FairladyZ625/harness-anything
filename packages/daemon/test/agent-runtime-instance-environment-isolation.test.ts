@@ -181,16 +181,24 @@ test("claude isolation defaults to the operator environment and stays enforced o
         }),
       (error: unknown) => codedAs(error, "invalid_runtime_isolation"),
     );
+    const darwinStore = openRuntimeInstanceStore({
+      userRoot,
+      platform: "darwin",
+      env: operatorEnv,
+      discover: () => [agy],
+    });
     assert.throws(
       () =>
-        store.command({
+        darwinStore.command({
           kind: "runtime-instance-create",
           instanceId: "agy-enforced",
           name: "AGY Enforced",
           kindId: "agy",
+          installationId: agy.installationId,
           providerId: "google",
           models: ["gemini-3.1-pro-low"],
-          isolationState: "enforced",
+          isolationState: "operator-environment",
+          credentialSource: "instance",
           authMode: "subscription",
         }),
       (error: unknown) => codedAs(error, "invalid_runtime_isolation"),
@@ -380,7 +388,7 @@ test("macOS Claude operator probes use the OS username and report the probed env
       providerId: "anthropic",
       models: ["sonnet"],
       defaultModel: "sonnet",
-      enabled: true,
+      enabled: false,
       isolationState: "enforced",
       claude: {},
       auth: { mode: "subscription" },

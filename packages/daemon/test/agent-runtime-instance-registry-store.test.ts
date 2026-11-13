@@ -123,6 +123,7 @@ test("machine runtime instance CRUD binds a witnessed installation and enforces 
       models: [config.model],
       defaultModel: config.model,
       enabled: true,
+      credentialSource: "operator" as const,
       permissionMode: "bypass" as const,
       isolationState: "enforced" as const,
       auth: config.auth,
@@ -477,6 +478,7 @@ test("runtime instance command receipts expose readiness metadata without creden
       models: ["gpt-5.6-sol"],
       defaultModel: "gpt-5.6-sol",
       enabled: true,
+      credentialSource: "operator",
       permissionMode: "bypass",
       mcpPolicy: "disabled",
       // dec_5DBF5F2B38719E4B52003D178D: capability queries expose the same native-hook declaration.
@@ -512,12 +514,12 @@ test("runtime instance command receipts expose readiness metadata without creden
     ]);
     assert.equal(
       listed.summary,
-      `ID\tNAME\tKIND\tMODEL\tENABLED\tAUTH MODE\tLOGIN STATUS\tPERMISSION MODE\tMCP POLICY\ncodex-safe\tCodex Safe\tcodex\tgpt-5.6-sol\tenabled\tapi-key\tnot-checked\tbypass\tdisabled\n\nINSTALLATION\tKIND\tVERSION\tOBSERVED AT\n${observed.installationId}\tcodex\t${observed.version}\t${observed.observedAt}`,
+      `ID\tNAME\tKIND\tMODEL\tENABLED\tAUTH MODE\tCREDENTIAL SOURCE\tAVAILABLE MODELS\tLOGIN STATUS\tPERMISSION MODE\tMCP POLICY\ncodex-safe\tCodex Safe\tcodex\tgpt-5.6-sol\tenabled\tapi-key\toperator\t(not probed)\tnot-checked\tbypass\tdisabled\n\nINSTALLATION\tKIND\tVERSION\tOBSERVED AT\n${observed.installationId}\tcodex\t${observed.version}\t${observed.observedAt}`,
     );
     assert.deepEqual(shown.instance, created.instance);
     assert.equal(
       shown.summary,
-      "runtime-instance-show: codex-safe\nmodels: gpt-5.6-sol\nauth: not-checked\npermissionMode: bypass\nmcpPolicy: disabled",
+      "runtime-instance-show: codex-safe\nmodels: gpt-5.6-sol\navailableModels: (not probed)\ncredentialSource: operator\nauth: not-checked\npermissionMode: bypass\nmcpPolicy: disabled",
     );
     for (const receipt of [created, listed, shown]) {
       assert.doesNotMatch(

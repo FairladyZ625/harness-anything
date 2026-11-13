@@ -1,4 +1,3 @@
-import { openRuntimeProviderHealthStore } from "./runtime-provider-health.ts";
 import type { openRuntimeInstanceStore } from "./agent-runtime-instances.ts";
 import type { DaemonRuntimePorts } from "./daemon-host-context.ts";
 
@@ -11,15 +10,13 @@ type RuntimeInstances = Pick<
   | "listRuntimeTempSessionIds"
   | "reclaimSettledRuntimeTempDirectories"
   | "prepareDaemonGitEnvironment"
+  | "runtimeProviderHealth"
 >;
 
-export function openDaemonRuntimePorts(input: {
-  readonly userRoot: string;
-  readonly instances: RuntimeInstances;
-}): DaemonRuntimePorts {
+export function openDaemonRuntimePorts(input: { readonly instances: RuntimeInstances }): DaemonRuntimePorts {
   return {
     runtimeInstances: input.instances.listPublic,
-    runtimeProviderHealth: openRuntimeProviderHealthStore(input.userRoot),
+    runtimeProviderHealth: input.instances.runtimeProviderHealth,
     prepareRuntimeLaunch: input.instances.prepareLaunch,
     prepareCloudRelay: input.instances.prepareCloudRelay,
     reclaimRuntimeTempDirectory: input.instances.reclaimRuntimeTempDirectory,

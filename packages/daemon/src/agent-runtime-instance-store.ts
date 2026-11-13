@@ -88,6 +88,7 @@ import {
   runtimeEffortRidesProviderConfig,
   runtimeKindForId,
   runtimeKindIds,
+  supportsRuntimeSubscriptionMultiAccountIsolation,
 } from "./runtime-inventory.ts";
 import { hostingCredentialReference } from "./runtime-hosting-credentials.ts";
 import { runtimeVersionGate, runtimeWebSearchVersionGate } from "./runtime-version.ts";
@@ -99,6 +100,8 @@ import {
   verifyRuntimeWebSearchGateway,
 } from "./agent-runtime-web-search.ts";
 import { CloudDispatchRelay, relayPriceOf } from "./runtime/cloud-dispatch-relay.ts";
+import { appendAgyAccountDirectories, createRuntimeInstanceAccountProbe } from "./runtime-instance-account-probe.ts";
+import { openRuntimeProviderHealthStore, type RuntimeProviderHealthStore } from "./runtime-provider-health.ts";
 
 /** Runtime session ids the spawner mints (`runtime_<24 hex>`). The per-run temp directory joins
  *  this id into a filesystem path that settlement recursively deletes, so the shape is pinned
@@ -137,12 +140,19 @@ export type RuntimeTempReclaimFailure = {
   readonly error: Error;
 };
 
+type RuntimeSubscriptionProbeResult = {
+  readonly readiness: RuntimeAuthReadiness;
+  readonly availableModels?: readonly string[];
+};
+
 export function openRuntimeInstanceStore(input: {
   readonly userRoot: string;
   readonly discover: () => readonly RuntimeInstallationWitness[];
   readonly refreshDiscovery?: () => Promise<readonly RuntimeInstallationWitness[]>;
   readonly env?: NodeJS.ProcessEnv;
   readonly platform?: NodeJS.Platform;
+  readonly providerHealth?: RuntimeProviderHealthStore;
+  readonly now?: () => string;
   readonly resolveCredential?: (reference: string) => Promise<string>;
   /**
    * Reads the operator's GitHub token for one launch. The daemon host supplies this (its own
@@ -162,6 +172,9 @@ export function openRuntimeInstanceStore(input: {
   readonly webSearchFetch?: typeof fetch;
 }) {
   const platform = input.platform ?? process.platform,
+    providerHealth = input.providerHealth ?? openRuntimeProviderHealthStore(input.userRoot),
+    accountProbe = createRuntimeInstanceAccountProbe(platform),
+    nowIso = input.now ?? (() => new Date().toISOString()),
     resolveCredential = input.resolveCredential ?? credentialPort(platform).resolve,
     // The operator environment is the daemon's own, never an instance state root: this is the
     // one place a launch reads a GitHub credential, and it reads the operator's own login.
@@ -222,6 +235,63 @@ export function openRuntimeInstanceStore(input: {
         "runtime_operator_instance_exists",
         `Installation ${config.installationId} already has an enabled operator-credential subscription instance.`,
       );
+  }
+  function isAgyAccountConfig(config: RuntimeInstanceConfig): boolean {
+    return config.kindId === "agy" || runtimeKindForId(config.kindId).executable.credentialCommand === "agy";
+  }
+  function accountProbeTarget(
+    config: RuntimeInstanceConfig,
+    witnessed: readonly RuntimeInstallationWitness[],
+  ): { readonly kindId: RuntimeInstanceKind; readonly installation: RuntimeInstallationWitness } {
+    const credentialCommand = runtimeKindForId(config.kindId).executable.credentialCommand,
+      kindId = credentialCommand
+        ? runtimeKindIds.find((candidate) => runtimeKindForId(candidate).executable.command === credentialCommand)
+        : config.kindId,
+      installation = kindId ? witnessed.find((entry) => entry.kindId === kindId) : undefined;
+    if (!kindId || !installation)
+      throw runtimeInstanceError(
+        "runtime_credential_command_not_found",
+        `A witnessed credential command is required for ${config.kindId} account operations.`,
+      );
+    return { kindId, installation };
+  }
+  async function currentAccountProbeTarget(
+    config: RuntimeInstanceConfig,
+    witnessed: readonly RuntimeInstallationWitness[],
+  ): Promise<{ readonly kindId: RuntimeInstanceKind; readonly installation: RuntimeInstallationWitness }> {
+    try {
+      return accountProbeTarget(config, witnessed);
+    } catch (error) {
+      if (input.refreshDiscovery === undefined) throw error;
+      consumeKnownError(error);
+      return accountProbeTarget(config, await refreshInstallations());
+    }
+  }
+  function persistAvailableModels(config: RuntimeInstanceConfig, models: readonly string[]): RuntimeInstanceConfig {
+    const current = readOne(config.instanceId);
+    if (!current)
+      throw runtimeInstanceError(
+        "runtime_instance_not_found",
+        `Runtime instance ${config.instanceId} was removed while its model probe was running.`,
+      );
+    if (
+      current.installationId !== config.installationId ||
+      current.credentialSource !== config.credentialSource ||
+      current.auth.mode !== "subscription"
+    )
+      throw runtimeInstanceError(
+        "runtime_instance_probe_stale",
+        `Runtime instance ${config.instanceId} changed while its model probe was running.`,
+      );
+    const availableModels = normalizeModels(models);
+    if (
+      current.availableModels?.length === availableModels.length &&
+      current.availableModels.every((model, index) => model === availableModels[index])
+    )
+      return current;
+    const updated = runtimeInstanceConfig({ ...current, availableModels }, platform);
+    persist(read().map((entry) => (entry.instanceId === current.instanceId ? updated : entry)));
+    return updated;
   }
   function commitCreate(config: RuntimeInstanceConfig): RuntimeInstanceConfig {
     if (config.isolationState === "enforced") ensureStateRoot(config);
@@ -351,6 +421,11 @@ export function openRuntimeInstanceStore(input: {
     if (config.isolationState === "enforced") ensureStateRoot(config);
     const env = authEnvironment(config);
     if (config.auth.mode === "subscription") {
+      const probeStartedAt = nowIso(),
+        probeTarget =
+          !input.subscriptionReady && isAgyAccountConfig(config)
+            ? await currentAccountProbeTarget(config, witnessed)
+            : undefined;
       const codexProbe =
         !input.subscriptionReady && config.kindId === "codex"
           ? {
@@ -369,7 +444,34 @@ export function openRuntimeInstanceStore(input: {
         });
       return rememberAuthReadiness(
         config.instanceId,
-        await probeSubscription(installation, env, config.isolationState, codexProbe),
+        await (async () => {
+          const result = await probeSubscription(
+            installation,
+            env,
+            config.isolationState,
+            codexProbe,
+            config,
+            witnessed,
+            true,
+          );
+          if (result.readiness.status !== "ready") return result.readiness;
+          if (result.availableModels?.length) persistAvailableModels(config, result.availableModels);
+          if (probeTarget && !input.subscriptionReady) {
+            const resetAt = await accountProbe.probeAgyQuota({
+              executablePath: probeTarget.installation.executablePath,
+              env,
+            });
+            if (resetAt)
+              providerHealth.recordFailure({
+                instanceId: config.instanceId,
+                reason: "quota_exhausted",
+                occurredAt: nowIso(),
+                resetAt,
+              });
+            else providerHealth.recordSuccess(config.instanceId, probeStartedAt);
+          }
+          return result.readiness;
+        })(),
       );
     }
     try {
@@ -390,15 +492,23 @@ export function openRuntimeInstanceStore(input: {
     const config = readOne(instanceId);
     if (!config)
       throw runtimeInstanceError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
-    if (config.kindId === "agy")
-      throw runtimeInstanceError(
-        "runtime_auth_interactive_only",
-        "agy has no programmable login command; sign in by running agy in your terminal.",
-      );
     if (config.auth.mode !== "subscription")
       throw runtimeInstanceError(
         "runtime_auth_mode_mismatch",
         "Provider-native sign-in is available only for subscription instances.",
+      );
+    if (
+      config.credentialSource === "instance" &&
+      !supportsRuntimeSubscriptionMultiAccountIsolation(config.kindId, platform)
+    )
+      throw runtimeInstanceError(
+        "runtime_instance_isolation_unsupported",
+        `Independent subscription credentials are not supported for ${config.kindId} on ${platform}.`,
+      );
+    if (isAgyAccountConfig(config) && action === "logout")
+      throw runtimeInstanceError(
+        "runtime_auth_unsupported",
+        "AGY currently supports instance login, but does not declare a sign-out command.",
       );
     const witnessed = input.discover(),
       installation = witnessed.find(
@@ -416,13 +526,16 @@ export function openRuntimeInstanceStore(input: {
       config.instanceId,
       unavailable("runtime_auth_in_progress", `Provider-native ${action} is running in this instance terminal.`),
     );
-    const args = runtimeAuthArgs(config.kindId, action);
+    const credentialInstallation = accountProbeTarget(config, witnessed).installation,
+      authEnv = authEnvironment(config),
+      args = [...runtimeAuthArgs(config.kindId, action)];
+    if (isAgyAccountConfig(config)) appendAgyAccountDirectories("agy", authEnv, args);
     return {
       instanceId: config.instanceId,
       name: config.name,
-      executablePath: installation.executablePath,
+      executablePath: credentialInstallation.executablePath,
       args,
-      env: authEnvironment(config),
+      env: authEnv,
       cwd: path.join(instancesRoot, config.instanceId),
     };
   }
@@ -546,10 +659,8 @@ export function openRuntimeInstanceStore(input: {
       return launch;
     };
     if (config.auth.mode === "subscription") {
-      const readiness = rememberAuthReadiness(
-        config.instanceId,
-        await probeSubscription(installation, env, config.isolationState),
-      );
+      const probe = await probeSubscription(installation, env, config.isolationState, undefined, config, witnessed),
+        readiness = rememberAuthReadiness(config.instanceId, probe.readiness);
       if (readiness.code !== null) throw runtimeInstanceError(readiness.code, readiness.hint!);
       return finishLaunch({
         definition,
@@ -793,7 +904,7 @@ export function openRuntimeInstanceStore(input: {
         installations = recorded ?? (live ?? []).map(withoutHostPaths);
       const listed = (instances: readonly RuntimeInstanceSummary[]) => {
         const summary = [
-          "ID\tNAME\tKIND\tMODEL\tENABLED\tAUTH MODE\tLOGIN STATUS\tPERMISSION MODE\tMCP POLICY",
+          "ID\tNAME\tKIND\tMODEL\tENABLED\tAUTH MODE\tCREDENTIAL SOURCE\tAVAILABLE MODELS\tLOGIN STATUS\tPERMISSION MODE\tMCP POLICY",
           ...instances.map((instance) =>
             [
               "",
@@ -808,6 +919,10 @@ export function openRuntimeInstanceStore(input: {
               `${instance.enabled ? "enabled" : "disabled"}`,
               "\t",
               `${instance.authMode}`,
+              "\t",
+              `${instance.credentialSource}`,
+              "\t",
+              `${instance.availableModels?.join(",") ?? "(not probed)"}`,
               "\t",
               authReadinessLabel(instance.authReadiness),
               "\t",
@@ -834,9 +949,10 @@ export function openRuntimeInstanceStore(input: {
       };
       if (probe)
         return Promise.all(
-          configs.map(async (config) =>
-            publicConfig(config, await authStatus(config.instanceId, { witnessed: live ?? [], config })),
-          ),
+          configs.map(async (config) => {
+            const status = await authStatus(config.instanceId, { witnessed: live ?? [], config });
+            return publicConfig(readOne(config.instanceId) ?? config, status);
+          }),
         ).then(listed);
       const instances = configs.map((config) => publicConfig(config, readiness.get(config.instanceId)));
       return listed(instances);
@@ -1022,12 +1138,12 @@ export function openRuntimeInstanceStore(input: {
         throw runtimeInstanceError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
       if (action.probe === true)
         return authStatus(instanceId, { witnessed: witnessed!, config }).then((status) => {
-          const instance = publicConfig(config, status);
+          const instance = publicConfig(readOne(instanceId) ?? config, status);
           return {
             ...base,
             instance,
             evidence: JSON.stringify(instance),
-            summary: `runtime-instance-show: ${instanceId}\nmodels: ${instance.models.join(", ")}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}\nmcpPolicy: ${instance.mcpPolicy ?? "unsupported"}`,
+            summary: `runtime-instance-show: ${instanceId}\nmodels: ${instance.models.join(", ")}\navailableModels: ${instance.availableModels?.join(", ") ?? "(not probed)"}\ncredentialSource: ${instance.credentialSource}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}\nmcpPolicy: ${instance.mcpPolicy ?? "unsupported"}`,
           };
         });
       const instance = publicConfig(config, readiness.get(config.instanceId));
@@ -1035,7 +1151,7 @@ export function openRuntimeInstanceStore(input: {
         ...base,
         instance,
         evidence: JSON.stringify(instance),
-        summary: `runtime-instance-show: ${instanceId}\nmodels: ${instance.models.join(", ")}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}\nmcpPolicy: ${instance.mcpPolicy ?? "unsupported"}`,
+        summary: `runtime-instance-show: ${instanceId}\nmodels: ${instance.models.join(", ")}\navailableModels: ${instance.availableModels?.join(", ") ?? "(not probed)"}\ncredentialSource: ${instance.credentialSource}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}\nmcpPolicy: ${instance.mcpPolicy ?? "unsupported"}`,
       };
     }
     if (kind === "runtime-instance-delete") {
@@ -1128,6 +1244,7 @@ export function openRuntimeInstanceStore(input: {
     listRuntimeTempSessionIds,
     reclaimSettledRuntimeTempDirectories,
     prepareDaemonGitEnvironment,
+    runtimeProviderHealth: providerHealth,
     refreshInstallations,
     recordedInstallations,
     command,
@@ -1247,6 +1364,11 @@ export function openRuntimeInstanceStore(input: {
       /* @gate-identity state-store/runtime-instance.store */ mkdirSync(directory, { recursive: true, mode: 0o700 });
       chmodSync(directory, 0o700);
     }
+    if (isAgyAccountConfig(config)) {
+      const appData = path.join(provider, "antigravity-cli");
+      /* @gate-identity state-store/runtime-instance.store */ mkdirSync(appData, { recursive: true, mode: 0o700 });
+      chmodSync(appData, 0o700);
+    }
     if (config.kindId === "zcode") {
       const cli = path.join(provider, "cli");
       /* @gate-identity state-store/runtime-instance.store */ mkdirSync(cli, { recursive: true, mode: 0o700 });
@@ -1295,16 +1417,65 @@ export function openRuntimeInstanceStore(input: {
     env: NodeJS.ProcessEnv,
     isolationState: RuntimeIsolationState,
     codexProbe?: NonNullable<Parameters<typeof providerSubscriptionReadiness>[0]["codexProbe"]>,
-  ): Promise<RuntimeAuthReadiness> {
+    config?: RuntimeInstanceConfig,
+    witnessed: readonly RuntimeInstallationWitness[] = [],
+    captureCatalog = false,
+  ): Promise<RuntimeSubscriptionProbeResult> {
     try {
-      if (input.subscriptionReady) return await input.subscriptionReady({ installation, env });
-      return await providerSubscriptionReadiness(
+      if (input.subscriptionReady) return { readiness: await input.subscriptionReady({ installation, env }) };
+      if (config && isAgyAccountConfig(config)) {
+        const target = await currentAccountProbeTarget(config, witnessed),
+          catalog = await accountProbe.probeModels({
+            kindId: target.kindId,
+            executablePath: target.installation.executablePath,
+            env,
+          });
+        return catalog
+          ? {
+              readiness: available(),
+              ...(captureCatalog ? { availableModels: catalog.models } : {}),
+            }
+          : {
+              readiness: unavailable(
+                "runtime_subscription_required",
+                isolationState === "operator-environment"
+                  ? "Provider subscription authentication is unavailable in the operator environment."
+                  : "Provider subscription authentication is unavailable in this instance state root.",
+              ),
+            };
+      }
+      const readiness = await providerSubscriptionReadiness(
         { installation, env, isolationState, ...(codexProbe ? { codexProbe } : {}) },
         platform,
       );
+      return { readiness };
     } catch (error) {
       consumeKnownError(error);
-      return unavailable("runtime_auth_probe_failed", "Provider authentication probe could not determine readiness.");
+      const terminated =
+          typeof error === "object" &&
+          error !== null &&
+          ((error as { readonly killed?: unknown }).killed === true ||
+            (error as { readonly signal?: unknown }).signal != null),
+        status =
+          typeof error === "object" && error !== null && "status" in error
+            ? (error as { readonly status?: unknown }).status
+            : undefined;
+      return {
+        readiness:
+          !terminated && typeof status === "number" && Number.isInteger(status)
+            ? unavailable(
+                "runtime_subscription_required",
+                isolationState === "operator-environment"
+                  ? "Provider subscription authentication is unavailable in the operator environment."
+                  : "Provider subscription authentication is unavailable in this instance state root.",
+              )
+            : unavailable(
+                "runtime_auth_probe_failed",
+                terminated
+                  ? "Provider authentication probe was terminated before it could report readiness."
+                  : "Provider authentication probe could not determine readiness.",
+              ),
+      };
     }
   }
 }

@@ -21,7 +21,7 @@ import {
   openRuntimeInstanceStore,
   type RuntimeInstallationWitness,
 } from "../src/agent-runtime-instances.ts";
-import { discoverRuntimeModelCatalog, observeRuntimeModels } from "../src/agent-runtime-installation-discovery.ts";
+import { discoverRuntimeModelCatalog } from "../src/agent-runtime-installation-discovery.ts";
 import { codedAs, observed } from "./agent-runtime-instance-environment.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
@@ -137,7 +137,8 @@ test("runtime installation discovery projects each provider's detected model cat
     assert.deepEqual(
       rows.map(({ kindId, models, defaultModel }) => ({ kindId, models, defaultModel })),
       [
-        { kindId: "agy", models: ["gemini-high", "gemini-low"], defaultModel: "gemini-high" },
+        // AGY account models are probed against each instance HOME, never at installation discovery.
+        { kindId: "agy", models: undefined, defaultModel: undefined },
         { kindId: "claude", models: ["fable", "sonnet", "opus"], defaultModel: "fable" },
         { kindId: "codex", models: ["gpt-sol", "gpt-terra"], defaultModel: "gpt-sol" },
         { kindId: "devin", models: ["swe-2", "claude-opus-5"], defaultModel: "swe-2" },
@@ -180,68 +181,33 @@ test("discovery keeps a below-floor Claude witness but advertises no model catal
   }
 });
 
-test("protocol-observed models merge into the installation catalog without displacing probed entries", async () => {
+test("model catalog discovery reads each account environment without a shared cache", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-model-observe-")),
     bin = path.join(root, "bin");
   try {
     mkdirSync(bin);
     writeProviderExecutable(
       path.join(bin, "devin"),
-      `const args = process.argv.slice(2); if (args[0] === "--version") console.log("devin-test"); else if (args.join(" ") === "models list --format json") console.log(JSON.stringify({ families: [{ slug: "swe-2" }] }));\n`,
+      `const args = process.argv.slice(2); if (args[0] === "--version") console.log("devin-test"); else if (args.join(" ") === "models list --format json") console.log(JSON.stringify({ families: [{ slug: process.env.HOME === "pro" ? "swe-2" : "claude-opus-5" }] }));\n`,
     );
-    const devin = (await discoverRuntimeInstallations({ env: { PATH: bin } }))[0]!;
-    assert.deepEqual(devin.models, ["swe-2"]);
-    observeRuntimeModels({
-      kindId: "devin",
-      executablePath: devin.executablePath,
-      version: devin.version,
-      models: ["swe-2-medium", "swe-2"],
-      currentModel: "swe-2-medium",
-    });
+    const executablePath = path.join(bin, process.platform === "win32" ? "devin.cmd" : "devin");
     assert.deepEqual(
       await discoverRuntimeModelCatalog({
         platform: process.platform,
-        executablePath: devin.executablePath,
+        executablePath,
         kindId: "devin",
-        env: { PATH: bin },
-        version: devin.version,
+        env: { PATH: bin, HOME: "pro" },
       }),
-      { models: ["swe-2", "swe-2-medium"], defaultModel: "swe-2" },
+      { models: ["swe-2"], defaultModel: "swe-2" },
     );
-    // An empty advertisement never clears an installation's catalog.
-    observeRuntimeModels({
-      kindId: "codex-acp",
-      executablePath: "/opt/runtime-test/codex-acp",
-      version: "1.11.0",
-      models: [],
-    });
-    assert.equal(
-      await discoverRuntimeModelCatalog({
-        platform: process.platform,
-        executablePath: "/opt/runtime-test/codex-acp",
-        kindId: "codex-acp",
-        env: {},
-        version: "1.11.0",
-      }),
-      null,
-    );
-    // A modelProbe: null kind still gains a catalog once the protocol advertises one.
-    observeRuntimeModels({
-      kindId: "codex-acp",
-      executablePath: "/opt/runtime-test/codex-acp",
-      version: "1.11.0",
-      models: ["gpt-5.6-sol[low]", "gpt-5.6-sol[medium]"],
-      currentModel: "gpt-5.6-sol[medium]",
-    });
     assert.deepEqual(
       await discoverRuntimeModelCatalog({
         platform: process.platform,
-        executablePath: "/opt/runtime-test/codex-acp",
-        kindId: "codex-acp",
-        env: {},
-        version: "1.11.0",
+        executablePath,
+        kindId: "devin",
+        env: { PATH: bin, HOME: "ultra" },
       }),
-      { models: ["gpt-5.6-sol[low]", "gpt-5.6-sol[medium]"], defaultModel: "gpt-5.6-sol[medium]" },
+      { models: ["claude-opus-5"], defaultModel: "claude-opus-5" },
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -289,8 +255,14 @@ test("launch reuses the witnessed installation and refreshes only when its PATH 
     secondExecutable = path.join(root, "codex-second.mjs");
   try {
     mkdirSync(bin);
-    writeProviderExecutable(firstExecutable, 'console.log("codex-first");\n');
-    writeProviderExecutable(secondExecutable, 'console.log("codex-second");\n');
+    writeProviderExecutable(
+      firstExecutable,
+      'const args = process.argv.slice(2); if (args[0] === "--version") console.log("codex-first"); else if (args.join(" ") === "debug models --bundled") console.log(JSON.stringify({ models: [{ slug: "gpt-5.6-sol" }] }));\n',
+    );
+    writeProviderExecutable(
+      secondExecutable,
+      'const args = process.argv.slice(2); if (args[0] === "--version") console.log("codex-second"); else if (args.join(" ") === "debug models --bundled") console.log(JSON.stringify({ models: [{ slug: "gpt-5.6-sol" }] }));\n',
+    );
     symlinkSync(firstExecutable, entry);
     let witnessed = await discoverRuntimeInstallations({ env: { PATH: bin } }),
       refreshes = 0,
