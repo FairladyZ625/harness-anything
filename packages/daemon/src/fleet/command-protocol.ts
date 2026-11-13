@@ -407,7 +407,7 @@ const loginAuthority: Check = (value) =>
   typeof value.clientId === "string" &&
   (Object.keys(value).length === 3 || (Object.hasOwn(value, "certificate") && typeof value.certificate === "string"));
 const array =
-  (check: Check, maximum = FLEET_PAGE_ROWS): Check =>
+  (check: Check, maximum: number = FLEET_PAGE_ROWS): Check =>
   (value) =>
     Array.isArray(value) && value.length <= maximum && value.every(check);
 const logicalPath: Check = (value) =>

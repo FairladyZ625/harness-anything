@@ -88,7 +88,7 @@ function payloadIssue(
 export function fleetActionPayloadIssue(
   fields: readonly EntityActionInputField[],
   payload: Readonly<Record<string, unknown>>,
-  maximum = FLEET_ACTION_PAGE_ROWS,
+  maximum: number = FLEET_ACTION_PAGE_ROWS,
 ): string | null {
   return payloadIssue(fields, payload, maximum);
 }
