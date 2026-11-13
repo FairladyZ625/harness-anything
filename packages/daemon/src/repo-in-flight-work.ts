@@ -1,4 +1,5 @@
 import type { TaskProjection } from "@harness-anything/kernel";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { readActiveDispatchLifecycleSync } from "./runtime-dispatch-admission.ts";
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { inspectScheduleProjection } from "./schedule-projection.ts";
@@ -34,16 +35,17 @@ export function readRepoInFlightWork(input: {
         readonly snapshot: ReturnType<TaskProjection["read"]>["snapshot"];
       }> = [];
       let cursor: string | undefined;
+      let nextPage: ReturnType<TaskProjection["list"]>;
       do {
-        const page = input.projection.list({
+        nextPage = input.projection.list({
           leaseOnly: true,
           presentationStatus: false,
           decisionRelationsOnly: true,
-          limit: 500,
+          limit: storageReadPolicy.defaultValue.pageSizes.standard,
           ...(cursor ? { cursor } : {}),
         });
-        rows.push(...page.rows);
-        cursor = page.page?.nextCursor ?? undefined;
+        rows.push(...nextPage.rows);
+        cursor = nextPage.page?.nextCursor ?? undefined;
       } while (cursor !== undefined);
       return rows.flatMap((row) => {
         const lease = row.snapshot.lease;
