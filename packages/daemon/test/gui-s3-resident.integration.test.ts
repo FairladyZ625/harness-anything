@@ -245,6 +245,7 @@ test(
           installationId: "installation-codex",
           providerId: "openai",
           models: ["runtime-test-model"],
+          isolationState: "enforced",
           authMode: "subscription",
         },
       });

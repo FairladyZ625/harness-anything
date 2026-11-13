@@ -329,6 +329,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
     defaultModel: "instance-default",
     enabled: true,
     codex: {},
+    isolationState: "enforced",
     auth: { mode: "subscription" },
   });
   instances.create({
@@ -342,6 +343,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
     defaultModel: "instance-default",
     enabled: true,
     codex: {},
+    isolationState: "enforced",
     auth: { mode: "subscription" },
   });
   instances.create({
@@ -355,6 +357,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
     defaultModel: "not-ready-only",
     enabled: true,
     codex: {},
+    isolationState: "enforced",
     auth: { mode: "subscription" },
   });
   instances.create({
@@ -368,6 +371,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
     defaultModel: "unchecked-not-ready-only",
     enabled: true,
     codex: {},
+    isolationState: "enforced",
     auth: { mode: "subscription" },
   });
   instances.create({

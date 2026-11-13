@@ -230,6 +230,7 @@ test(
         providerId: "openai",
         models: ["fixture"],
         permissionMode: "workspace-write",
+        isolationState: "enforced",
         authMode: "subscription",
       },
     });
@@ -562,6 +563,7 @@ test(
             providerId: "openai",
             models: ["fixture"],
             permissionMode: "workspace-write",
+            isolationState: "enforced",
             authMode: "subscription",
           },
         })

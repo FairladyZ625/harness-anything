@@ -58,6 +58,8 @@ test("real CLI signs in interactively, refreshes through login, runs real provid
         "openai",
         "--model",
         "runtime-test-model",
+        "--isolation",
+        "enforced",
         "--auth",
       ],
       apiCreate = [

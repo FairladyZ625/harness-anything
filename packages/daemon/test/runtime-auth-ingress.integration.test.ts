@@ -89,6 +89,7 @@ test("daemon ingress spawns interactive sign-in terminals on the isolated state 
         installationId: installation.installationId,
         providerId: "openai",
         models: ["gpt-5.6-sol"],
+        isolationState: "enforced",
         authMode: "subscription",
       },
       auth,
