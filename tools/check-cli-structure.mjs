@@ -10,6 +10,8 @@ const cliFiles = listWorktreeFiles(root, ["packages/cli/src"]).filter(
 );
 const workspacePackages = readWorkspacePackages();
 const pureKernelProtocolLeaves = [
+  // dec_7E44897ECDCAEF2B92EC66A260/CH1: shared defaults, with no runtime imports.
+  "packages/kernel/src/domain/cli-operational-policy.ts",
   "packages/kernel/src/domain/contract-validation.ts",
   "packages/kernel/src/domain/lifecycle-status.ts",
   "packages/kernel/src/domain/query-payload-validation.ts",
@@ -19,7 +21,6 @@ const pureKernelProtocolLeaves = [
   "packages/kernel/src/domain/todo-action-contract.ts",
 ];
 const allowedStaticGraph = new Set([
-  "packages/kernel/src/domain/cli-operational-policy.ts",
   ...pureKernelProtocolLeaves,
   "packages/daemon/src/offline-storage-command.ts",
   "packages/daemon/src/client/local-daemon-target.ts",
@@ -146,8 +147,8 @@ function isCliProductionFile(file) {
 // whole kernel (with its effect dependency) per invocation — ~250ms of module load per daemon
 // command that the paired-round latency gate read as a write-path regression (10.088x on CI, fact
 // F-FB7D48A6), because lint forces kernel imports through exactly that barrel. The allowlist is
-// the transitive runtime graph of the transport itself, so any kernel dependency at all — barrel
-// or leaf — reds here. A type-only barrel import stays legal (it is erased), which is why this
+// the transitive runtime graph of the transport itself: only the enumerated pure kernel leaves
+// are admitted, never the barrel or other dependencies. A type-only barrel import stays legal (it is erased), which is why this
 // walks runtime imports.
 function checkDaemonTransportImportGraph() {
   const allowed = new Set([
