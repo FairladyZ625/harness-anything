@@ -62,7 +62,9 @@ function declaredPortKey(graph, node) {
 }
 
 const NON_CLIENT_COMMANDS = new Set(["git", "npm", "npx", "gh", "taskkill", "cat"]);
-const HELP_OR_VERSION_FLAGS = new Set(["--help", "-h", "--version", "-V", "-v"]);
+function isHelpOrVersionFlag(token) {
+  return token === "--help" || token === "-h" || token === "--version" || token === "-V" || token === "-v";
+}
 const fleetSchemaKindsCache = new WeakMap();
 const wrapperSignalsCache = new WeakMap();
 
@@ -364,7 +366,7 @@ function extractArrayTokenSequences(graph, arrayExpr, descriptors, seen) {
     remaining.length > 0 &&
     remaining.length <= 2 &&
     ts.isStringLiteralLike(remaining[remaining.length - 1]) &&
-    HELP_OR_VERSION_FLAGS.has(remaining[remaining.length - 1].text)
+    isHelpOrVersionFlag(remaining[remaining.length - 1].text)
   ) {
     helpOnly = true;
     return { tokensList: [[remaining[remaining.length - 1].text]], targetsCliEntry, helpOnly, unresolved: false };
@@ -393,7 +395,7 @@ function extractArrayTokenSequences(graph, arrayExpr, descriptors, seen) {
       if (!inCommandBody) unresolved = true;
       break;
     }
-    if (HELP_OR_VERSION_FLAGS.has(item.text) && !inCommandBody) {
+    if (isHelpOrVersionFlag(item.text) && !inCommandBody) {
       helpOnly = true;
       return { tokensList: [[item.text]], targetsCliEntry, helpOnly, unresolved: false };
     }

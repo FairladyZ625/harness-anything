@@ -307,7 +307,7 @@ export async function warmDaemonProjection({
   env = process.env,
   attempts = 30,
   delayMs = 1_000,
-  readProjection = () => invoke(workspaceRoot, rootDir, ["task", "list"], env),
+  readProjection,
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 } = {}) {
   function invoke(wRoot, rDir, args, childEnv) {
@@ -316,7 +316,10 @@ export async function warmDaemonProjection({
   let lastDetail = "the daemon answered no projection read";
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      const observation = projectionObservation(await readProjection()),
+      let receipt;
+      if (readProjection) receipt = await readProjection();
+      else receipt = await invoke(workspaceRoot, rootDir, ["task", "list"], env);
+      const observation = projectionObservation(receipt),
         status = observation.status;
       if (observation.daemonBuild?.code === "daemon_build_stale")
         throw probeError(
