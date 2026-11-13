@@ -225,9 +225,16 @@ describe("provider edit dialog field controls", () => {
     await mountProviderCard(onUpdate, agyInstance, agyInstallations);
     await click("runtime-provider-edit");
     const effortSelect = byTestId("runtime-provider-effort") as HTMLSelectElement;
-    expect([...effortSelect.options].map((option) => option.value)).toEqual(["", "low", "medium", "high"]);
-    await select("runtime-provider-effort", "low");
+    expect([...effortSelect.options].map((option) => option.value)).toEqual([
+      "",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+    await select("runtime-provider-effort", "xhigh");
     await click("runtime-provider-save");
-    expect(onUpdate).toHaveBeenCalledWith(expect.objectContaining({ instanceId: "agy-effort-edit", effort: "low" }));
+    expect(onUpdate).toHaveBeenCalledWith(expect.objectContaining({ instanceId: "agy-effort-edit", effort: "xhigh" }));
   });
 });

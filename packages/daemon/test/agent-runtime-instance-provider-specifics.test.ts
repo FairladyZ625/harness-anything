@@ -623,12 +623,24 @@ test("agy uses the operator environment, OAuth-only auth, and a closed effort en
     assert.equal(launch.env.HOME, "/operator/home");
     assert.equal(launch.env.CODEX_HOME, undefined);
     assert.equal(launch.env.CLAUDE_CONFIG_DIR, undefined);
+    const launchXhigh = await store.prepareLaunch("agy-review", {
+      cwd: "/workspace/repo",
+      prompt: "Accept xhigh",
+      effort: "xhigh",
+    });
+    assert.equal(launchXhigh.args[launchXhigh.args.indexOf("--effort") + 1], "xhigh");
+    const launchMax = await store.prepareLaunch("agy-review", {
+      cwd: "/workspace/repo",
+      prompt: "Accept max",
+      effort: "max",
+    });
+    assert.equal(launchMax.args[launchMax.args.indexOf("--effort") + 1], "max");
     await assert.rejects(
-      store.prepareLaunch("agy-review", { cwd: "/workspace/repo", prompt: "reject", effort: "xhigh" }),
+      store.prepareLaunch("agy-review", { cwd: "/workspace/repo", prompt: "reject", effort: "minimal" }),
       (error: unknown) =>
         codedAs(error, "invalid_runtime_effort") &&
         error instanceof Error &&
-        error.message.includes("low, medium, or high"),
+        error.message.includes("low, medium, high, xhigh, or max"),
     );
     assert.equal(
       store.command({ kind: "runtime-instance-show", instanceId: "agy-review" }).instance &&

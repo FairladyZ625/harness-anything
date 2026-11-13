@@ -139,9 +139,25 @@ test("effort rides the create and update write paths for every kind that declare
       effort: "",
     });
     assert.equal((agyCleared.instance as EffortConfiguration).configuration.effort, null);
-    // agy's own vocabulary applies on update just as it does on create.
+    // agy's own vocabulary (low|medium|high|xhigh|max) applies on update just as it does on create.
+    const agyXhigh = store.command({
+      kind: "runtime-instance-update",
+      instanceId: "agy-effort",
+      effort: "xhigh",
+    });
+    assert.equal((agyXhigh.instance as EffortConfiguration).configuration.effort, "xhigh");
+    const agyMax = store.command({
+      kind: "runtime-instance-update",
+      instanceId: "agy-effort",
+      effort: "max",
+    });
+    assert.equal((agyMax.instance as EffortConfiguration).configuration.effort, "max");
     assert.throws(
-      () => store.command({ kind: "runtime-instance-update", instanceId: "agy-effort", effort: "xhigh" }),
+      () => store.command({ kind: "runtime-instance-update", instanceId: "agy-effort", effort: "minimal" }),
+      (error: unknown) => codedAs(error, "invalid_runtime_effort"),
+    );
+    assert.throws(
+      () => store.command({ kind: "runtime-instance-update", instanceId: "agy-effort", effort: "ultra" }),
       (error: unknown) => codedAs(error, "invalid_runtime_effort"),
     );
     // zcode declares no effort field at all, so the update write path rejects it.
@@ -203,13 +219,27 @@ test("stored effort reaches launch flags for agy and config.toml for codex when 
       "high",
     ]);
     assert.equal(stored.definition.reasoningEffort, "high");
-    // A request-level effort still wins over the stored one.
+    // A request-level effort still wins over the stored one, including xhigh and max.
     const overridden = await store.prepareLaunch("agy-stored-effort", {
       cwd: "/workspace/repo",
       prompt: "Override",
-      effort: "low",
+      effort: "xhigh",
     });
-    assert.equal(overridden.args[overridden.args.indexOf("--effort") + 1], "low");
+    assert.equal(overridden.args[overridden.args.indexOf("--effort") + 1], "xhigh");
+    const overriddenMax = await store.prepareLaunch("agy-stored-effort", {
+      cwd: "/workspace/repo",
+      prompt: "Override max",
+      effort: "max",
+    });
+    assert.equal(overriddenMax.args[overriddenMax.args.indexOf("--effort") + 1], "max");
+    await assert.rejects(
+      store.prepareLaunch("agy-stored-effort", { cwd: "/workspace/repo", prompt: "Reject minimal", effort: "minimal" }),
+      (error: unknown) => codedAs(error, "invalid_runtime_effort"),
+    );
+    await assert.rejects(
+      store.prepareLaunch("agy-stored-effort", { cwd: "/workspace/repo", prompt: "Reject ultra", effort: "ultra" }),
+      (error: unknown) => codedAs(error, "invalid_runtime_effort"),
+    );
     assert.equal(store.read("agy-stored-effort")?.agy.effort, "high");
     store.command({
       kind: "runtime-instance-create",

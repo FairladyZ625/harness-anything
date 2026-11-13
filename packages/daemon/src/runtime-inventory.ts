@@ -503,7 +503,7 @@ export const runtimeKinds = [
       transcriptReachability: "dispatch_stream_only",
       everyFrame: false,
     },
-    gui: { modelFamily: "gemini-only", effort: "enum", effortValues: ["low", "medium", "high"] },
+    gui: { modelFamily: "gemini-only", effort: "enum", effortValues: ["low", "medium", "high", "xhigh", "max"] },
     capabilities: {
       ...sharedCapabilities,
       toolAllowlist: "unsupported",
