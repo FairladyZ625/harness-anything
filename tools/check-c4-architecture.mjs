@@ -311,7 +311,7 @@ function resolveExportTargets(workspacePackage, specifier, kind, resolutionMode)
   return exportTargets(entry, conditions).map((target) => target.replaceAll("*", capture));
 }
 
-function defaultTypeResolutionMode(importer, workspace) {
+function defaultNodeResolutionMode(importer, workspace) {
   const extension = path.extname(importer);
   if ([".mts", ".mjs"].includes(extension)) return "import";
   if ([".cts", ".cjs"].includes(extension)) return "require";
@@ -336,8 +336,9 @@ function resolveTarget(importer, specifier, root, workspace, kind = "import", re
   const packageName = specifier.startsWith("@") ? segments.slice(0, 2).join("/") : segments[0];
   const workspacePackage = workspace.packagesByName.get(packageName);
   if (workspacePackage) {
-    const mode =
-      kind === "import-type" ? (resolutionMode ?? defaultTypeResolutionMode(importer, workspace)) : undefined;
+    const mode = ["import", "reexport", "import-type"].includes(kind)
+      ? (resolutionMode ?? defaultNodeResolutionMode(importer, workspace))
+      : undefined;
     for (const target of resolveExportTargets(workspacePackage, specifier, kind, mode)) {
       const sourceFile = sourceFileForTarget(target, workspacePackage.root, root, workspace);
       if (sourceFile) return sourceFile;

@@ -215,6 +215,8 @@ test("honors type import resolution modes and NodeNext defaults", async (t) => {
     "daemon",
     "src/runtime-engine/default-esm.ts",
     [
+      'import { X as DefaultImportStatic } from "@harness-anything/daemon/dual";',
+      'export { X as DefaultImportReexport } from "@harness-anything/daemon/dual";',
       'import type { X as DefaultImportDeclaration } from "@harness-anything/daemon/dual";',
       'type DefaultImportExpression = import("@harness-anything/daemon/dual").X;',
       "",
@@ -225,13 +227,16 @@ test("honors type import resolution modes and NodeNext defaults", async (t) => {
     "daemon",
     "src/runtime-engine/default-commonjs.cts",
     [
+      'import { X as DefaultRequireStatic } from "@harness-anything/daemon/dual";',
+      'export { X as DefaultRequireReexport } from "@harness-anything/daemon/dual";',
       'import type { X as DefaultRequireDeclaration } from "@harness-anything/daemon/dual";',
       'type DefaultRequireExpression = import("@harness-anything/daemon/dual").X;',
+      'void import("@harness-anything/daemon/dual");',
       "",
     ].join("\n"),
   );
-  await source(root, "daemon", "src/writer-cell/write.ts", "export interface X {}\n");
-  await source(root, "daemon", "src/daemon-host/open.cts", "export interface X {}\n");
+  await source(root, "daemon", "src/writer-cell/write.ts", "export class X {}\n");
+  await source(root, "daemon", "src/daemon-host/open.cts", "export class X {}\n");
 
   const result = await checkArchitecture(root);
 
@@ -260,6 +265,16 @@ test("honors type import resolution modes and NodeNext defaults", async (t) => {
   );
   assert.ok(
     result.violations.some((message) =>
+      message.includes("default-commonjs.cts:3: runtime-engine -> daemon-host is forbidden"),
+    ),
+  );
+  assert.ok(
+    result.violations.some((message) =>
+      message.includes("default-commonjs.cts:4: runtime-engine -> daemon-host is forbidden"),
+    ),
+  );
+  assert.ok(
+    result.violations.some((message) =>
       message.includes("default-commonjs.cts:1: runtime-engine -> daemon-host is forbidden"),
     ),
   );
@@ -267,6 +282,10 @@ test("honors type import resolution modes and NodeNext defaults", async (t) => {
     result.violations.some((message) =>
       message.includes("default-commonjs.cts:2: runtime-engine -> daemon-host is forbidden"),
     ),
+  );
+  assert.equal(
+    result.violations.some((message) => message.includes("default-commonjs.cts:5:")),
+    false,
   );
 });
 
