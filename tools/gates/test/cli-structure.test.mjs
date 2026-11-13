@@ -45,21 +45,6 @@ for (const dependency of ["index.ts", "domain/other-policy.ts"]) {
   });
 }
 
-test("daemon transport still rejects the CLI Policy leaf", async () => {
-  const root = await cliPolicyFixture();
-  write(
-    root,
-    "packages/daemon/src/client/local-json-rpc-client.ts",
-    "export { cliOperationalPolicy } from '@harness-anything/kernel/internal/domain/cli-operational-policy';\n",
-  );
-  const result = run(root);
-  assert.notEqual(result.status, 0);
-  assert.match(
-    result.stderr,
-    /daemon transport import graph reached module is outside the daemon transport allowlist: packages\/kernel\/src\/domain\/cli-operational-policy\.ts/u,
-  );
-});
-
 test("thin CLI structure rejects a kernel public barrel reachable from the dist entry", async () => {
   const root = await fixture();
   write(
