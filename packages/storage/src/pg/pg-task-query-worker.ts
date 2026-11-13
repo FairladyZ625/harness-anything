@@ -163,14 +163,18 @@ function startWorker(
     } finally {
       await client.release();
     }
-    for (;;) {
-      const page = await withPostgresTransaction(
-        pool,
-        (cycleClient) => maintainPgRelationCycleAuditPage(cycleClient, input.scope),
-        input.scope,
-      );
-      if (page.done) break;
-    }
+    // The embedded physical owner initializes its cache before admitting readers. A logical
+    // facade can open inside another facade's read-only snapshot; it must not repeat writes.
+    // Further scoped caches are maintained by projection apply/catch-up, never by nested reads.
+    if (!options.readSessions)
+      for (;;) {
+        const page = await withPostgresTransaction(
+          pool,
+          (cycleClient) => maintainPgRelationCycleAuditPage(cycleClient, input.scope),
+          input.scope,
+        );
+        if (page.done) break;
+      }
     source = createPgTaskProjectionSource({
       pool: sessionPool(),
       scope: input.scope,
