@@ -326,6 +326,7 @@ export function parseAcpFrame(value: Record<string, unknown>, _providerSessionId
   if (value.type === "acp.result") {
     const stopReason = String(value.stopReason ?? "end_turn");
     return {
+      ...(isPlainRecord(value.usage) ? { usage: value.usage } : {}),
       providerUsageEmpty: !isPlainRecord(value.usage) || Object.keys(value.usage).length === 0,
       ...(typeof value.finalText === "string" ? { finalText: value.finalText } : {}),
       ...(stopReason === "end_turn"

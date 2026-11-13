@@ -486,6 +486,7 @@ export function openRuntimeInstanceStore(input: {
         protocolFamily === "acp"
           ? {
               model: deepseekHarnessAcpModelOption(config, model),
+              ...(effort !== null ? { effort } : {}),
               ...(request.handshakeTimeoutMs !== undefined ? { handshakeTimeoutMs: request.handshakeTimeoutMs } : {}),
             }
           : {},
@@ -523,6 +524,7 @@ export function openRuntimeInstanceStore(input: {
         env,
         cwd: request.cwd,
         prompt: request.prompt,
+        authMode: config.auth.mode,
         ...(request.providerSessionId ? { providerSessionId: request.providerSessionId } : {}),
         ...(permissionMode ? { permissionMode } : {}),
         ...(githubCredentialNotice ? { githubCredentialNotice } : {}),
@@ -547,6 +549,7 @@ export function openRuntimeInstanceStore(input: {
         env,
         cwd: request.cwd,
         prompt: request.prompt,
+        authMode: config.auth.mode,
         ...(request.providerSessionId ? { providerSessionId: request.providerSessionId } : {}),
         ...(permissionMode ? { permissionMode } : {}),
         ...(githubCredentialNotice ? { githubCredentialNotice } : {}),
@@ -589,6 +592,7 @@ export function openRuntimeInstanceStore(input: {
       env,
       cwd: request.cwd,
       prompt: request.prompt,
+      authMode: config.auth.mode,
       ...(request.providerSessionId ? { providerSessionId: request.providerSessionId } : {}),
       ...(permissionMode ? { permissionMode } : {}),
       ...(githubCredentialNotice ? { githubCredentialNotice } : {}),

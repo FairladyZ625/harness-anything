@@ -1347,6 +1347,51 @@ test("context-occupancy updates do not suppress real usage frames of the same se
   );
 });
 
+test("ACP prompt result usage reaches the shared counters and preserves its raw detail", async () => {
+  const runtime = active("codex-acp");
+  await consumeProviderLine(
+    context(),
+    runtime,
+    JSON.stringify({
+      sessionId: "acp-usage-session",
+      type: "acp.result",
+      stopReason: "end_turn",
+      finalText: "done",
+      usage: {
+        input: 80,
+        output: 20,
+        total: 100,
+        cacheReadTokens: 3,
+        cacheWriteTokens: 2,
+        thoughtTokens: 5,
+      },
+    }),
+  );
+  assert.deepEqual(
+    {
+      input: runtime.inputTokens,
+      cacheRead: runtime.cacheReadTokens,
+      cacheWrite: runtime.cacheWriteTokens,
+      output: runtime.outputTokens,
+      raw: runtime.rawUsage,
+    },
+    {
+      input: 80,
+      cacheRead: 3,
+      cacheWrite: 2,
+      output: 20,
+      raw: {
+        input: 80,
+        output: 20,
+        total: 100,
+        cacheReadTokens: 3,
+        cacheWriteTokens: 2,
+        thoughtTokens: 5,
+      },
+    },
+  );
+});
+
 test("DeepSeek Harness settlement stays unavailable when only the projection checkpoint exists", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-deepseek-session-metrics-missing-")),
     providerHome = mkdtempSync(path.join(tmpdir(), "ha-deepseek-provider-home-missing-"));

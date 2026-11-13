@@ -130,6 +130,8 @@ export interface RuntimeLaunchRequest {
   readonly effort?: string;
   readonly fast?: boolean;
   readonly providerSessionId?: string;
+  /** Auth route selected by the instance; ACP uses it to choose a declared methodId. */
+  readonly authMode?: "subscription" | "api-key";
   readonly permissionMode?: string;
   readonly runtimeSessionId?: string;
   /**
@@ -154,6 +156,8 @@ export interface PreparedRuntimeLaunch {
   readonly cwd: string;
   readonly prompt: string;
   readonly providerSessionId?: string;
+  /** Auth route selected by the instance; ACP uses it to choose a declared methodId. */
+  readonly authMode?: "subscription" | "api-key";
   readonly permissionMode?: RuntimePermissionMode;
   /** Resolved API key delivered to the ACP client for `authenticate`; never enters the provider's environment. */
   readonly acpApiKey?: string;
@@ -161,6 +165,8 @@ export interface PreparedRuntimeLaunch {
   readonly handshakeTimeoutMs?: number;
   /** The selected model, delivered to ACP agents through `session/set_config_option`; argv-driven kinds carry it in `args`. */
   readonly model?: string;
+  /** Effective request/instance reasoning effort; ACP applies it through session configOptions. */
+  readonly effort?: string;
   /**
    * Set when the operator's GitHub login could not be read. The launch proceeds without the
    * credential; the spawn receipt carries this sentence so the operator learns why the worker

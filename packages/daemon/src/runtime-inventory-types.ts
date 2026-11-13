@@ -9,6 +9,7 @@ import type * as OperationalStatus from "@harness-anything/kernel/internal/domai
 
 export type RuntimeCapabilitySupport = "supported" | "unsupported" | "unverified";
 export type RuntimeAuthMode = "subscription" | "api-key";
+export type RuntimeAcpAuthMethod = string | Readonly<Partial<Record<RuntimeAuthMode, string>>>;
 export type RuntimeEndpointAvailability = OperationalStatus.RuntimeEndpointAvailability;
 export type RuntimeWebSearchMode = "disabled" | "cached" | "live";
 export interface RuntimeProviderDeclaration {
@@ -93,12 +94,34 @@ export interface RuntimeProviderDeclaration {
     /** ACP agents may advertise several authenticate methods; this picks the one
      * matching the instance's call path (e.g. "chat-gpt" over the advertised
      * "api-key"). Absent means the first advertised method is used. */
-    readonly acpAuthMethod?: string;
+    readonly acpAuthMethod?: RuntimeAcpAuthMethod;
     /** Endpoint configurability is a per-kind declaration, not derivable from `modes`:
      * an ACP kind can offer an api-key call path (the key rides `authenticate`'s
      * `_meta.api_key`) while having no endpoint concept at all. "required" means the
      * api-key call path cannot launch against a built-in default endpoint. */
     readonly endpoints: { readonly baseUrl: RuntimeEndpointAvailability };
+  };
+  /** ACP-only declaration overrides. The bridge still discovers capabilities from the
+   * session; these fields only describe provider-specific selector spellings and policy. */
+  readonly acp?: {
+    readonly effortSelector?: {
+      /** Override one provider spelling; plural aliases are accepted for declarations that
+       * expose more than one equivalent selector id/category. */
+      readonly id?: string;
+      readonly category?: string;
+      readonly ids?: readonly string[];
+      readonly categories?: readonly string[];
+      readonly valueMap?: Readonly<Record<string, string>>;
+      /** A kind may require the selector when it advertises an effort contract. */
+      readonly required?: boolean;
+    };
+    readonly upstreamErrorCodes?: readonly string[];
+  };
+  /** A task-bound ACP turn may be continued in the same session after command work when it
+   * reaches end_turn without attempting its declared settlement action. */
+  readonly unsettledTurnContinuation?: {
+    readonly maxContinuations: number;
+    readonly prompt?: string;
   };
   readonly isolation: {
     readonly defaultState: OperationalStatus.RuntimeIsolationState;

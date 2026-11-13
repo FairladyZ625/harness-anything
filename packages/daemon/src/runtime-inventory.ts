@@ -4,6 +4,7 @@ import type { RuntimeInstallation, RuntimeKind, RuntimeKindId } from "@harness-a
 
 import {
   type RuntimeAuthMode,
+  type RuntimeAcpAuthMethod,
   type RuntimeCapabilitySupport,
   type RuntimeEndpointAvailability,
   type RuntimeProviderDeclaration,
@@ -12,6 +13,7 @@ import {
 
 export {
   type RuntimeAuthMode,
+  type RuntimeAcpAuthMethod,
   type RuntimeCapabilitySupport,
   type RuntimeEndpointAvailability,
   type RuntimeProviderDeclaration,
@@ -70,6 +72,10 @@ const acpSteer = { strategy: "cancel-reprompt" } as const;
 // from its initialize response (agentCapabilities.loadSession vs sessionCapabilities.resume,
 // runtime-worker-acp.ts), so no acp kind carries a per-kind launch flag or capability entry.
 const acpDeclaredCapabilities = ["structured_witness", "resume", "attach", "session_identity"] as const;
+const runtimeUnsettledTurnContinuation = {
+  maxContinuations: 3,
+  prompt: "Continue the current task from where it left off.",
+} as const;
 
 function acpKind<K extends RuntimeKindId>(
   kindId: K,
@@ -83,7 +89,7 @@ function acpKind<K extends RuntimeKindId>(
     subscriptionProbe: RuntimeProviderDeclaration["auth"]["subscriptionProbe"];
     subscriptionProbeTimeoutMs: number;
     commands?: Readonly<Record<"login" | "logout", readonly string[]>>;
-    acpAuthMethod?: string;
+    acpAuthMethod?: RuntimeAcpAuthMethod;
     acpCredentialKey?: string;
     endpoints?: { baseUrl: RuntimeEndpointAvailability };
   },
@@ -260,6 +266,7 @@ export const runtimeKinds = [
         return [...clean, "--resume", providerSessionId];
       },
     },
+    unsettledTurnContinuation: runtimeUnsettledTurnContinuation,
     sessionIdentity: {
       eventDiscriminator: null,
       eventIdField: "session_id",
@@ -361,6 +368,7 @@ export const runtimeKinds = [
       // config.toml; absent means the provider's built-in endpoint.
       endpoints: { baseUrl: "optional" },
     },
+    unsettledTurnContinuation: runtimeUnsettledTurnContinuation,
     isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
     permissions: { available: true, defaultMode: "bypass" },
     launch: {
@@ -744,13 +752,15 @@ export const runtimeKinds = [
     },
     declaredCapabilities: acpDeclaredCapabilities,
     configuration: {
-      fields: {},
-      publicFields: {},
-      publicDefaults: {},
+      fields: { reasoningEffort: "effort" },
+      publicFields: { reasoningEffort: "reasoningEffort" },
+      publicDefaults: { reasoningEffort: null },
     },
     auth: {
-      shape: "subscription-only",
-      modes: ["subscription"],
+      shape: "separate",
+      modes: ["subscription", "api-key"],
+      apiKeyIsolation: "enforced",
+      subscriptionIsolation: "operator-environment",
       // The wrapper has no login-status subcommand; version output is the
       // weakest available presence probe. The ACP `authenticate` handshake is
       // the authoritative check at launch time.
@@ -758,9 +768,13 @@ export const runtimeKinds = [
       subscriptionProbeTimeoutMs: 10_000,
       // Advertised methods are ["api-key", "chat-gpt"]; the ChatGPT login in
       // the linked auth.json answers "chat-gpt" with an empty api_key.
-      acpAuthMethod: "chat-gpt",
+      acpAuthMethod: { subscription: "chat-gpt", "api-key": "api-key" },
       endpoints: { baseUrl: "none" },
     },
+    acp: {
+      effortSelector: { ids: ["reasoning_effort", "effort"], categories: ["thought_level"] },
+    },
+    unsettledTurnContinuation: runtimeUnsettledTurnContinuation,
     isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
     permissions: { available: true, defaultMode: "bypass" },
     launch: {
@@ -777,9 +791,8 @@ export const runtimeKinds = [
       transcriptReachability: "dispatch_stream_only",
       everyFrame: true,
     },
-    // Reasoning effort is embedded in the session model selector, not a
-    // separate launch surface.
-    gui: { modelFamily: "codex-only", effort: "none", effortValues: [] },
+    // Reasoning effort is negotiated through the ACP session configOptions selector.
+    gui: { modelFamily: "codex-only", effort: "enum", effortValues: ["low", "medium", "high", "xhigh", "max"] },
     capabilities: {
       ...sharedCapabilities,
       sessionIdEveryFrame: "supported",
@@ -790,7 +803,7 @@ export const runtimeKinds = [
       permissionVocabulary: "supported",
       independentSandbox: "unverified",
       approvalEvent: "supported",
-      effort: "unsupported",
+      effort: "supported",
       mcp: "unverified",
       cwdRestriction: "unverified",
       gracefulCancel: "unverified",
@@ -1053,10 +1066,15 @@ export const runtimeKinds = [
     // shared client's negotiation picks session/resume here — the family declaration covers it.
     declaredCapabilities: acpDeclaredCapabilities,
     configuration: {
-      fields: { baseUrl: "url", wireApi: "identifier" },
+      fields: { baseUrl: "url", wireApi: "identifier", reasoningEffort: "effort" },
       choices: { wireApi: ["openai-completions", "openai-responses", "anthropic-messages"] },
-      publicFields: { baseUrl: "baseUrl", baseUrlConfigured: "baseUrlConfigured", wireApi: "wireApi" },
-      publicDefaults: { baseUrl: null, baseUrlConfigured: false, wireApi: null },
+      publicFields: {
+        baseUrl: "baseUrl",
+        baseUrlConfigured: "baseUrlConfigured",
+        wireApi: "wireApi",
+        reasoningEffort: "reasoningEffort",
+      },
+      publicDefaults: { baseUrl: null, baseUrlConfigured: false, wireApi: null, reasoningEffort: null },
     },
     auth: {
       shape: "separate",
@@ -1068,6 +1086,13 @@ export const runtimeKinds = [
       subscriptionProbe: ["--version"],
       subscriptionProbeTimeoutMs: 10_000,
       endpoints: { baseUrl: "optional" },
+    },
+    acp: {
+      effortSelector: {
+        ids: ["reasoning_effort", "effort"],
+        categories: ["thought_level"],
+        valueMap: { minimal: "off" },
+      },
     },
     // Subscription reuses the App's login. API-key calls use a separate profile and DSH_HOME.
     isolation: { defaultState: "operator-environment", states: ["operator-environment", "enforced"] },
@@ -1095,7 +1120,7 @@ export const runtimeKinds = [
       transcriptReachability: "dispatch_stream_only",
       everyFrame: true,
     },
-    gui: { modelFamily: "open", effort: "none", effortValues: [] },
+    gui: { modelFamily: "open", effort: "enum", effortValues: ["minimal", "low", "high", "max"] },
     capabilities: {
       ...sharedCapabilities,
       sessionIdEveryFrame: "supported",
@@ -1109,8 +1134,9 @@ export const runtimeKinds = [
       // with no permission round trip, so enforcement does not depend on the approval event.
       independentSandbox: "supported",
       approvalEvent: "unverified",
-      // session/new offers a reasoning_effort selector (off/low/high/max); nothing drives it yet.
-      effort: "unsupported",
+      // session/new offers a reasoning_effort selector (off/low/high/max), driven by the
+      // shared ACP selector negotiator when an instance/request selects an effort.
+      effort: "supported",
       mcp: "unverified",
       cwdRestriction: "unverified",
       gracefulCancel: "unverified",

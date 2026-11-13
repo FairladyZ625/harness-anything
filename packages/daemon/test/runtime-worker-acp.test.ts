@@ -518,7 +518,7 @@ test("acp worker session selects the declared auth method and authenticates with
       child = launch(executablePath, ["acp"], { HOME: parent, PATH: process.env.PATH }),
       session = runAcpProviderSession(
         child,
-        { kindId: "codex-acp", cwd: "/tmp", env: { HOME: parent }, prompt: "do work" },
+        { kindId: "codex-acp", cwd: "/tmp", env: { HOME: parent }, prompt: "do work", authMode: "subscription" },
         append,
       );
     await session.done;
@@ -678,19 +678,26 @@ const groupedModelSelector = {
       name: "Reasoning effort",
       category: "thought_level",
       type: "select",
-      currentValue: "high",
+      currentValue: "low",
       options: [
         { value: "off", name: "Off" },
+        { value: "low", name: "Low" },
         { value: "high", name: "High" },
       ],
     },
   ],
 };
 
-function groupedFixture() {
+function groupedFixture(
+  options: Parameters<typeof writeAcpProviderStub>[2] = {},
+  sessionOverrides: Record<string, unknown> = {},
+) {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-acp-worker-")),
     capture = path.join(parent, "capture.jsonl"),
-    executablePath = writeAcpProviderStub(path.join(parent, "dsh-stub"), capture, { session: groupedModelSelector });
+    executablePath = writeAcpProviderStub(path.join(parent, "dsh-stub"), capture, {
+      ...options,
+      session: { ...groupedModelSelector, ...sessionOverrides },
+    });
   writeFileSync(capture, "");
   return { parent, capture, executablePath };
 }
