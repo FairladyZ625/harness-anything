@@ -269,7 +269,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           const root = `$${values.length}`,
             visible = `tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
               AND (cardinality($4::text[])=0 OR readers && $4::text[])`;
-          where.push(`task_id IN (
+          where.push(`task_id=ANY(ARRAY(
             WITH RECURSIVE descendants(task_id) AS (
               SELECT task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=${root}
               UNION SELECT child.task_id FROM descendants parent CROSS JOIN LATERAL (
@@ -281,7 +281,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
                 SELECT task_id,parent_task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=child.parent_id OFFSET 0
               ) parent
             ) SELECT task_id FROM descendants UNION SELECT task_id FROM ancestors
-          )`);
+          ))`);
         }
         for (const [key, value] of [
           ["workKind", query.workKind],

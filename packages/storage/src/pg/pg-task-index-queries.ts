@@ -123,7 +123,7 @@ export function pgTaskIndexQueries(
               SELECT task_id,parent_task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=child.parent_id OFFSET 0
             ) parent
           )`;
-          where.push(`task_id IN (SELECT task_id FROM descendants UNION SELECT task_id FROM ancestors)`);
+          where.push(`task_id=ANY(ARRAY(SELECT task_id FROM descendants UNION SELECT task_id FROM ancestors))`);
         }
         if (query.status !== undefined) {
           values.push(query.status);

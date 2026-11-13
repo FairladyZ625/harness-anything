@@ -179,10 +179,47 @@ test("PG task lists and legacy index upgrade preserve wide titles and bounded re
         observe(`lease-empty/${phase}`, size);
         assert.equal((await source.readTaskIndex({ activePackagesOnly: true })).rows.length, 3);
         observe(`active-index/${phase}`, size);
+        assert.equal((await source.list({ status: "planned", limit: 1 })).rows.length, 1);
+        observe(`raw-status/${phase}`, size);
+        assert.deepEqual(
+          (await source.readTaskIndex({ scopeRootTaskId: "target-a", presentationStatus: true })).rows.map(
+            ({ taskId }) => taskId,
+          ),
+          ["target-a"],
+        );
+        observe(`scope-index/${phase}`, size);
+        assert.deepEqual(
+          (await source.list({ scopeRootTaskId: "target-a", presentationStatus: true })).rows.map(
+            ({ taskId }) => taskId,
+          ),
+          ["target-a"],
+        );
+        observe(`scope-list/${phase}`, size);
       }
     }
     for (const [name, [small, large]] of Object.entries(pairs))
       assert.ok(large! <= small! + 20 && large! <= 20, `${name}: ${small} -> ${large}`);
+    const started = lifecycleFixture({ taskId: "target-a" })
+      .events.slice(0, 2)
+      .reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());
+    await manage((client) =>
+      client.query(
+        "UPDATE ha_task_snapshots SET raw_lease=$4::jsonb WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND task_id='target-a'",
+        [...keys, JSON.stringify(started.lease)],
+      ),
+    );
+    assert.deepEqual(
+      (await source.list({ leaseOnly: true })).rows.map(({ taskId }) => taskId),
+      ["target-a"],
+      "leaseOnly does not require raw active task status",
+    );
+    await manage((client) =>
+      client.query(
+        "UPDATE ha_task_snapshots SET raw_lease=NULL WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND task_id='target-a'",
+        keys,
+      ),
+    );
+    assert.deepEqual((await source.list({ leaseOnly: true })).rows, []);
     // A valid, incompressible payload larger than a B-tree tuple must remain legal.
     const title = Array.from({ length: 400 }, (_, i) =>
       createHash("sha256").update(`wide-title-${i}`).digest("hex"),

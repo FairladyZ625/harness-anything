@@ -80,6 +80,10 @@ export async function ensurePgProjectionSchema(
   options: { readonly indexBuild?: "concurrent" | "isolated" } = {},
 ): Promise<void> {
   for (const statement of projectionDdl()) {
+    if (options.indexBuild !== "isolated" && statement.startsWith("DROP INDEX IF EXISTS ha_task_snapshots_")) {
+      await client.query(statement.replace("DROP INDEX IF EXISTS", "DROP INDEX CONCURRENTLY IF EXISTS"));
+      continue;
+    }
     const index = /^CREATE INDEX IF NOT EXISTS ([a-z0-9_]+)/u.exec(statement);
     if (index?.[1] === "ha_events_summary_pending" && (await contractPgEventSummaryIndex(client, options))) continue;
     if (index && options.indexBuild !== "isolated") {
