@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -16,7 +16,9 @@ import {
   GUI_APP_USER_MODEL_ID,
   GUI_LAUNCH_ADDR_ENV,
   GUI_LAUNCH_TOKEN_ENV,
+  isConfirmedLegacyMigrationMarker,
   isHarnessLocalStorageKey,
+  LEGACY_PROFILE_MIGRATION_MARKER,
   migrateLegacyElectronLocalStorage,
   readLaunchSignalTarget,
   type ReadinessWindowPort,
@@ -534,8 +536,18 @@ test("F3: legacy Electron migration copies only Harness localStorage keys idempo
   assert.equal(migratedStore.get("harness:gui:favorites:repo1"), '["task_1","task_2"]');
   assert.equal(migratedStore.get("harness:gui:terminal-layout"), '{"activeGroupId":"g1","groups":[]}');
   assert.equal(migratedStore.has("other-app:token"), false);
+  const markerPath = path.join(targetDir, LEGACY_PROFILE_MIGRATION_MARKER);
+  assert.equal(isConfirmedLegacyMigrationMarker(markerPath), true);
+  const parsedMarker = JSON.parse(readFileSync(markerPath, "utf8")) as {
+    confirmed?: boolean;
+    hadHarnessEntries?: boolean;
+    copiedCount?: number;
+  };
+  assert.equal(parsedMarker.confirmed, true);
+  assert.equal(parsedMarker.hadHarnessEntries, true);
+  assert.equal(parsedMarker.copiedCount, 2);
 
-  // Idempotent on subsequent launch once target Local Storage/leveldb exists.
+  // Idempotent on subsequent launch once explicit completion marker is confirmed.
   const secondRun = await migrateLegacyElectronLocalStorage({
     app: fakeApp({}),
     platform: "win32",
@@ -546,4 +558,132 @@ test("F3: legacy Electron migration copies only Harness localStorage keys idempo
     writeMissingTargetEntries: async () => 0,
   });
   assert.deepEqual(secondRun, { status: "skipped", copiedCount: 0 });
+});
+
+test("F3: partial write failure does not mark migration complete, recovers missing keys on restart without clobbering newer keys, and preserves post-completion deletes", async (t) => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "ha-legacy-mig-retry-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const appData = path.join(root, "AppData");
+  const legacyDir = path.join(appData, "Electron");
+  const targetDir = path.join(appData, GUI_APP_NAME);
+  mkdirSync(path.join(legacyDir, "Local Storage", "leveldb"), { recursive: true });
+  mkdirSync(path.join(targetDir, "Local Storage", "leveldb"), { recursive: true });
+
+  const fakeApp = {
+    isPackaged: false,
+    commandLine: { hasSwitch: () => false },
+    setName: () => undefined,
+    getPath: (name: "appData" | "userData") => (name === "appData" ? appData : targetDir),
+    setPath: () => undefined,
+  };
+  const legacyEntries = {
+    "harness:gui:favorites:repo1": '["legacy_a"]',
+    "harness:gui:terminal-layout": '{"activeGroupId":"legacy-group","groups":[]}',
+    "other-app:token": "must-not-migrate",
+  };
+  // Pre-existing/newer target key written before migration completes must never be clobbered.
+  const targetStore = new Map<string, string>([["harness:gui:favorites:repo1", '["newer_user_value"]']]);
+  const markerPath = path.join(targetDir, LEGACY_PROFILE_MIGRATION_MARKER);
+
+  // Even when target Local Storage/leveldb already exists, unconfirmed migration must run.
+  assert.equal(resolveLegacyElectronMigrationPlan(fakeApp, "win32", { APPDATA: appData }).copyRequired, true);
+
+  const failedAttempt = await migrateLegacyElectronLocalStorage({
+    app: fakeApp,
+    platform: "win32",
+    env: { APPDATA: appData },
+    readLegacyEntries: async () => legacyEntries,
+    readExistingTargetKeys: async () => new Set(targetStore.keys()),
+    writeMissingTargetEntries: async (_dir, entries) => {
+      assert.equal(entries.length, 1);
+      throw new Error("Simulated partial write interruption");
+    },
+  });
+  assert.deepEqual(failedAttempt, {
+    status: "failed",
+    copiedCount: 0,
+    detail: "Simulated partial write interruption",
+  });
+  assert.equal(existsSync(markerPath), false);
+
+  // Even a corrupt/truncated marker file must not short-circuit recovery.
+  writeFileSync(markerPath, "{corrupt", "utf8");
+  assert.equal(isConfirmedLegacyMigrationMarker(markerPath), false);
+  assert.equal(resolveLegacyElectronMigrationPlan(fakeApp, "win32", { APPDATA: appData }).copyRequired, true);
+
+  const restartAttempt = await migrateLegacyElectronLocalStorage({
+    app: fakeApp,
+    platform: "win32",
+    env: { APPDATA: appData },
+    readLegacyEntries: async () => legacyEntries,
+    readExistingTargetKeys: async () => new Set(targetStore.keys()),
+    writeMissingTargetEntries: async (_dir, entries) => {
+      assert.deepEqual(entries, [["harness:gui:terminal-layout", '{"activeGroupId":"legacy-group","groups":[]}']]);
+      for (const [k, v] of entries) targetStore.set(k, v);
+      return entries.length;
+    },
+  });
+  assert.deepEqual(restartAttempt, { status: "migrated", copiedCount: 1 });
+  assert.equal(targetStore.get("harness:gui:favorites:repo1"), '["newer_user_value"]');
+  assert.equal(targetStore.get("harness:gui:terminal-layout"), '{"activeGroupId":"legacy-group","groups":[]}');
+  assert.equal(targetStore.has("other-app:token"), false);
+  assert.equal(isConfirmedLegacyMigrationMarker(markerPath), true);
+
+  // User deletes migrated terminal-layout after confirmed completion; restart must not resurrect it.
+  targetStore.delete("harness:gui:terminal-layout");
+  const postConfirmLaunch = await migrateLegacyElectronLocalStorage({
+    app: fakeApp,
+    platform: "win32",
+    env: { APPDATA: appData },
+    readLegacyEntries: async () => {
+      throw new Error("should not re-read legacy store after confirmed completion");
+    },
+    writeMissingTargetEntries: async () => 0,
+  });
+  assert.deepEqual(postConfirmLaunch, { status: "skipped", copiedCount: 0 });
+  assert.equal(targetStore.has("harness:gui:terminal-layout"), false);
+
+  // Legacy store with only third-party entries confirms no_harness_entries once and skips later starts.
+  const thirdPartyOnlyRoot = mkdtempSync(path.join(os.tmpdir(), "ha-legacy-mig-empty-"));
+  t.after(() => rmSync(thirdPartyOnlyRoot, { recursive: true, force: true }));
+  const tpAppData = path.join(thirdPartyOnlyRoot, "AppData");
+  const tpTargetDir = path.join(tpAppData, GUI_APP_NAME);
+  mkdirSync(path.join(tpAppData, "Electron", "Local Storage", "leveldb"), { recursive: true });
+  const tpApp = {
+    isPackaged: false,
+    commandLine: { hasSwitch: () => false },
+    setName: () => undefined,
+    getPath: (name: "appData" | "userData") => (name === "appData" ? tpAppData : tpTargetDir),
+    setPath: () => undefined,
+  };
+  const tpFirst = await migrateLegacyElectronLocalStorage({
+    app: tpApp,
+    platform: "win32",
+    env: { APPDATA: tpAppData },
+    readLegacyEntries: async () => ({ "other-app:token": "only-third-party" }),
+    writeMissingTargetEntries: async () => {
+      throw new Error("should not open target writer for third-party-only legacy db");
+    },
+  });
+  assert.deepEqual(tpFirst, { status: "no_harness_entries", copiedCount: 0 });
+  const tpMarkerPath = path.join(tpTargetDir, LEGACY_PROFILE_MIGRATION_MARKER);
+  assert.equal(isConfirmedLegacyMigrationMarker(tpMarkerPath), true);
+  const parsedTpMarker = JSON.parse(readFileSync(tpMarkerPath, "utf8")) as {
+    confirmed?: boolean;
+    hadHarnessEntries?: boolean;
+    copiedCount?: number;
+  };
+  assert.equal(parsedTpMarker.confirmed, true);
+  assert.equal(parsedTpMarker.hadHarnessEntries, false);
+  assert.equal(parsedTpMarker.copiedCount, 0);
+  const tpSecond = await migrateLegacyElectronLocalStorage({
+    app: tpApp,
+    platform: "win32",
+    env: { APPDATA: tpAppData },
+    readLegacyEntries: async () => {
+      throw new Error("should not re-read legacy db after confirmed no_harness_entries");
+    },
+    writeMissingTargetEntries: async () => 0,
+  });
+  assert.deepEqual(tpSecond, { status: "skipped", copiedCount: 0 });
 });

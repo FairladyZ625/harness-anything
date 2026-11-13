@@ -431,6 +431,8 @@ export async function startGuiApp(): Promise<void> {
   loginWebviewSecurity.installCertificateErrorHandler(app);
   runningLegacyStorageMigration = true;
   try {
+    // Throw on failure so startGuiApp aborts via reportStartupFailureAndExit rather than
+    // silently opening an incomplete branded profile while legacy data stays un-migrated.
     await migrateLegacyElectronProfile();
   } finally {
     runningLegacyStorageMigration = false;
@@ -705,7 +707,7 @@ function createTrustedMainWindow(trustedWebContentsIds: Set<number>, initialRepo
 }
 
 app.on("window-all-closed", () => {
-  if (runningLegacyStorageMigration) return;
+  if (runningLegacyStorageMigration || startupAborting) return;
   if (process.platform !== "darwin") app.quit();
 });
 

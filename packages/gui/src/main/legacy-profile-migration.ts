@@ -1,6 +1,11 @@
 import { app, BrowserWindow, session, type Session } from "electron";
-import { migrateLegacyElectronLocalStorage } from "./gui-launch-channel.ts";
+import { migrateLegacyElectronLocalStorage, type LegacyProfileMigrationResult } from "./gui-launch-channel.ts";
 import { storageMigrationShimPath } from "./window-config.ts";
+
+export type CompletedLegacyProfileMigrationResult = Exclude<
+  LegacyProfileMigrationResult,
+  { readonly status: "failed" }
+>;
 
 async function closeTransientMigrationWindow(win: BrowserWindow): Promise<void> {
   if (win.isDestroyed()) return;
@@ -39,19 +44,31 @@ async function runInMigrationShimWindow<T>(
       ...(targetSession ? { session: targetSession } : {}),
     },
   });
+  let crashedReason: string | null = null;
+  win.webContents.once("render-process-gone", (_event, details) => {
+    crashedReason = `Migration renderer exited unexpectedly (${details.reason}).`;
+  });
   try {
     await win.loadFile(shimPath);
-    return await perform(win);
+    if (crashedReason !== null || win.isDestroyed() || win.webContents.isCrashed()) {
+      throw new Error(crashedReason ?? "Migration renderer became unavailable.");
+    }
+    const result = await perform(win);
+    if (crashedReason !== null || win.isDestroyed() || win.webContents.isCrashed()) {
+      throw new Error(crashedReason ?? "Migration renderer crashed before completing.");
+    }
+    return result;
   } finally {
     await closeTransientMigrationWindow(win);
   }
 }
 
 /**
- * Copy only Harness-owned localStorage keys once when upgrading an unpackaged source install
- * from generic `appData/Electron` to isolated `appData/Harness Anything`.
+ * Copy only Harness-owned localStorage keys when upgrading an unpackaged source install
+ * from generic `appData/Electron` to isolated `appData/Harness Anything`, throwing if
+ * migration cannot finish cleanly so incomplete profiles never appear finished.
  */
-export async function migrateLegacyElectronProfile(): Promise<void> {
+export async function migrateLegacyElectronProfile(): Promise<CompletedLegacyProfileMigrationResult> {
   const shimPath = storageMigrationShimPath();
   const result = await migrateLegacyElectronLocalStorage({
     app,
@@ -68,7 +85,10 @@ export async function migrateLegacyElectronProfile(): Promise<void> {
           }
           return out;
         })()`);
-        return typeof entries === "object" && entries !== null ? (entries as Readonly<Record<string, string>>) : {};
+        if (typeof entries !== "object" || entries === null || Array.isArray(entries)) {
+          throw new Error("Legacy profile storage read did not return a key-value object.");
+        }
+        return entries as Readonly<Record<string, string>>;
       });
     },
     writeMissingTargetEntries: async (_targetUserDataDir, entries) => {
@@ -85,13 +105,17 @@ export async function migrateLegacyElectronProfile(): Promise<void> {
           }
           return applied;
         })()`);
-        return typeof count === "number" ? count : 0;
+        if (typeof count !== "number" || !Number.isInteger(count) || count < 0) {
+          throw new Error("Legacy profile storage write did not return an applied entry count.");
+        }
+        return count;
       });
       await session.defaultSession.flushStorageData();
       return written;
     },
   });
   if (result.status === "failed") {
-    console.warn("[gui] legacy Electron profile migration skipped:", result.detail);
+    throw new Error(`Legacy Electron profile migration failed: ${result.detail}`);
   }
+  return result;
 }

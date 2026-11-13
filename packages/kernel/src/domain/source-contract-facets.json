@@ -4050,6 +4050,17 @@
             "route": "packages/daemon/src/tls-listener-admission.ts#validateCertificateNames"
           }
         ]
+      },
+      {
+        "id": "gui/src/main/gui-launch-channel.ts#isConfirmedLegacyMigrationMarker",
+        "symbol": "packages/gui/src/main/gui-launch-channel.ts#isConfirmedLegacyMigrationMarker",
+        "explain": "Electron main-process completion-receipt validator verifying that legacy localStorage migration finished atomically before subsequent launches skip recovery.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/gui:packages/gui/src/main/gui-launch-channel.ts#isConfirmedLegacyMigrationMarker:aee89442448a3fd9d9c0c272ae5da5f8",
+            "route": "packages/gui/src/main/gui-launch-channel.ts#isConfirmedLegacyMigrationMarker"
+          }
+        ]
       }
     ]
   },

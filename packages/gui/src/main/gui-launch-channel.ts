@@ -1,12 +1,13 @@
 import { guiInteractionPolicy } from "@harness-anything/kernel/internal/domain/gui-interaction-policy.ts";
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 
 export const GUI_APP_NAME = "Harness Anything";
 export const LEGACY_ELECTRON_DIR_NAME = "Electron";
+export const LEGACY_PROFILE_MIGRATION_MARKER = "legacy-profile-migration.json";
 export const GUI_APP_USER_MODEL_ID = "dev.harness-anything.gui";
 export const GUI_LAUNCH_ADDR_ENV = "HARNESS_GUI_LAUNCH_ADDR";
 export const GUI_LAUNCH_TOKEN_ENV = "HARNESS_GUI_LAUNCH_TOKEN";
@@ -644,6 +645,7 @@ export interface LegacyElectronMigrationPlan {
   readonly copyRequired: boolean;
   readonly legacyUserDataDir: string | null;
   readonly targetUserDataDir: string | null;
+  readonly completionMarkerPath: string | null;
 }
 
 export type LegacyProfileMigrationResult =
@@ -651,6 +653,59 @@ export type LegacyProfileMigrationResult =
   | { readonly status: "no_harness_entries"; readonly copiedCount: 0 }
   | { readonly status: "migrated"; readonly copiedCount: number }
   | { readonly status: "failed"; readonly copiedCount: 0; readonly detail: string };
+
+interface LegacyProfileMigrationMarker {
+  readonly version: 1;
+  readonly confirmed: true;
+  readonly hadHarnessEntries: boolean;
+  readonly copiedCount: number;
+  readonly completedAt: string;
+}
+
+/** Check whether an explicit confirmed-completion marker file exists and parses cleanly. */
+export function isConfirmedLegacyMigrationMarker(markerPath: string): boolean {
+  if (!existsSync(markerPath)) return false;
+  try {
+    const parsed = JSON.parse(readFileSync(markerPath, "utf8")) as Partial<LegacyProfileMigrationMarker>;
+    return (
+      parsed.version === 1 &&
+      parsed.confirmed === true &&
+      typeof parsed.hadHarnessEntries === "boolean" &&
+      typeof parsed.copiedCount === "number" &&
+      Number.isInteger(parsed.copiedCount) &&
+      parsed.copiedCount >= 0 &&
+      typeof parsed.completedAt === "string" &&
+      parsed.completedAt.length > 0
+    );
+  } catch {
+    return false;
+  }
+}
+
+function writeLegacyMigrationMarkerAtomic(markerPath: string, hadHarnessEntries: boolean, copiedCount: number): void {
+  /* @gate-identity non-state/environment-io.2bb077b1f356c458 */ mkdirSync(path.dirname(markerPath), {
+    recursive: true,
+  });
+  const tempPath = `${markerPath}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
+  const marker: LegacyProfileMigrationMarker = {
+    version: 1,
+    confirmed: true,
+    hadHarnessEntries,
+    copiedCount,
+    completedAt: new Date().toISOString(),
+  };
+  try {
+    /* @gate-identity non-state/environment-io.84d45ca9d1ba58bb */ writeFileSync(
+      tempPath,
+      `${JSON.stringify(marker, null, 2)}\n`,
+      "utf8",
+    );
+    /* @gate-identity non-state/environment-io.184b4306d46e0dce */ renameSync(tempPath, markerPath);
+  } catch (error) {
+    /* @gate-identity non-state/environment-io.7523d5591544ecd6 */ rmSync(tempPath, { force: true });
+    throw error;
+  }
+}
 
 /** Only localStorage keys owned by Harness Anything may cross from legacy Electron userData. */
 export function isHarnessLocalStorageKey(key: string): boolean {
@@ -665,35 +720,45 @@ export function selectLegacyHarnessEntries(
   return Object.entries(legacyEntries).filter(([key]) => isHarnessLocalStorageKey(key) && !existingTargetKeys.has(key));
 }
 
-/** Determine whether an unpackaged launch should run one-time legacy Electron localStorage migration. */
+/** Determine whether an unpackaged launch still needs confirmed legacy Electron localStorage migration. */
 export function resolveLegacyElectronMigrationPlan(
   appLike: GuiIdentityApp,
   platform: NodeJS.Platform = process.platform,
   env: Record<string, string | undefined> = process.env,
   pathExists: (candidatePath: string) => boolean = existsSync,
+  isMarkerConfirmed?: (markerPath: string) => boolean,
 ): LegacyElectronMigrationPlan {
   if (appLike.commandLine.hasSwitch("user-data-dir") || appLike.isPackaged) {
-    return { copyRequired: false, legacyUserDataDir: null, targetUserDataDir: null };
+    return { copyRequired: false, legacyUserDataDir: null, targetUserDataDir: null, completionMarkerPath: null };
   }
   const appDataDir = resolveAppDataDir(appLike, platform, env);
   const legacyUserDataDir = path.join(appDataDir, LEGACY_ELECTRON_DIR_NAME);
   const targetUserDataDir = path.join(appDataDir, GUI_APP_NAME);
   if (path.resolve(legacyUserDataDir) === path.resolve(targetUserDataDir)) {
-    return { copyRequired: false, legacyUserDataDir: null, targetUserDataDir: null };
+    return { copyRequired: false, legacyUserDataDir: null, targetUserDataDir: null, completionMarkerPath: null };
   }
+  const completionMarkerPath = path.join(targetUserDataDir, LEGACY_PROFILE_MIGRATION_MARKER);
   const legacyHasDb = pathExists(path.join(legacyUserDataDir, "Local Storage", "leveldb"));
-  const targetHasDb = pathExists(path.join(targetUserDataDir, "Local Storage", "leveldb"));
+  // Target directory / leveldb existence alone cannot prove migration finished: partial writes
+  // or prior target launches still require recovering un-migrated legacy keys until confirmed.
+  const confirmedCompleted =
+    isMarkerConfirmed !== undefined
+      ? isMarkerConfirmed(completionMarkerPath)
+      : pathExists === existsSync
+        ? isConfirmedLegacyMigrationMarker(completionMarkerPath)
+        : pathExists(completionMarkerPath);
   return {
-    copyRequired: legacyHasDb && !targetHasDb,
+    copyRequired: legacyHasDb && !confirmedCompleted,
     legacyUserDataDir,
     targetUserDataDir,
+    completionMarkerPath,
   };
 }
 
 /**
- * Migrate only Harness-owned localStorage keys once when upgrading from legacy `appData/Electron`
- * to isolated `appData/Harness Anything`. Third-party app keys, cookies, caches, and existing
- * target keys are never copied or overwritten.
+ * Migrate only Harness-owned localStorage keys from legacy `appData/Electron` to isolated
+ * `appData/Harness Anything` until confirmed completed by an explicit atomic marker.
+ * Third-party app keys, cookies, caches, and existing target keys are never copied or overwritten.
  */
 export async function migrateLegacyElectronLocalStorage(params: {
   readonly app: GuiIdentityApp;
@@ -701,22 +766,38 @@ export async function migrateLegacyElectronLocalStorage(params: {
   readonly env?: Record<string, string | undefined>;
   readonly pathExists?: (candidatePath: string) => boolean;
   readonly readLegacyEntries: (legacyUserDataDir: string) => Promise<Readonly<Record<string, string>>>;
+  readonly readExistingTargetKeys?: (targetUserDataDir: string) => Promise<ReadonlySet<string>>;
   readonly writeMissingTargetEntries: (
     targetUserDataDir: string,
     entries: ReadonlyArray<readonly [string, string]>,
   ) => Promise<number>;
 }): Promise<LegacyProfileMigrationResult> {
   const plan = resolveLegacyElectronMigrationPlan(params.app, params.platform, params.env, params.pathExists);
-  if (!plan.copyRequired || plan.legacyUserDataDir === null || plan.targetUserDataDir === null) {
+  if (
+    !plan.copyRequired ||
+    plan.legacyUserDataDir === null ||
+    plan.targetUserDataDir === null ||
+    plan.completionMarkerPath === null
+  ) {
     return { status: "skipped", copiedCount: 0 };
   }
   try {
     const legacyEntries = await params.readLegacyEntries(plan.legacyUserDataDir);
-    const harnessEntries = selectLegacyHarnessEntries(legacyEntries, new Set());
-    if (harnessEntries.length === 0) {
+    const allHarnessEntries = selectLegacyHarnessEntries(legacyEntries, new Set());
+    if (allHarnessEntries.length === 0) {
+      writeLegacyMigrationMarkerAtomic(plan.completionMarkerPath, false, 0);
       return { status: "no_harness_entries", copiedCount: 0 };
     }
-    const copiedCount = await params.writeMissingTargetEntries(plan.targetUserDataDir, harnessEntries);
+    const existingTargetKeys = params.readExistingTargetKeys
+      ? await params.readExistingTargetKeys(plan.targetUserDataDir)
+      : new Set<string>();
+    const entriesToCopy = selectLegacyHarnessEntries(legacyEntries, existingTargetKeys);
+    const copiedCount =
+      entriesToCopy.length === 0 ? 0 : await params.writeMissingTargetEntries(plan.targetUserDataDir, entriesToCopy);
+    if (!Number.isInteger(copiedCount) || copiedCount < 0) {
+      throw new Error("Legacy profile migration reported an invalid copied entry count.");
+    }
+    writeLegacyMigrationMarkerAtomic(plan.completionMarkerPath, true, copiedCount);
     return { status: "migrated", copiedCount };
   } catch (error) {
     const detail = error instanceof Error ? error.message : typeof error === "string" ? error : "Migration failed.";
