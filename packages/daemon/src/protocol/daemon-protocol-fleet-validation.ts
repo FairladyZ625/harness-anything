@@ -1,8 +1,9 @@
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import type { EntityActionInputField } from "@harness-anything/kernel";
 export type { EntityActionInputField } from "@harness-anything/kernel";
 
 /** The maximum number of rows in a Fleet action array on both edge and center. */
-export const FLEET_ACTION_PAGE_ROWS = 128;
+export const FLEET_ACTION_PAGE_ROWS = daemonProtocolFleetPolicy.defaultValue.protocol.fleetActionPageRows;
 
 /** Preserve the caller's path coordinate across the edge/center transport boundary. */
 export const FLEET_PATH_COORDINATE_FIELD: EntityActionInputField = {

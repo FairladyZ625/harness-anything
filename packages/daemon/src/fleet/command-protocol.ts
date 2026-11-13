@@ -1,3 +1,4 @@
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { edgeJoinStateWords } from "@harness-anything/kernel/internal/domain/access-status.ts";
 // dec_9284BD6119D453EEECEED62450: command frames only; replica frames live in protocol.ts.
 import { TextDecoder } from "node:util";
@@ -35,19 +36,20 @@ export function isFleetProtocolVersionCompatible(
   );
 }
 
-export const FLEET_FRAME_BYTES = 96 * 1024,
-  FLEET_CHUNK_BYTES = 64 * 1024,
-  FLEET_TRANSFER_CHUNK_BYTES = 48 * 1024,
+const fleetPolicy = daemonProtocolFleetPolicy.defaultValue.fleet;
+export const FLEET_FRAME_BYTES = fleetPolicy.frameBytes,
+  FLEET_CHUNK_BYTES = fleetPolicy.chunkBytes,
+  FLEET_TRANSFER_CHUNK_BYTES = fleetPolicy.transferChunkBytes,
   /** An upload declaration larger than this is an invalid frame; chunks may never write past it. */
-  FLEET_UPLOAD_MAX_BYTES = 64 * 1024 * 1024,
+  FLEET_UPLOAD_MAX_BYTES = fleetPolicy.uploadMaxBytes,
   /** An unauthenticated connection is cut when its hello has not been admitted within this window. */
-  FLEET_HELLO_TIMEOUT_MS = 30_000,
+  FLEET_HELLO_TIMEOUT_MS = fleetPolicy.helloTimeoutMs,
   /** Failed hello authentications one connection source may produce before its next hello is refused locally. */
-  FLEET_HELLO_FAILURE_LIMIT = 5,
-  FLEET_HELLO_FAILURE_WINDOW_MS = 60_000,
+  FLEET_HELLO_FAILURE_LIMIT = fleetPolicy.helloFailureLimit,
+  FLEET_HELLO_FAILURE_WINDOW_MS = fleetPolicy.helloFailureWindowMs,
   FLEET_PAGE_ROWS = FLEET_ACTION_PAGE_ROWS,
-  FLEET_KEY_SEND_WINDOW_BYTES = 256 * 1024,
-  FLEET_SESSION_SEND_WINDOW_BYTES = 512 * 1024;
+  FLEET_KEY_SEND_WINDOW_BYTES = fleetPolicy.keySendWindowBytes,
+  FLEET_SESSION_SEND_WINDOW_BYTES = fleetPolicy.sessionSendWindowBytes;
 export type FleetCut = Readonly<{ revision: number; headDigest: string; schemaGeneration: number }>;
 // The edge names the exact cut its carried documents were based on — revision
 // AND head digest — so a center rollback or same-revision rewrite can never

@@ -1,3 +1,4 @@
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { readAgentEntityDeclarationSource } from "./agent-entities.ts";
 import { fleetMirrorTaskPaths } from "./fleet-edge-mirror.ts";
 import { readEdgeRuntimeRepository } from "./fleet-edge-runtime-read.ts";
@@ -348,7 +349,7 @@ export async function runFleetEdgeTask(
   const waitMs =
     payload.waitTimeoutMs !== undefined && Number.isSafeInteger(payload.waitTimeoutMs) && payload.waitTimeoutMs > 0
       ? payload.waitTimeoutMs
-      : 60_000;
+      : daemonProtocolFleetPolicy.defaultValue.fleet.taskWaitTimeoutMs;
   const opId = randomUUID(),
     peer = {
       readAccessToken,
@@ -524,13 +525,16 @@ export async function runFleetEdgeTask(
         throw new FleetEdgeTaskError("artifact_too_large", "Artifact exceeds the content object limit.");
       [artifact] = await runFleetEdgeUploadClient({
         ...peer,
-        timeoutMs: 60_000,
+        timeoutMs: daemonProtocolFleetPolicy.defaultValue.fleet.taskContentTimeoutMs,
         changes: [{ path: String(target.destination), body: file ? readFileSync(file) : Buffer.from(String(content)) }],
       });
       action = target as FleetTaskAction;
     }
     const bundle = readOnly || artifact ? null : await attachTaskDocs();
-    const commandTimeoutMs = waitMs + 30_000 + (bundle === null ? 0 : 60_000),
+    const commandTimeoutMs =
+        waitMs +
+        daemonProtocolFleetPolicy.defaultValue.fleet.taskCommandOverheadMs +
+        (bundle === null ? 0 : daemonProtocolFleetPolicy.defaultValue.fleet.taskContentTimeoutMs),
       deadline = Date.now() + commandTimeoutMs;
     let result: Awaited<ReturnType<typeof runFleetTaskCommandClient>>;
     try {
@@ -546,7 +550,7 @@ export async function runFleetEdgeTask(
             taskId,
             ...(artifact ? { artifact } : {}),
             waitMs,
-            timeoutMs: remaining + 10_000,
+            timeoutMs: remaining + daemonProtocolFleetPolicy.defaultValue.fleet.receiptResponseOverheadMs,
             docChanges: bundle === null ? undefined : bundle.docChanges,
             mirrorBaseCut: bundle === null ? undefined : bundle.mirrorBaseCut,
           } as Parameters<typeof runFleetTaskCommandClient>[0];
@@ -578,7 +582,7 @@ export async function runFleetEdgeTask(
                 action,
                 ...(artifact ? { artifact } : {}),
                 waitMs,
-                timeoutMs: remaining + 10_000,
+                timeoutMs: remaining + daemonProtocolFleetPolicy.defaultValue.fleet.receiptResponseOverheadMs,
                 docChanges: bundle === null ? undefined : bundle.docChanges,
                 mirrorBaseCut: bundle === null ? undefined : bundle.mirrorBaseCut,
               }),
@@ -747,7 +751,7 @@ export async function runFleetEdgeTask(
     if (candidates.length === 0) return null;
     const descriptors = await runFleetEdgeUploadClient({
       ...peer,
-      timeoutMs: 60_000,
+      timeoutMs: daemonProtocolFleetPolicy.defaultValue.fleet.taskContentTimeoutMs,
       changes: candidates.map((change) => ({
         path: change.path,
         body: Buffer.from(change.bytes),

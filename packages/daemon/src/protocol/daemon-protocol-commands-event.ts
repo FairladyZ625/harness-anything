@@ -1,10 +1,11 @@
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import {
   cliInput,
   defineEdgeReplicaQueryOnlyReadCommand,
 } from "@harness-anything/preset/internal/preset-command-contract";
 
 const isoTimestamp = "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+(?:Z|[+-][0-9]{2}:[0-9]{2})$",
-  eventListLimit = "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$";
+  eventListLimit = daemonProtocolFleetPolicy.defaultValue.protocol.listLimitPattern;
 
 export const eventProtocolCommands = Object.freeze([
   defineEdgeReplicaQueryOnlyReadCommand({

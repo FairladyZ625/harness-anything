@@ -1,3 +1,4 @@
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import type {
   BlockingLabel,
   DaemonRepoMode,
@@ -415,7 +416,7 @@ export function admitUseCaseProjectionSelector(
 /** interval 的下限。领域权威是 `packages/kernel/src/domain/schedule.ts` 的 `everyMs` schema
  * minimum 与 `validateScheduleV1` 谓词;此处只是给 protocol/CLI/GUI 一个不重复的引用点,不是
  * 第二个权威——要改下限得改 kernel,不是改这里。 */
-export const SCHEDULE_MIN_EVERY_MS = 60_000;
+export const SCHEDULE_MIN_EVERY_MS = daemonProtocolFleetPolicy.defaultValue.protocol.scheduleMinimumEveryMs;
 
 const scheduleUnitMs = Object.freeze({ ms: 1, s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 });
 

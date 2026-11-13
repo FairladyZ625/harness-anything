@@ -1,3 +1,4 @@
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { createHash, randomUUID } from "node:crypto";
 import {
   FLEET_FRAME_BYTES,
@@ -195,7 +196,10 @@ export class FleetTransferAssembler {
             correlationId: frame.correlationId,
             code: error.code,
             message: error.message,
-            retryable: "retryable" in error && typeof error.retryable === "boolean" ? error.retryable : true,
+            retryable:
+              "retryable" in error && typeof error.retryable === "boolean"
+                ? error.retryable
+                : daemonProtocolFleetPolicy.defaultValue.fleet.transferFailureRetryable,
           });
         throw error;
       }

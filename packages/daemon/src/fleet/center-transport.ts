@@ -1,3 +1,4 @@
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import type { createReplicaStatusTracker } from "./replica-status.ts";
 import type { createNodeSessionStatus } from "./node-session-status.ts";
 import { once } from "node:events";
@@ -270,7 +271,7 @@ export async function serve(
         inReplyTo: transfer.correlationId,
         code: "transfer_timeout",
         message: `Fleet request transfer timed out (actualBytes=${transfer.totalBytes}); retry the same operation.`,
-        retryable: true,
+        retryable: daemonProtocolFleetPolicy.defaultValue.fleet.timeoutRetryable,
         resumeOffset: null,
       }),
     ).catch((error) => consumeKnownError(error));
@@ -387,7 +388,7 @@ export async function serve(
                 inReplyTo: messageId,
                 code: "invalid_frame",
                 message: error instanceof Error ? error.message : String(error),
-                retryable: false,
+                retryable: daemonProtocolFleetPolicy.defaultValue.fleet.replicaDuplicateRetryable,
                 resumeOffset: null,
               }),
             ).catch((enqueueError) => consumeKnownError(enqueueError));

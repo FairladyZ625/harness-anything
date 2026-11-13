@@ -1,3 +1,4 @@
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { readAllTaskDispatchPages } from "./dispatch-read.ts";
 import type * as RuntimeStatus from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import { fleetMirrorTaskPaths } from "./fleet-edge-mirror.ts";
@@ -109,8 +110,8 @@ type RuntimePorts = {
     repoId: string,
   ) => Promise<NodeJS.ProcessEnv | null>;
 };
-const runtimeOverviewPageLimit = 16;
-const localReplicaWaitBackstopMs = 1_000;
+const runtimeOverviewPageLimit = daemonProtocolFleetPolicy.defaultValue.fleet.overviewPageLimit;
+const localReplicaWaitBackstopMs = daemonProtocolFleetPolicy.defaultValue.fleet.localReplicaWaitBackstopMs;
 
 /**
  * Replica changes are a wake hint; each wake re-reads settlement from the edge view.
@@ -438,7 +439,7 @@ export function openFleetEdgeRuntime(input: {
       throw edgeRuntimeError("review_report_invalid", "Review recovery artifacts do not match the dispatch package.");
     const [candidate] = await runFleetEdgeUploadClient({
       ...writePeer,
-      timeoutMs: 60_000,
+      timeoutMs: daemonProtocolFleetPolicy.defaultValue.fleet.taskContentTimeoutMs,
       changes: [
         {
           path: review.report.path,
@@ -473,7 +474,7 @@ export function openFleetEdgeRuntime(input: {
           taskId: review.taskId,
           action,
           waitMs: centerWriteWaitMs,
-          timeoutMs: centerWriteWaitMs + 10_000,
+          timeoutMs: centerWriteWaitMs + daemonProtocolFleetPolicy.defaultValue.fleet.receiptResponseOverheadMs,
           docChanges: [
             {
               path: review.report.path,
@@ -485,7 +486,7 @@ export function openFleetEdgeRuntime(input: {
           mirrorBaseCut: { revision: view.revision, headDigest: view.headDigest },
         });
     const result = await runFleetEdgeTaskCommand({
-      timeoutMs: centerWriteWaitMs + 60_000,
+      timeoutMs: centerWriteWaitMs + daemonProtocolFleetPolicy.defaultValue.fleet.taskContentTimeoutMs,
       readOnly: false,
       write: taskCommand,
       settle: () =>
@@ -606,7 +607,7 @@ export function openFleetEdgeRuntime(input: {
                   ...(activeExecution ? { executionId: activeExecution.executionId } : {}),
                 },
                 waitMs: centerWriteWaitMs,
-                timeoutMs: centerWriteWaitMs + 10_000,
+                timeoutMs: centerWriteWaitMs + daemonProtocolFleetPolicy.defaultValue.fleet.receiptResponseOverheadMs,
               }),
           });
           if (started.outcome !== "applied")

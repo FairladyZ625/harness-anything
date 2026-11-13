@@ -1,3 +1,4 @@
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { existsSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
@@ -21,7 +22,12 @@ export function uploadWindow(state: State): FleetUploadWindow {
     }
     nodes.set(upload.nodeId, node);
   }
-  return { limit: 64, receiving, staged, nodes: [...nodes.values()] };
+  return {
+    limit: daemonProtocolFleetPolicy.defaultValue.fleet.uploadWindowLimit,
+    receiving,
+    staged,
+    nodes: [...nodes.values()],
+  };
 }
 
 export interface FleetLeaseClaimsContext {

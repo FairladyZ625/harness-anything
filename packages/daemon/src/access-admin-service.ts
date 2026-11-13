@@ -1,4 +1,5 @@
 import type * as AccessStatus from "@harness-anything/kernel/internal/domain/access-status.ts";
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { readPolicyMetadata } from "./policy-metadata-read.ts";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import path from "node:path";
@@ -73,7 +74,7 @@ interface Session {
 }
 
 const resourceServerClientId = "harness-center",
-  receiptListLimit = 200;
+  receiptListLimit = daemonProtocolFleetPolicy.defaultValue.access.receiptListLimit;
 
 interface PermissionRequest {
   readonly requestId: string;

@@ -195,21 +195,36 @@ test("daemon protocol and Fleet boundary remains at zero ontology migration debt
     [],
     "every daemon boundary action and policy candidate must resolve to its shared declaration",
   );
-  for (const candidate of [
-    {
-      owner: "packages/daemon",
-      path: "packages/daemon/src/client/local-json-rpc-client.ts",
-      category: "action",
-      status: "legacy-to-remove",
-    },
-    {
-      owner: "packages/daemon",
-      path: "packages/daemon/src/fleet/peer.ts",
-      category: "policy",
-      status: "legacy-to-remove",
-    },
-  ])
-    assert.equal(boundary(candidate), true, `${candidate.category} boundary mutation must be detected`);
+});
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: reject a changed default and a neighboring effect, not just a path.
+test("daemon boundary registrations reject changed policies and undeclared actions", () => {
+  const snapshot = loadOntologyClosureSnapshot(repoRoot);
+  const target = "packages/kernel/src/domain/cli-operational-policy.ts";
+  const source = readFileSync(path.join(repoRoot, target), "utf8");
+  const original = scanOntologyText(target, source);
+  assert.deepEqual(audit(original, { snapshot }).findings, []);
+  const changed = source.replace("reconnectAttemptLimit: 5", "reconnectAttemptLimit: 6");
+  assert.notEqual(changed, source);
+  assert.ok(
+    audit(scanOntologyText(target, changed), { snapshot }).findings.some(
+      ({ code }) => code === "ONTOLOGY_POLICY_UNDECLARED",
+    ),
+  );
+  const daemonTarget = "packages/daemon/src/client/local-json-rpc-stream.ts";
+  const daemonSource = readFileSync(path.join(repoRoot, daemonTarget), "utf8");
+  assert.deepEqual(audit(scanOntologyText(daemonTarget, daemonSource), { snapshot }).findings, []);
+  for (const [extra, expected] of [
+    ["\nconst reconnectAttemptLimit = 6;", "ONTOLOGY_POLICY_UNDECLARED"],
+    ["\nsetTimeout(() => reconnect(), 123);", "ONTOLOGY_ACTION_UNDECLARED"],
+  ]) {
+    assert.ok(
+      audit(scanOntologyText(daemonTarget, daemonSource + extra), { snapshot }).findings.some(
+        ({ code }) => code === expected,
+      ),
+      expected,
+    );
+  }
 });
 
 test("leaf Policy bindings preserve defaults and distinguish exact presentation contracts from new budgets", () => {

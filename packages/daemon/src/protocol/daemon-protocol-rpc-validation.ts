@@ -1,3 +1,4 @@
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { generatedSettingsFieldProtocolProjection } from "@harness-anything/preset/internal/preset-command-contract";
 import { daemonMethodNameSets } from "./daemon-protocol-commands.ts";
 import {
@@ -215,7 +216,10 @@ function validateRuntimeSessionGroupsPayload(value: unknown): string[] {
     (value.since !== undefined && !Number.isFinite(Date.parse(String(value.since)))) ||
     (value.agentId !== undefined && !nonEmpty(value.agentId)) ||
     (value.squadId !== undefined && !nonEmpty(value.squadId)) ||
-    (value.limit !== undefined && (!integer(value.limit) || Number(value.limit) < 1 || Number(value.limit) > 1_000))
+    (value.limit !== undefined &&
+      (!integer(value.limit) ||
+        Number(value.limit) < 1 ||
+        Number(value.limit) > daemonProtocolFleetPolicy.defaultValue.protocol.runtimeListLimitMaximum))
   )
     return ["runtime session group facets are invalid"];
   return [];
@@ -225,7 +229,10 @@ function validateSquadRunListPayload(value: unknown): string[] {
   if (!isJsonObject(value)) return ["squad run list payload must be an object"];
   if (
     (value.since !== undefined && !Number.isFinite(Date.parse(String(value.since)))) ||
-    (value.limit !== undefined && (!integer(value.limit) || Number(value.limit) < 1 || Number(value.limit) > 1_000))
+    (value.limit !== undefined &&
+      (!integer(value.limit) ||
+        Number(value.limit) < 1 ||
+        Number(value.limit) > daemonProtocolFleetPolicy.defaultValue.protocol.runtimeListLimitMaximum))
   )
     return ["squad run list facets are invalid"];
   return [];
@@ -244,7 +251,12 @@ export { validateDaemonQueryPayload };
 export function validateAgendaQueryPayload(value: unknown): string[] {
   if (!isJsonObject(value)) return ["agenda query payload must be an object"];
   const errors: string[] = [];
-  if (value.limit !== undefined && (!integer(value.limit) || Number(value.limit) < 1 || Number(value.limit) > 500))
+  if (
+    value.limit !== undefined &&
+    (!integer(value.limit) ||
+      Number(value.limit) < 1 ||
+      Number(value.limit) > daemonProtocolFleetPolicy.defaultValue.protocol.listLimitMaximum)
+  )
     errors.push("repo.agenda.read.payload.limit is invalid");
   if (value.cursor !== undefined && !nonEmpty(value.cursor)) errors.push("repo.agenda.read.payload.cursor is invalid");
   if (value.work !== undefined && !nonEmpty(value.work)) errors.push("repo.agenda.read.payload.work is invalid");
@@ -263,7 +275,7 @@ export function validateTaskDispatchesPayload(value: unknown): string[] {
       value.cursor === undefined &&
       integer(value.limit) &&
       Number(value.limit) >= 1 &&
-      Number(value.limit) <= 500;
+      Number(value.limit) <= daemonProtocolFleetPolicy.defaultValue.protocol.listLimitMaximum;
     return member
       ? []
       : ["repo.task.dispatches.payload member reads require one agent or squad id and a limit of 1..500"];
@@ -281,7 +293,10 @@ export function validateTaskDispatchesPayload(value: unknown): string[] {
     taskIds.length > 500 ||
     taskIds.some((taskId) => !nonEmpty(taskId)) ||
     new Set(taskIds).size !== taskIds.length ||
-    (value.limit !== undefined && (!integer(value.limit) || Number(value.limit) < 1 || Number(value.limit) > 500)) ||
+    (value.limit !== undefined &&
+      (!integer(value.limit) ||
+        Number(value.limit) < 1 ||
+        Number(value.limit) > daemonProtocolFleetPolicy.defaultValue.protocol.listLimitMaximum)) ||
     (value.cursor !== undefined && !nonEmpty(value.cursor))
   )
     return ["repo.task.dispatches.payload requires taskId or 1..500 unique taskIds"];
@@ -354,7 +369,10 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
           Number(range.end) < Number(range.start))) ||
       (value.legacyId !== undefined && !/^E[1-9][0-9]*$/u.test(String(value.legacyId))) ||
       (value.state !== undefined && !statusWord(decisionStateWords, value.state)) ||
-      (value.limit !== undefined && (!integer(value.limit) || Number(value.limit) < 1 || Number(value.limit) > 500)) ||
+      (value.limit !== undefined &&
+        (!integer(value.limit) ||
+          Number(value.limit) < 1 ||
+          Number(value.limit) > daemonProtocolFleetPolicy.defaultValue.protocol.listLimitMaximum)) ||
       (value.cursor !== undefined && !nonEmpty(value.cursor))
     )
       errors.push("decision list filters are invalid");

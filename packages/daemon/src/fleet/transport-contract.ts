@@ -1,3 +1,4 @@
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { RAW_ARTIFACT_MAX_BYTES } from "@harness-anything/kernel";
 import { FLEET_CHUNK_BYTES, FLEET_FRAME_BYTES, type FleetBlob, type FleetDescriptor } from "./command-protocol.ts";
 
@@ -77,21 +78,7 @@ export interface ContentSink {
   readonly abort: (signal: AbortSignal) => Promise<void>;
 }
 
-const failurePolicies = {
-  busy: { category: "overload", recovery: "same-operation" },
-  resource_exhausted: { category: "overload", recovery: "same-operation" },
-  quota_exceeded: { category: "quota", recovery: "never" },
-  authentication_required: { category: "authentication", recovery: "never" },
-  authorization_denied: { category: "authorization", recovery: "never" },
-  protocol_upgrade_required: { category: "protocol", recovery: "never" },
-  invalid_frame: { category: "protocol", recovery: "never" },
-  content_claim_mismatch: { category: "integrity", recovery: "never" },
-  upload_replay_mismatch: { category: "integrity", recovery: "never" },
-  upload_gap: { category: "offset", recovery: "resume" },
-  writer_epoch_stale: { category: "fenced", recovery: "never" },
-  outcome_unknown: { category: "unknown-outcome", recovery: "query-receipt" },
-  cancelled: { category: "cancelled", recovery: "never" },
-} as const;
+const failurePolicies = daemonProtocolFleetPolicy.defaultValue.fleet.failurePolicies;
 
 export type TransportErrorCode = keyof typeof failurePolicies;
 export interface TransportFailure {

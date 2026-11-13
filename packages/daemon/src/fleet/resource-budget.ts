@@ -1,3 +1,4 @@
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import type { TransportErrorScope } from "./transport-contract.ts";
 
 export type BudgetScope = Exclude<TransportErrorScope, "transfer">;
@@ -30,12 +31,8 @@ export interface ResourceBudget {
 }
 
 /** Initial doc-show concurrency policy. Other resources require explicit policy before admission. */
-export const DOC_SHOW_BUDGET_LIMITS: ResourceBudgetLimits = {
-  global: { bulkTransfers: 8, memoryBytes: 256 * 1024 * 1024 },
-  node: { bulkTransfers: 2, memoryBytes: 64 * 1024 * 1024 },
-  session: { bulkTransfers: 2, memoryBytes: 64 * 1024 * 1024 },
-  repository: { bulkTransfers: 4, memoryBytes: 128 * 1024 * 1024 },
-};
+export const DOC_SHOW_BUDGET_LIMITS: ResourceBudgetLimits =
+  daemonProtocolFleetPolicy.defaultValue.fleet.docShowBudgetLimits;
 
 export class ResourceBudgetExceeded extends Error {
   readonly code = "resource_exhausted";

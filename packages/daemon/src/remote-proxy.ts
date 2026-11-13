@@ -1,4 +1,5 @@
 import type net from "node:net";
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { assertRuntimeCredentialEndpoint } from "./client/local-daemon-target.ts";
 import { readDaemonRegistry, type DaemonRegistryConnection } from "@harness-anything/kernel";
 import { connectSocket, JsonRpcLineClient, daemonHelloFailureCode } from "./client/local-json-rpc-client.ts";
@@ -30,8 +31,7 @@ interface RemoteProxyRoute {
   readonly connection: DaemonRegistryConnection & { readonly endpoint: string };
 }
 
-const connectTimeoutMs = 2_000;
-const helloTimeoutMs = 10_000;
+const { connectTimeoutMs, helloTimeoutMs } = daemonProtocolFleetPolicy.defaultValue.transport;
 
 export function openRemoteProxyManager(userRoot: string): RemoteProxyManager {
   const connectors = new Map<string, RemoteEndpointConnector>(),

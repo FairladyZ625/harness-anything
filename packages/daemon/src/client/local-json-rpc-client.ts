@@ -1,4 +1,5 @@
 import net from "node:net";
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 export { daemonHelloFailureCode } from "./daemon-hello.ts";
 import { assertDaemonHello, daemonHelloParams } from "./daemon-hello.ts";
 import { createInterface, type Interface as ReadlineInterface } from "node:readline";
@@ -31,7 +32,7 @@ export async function requestLocalDaemonJsonRpc(
   rootDir: string,
   method: string,
   params: JsonObject,
-  timeoutMs = 75,
+  timeoutMs: number = daemonProtocolFleetPolicy.defaultValue.client.requestTimeoutMs,
   options: LocalDaemonJsonRpcOptions = {},
 ): Promise<JsonObject> {
   const target = await resolveLocalDaemonTarget({

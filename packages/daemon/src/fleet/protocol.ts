@@ -1,3 +1,4 @@
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { TextDecoder } from "node:util";
 import type { ReplicationCommit, ReplicationPosition, SqliteEventRow } from "@harness-anything/storage";
 import type { BaseBackupMetadata } from "@harness-anything/storage";
@@ -10,8 +11,8 @@ export class ReplicationError extends Error {
   }
 }
 
-export const REPLICATION_FRAME_BYTES = 96 * 1024;
-export const REPLICATION_CHUNK_BYTES = 64 * 1024;
+export const REPLICATION_FRAME_BYTES = daemonProtocolFleetPolicy.defaultValue.fleet.frameBytes;
+export const REPLICATION_CHUNK_BYTES = daemonProtocolFleetPolicy.defaultValue.fleet.chunkBytes;
 
 export type ReplicationFrame =
   | {

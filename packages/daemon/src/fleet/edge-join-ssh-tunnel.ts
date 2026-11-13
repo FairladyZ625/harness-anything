@@ -1,4 +1,5 @@
 import type * as AccessStatus from "@harness-anything/kernel/internal/domain/access-status.ts";
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { spawn, type ChildProcess } from "node:child_process";
 import { consumeKnownError } from "@harness-anything/kernel";
 
@@ -47,7 +48,7 @@ interface TunnelManagerPorts {
 
 const initialRestartDelayMs = 5_000;
 const maxRestartDelayMs = 5 * 60_000;
-const startupTimeoutMs = 45_000;
+const startupTimeoutMs = daemonProtocolFleetPolicy.defaultValue.fleet.edgeJoinSshStartupTimeoutMs;
 
 export class EdgeJoinSshTunnelManager {
   readonly #entries = new Map<string, TunnelEntry>();

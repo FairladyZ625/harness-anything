@@ -1,3 +1,4 @@
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import path from "node:path";
 import { runProcessExitAsync } from "./process-port.ts";
 
@@ -21,8 +22,8 @@ export interface FleetEdgeGitPreflightInput {
   readonly operation: "edge sync" | "runtime dispatch";
 }
 
-const gitTimeoutMs = 10_000,
-  gitFetchTimeoutMs = 30_000,
+const gitTimeoutMs = daemonProtocolFleetPolicy.defaultValue.fleet.gitTimeoutMs,
+  gitFetchTimeoutMs = daemonProtocolFleetPolicy.defaultValue.fleet.gitFetchTimeoutMs,
   nonInteractiveGitEnv = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
 
 export class FleetEdgeGitPreflightError extends Error {
