@@ -18,10 +18,19 @@ export function parseDoc(
     const f = readFlags(id, args.slice(2), inputs);
     if (!f.ok) return rejected(f.code, f.nextAction, json);
     const paths = f.many.get("--path") ?? [],
+      taskId = f.one.get("--task"),
       all = f.booleans.has("--all");
-    if (all && paths.length)
-      return rejected("invalid_field", "Use either --path or --all for doc materialize, not both.", json);
-    return accepted(rootDir, repoId, json, { kind: id, paths, ...(all ? { all: true } : {}), ...workspacePaths });
+    if (all && (paths.length || taskId))
+      return rejected("invalid_field", "Use exactly one of --path, --task, or --all for doc materialize.", json);
+    if (taskId && paths.length)
+      return rejected("invalid_field", "Use either --task or --path for doc materialize, not both.", json);
+    return accepted(rootDir, repoId, json, {
+      kind: id,
+      paths,
+      ...(taskId ? { taskId } : {}),
+      ...(all ? { all: true } : {}),
+      ...workspacePaths,
+    });
   }
   if (id.startsWith("doc-conflict-")) {
     const verb = args[2],

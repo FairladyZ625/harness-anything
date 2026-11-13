@@ -8,6 +8,12 @@ import {
 import { isTaskEvent } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import { assertFactAdmissionAtCut } from "@harness-anything/kernel/internal/domain/fact-admission.ts";
 import { assertDecisionAdmissionAtCut } from "@harness-anything/kernel/internal/domain/decision-admission.ts";
+import {
+  activeMaterializationHolds,
+  materializationEntityRef,
+  type MaterializationEntityState,
+  type MaterializationRelation,
+} from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 import { createSqlTaskQueryReader } from "./sql-task-query-reader.ts";
 import { PG_TASK_QUERY_METHODS } from "./pg-task-query-contract.ts";
 import { projectionCatchUpLimit } from "../projection/catch-up-limit.ts";
@@ -113,14 +119,54 @@ export function makePgTaskProjection(
     releaseLease: (lease) => reader.changeLease("release", lease, now()),
     admitFact: (event) =>
       reader.withSession((q) => {
-        const ref = "supersedes" in event.payload ? event.payload.supersedes?.factRef : undefined,
-          target = ref ? q.readFact(ref.replace(/^fact\//u, "")).fact : null;
+        const supersedesRef = "supersedes" in event.payload ? event.payload.supersedes?.factRef : undefined,
+          target = supersedesRef ? q.readFact(supersedesRef.replace(/^fact\//u, "")).fact : null,
+          terminalRef = event.type === "fact_archived" ? `fact/${event.factId}` : (supersedesRef ?? null),
+          terminalState = event.type === "fact_archived" ? "archived" : "superseded_fact",
+          incident = terminalRef ? q.readRelationQuery({ target: terminalRef, state: "active" }).rows : [],
+          relations: MaterializationRelation[] = incident.map((row) => ({
+            source: row.sourceRef,
+            target: row.targetRef,
+            type: row.relationType,
+            state: row.state,
+          })),
+          sourceRefs = [...new Set(relations.map(({ source }) => materializationEntityRef(source)))],
+          decisionIds = sourceRefs.flatMap((source) => /^decision\/([^/]+)$/u.exec(source)?.[1] ?? []),
+          taskIds = sourceRefs.flatMap((source) => /^task\/(.+)$/u.exec(source)?.[1] ?? []),
+          states = new Map<string, MaterializationEntityState>(
+            terminalRef ? [[terminalRef, { ref: terminalRef, state: terminalState, kind: "fact" }]] : [],
+          );
+        for (const decisionId of decisionIds) {
+          const document = q.readDecisionDocumentState?.(decisionId);
+          if (document) {
+            const ref = `decision/${decisionId}`;
+            states.set(ref, { ref, state: document.state, kind: "decision" });
+          }
+        }
+        for (const row of q.readTaskStatuses(taskIds).rows) {
+          if (row.status !== null) {
+            const ref = `task/${row.taskId}`;
+            states.set(ref, { ref, state: row.status, kind: "task" });
+          }
+        }
+        const materializationHeld = terminalRef
+            ? activeMaterializationHolds({ ref: terminalRef, state: terminalState, kind: "fact" }, relations, states)
+                .length > 0
+            : false,
+          livenessRelations = target
+            ? q.readRelationQuery({ target: target.ref }).rows.map((row) => ({
+                targetRef: row.targetRef,
+                relationType: row.relationType,
+                state: row.state,
+              }))
+            : [];
         assertFactAdmissionAtCut(
           {
             row: q.readFact(event.factId).fact,
             domainTypes: q.listFactDomainTypes().domainTypes,
             supersededTarget: target,
-            relations: target ? q.readFactGraph().edges : [],
+            relations: livenessRelations,
+            materializationHeld,
           },
           event,
         );
@@ -136,10 +182,15 @@ export function makePgTaskProjection(
           relations = refs.flatMap((anchor) => [
             ...q.readRelationQuery({ source: anchor, state: "active" }).rows,
             ...q.readRelationQuery({ target: anchor, state: "active" }).rows,
-          ]);
+          ]),
+          materializationHeld =
+            document && ["decision_rejected", "decision_superseded", "decision_retired"].includes(event.type)
+              ? decisionMaterializationHeld(q, ref, document.state)
+              : false;
         assertDecisionAdmissionAtCut(
           {
             document,
+            materializationHeld,
             relations: relations
               .filter(({ state }) => state === "active")
               .map((row) => ({ relation_id: row.relationId, source_ref: row.sourceRef, target_ref: row.targetRef })),
@@ -159,6 +210,7 @@ export function makePgTaskProjection(
   };
 }
 
+<<<<<<< HEAD
 function relationAuditAffected(event: Parameters<NonNullable<TaskProjection["apply"]>>[0]): boolean {
   if (isRelationEvent(event)) return true;
   if (
@@ -167,4 +219,32 @@ function relationAuditAffected(event: Parameters<NonNullable<TaskProjection["app
   )
     return true;
   return derivedRelationRecordsForReplay(event).length > 0;
+}
+
+function decisionMaterializationHeld(queries: TaskProjectionQueries, ref: string, state: string): boolean {
+  const rows = queries.readRelationQuery({ entity: ref, state: "active" }).rows,
+    relations: MaterializationRelation[] = rows.map((row) => ({
+      source: row.sourceRef,
+      target: row.targetRef,
+      type: row.relationType,
+      state: row.state,
+    })),
+    endpoints = [...new Set(relations.flatMap(({ source, target }) => [source, target]).map(materializationEntityRef))],
+    decisionIds = endpoints.flatMap((endpoint) => /^decision\/([^/]+)$/u.exec(endpoint)?.[1] ?? []),
+    taskIds = endpoints.flatMap((endpoint) => /^task\/(.+)$/u.exec(endpoint)?.[1] ?? []),
+    states = new Map<string, MaterializationEntityState>([[ref, { ref, state, kind: "decision" }]]);
+  for (const decisionId of decisionIds) {
+    const document = queries.readDecisionDocumentState?.(decisionId);
+    if (document) {
+      const endpoint = `decision/${decisionId}`;
+      states.set(endpoint, { ref: endpoint, state: document.state, kind: "decision" });
+    }
+  }
+  for (const row of queries.readTaskStatuses(taskIds).rows) {
+    if (row.status !== null) {
+      const endpoint = `task/${row.taskId}`;
+      states.set(endpoint, { ref: endpoint, state: row.status, kind: "task" });
+    }
+  }
+  return activeMaterializationHolds({ ref, state, kind: "decision" }, relations, states).length > 0;
 }

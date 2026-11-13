@@ -40,6 +40,23 @@ export type {
 export type { EntityActionUnmetCriterionV1, TaskRiskTierAdviceV1 } from "./receipt-domain-registry.ts";
 export type { DecisionCapabilityId, DecisionCapabilityReason } from "./decision-board-projection.ts";
 export { isTerminalDecisionState } from "./decision-board-projection.ts";
+export {
+  activeMaterializationHolds,
+  isTerminalMaterializationState,
+  materializationEntityRef,
+  materializationState,
+  canonicalMaterializationStates,
+  terminalDecisionMaterializationStates,
+  terminalFactMaterializationStates,
+  type CanonicalMaterializationState,
+} from "./entity-relation.ts";
+export {
+  nodeTaskMaterializationPolicy,
+  nodeTaskMaterializationPolicies,
+  normalizeNodeTaskMaterializationPolicy,
+  taskIncludedByNodeMaterializationPolicy,
+  type NodeTaskMaterializationPolicy,
+} from "./task-wip-policy.ts";
 export { deriveActionReturnsContract } from "./entity-action-descriptor.ts";
 export type { ReceiptGuidanceArgument, ReceiptGuidanceContractEntry } from "./entity-action-descriptor.ts";
 export { evaluateTaskActionCapability, taskLifecycleNextActions } from "./task-action-capability.ts";

@@ -47,6 +47,20 @@ test("decision full rows carry kernel capabilities while summary rows stay narro
   } as const;
   const full = { ok: true, projection: "full", decisions: [row], warnings: [] } as const;
   assert.deepEqual(validateDaemonDecisionList(full), []);
+  assert.deepEqual(
+    validateDaemonDecisionList({
+      ...full,
+      decisions: [{ ...row, materializationState: "dematerialized_terminal" }],
+    }),
+    [],
+  );
+  assert.notDeepEqual(
+    validateDaemonDecisionList({
+      ...full,
+      decisions: [{ ...row, materializationState: "skipped" }],
+    }),
+    [],
+  );
   assert.notDeepEqual(
     validateDaemonDecisionList({
       ...full,

@@ -29,6 +29,7 @@ import { migrationImportClaims, migrationImportContentClaims } from "../domain/m
 import { isTaskBootstrapEvent, taskBootstrapClaims } from "../domain/task-bootstrap-event.ts";
 import { isTaskProgressEvent } from "../domain/task-progress-event.ts";
 import { isSnapshotUpgradeEvent, snapshotUpgradeClaims } from "../domain/task-snapshot-upgrade-store-seam.ts";
+import { terminalDecisionMaterializationStates } from "../domain/entity-relation.ts";
 
 // Canonical document claim extraction plus flat-to-sharded layout auditing.
 export function canonicalDocumentClaims(event: PersistedCanonicalEventV1): readonly {
@@ -76,15 +77,7 @@ export function canonicalDocumentClaims(event: PersistedCanonicalEventV1): reado
               : isRelationEvent(event)
                 ? relationEventDocumentClaims(event)
                 : isDecisionEvent(event)
-                  ? [
-                      event.payload.decisionDocumentClaim,
-                      ...(event.type === "decision_review_recorded"
-                        ? (event.payload.carriedDocumentClaims ?? []).map(({ path: target, candidate }) => ({
-                            path: target,
-                            ...candidate,
-                          }))
-                        : []),
-                    ]
+                  ? decisionDocumentClaims(event)
                   : isMigrationImportEvent(event)
                     ? migrationImportClaims(event)
                     : [];
@@ -112,10 +105,38 @@ export function canonicalDocumentRetirements(
     return [event.payload.declarationDocumentRetirement];
   if (isFactEvent(event)) {
     const retirement = event.payload.factsDocumentRetirement;
-    return event.type === "fact_archived" && retirement !== undefined
-      ? [{ path: retirement.path, baseBlobSha256: retirement.sha256 }]
-      : [];
+    return [
+      ...(event.type === "fact_archived" && retirement !== undefined
+        ? [{ path: retirement.path, baseBlobSha256: retirement.sha256 }]
+        : []),
+      ...(event.type !== "fact_archived" && event.payload.supersededFactsDocumentClaim !== undefined
+        ? [
+            {
+              path: event.payload.supersededFactsDocumentClaim.path,
+              baseBlobSha256: event.payload.supersededFactsDocumentClaim.sha256,
+            },
+          ]
+        : []),
+    ];
   }
+  if (
+    isDecisionEvent(event) &&
+    terminalDecisionMaterializationStates.includes(
+      decisionStateForEvent(event) as (typeof terminalDecisionMaterializationStates)[number],
+    )
+  )
+    return [
+      {
+        path: event.payload.decisionDocumentClaim.path,
+        baseBlobSha256: event.payload.decisionDocumentClaim.sha256,
+      },
+      ...(event.type === "decision_review_recorded"
+        ? (event.payload.carriedDocumentClaims ?? []).map(({ path, candidate }) => ({
+            path,
+            baseBlobSha256: candidate.sha256,
+          }))
+        : []),
+    ];
   return isDocEvent(event)
     ? event.payload.changes.flatMap(({ path: target, baseBlobSha256, candidate }) =>
         candidate === null && baseBlobSha256 !== null ? [{ path: target, baseBlobSha256 }] : [],
@@ -197,16 +218,11 @@ export function contentClaims(event: PersistedCanonicalEventV1): readonly {
                   ...(event.payload.carriedDocumentClaims ?? []).map((change) => change.candidate),
                 ]
               : isFactEvent(event)
-                ? factEventDocumentClaims(event)
+                ? factEventContentClaims(event)
                 : isRelationEvent(event)
                   ? relationEventDocumentClaims(event)
                   : isDecisionEvent(event)
-                    ? [
-                        event.payload.decisionDocumentClaim,
-                        ...(event.type === "decision_review_recorded"
-                          ? (event.payload.carriedDocumentClaims ?? []).map((change) => change.candidate)
-                          : []),
-                      ]
+                    ? decisionContentClaims(event)
                     : isMigrationImportEvent(event)
                       ? migrationImportContentClaims(event)
                       : isAgentRuntimeEvent(event)
@@ -215,8 +231,70 @@ export function contentClaims(event: PersistedCanonicalEventV1): readonly {
   return [...new Map(claims.map((claim) => [claim.sha256, claim])).values()];
 }
 
+function decisionDocumentClaims(
+  event: Extract<PersistedCanonicalEventV1, { readonly schema: "decision-event/v1" }>,
+): readonly {
+  readonly path: string;
+  readonly sha256: string;
+  readonly size: number;
+  readonly mediaType: string;
+}[] {
+  if (
+    terminalDecisionMaterializationStates.includes(
+      decisionStateForEvent(event) as (typeof terminalDecisionMaterializationStates)[number],
+    )
+  )
+    return [];
+  return [
+    event.payload.decisionDocumentClaim,
+    ...(event.type === "decision_review_recorded"
+      ? (event.payload.carriedDocumentClaims ?? []).map(({ path: target, candidate }) => ({
+          path: target,
+          ...candidate,
+        }))
+      : []),
+  ];
+}
+
+function decisionContentClaims(event: Extract<PersistedCanonicalEventV1, { readonly schema: "decision-event/v1" }>) {
+  return [
+    event.payload.decisionDocumentClaim,
+    ...(event.type === "decision_review_recorded"
+      ? (event.payload.carriedDocumentClaims ?? []).map((change) => change.candidate)
+      : []),
+  ];
+}
+
+function decisionStateForEvent(
+  event: Extract<PersistedCanonicalEventV1, { readonly schema: "decision-event/v1" }>,
+): string {
+  switch (event.type) {
+    case "decision_rejected":
+      return "rejected";
+    case "decision_superseded":
+      return "superseded";
+    case "decision_retired":
+      return "outcome_retired";
+    case "decision_accepted":
+      return "in_effect";
+    case "decision_deferred":
+      return "deferred";
+    default:
+      return "proposed";
+  }
+}
+
 function factEventDocumentClaims(event: FactEventV1): readonly {
   readonly path: string;
+  readonly sha256: string;
+  readonly size: number;
+  readonly mediaType: string;
+}[] {
+  const { factsDocumentClaim } = event.payload;
+  return [...(factsDocumentClaim === undefined ? [] : [factsDocumentClaim])];
+}
+
+function factEventContentClaims(event: FactEventV1): readonly {
   readonly sha256: string;
   readonly size: number;
   readonly mediaType: string;

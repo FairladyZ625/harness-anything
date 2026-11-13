@@ -193,7 +193,11 @@ export function readAction(input: Input): WriteReceipt {
       "execution_scope_mismatch",
       readDetail(input, paths, current, lease, scope),
     );
-  const reads = paths.map((candidate) => input.projection.readDocument(candidate)),
+  const reads = paths.map((candidate) => {
+      const active = input.projection.readDocument(candidate);
+      if (active.document !== null) return active;
+      return input.projection.readDocumentHistory?.(candidate) ?? active;
+    }),
     revision = current.revision,
     ready = reads.every((read) => read.status === "ready");
   const receiptDetail = readDetail(input, paths, current, lease, []),

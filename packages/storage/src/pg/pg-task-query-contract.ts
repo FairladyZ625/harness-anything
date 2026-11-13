@@ -54,6 +54,7 @@ export const PG_TASK_QUERY_METHODS = [
   "readLatestLeaseIntervalForExecution",
   "readLatestLeaseInterval",
   "readDocument",
+  "readDocumentHistory",
   "readDocumentMetadata",
   "readDocuments",
   "readArtifactTimelinePage",

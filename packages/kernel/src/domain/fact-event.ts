@@ -306,12 +306,10 @@ export function factWritePlan(event: FactEventV1): FrozenWritePlan<"FactRecord">
     ...(supersededClaim
       ? [
           {
-            kind: "authored_file",
+            kind: "authored_file_delete",
             path: supersededClaim.path,
-            operation: "replace",
-            sha256: supersededClaim.sha256,
-            size: supersededClaim.size,
-            mediaType: supersededClaim.mediaType,
+            operation: "delete",
+            baseSha256: supersededClaim.sha256,
           } as const,
         ]
       : []),

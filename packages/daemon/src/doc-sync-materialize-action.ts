@@ -2,7 +2,7 @@ import { stableStringify } from "@harness-anything/kernel";
 import { touch } from "./doc-sync-details.ts";
 import { docSyncError, hasExactDocSyncActionFields, proof, rejectDocSyncAction } from "./doc-sync-files.ts";
 import { workspacePathOf } from "./doc-sync-settlement.ts";
-import type { Action, DocSettlementReceipt, Input } from "./doc-sync-command-actions.ts";
+import type { DocSettlementReceipt, Input } from "./doc-sync-command-actions.ts";
 
 /**
  * `doc materialize` never settles the worktree by implication. Bare, it previews what a whole-closure
@@ -11,7 +11,7 @@ import type { Action, DocSettlementReceipt, Input } from "./doc-sync-command-act
  * where the overwritten local bytes were kept, the conflict copy beside it.
  */
 export function runDocMaterialize(input: Input): DocSettlementReceipt {
-  const paths = materializePaths(input.action),
+  const paths = materializePaths(input),
     workspacePath = workspacePathOf(input);
   const result =
     paths === undefined
@@ -98,7 +98,19 @@ export function runDocMaterialize(input: Input): DocSettlementReceipt {
 }
 
 /** undefined = preview (bare), null = whole cut (--all), otherwise the explicit --path selection. */
-function materializePaths(action: Action): readonly string[] | null | undefined {
+function materializePaths(input: Input): readonly string[] | null | undefined {
+  const action = input.action;
+  if (typeof action.taskId === "string") {
+    if (!hasExactDocSyncActionFields(action, ["kind", "paths", "taskId"]))
+      throw docSyncError("invalid_command", "doc materialize --task cannot be combined with another selection");
+    const task = input.projection.read(action.taskId);
+    if (!task.snapshot.task || task.packagePath === null)
+      throw docSyncError("entity_not_found", `Task ${action.taskId} has no materialized package path`);
+    const documents = input.projection.readDocuments(task.packagePath);
+    if (documents.status !== "ready")
+      throw docSyncError("projection_pending", `Task ${action.taskId} document projection is still catching up`);
+    return documents.documents.map(({ path }) => path);
+  }
   const selection = (fields: readonly string[]): readonly string[] | null | undefined => {
     if (!Array.isArray(action.paths) || action.paths.some((p) => typeof p !== "string"))
       throw docSyncError("invalid_command", "doc materialize --path takes document paths");

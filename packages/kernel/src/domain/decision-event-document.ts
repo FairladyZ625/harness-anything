@@ -6,6 +6,7 @@ import { attributeEntityActionCriterion } from "./entity-action-criterion.ts";
 import {
   DECISION_ACCEPT_REVIEW_CRITERION_REF,
   DECISION_DOCUMENT_POLICY_ID,
+  decisionTransitionDefinitions,
   type CompiledDecisionWrite,
   type DecisionAmendmentV1,
   type DecisionContentPinV1,
@@ -19,6 +20,7 @@ import {
   type DecisionTransitionType,
 } from "./decision-event-types.ts";
 import { type EntityRelationRecord } from "./entity-relation.ts";
+import { terminalDecisionMaterializationStates } from "./entity-relation.ts";
 import { parseEntityRef } from "./entity-ref.ts";
 import { describeReviewConsentConflicts, reviewConsentConflicts } from "./review-consent-validity.ts";
 import type { DecisionReviewRequirement, ReviewIndependence } from "./settings-field-declarations.ts";
@@ -158,6 +160,12 @@ export function compileDecisionWrite(input: {
 }
 export function decisionWritePlan(event: DecisionEventV1): FrozenWritePlan<"DecisionWrite"> {
   const claim = event.payload.decisionDocumentClaim,
+    targetState = decisionTransitionDefinitions.find(({ eventType }) => eventType === event.type)?.targetState,
+    terminal =
+      targetState !== undefined &&
+      terminalDecisionMaterializationStates.includes(
+        targetState as (typeof terminalDecisionMaterializationStates)[number],
+      ),
     targets: WriteTarget[] = [
       {
         kind: "event_file",
@@ -169,20 +177,19 @@ export function decisionWritePlan(event: DecisionEventV1): FrozenWritePlan<"Deci
         path: "harness/events/head.json",
         operation: "replace",
       },
-      {
-        kind: "authored_file",
-        path: claim.path,
-        operation: "replace",
-        sha256: claim.sha256,
-        size: claim.size,
-        mediaType: claim.mediaType,
-      },
-      {
-        kind: "content_blob",
-        sha256: claim.sha256,
-        size: claim.size,
-        mediaType: claim.mediaType,
-      },
+      ...(terminal
+        ? [{ kind: "authored_file_delete", path: claim.path, operation: "delete", baseSha256: claim.sha256 } as const]
+        : [
+            {
+              kind: "authored_file",
+              path: claim.path,
+              operation: "replace",
+              sha256: claim.sha256,
+              size: claim.size,
+              mediaType: claim.mediaType,
+            } as const,
+          ]),
+      { kind: "content_blob", sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType },
       {
         kind: "projection_invalidation",
         projection: "decision/v1",
@@ -203,14 +210,25 @@ export function decisionWritePlan(event: DecisionEventV1): FrozenWritePlan<"Deci
   if (event.type === "decision_review_recorded")
     for (const change of event.payload.carriedDocumentClaims ?? [])
       targets.push(
-        {
-          kind: "authored_file",
-          path: change.path,
-          operation: "replace",
-          sha256: change.candidate.sha256,
-          size: change.candidate.size,
-          mediaType: change.candidate.mediaType,
-        },
+        ...(terminal
+          ? [
+              {
+                kind: "authored_file_delete",
+                path: change.path,
+                operation: "delete",
+                baseSha256: change.candidate.sha256,
+              } as const,
+            ]
+          : [
+              {
+                kind: "authored_file",
+                path: change.path,
+                operation: "replace",
+                sha256: change.candidate.sha256,
+                size: change.candidate.size,
+                mediaType: change.candidate.mediaType,
+              } as const,
+            ]),
         {
           kind: "content_blob",
           sha256: change.candidate.sha256,

@@ -1,7 +1,14 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DEFAULT_TASK_WIP_LIMIT, admitTaskExecutionWip, parseTaskWipLimit } from "../../src/index.ts";
+import {
+  DEFAULT_TASK_WIP_LIMIT,
+  admitTaskExecutionWip,
+  nodeTaskMaterializationPolicy,
+  normalizeNodeTaskMaterializationPolicy,
+  parseTaskWipLimit,
+  taskIncludedByNodeMaterializationPolicy,
+} from "../../src/index.ts";
 import {
   enteringExecutionWip,
   hasCloseoutEvidence,
@@ -34,6 +41,24 @@ test("the default limit is 30 and the count admits work below it", () => {
     }),
     { ok: true },
   );
+});
+
+test("node materialization policy keeps in-flight work and gates active done packages", () => {
+  assert.equal(nodeTaskMaterializationPolicy.defaultValue, "include_done");
+  assert.equal(normalizeNodeTaskMaterializationPolicy("none"), "none");
+  assert.equal(taskIncludedByNodeMaterializationPolicy("none", { status: "active" }), false);
+  assert.equal(taskIncludedByNodeMaterializationPolicy("in_flight", { status: "submitted" }), true);
+  assert.equal(taskIncludedByNodeMaterializationPolicy("in_flight", { status: "done" }), false);
+  assert.equal(
+    taskIncludedByNodeMaterializationPolicy("in_flight", { status: "active", packageDisposition: "archived" }),
+    false,
+  );
+  assert.equal(taskIncludedByNodeMaterializationPolicy("include_done", { status: "done" }), true);
+  assert.equal(
+    taskIncludedByNodeMaterializationPolicy("include_done", { status: "done", packageDisposition: "archived" }),
+    false,
+  );
+  assert.throws(() => normalizeNodeTaskMaterializationPolicy("all"), /must be one of none, in_flight, include_done/u);
 });
 
 test("an exactly full worktable rejects a new activation with the counting criteria in the message", () => {

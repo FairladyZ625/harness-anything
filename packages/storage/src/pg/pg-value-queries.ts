@@ -38,6 +38,7 @@ export type PgValueQueries = AsyncQueries<
   | "readLatestLeaseInterval"
   | "readDocumentMetadata"
   | "readDocument"
+  | "readDocumentHistory"
   | "readDocuments"
   | "readArtifactTimelinePage"
   | "readReplicaBasis"
@@ -199,7 +200,7 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
       read(async (client) => {
         const cut = await readCutInTransaction(client, scope, readers, repoId),
           row = await client.query<{ entity_id: string; workspace_revision: string }>(
-            `SELECT entity_id, workspace_revision FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model='document' AND entity_id=$4 AND owner_id=''
+            `SELECT entity_id, workspace_revision FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model IN ('document','document-history') AND entity_id=$4 AND owner_id=''
            AND (cardinality($5::text[])=0 OR readers && $5::text[])`,
             [scope.tenantId, scope.projectId, scope.policyEpoch, path, readers],
           );
@@ -214,6 +215,11 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
       read(async (client) => ({
         ...(await readCutInTransaction(client, scope, readers, repoId)),
         document: await getPgProjectionValue<DocumentState>(client, scope, "document", path),
+      })),
+    readDocumentHistory: (path) =>
+      read(async (client) => ({
+        ...(await readCutInTransaction(client, scope, readers, repoId)),
+        document: await getPgProjectionValue<DocumentState>(client, scope, "document-history", path),
       })),
     readDocuments: (prefix, page) =>
       read(async (client) => {

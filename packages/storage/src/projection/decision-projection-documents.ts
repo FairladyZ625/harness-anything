@@ -6,9 +6,10 @@ import { prepareQuery } from "./rebuildable-task-projection-sql.ts";
 
 export function readDecisionBody(db: DatabaseSync, decisionId: string): DecisionBodyRow | null {
   const path = `decisions/decision-${decisionId}/decision.md`,
-    row = prepareQuery(db, "SELECT value_json FROM document WHERE path=?").get(path) as
-      | { readonly value_json: string }
-      | undefined;
+    row = prepareQuery(
+      db,
+      "SELECT value_json FROM document WHERE path=? UNION ALL SELECT value_json FROM document_history WHERE path=? LIMIT 1",
+    ).get(path, path) as { readonly value_json: string } | undefined;
   return row ? decisionBodyFromDocument(decisionId, row.value_json) : null;
 }
 

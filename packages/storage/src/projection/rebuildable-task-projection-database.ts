@@ -523,6 +523,11 @@ function createTables(db: DatabaseSync, onValidationProgress?: ProjectionProgres
       workspace_revision INTEGER NOT NULL,
       value_json TEXT NOT NULL
     );
+    /* @gate-identity state-store/task.projection.document_history */ CREATE TABLE IF NOT EXISTS document_history (
+      path TEXT PRIMARY KEY,
+      workspace_revision INTEGER NOT NULL,
+      value_json TEXT NOT NULL
+    );
     -- Cover document lists with metadata only. JSON extraction runs once at projection write,
     -- never when listing a repository that contains a large inline historical body.
     CREATE INDEX IF NOT EXISTS document_metadata ON document (

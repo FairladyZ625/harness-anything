@@ -18,6 +18,12 @@ export type {
   FactSearchPage,
 } from "@harness-anything/kernel";
 import { factInvalidated, factLiveness } from "@harness-anything/kernel/internal/domain/fact-liveness.ts";
+import {
+  activeMaterializationHolds,
+  materializationEntityRef,
+  type MaterializationEntityState,
+  type MaterializationRelation,
+} from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 import { ftsQuery } from "./fts-query.ts";
 import { applyEmbeddedRelationProjectionEvents } from "./relation-entity-projection.ts";
 import { prepareQuery, queryRows, type ProjectionSqlRow } from "./rebuildable-task-projection-sql.ts";
@@ -52,12 +58,61 @@ export function readFactAdmissionState(db: DatabaseSync, event: FactEventV1) {
     target = ref
       ? (prepareQuery(db, "SELECT ref FROM fact WHERE ref = ?").get(ref) as { readonly ref: string } | undefined)
       : undefined;
+  const terminalTargetRef = event.type === "fact_archived" ? (record ? `fact/${event.factId}` : null) : (ref ?? null),
+    materializationHeld = terminalTargetRef
+      ? factMaterializationHeld(db, terminalTargetRef, event.type === "fact_archived" ? "archived" : "superseded_fact")
+      : false;
   return {
     row: record ? (JSON.parse(record.row_json) as FactProjectionRow) : null,
     domainTypes: listFactDomainTypeRows(db),
     supersededTarget: target ?? null,
     relations: target ? livenessRelations(db, [target.ref]) : [],
+    materializationHeld,
   };
+}
+
+function factMaterializationHeld(db: DatabaseSync, factRef: string, state: "archived" | "superseded_fact"): boolean {
+  const relations = queryRows<{
+    readonly source_ref: string;
+    readonly target_ref: string;
+    readonly relation_type: string;
+    readonly state: string;
+  }>(
+    db,
+    "SELECT source_ref, target_ref, relation_type, state FROM relation_edge INDEXED BY relation_edge_target " +
+      "WHERE target_ref = ? AND state = 'active'",
+    factRef,
+  ).map(
+    (edge): MaterializationRelation => ({
+      source: edge.source_ref,
+      target: edge.target_ref,
+      type: edge.relation_type as MaterializationRelation["type"],
+      state: edge.state,
+    }),
+  );
+  const sourceRefs = [...new Set(relations.map(({ source }) => materializationEntityRef(source)))],
+    decisionIds = sourceRefs.flatMap((source) => /^decision\/([^/]+)$/u.exec(source)?.[1] ?? []),
+    taskIds = sourceRefs.flatMap((source) => /^task\/(.+)$/u.exec(source)?.[1] ?? []),
+    states = new Map<string, MaterializationEntityState>([[factRef, { ref: factRef, state, kind: "fact" }]]);
+  if (decisionIds.length)
+    for (const row of queryRows<{ readonly decision_id: string; readonly state: string }>(
+      db,
+      "SELECT decision_id, state FROM decision WHERE decision_id IN (SELECT value FROM json_each(?))",
+      JSON.stringify(decisionIds),
+    )) {
+      const ref = `decision/${row.decision_id}`;
+      states.set(ref, { ref, state: row.state, kind: "decision" });
+    }
+  if (taskIds.length)
+    for (const row of queryRows<{ readonly task_id: string; readonly status: string }>(
+      db,
+      "SELECT task_id, status FROM task_snapshot WHERE task_id IN (SELECT value FROM json_each(?))",
+      JSON.stringify(taskIds),
+    )) {
+      const ref = `task/${row.task_id}`;
+      states.set(ref, { ref, state: row.status, kind: "task" });
+    }
+  return activeMaterializationHolds({ ref: factRef, state, kind: "fact" }, relations, states).length > 0;
 }
 
 export function reduceFactEvent(db: DatabaseSync, event: FactEventV1): void {
@@ -191,7 +246,62 @@ function decodeFactRows(db: DatabaseSync, records: readonly FactRecord[]): reado
     );
   return raw.map((row) => {
     const state = factLiveness(row, relations);
-    return { ...row, state, invalidated: factInvalidated(state), archived: row.archived === true };
+    const materializationRelations = queryRows<{
+      readonly source_ref: string;
+      readonly target_ref: string;
+      readonly relation_type: string;
+      readonly state: string;
+    }>(
+      db,
+      "SELECT source_ref, target_ref, relation_type, state FROM relation_edge INDEXED BY relation_edge_target WHERE target_ref = ? AND state = 'active'",
+      row.ref,
+    ).map((edge) => ({
+      source: edge.source_ref,
+      target: edge.target_ref,
+      type: edge.relation_type as never,
+      state: edge.state,
+    }));
+    const endpointRefs = materializationRelations.flatMap(({ source, target }) => [source, target]),
+      states = new Map<
+        string,
+        { readonly ref: string; readonly state: string; readonly kind: "fact" | "decision" | "task" }
+      >();
+    states.set(row.ref, { ref: row.ref, state, kind: "fact" });
+    for (const ref of new Set(endpointRefs)) {
+      const decision = /^decision\/([^/]+)(?:\/[^/]+)?$/u.exec(ref)?.[1],
+        task = /^task\/(.+)$/u.exec(ref)?.[1];
+      if (decision) {
+        const value = queryRows<{ readonly state: string }>(
+          db,
+          "SELECT state FROM decision WHERE decision_id = ?",
+          decision,
+        )[0];
+        if (value)
+          states.set(`decision/${decision}`, { ref: `decision/${decision}`, state: value.state, kind: "decision" });
+      } else if (task) {
+        const value = queryRows<{ readonly status: string }>(
+          db,
+          "SELECT status FROM task_snapshot WHERE task_id = ?",
+          task,
+        )[0];
+        if (value) states.set(ref, { ref, state: value.status, kind: "task" });
+      }
+    }
+    const held =
+      activeMaterializationHolds({ ref: row.ref, state, kind: "fact" }, materializationRelations, states).length > 0;
+    const materializationState =
+      state === "superseded_fact" || row.archived === true
+        ? held || queryRows(db, "SELECT 1 FROM document WHERE path = ?", `facts/${row.factId}.md`).length > 0
+          ? "materialized"
+          : "dematerialized_terminal"
+        : "materialized";
+    return {
+      ...row,
+      state,
+      invalidated: factInvalidated(state),
+      archived: row.archived === true,
+      materializationState,
+    };
   });
 }
 function listFactRows(db: DatabaseSync, where: string, values: readonly string[]): readonly FactProjectionRow[] {

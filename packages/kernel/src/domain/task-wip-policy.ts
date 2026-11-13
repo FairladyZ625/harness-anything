@@ -232,3 +232,45 @@ export const taskExecutionWipPolicy = {
     "policy:packages/kernel:packages/kernel/src/domain/task-wip-policy.ts#admitTaskExecutionWip:453898490fcb824f7f8237a9aad9e2b1",
   ].map((candidateId) => ({ candidateId, route: "admitTaskExecutionWip" })),
 } as const satisfies OntologyPolicyDeclaration;
+
+export const nodeTaskMaterializationPolicies = Object.freeze(["none", "in_flight", "include_done"] as const);
+export type NodeTaskMaterializationPolicy = (typeof nodeTaskMaterializationPolicies)[number];
+
+/** A node-local choice; canonical Task state and content remain complete in storage. */
+export const nodeTaskMaterializationPolicy = {
+  id: "node-task-materialization",
+  ownerRef: "task",
+  unit: "working-tree task document set",
+  bounds: "none, in_flight, or include_done; only follower settlement is filtered and no center document is retired",
+  defaultValue: "include_done" as const,
+  version: 1,
+  scope: "node-local task follower materialization",
+  reason:
+    "Headless centers avoid disk work, edge workers retain in-flight work, and operator nodes retain completed active packages.",
+  fixtures: [
+    "packages/storage/test/store/sqlite-event-store.integration.test.ts",
+    "packages/daemon/test/doc-sync-slice-a.test.ts",
+  ],
+  sources: [
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/task-wip-policy.ts#nodeTaskMaterializationPolicy.defaultValue:dec_D0460C1DBD540A8641B4E78F7F",
+      route: "nodeTaskMaterializationPolicy",
+    },
+  ],
+} as const satisfies OntologyPolicyDeclaration;
+
+export function normalizeNodeTaskMaterializationPolicy(value: unknown): NodeTaskMaterializationPolicy {
+  if ((nodeTaskMaterializationPolicies as readonly unknown[]).includes(value))
+    return value as NodeTaskMaterializationPolicy;
+  throw new Error(`nodeTaskMaterializationPolicy must be one of ${nodeTaskMaterializationPolicies.join(", ")}`);
+}
+
+export function taskIncludedByNodeMaterializationPolicy(
+  policy: NodeTaskMaterializationPolicy,
+  task: { readonly status: string; readonly packageDisposition?: string | null },
+): boolean {
+  if (policy === "none" || task.packageDisposition === "archived") return false;
+  const inFlight = ["planned", "active", "blocked", "submitted", "in_review"].includes(task.status);
+  return inFlight || (policy === "include_done" && task.status === "done");
+}

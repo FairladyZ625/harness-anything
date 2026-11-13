@@ -29,6 +29,7 @@ import { canonicalJson, queryRows, runSql } from "./rebuildable-task-projection-
 import { projectInterpretedEntityValue } from "./rebuildable-task-projection-entities.ts";
 import { readRuntimeSession, readSnapshot } from "./rebuildable-task-projection-runtime.ts";
 import { applyRelationProjectionEvent } from "./relation-entity-projection.ts";
+import { canonicalDocumentClaims } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "@harness-anything/kernel";
 
@@ -38,6 +39,30 @@ const UPSERT_DOCUMENT_SQL = [
   "ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision,",
   "value_json=excluded.value_json",
 ].join(" ");
+const ARCHIVE_DOCUMENT_SQL = [
+  "INSERT INTO document_history(path, workspace_revision, value_json)",
+  "SELECT path, ?, value_json FROM document WHERE path = ?",
+  "ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision, value_json=excluded.value_json",
+].join(" ");
+function archiveDocument(db: DatabaseSync, path: string, revision: number): void {
+  runSql(db, ARCHIVE_DOCUMENT_SQL, revision, path);
+  runSql(db, "DELETE FROM document WHERE path = ?", path);
+}
+function storeHistoricalDocument(db: DatabaseSync, document: DocumentState): void {
+  runSql(
+    db,
+    "INSERT INTO document_history(path, workspace_revision, value_json) VALUES (?, ?, ?) " +
+      "ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision, value_json=excluded.value_json",
+    document.path,
+    document.workspaceRevision,
+    canonicalJson(document),
+  );
+  runSql(db, "DELETE FROM document WHERE path = ?", document.path);
+}
+function upsertActiveDocument(db: DatabaseSync, path: string, revision: number, document: DocumentState): void {
+  runSql(db, "DELETE FROM document_history WHERE path = ?", path);
+  runSql(db, UPSERT_DOCUMENT_SQL, path, revision, canonicalJson(document));
+}
 
 // Progress, fact, and decision materialized-write handlers.
 export function projectProgress(
@@ -136,7 +161,7 @@ export function projectFact(
       event.taskId ?? null,
       eventJson,
     );
-    runSql(db, "DELETE FROM document WHERE path = ?", retirement.path);
+    archiveDocument(db, retirement.path, event.workspaceRevision);
     return;
   }
   const claim = event.payload.factsDocumentClaim;
@@ -163,7 +188,7 @@ export function projectFact(
     event.taskId ?? null,
     eventJson,
   );
-  runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
+  upsertActiveDocument(db, claim.path, event.workspaceRevision, document);
   const supersededClaim = event.payload.supersededFactsDocumentClaim;
   if (!supersededClaim) return;
   const supersededBytes = readBlob(supersededClaim.sha256);
@@ -178,7 +203,7 @@ export function projectFact(
     policyId: supersededClaim.policyId,
     workspaceRevision: event.workspaceRevision,
   };
-  runSql(db, UPSERT_DOCUMENT_SQL, supersededClaim.path, event.workspaceRevision, canonicalJson(supersededDocument));
+  storeHistoricalDocument(db, supersededDocument);
 }
 
 export function projectDecision(
@@ -217,8 +242,13 @@ export function projectDecision(
     event.workspaceRevision,
     eventJson,
   );
-  runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
-  refreshDecisionDocumentSearch(db, document);
+  const terminal = !canonicalDocumentClaims(event).some(({ path }) => path === claim.path);
+  if (terminal) {
+    storeHistoricalDocument(db, document);
+  } else {
+    upsertActiveDocument(db, claim.path, event.workspaceRevision, document);
+    refreshDecisionDocumentSearch(db, document);
+  }
   if (event.type === "decision_review_recorded")
     for (const change of event.payload.carriedDocumentClaims ?? []) {
       const carriedBase = queryRows(db, DOCUMENT_BASE_SQL, change.path)[0],
@@ -236,8 +266,12 @@ export function projectDecision(
         policyId: change.policyId,
         workspaceRevision: event.workspaceRevision,
       };
-      runSql(db, UPSERT_DOCUMENT_SQL, change.path, event.workspaceRevision, canonicalJson(carriedDocument));
-      refreshDecisionDocumentSearch(db, carriedDocument);
+      const carriedTerminal = !canonicalDocumentClaims(event).some(({ path }) => path === change.path);
+      if (carriedTerminal) storeHistoricalDocument(db, carriedDocument);
+      else {
+        upsertActiveDocument(db, change.path, event.workspaceRevision, carriedDocument);
+        refreshDecisionDocumentSearch(db, carriedDocument);
+      }
     }
 }
 

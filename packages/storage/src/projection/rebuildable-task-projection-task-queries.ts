@@ -33,6 +33,7 @@ import { withDatabase } from "./rebuildable-task-projection-database.ts";
 import { catchUpProjectionRound } from "./rebuildable-task-projection-reads.ts";
 import {
   readDocument,
+  readDocumentHistory,
   readForTaskContractMigration,
   readPresetSnapshot,
   readTaskIdsForTaskContractMigration,
@@ -139,6 +140,7 @@ export function taskQueryApi(
   | "readEventSummaries"
   | "readEventWitness"
   | "readDocuments"
+  | "readDocumentHistory"
   | "readArtifactTimelinePage"
   | "readDocumentMetadata"
   | "readDocument"
@@ -352,12 +354,15 @@ export function taskQueryApi(
     readDocumentMetadata: (documentPath) =>
       withDatabase(projectionPath, readHead, (db) => {
         const cut = readProjectionCut(db, readHead),
-          row = prepareQuery(db, "SELECT path, workspace_revision FROM document WHERE path = ?").get(documentPath) as
-            | { path: string; workspace_revision: number }
-            | undefined;
+          row = prepareQuery(
+            db,
+            "SELECT path, workspace_revision FROM document WHERE path = ? UNION ALL SELECT path, workspace_revision FROM document_history WHERE path = ? LIMIT 1",
+          ).get(documentPath, documentPath) as { path: string; workspace_revision: number } | undefined;
         return { ...cut, document: row ? { path: row.path, workspaceRevision: row.workspace_revision } : null };
       }),
     readDocument: (documentPath) => readDocument(projectionPath, readHead, eventStore, documentPath, limit),
+    readDocumentHistory: (documentPath) =>
+      readDocumentHistory(projectionPath, readHead, eventStore, documentPath, limit),
     readReplicaBasis: (afterRevision) => {
       if (afterRevision !== null && (!Number.isSafeInteger(afterRevision) || afterRevision < 0))
         throw new Error("replica basis revision must be a non-negative integer or null");

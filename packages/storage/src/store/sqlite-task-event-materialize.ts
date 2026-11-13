@@ -13,6 +13,7 @@ import { localGitObjectRefStore, localGitWorktreeSettlement } from "./local-vers
 import { openSqliteEventStore } from "./sqlite-event-store.ts";
 import {
   followerFiles,
+  followerFilesFromDocumentHeads,
   publicationDigest,
   readPendingEvents,
   settleVisibleChange,
@@ -129,6 +130,18 @@ export function closureFiles(
   accepted: LedgerCutIdentity,
   from: number,
 ): { readonly events: readonly CanonicalEventV1[]; readonly files: readonly (PublicationWrite | PublicationDelete)[] } {
+  if (from === 0) {
+    return {
+      events: [],
+      files: followerFilesFromDocumentHeads(
+        context.ledger(),
+        context.sqlite.documentHeads(),
+        context.readContent,
+        accepted,
+        context.sqlite.metadata().generation,
+      ),
+    };
+  }
   const events = readPendingEvents(context.sqlite, from);
   return {
     events,

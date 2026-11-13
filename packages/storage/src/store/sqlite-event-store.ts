@@ -580,6 +580,13 @@ function openSqliteEventStoreInternal(
       ),
     eventIdentityAtRevision: (revision) => readEventIdentity(query, "revision", revision),
     documentHead: (documentPath) => readDocumentHead(query, documentPath),
+    documentHeads: () =>
+      query("SELECT path, sha256, size, node_kind FROM document_head ORDER BY path").map((row) => ({
+        path: String(row.path),
+        sha256: row.sha256 === null ? null : String(row.sha256),
+        size: row.size === null ? null : Number(row.size),
+        nodeKind: row.node_kind === null ? null : (String(row.node_kind) as SqliteDocumentHead["nodeKind"]),
+      })),
     eventsAfter: (revision, limit = 4096) =>
       query("SELECT event_json FROM event WHERE revision>? ORDER BY revision LIMIT ?", [revision, limit]).map(
         (row) => JSON.parse(String(row.event_json)) as CanonicalEventV1,

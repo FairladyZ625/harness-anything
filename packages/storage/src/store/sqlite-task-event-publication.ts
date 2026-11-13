@@ -134,6 +134,39 @@ export function followerFiles(
   ];
 }
 
+/** Build a follower cut from the indexed current document set without replaying event history. */
+export function followerFilesFromDocumentHeads(
+  ledger: ReturnType<typeof resolveLedgerGitLayout>,
+  heads: readonly {
+    readonly path: string;
+    readonly sha256: string | null;
+    readonly size: number | null;
+    readonly nodeKind: "file" | "symbolic-link" | null;
+  }[],
+  readContent: (sha256: string) => Uint8Array | null,
+  cut: LedgerCutIdentity,
+  generation: number,
+): (PublicationWrite | PublicationDelete)[] {
+  const files: (PublicationWrite | PublicationDelete)[] = [];
+  for (const head of heads) {
+    const target = ledgerGitPath(ledger, head.path);
+    if (head.sha256 === null) {
+      files.push({ delete: target });
+      continue;
+    }
+    const bytes = readContent(head.sha256);
+    if (!bytes || head.size === null || bytes.byteLength !== head.size || sha256Bytes(bytes) !== head.sha256)
+      throw new TaskEventStoreError("invalid_store", `content object ${head.sha256} is missing or corrupt`);
+    files.push({ target, body: bytes, mode: head.nodeKind === "symbolic-link" ? "120000" : "100644" });
+  }
+  files.push({
+    target: ledgerGitPath(ledger, followerManifestPath),
+    body: followerManifest(generation, cut),
+    mode: "100644",
+  });
+  return files;
+}
+
 function followerManifest(generation: number, cut: LedgerCutIdentity): string {
   return `${JSON.stringify({ schema: "sqlite-ledger-segment-manifest/v1", generation, cut })}\n`;
 }

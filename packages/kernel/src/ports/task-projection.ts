@@ -228,6 +228,8 @@ export interface TaskProjection {
   readonly readDecisionDocumentState?: (decisionId: string) => DecisionDocumentState | null;
   readonly readTaskOperation: (opId: string) => { readonly event: TaskEventV1; readonly watermark: number } | null;
   readonly readDocument: (path: string) => DocumentProjectionRead;
+  /** Historical object-store read used by `ha doc show`; active projection reads stay worktree-scoped. */
+  readonly readDocumentHistory?: (path: string) => DocumentProjectionRead;
   readonly readDocumentMetadata: (path: string) => Omit<DocumentProjectionRead, "document"> & {
     readonly document: { readonly path: string; readonly workspaceRevision: number } | null;
   };

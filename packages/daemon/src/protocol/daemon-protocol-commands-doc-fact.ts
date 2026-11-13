@@ -151,11 +151,20 @@ export const docFactProtocolCommands = Object.freeze([
     phase: "DocSync-B",
     path: ["doc", "materialize"],
     summary: [
-      "Preview what restoring the canonical cut would touch; restore named paths with --path ",
+      "Preview what restoring the canonical cut would touch; restore named paths with --path, a task package with --task, ",
       "or the whole cut with --all.",
     ].join(""),
     method: "repo.task.run",
     inputs: [
+      cliInput(
+        "--task",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { field: "taskId", pathKind: "non-path" },
+      ),
       cliInput(
         "--path",
         "repeated",
@@ -172,7 +181,7 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { conflictsWith: ["--path"] },
+        { conflictsWith: ["--task", "--path"] },
       ),
     ],
   }),

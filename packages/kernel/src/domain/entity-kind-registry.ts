@@ -99,6 +99,7 @@ import { hostStateStores, stateStoresForKind, type StateStoreDeclaration } from 
 import { hostAggregateSchema } from "./host.ts";
 import { guiInteractionPolicy, identityGuiRejectionPolicy } from "./gui-interaction-policy.ts";
 import { runtimeReleasePolicy, runtimeReleasePolicyJudgment } from "./runtime-release-readiness.ts";
+import { nodeTaskMaterializationPolicy } from "./task-wip-policy.ts";
 import { supplyChainReleasePolicy, supplyChainReleasePolicyJudgment } from "./supply-chain-release-readiness.ts";
 import { storageReadPolicy, storageReadJudgment, storageReadAdditionalJudgments } from "./storage-read-policy.ts";
 import {
@@ -1047,7 +1048,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
         route: "submitTask → shared snapshot checks; applyTransition → submit.validate → validateSubmitExecution",
       }],
     }],
-    policies: [presetExecutionPolicy, taskRemoteEdgePolicy, ...taskSubmissionPolicies, taskLeasePolicy, taskLeasePhasePolicy, ...taskKernelPolicies, taskExecutionWipPolicy, completionGateOverridePolicy, taskLeaseGuidancePolicy, {
+    policies: [nodeTaskMaterializationPolicy, presetExecutionPolicy, taskRemoteEdgePolicy, ...taskSubmissionPolicies, taskLeasePolicy, taskLeasePhasePolicy, ...taskKernelPolicies, taskExecutionWipPolicy, completionGateOverridePolicy, taskLeaseGuidancePolicy, {
       id: "runtime-dispatch-mutation", ownerRef: "task/release", unit: "task lease generation",
       bounds: "claimOpId must identify the same task, execution and lease version; held/reserving leases fence mutations except contract migration and parent-only amendment.",
       defaultValue: null, version: 1, scope: "center task mutation",

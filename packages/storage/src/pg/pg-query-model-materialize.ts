@@ -12,6 +12,7 @@ import type {
   RuntimeSession,
   SquadRunProjectionRow,
 } from "@harness-anything/kernel";
+import type { PersistedCanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import {
   isAgentRuntimeEvent,
   reduceRuntimeInstallation,
@@ -28,8 +29,11 @@ import { isEntityPinEvent } from "@harness-anything/kernel/internal/domain/entit
 import {
   isTaskEvent,
   isDocEvent,
+  isFactEvent,
+  isDecisionEvent,
   type DocumentState,
 } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
+import { docByteLength } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import {
   reduceArtifactEntityState,
   type ArtifactEntityState,
@@ -241,7 +245,7 @@ export async function materializePgQueryModels(
     const document = {
       path: claim.path,
       blobSha256: claim.sha256,
-      size: claim.size,
+      size: docByteLength(claim.size),
       mediaType: claim.mediaType,
       policyId,
       workspaceRevision: revision,
@@ -249,6 +253,7 @@ export async function materializePgQueryModels(
         ? ""
         : new TextDecoder("utf-8", { fatal: true, ignoreBOM: policyId === OPAQUE_TEXTUAL_POLICY_ID }).decode(bytes),
     };
+    await drop("document-history", claim.path);
     await put("document", claim.path, document as DocumentState);
     const artifact = artifactTimelineEntry(scope, claim.path, document, event.occurredAt);
     if (artifact !== null) {
@@ -257,6 +262,11 @@ export async function materializePgQueryModels(
     }
   }
   for (const retirement of canonicalDocumentRetirements(event)) {
+    const historicalClaim = documentClaimForPath(event, retirement.path),
+      historical = historicalClaim
+        ? await readDocumentClaim(historicalClaim)
+        : await get<DocumentState>("document", retirement.path);
+    if (historical) await put("document-history", retirement.path, historical);
     await drop("document", retirement.path);
     const artifact = artifactRetirementEntry(retirement.path);
     if (artifact !== null) {
@@ -324,4 +334,59 @@ export async function materializePgQueryModels(
         );
     }
   }
+
+  async function readDocumentClaim(claim: {
+    readonly path: string;
+    readonly sha256: string;
+    readonly size: number;
+    readonly mediaType: string;
+    readonly policyId?: string;
+  }): Promise<DocumentState> {
+    const bytes = await input.readContentBlob?.(claim.sha256);
+    if (!bytes || bytes.byteLength !== claim.size)
+      throw new Error(`projection document blob ${claim.sha256} is unavailable`);
+    const opaque = claim.policyId === RAW_ARTIFACT_POLICY_ID || claim.policyId === ENTITY_CONTENT_POLICY_ID;
+    return {
+      path: claim.path as DocumentState["path"],
+      blobSha256: claim.sha256,
+      size: claim.size,
+      mediaType: claim.mediaType,
+      policyId: claim.policyId ?? "document",
+      workspaceRevision: revision,
+      body: opaque
+        ? ""
+        : new TextDecoder("utf-8", { fatal: true, ignoreBOM: claim.policyId === OPAQUE_TEXTUAL_POLICY_ID }).decode(
+            bytes,
+          ),
+    } as DocumentState;
+  }
+}
+
+function documentClaimForPath(
+  event: PersistedCanonicalEventV1,
+  path: string,
+): {
+  readonly path: string;
+  readonly sha256: string;
+  readonly size: number;
+  readonly mediaType: string;
+  readonly policyId?: string;
+} | null {
+  if (isFactEvent(event)) {
+    const claims = [event.payload.factsDocumentClaim, event.payload.supersededFactsDocumentClaim];
+    return claims.find((claim) => claim?.path === path) ?? null;
+  }
+  if (isDecisionEvent(event)) {
+    const claims = [
+      event.payload.decisionDocumentClaim,
+      ...(event.type === "decision_review_recorded"
+        ? (event.payload.carriedDocumentClaims ?? []).map(({ path: target, candidate }) => ({
+            path: target,
+            ...candidate,
+          }))
+        : []),
+    ];
+    return claims.find((claim) => claim.path === path) ?? null;
+  }
+  return null;
 }

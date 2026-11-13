@@ -28,6 +28,7 @@ import {
   factLivenessWords,
   taskStatusWords,
 } from "./daemon-protocol-vocabulary.ts";
+import { canonicalMaterializationStates } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 import { isJsonObject, type JsonObject } from "./json-rpc-types.ts";
 
 export function agendaTask(value: unknown): boolean {
@@ -704,6 +705,7 @@ export function validateDaemonDecisionList(value: unknown): readonly string[] {
       "reviewDispatches",
       "currentReviewContentDigest",
       "acceptReviewReadiness",
+      "materializationState",
     ],
     history = (row: JsonObject) =>
       (row.amendments !== undefined &&
@@ -817,7 +819,9 @@ export function validateDaemonDecisionList(value: unknown): readonly string[] {
       !isJsonObject(row.appliesTo) ||
       !isJsonObject(row.proposer) ||
       (row.arbiter !== null && !isJsonObject(row.arbiter)) ||
-      (row.body !== null && !isJsonObject(row.body)),
+      (row.body !== null && !isJsonObject(row.body)) ||
+      (row.materializationState !== undefined &&
+        !(canonicalMaterializationStates as readonly unknown[]).includes(row.materializationState)),
   );
   if (invalidIndex >= 0)
     return [

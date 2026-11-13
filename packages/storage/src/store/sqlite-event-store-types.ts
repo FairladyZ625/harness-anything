@@ -150,6 +150,13 @@ export interface SqliteEventStore {
   readonly headIdentity: () => SqliteEventIdentity | null;
   readonly eventIdentityAtRevision: (revision: number) => SqliteEventIdentity | null;
   readonly documentHead: (documentPath: string) => SqliteDocumentHead | "retired" | undefined;
+  /** Current document-head projection, including retired paths, for O(|working_set|) cold materialization. */
+  readonly documentHeads: () => readonly {
+    readonly path: string;
+    readonly sha256: string | null;
+    readonly size: number | null;
+    readonly nodeKind: SqliteDocumentHead["nodeKind"] | null;
+  }[];
   readonly eventsAfter: (revision: number, limit?: number) => readonly CanonicalEventV1[];
   readonly eventsBefore: (revision: number, limit?: number) => readonly CanonicalEventV1[];
   readonly attachMigrationScanWatermarks: () => ReadonlyMap<string, number>;

@@ -184,6 +184,28 @@ export function readDocument(
     };
   });
 }
+export function readDocumentHistory(
+  projectionPath: string,
+  readHead: EventStreamPort["readHead"],
+  eventStore: EventStreamPort,
+  documentPath: string,
+  _limit: number,
+): DocumentProjectionRead {
+  return withDatabase(projectionPath, readHead, (db) => {
+    const cut = readProjectionCut(db, readHead),
+      row = prepareQuery(db, "SELECT value_json FROM document_history WHERE path = ?", (sql) =>
+        /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-reads.sqlite-database */ db.prepare(
+          sql,
+        ),
+      ).get(documentPath) as { readonly value_json: string } | undefined;
+    return {
+      status: cut.status,
+      document: row ? (JSON.parse(row.value_json) as DocumentState) : null,
+      watermark: cut.watermark,
+      sourceRevision: cut.sourceRevision,
+    };
+  });
+}
 export function readPresetSnapshot(
   projectionPath: string,
   readHead: EventStreamPort["readHead"],

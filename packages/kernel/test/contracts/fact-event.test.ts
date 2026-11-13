@@ -1,6 +1,7 @@
 // harness-test-tier: contract
-import type { FactEventDraftV1 } from "../../src/domain/fact-event.ts";
+import type { FactEventDraftV1, FactEventV1 } from "../../src/domain/fact-event.ts";
 import type { DecisionEventDraftV1 } from "../../src/domain/decision-event-types.ts";
+import type { DecisionEventV1 } from "../../src/domain/decision-event.ts";
 import { FactEventSchema } from "../../src/schemas/fact-event.ts";
 import assert from "node:assert/strict";
 import { Schema } from "effect";
@@ -8,6 +9,7 @@ import test from "node:test";
 import {
   compileDecisionWrite,
   compileFactWrite,
+  decisionWritePlan,
   deriveRelationId,
   parseCanonicalEvent,
   serializeCanonicalEvent,
@@ -22,6 +24,14 @@ import {
 import { DecisionEventSchema } from "../../src/schemas/decision-event.ts";
 import { validateCurrentDecisionEvent, validateDecisionEvent } from "../../src/domain/decision-event.ts";
 import { validateCurrentFactEvent, validateFactEvent } from "../../src/domain/fact-event.ts";
+import { assertFactAdmissionAtCut, FactProjectionError } from "../../src/domain/fact-admission.ts";
+import { assertDecisionAdmissionAtCut } from "../../src/domain/decision-admission.ts";
+import {
+  activeMaterializationHolds,
+  materializationState,
+  type MaterializationEntityState,
+  type MaterializationRelation,
+} from "../../src/domain/entity-relation.ts";
 
 const draft: FactEventDraftV1 = {
     schema: "fact-event/v1",
@@ -192,6 +202,22 @@ test("Fact compiler renders one exact machine-owned document per fact", () => {
   assert.match(second.blobs[1]!.body, /State: superseded_fact/u);
   assert.match(second.blobs[1]!.body, /Superseded by: fact\/F-BCDEFGHJ \(New evidence\)/u);
   assert.equal(second.event.payload.supersededFactsDocumentClaim?.path, "facts/F-ABCDEFGH.md");
+  assert.deepEqual(
+    second.plan.targets.find((target) => target.path === "facts/F-ABCDEFGH.md"),
+    {
+      kind: "authored_file_delete",
+      path: "facts/F-ABCDEFGH.md",
+      operation: "delete",
+      baseSha256: second.event.payload.supersededFactsDocumentClaim?.sha256,
+    },
+  );
+  assert.ok(
+    second.plan.targets.some(
+      (target) =>
+        target.kind === "content_blob" && target.sha256 === second.event.payload.supersededFactsDocumentClaim?.sha256,
+    ),
+    "superseded Fact bytes remain addressable after the authored file is retired",
+  );
   assert.match(second.body, /### F-BCDEFGHJ[\s\S]*- Task: task-contract\n\n/u);
 });
 
@@ -351,6 +377,182 @@ test("Decision compiler renders the exact single-file package and frozen write p
         currentDocument: null,
       }),
     /base must agree/u,
+  );
+});
+
+test("terminal Decision write plans retire authored Markdown while retaining its content object", () => {
+  const terminalEvent = {
+      ...decision.event,
+      type: "decision_retired",
+    } as DecisionEventV1,
+    plan = decisionWritePlan(terminalEvent);
+  assert.ok(plan.targets.some((target) => target.kind === "authored_file_delete" && target.path === decision.path));
+  assert.ok(!plan.targets.some((target) => target.kind === "authored_file" && target.path === decision.path));
+  assert.ok(
+    plan.targets.some(
+      (target) =>
+        target.kind === "content_blob" && target.sha256 === decision.event.payload.decisionDocumentClaim.sha256,
+    ),
+  );
+});
+
+test("terminal Fact holds follow only canonical Decision and in-flight Task directions", () => {
+  const fact: MaterializationEntityState = { ref: "fact/F-ABCDEFGH", kind: "fact", state: "superseded_fact" },
+    decision: MaterializationEntityState = { ref: "decision/dec_HOLDER", kind: "decision", state: "in_effect" },
+    task: MaterializationEntityState = { ref: "task/task-holder", kind: "task", state: "active" },
+    states = new Map([
+      [fact.ref, fact],
+      [decision.ref, decision],
+      [task.ref, task],
+    ]),
+    edge = (source: string, target: string, type: string): MaterializationRelation => ({
+      source,
+      target,
+      type: type as never,
+      state: "active",
+    });
+  for (const hold of [
+    edge(decision.ref, fact.ref, "evidenced-by"),
+    edge(decision.ref, fact.ref, "refuted-by"),
+    edge(task.ref, fact.ref, "evidences"),
+    edge(task.ref, fact.ref, "produces"),
+  ]) {
+    assert.equal(activeMaterializationHolds(fact, [hold], states).length, 1);
+    assert.equal(materializationState(fact, [hold], states), "materialized");
+  }
+  assert.equal(activeMaterializationHolds(fact, [edge(decision.ref, fact.ref, "evidences")], states).length, 0);
+  assert.equal(activeMaterializationHolds(fact, [edge(decision.ref, fact.ref, "relates")], states).length, 0);
+  assert.equal(
+    activeMaterializationHolds(
+      fact,
+      [edge(decision.ref, fact.ref, "evidenced-by")],
+      new Map([
+        [fact.ref, fact],
+        [decision.ref, { ...decision, state: "outcome_retired" }],
+      ]),
+    ).length,
+    0,
+  );
+  assert.equal(
+    activeMaterializationHolds(
+      fact,
+      [edge(task.ref, fact.ref, "produces")],
+      new Map([
+        [fact.ref, fact],
+        [task.ref, { ...task, state: "done" }],
+      ]),
+    ).length,
+    0,
+  );
+  assert.equal(materializationState(fact, [], states), "dematerialized_terminal");
+});
+
+test("terminal Decision holds normalize clause anchors and preserve only declared strong dependencies", () => {
+  const decision: MaterializationEntityState = { ref: "decision/dec_TARGET", kind: "decision", state: "superseded" },
+    holder: MaterializationEntityState = { ref: "decision/dec_HOLDER", kind: "decision", state: "proposed" },
+    task: MaterializationEntityState = { ref: "task/task-holder", kind: "task", state: "in_review" },
+    states = new Map([
+      [decision.ref, decision],
+      [holder.ref, holder],
+      [task.ref, task],
+    ]),
+    edge = (source: string, target: string, type: string): MaterializationRelation => ({
+      source,
+      target,
+      type: type as never,
+      state: "active",
+    });
+  for (const hold of [
+    edge("decision/dec_TARGET/CH1", task.ref, "derives"),
+    edge("decision/dec_TARGET/C1", holder.ref, "derives"),
+    edge(task.ref, "decision/dec_TARGET/CH1", "implements"),
+    edge(holder.ref, "decision/dec_TARGET/C1", "refines"),
+    edge(holder.ref, "decision/dec_TARGET/CH1", "narrows"),
+    edge(holder.ref, "decision/dec_TARGET/C1", "supports"),
+  ])
+    assert.equal(activeMaterializationHolds(decision, [hold], states).length, 1, hold.type);
+  assert.equal(activeMaterializationHolds(decision, [edge(holder.ref, decision.ref, "relates")], states).length, 0);
+  assert.equal(
+    activeMaterializationHolds(
+      decision,
+      [edge("decision/dec_TARGET/CH1", task.ref, "derives")],
+      new Map([
+        [decision.ref, decision],
+        [task.ref, { ...task, state: "done" }],
+      ]),
+    ).length,
+    0,
+  );
+});
+
+test("cancelled Tasks remain materialized while an active Task depends on them", () => {
+  const target: MaterializationEntityState = { ref: "task/task_target", kind: "task", state: "cancelled" },
+    holder: MaterializationEntityState = { ref: "task/task_holder", kind: "task", state: "active" },
+    states = new Map([
+      [target.ref, target],
+      [holder.ref, holder],
+    ]),
+    hold: MaterializationRelation = {
+      source: holder.ref,
+      target: target.ref,
+      type: "depends-on",
+      state: "active",
+    };
+  assert.equal(materializationState(target, [hold], states), "materialized");
+  assert.equal(
+    materializationState(
+      target,
+      [hold],
+      new Map([
+        [target.ref, target],
+        [holder.ref, { ...holder, state: "done" }],
+      ]),
+    ),
+    "dematerialized_terminal",
+  );
+  assert.equal(materializationState({ ...target, state: "done" }, [], states), "materialized");
+});
+
+test("active canonical holds refuse terminal Fact and Decision admissions", () => {
+  const fact = compileFactWrite({ event: draft }).event,
+    archive = {
+      ...fact,
+      type: "fact_archived",
+      payload: {
+        ...fact.payload,
+        archiveReason: "retirement fixture",
+        factsDocumentRetirement: {
+          path: `facts/${fact.factId}.md`,
+          sha256: fact.payload.factsDocumentClaim!.sha256,
+        },
+      },
+    } as FactEventV1,
+    factState = {
+      row: { ...fact.payload, taskId: fact.taskId, archived: false },
+      domainTypes: [],
+      supersededTarget: null,
+      relations: [],
+      materializationHeld: true,
+    };
+  assert.throws(
+    () => assertFactAdmissionAtCut(factState, archive),
+    (error) => error instanceof FactProjectionError && error.code === "relation_invalid",
+  );
+  assert.doesNotThrow(() => assertFactAdmissionAtCut({ ...factState, materializationHeld: false }, archive));
+
+  const terminalDecision = { ...decision.event, type: "decision_retired" } as DecisionEventV1;
+  assert.throws(
+    () =>
+      assertDecisionAdmissionAtCut(
+        {
+          document: { state: "in_effect" } as DecisionDocumentState,
+          hasSupersedes: false,
+          relations: [],
+          materializationHeld: true,
+        },
+        terminalDecision,
+      ),
+    (error) => error instanceof FactProjectionError && error.code === "relation_invalid",
   );
 });
 
