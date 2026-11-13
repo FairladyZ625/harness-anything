@@ -520,9 +520,12 @@ function interpretCli(result) {
   };
 }
 
-async function cli(buildRoot, args, env, workspaceRoot, identity) {
-  const invocation = cliInvocation(buildRoot, args, env, workspaceRoot, identity);
-  return interpretCli(await run(invocation.command, invocation.args, invocation.options));
+function buildCliEntry(buildRoot) {
+  return path.join(buildRoot, "packages", "cli", "src", "index.ts");
+}
+
+function buildCliOptions(env, workspaceRoot, identity) {
+  return cliInvocation("", [], env, workspaceRoot, identity).options;
 }
 
 function requireAppliedCli(result, phase) {
@@ -542,26 +545,31 @@ function taskShowPayload(receipt, phase) {
 
 async function createAndSubmitMediumEvidenceTask(buildRoot, workspace, env, identity) {
   const title = `Medium risk-tier evidence task_${randomBytes(12).toString("hex")}`,
+    cliOptions = buildCliOptions(env, workspace, identity),
     created = requireAppliedCli(
-      await cli(
-        buildRoot,
-        [
-          "task",
-          "create",
-          "--title",
-          title,
-          "--kind",
-          "test",
-          "--risk-tier",
-          "medium",
-          "--preset",
-          "docs-task",
-          "--locale",
-          "en-US",
-        ],
-        env,
-        workspace,
-        identity,
+      interpretCli(
+        await run(
+          process.execPath,
+          [
+            buildCliEntry(buildRoot),
+            "--root",
+            workspace,
+            "--json",
+            "task",
+            "create",
+            "--title",
+            title,
+            "--kind",
+            "test",
+            "--risk-tier",
+            "medium",
+            "--preset",
+            "docs-task",
+            "--locale",
+            "en-US",
+          ],
+          cliOptions,
+        ),
       ),
       "medium task create",
     ),
@@ -570,7 +578,16 @@ async function createAndSubmitMediumEvidenceTask(buildRoot, workspace, env, iden
   if (typeof taskId !== "string" || !/^task_[A-Za-z0-9_-]+$/u.test(taskId))
     throw new Error(`medium task create returned an invalid task id: ${String(taskId)}`);
   const createdPayload = taskShowPayload(
-      requireAppliedCli(await cli(buildRoot, ["task", "show", taskId], env, workspace, identity), "created task show"),
+      requireAppliedCli(
+        interpretCli(
+          await run(
+            process.execPath,
+            [buildCliEntry(buildRoot), "--root", workspace, "--json", "task", "show", taskId],
+            cliOptions,
+          ),
+        ),
+        "created task show",
+      ),
       "created task show",
     ),
     workspacePackagePath = createdPayload.workspacePackagePath;
@@ -595,35 +612,57 @@ async function createAndSubmitMediumEvidenceTask(buildRoot, workspace, env, iden
     "utf8",
   );
   const started = requireAppliedCli(
-      await cli(buildRoot, ["task", "start", taskId], env, workspace, identity),
+      interpretCli(
+        await run(
+          process.execPath,
+          [buildCliEntry(buildRoot), "--root", workspace, "--json", "task", "start", taskId],
+          cliOptions,
+        ),
+      ),
       "medium task start",
     ),
     synced = requireAppliedCli(
-      await cli(
-        buildRoot,
-        [
-          "doc",
-          "sync",
-          "--submit",
-          "--task",
-          taskId,
-          "--path",
-          `${workspacePackagePath}/closeout.md`,
-          "--path",
-          artifactRelative,
-        ],
-        env,
-        workspace,
-        identity,
+      interpretCli(
+        await run(
+          process.execPath,
+          [
+            buildCliEntry(buildRoot),
+            "--root",
+            workspace,
+            "--json",
+            "doc",
+            "sync",
+            "--submit",
+            "--task",
+            taskId,
+            "--path",
+            `${workspacePackagePath}/closeout.md`,
+            "--path",
+            artifactRelative,
+          ],
+          cliOptions,
+        ),
       ),
       "medium task document sync",
     ),
     submitted = requireAppliedCli(
-      await cli(buildRoot, ["task", "submit", taskId], env, workspace, identity),
+      interpretCli(
+        await run(
+          process.execPath,
+          [buildCliEntry(buildRoot), "--root", workspace, "--json", "task", "submit", taskId],
+          cliOptions,
+        ),
+      ),
       "medium task submit",
     ),
     shown = requireAppliedCli(
-      await cli(buildRoot, ["task", "show", taskId], env, workspace, identity),
+      interpretCli(
+        await run(
+          process.execPath,
+          [buildCliEntry(buildRoot), "--root", workspace, "--json", "task", "show", taskId],
+          cliOptions,
+        ),
+      ),
       "submitted task show",
     ),
     task = taskShowPayload(shown, "submitted task show"),
@@ -890,7 +929,13 @@ export async function main(argv, session = {}) {
   const stopDaemonBestEffort = async () => {
     if (daemonHandle === null || !processAlive(daemonHandle.pid)) return;
     try {
-      const stopped = await cli(daemonHandle.buildRoot, ["daemon", "stop"], env, daemonHandle.workspace, daemonHandle);
+      const stopped = interpretCli(
+        await run(
+          process.execPath,
+          [buildCliEntry(daemonHandle.buildRoot), "--root", daemonHandle.workspace, "--json", "daemon", "stop"],
+          buildCliOptions(env, daemonHandle.workspace, daemonHandle),
+        ),
+      );
       if (daemonStopReceipt === null) daemonStopReceipt = stopped.receipt;
     } catch {
       // The finally block reports the leftover pid; nothing here may mask the primary failure.
@@ -938,6 +983,7 @@ export async function main(argv, session = {}) {
         discarded: true,
       });
     }
+    const daemonCliOptions = buildCliOptions(env, workspace, { userRoot, daemonId });
     receipt.build = {
       requested: build.requested,
       root: build.root,
@@ -947,7 +993,13 @@ export async function main(argv, session = {}) {
     };
     // 3. Isolated daemon: fresh user root and daemon id hash to their own socket, so the
     //    production daemon's endpoint namespace is untouched by construction.
-    const started = await cli(build.root, ["daemon", "start", "--service"], env, workspace, { userRoot, daemonId });
+    const started = interpretCli(
+      await run(
+        process.execPath,
+        [buildCliEntry(build.root), "--root", workspace, "--json", "daemon", "start", "--service"],
+        daemonCliOptions,
+      ),
+    );
     writeFileSync(path.join(tempRoot, "logs", "daemon-start.txt"), started.stdout + started.stderr, "utf8");
     if (!started.receipt?.ok) {
       receipt.failures.push({ phase: "daemon-start", raw: started.stdout + started.stderr });
@@ -984,12 +1036,24 @@ export async function main(argv, session = {}) {
       if (rss !== null && rss > daemonPeakRss) daemonPeakRss = rss;
     };
     // 4. Register the copy; attach is the daemon's own opening path.
-    const registered = await cli(
-      build.root,
-      ["daemon", "repo", "register", "--repo-id", receipt.source.repository, "--root", workspace],
-      env,
-      workspace,
-      { userRoot, daemonId },
+    const registered = interpretCli(
+      await run(
+        process.execPath,
+        [
+          buildCliEntry(build.root),
+          "--root",
+          workspace,
+          "--json",
+          "daemon",
+          "repo",
+          "register",
+          "--repo-id",
+          receipt.source.repository,
+          "--root",
+          workspace,
+        ],
+        daemonCliOptions,
+      ),
     );
     writeFileSync(
       path.join(tempRoot, "logs", "daemon-repo-register.txt"),
@@ -1001,7 +1065,13 @@ export async function main(argv, session = {}) {
       throw new Error("daemon repo register failed; see failures[0].raw");
     }
     const awaited = await awaitAttach(userRoot, daemonId, workspace, pid, args.attachTimeoutMs, sampleDaemonRss);
-    const status = await cli(build.root, ["daemon", "status"], env, workspace, { userRoot, daemonId });
+    const status = interpretCli(
+      await run(
+        process.execPath,
+        [buildCliEntry(build.root), "--root", workspace, "--json", "daemon", "status"],
+        daemonCliOptions,
+      ),
+    );
     writeFileSync(path.join(tempRoot, "logs", "daemon-status.txt"), status.stdout + status.stderr, "utf8");
     const repoStatus = (status.receipt?.repos ?? [])[0] ?? null;
     // This daemon id is exclusive to the run, so every repo_attach_* record in its lifecycle
@@ -1041,7 +1111,13 @@ export async function main(argv, session = {}) {
       }
     }
     // 5. Stop the daemon before the direct phase so the cold rebuild owns its SQLite locks.
-    const stopped = await cli(build.root, ["daemon", "stop"], env, workspace, { userRoot, daemonId });
+    const stopped = interpretCli(
+      await run(
+        process.execPath,
+        [buildCliEntry(build.root), "--root", workspace, "--json", "daemon", "stop"],
+        daemonCliOptions,
+      ),
+    );
     daemonStopReceipt = stopped.receipt;
     if (await awaitDaemonDown(pid)) daemonHandle = null;
     // 6. Direct reads and full cold rebuild through the build's own production functions.

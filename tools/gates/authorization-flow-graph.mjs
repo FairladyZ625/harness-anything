@@ -144,7 +144,12 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
       ...program
         .getSourceFiles()
         .map((file) => path.relative(rootDir, file.fileName).split(path.sep).join("/"))
-        .filter((file) => file.startsWith("packages/") && !file.includes("/node_modules/") && !file.endsWith(".d.ts")),
+        .filter(
+          (file) =>
+            (file.startsWith("packages/") || file.startsWith("tools/")) &&
+            !file.includes("/node_modules/") &&
+            !file.endsWith(".d.ts"),
+        ),
     ]),
   ];
   for (const file of files) {

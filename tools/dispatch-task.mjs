@@ -91,10 +91,10 @@ export function runDispatch(input, dependencies = {}) {
   const promptFile = input.promptFile === undefined ? undefined : path.resolve(callerCwd, input.promptFile);
   if (promptFile !== undefined) readFileSync(promptFile, "utf8");
 
-  const run = dependencies.run ?? subprocessRunner({ cwd: workspaceRoot });
+  const executeStep = dependencies.run ?? subprocessRunner({ cwd: workspaceRoot });
   const steps = [];
   const invoke = (step, args) => {
-    const result = run({ step, args });
+    const result = executeStep({ step, args });
     steps.push({ step, command: result.command, receipt: result.receipt });
     return result.receipt;
   };

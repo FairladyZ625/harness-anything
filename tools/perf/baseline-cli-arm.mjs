@@ -49,9 +49,8 @@ function timingPhases(record) {
   };
 }
 
-async function timeCommand(fixture, argv) {
-  const result = invoke(fixture, argv, { timing: true });
-  if (result.status !== 0) throw new Error(`${argv.join(" ")} exited ${result.status}: ${failureDetail(result)}`);
+function formatTimingResult(label, result) {
+  if (result.status !== 0) throw new Error(`${label} exited ${result.status}: ${failureDetail(result)}`);
   return { wallMs: round3(result.wallMs), record: timingPhases(lastTimingRecord(result.stderr ?? "")) };
 }
 
@@ -70,16 +69,21 @@ export async function runCliArm({ rootDir, outDir, coldCycles = 5, docSamples = 
   const realm = await bindFixtureRealm(fixture);
   try {
     await initializeFixtureRepo(fixture);
-    const taskListArgv = ["--json", "task", "list"];
     const cold = [],
       warmControl = [],
       coldPhases = [];
     for (let cycle = 0; cycle < coldCycles; cycle += 1) {
       await stopFixtureDaemon(fixture);
-      const coldRun = await timeCommand(fixture, taskListArgv);
+      const coldRun = formatTimingResult(
+        "--json task list",
+        invoke(fixture, ["--json", "task", "list"], { timing: true }),
+      );
       cold.push(coldRun.wallMs);
       coldPhases.push(coldRun.record);
-      const warmRun = await timeCommand(fixture, taskListArgv);
+      const warmRun = formatTimingResult(
+        "--json task list",
+        invoke(fixture, ["--json", "task", "list"], { timing: true }),
+      );
       warmControl.push(warmRun.wallMs);
       log(`[cli] cold cycle ${cycle + 1}/${coldCycles}: cold=${coldRun.wallMs}ms warm=${warmRun.wallMs}ms`);
     }
@@ -91,8 +95,11 @@ export async function runCliArm({ rootDir, outDir, coldCycles = 5, docSamples = 
     const docShow = [];
     const canonicalDocPath = await submitProbeDoc(fixture);
     for (let index = 0; index < docSamples; index += 1) {
-      const run = await timeCommand(fixture, ["--json", "doc", "show", "--path", canonicalDocPath]);
-      docShow.push(run.wallMs);
+      const sample = formatTimingResult(
+        "--json doc show",
+        invoke(fixture, ["--json", "doc", "show", "--path", canonicalDocPath], { timing: true }),
+      );
+      docShow.push(sample.wallMs);
     }
 
     return {

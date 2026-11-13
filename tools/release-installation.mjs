@@ -143,12 +143,18 @@ async function switchRelease(root, revision, state, values) {
   if (state.current && state.current !== revision) {
     const previous = path.join(root, "versions", state.current);
     // Use the predecessor CLI for lifecycle control, including when the target protocol changes.
-    const stopped = await cli(previous, ["daemon", "stop", ...flags], true);
+    const stopped = parseCliReceipt(
+      await run(process.execPath, [releaseCliEntry(previous), "daemon", "stop", ...flags], previous, process.env, true),
+      true,
+    );
     if (stopped.ok !== true && stopped.code !== "daemon_unavailable") throw new Error(JSON.stringify(stopped));
     if (stopped.draining === true) throw new Error("Old release is still draining; retry after it exits.");
   }
   if (state.current === null) {
-    const existing = await cli(target, ["daemon", "status", ...flags], true);
+    const existing = parseCliReceipt(
+      await run(process.execPath, [releaseCliEntry(target), "daemon", "status", ...flags], target, process.env, true),
+      true,
+    );
     if (existing.ok === true)
       throw Object.assign(
         new Error(
@@ -168,11 +174,21 @@ async function switchRelease(root, revision, state, values) {
   atomicJson(path.join(root, "deployment.json"), next);
   atomicCurrent(root, target);
   try {
-    await cli(target, ["daemon", "start", "--service", ...flags]);
+    parseCliReceipt(
+      await run(
+        process.execPath,
+        [releaseCliEntry(target), "daemon", "start", "--service", ...flags],
+        target,
+        process.env,
+        true,
+      ),
+    );
     let status;
     const deadline = Date.now() + 60_000;
     for (;;) {
-      status = await cli(target, ["daemon", "status", ...flags]);
+      status = parseCliReceipt(
+        await run(process.execPath, [releaseCliEntry(target), "daemon", "status", ...flags], target, process.env, true),
+      );
       if (status.build?.loadedBuildId !== revision)
         throw Object.assign(
           new Error(
@@ -212,14 +228,10 @@ function atomicCurrent(root, target) {
   symlinkSync(target, temporary, "junction");
   renameSync(temporary, path.join(root, "current"));
 }
-async function cli(release, args, allowFailure = false) {
-  const result = await run(
-    process.execPath,
-    [path.join(release, "packages/cli/dist/cli/src/index.js"), ...args],
-    release,
-    process.env,
-    true,
-  );
+function releaseCliEntry(release) {
+  return path.join(release, "packages/cli/dist/cli/src/index.js");
+}
+function parseCliReceipt(result, allowFailure = false) {
   const receipt = JSON.parse(result.stdout);
   if (!allowFailure && receipt.ok !== true)
     throw Object.assign(new Error(JSON.stringify(receipt)), { code: receipt.code });

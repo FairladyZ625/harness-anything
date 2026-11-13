@@ -111,6 +111,18 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/submit-old-data-copy.ts#assertOldDataCopyReceipt:351011a6f1db501070b52a6abec52476",
         "route": "task-submit",
         "role": "support"
+      },
+      {
+        "candidateId": "action:tools:tools/old-data-copy-evidence.mjs#createAndSubmitMediumEvidenceTask.submitted:1a15f2fee4b5e06834c2c94e5d792e15",
+        "route": "task-submit",
+        "role": "client",
+        "port": "tools/old-data-copy-evidence.mjs#run"
+      },
+      {
+        "candidateId": "action:tools:tools/smoke-cli-package.mjs#runCliPackageSmoke:f26d78b2b30cb3fcb6ebc5e9562a0ce2",
+        "route": "task-submit",
+        "role": "client",
+        "port": "tools/smoke-cli-package.mjs#run"
       }
     ]
   },
@@ -167,6 +179,18 @@
         "candidateId": "action:packages/cli:packages/cli/src/cli-artifact-source.ts#materializeArtifactSource:87cec17695bb493cf1612cd0af09a51b",
         "route": "task-artifact-add",
         "role": "support"
+      },
+      {
+        "candidateId": "action:tools:tools/e2e-probe-support.mjs#recordE2EProbeFailure.attachScreenshot:e1d3e3df0214a26e171351b2ffcfffcf",
+        "route": "task-artifact-add",
+        "role": "client",
+        "port": "tools/e2e-probe-support.mjs#runCliJson"
+      },
+      {
+        "candidateId": "action:tools:tools/e2e-probe-support.mjs#recordE2EProbeFailure:011f1e569579277b56d44a8d38062f12",
+        "route": "task-artifact-add",
+        "role": "client",
+        "port": "tools/e2e-probe-support.mjs#runCliJson"
       }
     ]
   },
@@ -814,6 +838,138 @@
         "route": "receipt-show",
         "role": "client",
         "port": "tools/stress/entity-v2-scale.fixture.mjs#fixture.invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/e2e-probe-support.mjs#recordE2EProbeFailure.existing:a6a90fa81b18189ce58a472e6bba57d0",
+        "route": "task-list",
+        "role": "client",
+        "port": "tools/e2e-probe-support.mjs#runCliJson"
+      },
+      {
+        "candidateId": "action:tools:tools/e2e-probe-support.mjs#warmDaemonProjection:21e34d0cca115f922bf5b688f64b9eb0",
+        "route": "task-list",
+        "role": "client",
+        "port": "tools/e2e-probe-support.mjs#warmDaemonProjection.invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/measure-cli-command-timing.mjs#invokeMeasuredCommand:e9c52ac3345c557e355d50a47985c6ae",
+        "route": "task-list",
+        "role": "client",
+        "port": "tools/measure-cli-command-timing.mjs#invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/measure-cli-command-timing.mjs#invokeMeasuredCommand:eeeeb0832dee52b869b94f554d539d13",
+        "route": "task-show",
+        "role": "client",
+        "port": "tools/measure-cli-command-timing.mjs#invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/measure-cli-command-timing.mjs#invokeMeasuredCommand:5b87f5e37522d022b7eaa8bd03f6ecab",
+        "route": "doc-status",
+        "role": "client",
+        "port": "tools/measure-cli-command-timing.mjs#invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/measure-cli-command-timing.mjs#invokeMeasuredCommand:bdc3d9fa90cd934059774cd05298a6c0",
+        "route": "agenda",
+        "role": "client",
+        "port": "tools/measure-cli-command-timing.mjs#invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/old-data-copy-evidence.mjs#createAndSubmitMediumEvidenceTask.createdPayload:7cd3f788e80077700bef36cee7396906",
+        "route": "task-show",
+        "role": "client",
+        "port": "tools/old-data-copy-evidence.mjs#run"
+      },
+      {
+        "candidateId": "action:tools:tools/old-data-copy-evidence.mjs#createAndSubmitMediumEvidenceTask.shown:7cd3f788e80077700bef36cee7396906",
+        "route": "task-show",
+        "role": "client",
+        "port": "tools/old-data-copy-evidence.mjs#run"
+      },
+      {
+        "candidateId": "action:tools:tools/old-data-copy-evidence.mjs#main.status:5fd3b6de4061720a0ac5374f35cde4f0",
+        "route": "daemon-status",
+        "role": "client",
+        "port": "tools/old-data-copy-evidence.mjs#run"
+      },
+      {
+        "candidateId": "action:tools:tools/perf/baseline-cli-arm.mjs#runCliArm.coldRun:d44744ac6ba0063708a21dcd03b8d104",
+        "route": "task-list",
+        "role": "client",
+        "port": "tools/perf/baseline-fixture.mjs#invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/perf/baseline-cli-arm.mjs#runCliArm.warmRun:d44744ac6ba0063708a21dcd03b8d104",
+        "route": "task-list",
+        "role": "client",
+        "port": "tools/perf/baseline-fixture.mjs#invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/perf/baseline-cli-arm.mjs#runCliArm.sample:0adc63ea417c8171625423dfc3fd4695",
+        "route": "doc-show",
+        "role": "client",
+        "port": "tools/perf/baseline-fixture.mjs#invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/release-installation.mjs#switchRelease.existing:2d4937ed5be30ac3cf7793fc00391bfd",
+        "route": "daemon-status",
+        "role": "client",
+        "port": "tools/release-installation.mjs#run"
+      },
+      {
+        "candidateId": "action:tools:tools/release-installation.mjs#switchRelease:2d4937ed5be30ac3cf7793fc00391bfd",
+        "route": "daemon-status",
+        "role": "client",
+        "port": "tools/release-installation.mjs#run"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main:e9d649db7ef1b3387d4709e57aa76700",
+        "route": "task-show",
+        "role": "client",
+        "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main:26c917913640e7495c41db2e0040a01a",
+        "route": "repository-read",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main:44e56f1f6a60907a5d22273cb5014ba0",
+        "route": "repository-read",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/smoke-cli-package.mjs#runCliPackageSmoke:f1dfd027930b0841cd0db1fdfa6dbccb",
+        "route": "receipt-show",
+        "role": "client",
+        "port": "tools/smoke-cli-package.mjs#run"
+      },
+      {
+        "candidateId": "action:tools:tools/smoke-cli-package.mjs#runCliPackageSmoke:44610f90adbb348a3fa41f865901555e",
+        "route": "task-show",
+        "role": "client",
+        "port": "tools/smoke-cli-package.mjs#run"
+      },
+      {
+        "candidateId": "action:tools:tools/smoke-cli-package.mjs#runCliPackageSmoke:f8159b8398ca1c432b40275a844383e1",
+        "route": "daemon-status",
+        "role": "client",
+        "port": "tools/smoke-cli-package.mjs#run"
+      },
+      {
+        "candidateId": "action:tools:tools/smoke-cli-package.mjs#runCliPackageSmoke.refused:5d1242fffe9d0b1d232e601167a456a2",
+        "route": "task-list",
+        "role": "client",
+        "port": "tools/smoke-cli-package.mjs#run"
+      },
+      {
+        "candidateId": "action:tools:tools/smoke-cli-package.mjs#runCliPackageSmoke:5d1242fffe9d0b1d232e601167a456a2",
+        "route": "task-list",
+        "role": "client",
+        "port": "tools/smoke-cli-package.mjs#run"
       }
     ],
     "concurrency": {
@@ -1179,6 +1335,18 @@
         "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/oidc-session-service.ts#OidcSessionService.response:4a9b6bcf7663c80f6f5515fabe19c9b5",
         "route": "rbac-bootstrap",
         "role": "support"
+      },
+      {
+        "candidateId": "action:tools:tools/measure-cli-command-timing.mjs#prepareFixtureIdentity:8f53f68b4c6946ba533faba602d345a9",
+        "route": "rbac-bootstrap",
+        "role": "client",
+        "port": "tools/measure-cli-command-timing.mjs#invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/smoke-cli-package.mjs#runCliPackageSmoke:128518fc4a213f16e5a1aba9324e221b",
+        "route": "rbac-bootstrap",
+        "role": "client",
+        "port": "tools/smoke-cli-package.mjs#run"
       }
     ],
     "concurrency": {
@@ -1241,6 +1409,36 @@
         "route": "daemon-stop",
         "role": "client",
         "port": "tools/stress/entity-v2-scale.fixture.mjs#fixture.invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/old-data-copy-evidence.mjs#main.stopDaemonBestEffort.stopped:ef524378b53e97cfc080370cfd1bbf4d",
+        "route": "daemon-stop",
+        "role": "client",
+        "port": "tools/old-data-copy-evidence.mjs#run"
+      },
+      {
+        "candidateId": "action:tools:tools/old-data-copy-evidence.mjs#main.stopped:c776e6b115c065b3c83a5f757c928d83",
+        "route": "daemon-stop",
+        "role": "client",
+        "port": "tools/old-data-copy-evidence.mjs#run"
+      },
+      {
+        "candidateId": "action:tools:tools/release-installation.mjs#switchRelease.stopped:e4e00085e2ec8de4bf3fbe0360359cf1",
+        "route": "daemon-stop",
+        "role": "client",
+        "port": "tools/release-installation.mjs#run"
+      },
+      {
+        "candidateId": "action:tools:tools/smoke-cli-package.mjs#runCliPackageSmoke:fd647a7e52789b1380f5315072c5fbf4:2",
+        "route": "daemon-stop",
+        "role": "client",
+        "port": "tools/smoke-cli-package.mjs#run"
+      },
+      {
+        "candidateId": "action:tools:tools/smoke-cli-package.mjs#runCliPackageSmoke:fd647a7e52789b1380f5315072c5fbf4:3",
+        "route": "daemon-stop",
+        "role": "client",
+        "port": "tools/smoke-cli-package.mjs#run"
       }
     ],
     "concurrency": {
@@ -1320,6 +1518,12 @@
         "candidateId": "action:packages/kernel:packages/kernel/src/daemon/registry.ts#generateRepoId.suffix:1457d2df9527decf253c8fc0f29b3f57",
         "route": "daemon-repo-register",
         "role": "support"
+      },
+      {
+        "candidateId": "action:tools:tools/old-data-copy-evidence.mjs#main.registered:a272e838a5b249fa571a619e477a663a",
+        "route": "daemon-repo-register",
+        "role": "client",
+        "port": "tools/old-data-copy-evidence.mjs#run"
       }
     ],
     "concurrency": {
@@ -1484,6 +1688,36 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/doc-sync-publication.ts#archiveRuntimeDispatch.opId:8d60cf376eb8e28aa476cfcf88934a6c",
         "route": "doc-sync-submit",
         "role": "support"
+      },
+      {
+        "candidateId": "action:tools:tools/old-data-copy-evidence.mjs#createAndSubmitMediumEvidenceTask.synced:7ac2e765d495c4bf94fe62977e08f19d",
+        "route": "doc-sync-submit",
+        "role": "client",
+        "port": "tools/old-data-copy-evidence.mjs#run"
+      },
+      {
+        "candidateId": "action:tools:tools/smoke-cli-package.mjs#runCliPackageSmoke:b516506acb7178371cf2e5f4f77335c5",
+        "route": "doc-sync-submit",
+        "role": "client",
+        "port": "tools/smoke-cli-package.mjs#run"
+      },
+      {
+        "candidateId": "action:tools:tools/smoke-cli-package.mjs#runCliPackageSmoke.artifactSync:e4d5b2c178c7e6e7682e739e8cbdf88f",
+        "route": "doc-sync-submit",
+        "role": "client",
+        "port": "tools/smoke-cli-package.mjs#run"
+      },
+      {
+        "candidateId": "action:tools:tools/stress/fleet/upload-boundary.mjs#runFleetUploadBoundaryCampaign:6bdd613f5f937e17cd2442987a65e161",
+        "route": "doc-sync-submit",
+        "role": "client",
+        "port": "tools/stress/fleet/upload-boundary.mjs#write"
+      },
+      {
+        "candidateId": "action:tools:tools/stress/fleet/upload-boundary.mjs#runFleetUploadBoundaryCampaign:45cc5262102636b78f2ef0bbb04b92c7",
+        "route": "doc-sync-submit",
+        "role": "client",
+        "port": "tools/stress/fleet/upload-boundary.mjs#write"
       }
     ]
   },
@@ -2339,12 +2573,6 @@
         "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
       },
       {
-        "candidateId": "action:tools:tools/dispatch-task.mjs#runDispatch.invoke.result:6b292206dd55c1992471650615aeeb55",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/dispatch-task.mjs#subprocessRunner"
-      },
-      {
         "candidateId": "action:tools:tools/dispatch-task.mjs#runDispatch:2dda8ecc56927d74b87336bc5de0b57e",
         "route": "package-assets-build",
         "role": "technical-port",
@@ -2401,12 +2629,6 @@
         "route": "package-assets-build",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
-      },
-      {
-        "candidateId": "action:tools:tools/e2e-probe-support.mjs#runCliJson.child:954d7de6764db2c94c4cad218310233c",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn"
       },
       {
         "candidateId": "action:tools:tools/e2e-probe-support.mjs#signatureOf:23a536e6bed554efca0f2af454490f91",
@@ -2804,34 +3026,10 @@
         "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
       },
       {
-        "candidateId": "action:tools:tools/measure-cli-command-timing.mjs#sample.result:19961867507b859a8d7b020417e677a0",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/measure-cli-command-timing.mjs#invoke"
-      },
-      {
-        "candidateId": "action:tools:tools/measure-cli-command-timing.mjs#measure:973c6c969683351bc4fdb5c8534d57f0",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/measure-cli-command-timing.mjs#measure.run"
-      },
-      {
-        "candidateId": "action:tools:tools/measure-cli-command-timing.mjs#measure:973c6c969683351bc4fdb5c8534d57f0:2",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/measure-cli-command-timing.mjs#measure.run"
-      },
-      {
         "candidateId": "action:tools:tools/measure-cli-command-timing.mjs#measure:f8ed63d331ab63bc3c99014aa14ae24f",
         "route": "package-assets-build",
         "role": "technical-port",
         "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
-      },
-      {
-        "candidateId": "action:tools:tools/measure-cli-command-timing.mjs#prepareFixtureIdentity:8f53f68b4c6946ba533faba602d345a9",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/measure-cli-command-timing.mjs#invoke"
       },
       {
         "candidateId": "action:tools:tools/measure-cli-command-timing.mjs#main:c5fd5bac60d8abe94db1a9a556b7874e",
@@ -2981,12 +3179,6 @@
         "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
       },
       {
-        "candidateId": "action:tools:tools/old-data-copy-evidence.mjs#cli:70738999665c9280b7dbf123e3176cff",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/old-data-copy-evidence.mjs#run"
-      },
-      {
         "candidateId": "action:tools:tools/old-data-copy-evidence.mjs#createAndSubmitMediumEvidenceTask:da362abd90f73e7154abe5a9a5db3000",
         "route": "package-assets-build",
         "role": "technical-port",
@@ -3069,12 +3261,6 @@
         "route": "package-assets-build",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
-      },
-      {
-        "candidateId": "action:tools:tools/perf/baseline-cli-arm.mjs#timeCommand.result:f7f38e42943d624c18622c8a6b68a9e3",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/perf/baseline-fixture.mjs#invoke"
       },
       {
         "candidateId": "action:tools:tools/perf/baseline-cli-arm.mjs#runCliArm:5ec08fe02066ba52e8e37a6c3cb17867",
@@ -3395,17 +3581,6 @@
         "route": "package-assets-build",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
-      },
-      {
-        "candidateId": "action:tools:tools/release-installation.mjs#cli.result:fd2aa8f9351f6d08fc48237e50508730",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/release-installation.mjs#run"
-      },
-      {
-        "candidateId": "action:tools:tools/release-installation.mjs#cli:0f88a8049a2d0642437cfe92fc71d4bc",
-        "route": "package-assets-build",
-        "role": "support"
       },
       {
         "candidateId": "action:tools:tools/release-installation.mjs#run.operation:ba5150b553dbb07f38621a2b9ba6859b",
@@ -3777,18 +3952,6 @@
         "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
       },
       {
-        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main:26c917913640e7495c41db2e0040a01a",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main:44e56f1f6a60907a5d22273cb5014ba0",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
         "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main:05e0aa5d19a57b478e5ea61b2129426c",
         "route": "package-assets-build",
         "role": "technical-port",
@@ -3804,12 +3967,6 @@
         "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#digestRows.sha256:092ae3d8cd38b787f7c7a8437b774fb4",
         "route": "package-assets-build",
         "role": "support"
-      },
-      {
-        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#concurrentCli.child:1812c980f4a7b5268e81c04c68a5ad39",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn"
       },
       {
         "candidateId": "action:tools:tools/scale/cli-entity-bench.oracles.mjs#readbackOracle.digest:0ccc268ada852fcc8fe826cf1b3f3227",
@@ -4029,12 +4186,6 @@
         "route": "package-assets-build",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
-      },
-      {
-        "candidateId": "action:tools:tools/smoke-cli-package.mjs#runJson.result:c520951b69be645559aee0d0fe47a36e",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/smoke-cli-package.mjs#run"
       },
       {
         "candidateId": "action:tools:tools/smoke-legacy-intake.mjs#<module>:db3a29937634901fdc999d5763eb2f72",
@@ -4262,12 +4413,6 @@
         "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
       },
       {
-        "candidateId": "action:tools:tools/stress/daemon/registry-runtime-scenarios.mjs#spawnCli.child:ab346289596a3a218dcb5d49d98acf00",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn"
-      },
-      {
         "candidateId": "action:tools:tools/stress/daemon/writer-projection-scenarios.mjs#runProjectionOwnerScenario:0cf17de1d527ad1dffdd3a69b9a6914c",
         "route": "package-assets-build",
         "role": "technical-port",
@@ -4472,18 +4617,6 @@
         "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
       },
       {
-        "candidateId": "action:tools:tools/stress/fleet/upload-boundary.mjs#runFleetUploadBoundaryCampaign:6bdd613f5f937e17cd2442987a65e161",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/stress/fleet/upload-boundary.mjs#write"
-      },
-      {
-        "candidateId": "action:tools:tools/stress/fleet/upload-boundary.mjs#runFleetUploadBoundaryCampaign:45cc5262102636b78f2ef0bbb04b92c7",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/stress/fleet/upload-boundary.mjs#write"
-      },
-      {
         "candidateId": "action:tools:tools/stress/fleet/upload-process.mjs#spawnUploadProcess:c105bb3ac8f84ae2c6708d56e3af74d3",
         "route": "package-assets-build",
         "role": "technical-port",
@@ -4620,6 +4753,30 @@
         "route": "package-assets-build",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
+      },
+      {
+        "candidateId": "action:tools:tools/e2e-probe-support.mjs#spawnProcess:023c177399c2dc5abe51665d38e73632",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn"
+      },
+      {
+        "candidateId": "action:tools:tools/measure-cli-command-timing.mjs#invokeMeasuredCommand:7843d79e5f6b09280e63569097ea0ff7",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "tools/measure-cli-command-timing.mjs#invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/release-installation.mjs#parseCliReceipt:0f88a8049a2d0642437cfe92fc71d4bc",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:tools:tools/stress/daemon/registry-runtime-scenarios.mjs#spawnChildProcess:adab047efc7db768763ec0b69632b375",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn"
       }
     ],
     "technical": true
@@ -8988,6 +9145,18 @@
         "route": "repo-bootstrap",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/smoke-cli-package.mjs#runCliPackageSmoke.failedStart:fc3526e4197d7f0858118a0331d01c9a",
+        "route": "repo-bootstrap",
+        "role": "client",
+        "port": "tools/smoke-cli-package.mjs#run"
+      },
+      {
+        "candidateId": "action:tools:tools/smoke-cli-package.mjs#runCliPackageSmoke.initialized:7fc41de0ba49675a3ba186cd058abbdf",
+        "route": "repo-bootstrap",
+        "role": "client",
+        "port": "tools/smoke-cli-package.mjs#run"
       }
     ],
     "execution": {
@@ -9140,6 +9309,30 @@
         "route": "task-create",
         "role": "client",
         "port": "tools/perf/baseline-fixture.mjs#invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/e2e-probe-support.mjs#recordE2EProbeFailure:e7b9cabacadb028311c9f1fdd19cb614",
+        "route": "task-create",
+        "role": "client",
+        "port": "tools/e2e-probe-support.mjs#runCliJson"
+      },
+      {
+        "candidateId": "action:tools:tools/old-data-copy-evidence.mjs#createAndSubmitMediumEvidenceTask.created:04681e3d40f9865872c5ac30fe27a139",
+        "route": "task-create",
+        "role": "client",
+        "port": "tools/old-data-copy-evidence.mjs#run"
+      },
+      {
+        "candidateId": "action:tools:tools/smoke-cli-package.mjs#runCliPackageSmoke.created:f2230a414de980888ba9732b0c32184d",
+        "route": "task-create",
+        "role": "client",
+        "port": "tools/smoke-cli-package.mjs#run"
+      },
+      {
+        "candidateId": "action:tools:tools/stress/daemon/registry-runtime-scenarios.mjs#runMultiClientScenario.clients:80401631c646ae228dd11dd95213ca5d",
+        "route": "task-create",
+        "role": "client",
+        "port": "tools/stress/daemon/registry-runtime-scenarios.mjs#invoke"
       }
     ]
   },
@@ -9185,6 +9378,18 @@
         "route": "task-start",
         "role": "client",
         "port": "tools/dispatch-task.mjs#runDispatch.invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/old-data-copy-evidence.mjs#createAndSubmitMediumEvidenceTask.started:8d53e1bfcfaac295cf9ef700f7dd7c75",
+        "route": "task-start",
+        "role": "client",
+        "port": "tools/old-data-copy-evidence.mjs#run"
+      },
+      {
+        "candidateId": "action:tools:tools/smoke-cli-package.mjs#runCliPackageSmoke:ff9e1c6246198362c8a4af86d3cc68d9",
+        "route": "task-start",
+        "role": "client",
+        "port": "tools/smoke-cli-package.mjs#run"
       }
     ],
     "owner": "task"
@@ -9196,6 +9401,30 @@
         "route": "daemon-start",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/old-data-copy-evidence.mjs#main.started:1fa3bcbfbc489e5c06a932f575c7817b",
+        "route": "daemon-start",
+        "role": "client",
+        "port": "tools/old-data-copy-evidence.mjs#run"
+      },
+      {
+        "candidateId": "action:tools:tools/release-installation.mjs#switchRelease:802d56378f3b9d8ac4131aa5165d88d3",
+        "route": "daemon-start",
+        "role": "client",
+        "port": "tools/release-installation.mjs#run"
+      },
+      {
+        "candidateId": "action:tools:tools/smoke-cli-package.mjs#runCliPackageSmoke.daemonStart:ba5f07853a1498ec94abf7d34012efc6",
+        "route": "daemon-start",
+        "role": "client",
+        "port": "tools/smoke-cli-package.mjs#run"
+      },
+      {
+        "candidateId": "action:tools:tools/smoke-cli-package.mjs#runCliPackageSmoke:ba5f07853a1498ec94abf7d34012efc6",
+        "route": "daemon-start",
+        "role": "client",
+        "port": "tools/smoke-cli-package.mjs#run"
       }
     ],
     "execution": {
@@ -9254,5 +9483,28 @@
       }
     },
     "owner": "projection"
+  },
+  "fact-record": {
+    "owner": "fact",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/e2e-probe-support.mjs#recordE2EProbeFailure.recordFailureFact:dae1bca4f89df16f61da6ef75d2e523c",
+        "route": "fact-record",
+        "role": "client",
+        "port": "tools/e2e-probe-support.mjs#runCliJson"
+      },
+      {
+        "candidateId": "action:tools:tools/measure-cli-command-timing.mjs#invokeMeasuredCommand:b5b92f5021b26fcb4cb78cd0d0aef328",
+        "route": "fact-record",
+        "role": "client",
+        "port": "tools/measure-cli-command-timing.mjs#invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main:f8b17872781e0e25316eb946723a8eb4",
+        "route": "fact-record",
+        "role": "client",
+        "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn"
+      }
+    ]
   }
 }

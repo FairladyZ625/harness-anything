@@ -71,6 +71,7 @@ export async function recordE2EProbeFailure({
   runCli = runCliJson,
 } = {}) {
   const journey = readFailureBundle(bundlePath),
+    invoke = runCli,
     updatedAfter = new Date(Date.parse(now()) - 24 * 60 * 60 * 1_000).toISOString(),
     title = `E2E probe failure [${journey.failureSignature}]`,
     screenshotPath =
@@ -80,11 +81,11 @@ export async function recordE2EProbeFailure({
         ? probeScreenshotArtifactDestination(journey.runId, screenshotPath)
         : null,
     existing = cliRows(
-      await runCli(workspaceRoot, rootDir, ["task", "list", "--search", title, "--updated-after", updatedAfter], env),
+      await invoke(workspaceRoot, rootDir, ["task", "list", "--search", title, "--updated-after", updatedAfter], env),
     )[0];
   const attachScreenshot = async (taskId, packagePath) => {
     if (screenshotDestination === null || screenshotPath === null) return;
-    await runCli(
+    await invoke(
       workspaceRoot,
       rootDir,
       [
@@ -106,7 +107,7 @@ export async function recordE2EProbeFailure({
   // schedule receipt. A failed fact write must never mask the task-closure result.
   const recordFailureFact = async (taskId) => {
     try {
-      await runCli(
+      await invoke(
         workspaceRoot,
         rootDir,
         [
@@ -151,7 +152,7 @@ export async function recordE2EProbeFailure({
   });
   let created;
   try {
-    created = await runCli(
+    created = await invoke(
       workspaceRoot,
       rootDir,
       [
@@ -182,7 +183,7 @@ export async function recordE2EProbeFailure({
   const taskId = requiredText(created.taskId, "taskId"),
     packagePath = requiredText(created.workspacePackagePath, "workspacePackagePath"),
     destination = `${packagePath}/artifacts/e2e-probe/${path.basename(bundlePath)}`;
-  await runCli(
+  await invoke(
     workspaceRoot,
     rootDir,
     ["task", "artifact", "add", taskId, "--source", bundlePath, "--destination", destination],
@@ -306,9 +307,12 @@ export async function warmDaemonProjection({
   env = process.env,
   attempts = 30,
   delayMs = 1_000,
-  readProjection = () => runCliJson(workspaceRoot, rootDir, ["task", "list"], env),
+  readProjection = () => invoke(workspaceRoot, rootDir, ["task", "list"], env),
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 } = {}) {
+  function invoke(wRoot, rDir, args, childEnv) {
+    return runCliJson(wRoot, rDir, args, childEnv);
+  }
   let lastDetail = "the daemon answered no projection read";
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
@@ -341,8 +345,12 @@ function projectionObservation(receipt) {
   }
 }
 
+function spawnProcess(command, args, options) {
+  return spawn(command, args, options);
+}
+
 async function runCliJson(workspaceRoot, rootDir, args, env) {
-  const child = spawn(
+  const child = spawnProcess(
     process.execPath,
     [path.join(workspaceRoot, "packages", "cli", "src", "index.ts"), "--root", rootDir, "--json", ...args],
     {

@@ -373,3 +373,116 @@ test("tools client entries bind business actions with transport + command proof 
     ),
   );
 });
+
+test("fleet schema RPC writes and indirect/computed CLI wrappers bind business actions and fail package-assets-build", async () => {
+  const { clientEntryEvidence, technicalPortEvidence } = await import("../authorization-source-proof.mjs");
+  const tool = "tools/fleet-upload-demo.mjs";
+  const peer = "packages/daemon/src/fleet/peer.ts";
+  const centerListener = "packages/daemon/src/fleet/center-listener.ts";
+  const toolBody = [
+    '/// <reference types="node" />',
+    'import { execFileSync } from "node:child_process";',
+    'import { runFleetWriteClient } from "../packages/daemon/src/fleet/peer.ts";',
+    "function write(docPath, content) {",
+    '  return runFleetWriteClient({ schema: "fleet.doc.submit/v1", path: docPath, body: content });',
+    "}",
+    "function invoke(argv) {",
+    '  return execFileSync("ha", argv, { encoding: "utf8" });',
+    "}",
+    'const factRecordArgv = (sampleId) => ["--json", "fact", "record", "--task", "t1", "--statement", sampleId];',
+    "export function main(sampleId, command = {}) {",
+    '  const written = write("docs/a.md", "hello");',
+    "  const recorded = invoke(command.argv ?? factRecordArgv(sampleId));",
+    "  return { written, recorded };",
+    "}",
+  ].join("\n");
+  const peerBody = "export function runFleetWriteClient(payload: Record<string, unknown>) { return payload; }\n";
+  const listenerBody = [
+    "declare function precheck(): boolean;",
+    "declare function dispatch(action: { kind: string }): unknown;",
+    "export function handleFrame(frame: { schema: string }) {",
+    '  if (frame.schema === "fleet.doc.submit/v1") {',
+    '    if (precheck()) return dispatch({ kind: "task-show" });',
+    '    return dispatch({ kind: "doc-submit" });',
+    "  }",
+    "  return null;",
+    "}",
+  ].join("\n");
+  const { rootDir } = makeRepo({
+    [peer]: peerBody,
+    [centerListener]: listenerBody,
+    [tool]: toolBody,
+  });
+  symlinkSync(realpathSync(path.join(repoRoot, "node_modules")), path.join(rootDir, "node_modules"), "dir");
+  const graph = buildFlowGraph(rootDir, { sourceFiles: [peer, centerListener, tool] });
+  const sources = scanOntologyText(tool, toolBody)
+    .filter((row) => row.category === "action")
+    .map((row) => ({ candidateId: row.id }));
+  const nodes = [...sourceWitnesses(graph, sources).values()];
+  const writeNode = nodes.find((node) => node.getText().includes('write("docs/a.md"'));
+  const recordedNode = nodes.find((node) => node.getText().includes("factRecordArgv(sampleId)"));
+  assert.ok(writeNode && recordedNode);
+
+  const descriptors = [
+    { id: "doc-sync-submit", actionKind: "doc-submit", path: ["doc", "sync"] },
+    { id: "fact-record", path: ["fact", "record"] },
+    { id: "task-show", path: ["task", "show"] },
+  ];
+  const docSubmitAction = { kind: "doc-submit", executionClass: "repo-write", ontology: {} };
+  const factRecordAction = { kind: "fact-record", executionClass: "repo-write", ontology: {} };
+  const buildAction = {
+    kind: "package-assets-build",
+    ontology: { owner: "distribution", technical: true, authority: "package-script" },
+    receiptSettlement: "none",
+  };
+  const writePort = `${tool}#write`;
+  const invokePort = `${tool}#invoke`;
+
+  assert.ok(
+    clientEntryEvidence(
+      graph,
+      writeNode,
+      { role: "client", route: "doc-sync-submit", port: writePort },
+      docSubmitAction,
+      descriptors,
+    ),
+  );
+  assert.ok(
+    clientEntryEvidence(
+      graph,
+      writeNode,
+      { role: "client", route: "doc-submit", port: writePort },
+      docSubmitAction,
+      descriptors,
+    ),
+  );
+  assert.equal(
+    technicalPortEvidence(
+      graph,
+      writeNode,
+      { role: "technical-port", route: "package-assets-build", port: writePort },
+      buildAction,
+      descriptors,
+    ),
+    null,
+  );
+  assert.ok(
+    clientEntryEvidence(
+      graph,
+      recordedNode,
+      { role: "client", route: "fact-record", port: invokePort },
+      factRecordAction,
+      descriptors,
+    ),
+  );
+  assert.equal(
+    technicalPortEvidence(
+      graph,
+      recordedNode,
+      { role: "technical-port", route: "package-assets-build", port: invokePort },
+      buildAction,
+      descriptors,
+    ),
+    null,
+  );
+});

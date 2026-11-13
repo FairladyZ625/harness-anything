@@ -184,11 +184,20 @@ async function main() {
         "cli8:fact-record",
         Array.from({ length: args.clients }, (_, client) => factOp(f, n, `cli8-${round}-${client}`)),
         writes,
+        (op) =>
+          spawn(process.execPath, [cli, "--root", f.root, "--json", "fact", "record", ...op.argv.slice(2)], {
+            env: f.env,
+          }),
       );
       await concurrentCli(
         f,
         "cli8:task-show",
         Array.from({ length: args.clients }, (_, client) => ({ argv: ["task", "show", taskId(client % n)] })),
+        undefined,
+        (op, client) =>
+          spawn(process.execPath, [cli, "--root", f.root, "--json", "task", "show", taskId(client % n)], {
+            env: f.env,
+          }),
       );
     }
     snap("measured");
@@ -342,13 +351,13 @@ async function stopDaemon(f) {
     await new Promise((resolve) => setTimeout(resolve, 50));
 }
 
-function concurrentCli(f, metric, ops, writes) {
+function concurrentCli(f, metric, ops, writes, launchChild) {
   return Promise.all(
     ops.map(
       (op, client) =>
         new Promise((resolve) => {
           const at = performance.now(),
-            child = spawn(process.execPath, [cli, "--root", f.root, "--json", ...op.argv], { env: f.env });
+            child = launchChild(op, client);
           let stdout = "";
           child.stdout.on("data", (chunk) => (stdout += chunk));
           child.stderr.resume();

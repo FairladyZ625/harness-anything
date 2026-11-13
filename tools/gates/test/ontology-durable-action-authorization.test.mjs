@@ -634,7 +634,7 @@ partitionedTest(
     const clientKinds = ["task-create", "task-start", "runtime-run", "agent-install"];
     const clientAudit = auditDurableActionAuthorization(repoRoot, inputs, { only: clientKinds });
     const clientRows = clientAudit.sourceRows.filter((row) => row.id.startsWith("action:tools:"));
-    assert.equal(clientRows.length, 6);
+    assert.equal(clientRows.length, 12);
     assert.deepEqual(
       clientRows.filter((row) => !row.ok),
       [],
@@ -664,6 +664,45 @@ partitionedTest(
       audit([{ ...dispatchCreateClient, role: "technical-port", route: build.kind }], build).map(
         ({ ok, violations }) => ({ ok, violations }),
       ),
+      [{ ok: false, violations: ["root tooling source needs a typed technical port or intrinsic support"] }],
+    );
+
+    const docSubmit = inputs.constants.actionDeclarations.find((action) => action.kind === "doc-submit");
+    const uploadClients = docSubmit.ontology.sources.filter(
+      (source) => source.role === "client" && source.candidateId.includes("tools/stress/fleet/upload-boundary.mjs#"),
+    );
+    assert.equal(uploadClients.length, 2);
+    assert.deepEqual(
+      auditDurableActionAuthorization(repoRoot, inputs, { only: ["doc-submit"] }).sourceRows.filter((row) => !row.ok),
+      [],
+    );
+    assert.deepEqual(
+      audit(
+        uploadClients.map((source) => ({ ...source, role: "technical-port", route: build.kind })),
+        build,
+      ).map(({ ok, violations }) => ({ ok, violations })),
+      uploadClients.map(() => ({
+        ok: false,
+        violations: ["root tooling source needs a typed technical port or intrinsic support"],
+      })),
+    );
+
+    const factRecord = inputs.constants.actionDeclarations.find((action) => action.kind === "fact-record");
+    const measureFactClient = factRecord.ontology.sources.find(
+      (source) =>
+        source.role === "client" &&
+        source.candidateId.includes("tools/measure-cli-command-timing.mjs#invokeMeasuredCommand:"),
+    );
+    assert.ok(measureFactClient);
+    assert.deepEqual(
+      auditDurableActionAuthorization(repoRoot, inputs, { only: ["fact-record"] }).sourceRows.filter((row) => !row.ok),
+      [],
+    );
+    assert.deepEqual(
+      audit([{ ...measureFactClient, role: "technical-port", route: build.kind }], build).map(({ ok, violations }) => ({
+        ok,
+        violations,
+      })),
       [{ ok: false, violations: ["root tooling source needs a typed technical port or intrinsic support"] }],
     );
   },
