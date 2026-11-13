@@ -160,6 +160,78 @@ test(
       reason: "Remove retired worker.",
     });
     assert.equal(deleted.outcome, "applied", JSON.stringify(deleted));
+
+    const policyPackageSource = path.join(edge.edgeRoot, "edge-policy-package");
+    mkdirSync(policyPackageSource);
+    const policyWorker = { ...agent, id: "edge-cli-policy-worker", name: "Edge CLI Policy Worker" };
+    writeFileSync(path.join(policyPackageSource, "agent.json"), JSON.stringify(policyWorker));
+    const parsedCreate = parseThinCommand(
+      ["agent", "create", "--source", "edge-policy-package", "--mcp-policy", "inherit", "--expected-version", "0"],
+      edge.edgeRoot,
+    );
+    assert.equal(parsedCreate.ok, true, JSON.stringify(parsedCreate));
+    if (!parsedCreate.ok) throw new Error("agent create must parse");
+    const createResponse = await edge.rpc.handle({
+      jsonrpc: "2.0",
+      id: 101,
+      method: parsedCreate.command.method,
+      params: { repo: { repoId: "lease-repo" }, payload: { action: serializeFleetAction(parsedCreate.command) } },
+    });
+    assert.ok(
+      createResponse && !Array.isArray(createResponse) && "result" in createResponse,
+      JSON.stringify(createResponse),
+    );
+    const createdResult = createResponse.result as Record<string, unknown>;
+    assert.equal(createdResult.outcome, "applied", JSON.stringify(createdResult));
+    const inspectedCreated = await f.host.run(
+      "lease-repo",
+      { kind: "agent-inspect", agentId: policyWorker.id },
+      localAuthFixture(),
+    );
+    assert.equal(inspectedCreated.outcome, "applied", JSON.stringify(inspectedCreated));
+    const createdEvidence = JSON.parse(String(inspectedCreated.evidence)) as {
+      readonly expectedVersion: number;
+      readonly agent: { readonly mcpPolicy?: string };
+    };
+    assert.equal(createdEvidence.agent.mcpPolicy, "inherit");
+
+    const parsedUpdateClear = parseThinCommand(
+      [
+        "agent",
+        "update",
+        policyWorker.id,
+        "--clear-mcp-policy",
+        "--expected-version",
+        String(createdEvidence.expectedVersion),
+      ],
+      edge.edgeRoot,
+    );
+    assert.equal(parsedUpdateClear.ok, true, JSON.stringify(parsedUpdateClear));
+    if (!parsedUpdateClear.ok) throw new Error("agent update --clear-mcp-policy must parse");
+    const updateResponse = await edge.rpc.handle({
+      jsonrpc: "2.0",
+      id: 102,
+      method: parsedUpdateClear.command.method,
+      params: {
+        repo: { repoId: "lease-repo" },
+        payload: { action: serializeFleetAction(parsedUpdateClear.command) },
+      },
+    });
+    assert.ok(
+      updateResponse && !Array.isArray(updateResponse) && "result" in updateResponse,
+      JSON.stringify(updateResponse),
+    );
+    const updatedResult = updateResponse.result as Record<string, unknown>;
+    assert.equal(updatedResult.outcome, "applied", JSON.stringify(updatedResult));
+    const inspectedCleared = await f.host.run(
+      "lease-repo",
+      { kind: "agent-inspect", agentId: policyWorker.id },
+      localAuthFixture(),
+    );
+    assert.equal(inspectedCleared.outcome, "applied", JSON.stringify(inspectedCleared));
+    const clearedAgent = JSON.parse(String(inspectedCleared.evidence)).agent as Record<string, unknown>;
+    assert.equal(Object.hasOwn(clearedAgent, "mcpPolicy"), false);
+
     const beforeDenied = f.eventCount();
     f.owners.keycloak.revoke(
       "person-one",

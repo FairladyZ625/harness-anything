@@ -730,6 +730,80 @@ export const agentProtocolCommands = Object.freeze([
     ],
   }),
   defineCenterForwardWriteCommand({
+    id: "agent-create",
+    // CLI alias only: forwards to the canonical agent-install action so authorization,
+    // receipt rendering, and the Action inventory stay singular. Declared after agent-install
+    // so action-kind lookups keep resolving to agent-install.
+    actionKind: "agent-install",
+    payloadFields: [{ field: "packageSource", type: "string", required: false, wire: { omit: true } }],
+    phase: "Runtime-B",
+    path: ["agent", "create"],
+    summary: "Create an Agent declaration from a source package (alias of agent install --source).",
+    method: "repo.task.run",
+    inputs: [
+      cliInput(
+        "--source",
+        "single",
+        true,
+        { code: "missing_field" },
+        { field: "packageSource", pathKind: "host-path" },
+      ),
+      cliInput(
+        "--mcp-policy",
+        "single",
+        false,
+        { code: "invalid_runtime_mcp_policy" },
+        { pathKind: "non-path", enum: ["disabled", "inherit"] },
+      ),
+      cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
+      cliInput(
+        "--expected-version",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", regex: "^[0-9]+$", projection: "number" },
+      ),
+    ],
+  }),
+  defineCenterForwardWriteCommand({
+    id: "agent-update",
+    // CLI alias only: forwards to the canonical agent-install action by <agent-id> so
+    // authorization, receipt rendering, and the Action inventory stay singular.
+    actionKind: "agent-install",
+    actionConstraints: [["mcpPolicy", "clearMcpPolicy"]],
+    phase: "Runtime-B",
+    path: ["agent", "update", "<agent-id>"],
+    summary:
+      "Update an installed Agent declaration in place (including --mcp-policy / --clear-mcp-policy); --expected-version guards concurrent edits.",
+    method: "repo.task.run",
+    positional: "agentId",
+    positionalInputs: [{ name: "<agent-id>", pathKind: "non-path", pathReader: "none" }],
+    inputs: [
+      cliInput(
+        "--mcp-policy",
+        "single",
+        false,
+        { code: "invalid_runtime_mcp_policy" },
+        { pathKind: "non-path", enum: ["disabled", "inherit"], conflictsWith: ["--clear-mcp-policy"] },
+      ),
+      cliInput(
+        "--clear-mcp-policy",
+        "boolean",
+        false,
+        { code: "invalid_runtime_mcp_policy" },
+        { field: "clearMcpPolicy", conflictsWith: ["--mcp-policy"] },
+      ),
+      cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
+      cliInput(
+        "--expected-version",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", regex: "^[0-9]+$", projection: "number" },
+      ),
+    ],
+  }),
+  defineCenterForwardWriteCommand({
     id: "agent-delete",
     phase: "Runtime-B",
     path: ["agent", "delete", "<agent-id>"],

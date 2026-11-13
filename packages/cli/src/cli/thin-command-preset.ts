@@ -74,6 +74,8 @@ export function parsePreset(
     if (f.one.has("--id") && !f.one.has("--mcp-policy") && !f.booleans.has("--clear-mcp-policy"))
       return rejected("missing_field", "ha agent install --id requires --mcp-policy or --clear-mcp-policy.", json);
   }
+  if (route.id === "agent-update" && !f.one.has("--mcp-policy") && !f.booleans.has("--clear-mcp-policy"))
+    return rejected("missing_field", "ha agent update <agent-id> requires --mcp-policy or --clear-mcp-policy.", json);
   if (positionalField && !nonEmpty(positional))
     return rejected("missing_field", `${positionalField} is required.`, json);
   const matched =
@@ -107,6 +109,7 @@ export function parsePreset(
         : positionalField
           ? { [positionalField]: positional }
           : {},
-    defaults = "actionDefaults" in route ? route.actionDefaults : {};
-  return accepted(rootDir, repoId, json, { ...defaults, kind: route.id, ...position, ...payload }, route.method);
+    defaults = "actionDefaults" in route ? route.actionDefaults : {},
+    kind = "actionKind" in route ? route.actionKind : route.id;
+  return accepted(rootDir, repoId, json, { ...defaults, kind, ...position, ...payload }, route.method);
 }
