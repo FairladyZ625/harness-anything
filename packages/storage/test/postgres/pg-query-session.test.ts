@@ -23,6 +23,8 @@ test(
     const client = Object.assign(new EventEmitter(), {
       async query(sql: string) {
         assert.equal(checkedOut, true, "an unfinished operation used a returned pool client");
+        if (sql.includes("SELECT backfill_cursor,backfill_complete FROM ha_relation_cycle_count"))
+          return { rows: [{ backfill_cursor: null, backfill_complete: true }], rowCount: 1 };
         if (/^\s*SELECT value FROM ha_projection_values/u.test(sql) && !waiting) {
           waiting = true;
           observed();
@@ -74,13 +76,13 @@ test(
       });
       await new Promise<void>((resolve) => setImmediate(resolve));
       assert.equal(closed, false, "close returned while its query still owned the connection");
-      assert.equal(releases, 1, "only initialization has released a client");
+      assert.equal(releases, 2, "only initialization and write-side maintenance have released clients");
       unblock();
       const [reply] = await result;
       assert.equal(reply.error, undefined);
       assert.equal(reply.result, null);
       await closing;
-      assert.equal(releases, 2);
+      assert.equal(releases, 3);
       assert.equal(checkedOut, false);
     } finally {
       unblock();

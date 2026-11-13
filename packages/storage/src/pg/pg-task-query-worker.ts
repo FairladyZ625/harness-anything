@@ -15,6 +15,7 @@ import { changePgLease } from "./pg-lease-cas.ts";
 import { rebuildPgProjection } from "./pg-task-event-materialize.ts";
 import { backfillPgArtifactDocuments } from "./pg-artifact-timeline.ts";
 import { backfillPgDispatchLifecycle } from "./pg-dispatch-lifecycle.ts";
+import { maintainPgRelationCycleAuditPage } from "./pg-relation-cycle-audit.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
 import { pgEpochTransactions, type PgEpochRequest } from "../postgres/pg-epoch-transaction.ts";
 import { pgReplicationHead, pgReplicationPage } from "../postgres/pg-replication.ts";
@@ -48,6 +49,7 @@ interface PgQueryWorkerRequest {
     | "warm-indexes"
     | "artifact-backfill"
     | "dispatch-lifecycle-backfill"
+    | "relation-cycle-maintenance"
     | "epoch"
     | "replication";
   readonly method?: string;
@@ -160,6 +162,14 @@ function startWorker(
       }
     } finally {
       await client.release();
+    }
+    for (;;) {
+      const page = await withPostgresTransaction(
+        pool,
+        (cycleClient) => maintainPgRelationCycleAuditPage(cycleClient, input.scope),
+        input.scope,
+      );
+      if (page.done) break;
     }
     source = createPgTaskProjectionSource({
       pool: sessionPool(),
@@ -309,6 +319,14 @@ function startWorker(
           },
           input.scope,
         );
+        for (;;) {
+          const page = await withPostgresTransaction(
+            pool,
+            (client) => maintainPgRelationCycleAuditPage(client, input.scope),
+            input.scope,
+          );
+          if (page.done) break;
+        }
         respond(request.id, input.state, null);
         return;
       }
@@ -318,6 +336,19 @@ function startWorker(
           request.id,
           input.state,
           await backfillPgEntityDeclarationPage(pool, input.scope, input.repoId, Number(request.args?.[0] ?? 64)),
+        );
+        return;
+      }
+      if (request.op === "relation-cycle-maintenance") {
+        if (sessionClient) throw new Error("relation cycle maintenance cannot run inside a projection read session");
+        respond(
+          request.id,
+          input.state,
+          await withPostgresTransaction(
+            pool,
+            (client) => maintainPgRelationCycleAuditPage(client, input.scope),
+            input.scope,
+          ),
         );
         return;
       }

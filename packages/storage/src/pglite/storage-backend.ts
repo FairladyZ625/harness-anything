@@ -7,6 +7,7 @@ import { backfillPgRelationFreshnessPage } from "../pg/pg-relation-freshness.ts"
 import { contractPgEventSummaryIndex } from "../pg/pg-event-read-index-migration.ts";
 import { ensurePgProjectionSchema } from "../pg/pg-projection-schema.ts";
 import { backfillPgArtifactDocuments } from "../pg/pg-artifact-timeline.ts";
+import { maintainPgRelationCycleAuditPage } from "../pg/pg-relation-cycle-audit.ts";
 import { createPgStorageBackend, resolvePostgresEventStoreScope, type PgStorageBackend } from "../pg/backend.ts";
 import type { PGliteStorageBackendConfig } from "../storage-backend.ts";
 import { createPGliteStorage, type PGliteStorage, type PGliteStorageOptions } from "./transaction.ts";
@@ -143,6 +144,14 @@ async function initializeSchema(
   // reader is admitted. The helper no-ops on a fresh projection, whose first materialization
   // already declares the index complete.
   await withPostgresTransaction(pool, (client) => backfillPgArtifactDocuments(client, scope, repoId), scope);
+  for (;;) {
+    const page = await withPostgresTransaction(
+      pool,
+      (client) => maintainPgRelationCycleAuditPage(client, scope),
+      scope,
+    );
+    if (page.done) break;
+  }
 }
 
 async function ensurePolicy(client: PoolClient, statement: string, tables: readonly string[]): Promise<void> {

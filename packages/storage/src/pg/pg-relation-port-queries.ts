@@ -1,5 +1,5 @@
 import type { PoolClient } from "pg";
-import { findRelationCycleWitnesses } from "@harness-anything/kernel/internal/domain/relation-cycle.ts";
+import { readPgRelationCycleAudit } from "./pg-relation-cycle-audit.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
 import {
   readRelationsInTransaction,
@@ -97,17 +97,10 @@ export function pgRelationPortQueries(options: PgTaskProjectionSourceOptions): P
         };
       }),
     readRelationCycleAudit: () =>
-      read(async (client) => {
-        const rows = await readRelationsInTransaction(client, scope, readers, {});
-        return {
-          ...(await readCutInTransaction(client, scope, readers, options.repoId)),
-          scannedEdges: rows.length,
-          issues: findRelationCycleWitnesses(rows).map((witness) => ({
-            code: "relation_cycle_detected" as const,
-            ...witness,
-          })),
-        };
-      }),
+      read(async (client) => ({
+        ...(await readCutInTransaction(client, scope, readers, options.repoId)),
+        ...(await readPgRelationCycleAudit(client, scope)),
+      })),
   };
 }
 

@@ -7,6 +7,7 @@ import type { PostgresTaskEventStoreRequest, PostgresTaskEventStoreResult } from
 import type { LeaseV1 } from "@harness-anything/kernel";
 import type { PgEpochRequest } from "../postgres/pg-epoch-transaction.ts";
 import type { WriterEpochLease } from "../writer-epoch-contract.ts";
+import type { PgRelationCycleRefreshPage } from "./pg-relation-cycle-audit.ts";
 export type { PgTaskQueryMethods } from "./pg-task-query-contract.ts";
 
 export interface PgTaskQueryReaderOptions {
@@ -39,6 +40,7 @@ export interface PgTaskQueryReader {
   readonly backfillArtifactTimeline: () => number;
   /** Refold the dispatch lifecycle model when the projection has no current lifecycle cursor. */
   readonly backfillDispatchLifecycle: () => number;
+  readonly maintainRelationCycleAuditPage: () => PgRelationCycleRefreshPage;
   readonly writerEpoch: (request: PgEpochRequest) => WriterEpochLease | number | null;
   readonly replication: (operation: "head" | "page" | "slots", payload?: unknown) => unknown;
 }
@@ -164,6 +166,7 @@ export function createPgTaskQueryReader(
       | "warm-indexes"
       | "artifact-backfill"
       | "dispatch-lifecycle-backfill"
+      | "relation-cycle-maintenance"
       | "epoch"
       | "replication",
     method?: string,
@@ -236,6 +239,10 @@ export function createPgTaskQueryReader(
     backfillDispatchLifecycle: () => {
       if (activeSession) throw new Error("dispatch lifecycle backfill cannot run inside a projection read session");
       return request("dispatch-lifecycle-backfill");
+    },
+    maintainRelationCycleAuditPage: () => {
+      if (activeSession) throw new Error("relation cycle maintenance cannot run inside a projection read session");
+      return request("relation-cycle-maintenance");
     },
     writerEpoch: (value) => request("epoch", undefined, [value]),
     replication: (operation, payload) => request("replication", operation, [payload]),

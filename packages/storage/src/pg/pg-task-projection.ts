@@ -1,9 +1,17 @@
 import type { TaskProjection, TaskProjectionQueries } from "@harness-anything/kernel";
+import { isDecisionEvent } from "@harness-anything/kernel/internal/domain/decision-event.ts";
+import { isFactEvent } from "@harness-anything/kernel/internal/domain/fact-event.ts";
+import {
+  isRelationEvent,
+  embeddedRelationEventsForReplay,
+} from "@harness-anything/kernel/internal/domain/relation-event.ts";
+import { isTaskEvent } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import { assertFactAdmissionAtCut } from "@harness-anything/kernel/internal/domain/fact-admission.ts";
 import { assertDecisionAdmissionAtCut } from "@harness-anything/kernel/internal/domain/decision-admission.ts";
 import { createSqlTaskQueryReader } from "./sql-task-query-reader.ts";
 import { PG_TASK_QUERY_METHODS } from "./pg-task-query-contract.ts";
 import { projectionCatchUpLimit } from "../projection/catch-up-limit.ts";
+import { derivedRelationRecordsForReplay } from "../projection/relation-entity-projection.ts";
 import type {
   PostgresTaskProjectionFactoryOptions,
   PGliteTaskProjectionFactoryOptions,
@@ -27,6 +35,10 @@ export function makePgTaskProjection(
       ]),
     ) as unknown as TaskProjectionQueries,
     catchUpRounds = function* (): Generator<undefined, ReturnType<NonNullable<TaskProjection["catchUp"]>>> {
+      for (;;) {
+        if (reader.maintainRelationCycleAuditPage().done) break;
+        yield;
+      }
       const cut = queries.readCut();
       if (cut.status !== "ready") throw new Error(`PG projection is pending at ${cut.watermark}/${cut.sourceRevision}`);
       // A projection written before the artifact timeline existed is completed before any read
@@ -72,6 +84,10 @@ export function makePgTaskProjection(
     apply: (event) => {
       const cut = queries.readCut();
       if (cut.watermark < event.workspaceRevision) throw new Error("PG projection apply requires canonical acceptance");
+      if (relationAuditAffected(event))
+        for (;;) {
+          if (reader.maintainRelationCycleAuditPage().done) break;
+        }
       return { metrics: { storeTransactions: 1, reducedItems: 1 } };
     },
     catchUp,
@@ -141,4 +157,14 @@ export function makePgTaskProjection(
         );
       }),
   };
+}
+
+function relationAuditAffected(event: Parameters<NonNullable<TaskProjection["apply"]>>[0]): boolean {
+  if (isRelationEvent(event)) return true;
+  if (
+    (isTaskEvent(event) || isDecisionEvent(event) || isFactEvent(event)) &&
+    embeddedRelationEventsForReplay(event).length
+  )
+    return true;
+  return derivedRelationRecordsForReplay(event).length > 0;
 }
