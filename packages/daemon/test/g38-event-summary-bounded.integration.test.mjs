@@ -123,19 +123,35 @@ if (!isMainThread) {
     Atomics.store(state, 0, 1);
     Atomics.notify(state, 0);
   };
-  let backend;
+  let backend, nativeFixture;
   try {
-    backend = await createPGliteStorageBackend({
+    const backendOptions = {
       repoId: "g38-read",
       readAuthoredDocument: (logical) => {
         const node = localGitWorktreeSettlement.readNode(path.join(rootDir, "harness", ...logical.split("/")));
         return node ? { ...node, nodeKind: node.mode === "120000" ? "symbolic-link" : "file" } : null;
       },
-      storage: {
-        backend: "pglite",
-        scope: { tenantId: "g38", projectId: "read", policyEpoch: 0 },
-      },
-    });
+    };
+    if (workerData.backend === "postgres") {
+      nativeFixture = await pgRuntimeFixture();
+      backend = {
+        ...createPgStorageBackend({
+          ...backendOptions,
+          pool: nativeFixture.pool,
+          scope: { tenantId: "g38", projectId: "read", policyEpoch: 0, readers: [] },
+        }),
+        pool: nativeFixture.pool,
+        close: async () => {
+          await nativeFixture.pool.end();
+          await nativeFixture.close();
+        },
+      };
+    } else {
+      backend = await createPGliteStorageBackend({
+        ...backendOptions,
+        storage: { backend: "pglite", scope: { tenantId: "g38", projectId: "read", policyEpoch: 0 } },
+      });
+    }
     const bundles = [],
       writerFence = { repoId: "g38-read", holderId: "read-fixture", epoch: 1 };
     let collecting = false;
@@ -158,7 +174,14 @@ if (!isMainThread) {
         last = batch.pop();
       await backend.eventStore.append({ ...last, preceding: batch }, baseRevision, writerFence);
     }
-    await backend.pool.query("ANALYZE");
+    if (nativeFixture) {
+      // Populate exactly the input written by the previous-binary INSERT trigger. The native
+      // upgrade consumer separately proves an actual old-column INSERT reaches this function.
+      await nativeFixture.adminPool.query(
+        "UPDATE ha_events SET default_summary_json=ha_default_summary_source(event_json) WHERE event_id='history-large-event'",
+      );
+    }
+    await (nativeFixture?.adminPool ?? backend.pool).query("ANALYZE");
     respond({ ready: true });
   } catch (error) {
     respond({ error: { message: error.message, stack: error.stack } });
@@ -193,7 +216,7 @@ if (!isMainThread) {
     }
   });
 } else {
-  async function tracePgliteProbe(dimension, size, probeId) {
+  async function tracePgProbe(dimension, size, probeId, backend = "pglite") {
     installReadProbe();
     const rootDir = mkdtempSync(path.join(tmpdir(), "ha-g38-p2-trace-"));
     initRepo(rootDir);
@@ -204,7 +227,7 @@ if (!isMainThread) {
     const state = new Int32Array(new SharedArrayBuffer(4)),
       { port1, port2 } = new MessageChannel(),
       worker = new Worker(new URL(import.meta.url), {
-        workerData: { state, responsePort: port2, dimension, size, rootDir },
+        workerData: { state, responsePort: port2, dimension, size, rootDir, backend },
         transferList: [port2],
         execArgv: [],
       });
@@ -839,7 +862,7 @@ if (!isMainThread) {
         scope,
       );
       assert.deepEqual(
-        JSON.parse(invalidated.rows[0].default_summary_json),
+        canonicalEventSummary(JSON.parse(invalidated.rows[0].default_summary_json)),
         canonicalEventSummary(normalizeHistoricalEvent(updatedEvent)),
       );
       pgReader.withSession((pgQueries) => {
@@ -856,6 +879,53 @@ if (!isMainThread) {
       rmSync(rootDir, { recursive: true, force: true });
     }
   });
+
+  test(
+    "native PostgreSQL original-scale event reads stay bounded for previous-writer summary input",
+    { skip: process.env.FLEET_STRESS_G38_READ_SCALES !== "1" },
+    async (t) => {
+      const measurements = {};
+      for (const [dimension, scales, probeId] of [
+        ["event-bytes", READ_SCALES, "event-tail"],
+        ["task-outputs", READ_OUTPUT_SCALES, "repo.workspace.scope.read"],
+      ]) {
+        const pair = {};
+        for (const [scale, size] of Object.entries(scales)) {
+          pair[scale] = await tracePgProbe(dimension, size, probeId, "postgres");
+        }
+        measurements[dimension] = pair;
+        t.diagnostic(JSON.stringify({ nativePostgres: dimension, measurements: pair }));
+        assert.equal(pair.small.resultSize, pair.large.resultSize);
+        for (const phase of ["counts", "firstCall"]) {
+          for (const [metric, margin] of Object.entries(READ_MARGINS)) {
+            assert.ok(
+              pair.large[phase][metric] <= pair.small[phase][metric] + margin,
+              `${probeId}/${phase}/${metric}: ${pair.small[phase][metric]} -> ${pair.large[phase][metric]}`,
+            );
+          }
+        }
+        for (const phase of ["firstStatements", "warmStatements"]) {
+          const summaryQueries = pair.large[phase].filter(({ sql }) =>
+            sql.includes("default_summary_json AS summary_json"),
+          );
+          assert.equal(summaryQueries.length, 1);
+          for (const { sql } of pair.large[phase]) assert.doesNotMatch(sql, /\bevent_json\b/u);
+        }
+        if (dimension === "task-outputs") {
+          const query = pair.large.warmStatements.find(({ sql }) => sql.includes("canonical_task_id = $6"));
+          assert.ok(query.scanNodes.some(({ indexName }) => indexName === "ha_events_canonical_task"));
+        }
+      }
+      assert.equal(
+        measurements["event-bytes"].large.counts.sqlResultBytes,
+        measurements["event-bytes"].small.counts.sqlResultBytes,
+      );
+      assert.equal(
+        measurements["task-outputs"].large.counts.sqlRowsRead,
+        measurements["task-outputs"].small.counts.sqlRowsRead,
+      );
+    },
+  );
 
   test(
     "R8 event-tail (event-bytes) and R9 repo.workspace.scope.read (task-outputs) have zero PGlite scale growth and use bounded plans",
@@ -953,16 +1023,16 @@ if (!isMainThread) {
       }
 
       // 3. Per-statement SQL & EXPLAIN (ANALYZE, FORMAT JSON, TIMING OFF) plan proof.
-      const tailTraceSmall = await tracePgliteProbe("event-bytes", 200, "event-tail");
-      const tailTraceLarge = await tracePgliteProbe("event-bytes", 2000, "event-tail");
+      const tailTraceSmall = await tracePgProbe("event-bytes", 200, "event-tail");
+      const tailTraceLarge = await tracePgProbe("event-bytes", 2000, "event-tail");
       const tailEventSelects = tailTraceLarge.warmStatements.filter((stmt) =>
         stmt.sql.includes("SELECT default_summary_json AS summary_json"),
       );
       assert.equal(tailEventSelects.length, 1, "history event-tail must read ha_events summaries once per call");
       assert.equal(tailTraceLarge.counts.sqlResultBytes, tailTraceSmall.counts.sqlResultBytes);
 
-      const scopeTraceSmall = await tracePgliteProbe("task-outputs", outputScales.small, "repo.workspace.scope.read");
-      const scopeTraceLarge = await tracePgliteProbe("task-outputs", outputScales.large, "repo.workspace.scope.read");
+      const scopeTraceSmall = await tracePgProbe("task-outputs", outputScales.small, "repo.workspace.scope.read");
+      const scopeTraceLarge = await tracePgProbe("task-outputs", outputScales.large, "repo.workspace.scope.read");
       const canonicalTaskSelect = scopeTraceLarge.warmStatements.find((stmt) =>
         stmt.sql.includes("canonical_task_id = $6"),
       );

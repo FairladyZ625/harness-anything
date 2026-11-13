@@ -27,11 +27,8 @@ export function eventIndexEvent<Event extends CanonicalEventV1>(event: Event): E
   return withReviewerQualifiedDispatchKey(event) === event ? event : (normalizeHistoricalEvent(event) as Event);
 }
 
-function parseDefaultEventSummaryRow(summaryOrEventJson: string): CanonicalEventSummary {
-  const parsed = JSON.parse(summaryOrEventJson) as CanonicalEventV1 | CanonicalEventSummary;
-  return "opId" in parsed && typeof parsed.opId === "string"
-    ? canonicalEventSummary(normalizeHistoricalEvent(parsed as CanonicalEventV1))
-    : (parsed as CanonicalEventSummary);
+function parseDefaultEventSummaryRow(summaryJson: string): CanonicalEventSummary {
+  return canonicalEventSummary(JSON.parse(summaryJson) as CanonicalEventV1);
 }
 
 export function pgEventQueries(options: PgTaskProjectionSourceOptions) {

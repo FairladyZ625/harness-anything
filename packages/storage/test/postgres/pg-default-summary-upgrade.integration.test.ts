@@ -36,8 +36,12 @@ test("external PostgreSQL upgrade drains default summaries before workspace read
                 return async (...args: unknown[]) => {
                   const sql = typeof args[0] === "string" ? args[0] : ((args[0] as { text?: string }).text ?? ""),
                     result = await Reflect.apply(connection.query, connection, args);
-                  if (sql.includes("SELECT revision::text AS revision, default_summary_json AS summary_json")) {
-                    const kind = sql.includes("canonical_task_id = $6") ? "workspace" : "default",
+                  if (/^\s*(?:SELECT|WITH)\b/iu.test(sql) && /\bFROM ha_events\b/u.test(sql)) {
+                    const kind = sql.includes("default_summary_json AS summary_json")
+                        ? sql.includes("canonical_task_id = $6")
+                          ? "workspace"
+                          : "default"
+                        : "ancillary",
                       bytes = Buffer.byteLength(JSON.stringify((result as { rows: unknown[] }).rows));
                     queryTrace.push({ kind, bytes, sql });
                   }
@@ -63,8 +67,8 @@ test("external PostgreSQL upgrade drains default summaries before workspace read
         current = queryTrace.slice(traceStart);
       queryTrace.length = traceStart;
       for (const { kind, bytes, sql } of current) {
-        assert.doesNotMatch(sql, /event_json/u, "serving summary SQL must not select canonical bodies");
-        summaryReadBytes[kind as "default" | "workspace"].push(bytes);
+        assert.doesNotMatch(sql, /\bevent_json\b/u, "serving summary SQL must not select canonical bodies");
+        if (kind !== "ancillary") summaryReadBytes[kind as "default" | "workspace"].push(bytes);
       }
       return page;
     };
@@ -294,7 +298,26 @@ test("external PostgreSQL upgrade drains default summaries before workspace read
       "SELECT default_summary_json FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4 AND revision=5",
       [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
     );
-    assert.deepEqual(JSON.parse(richRow.rows[0]!.default_summary_json), canonicalEventSummary(richEvent as never));
+    assert.deepEqual(
+      canonicalEventSummary(JSON.parse(richRow.rows[0]!.default_summary_json)),
+      canonicalEventSummary(richEvent as never),
+    );
+    for (const payload of [
+      { ignored: { statement: "nested-decoy" }, statement: "correct-statement" },
+      { statement: "__ha_summary_text__", text: "correct-text", title: "__ha_summary_statement__" },
+      { statement: `${"😀".repeat(139)}x😀`, documentClaims: [{ path: "nul-\u0000.md" }] },
+      { statement: `${"x".repeat(279)}\ud800`, text: "literal-\\u0000", witness: {}, review: {} },
+    ]) {
+      const candidate = { ...richEvent, payload },
+        stored = await fixture.adminPool.query<{ source: string }>("SELECT ha_default_summary_source($1) AS source", [
+          JSON.stringify(candidate),
+        ]);
+      assert.deepEqual(
+        canonicalEventSummary(JSON.parse(stored.rows[0]!.source)),
+        canonicalEventSummary(candidate as never),
+        "old-writer source must preserve the kernel summary, including nested keys and JSON escapes",
+      );
+    }
     console.log(
       "DEFAULT_SUMMARY_READ_BYTES",
       JSON.stringify({

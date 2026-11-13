@@ -107,6 +107,14 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
    transaction. Until the pending probe is empty, default/workspace event-summary reads return
    `projection_pending` rather than reading `event_json`.
 
+   After readiness, the existing event trigger keeps that column populated for previous-version
+   INSERTs and event updates in the same transaction. Those writers store a bounded input projection;
+   the current reader passes it through the same kernel `canonicalEventSummary` used by current
+   writes and management backfill. JSON string tokens retain NUL and surrogate escapes, with at most
+   280 input characters for each clipped text field. Default/workspace readers never fetch complete
+   event bodies to fill a missing summary, and repeated page reads do no repair writes. Keep the
+   trigger through the supported current/previous writer window.
+
 5. Verify readiness on the same claims before enabling current readers. All probes must
    return no rows (use the actual deployment identifiers):
 

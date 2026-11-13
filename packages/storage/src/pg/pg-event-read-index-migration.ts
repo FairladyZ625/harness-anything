@@ -94,101 +94,53 @@ export function eventReadIndexDdl(): readonly string[] {
     "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS runtime_session_unsettled boolean NOT NULL DEFAULT false",
     "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS summary_json text",
     "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS default_summary_json text",
+    // The previous writer cannot call the new JS builder. Keep only its bounded input in the
+    // same row at INSERT time; canonicalEventSummary remains the only final shape/UTF-16 rule.
+    // JSON tokens (not JSONB/text extraction) retain legal NUL and unpaired surrogate escapes.
     String.raw`CREATE OR REPLACE FUNCTION ha_default_summary_text(serialized text, path text[]) RETURNS text
       LANGUAGE plpgsql IMMUTABLE STRICT AS $function$
-      DECLARE token text; prefix text := '"'; cursor_pos integer := 2; units integer := 0;
-        current_char text; escaped text; code_unit integer; code_point integer; required_units integer;
+      DECLARE token json; encoded text; cursor_pos integer := 2; end_pos integer; units integer := 0;
       BEGIN
-        token := (regexp_match(serialized,
-          ('"'||path[array_length(path,1)]||'"[[:space:]]*:[[:space:]]*("(?:\\.|[^"\\])*")')))[1];
-        IF token IS NULL THEN RETURN NULL; END IF;
-        WHILE cursor_pos < char_length(token) AND units < 280 LOOP
-          current_char := substr(token,cursor_pos,1);
-          IF current_char = E'\\' THEN
-            escaped := substr(token,cursor_pos+1,1);
-            IF escaped = 'u' THEN
-              code_unit := get_byte(decode(substr(token,cursor_pos+2,4),'hex'),0)*256+
-                get_byte(decode(substr(token,cursor_pos+2,4),'hex'),1);
-              IF code_unit BETWEEN 55296 AND 56319 AND substr(token,cursor_pos+6,2) = E'\\u'
-                 AND get_byte(decode(substr(token,cursor_pos+8,4),'hex'),0)*256+
-                   get_byte(decode(substr(token,cursor_pos+8,4),'hex'),1) BETWEEN 56320 AND 57343 THEN
-                IF units = 279 THEN prefix := prefix||substr(token,cursor_pos,6); units := 280; EXIT; END IF;
-                prefix := prefix||substr(token,cursor_pos,12); cursor_pos := cursor_pos+12; units := units+2;
-              ELSE
-                prefix := prefix||substr(token,cursor_pos,6); cursor_pos := cursor_pos+6; units := units+1;
-              END IF;
-            ELSE
-              prefix := prefix||substr(token,cursor_pos,2); cursor_pos := cursor_pos+2; units := units+1;
-            END IF;
-          ELSE
-            code_point := ascii(current_char);
-            required_units := CASE WHEN code_point > 65535 THEN 2 ELSE 1 END;
-            IF units+required_units > 280 THEN
-              IF units = 279 AND required_units = 2 THEN
-                code_point := code_point-65536;
-                prefix := prefix||E'\\u'||lpad(to_hex(55296+(code_point >> 10)),4,'0');
-              END IF;
-              EXIT;
-            END IF;
-            prefix := prefix||current_char; cursor_pos := cursor_pos+1; units := units+required_units;
-          END IF;
+        token := serialized::json #> path;
+        IF json_typeof(token) IS DISTINCT FROM 'string' THEN RETURN NULL; END IF;
+        encoded := token::text;
+        end_pos := char_length(encoded);
+        WHILE cursor_pos < end_pos AND units < 280 LOOP
+          cursor_pos := cursor_pos + CASE WHEN substr(encoded,cursor_pos,1) <> E'\\' THEN 1
+            WHEN substr(encoded,cursor_pos+1,1)='u' THEN 6 ELSE 2 END;
+          units := units+1;
         END LOOP;
-        RETURN prefix||'"';
+        RETURN substr(encoded,1,cursor_pos-1)||'"';
       END $function$`,
     String.raw`CREATE OR REPLACE FUNCTION ha_default_summary_source(serialized text) RETURNS text
       LANGUAGE plpgsql IMMUTABLE STRICT AS $function$
-      DECLARE raw json; payload json; claims json; task_id text; payload_task_id text;
-        executor_id text; subject_kind text; subject_task_id text; statement_fragment text;
-        text_fragment text; title_fragment text; result text;
+      DECLARE raw json := serialized::json; payload json := raw->'payload'; claims json;
       BEGIN
-        raw := ha_read_index_json(serialized)::json;
-        payload := raw->'payload';
-        IF json_typeof(payload)='object' AND json_typeof(payload->'documentClaims')='array' THEN
+        IF json_typeof(payload->'documentClaims')='array' THEN
           SELECT COALESCE(json_agg(json_build_object('path',claim->'path')),'[]'::json) INTO claims
-          FROM json_array_elements(payload->'documentClaims') claim
-          WHERE json_typeof(claim->'path')='string' AND length(claim->>'path') > 0;
+          FROM json_array_elements(payload->'documentClaims') claim;
         END IF;
-        executor_id := CASE WHEN json_typeof(raw#>'{actor,executor,id}')='string'
-          THEN NULLIF(raw#>>'{actor,executor,id}','') END;
-        subject_kind := CASE WHEN json_typeof(payload->'subject')='object' THEN payload#>>'{subject,kind}' END;
-        subject_task_id := CASE WHEN subject_kind='task' AND json_typeof(payload#>'{subject,taskId}')='string'
-          THEN NULLIF(payload#>>'{subject,taskId}','') END;
-        task_id := CASE WHEN json_typeof(raw->'taskId')='string' THEN NULLIF(raw->>'taskId','') END;
-        payload_task_id := CASE WHEN json_typeof(payload->'taskId')='string' THEN NULLIF(payload->>'taskId','') END;
-        IF payload_task_id IS NULL THEN payload_task_id := subject_task_id; END IF;
-        statement_fragment := CASE WHEN json_typeof(payload->'statement')='string' AND length(payload->>'statement') > 0
-          THEN ha_default_summary_text(serialized,ARRAY['payload','statement']) END;
-        text_fragment := CASE WHEN json_typeof(payload->'text')='string' AND length(payload->>'text') > 0
-          THEN ha_default_summary_text(serialized,ARRAY['payload','text']) END;
-        title_fragment := CASE WHEN json_typeof(payload->'title')='string' AND length(payload->>'title') > 0
-          THEN ha_default_summary_text(serialized,ARRAY['payload','title']) END;
-        result := (jsonb_strip_nulls(jsonb_build_object(
-          'eventId',raw->>'eventId','schema',raw->>'schema','type',raw->>'type',
+        RETURN json_build_object(
+          'eventId',raw->'eventId','schema',raw->'schema','type',raw->'type',
           'occurredAt',to_char((raw->>'occurredAt')::timestamptz AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
           'workspaceRevision',raw->'workspaceRevision',
-          'taskId',task_id,'factId',CASE WHEN json_typeof(raw->'factId')='string' THEN NULLIF(raw->>'factId','') END,
-          'decisionId',CASE WHEN json_typeof(raw->'decisionId')='string' THEN NULLIF(raw->>'decisionId','') END,
-          'actor',CASE WHEN executor_id IS NULL THEN NULL ELSE jsonb_build_object('executor',jsonb_build_object('id',executor_id)) END,
-          'payload',jsonb_strip_nulls(jsonb_build_object(
-            'taskId',payload_task_id,
-            'statement',CASE WHEN statement_fragment IS NULL THEN NULL ELSE '__ha_summary_statement__' END,
-            'text',CASE WHEN text_fragment IS NULL THEN NULL ELSE '__ha_summary_text__' END,
-            'title',CASE WHEN title_fragment IS NULL THEN NULL ELSE '__ha_summary_title__' END,
-            'runtimeSessionId',CASE WHEN json_typeof(payload->'runtimeSessionId')='string' THEN NULLIF(payload->>'runtimeSessionId','') END,
-            'instanceId',CASE WHEN json_typeof(payload->'instanceId')='string' THEN NULLIF(payload->>'instanceId','') END,
-            'entityKind',CASE WHEN json_typeof(payload->'entityKind')='string' THEN NULLIF(payload->>'entityKind','') END,
-            'entityId',CASE WHEN json_typeof(payload->'entityId')='string' THEN NULLIF(payload->>'entityId','') END,
-            'witness',CASE WHEN json_typeof(payload->'witness')='object' THEN jsonb_strip_nulls(jsonb_build_object(
-              'gateId',CASE WHEN json_typeof(payload#>'{witness,gateId}')='string' THEN NULLIF(payload#>>'{witness,gateId}','') END,
-              'result',CASE WHEN json_typeof(payload#>'{witness,result}')='string' THEN NULLIF(payload#>>'{witness,result}','') END)) END,
-            'review',CASE WHEN json_typeof(payload->'review')='object' THEN jsonb_strip_nulls(jsonb_build_object(
-              'verdict',CASE WHEN json_typeof(payload#>'{review,verdict}')='string' THEN NULLIF(payload#>>'{review,verdict}','') END)) END,
+          'taskId',raw->'taskId','factId',raw->'factId','decisionId',raw->'decisionId',
+          'actor',json_build_object('executor',json_build_object('id',raw#>'{actor,executor,id}')),
+          'payload',json_build_object(
+            'taskId',payload->'taskId',
+            'subject',json_build_object('kind',payload#>'{subject,kind}','taskId',payload#>'{subject,taskId}'),
+            'statement',ha_default_summary_text(serialized,ARRAY['payload','statement'])::json,
+            'text',ha_default_summary_text(serialized,ARRAY['payload','text'])::json,
+            'title',ha_default_summary_text(serialized,ARRAY['payload','title'])::json,
+            'runtimeSessionId',payload->'runtimeSessionId','instanceId',payload->'instanceId',
+            'entityKind',payload->'entityKind','entityId',payload->'entityId',
+            'witness',CASE WHEN json_typeof(payload->'witness')='object' THEN json_build_object(
+              'gateId',payload#>'{witness,gateId}','result',payload#>'{witness,result}') END,
+            'review',CASE WHEN json_typeof(payload->'review')='object' THEN json_build_object(
+              'verdict',payload#>'{review,verdict}') END,
             'documentClaims',claims
-          ))
-        )))::text;
-        result := replace(result, to_json('__ha_summary_statement__'::text)::text, COALESCE(statement_fragment, 'null'));
-        result := replace(result, to_json('__ha_summary_text__'::text)::text, COALESCE(text_fragment, 'null'));
-        RETURN replace(result, to_json('__ha_summary_title__'::text)::text, COALESCE(title_fragment, 'null'));
+          )
+        )::text;
       END $function$`,
     String.raw`CREATE OR REPLACE FUNCTION ha_fleet_event_summary_from_jsonb(v jsonb) RETURNS text
       LANGUAGE sql IMMUTABLE STRICT AS $function$
@@ -229,9 +181,8 @@ export function eventReadIndexDdl(): readonly string[] {
       FOR EACH ROW EXECUTE FUNCTION ha_event_entity_ref_fields()`,
     `CREATE OR REPLACE FUNCTION ha_event_read_index_fields() RETURNS trigger
       LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
-      DECLARE v jsonb; summary_supplied boolean;
+      DECLARE v jsonb;
       BEGIN
-        summary_supplied := NEW.summary_json IS NOT NULL;
         v := ha_read_index_json(NEW.event_json);
         ${Object.entries(eventReadFields)
           .map(([column, expression]) => `NEW.${column} := ${expression};`)
@@ -248,10 +199,7 @@ export function eventReadIndexDdl(): readonly string[] {
            AND NEW.default_summary_json IS NOT DISTINCT FROM OLD.default_summary_json THEN
           NEW.default_summary_json := NULL;
         END IF;
-        IF NEW.default_summary_json IS NULL AND (
-          (TG_OP='INSERT' AND summary_supplied) OR
-          (TG_OP='UPDATE' AND OLD.default_summary_json IS NOT NULL)
-        ) THEN
+        IF NEW.default_summary_json IS NULL THEN
           NEW.default_summary_json := ha_default_summary_source(NEW.event_json);
         END IF;
         IF NEW.summary_json IS NULL THEN
