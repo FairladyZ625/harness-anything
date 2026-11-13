@@ -1925,19 +1925,6 @@
         }
       },
       {
-        "probe": "runtime-overview",
-        "backend": "pglite",
-        "dimension": "runtime-sessions",
-        "metric": "sqlRowsRead",
-        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1307 at 200 -> 12107 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlRowsRead warm 189 -> 407, firstCall 189 -> 407 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
         "probe": "workspace-summary",
         "backend": "pglite",
         "dimension": "runtime-sessions",
@@ -2238,19 +2225,6 @@
         "dimension": "dispatches",
         "metric": "sqlRowsRead",
         "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1401 at 200 -> 6243 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlRowsRead warm 108 -> 411, firstCall 108 -> 411 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "runtime-overview",
-        "backend": "pglite",
-        "dimension": "dispatches",
-        "metric": "sqlRowsRead",
-        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1707 at 200 -> 16107 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlRowsRead warm 204 -> 624, firstCall 204 -> 624 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
         "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
         "expiresAt": "2026-11-26T00:00:00Z",
         "measurementScales": {
