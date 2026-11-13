@@ -18,8 +18,6 @@ export interface DecisionAdmissionState {
     readonly source_ref: string;
     readonly target_ref: string;
   }[];
-  /** Whether a terminal Decision transition would remove a still-held document. */
-  readonly materializationHeld?: boolean;
 }
 
 export function assertDecisionAdmissionAtCut(state: DecisionAdmissionState, event: DecisionEventV1): void {

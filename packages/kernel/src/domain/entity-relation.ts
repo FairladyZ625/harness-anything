@@ -171,8 +171,8 @@ export function materializationState(
   states: ReadonlyMap<string, MaterializationEntityState> = new Map([[materializationEntityRef(entity.ref), entity]]),
 ): "materialized" | "dematerialized_terminal" {
   return isTerminalMaterializationState(entity) && activeMaterializationHolds(entity, relations, states).length === 0
-    ? "dematerialized_terminal"
-    : "materialized";
+    ? canonicalMaterializationStates[1]
+    : canonicalMaterializationStates[0];
 }
 
 /**

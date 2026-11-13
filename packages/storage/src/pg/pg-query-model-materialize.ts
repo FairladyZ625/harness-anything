@@ -59,6 +59,13 @@ import { reduceSquadRunProjection } from "../projection/rebuildable-task-project
 import { putPgProjectionValue, deletePgProjectionValue, getPgProjectionValue } from "./pg-projection-values.ts";
 import type { PgProjectionEventInput, PgProjectionScope } from "./pg-task-event-materialize.ts";
 import type { TaskLifecycleSnapshot } from "@harness-anything/kernel";
+import {
+  activeMaterializationHolds,
+  materializationEntityRef,
+  terminalDecisionMaterializationStates,
+  type MaterializationEntityState,
+  type MaterializationRelation,
+} from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 
 /** Extend the A3 transaction with the remaining port read models; reducers stay in their shared owners. */
 export async function materializePgQueryModels(
@@ -266,7 +273,14 @@ export async function materializePgQueryModels(
       historical = historicalClaim
         ? await readDocumentClaim(historicalClaim)
         : await get<DocumentState>("document", retirement.path);
-    if (historical) await put("document-history", retirement.path, historical);
+    const owner = materializationOwnerForPath(retirement.path),
+      state = owner ? await pgMaterializationEntityState(client, scope, owner) : null;
+    if (state && !isDocEvent(event) && (await pgMaterializationHeld(client, scope, state))) {
+      if (historical) await put("document", retirement.path, historical);
+      continue;
+    }
+    if (historical && state && !isDocEvent(event)) await put("document-history", retirement.path, historical);
+    else await drop("document-history", retirement.path);
     await drop("document", retirement.path);
     const artifact = artifactRetirementEntry(retirement.path);
     if (artifact !== null) {
@@ -274,6 +288,7 @@ export async function materializePgQueryModels(
       else await flushPgArtifactDocuments(client, scope, [artifact]);
     }
   }
+  await settlePgTerminalMaterialization(client, scope, event);
   if ("presetSnapshotClaim" in event.payload) {
     const claim = event.payload.presetSnapshotClaim as { readonly digest: string; readonly sha256: string },
       bytes = await input.readContentBlob?.(claim.sha256);
@@ -360,6 +375,244 @@ export async function materializePgQueryModels(
           ),
     } as DocumentState;
   }
+}
+
+function materializationOwnerForPath(path: string): string | null {
+  const fact = /^facts\/(F-[0-9A-HJKMNP-TV-Z]{8})\.md$/u.exec(path)?.[1],
+    decision = /^decisions\/decision-([^/]+)\//u.exec(path)?.[1];
+  return fact ? `fact/${fact}` : decision ? `decision/${decision}` : null;
+}
+
+async function pgMaterializationEntityState(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  ref: string,
+): Promise<MaterializationEntityState | null> {
+  const [kind, id] = ref.split("/"),
+    parameters = [scope.tenantId, scope.projectId, scope.policyEpoch, id];
+  if (kind === "decision") {
+    const result = await client.query<{ state: string }>(
+      "SELECT value->>'state' AS state FROM ha_decisions WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND decision_id=$4",
+      parameters,
+    );
+    return result.rows[0] ? { ref, kind, state: result.rows[0].state } : null;
+  }
+  if (kind === "task") {
+    const result = await client.query<{ state: string }>(
+      "SELECT CASE WHEN snapshot#>>'{task,packageDisposition}'='archived' THEN 'archived' ELSE snapshot#>>'{task,status}' END AS state FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND task_id=$4",
+      parameters,
+    );
+    return result.rows[0] ? { ref, kind, state: result.rows[0].state } : null;
+  }
+  if (kind !== "fact") return null;
+  const result = await client.query<{ archived: boolean }>(
+    "SELECT (value->>'archived')::boolean AS archived FROM ha_facts WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND fact_id=$4",
+    parameters,
+  );
+  if (!result.rows[0]) return null;
+  const supersedes = await client.query(
+    "SELECT 1 FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND target_ref=$4 AND relation_type='supersedes-fact' AND relation_state='active' LIMIT 1",
+    [scope.tenantId, scope.projectId, scope.policyEpoch, ref],
+  );
+  return {
+    ref,
+    kind,
+    state: result.rows[0].archived ? "archived" : supersedes.rows.length ? "superseded_fact" : "standing",
+  };
+}
+
+async function pgIncidentMaterializationRelations(client: PoolClient, scope: PgProjectionScope, ref: string) {
+  const result = await client.query<{
+    relation_id: string;
+    source_ref: string;
+    target_ref: string;
+    relation_type: MaterializationRelation["type"];
+    relation_state: string;
+  }>(
+    `SELECT relation_id,source_ref,target_ref,relation_type,relation_state FROM ha_relations
+     WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND
+       (source_ref=$4 OR target_ref=$4 OR
+        (source_ref COLLATE "C">=$5 AND source_ref COLLATE "C"<$6) OR
+        (target_ref COLLATE "C">=$5 AND target_ref COLLATE "C"<$6))`,
+    [scope.tenantId, scope.projectId, scope.policyEpoch, ref, `${ref}/`, `${ref}0`],
+  );
+  return result.rows.map((row) => ({
+    relationId: row.relation_id,
+    source: row.source_ref,
+    target: row.target_ref,
+    type: row.relation_type,
+    state: row.relation_state,
+  }));
+}
+
+async function pgMaterializationHeld(client: PoolClient, scope: PgProjectionScope, entity: MaterializationEntityState) {
+  const relations = await pgIncidentMaterializationRelations(client, scope, entity.ref),
+    states = new Map<string, MaterializationEntityState>([[entity.ref, entity]]);
+  for (const ref of new Set(
+    relations.flatMap(({ source, target }) => [source, target]).map(materializationEntityRef),
+  )) {
+    if (states.has(ref)) continue;
+    const state = await pgMaterializationEntityState(client, scope, ref);
+    if (state) states.set(ref, state);
+  }
+  return activeMaterializationHolds(entity, relations, states).length > 0;
+}
+
+/** Endpoint lifecycle and relation updates unlock only their indexed neighborhood, in the accepting transaction. */
+async function settlePgTerminalMaterialization(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  event: PersistedCanonicalEventV1,
+) {
+  const changed = new Set<string>();
+  if (isFactEvent(event)) changed.add(`fact/${event.factId}`);
+  if (isDecisionEvent(event)) changed.add(`decision/${event.decisionId}`);
+  if (isTaskEvent(event)) changed.add(`task/${event.taskId}`);
+  if (event.schema === "entity-document-event/v1")
+    for (const ref of event.payload.entityRefs) changed.add(materializationEntityRef(ref));
+  const relationIds =
+    event.schema === "relation-event/v1"
+      ? [event.relationId, ...(event.type === "relation_replaced" ? [event.payload.previousRelationId] : [])]
+      : isDecisionEvent(event) &&
+          (event.type === "decision_relation_retired" || event.type === "decision_relation_replaced")
+        ? [
+            event.payload.relationId,
+            ...(event.type === "decision_relation_replaced" ? [event.payload.replacement.relation_id] : []),
+          ]
+        : [];
+  if (relationIds.length) {
+    const rows = await client.query<{ source_ref: string; target_ref: string }>(
+      "SELECT source_ref,target_ref FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND relation_id=ANY($4::text[])",
+      [scope.tenantId, scope.projectId, scope.policyEpoch, relationIds],
+    );
+    for (const row of rows.rows)
+      for (const ref of [row.source_ref, row.target_ref]) changed.add(materializationEntityRef(ref));
+  }
+  if (event.schema === "doc-event/v1") {
+    const packages = [...new Set(event.payload.changes.map(({ path }) => path.split("/").slice(0, 2).join("/")))];
+    const rows = await client.query<{ task_id: string }>(
+      "SELECT task_id FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND package_path=ANY($4::text[])",
+      [scope.tenantId, scope.projectId, scope.policyEpoch, packages],
+    );
+    for (const { task_id } of rows.rows) changed.add(`task/${task_id}`);
+  }
+  if (isFactEvent(event) && event.payload.supersedes) changed.add(event.payload.supersedes.factRef);
+  const candidates = await refreshPgMaterializationHolds(client, scope, [...changed], event.workspaceRevision);
+  await settlePgMaterializationCandidates(client, scope, candidates, event.workspaceRevision);
+}
+
+async function refreshPgMaterializationHolds(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  refs: readonly string[],
+  revision: number,
+) {
+  const edges = new Map<string, Awaited<ReturnType<typeof pgIncidentMaterializationRelations>>[number]>(),
+    candidates = new Set(refs),
+    states = new Map<string, MaterializationEntityState>();
+  for (const ref of refs)
+    for (const edge of await pgIncidentMaterializationRelations(client, scope, ref)) edges.set(edge.relationId, edge);
+  for (const edge of edges.values()) {
+    const entityRefs = [...new Set([edge.source, edge.target].map(materializationEntityRef))];
+    for (const ref of entityRefs) {
+      candidates.add(ref);
+      if (states.has(ref)) continue;
+      const state = await pgMaterializationEntityState(client, scope, ref);
+      if (state) states.set(ref, state);
+    }
+    await client.query(
+      "DELETE FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model='materialization-hold' AND entity_id=$4",
+      [scope.tenantId, scope.projectId, scope.policyEpoch, edge.relationId],
+    );
+    for (const ref of entityRefs) {
+      const state = states.get(ref);
+      if (state && activeMaterializationHolds(state, [edge], states).length)
+        await putPgProjectionValue(client, scope, "materialization-hold", edge.relationId, ref, revision, {});
+    }
+  }
+  return [...candidates];
+}
+
+async function settlePgMaterializationCandidates(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  candidates: readonly string[],
+  revision: number,
+) {
+  for (const ref of candidates) {
+    const state = await pgMaterializationEntityState(client, scope, ref);
+    if (!state) continue;
+    const held =
+        (
+          await client.query(
+            "SELECT 1 FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model='materialization-hold' AND owner_id=$4 LIMIT 1",
+            [scope.tenantId, scope.projectId, scope.policyEpoch, ref],
+          )
+        ).rows.length > 0,
+      terminal =
+        state.kind === "fact"
+          ? ["archived", "superseded_fact"].includes(state.state)
+          : state.kind === "decision"
+            ? (terminalDecisionMaterializationStates as readonly string[]).includes(state.state)
+            : ["archived", "cancelled"].includes(state.state);
+    const active = !terminal || held,
+      model = active ? "document-history" : "document";
+    let prefix = state.kind === "decision" ? `decisions/decision-${ref.slice(9)}/` : `facts/${ref.slice(5)}.md`;
+    if (state.kind === "task") {
+      const row = (
+        await client.query<{ package_path: string }>(
+          "SELECT package_path FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND task_id=$4",
+          [scope.tenantId, scope.projectId, scope.policyEpoch, ref.slice(5)],
+        )
+      ).rows[0];
+      if (!row?.package_path) continue;
+      prefix = `${row.package_path}/`;
+    }
+    const subtree = state.kind !== "fact",
+      rows = await client.query<{ entity_id: string; value: string }>(
+        `SELECT entity_id,value FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+        AND model=$4 AND owner_id='' AND (entity_id=$5 OR (entity_id COLLATE "C">=$5 AND entity_id COLLATE "C"<$6))`,
+        [
+          scope.tenantId,
+          scope.projectId,
+          scope.policyEpoch,
+          model,
+          prefix,
+          subtree ? `${prefix.slice(0, -1)}0` : prefix,
+        ],
+      );
+    for (const row of rows.rows) {
+      await putPgProjectionValue(
+        client,
+        scope,
+        active ? "document" : "document-history",
+        row.entity_id,
+        "",
+        revision,
+        JSON.parse(row.value),
+      );
+      await deletePgProjectionValue(client, scope, model, row.entity_id);
+    }
+  }
+}
+
+/** Existing projections are upgraded from their current rows; event history is never scanned. */
+export async function initializePgTerminalMaterialization(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  revision: number,
+): Promise<void> {
+  if (await getPgProjectionValue(client, scope, "materialization-index", "v1")) return;
+  const rows = await client.query<{ ref: string }>(
+    `SELECT 'fact/'||fact_id AS ref FROM ha_facts WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+      UNION ALL SELECT 'decision/'||decision_id FROM ha_decisions WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+      UNION ALL SELECT 'task/'||task_id FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3`,
+    [scope.tenantId, scope.projectId, scope.policyEpoch],
+  );
+  const refs = rows.rows.map(({ ref }) => ref),
+    candidates = await refreshPgMaterializationHolds(client, scope, refs, revision);
+  await settlePgMaterializationCandidates(client, scope, candidates, revision);
+  await putPgProjectionValue(client, scope, "materialization-index", "v1", "", revision, { version: 1 });
 }
 
 function documentClaimForPath(

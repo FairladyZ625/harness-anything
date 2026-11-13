@@ -488,6 +488,7 @@ export function completionContext(
             actor: binding.actor,
             source: binding.source,
             now: cell.now(),
+            nodeTaskMaterializationPolicy: cell.input.nodeTaskMaterializationPolicy,
             taskId,
           }).rows,
     eligible = rows.filter((row) => row.state === "eligible"),

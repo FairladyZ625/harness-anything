@@ -1,3 +1,4 @@
+import { nodeMaterializationPolicyForMode } from "@harness-anything/kernel/internal/domain/task-wip-policy.ts";
 import { consumeKnownError, type TaskProjection } from "@harness-anything/kernel";
 import { nodeLocalWriteCommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
 import { acquireRepoStorageLock } from "@harness-anything/storage";
@@ -28,6 +29,16 @@ export async function openRepoCellProxy(
   input: RepoCellOpenInput & { readonly onStatus?: (status: ReturnType<RepoCell["status"]>) => void },
   options: { readonly createReadWorker?: RepoReadWorkerFactory } = {},
 ): Promise<RepoCell> {
+  input = {
+    ...input,
+    storage: {
+      ...input.storage,
+      nodeTaskMaterializationPolicy: nodeMaterializationPolicyForMode(
+        input.mode,
+        input.storage?.nodeTaskMaterializationPolicy,
+      ),
+    },
+  };
   const lock = await acquireRepoStorageLock(input.storage, () => acquireWorkspaceLock(input.rootDir), input.repoId);
   let relayRuntimeSignal: NonNullable<RepoCellOpenInput["onRuntimeSignal"]> = () => undefined;
   // Orchestration waiters (runtime batch, agent create, sessions.await) park on these sets; an exit

@@ -105,14 +105,30 @@ export async function projectPgFactLiveness(
       `SELECT target_ref, relation_state FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND relation_type='supersedes-fact' AND target_ref = ANY($4::text[]) AND (cardinality($5::text[])=0 OR readers && $5::text[])`,
       [claims.tenantId, claims.projectId, claims.policyEpoch, rows.map((row) => row.ref), readers],
     );
-  const liveness = relationResult.rows.map((row) => ({
+  const supersessionEdges = relationResult.rows.map((row) => ({
     targetRef: row.target_ref,
     relationType: "supersedes-fact",
     state: row.relation_state,
   }));
+  const documents = await client.query<{ entity_id: string }>(
+      `SELECT entity_id FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+     AND model='document' AND owner_id='' AND entity_id=ANY($4::text[])
+     AND (cardinality($5::text[])=0 OR readers && $5::text[])`,
+      [claims.tenantId, claims.projectId, claims.policyEpoch, rows.map(({ factId }) => `facts/${factId}.md`), readers],
+    ),
+    activePaths = new Set(documents.rows.map(({ entity_id }) => entity_id));
   return rows.map((fact) => {
-    const state = factLiveness(fact, liveness);
-    return { ...fact, state, invalidated: factInvalidated(state), archived: fact.archived === true };
+    const state = factLiveness(fact, supersessionEdges);
+    return {
+      ...fact,
+      state,
+      invalidated: factInvalidated(state),
+      archived: fact.archived === true,
+      materializationState:
+        (fact.archived === true || state === "superseded_fact") && !activePaths.has(`facts/${fact.factId}.md`)
+          ? "dematerialized_terminal"
+          : "materialized",
+    };
   });
 }
 

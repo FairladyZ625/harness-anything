@@ -206,6 +206,7 @@ const taskProjectionTables = Object.freeze(
     "relation_cycle_result",
     "relation_freshness_dirty",
     "relation_edge",
+    "materialization_hold",
     "task_relation",
     "workspace_task_census",
   ].map((table) => projectionTable(table)),

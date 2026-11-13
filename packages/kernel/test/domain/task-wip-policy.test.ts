@@ -1,14 +1,13 @@
 // harness-test-tier: fast
-import assert from "node:assert/strict";
-import test from "node:test";
 import {
-  DEFAULT_TASK_WIP_LIMIT,
-  admitTaskExecutionWip,
+  nodeMaterializationPolicyForMode,
   nodeTaskMaterializationPolicy,
   normalizeNodeTaskMaterializationPolicy,
-  parseTaskWipLimit,
   taskIncludedByNodeMaterializationPolicy,
-} from "../../src/index.ts";
+} from "../../src/domain/task-wip-policy.ts";
+import assert from "node:assert/strict";
+import test from "node:test";
+import { DEFAULT_TASK_WIP_LIMIT, admitTaskExecutionWip, parseTaskWipLimit } from "../../src/index.ts";
 import {
   enteringExecutionWip,
   hasCloseoutEvidence,
@@ -366,4 +365,11 @@ test("suggestions rank inactive review leaves before blocked leaves and exclude 
   const suggestions = admission.message.split("Suggested:")[1].split("Next:")[0];
   assert.match(suggestions, /task_REVIEW.*task_BLOCKED/u);
   assert.doesNotMatch(suggestions, /task_ROOT|task_RUNNING/u);
+});
+
+test("node role defaults and explicit policies come from the Ontology policy", () => {
+  assert.equal(nodeMaterializationPolicyForMode("remote-center"), "none");
+  assert.equal(nodeMaterializationPolicyForMode("remote-edge"), "in_flight");
+  assert.equal(nodeMaterializationPolicyForMode("local"), "include_done");
+  assert.equal(nodeMaterializationPolicyForMode("remote-center", "include_done"), "include_done");
 });

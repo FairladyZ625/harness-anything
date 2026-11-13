@@ -1,3 +1,4 @@
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { stableStringify } from "@harness-anything/kernel";
 import { touch } from "./doc-sync-details.ts";
 import { docSyncError, hasExactDocSyncActionFields, proof, rejectDocSyncAction } from "./doc-sync-files.ts";
@@ -102,7 +103,10 @@ function materializePaths(input: Input): readonly string[] | null | undefined {
   const action = input.action;
   if (typeof action.taskId === "string") {
     const taskFields = Object.hasOwn(action, "paths") ? ["kind", "paths", "taskId"] : ["kind", "taskId"];
-    if (!hasExactDocSyncActionFields(action, taskFields))
+    if (
+      !hasExactDocSyncActionFields(action, taskFields) ||
+      (Object.hasOwn(action, "paths") && (!Array.isArray(action.paths) || action.paths.length > 0))
+    )
       throw docSyncError(
         "invalid_command",
         `doc materialize --task cannot be combined with another selection (fields: ${Object.keys(action).sort().join(", ")})`,
@@ -110,10 +114,21 @@ function materializePaths(input: Input): readonly string[] | null | undefined {
     const task = input.projection.read(action.taskId);
     if (!task.snapshot.task || task.packagePath === null)
       throw docSyncError("entity_not_found", `Task ${action.taskId} has no materialized package path`);
-    const documents = input.projection.readDocuments(task.packagePath);
-    if (documents.status !== "ready")
-      throw docSyncError("projection_pending", `Task ${action.taskId} document projection is still catching up`);
-    return documents.documents.map(({ path }) => path);
+    const paths: string[] = [];
+    let afterPath: string | undefined;
+    for (;;) {
+      const documents = input.projection.readDocuments(`${task.packagePath}/`, {
+        limit: storageReadPolicy.defaultValue.pageSizes.standard,
+        includeHistory: true,
+        ...(afterPath === undefined ? {} : { afterPath }),
+      });
+      if (documents.status !== "ready" || documents.watermark !== documents.sourceRevision)
+        throw docSyncError("projection_pending", `Task ${action.taskId} document projection is still catching up`);
+      paths.push(...documents.documents.map(({ path }) => path));
+      if (documents.page!.nextPath === null) break;
+      afterPath = documents.page!.nextPath;
+    }
+    return paths;
   }
   const selection = (fields: readonly string[]): readonly string[] | null | undefined => {
     if (!Array.isArray(action.paths) || action.paths.some((p) => typeof p !== "string"))

@@ -57,7 +57,12 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
   const documents = async (
     client: PoolClient,
     prefix: string,
-    page?: { readonly limit: number; readonly afterPath?: string },
+    page?: {
+      readonly limit: number;
+      readonly afterPath?: string;
+      readonly includeHistory?: boolean;
+      readonly excludeTaskPackages?: boolean;
+    },
   ) => {
     const upper = prefixUpperBound(prefix),
       values: unknown[] = [
@@ -71,12 +76,16 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
       after = page?.afterPath,
       afterPredicate = after === undefined ? "" : `AND entity_id COLLATE "C" > $${values.push(after)}`,
       limitClause = page === undefined ? "" : `LIMIT $${values.push(checkedPageLimit(page.limit, 500) + 1)}`,
+      range = `entity_id COLLATE "C" >= $5 ${upper === null ? "" : 'AND entity_id COLLATE "C" < $6'}`,
+      model = page?.includeHistory ? "model IN ('document','document-history')" : "model='document'",
+      readersPredicate = "cardinality($4::text[])=0 OR readers && $4::text[]",
+      taskExcluded = page?.excludeTaskPackages
+        ? `SELECT entity_id, document_metadata FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${model} AND owner_id='' AND ${range} AND ${readersPredicate} AND entity_id COLLATE "C" < 'tasks/'
+           UNION ALL
+           SELECT entity_id, document_metadata FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${model} AND owner_id='' AND ${range} AND ${readersPredicate} AND entity_id COLLATE "C" >= 'tasks0'`
+        : `SELECT entity_id, document_metadata FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${model} AND owner_id='' AND ${range} AND ${readersPredicate}`,
       result = await client.query<{ value: string | null }>(
-        `SELECT document_metadata AS value FROM ha_projection_values
-         WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model='document'
-           AND owner_id='' AND entity_id COLLATE "C" >= $5
-           ${upper === null ? "" : 'AND entity_id COLLATE "C" < $6'}
-           AND (cardinality($4::text[])=0 OR readers && $4::text[])
+        `SELECT document_metadata AS value FROM (${taskExcluded}) AS materialized_documents
          ${afterPredicate} ORDER BY entity_id COLLATE "C" ${limitClause}`,
         values,
       );

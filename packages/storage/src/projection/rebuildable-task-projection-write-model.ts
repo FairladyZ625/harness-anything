@@ -26,23 +26,21 @@ import {
   reduceDecisionEvent,
   refreshDecisionDocumentSearch,
 } from "./decision-event-projection.ts";
-import { factMaterializationHeld, readFactRow, reduceFactEvent } from "./fact-event-projection.ts";
-import { decisionMaterializationHeld } from "./decision-projection-admission.ts";
-import {
-  materializationEntityRef,
-  terminalDecisionMaterializationStates,
-} from "@harness-anything/kernel/internal/domain/entity-relation.ts";
+import { factMaterializationHeld, reduceFactEvent } from "./fact-event-projection.ts";
+import { decisionMaterializationHeld, refreshMaterializationHolds } from "./decision-projection-admission.ts";
+import { terminalDecisionMaterializationStates } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 import { refreshTaskRelationProjection } from "./task-query-projection.ts";
 import type { EventStreamPort } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
 import { canonicalJson, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 import { projectInterpretedEntityValue } from "./rebuildable-task-projection-entities.ts";
 import { readRuntimeSession, readSnapshot } from "./rebuildable-task-projection-runtime.ts";
 import { applyRelationProjectionEvent } from "./relation-entity-projection.ts";
-import { canonicalDocumentClaims } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "@harness-anything/kernel";
 
-const DOCUMENT_BASE_SQL = "SELECT json_extract(value_json, '$.blobSha256') AS blob_sha256 FROM document WHERE path = ?";
+const DOCUMENT_BASE_SQL =
+  "SELECT json_extract(value_json, '$.blobSha256') AS blob_sha256 FROM " +
+  "(SELECT path,value_json FROM document UNION ALL SELECT path,value_json FROM document_history) WHERE path = ? LIMIT 1";
 const UPSERT_DOCUMENT_SQL = [
   "INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?)",
   "ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision,",
@@ -255,7 +253,7 @@ export function projectDecision(
     event.workspaceRevision,
     eventJson,
   );
-  const terminal = !canonicalDocumentClaims(event).some(({ path }) => path === claim.path),
+  const terminal = (terminalDecisionMaterializationStates as readonly string[]).includes(state.state),
     held = terminal && decisionMaterializationHeld(db, event.decisionId, state.state);
   if (terminal && !held) {
     storeHistoricalDocument(db, document);
@@ -280,8 +278,7 @@ export function projectDecision(
         policyId: change.policyId,
         workspaceRevision: event.workspaceRevision,
       };
-      const carriedTerminal = !canonicalDocumentClaims(event).some(({ path }) => path === change.path);
-      if (carriedTerminal && !held) storeHistoricalDocument(db, carriedDocument);
+      if (terminal && !held) storeHistoricalDocument(db, carriedDocument);
       else {
         upsertActiveDocument(db, change.path, event.workspaceRevision, carriedDocument);
         refreshDecisionDocumentSearch(db, carriedDocument);
@@ -294,34 +291,78 @@ export function projectDecision(
 export function settleTerminalMaterializationForEvent(db: DatabaseSync, event: PersistedCanonicalEventV1): void {
   const changedRefs = materializationReleaseRefs(db, event);
   if (changedRefs.length === 0) return;
-  const candidates = new Set<string>();
-  for (const ref of changedRefs) {
-    const normalized = ref.startsWith("decision/") ? `decision/${ref.split("/")[1]}` : ref;
-    candidates.add(normalized);
-    for (const edge of incidentMaterializationRelations(db, normalized)) {
-      candidates.add(materializationEntityRef(edge.source));
-      candidates.add(materializationEntityRef(edge.target));
-    }
-  }
+  settleTerminalMaterialization(db, refreshMaterializationHolds(db, changedRefs), event.workspaceRevision);
+}
+
+function settleTerminalMaterialization(db: DatabaseSync, candidates: readonly string[], revision: number): void {
+  const held = (ref: string) =>
+    queryRows(db, "SELECT 1 FROM materialization_hold WHERE owner_ref=? LIMIT 1", ref).length > 0;
   for (const ref of candidates) {
     const decision = ref.match(/^decision\/([^/]+)$/u)?.[1],
-      fact = ref.match(/^fact\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u)?.[1];
+      fact = ref.match(/^fact\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u)?.[1],
+      taskId = ref.match(/^task\/([^/]+)$/u)?.[1];
     if (fact) {
-      const row = readFactRow(db, fact),
-        terminalState = row?.archived ? "archived" : row?.state === "superseded_fact" ? "superseded_fact" : null;
-      if (terminalState && !factMaterializationHeld(db, ref, terminalState))
-        archiveDocument(db, `facts/${fact}.md`, event.workspaceRevision);
+      const row = queryRows<{ archived: number }>(
+          db,
+          "SELECT json_extract(row_json,'$.archived') AS archived FROM fact WHERE fact_id=?",
+          fact,
+        )[0],
+        terminal =
+          row?.archived ||
+          queryRows(
+            db,
+            "SELECT 1 FROM relation_edge WHERE relation_type='supersedes-fact' AND target_ref=? AND state='active' LIMIT 1",
+            ref,
+          ).length > 0;
+      if (row) settleDocumentPrefix(db, `facts/${fact}.md`, revision, !terminal || held(ref), false);
     } else if (decision) {
-      const state = readDecisionDocumentState(db, decision);
-      if (
-        state &&
-        (terminalDecisionMaterializationStates as readonly string[]).includes(state.state) &&
-        !decisionMaterializationHeld(db, decision, state.state)
-      ) {
-        archiveDocument(db, `decisions/decision-${decision}/decision.md`, event.workspaceRevision);
-        archiveDecisionCarriedDocuments(db, decision, event.workspaceRevision);
+      const state = queryRows<{ readonly state: string }>(
+        db,
+        "SELECT state FROM decision WHERE decision_id=?",
+        decision,
+      )[0];
+      if (state)
+        settleDocumentPrefix(
+          db,
+          `decisions/decision-${decision}/`,
+          revision,
+          !(terminalDecisionMaterializationStates as readonly string[]).includes(state.state) || held(ref),
+        );
+    } else if (taskId) {
+      const task = readSnapshot(db, taskId).task,
+        packagePath = queryRows(db, "SELECT package_path FROM task_package WHERE task_id=?", taskId)[0]?.package_path;
+      if (task && packagePath) {
+        settleDocumentPrefix(
+          db,
+          `${packagePath}/`,
+          revision,
+          (task.status !== "cancelled" && task.packageDisposition !== "archived") || held(ref),
+        );
       }
     }
+  }
+}
+
+/** Move the current document descriptors between active and historical indexes; blobs never change. */
+function settleDocumentPrefix(
+  db: DatabaseSync,
+  prefix: string,
+  revision: number,
+  active: boolean,
+  subtree = true,
+): void {
+  const source = active ? "document_history" : "document";
+  for (const row of queryRows<{ readonly path: string; readonly value_json: string }>(
+    db,
+    active
+      ? `SELECT history.path,history.value_json FROM document_history AS history
+         WHERE ${subtree ? "history.path>=? AND history.path<?" : "history.path=?"}
+           AND NOT EXISTS (SELECT 1 FROM document AS current WHERE current.path=history.path)`
+      : `SELECT path,value_json FROM ${source} WHERE ${subtree ? "path>=? AND path<?" : "path=?"}`,
+    ...(subtree ? [prefix, `${prefix.slice(0, -1)}0`] : [prefix]),
+  )) {
+    if (active) upsertActiveDocument(db, row.path, revision, JSON.parse(row.value_json) as DocumentState);
+    else archiveDocument(db, row.path, revision);
   }
 }
 
@@ -367,35 +408,33 @@ function materializationReleaseRefs(db: DatabaseSync, event: PersistedCanonicalE
     ).includes(event.type)
   )
     return [`decision/${event.decisionId}`];
+  if (event.schema === "entity-document-event/v1")
+    return event.payload.entityRefs.map((ref) => ref.replace(/^task\/([^/]+)\/.*$/u, "task/$1"));
+  if (event.schema === "fact-event/v1")
+    return [`fact/${event.factId}`, ...(event.payload.supersedes ? [event.payload.supersedes.factRef] : [])];
+  if (event.schema === "decision-event/v1") return [`decision/${event.decisionId}`];
   if (event.schema === "task-event/v1") {
     const row = queryRows<{ readonly status: string | null; readonly disposition: string | null }>(
       db,
       "SELECT status,json_extract(snapshot_json,'$.task.packageDisposition') AS disposition FROM task_snapshot WHERE task_id=?",
       event.taskId,
     )[0];
-    return row && (["done", "cancelled"].includes(row.status ?? "") || row.disposition === "archived")
-      ? [`task/${event.taskId}`]
-      : [];
+    return row ? [`task/${event.taskId}`] : [];
   }
+  if (event.schema === "doc-event/v1")
+    return [
+      ...new Set(
+        event.payload.changes.flatMap(({ path }) => {
+          const row = queryRows<{ readonly task_id: string }>(
+            db,
+            "SELECT task_id FROM task_package WHERE package_path=?",
+            path.split("/").slice(0, 2).join("/"),
+          )[0];
+          return row ? [`task/${row.task_id}`] : [];
+        }),
+      ),
+    ];
   return [];
-}
-
-function incidentMaterializationRelations(
-  db: DatabaseSync,
-  ref: string,
-): readonly { readonly source: string; readonly target: string }[] {
-  const decision = ref.match(/^decision\/([^/]+)$/u)?.[1],
-    exact = decision ? `decision/${decision}` : ref,
-    prefix = decision ? `${exact}/*` : `${exact}/__no_clause__`;
-  return queryRows<{ readonly source_ref: string; readonly target_ref: string }>(
-    db,
-    "SELECT source_ref,target_ref FROM relation_edge WHERE source_ref=? OR source_ref GLOB ? " +
-      "OR target_ref=? OR target_ref GLOB ?",
-    exact,
-    prefix,
-    exact,
-    prefix,
-  ).map(({ source_ref: source, target_ref: target }) => ({ source, target }));
 }
 
 export function projectEntityDocumentRematerialization(
@@ -717,4 +756,22 @@ function hasTaskSnapshot(db: DatabaseSync, taskId: string): boolean {
       .prepare("SELECT json_type(snapshot_json, '$.task') AS task_type FROM task_snapshot WHERE task_id = ?")
       .get(taskId) as { readonly task_type: string | null } | undefined;
   return row !== undefined && row.task_type !== null && row.task_type !== "null";
+}
+
+/** One projection-only upgrade: classify existing current rows, never replay event history. */
+export function initializeTerminalMaterialization(db: DatabaseSync): void {
+  const key = "terminal-materialization-v1";
+  if (queryRows(db, "SELECT 1 FROM projection_maintenance WHERE key=?", key).length) return;
+  const refs = queryRows<{ ref: string }>(
+    db,
+    "SELECT 'fact/'||fact_id AS ref FROM fact UNION ALL SELECT 'decision/'||decision_id FROM decision UNION ALL SELECT 'task/'||task_id FROM task_snapshot",
+  ).map(({ ref }) => ref);
+  const candidates = refreshMaterializationHolds(db, refs);
+  const revision = Number(queryRows(db, "SELECT watermark FROM projection_meta WHERE singleton=1")[0]?.watermark ?? 0);
+  settleTerminalMaterialization(db, candidates, revision);
+  runSql(
+    db,
+    "INSERT INTO projection_maintenance(key,completed_at) VALUES (?,strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
+    key,
+  );
 }

@@ -14,6 +14,9 @@ test("large ref sets filter before limit, preserve order, and never decode unrel
   const db = new DatabaseSync(":memory:");
   try {
     createFactProjectionTables(db);
+    db.exec(
+      "CREATE TABLE IF NOT EXISTS document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS document_history (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL)",
+    );
     createRelationGraphProjectionTables(db);
     const insert = db.prepare(
       "INSERT INTO fact(task_id,fact_id,ref,statement,evidence_source,observed_at,confidence,memory_class,op_id,workspace_revision,row_json) VALUES(NULL,?,?,?,'fixture',?,'high','semantic',?,1,?)",

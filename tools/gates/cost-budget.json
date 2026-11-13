@@ -449,6 +449,32 @@
           "measurements": [
             "task-witness-run:frozen-gates"
           ]
+        },
+        "task-transition": {
+          "measurements": [
+            "task-transition:materialization-degree"
+          ]
+        },
+        "task-complete": {
+          "measurements": [
+            "task-complete:materialization-degree"
+          ]
+        },
+        "task-archive": {
+          "measurements": [
+            "task-archive:materialization-degree"
+          ]
+        },
+        "relation-unrelate": {
+          "measurements": [
+            "relation-unrelate:materialization-degree"
+          ]
+        },
+        "doc-materialize": {
+          "measurements": [
+            "doc-materialize:cold-history",
+            "doc-materialize:none-history"
+          ]
         }
       },
       "notApplicable": [

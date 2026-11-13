@@ -11,6 +11,7 @@ import { createPgStorageBackend } from "./backend.ts";
 import type { PostgresTaskEventStoreRequest } from "../postgres/pg-task-event-store.ts";
 import type { CanonicalEventV1, LeaseV1 } from "@harness-anything/kernel";
 import { changePgLease } from "./pg-lease-cas.ts";
+import { initializePgTerminalMaterialization } from "./pg-query-model-materialize.ts";
 import { rebuildPgProjection } from "./pg-task-event-materialize.ts";
 import { backfillPgArtifactDocuments } from "./pg-artifact-timeline.ts";
 import { backfillPgDispatchLifecycle } from "./pg-dispatch-lifecycle.ts";
@@ -187,6 +188,15 @@ function startWorker(
         );
         if (page.done) break;
       }
+    if (!borrowedReadOnly)
+      await withPostgresTransaction(
+        pool,
+        async (client) => {
+          const cut = await readCutInTransaction(client, input.scope, input.scope.readers ?? [], input.repoId);
+          await initializePgTerminalMaterialization(client, input.scope, cut.watermark);
+        },
+        input.scope,
+      );
     source = createPgTaskProjectionSource({
       pool: sessionPool(),
       scope: input.scope,

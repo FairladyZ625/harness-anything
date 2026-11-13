@@ -183,7 +183,7 @@
         "explain": "SQLite event-cut adapter reads the preceding document and relation witnesses and delegates the entire admission verdict to kernel assertDecisionAdmissionAtCut; no present-day Decision acceptance is applied to historical decoding.",
         "sources": [
           {
-            "candidateId": "judgment:packages/storage:packages/storage/src/projection/decision-projection-admission.ts#assertDecisionAdmission:5f914b5b7b98257495b8c62c5f638e67",
+            "candidateId": "judgment:packages/storage:packages/storage/src/projection/decision-projection-admission.ts#assertDecisionAdmission:4ac1167544ae1ee34b23b543ab316452",
             "route": "packages/storage/src/projection/decision-projection-admission.ts#assertDecisionAdmission"
           }
         ]
@@ -5608,7 +5608,7 @@
         "explain": "fact-event: Versioned fact-event.ts input envelope and declared publication contract.",
         "sources": [
           {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/fact-event.ts#validateFactEventFields:fe7380277ea705a7c9d3a680a6d7e407",
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/fact-event.ts#validateFactEventFields:f02d8825c9e0f82de3fac95dd0ae174f",
             "route": "packages/kernel/src/domain/fact-event.ts#validateFactEventFields"
           }
         ]

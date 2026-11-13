@@ -113,9 +113,12 @@ function countingDatabase(): {
 function seed(db: DatabaseSync, decisions: number, facts: number): void {
   createRelationGraphProjectionTables(db);
   createFactProjectionTables(db);
+  db.exec(
+    "CREATE TABLE IF NOT EXISTS document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS document_history (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL)",
+  );
   createDecisionProjectionTables(db);
   db.exec(
-    "CREATE TABLE projection_meta (singleton INTEGER PRIMARY KEY CHECK(singleton=1), watermark INTEGER NOT NULL, scan_cursor TEXT, scanned_revision INTEGER NOT NULL); CREATE TABLE document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL)",
+    "CREATE TABLE projection_meta (singleton INTEGER PRIMARY KEY CHECK(singleton=1), watermark INTEGER NOT NULL, scan_cursor TEXT, scanned_revision INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL)",
   );
   db.exec("INSERT INTO projection_meta VALUES (1, 1, NULL, 1)");
   const applies = JSON.stringify({ modules: ["kernel"], productLines: [] }),
@@ -480,6 +483,9 @@ test("agenda source pages use covering keyset indexes and fetch only limit plus 
   try {
     createRelationGraphProjectionTables(db);
     createFactProjectionTables(db);
+    db.exec(
+      "CREATE TABLE IF NOT EXISTS document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS document_history (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL)",
+    );
     createDecisionProjectionTables(db);
     db.exec(`
       CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, snapshot_json TEXT NOT NULL,
@@ -615,6 +621,9 @@ test("task context collection reads stay indexed, bounded, and constant in state
   try {
     createRelationGraphProjectionTables(db);
     createFactProjectionTables(db);
+    db.exec(
+      "CREATE TABLE IF NOT EXISTS document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS document_history (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL)",
+    );
     createDecisionProjectionTables(db);
     createTaskRelationProjectionTable(db);
     const insertTask = db.prepare(
@@ -872,7 +881,7 @@ test("retired people documents cannot witness current Person identity", () => {
   const db = new DatabaseSync(":memory:");
   try {
     db.exec(
-      "CREATE TABLE document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL)",
+      "CREATE TABLE IF NOT EXISTS document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL)",
     );
     const refs = ["person/person_owner", "person/person_missing"];
     assert.deepEqual(

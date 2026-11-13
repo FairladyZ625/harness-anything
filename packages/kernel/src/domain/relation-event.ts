@@ -528,6 +528,7 @@ function taskRelationEventsForReplay(event: TaskEventV1): readonly RelationEvent
 }
 
 function factRelationEventsForReplay(event: FactEventV1): readonly RelationEventV1[] {
+  if (event.type !== "fact_recorded") return [];
   const ownRef = factRef(event.factId),
     records: EntityRelationRecord[] = [];
   if (event.payload.supersedes) {

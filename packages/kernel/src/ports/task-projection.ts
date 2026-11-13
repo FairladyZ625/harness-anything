@@ -323,7 +323,12 @@ export interface TaskProjection {
   ) => Pick<CanonicalEventV1, "workspaceRevision" | "occurredAt" | "actor" | "source"> | null;
   readonly readDocuments: (
     prefix: string,
-    page?: { readonly limit: number; readonly afterPath?: string },
+    page?: {
+      readonly limit: number;
+      readonly afterPath?: string;
+      readonly includeHistory?: boolean;
+      readonly excludeTaskPackages?: boolean;
+    },
   ) => {
     readonly status: ReadSet.ReadSetProjectionCut["status"];
     readonly documents: readonly {

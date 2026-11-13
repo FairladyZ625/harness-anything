@@ -13,6 +13,8 @@ const stateDigestTables = [
   ["event_summary", "workspace_revision"],
   ["artifact_entity_state", "entity_kind, entity_id"],
   ["document", "path"],
+  ["document_history", "path"],
+  ["materialization_hold", "owner_ref, relation_id"],
   ["preset_snapshot", "digest"],
   ["runtime_installation", "installation_id"],
   ["runtime_session", "runtime_session_id"],
@@ -99,8 +101,8 @@ export function readStateDigest(db: DatabaseSync, sourceRevision: number): `sha2
     let digest = sha256Text("task-projection-state/v1");
     for (const [table, order] of stateDigestTables) {
       digest = sha256Text(`${digest}\n${table}`);
-      if (table === "document") {
-        digest = digestDocumentRows(db, digest);
+      if (table === "document" || table === "document_history") {
+        digest = digestDocumentRows(db, digest, table);
         continue;
       }
       // Disposable event lookup fields are not part of the pre-expansion state fingerprint.
@@ -114,10 +116,10 @@ export function readStateDigest(db: DatabaseSync, sourceRevision: number): `sha2
   });
 }
 
-function digestDocumentRows(db: DatabaseSync, digest: string): string {
+function digestDocumentRows(db: DatabaseSync, digest: string, table: "document" | "document_history"): string {
   const documents = prepareQuery(
       db,
-      "SELECT path, workspace_revision, length(CAST(value_json AS BLOB)) AS value_json_bytes FROM document ORDER BY path",
+      `SELECT path, workspace_revision, length(CAST(value_json AS BLOB)) AS value_json_bytes FROM ${table} ORDER BY path`,
     ).iterate() as Iterable<{
       readonly path: string;
       readonly workspace_revision: number;
@@ -125,7 +127,7 @@ function digestDocumentRows(db: DatabaseSync, digest: string): string {
     }>,
     chunkQuery = prepareQuery(
       db,
-      "SELECT substr(CAST(value_json AS BLOB), ?, ?) AS chunk FROM document WHERE path = ?",
+      `SELECT substr(CAST(value_json AS BLOB), ?, ?) AS chunk FROM ${table} WHERE path = ?`,
     );
   for (const { path, workspace_revision, value_json_bytes } of documents) {
     function* readChunks(): Iterable<Uint8Array> {

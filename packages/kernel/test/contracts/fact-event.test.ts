@@ -2,6 +2,7 @@
 import type { FactEventDraftV1, FactEventV1 } from "../../src/domain/fact-event.ts";
 import type { DecisionEventDraftV1 } from "../../src/domain/decision-event-types.ts";
 import type { DecisionEventV1 } from "../../src/domain/decision-event.ts";
+import { embeddedRelationEventsForReplay } from "../../src/domain/relation-event.ts";
 import { FactEventSchema } from "../../src/schemas/fact-event.ts";
 import assert from "node:assert/strict";
 import { Schema } from "effect";
@@ -188,6 +189,7 @@ test("Fact compiler renders one exact machine-owned document per fact", () => {
       event: secondDraft,
       supersededFact: {
         factId: draft.factId,
+        baseDocumentSha256: compileFactWrite({ event: draft }).event.payload.factsDocumentClaim!.sha256,
         taskId: draft.taskId,
         statement: draft.payload.statement,
         evidenceSource: draft.payload.evidenceSource,
@@ -202,13 +204,17 @@ test("Fact compiler renders one exact machine-owned document per fact", () => {
   assert.match(second.blobs[1]!.body, /State: superseded_fact/u);
   assert.match(second.blobs[1]!.body, /Superseded by: fact\/F-BCDEFGHJ \(New evidence\)/u);
   assert.equal(second.event.payload.supersededFactsDocumentClaim?.path, "facts/F-ABCDEFGH.md");
+  assert.deepEqual(second.event.payload.supersededFactsDocumentRetirement, {
+    path: "facts/F-ABCDEFGH.md",
+    sha256: compileFactWrite({ event: draft }).event.payload.factsDocumentClaim!.sha256,
+  });
   assert.deepEqual(
     second.plan.targets.find((target) => target.path === "facts/F-ABCDEFGH.md"),
     {
       kind: "authored_file_delete",
       path: "facts/F-ABCDEFGH.md",
       operation: "delete",
-      baseSha256: second.event.payload.supersededFactsDocumentClaim?.sha256,
+      baseSha256: second.event.payload.supersededFactsDocumentRetirement?.sha256,
     },
   );
   assert.ok(
@@ -532,7 +538,6 @@ test("active canonical holds defer terminal document retirement without blocking
       domainTypes: [],
       supersededTarget: null,
       relations: [],
-      materializationHeld: true,
     };
   assert.doesNotThrow(() => assertFactAdmissionAtCut(factState, archive));
 
@@ -543,7 +548,6 @@ test("active canonical holds defer terminal document retirement without blocking
         document: { state: "in_effect" } as DecisionDocumentState,
         hasSupersedes: false,
         relations: [],
-        materializationHeld: true,
       },
       terminalDecision,
     ),
@@ -801,4 +805,11 @@ test("#1546: a rejected Decision proposal names every field that is actually wro
   assert.deepEqual(validateDecisionEvent({ ...decision.event, payload: missing }), [
     "decision proposal requires exactly: title, question, riskTier, urgency, vertical, preset, appliesTo, decisionClass, chosen, rejected, body, claims, fulfillments, relations, provenance",
   ]);
+});
+
+test("Fact archival and unarchival never recreate generated owner or supersession relations", () => {
+  const event = compileFactWrite({ event: draft }).event;
+  assert.equal(embeddedRelationEventsForReplay(event).length, 1);
+  for (const type of ["fact_archived", "fact_unarchived"] as const)
+    assert.deepEqual(embeddedRelationEventsForReplay({ ...event, type }), []);
 });

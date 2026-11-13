@@ -2,7 +2,10 @@ import type { PoolClient } from "pg";
 import type { DecisionProjectionRow } from "@harness-anything/kernel/internal/ports/decision-projection-model.ts";
 import type { EntityRelationRecord } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 import { decisionDocumentProse } from "@harness-anything/kernel/internal/domain/decision-event.ts";
-import { relationOwnerRef } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
+import {
+  relationOwnerRef,
+  terminalDecisionMaterializationStates,
+} from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 import {
   decisionCapabilities,
   decisionClaimsOpen,
@@ -14,7 +17,7 @@ import { decisionLegacyId } from "../projection/decision-projection-reads.ts";
 export async function readPgDecisionRows(
   client: PoolClient,
   scope: PgProjectionScope,
-  repoId: string,
+  _repoId: string,
   rows: readonly { readonly decision_id: string; readonly value: Record<string, unknown> }[],
   withBody: boolean,
 ): Promise<readonly DecisionProjectionRow[]> {
@@ -34,43 +37,30 @@ export async function readPgDecisionRows(
        ) edge ORDER BY edge.relation_id`,
       [scope.tenantId, scope.projectId, scope.policyEpoch, ids.map((id) => `decision/${id}`), readers],
     ),
-    documents = withBody
-      ? await client.query<{
-          path: string;
-          sha256: string;
-          size: string;
-          revision: string;
-          body: Buffer;
-        }>(
-          `SELECT head.path, head.sha256, head.size::text, head.revision::text, blob.body
-       FROM ha_document_heads head JOIN ha_content_blobs blob
-         ON blob.tenant_id=head.tenant_id AND blob.project_id=head.project_id AND blob.sha256=head.sha256
-       WHERE head.tenant_id=$1 AND head.project_id=$2 AND head.repo_id=$3 AND head.policy_epoch=$4
-         AND head.path=ANY($5::text[])
-         AND (cardinality($6::text[])=0 OR (head.readers && $6::text[] AND blob.readers && $6::text[]))`,
-          [
-            scope.tenantId,
-            scope.projectId,
-            repoId,
-            scope.policyEpoch,
-            ids.map((id) => `decisions/decision-${id}/decision.md`),
-            readers,
-          ],
-        )
-      : { rows: [] };
-  const bodyByPath = new Map(
-    documents.rows.map((row) => [
-      row.path,
-      {
-        path: row.path,
-        blobSha256: row.sha256,
-        size: Number(row.size),
-        mediaType: "text/markdown",
-        body: decisionDocumentProse(row.body.toString("utf8")),
-        workspaceRevision: Number(row.revision),
-      },
-    ]),
-  );
+    documents = await client.query<{ entity_id: string; model: string; value: string }>(
+      `SELECT entity_id,model,${withBody ? "value" : "'{}' AS value"} FROM ha_projection_values
+       WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND owner_id=''
+         AND model=ANY($4::text[]) AND entity_id=ANY($5::text[])
+         AND (cardinality($6::text[])=0 OR readers && $6::text[])`,
+      [
+        scope.tenantId,
+        scope.projectId,
+        scope.policyEpoch,
+        withBody ? ["document", "document-history"] : ["document"],
+        ids.map((id) => `decisions/decision-${id}/decision.md`),
+        readers,
+      ],
+    );
+  const activePaths = new Set(
+      documents.rows.filter(({ model }) => model === "document").map(({ entity_id }) => entity_id),
+    ),
+    bodyByPath = new Map<string, DecisionProjectionRow["body"]>();
+  if (withBody)
+    for (const { entity_id, model, value } of documents.rows) {
+      if (model === "document-history" && activePaths.has(entity_id)) continue;
+      const document = JSON.parse(value) as NonNullable<DecisionProjectionRow["body"]>;
+      bodyByPath.set(entity_id, { ...document, body: decisionDocumentProse(document.body) });
+    }
   const relationsByOwner = new Map<string, EntityRelationRecord[]>();
   for (const { value: relation } of relations.rows) {
     const owner = relationOwnerRef(String(relation.source)),
@@ -92,6 +82,10 @@ export async function readPgDecisionRows(
     const row = decisionProjectionRow(decision_id, value);
     return {
       ...row,
+      materializationState:
+        (terminalDecisionMaterializationStates as readonly string[]).includes(row.state) && !activePaths.has(row.path)
+          ? "dematerialized_terminal"
+          : "materialized",
       body: bodyByPath.get(row.path) ?? null,
       relations: relationsByOwner.get(`decision/${decision_id}`) ?? [],
     };

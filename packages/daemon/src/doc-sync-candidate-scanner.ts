@@ -3,7 +3,7 @@ import {
   /* @gate-identity check-sync-subprocess/sync-subprocess-006 */
   execFileSync,
 } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { findCanonicalLedgerGitLayout, localGitWorktreeSettlement } from "@harness-anything/storage";
 import {
@@ -32,6 +32,8 @@ import {
   type TaskProjection,
   type WriteSource,
 } from "@harness-anything/kernel";
+import type { NodeTaskMaterializationPolicy } from "@harness-anything/kernel/internal/domain/task-wip-policy.ts";
+import { projectedTaskMaterializationState } from "./repo-cell-completion.ts";
 import { blockedCandidateNextAction } from "./doc-sync-details.ts";
 import { docSyncError } from "./doc-sync-files.ts";
 import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
@@ -94,6 +96,7 @@ export function scanDocCandidates(input: {
   readonly taskId?: string;
   readonly executionId?: string;
   readonly inventory?: AuthoredCandidateInventoryV1;
+  readonly nodeTaskMaterializationPolicy?: NodeTaskMaterializationPolicy;
 }): DocCandidateScan {
   const layout = resolveHarnessLayout(input.rootDir),
     ledger = findCanonicalLedgerGitLayout(input.rootDir, input.store),
@@ -124,7 +127,7 @@ export function scanDocCandidates(input: {
                 ? []
                 : [
                     ...authoredTreePaths(layout, enumerationScope),
-                    ...input.projection.readDocuments(enumerationScope).documents.map((doc) => doc.path),
+                    ...materializedPaths(layout.localRoot).filter((path) => path.startsWith(enumerationScope)),
                     ...conflictsByPath.keys(),
                   ]),
             ...(input.inventory?.rows.map((row) => row.path) ?? []),
@@ -206,6 +209,32 @@ export function scanDocCandidates(input: {
             ? null
             : sha256Bytes(canonicalProseBytes(inventoried.baseBytes, effective?.policyId)),
       candidate = bytes === null ? null : sha256Bytes(bytes);
+    if (
+      candidate === null &&
+      projected.document !== null &&
+      (input.nodeTaskMaterializationPolicy === "none" ||
+        (claimingTaskId !== null &&
+          (() => {
+            const task = input.projection.read(claimingTaskId).snapshot.task;
+            return (
+              task !== null &&
+              projectedTaskMaterializationState(
+                input.projection,
+                { ...task, packagePath: input.projection.read(claimingTaskId).packagePath },
+                input.nodeTaskMaterializationPolicy ?? "include_done",
+                document,
+              ) !== "materialized"
+            );
+          })()))
+    )
+      return scannedCandidateRow(
+        "clean",
+        "not materialized by node policy",
+        null,
+        base,
+        null,
+        effective?.mediaType ?? null,
+      );
     if (inspection.kind === "route-owned") {
       if (safe && candidate !== null && candidate === current)
         return scannedCandidateRow("clean", null, bytes, base, candidate, effective?.mediaType ?? null);
@@ -718,4 +747,11 @@ function candidateByteReader(store: CanonicalEventStore, cut: LedgerCutIdentity,
     files.set(target, { identity, bytes });
     return bytes;
   };
+}
+
+/** A missing file is a deletion candidate only if this node previously materialized it. */
+function materializedPaths(localRoot: string): readonly string[] {
+  const marker = path.join(localRoot, "fleet-materialized.json");
+  if (!existsSync(marker)) return [];
+  return Object.keys((JSON.parse(readFileSync(marker, "utf8")) as { entries?: Record<string, string> }).entries ?? {});
 }

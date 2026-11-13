@@ -304,7 +304,7 @@ export function projectionFixture(rootDir: string) {
 export function decisionProjectionDatabase(): DatabaseSync {
   const db = new DatabaseSync(":memory:");
   db.exec(
-    "CREATE TABLE projection_meta (singleton INTEGER PRIMARY KEY, watermark INTEGER NOT NULL); INSERT INTO projection_meta VALUES (1, 1); CREATE TABLE document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL); CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, snapshot_json TEXT NOT NULL); CREATE TABLE entity_projection (entity_kind TEXT NOT NULL, entity_id TEXT NOT NULL, task_id TEXT NOT NULL, workspace_revision INTEGER NOT NULL, freshness TEXT NOT NULL, current_version, value_json TEXT NOT NULL, PRIMARY KEY(entity_kind, task_id, entity_id))",
+    "CREATE TABLE projection_meta (singleton INTEGER PRIMARY KEY, watermark INTEGER NOT NULL); INSERT INTO projection_meta VALUES (1, 1); CREATE TABLE document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL); CREATE TABLE document_history (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL); CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, snapshot_json TEXT NOT NULL); CREATE TABLE entity_projection (entity_kind TEXT NOT NULL, entity_id TEXT NOT NULL, task_id TEXT NOT NULL, workspace_revision INTEGER NOT NULL, freshness TEXT NOT NULL, current_version, value_json TEXT NOT NULL, PRIMARY KEY(entity_kind, task_id, entity_id))",
   );
   createRelationGraphProjectionTables(db);
   createFactProjectionTables(db);

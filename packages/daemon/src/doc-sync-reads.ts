@@ -205,26 +205,28 @@ export function readAction(input: Input): WriteReceipt {
   const receiptDetail = readDetail(input, paths, current, lease, []),
     materializationState =
       input.action.kind === "doc-show" && reads[0]?.document !== null
-        ? input.nodeTaskMaterializationPolicy === "none" && reads[0]!.document!.mediaType === "text/markdown"
-          ? ("skipped_by_node_policy" as const)
-          : activeReads[0]?.document !== null
-            ? (() => {
-                const document = activeReads[0]!.document!,
-                  taskId = input.projection.taskIdForDocumentPath(document.path),
-                  taskRead = taskId === null ? null : input.projection.read(taskId),
-                  task = taskRead?.snapshot.task
-                    ? { ...taskRead.snapshot.task, packagePath: taskRead.packagePath }
-                    : null;
-                return task === null
-                  ? ("materialized" as const)
-                  : projectedTaskMaterializationState(
-                      input.projection,
-                      task,
-                      input.nodeTaskMaterializationPolicy ?? "include_done",
-                      document.path,
-                    );
-              })()
-            : ("dematerialized_terminal" as const)
+        ? activeReads[0]?.document === null
+          ? ("dematerialized_terminal" as const)
+          : input.nodeTaskMaterializationPolicy === "none" && reads[0]!.document!.mediaType === "text/markdown"
+            ? ("skipped_by_node_policy" as const)
+            : activeReads[0]?.document !== null
+              ? (() => {
+                  const document = activeReads[0]!.document!,
+                    taskId = input.projection.taskIdForDocumentPath(document.path),
+                    taskRead = taskId === null ? null : input.projection.read(taskId),
+                    task = taskRead?.snapshot.task
+                      ? { ...taskRead.snapshot.task, packagePath: taskRead.packagePath }
+                      : null;
+                  return task === null
+                    ? ("materialized" as const)
+                    : projectedTaskMaterializationState(
+                        input.projection,
+                        task,
+                        input.nodeTaskMaterializationPolicy ?? "include_done",
+                        document.path,
+                      );
+                })()
+              : ("dematerialized_terminal" as const)
         : undefined,
     worktreeVisible = observe(
       input.rootDir,

@@ -154,25 +154,24 @@ export function closureFiles(
           { sha256: document.blobSha256, size: document.size, nodeKind: "file" as const },
         ]),
       ),
-      currentHeads = context.sqlite.documentHeads(),
       parent = localGitObjectRefStore.resolveCommit(context.ledger().rootDir, context.authoredRef()),
-      canonicalPaths = new Set(currentHeads.map(({ path }) => path)),
+      managedRoot = ledgerGitPath(context.ledger(), "").replace(/\/$/u, "") || ".",
       previouslyMaterializedManagedPaths = localGitObjectRefStore
-        .listTree(
-          context.ledger().rootDir,
-          parent,
-          [...canonicalPaths].map((path) => ledgerGitPath(context.ledger(), path)),
-        )
+        .listTree(context.ledger().rootDir, parent, [managedRoot])
         .map(({ target }) => ledgerAuthoredPath(context.ledger(), target))
-        .filter((path) => canonicalPaths.has(path) && projectionManagedPath(path)),
+        .filter(projectionManagedPath),
       staleManagedHeads = previouslyMaterializedManagedPaths
         .filter((path) => !indexed.has(path))
         .map((path) => ({ path, sha256: null, size: null, nodeKind: null })),
-      // Facts, Decisions, and Task packages are projected with active-hold and node-policy
-      // semantics. Other authored documents keep the event-store's existing head index.
       heads = [
-        ...currentHeads.filter(({ path }) => !projectionManagedPath(path)),
-        ...[...indexed].map(([path, value]) => ({ path, ...value })),
+        ...[...indexed].map(([path, value]) => ({
+          path,
+          ...value,
+          nodeKind: (() => {
+            const head = context.sqlite.documentHead(path);
+            return head && head !== "retired" ? head.nodeKind : ("file" as const);
+          })(),
+        })),
         ...staleManagedHeads,
       ];
     return {

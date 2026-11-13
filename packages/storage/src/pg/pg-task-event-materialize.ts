@@ -18,7 +18,7 @@ import { putPgProjectionValue } from "./pg-projection-values.ts";
 import { projectPgDispatchLifecycle } from "./pg-dispatch-lifecycle.ts";
 import { DISPATCH_LIFECYCLE_MODEL_VERSION } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 import { derivedRelationRecordsForReplay } from "../projection/relation-entity-projection.ts";
-import { materializePgQueryModels } from "./pg-query-model-materialize.ts";
+import { materializePgQueryModels, initializePgTerminalMaterialization } from "./pg-query-model-materialize.ts";
 import { flushPgArtifactDocuments } from "./pg-artifact-timeline.ts";
 import type { PoolClient } from "pg";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
@@ -170,6 +170,7 @@ async function materializeProjectionEvent(
   }
   await projectPgDispatchLifecycle(client, scope, event);
   await storeEmbeddedRelations(client, scope, event, tables);
+  await initializePgTerminalMaterialization(client, scope, revision);
   await materializePgQueryModels(client, scope, { ...input, event }, snapshot);
   const searchOwners = new Set<string>();
   if (isDecisionEvent(event)) searchOwners.add(event.decisionId);

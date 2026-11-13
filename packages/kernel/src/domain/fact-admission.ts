@@ -6,8 +6,6 @@ export interface FactAdmissionState {
   readonly domainTypes: readonly { readonly domainType: string }[];
   readonly supersededTarget: { readonly ref: string } | null;
   readonly relations: readonly FactLivenessRelation[];
-  /** Whether the terminal Fact target is still held by an active canonical relation. */
-  readonly materializationHeld?: boolean;
 }
 
 export class FactProjectionError extends Error {

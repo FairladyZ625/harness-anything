@@ -327,6 +327,7 @@ async function docDebtCheck(cell: RepoCellOperationalContext, binding: RepoCellB
         actor: binding.actor,
         source: binding.source,
         now: cell.now(),
+        nodeTaskMaterializationPolicy: cell.input.nodeTaskMaterializationPolicy,
       }),
       eligible = scan.rows.filter((row) => row.state === "eligible");
     return {

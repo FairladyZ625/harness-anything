@@ -104,16 +104,17 @@ export function canonicalDocumentRetirements(
   if (isScheduleEvent(event) && "declarationDocumentRetirement" in event.payload)
     return [event.payload.declarationDocumentRetirement];
   if (isFactEvent(event)) {
-    const retirement = event.payload.factsDocumentRetirement;
+    const retirement = event.payload.factsDocumentRetirement,
+      supersededRetirement = event.payload.supersededFactsDocumentRetirement;
     return [
       ...(event.type === "fact_archived" && retirement !== undefined
         ? [{ path: retirement.path, baseBlobSha256: retirement.sha256 }]
         : []),
-      ...(event.type !== "fact_archived" && event.payload.supersededFactsDocumentClaim !== undefined
+      ...(event.type !== "fact_archived" && supersededRetirement !== undefined
         ? [
             {
-              path: event.payload.supersededFactsDocumentClaim.path,
-              baseBlobSha256: event.payload.supersededFactsDocumentClaim.sha256,
+              path: supersededRetirement.path,
+              baseBlobSha256: supersededRetirement.sha256,
             },
           ]
         : []),

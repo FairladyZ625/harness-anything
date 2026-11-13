@@ -1,3 +1,4 @@
+import { nodeMaterializationPolicyForMode } from "@harness-anything/kernel/internal/domain/task-wip-policy.ts";
 import { writerLifecyclePolicy } from "@harness-anything/kernel/internal/domain/writer-lifecycle-policy.ts";
 import { readRuntimeCanAttach } from "./agent-runtime-read.ts";
 import { continueReviewRework } from "./task-return-dispatch.ts";
@@ -170,6 +171,16 @@ export async function openRepoWriterCell(
   input: RepoCellOpenInput,
   lock: Awaited<ReturnType<typeof acquireWorkspaceLock>>,
 ): Promise<Omit<RepoCell, "terminal">> {
+  input = {
+    ...input,
+    storage: {
+      ...input.storage,
+      nodeTaskMaterializationPolicy: nodeMaterializationPolicyForMode(
+        input.mode,
+        input.storage?.nodeTaskMaterializationPolicy,
+      ),
+    },
+  };
   const rootDir = input.rootDir,
     mode = input.mode ?? "local",
     now = input.now ?? (() => new Date().toISOString());

@@ -236,38 +236,38 @@ export const taskExecutionWipPolicy = {
 const nodeTaskMaterializationPolicies = Object.freeze(["none", "in_flight", "include_done"] as const);
 export type NodeTaskMaterializationPolicy = (typeof nodeTaskMaterializationPolicies)[number];
 
+export function normalizeNodeTaskMaterializationPolicy(value: unknown): NodeTaskMaterializationPolicy {
+  if (!(nodeTaskMaterializationPolicies as readonly unknown[]).includes(value))
+    throw new TypeError(`nodeTaskMaterializationPolicy must be one of ${nodeTaskMaterializationPolicies.join(", ")}`);
+  return value as NodeTaskMaterializationPolicy;
+}
+
 /** A node-local choice; canonical Task state and content remain complete in storage. */
 export const nodeTaskMaterializationPolicy = {
   id: "node-task-materialization",
   ownerRef: "task",
-  unit: "working-tree task document set",
+  unit: "node working-tree document set",
   bounds: "none, in_flight, or include_done; only follower settlement is filtered and no center document is retired",
-  defaultValue: "include_done" as const,
+  defaultValue: nodeTaskMaterializationPolicies[2],
   version: 1,
   scope: "node-local task follower materialization",
   reason:
     "Headless centers avoid disk work, edge workers retain in-flight work, and operator nodes retain completed active packages.",
   fixtures: [
-    "packages/storage/test/store/sqlite-event-store.integration.test.ts",
-    "packages/daemon/test/doc-sync-slice-a.test.ts",
+    "packages/kernel/test/domain/task-wip-policy.test.ts",
+    "packages/storage/test/store/terminal-materialization.integration.test.ts",
+    "packages/storage/test/postgres/terminal-materialization.integration.test.ts",
+    "packages/daemon/test/task-documents-list.integration.test.ts",
   ],
   sources: [
-    {
-      candidateId:
-        "policy:packages/kernel:packages/kernel/src/domain/task-wip-policy.ts#nodeTaskMaterializationPolicy.defaultValue:dec_D0460C1DBD540A8641B4E78F7F",
-      route: "nodeTaskMaterializationPolicy",
-    },
-    {
-      candidateId:
-        "policy:packages/daemon:packages/daemon/src/repo-cell.ts#initializeRepoCell.readMaterializationDocuments.dependencies:a2367e27a5ccb47b2ce11d79cff5b495",
-      route: "nodeTaskMaterializationPolicy",
-    },
-    {
-      candidateId:
-        "policy:packages/kernel:packages/kernel/src/domain/task-wip-policy.ts#taskIncludedByNodeMaterializationPolicy:673356004ac1c02b75205dd3c6783a0c",
-      route: "nodeTaskMaterializationPolicy",
-    },
-  ],
+    "policy:packages/kernel:packages/kernel/src/domain/task-wip-policy.ts#taskIncludedByNodeMaterializationPolicy:673356004ac1c02b75205dd3c6783a0c",
+    "policy:packages/daemon:packages/daemon/src/doc-sync-candidate-scanner.ts#scanDocCandidates.scanOne:27054bed81347e56f9081d7397c65e4a",
+    "policy:packages/daemon:packages/daemon/src/doc-sync-reads.ts#readAction.materializationState:71a3d721091e8253a10a63913edca6d1",
+    "policy:packages/daemon:packages/daemon/src/entity-action-catalog-executor.ts#withNodeMaterializationState:daf168a4166c963e3e6de1d64c76c6fb",
+    "policy:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.publishFollower:f031ba7c2870177c6a56ba078eb715f4",
+    "policy:packages/storage:packages/storage/src/storage-backend.ts#readNodeMaterializationDocuments:9c89aee9a882cdd6835efd2f47f68e6c",
+    "policy:packages/storage:packages/storage/src/store/sqlite-task-event-store.ts#makeSqliteTaskEventStore.publishFollower:818c0747c770edcbf5f44a7344ea6150",
+  ].map((candidateId) => ({ candidateId, route: "nodeTaskMaterializationPolicy" })),
 } as const satisfies OntologyPolicyDeclaration;
 
 export function taskIncludedByNodeMaterializationPolicy(
@@ -277,4 +277,18 @@ export function taskIncludedByNodeMaterializationPolicy(
   if (policy === "none" || task.packageDisposition === "archived") return false;
   const inFlight = ["planned", "active", "blocked", "submitted", "in_review"].includes(task.status);
   return inFlight || (policy === "include_done" && task.status === "done");
+}
+
+export function nodeMaterializationPolicyForMode(
+  mode: string = "local",
+  configured?: NodeTaskMaterializationPolicy,
+): NodeTaskMaterializationPolicy {
+  return (
+    configured ??
+    (mode === "remote-center" || mode === "remote-proxy"
+      ? "none"
+      : mode === "remote-edge"
+        ? "in_flight"
+        : nodeTaskMaterializationPolicy.defaultValue)
+  );
 }

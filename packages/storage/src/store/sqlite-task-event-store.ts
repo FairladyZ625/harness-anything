@@ -282,6 +282,13 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
    */
   const publishFollower = (restoreMissing = false, preview = false): MaterializationReceipt => {
     const accepted = cut();
+    if (options.storage?.nodeTaskMaterializationPolicy === "none" && !restoreMissing) {
+      follower = {
+        git: { status: "pending", cut: accepted, commitSha: null, reason: "Skipped by node policy" },
+        worktree: { status: "verified", cut: accepted, commitSha: null, conflicts: [] },
+      };
+      return { status: "visible", commitSha: null, settlements: [], conflicts: [] };
+    }
     const currentLedger = ledger(),
       currentRef = authoredRef(),
       parent = localGitObjectRefStore.resolveCommit(currentLedger.rootDir, currentRef);
@@ -301,7 +308,8 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       legacy = settledWorktreeRevision === null ? legacyRetirements(currentLedger, null) : [],
       from = restoreMissing ? 0 : Math.min(verifiedRevision, worktreeRevision);
     certified = { commit: parent, revision: verifiedRevision };
-    if (from === accepted.revision && legacy.length === 0) {
+    // The manifest binds the canonical cut, not this node's policy; re-evaluate the local working set once per open.
+    if (from === accepted.revision && legacy.length === 0 && settledWorktreeRevision !== null) {
       settledWorktreeRevision = accepted.revision;
       follower = {
         git: { status: "verified", cut: accepted, commitSha: parent },

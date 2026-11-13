@@ -58,16 +58,11 @@ export function readFactAdmissionState(db: DatabaseSync, event: FactEventV1) {
     target = ref
       ? (prepareQuery(db, "SELECT ref FROM fact WHERE ref = ?").get(ref) as { readonly ref: string } | undefined)
       : undefined;
-  const terminalTargetRef = event.type === "fact_archived" ? (record ? `fact/${event.factId}` : null) : (ref ?? null),
-    materializationHeld = terminalTargetRef
-      ? factMaterializationHeld(db, terminalTargetRef, event.type === "fact_archived" ? "archived" : "superseded_fact")
-      : false;
   return {
     row: record ? (JSON.parse(record.row_json) as FactProjectionRow) : null,
     domainTypes: listFactDomainTypeRows(db),
     supersededTarget: target ?? null,
     relations: target ? livenessRelations(db, [target.ref]) : [],
-    materializationHeld,
   };
 }
 
@@ -248,56 +243,18 @@ function decodeFactRows(db: DatabaseSync, records: readonly FactRecord[]): reado
       db,
       raw.map((row) => row.ref),
     );
+  const activePaths = new Set(
+    queryRows<{ path: string }>(
+      db,
+      "SELECT path FROM document WHERE path IN (SELECT value FROM json_each(?))",
+      JSON.stringify(raw.map(({ factId }) => `facts/${factId}.md`)),
+    ).map(({ path }) => path),
+  );
   return raw.map((row) => {
     const state = factLiveness(row, relations);
-    const materializationRelations = queryRows<{
-      readonly source_ref: string;
-      readonly target_ref: string;
-      readonly relation_type: string;
-      readonly state: string;
-    }>(
-      db,
-      "SELECT source_ref, target_ref, relation_type, state FROM relation_edge INDEXED BY relation_edge_target WHERE target_ref = ? AND state = 'active'",
-      row.ref,
-    ).map((edge) => ({
-      source: edge.source_ref,
-      target: edge.target_ref,
-      type: edge.relation_type as never,
-      state: edge.state,
-    }));
-    const endpointRefs = materializationRelations.flatMap(({ source, target }) => [source, target]),
-      states = new Map<
-        string,
-        { readonly ref: string; readonly state: string; readonly kind: "fact" | "decision" | "task" }
-      >();
-    states.set(row.ref, { ref: row.ref, state, kind: "fact" });
-    for (const ref of new Set(endpointRefs)) {
-      const decision = ref.match(/^decision\/([^/]+)(?:\/[^/]+)?$/u)?.[1],
-        task = ref.match(/^task\/(.+)$/u)?.[1];
-      if (decision) {
-        const value = queryRows<{ readonly state: string }>(
-          db,
-          "SELECT state FROM decision WHERE decision_id = ?",
-          decision,
-        )[0];
-        if (value)
-          states.set(`decision/${decision}`, { ref: `decision/${decision}`, state: value.state, kind: "decision" });
-      } else if (task) {
-        const value = queryRows<{ readonly status: string }>(
-          db,
-          "SELECT status FROM task_snapshot WHERE task_id = ?",
-          task,
-        )[0];
-        if (value) states.set(ref, { ref, state: value.status, kind: "task" });
-      }
-    }
-    const held =
-      activeMaterializationHolds({ ref: row.ref, state, kind: "fact" }, materializationRelations, states).length > 0;
     const materializationState =
-      state === "superseded_fact" || row.archived === true
-        ? held || queryRows(db, "SELECT 1 FROM document WHERE path = ?", `facts/${row.factId}.md`).length > 0
-          ? "materialized"
-          : "dematerialized_terminal"
+      (state === "superseded_fact" || row.archived === true) && !activePaths.has(`facts/${row.factId}.md`)
+        ? "dematerialized_terminal"
         : "materialized";
     return {
       ...row,

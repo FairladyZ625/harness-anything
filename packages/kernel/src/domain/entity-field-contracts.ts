@@ -34,7 +34,11 @@ export type TaskFieldKey = keyof TaskFrontmatter;
 export type FactFieldKey =
   | Exclude<
       keyof FactEventPayload,
-      "factsDocumentClaim" | "supersededFactsDocumentClaim" | "factsDocumentRetirement" | "archiveReason"
+      | "factsDocumentClaim"
+      | "supersededFactsDocumentClaim"
+      | "supersededFactsDocumentRetirement"
+      | "factsDocumentRetirement"
+      | "archiveReason"
     >
   | "factId";
 export type RelationFieldKey = keyof EntityRelationRecord;

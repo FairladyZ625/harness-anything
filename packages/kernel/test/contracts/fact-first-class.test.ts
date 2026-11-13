@@ -57,6 +57,9 @@ test("standalone facts use canonical identity and a per-fact document", () => {
 test("a Fact event replays its ownership edge into the sole Relation projection", () => {
   const db = new DatabaseSync(":memory:");
   createFactProjectionTables(db);
+  db.exec(
+    "CREATE TABLE IF NOT EXISTS document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS document_history (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL)",
+  );
   createRelationGraphProjectionTables(db);
   const compiled = compileFactWrite({ event: draft("owned", "F-BCDEFGHJ", "task-contract") });
   reduceFactEvent(db, compiled.event);

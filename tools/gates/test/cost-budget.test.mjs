@@ -688,3 +688,25 @@ test("worktree document bases scale through the 34,000-file production case", as
   );
   for (const measurement of measurements) t.diagnostic(JSON.stringify(measurement));
 });
+
+// dec_D0460C1DBD540A8641B4E78F7F/CH1–CH3: protect degree bounds and history-independent working sets.
+test("terminal settlement scales with degree and cold materialization excludes done history", async (t) => {
+  const measured = {};
+  for (const id of [
+    "task-transition:materialization-degree",
+    "doc-materialize:cold-history",
+    "doc-materialize:none-history",
+  ]) {
+    const probe = COLLECTION_PROBES[id];
+    measured[id] = {
+      small: await probe.run(process.cwd(), 100),
+      large: await probe.run(process.cwd(), 2000),
+      ...(probe.growth ? { growth: probe.growth } : {}),
+    };
+  }
+  t.diagnostic(JSON.stringify(measured));
+  assert.deepEqual(evaluateCollectionCosts(measured).errors, []);
+  const negative = structuredClone(measured);
+  negative["doc-materialize:cold-history"].large.counts.sqliteVmSteps += 1000000;
+  assert.equal(evaluateCollectionCosts(negative).ok, false, "a cold history scan must fail the constant-work gate");
+});

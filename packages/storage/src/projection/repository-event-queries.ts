@@ -567,19 +567,32 @@ function projectedDispatch(
 export function readDocumentRows(
   db: DatabaseSync,
   prefix: string,
-  page?: { readonly limit: number; readonly afterPath?: string },
+  page?: {
+    readonly limit: number;
+    readonly afterPath?: string;
+    readonly includeHistory?: boolean;
+    readonly excludeTaskPackages?: boolean;
+  },
 ) {
   const upper = prefixUpperBound(prefix),
     values: (string | number)[] = [prefix, ...(upper === null ? [] : [upper])],
     afterPredicate = page?.afterPath === undefined ? "" : "AND path > ?";
   if (page?.afterPath !== undefined) values.push(page.afterPath);
   if (page !== undefined) values.push(checkedPageLimit(page.limit) + 1);
+  const tables = page?.includeHistory ? ["document", "document_history"] : ["document"],
+    source = `(${tables
+      .flatMap((table) =>
+        page?.excludeTaskPackages
+          ? [`SELECT * FROM ${table} WHERE path < 'tasks/'`, `SELECT * FROM ${table} WHERE path >= 'tasks0'`]
+          : [`SELECT * FROM ${table}`],
+      )
+      .join(" UNION ALL ")})`;
   return queryRows(
     db,
     "SELECT path, json_extract(value_json, '$.blobSha256') AS blob_sha256, " +
       "json_extract(value_json, '$.size') AS size, json_extract(value_json, '$.mediaType') AS media_type, " +
       "json_extract(value_json, '$.policyId') AS policy_id " +
-      `FROM document WHERE path >= ? ${upper === null ? "" : "AND path < ?"} ${afterPredicate} ORDER BY path ${page === undefined ? "" : "LIMIT ?"}`,
+      `FROM ${source} WHERE path >= ? ${upper === null ? "" : "AND path < ?"} ${afterPredicate} ORDER BY path ${page === undefined ? "" : "LIMIT ?"}`,
     ...values,
   ).map((row) => ({
     path: String(row.path),

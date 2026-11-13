@@ -3,6 +3,7 @@ import type * as OperationalStatus from "@harness-anything/kernel/internal/domai
 import { makeTaskLifecycleService } from "@harness-anything/application/internal/task-lifecycle-service";
 import {
   prepareDaemonRepoStorage,
+  readNodeMaterializationDocuments,
   activateEmptyCanonicalGeneration,
   applyAttachMigrations,
   makeTaskEventStore,
@@ -17,10 +18,6 @@ import {
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
-import {
-  taskIncludedByNodeMaterializationPolicy,
-  type NodeTaskMaterializationPolicy,
-} from "@harness-anything/kernel/internal/domain/task-wip-policy.ts";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
 import { readSessionGroupDispatches, readTaskDispatchSession } from "./dispatch-read.ts";
 import { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
@@ -57,7 +54,6 @@ export type {
  * this size lets the supervisor observe advancing watermarks during reconstruction, before ready. */
 const coldAttachCatchUpLimit = storageReadPolicy.defaultValue.recovery.coldAttachCatchUpLimit;
 
-/**
 /** Read judgments bound to one projection cut: the closeout verdict follows the effective gate set. */
 export function repoCellTaskQueryJudgmentsFor(projection: TaskProjectionQueries): TaskQueryJudgments {
   return {
@@ -112,56 +108,11 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
     if (!projection) return null;
     const cut = projection.readCut();
     if (cut.status !== "ready" || cut.watermark !== cut.sourceRevision) return null;
-    const documents: ReturnType<typeof projection.readDocuments>["documents"][number][] = [];
-    let afterPath: string | undefined;
-    for (;;) {
-      const page = projection.readDocuments("", {
-        limit: storageReadPolicy.defaultValue.pageSizes.standard,
-        ...(afterPath === undefined ? {} : { afterPath }),
-      });
-      if (page.status !== "ready") return null;
-      documents.push(...page.documents);
-      if (page.page?.nextPath === null) break;
-      afterPath = page.page?.nextPath;
-      if (!afterPath) break;
-    }
-    const policy: NodeTaskMaterializationPolicy =
-        context.input.storage?.nodeTaskMaterializationPolicy ?? "include_done",
-      tasks = projection.readTaskIndex().rows.filter(({ packagePath }) => packagePath !== null),
-      taskByPackage = new Map(tasks.map((task) => [task.packagePath!, task])),
-      forcedPaths = new Set(includePolicySkippedPaths),
-      fullTasks = new Set(
-        tasks.filter((task) => taskIncludedByNodeMaterializationPolicy(policy, task)).map(({ taskId }) => taskId),
-      ),
-      dependencies =
-        policy !== "none" && fullTasks.size > 0
-          ? projection.readTaskRelationsBySources(
-              tasks
-                .filter((task) => taskIncludedByNodeMaterializationPolicy("in_flight", task))
-                .map(({ taskId }) => `task/${taskId}`)
-                .filter((taskRef) => fullTasks.has(taskRef.slice("task/".length))),
-              "depends-on",
-            ).rows
-          : [],
-      targetTasks = new Set(
-        dependencies
-          .filter((edge) => edge.state === "active")
-          .flatMap((edge) => /^task\/([^/]+)$/u.exec(edge.targetRef)?.[1] ?? []),
-      );
-    return documents.filter((document) => {
-      // `none` is a headless-node policy for authored Markdown generally.  The
-      // projection and content blob remain readable; only the local follower
-      // omits the bytes.  Explicit materialize selections arrive in
-      // `forcedPaths` and are allowed through below.
-      if (policy === "none" && document.mediaType === "text/markdown" && !forcedPaths.has(document.path)) return false;
-      const slash = document.path.indexOf("/", "tasks/".length),
-        packagePath = slash < 0 ? document.path : document.path.slice(0, slash),
-        entry = taskByPackage.get(packagePath);
-      if (!entry) return true;
-      if (forcedPaths.has(document.path) || fullTasks.has(entry.taskId)) return true;
-      if (!targetTasks.has(entry.taskId)) return false;
-      return ["INDEX.md", "task_plan.md", "task-contract.json"].includes(document.path.slice(packagePath.length + 1));
-    });
+    return readNodeMaterializationDocuments(
+      projection,
+      context.input.storage?.nodeTaskMaterializationPolicy ?? "include_done",
+      includePolicySkippedPaths,
+    );
   };
   prepareDaemonRepoStorage({
     rootDir: context.rootDir,
