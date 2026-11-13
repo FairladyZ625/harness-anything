@@ -891,7 +891,7 @@
         "explain": "Closed JSON-RPC request parameter validator for `repo.triadic.agenda` pagination cursor, sourceLimit and viewer scope fields.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateAgendaQueryPayload:ef901afca19da244eb20a1e316c5b9cd",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateAgendaQueryPayload:839097df10e9ea7e56c582289c4aadd7",
             "route": "packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateAgendaQueryPayload"
           }
         ]
@@ -902,7 +902,7 @@
         "explain": "Closed JSON-RPC request parameter validator for `repo.task.dispatches` taskId/taskIds batch selectors and `latestOnly` flag.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateTaskDispatchesPayload:4be722d8c2d33c11df0fa0d68f2b6719",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateTaskDispatchesPayload:7c3a56515189cd277cddc0d49bbb2417",
             "route": "packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateTaskDispatchesPayload"
           }
         ]
@@ -3254,7 +3254,7 @@
         "explain": "Local daemon process autostart and socket-readiness probe verifying lock/socket reachability before spawning or attaching a local daemon instance.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/client/daemon-autostart.ts#ensureLocalDaemonRunning:93f81fbbf103bda34dfbfc93ce4be37b",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/client/daemon-autostart.ts#ensureLocalDaemonRunning:50ccf67852a2f4a140798761ffcbb72a",
             "route": "packages/daemon/src/client/daemon-autostart.ts#ensureLocalDaemonRunning"
           }
         ]
@@ -3375,7 +3375,7 @@
         "explain": "Fleet edge-join client network address guard validating HTTPS origin URL syntax, port bounds and absence of embedded credentials before TLS dialing.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/fleet/edge-join-client.ts#validateFleetOriginAddress:d5cc6492ca4e3ede427a6af1dc86eafe",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/fleet/edge-join-client.ts#validateFleetOriginAddress:aee7b595f7cb17ef94940ef181cae8a4",
             "route": "packages/daemon/src/fleet/edge-join-client.ts#validateFleetOriginAddress"
           }
         ]
@@ -3727,7 +3727,7 @@
         "explain": "Closed JSON-RPC request envelope validator for `repo.gui.action` command dispatch requests before handing inputs to kernel/application command handlers.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateGuiActionPayload:bb50483826b12e61cc9fcdf718371028",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateGuiActionPayload:e7bc09787acc0b250203cf7aec6b92b5",
             "route": "packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateGuiActionPayload"
           }
         ]
@@ -4216,7 +4216,7 @@
         "explain": "Closed JSON-RPC request parameter validator for `repo.runtime.sessionGroups` filter and pagination parameters.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateRuntimeSessionGroupsPayload:3b4773bdd6f4c01b9baeac489afd2e45",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateRuntimeSessionGroupsPayload:3661d8bb8ecd4bf62f19962c3cb70135",
             "route": "packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateRuntimeSessionGroupsPayload"
           }
         ]
@@ -4227,7 +4227,7 @@
         "explain": "Closed JSON-RPC request parameter validator for `repo.squad.runs.list` status/task filters and page limits.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateSquadRunListPayload:ba2ff5a0489ade2a95d04ef061474784",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateSquadRunListPayload:5713cb718415a7711c6c41286effc171",
             "route": "packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateSquadRunListPayload"
           }
         ]

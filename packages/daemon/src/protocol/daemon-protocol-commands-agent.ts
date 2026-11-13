@@ -1,3 +1,4 @@
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import {
   cliInput,
   defineCenterForwardWriteCommand,
@@ -11,7 +12,7 @@ import {
 import { agentRunProtocolCommand } from "./daemon-protocol-commands-runtime-fleet.ts";
 
 /** History pages accept 1..500 rows; the reader enforces the same bound. */
-const agentHistoryLimit = "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$";
+const agentHistoryLimit = daemonProtocolFleetPolicy.defaultValue.protocol.listLimitPattern;
 // `ha vertical kind upsert` reads the declaration in the calling CLI (the fleet channel forwards one
 // object, and `kindId` may default from the file), so its path is relative to the selected root —
 // `--root` or the current directory — not to the center's workspace root that `workspacePathFormat`

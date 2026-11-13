@@ -1,6 +1,7 @@
 import type * as AccessStatus from "@harness-anything/kernel/internal/domain/access-status.ts";
 // `ha edge join <link>`: authenticate the invited person over the center's pinned TLS channel,
 // then register and sync one local mirror for each repository carried by the invitation.
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { X509Certificate } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, statfsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -15,7 +16,7 @@ import { probeFleetEdgeCenterAddress, requestFleetEdgeJoinPinned, requestFleetEd
 import { fetchWithTlsCa, systemCaCertificates } from "../tls-ca-certificate.ts";
 import { fleetEdgeRepositoryGitFailure, isSupportedFleetGitRemote } from "../fleet-edge-git-preflight.ts";
 
-const DEFAULT_QUOTA_FRACTION = 0.4;
+const DEFAULT_QUOTA_FRACTION = daemonProtocolFleetPolicy.defaultValue.fleet.edgeJoinQuotaFraction;
 
 /** One repository's stage inside a running join; observation only, it never steers the join. */
 export interface EdgeJoinRepositoryProgress {
@@ -283,7 +284,7 @@ export async function joinFleetEdge(
       credential: admitted.credential,
       viewRoot: `${root}-view`,
       quotaBytes,
-      timeoutMs: 60_000,
+      timeoutMs: daemonProtocolFleetPolicy.defaultValue.fleet.edgeJoinTimeoutMs,
     });
     if (synced.ok === false) {
       report("failed");
@@ -484,7 +485,7 @@ async function validateFleetOriginAddress(
     { ...process.env, GIT_TERMINAL_PROMPT: "0" },
     undefined,
     undefined,
-    { timeoutMs: 30_000 },
+    { timeoutMs: daemonProtocolFleetPolicy.defaultValue.fleet.edgeJoinAddressTimeoutMs },
   ).catch(() => null);
   if (!result || result.exitCode !== 0)
     return {

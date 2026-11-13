@@ -4,6 +4,11 @@ import {
   dshBrokerPolicy,
   dshPresentationPolicy,
   hostKernelPolicies,
+  daemonProtocolFleetPolicy,
+  daemonProtocolShapeContractPolicy,
+  daemonCliPresentationContractPolicy,
+  daemonLifecycleObservationContractPolicy,
+  daemonAuthorizationReceiptContractPolicy,
 } from "./cli-operational-policy.ts";
 import { presetExecutionPolicy, taskRemoteEdgePolicy } from "./preset-execution-policy.ts";
 import {
@@ -1577,6 +1582,11 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
       identityHealthProbePolicy,
       identityFleetPrincipalPolicy,
       identityGuiRejectionPolicy,
+      daemonProtocolFleetPolicy,
+      daemonProtocolShapeContractPolicy,
+      daemonCliPresentationContractPolicy,
+      daemonLifecycleObservationContractPolicy,
+      daemonAuthorizationReceiptContractPolicy,
     ],
     schema: hostAggregateSchema,
     relations: { directions: [], edges: [] },

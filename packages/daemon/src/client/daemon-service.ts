@@ -1,3 +1,4 @@
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -244,7 +245,9 @@ export async function runDaemonServiceCommand(command: DaemonServiceCommand, tim
     undefined,
     undefined,
     undefined,
-    timeoutMs === undefined ? {} : { timeoutMs, timeoutSignal: "SIGKILL" },
+    timeoutMs === undefined
+      ? {}
+      : { timeoutMs, timeoutSignal: daemonProtocolFleetPolicy.defaultValue.client.serviceTimeoutSignal },
   );
   if (result.exitCode !== 0)
     throw new Error(`${command.join(" ")} exited ${result.exitCode}: ${result.stderr.trim() || result.stdout.trim()}`);

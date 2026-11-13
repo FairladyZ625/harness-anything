@@ -1,3 +1,4 @@
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { validDispatchLifecycleQuery } from "../runtime-dispatch-admission.ts";
 import { previousDispatchLifecycleReadResult } from "../protocol/json-rpc-dispatch-support.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -328,7 +329,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   // receipt by its request id. Losing this map on restart only drops the correlation; the write
   // itself stays authoritative (dec_3E49EDAB CH1).
   const requestReceiptTargets = new Map<string, string>(),
-    REQUEST_RECEIPT_LIMIT = 1_024,
+    REQUEST_RECEIPT_LIMIT = daemonProtocolFleetPolicy.defaultValue.fleet.requestReceiptLimit,
     requestReceiptKey = (repoId: string, requestOpId: string) => `${repoId}\0${requestOpId}`,
     rememberRequestReceipt = (repoId: string, requestOpId: string, canonicalOpId: unknown): void => {
       if (typeof canonicalOpId !== "string" || canonicalOpId.length === 0) return;

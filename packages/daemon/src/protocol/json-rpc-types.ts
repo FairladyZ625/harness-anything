@@ -1,3 +1,4 @@
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 export type JsonRpcId = string | number | null;
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | ReadonlyArray<JsonValue>;
@@ -93,10 +94,8 @@ export class DaemonProtocolContractError extends Error {
 // closure is part of the GUI renderer's module graph, where a node:util value import breaks the
 // Electron dev server (the GUI vite config fails such imports at build time with the importer
 // named). Keep this module free of Node builtin value imports.
-const validationValueLimit = 120,
-  validationStringLimit = 100,
-  validationArrayLimit = 20,
-  validationDepthLimit = 3;
+const { validationValueLimit, validationStringLimit, validationArrayLimit, validationDepthLimit } =
+  daemonProtocolFleetPolicy.defaultValue.protocol;
 
 function escapeValidationChar(ch: string, quote: string): string {
   if (ch === "\\" || ch === quote) return `\\${ch}`;

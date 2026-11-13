@@ -1,3 +1,4 @@
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { FLEET_HELLO_FAILURE_LIMIT, FLEET_HELLO_FAILURE_WINDOW_MS } from "./command-protocol.ts";
 
 /** `source` is the pre-authentication connection source (the peer address). The transport supplies
@@ -7,7 +8,7 @@ export type HelloAuthenticator = (nodeId: string, credential: string, source: st
 
 /** Failure stamps tracked at once; beyond this the oldest entries are dropped so connections from
  * rotating sources cannot grow the table without bound. */
-const trackedSourceLimit = 4096;
+const trackedSourceLimit = daemonProtocolFleetPolicy.defaultValue.fleet.trackedSourceLimit;
 
 /** Fixed-window failure limiter wrapped around the one hello authentication injection. Only
  * failures count: a connection presenting valid credentials always reaches the credential check.

@@ -1,3 +1,4 @@
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
@@ -182,7 +183,7 @@ export async function ensureLocalDaemonRunning(input: {
    */
   readonly requireIdentityReady?: boolean;
 }): Promise<DaemonAutostartResult> {
-  const readyTimeoutMs = input.readyTimeoutMs ?? 10_000,
+  const readyTimeoutMs = input.readyTimeoutMs ?? daemonProtocolFleetPolicy.defaultValue.client.autostartReadyTimeoutMs,
     probeIntervalMs = input.probeIntervalMs ?? 50;
   // Only the default spawn path spawns from the invoking checkout; remembering the cwd it chose
   // lets classifySpawnFailure tell a missing workspace root from a missing launcher binary.
@@ -279,7 +280,12 @@ export async function ensureLocalDaemonRunning(input: {
     }
     const startedAt = Date.now(),
       quietDeadline = startedAt + readyTimeoutMs,
-      progressDeadline = startedAt + readyTimeoutMs * (input.extendTimeoutWhileProgressing === false ? 1 : 6);
+      progressDeadline =
+        startedAt +
+        readyTimeoutMs *
+          (input.extendTimeoutWhileProgressing === false
+            ? 1
+            : daemonProtocolFleetPolicy.defaultValue.client.autostartProgressMultiplier);
     for (;;) {
       if (await ready()) return { ok: true, hint: "daemon is reachable", attempts: spawned ? 1 : 0 };
       const progress = readDaemonStartProgress(launched, Date.now() - startedAt);

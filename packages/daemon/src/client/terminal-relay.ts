@@ -1,4 +1,5 @@
 import process from "node:process";
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { consumeKnownError } from "@harness-anything/kernel";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
 import { openDaemonJsonRpcClientAt, type JsonRpcLineClient } from "./local-json-rpc-client.ts";
@@ -111,7 +112,7 @@ export async function relayDaemonTerminal(input: {
         input.write("\n[stream] some terminal output was dropped; scrollback is incomplete.\n");
       else if (frame.kind === "exit") void finishFromFrame();
     },
-    timeoutMs: 2_000,
+    timeoutMs: daemonProtocolFleetPolicy.defaultValue.client.terminalDetachTimeoutMs,
   });
   stdin.setRawMode?.(true);
   stdin.on("data", onStdin);

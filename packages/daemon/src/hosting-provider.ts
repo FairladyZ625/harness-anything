@@ -1,3 +1,4 @@
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
@@ -39,7 +40,11 @@ export async function detectHostingProvider(
   let remote: string;
   try {
     remote = String(
-      (await execFileAsync("git", ["-C", rootDir, "remote", "get-url", "origin"], { timeout: 10_000 })).stdout,
+      (
+        await execFileAsync("git", ["-C", rootDir, "remote", "get-url", "origin"], {
+          timeout: daemonProtocolFleetPolicy.defaultValue.hosting.gitTimeoutMs,
+        })
+      ).stdout,
     ).trim();
   } catch {
     if (allowUnknown) return null as never;
@@ -77,7 +82,9 @@ function isUnknownHostingProvider(error: unknown): boolean {
 
 export async function hasOriginRemote(rootDir: string): Promise<boolean> {
   try {
-    await execFileAsync("git", ["-C", rootDir, "remote", "get-url", "origin"], { timeout: 10_000 });
+    await execFileAsync("git", ["-C", rootDir, "remote", "get-url", "origin"], {
+      timeout: daemonProtocolFleetPolicy.defaultValue.hosting.gitTimeoutMs,
+    });
     return true;
   } catch {
     return false;

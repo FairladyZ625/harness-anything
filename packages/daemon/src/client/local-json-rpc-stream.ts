@@ -1,4 +1,5 @@
 import net from "node:net";
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { assertDaemonHello, daemonHelloParams, daemonHelloFailureCode } from "./daemon-hello.ts";
 import { createInterface } from "node:readline";
 import { consumeKnownError } from "@harness-anything/kernel";
@@ -17,10 +18,12 @@ export type AgentRuntimeStreamValue = AgentRuntimeAttachResult | AgentRuntimeAtt
 // spinning invisibly. The silence deadline only runs before the first result and resets on every
 // received line, so a slow attach is patience, not a kill: the old flat 200ms fired mid-handshake
 // under load and fed the storm it was timing.
-const reconnectBaseDelayMs = 250,
-  reconnectMaxDelayMs = 5_000,
-  reconnectAttemptLimit = 5,
-  defaultSilenceMs = 10_000;
+const {
+  reconnectBaseDelayMs,
+  reconnectMaxDelayMs,
+  reconnectAttemptLimit,
+  streamSilenceMs: defaultSilenceMs,
+} = daemonProtocolFleetPolicy.defaultValue.client;
 export interface DaemonStreamLost {
   readonly code: "daemon_stream_lost";
   readonly attempts: number;

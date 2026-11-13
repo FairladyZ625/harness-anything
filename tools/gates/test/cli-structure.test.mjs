@@ -45,21 +45,6 @@ for (const dependency of ["index.ts", "domain/other-policy.ts"]) {
   });
 }
 
-test("daemon transport still rejects the CLI Policy leaf", async () => {
-  const root = await cliPolicyFixture();
-  write(
-    root,
-    "packages/daemon/src/client/local-json-rpc-client.ts",
-    "export { cliOperationalPolicy } from '@harness-anything/kernel/internal/domain/cli-operational-policy';\n",
-  );
-  const result = run(root);
-  assert.notEqual(result.status, 0);
-  assert.match(
-    result.stderr,
-    /daemon transport import graph reached module is outside the daemon transport allowlist: packages\/kernel\/src\/domain\/cli-operational-policy\.ts/u,
-  );
-});
-
 test("thin CLI structure rejects a kernel public barrel reachable from the dist entry", async () => {
   const root = await fixture();
   write(
@@ -277,6 +262,32 @@ test("daemon transport graph rejects a kernel barrel reachable from the line cli
   assert.ok(
     result.stderr.includes("daemon transport import graph reached kernel public barrel: packages/kernel/src/index.ts"),
   );
+});
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: Policy centralization must preserve the thin transport graph.
+test("daemon transport graph admits shared Policy values but rejects their transitive runtime dependencies", async () => {
+  const root = await cliPolicyFixture();
+  write(
+    root,
+    "packages/daemon/src/client/local-json-rpc-client.ts",
+    "import { cliOperationalPolicy } from '@harness-anything/kernel/internal/domain/cli-operational-policy';\n" +
+      "export const timeoutMs = cliOperationalPolicy.defaultValue.waitMaximumMs;\n",
+  );
+  const positive = run(root);
+  assert.equal(positive.status, 0, positive.stderr);
+  for (const dependency of ["index.ts", "domain/other-domain.ts"]) {
+    write(
+      root,
+      "packages/kernel/src/domain/cli-operational-policy.ts",
+      `export { leaked } from '${dependency === "index.ts" ? "../index.ts" : "./other-domain.ts"}';\n` +
+        "export const cliOperationalPolicy = {};\n",
+    );
+    write(root, `packages/kernel/src/${dependency}`, "export const leaked = true;\n");
+    const negative = run(root);
+    assert.notEqual(negative.status, 0);
+    assert.match(negative.stderr, /daemon transport import graph reached/u);
+    assert.ok(negative.stderr.includes(`packages/kernel/src/${dependency}`), negative.stderr);
+  }
 });
 
 test("daemon transport graph rejects even a kernel leaf import reachable from the line client", async () => {

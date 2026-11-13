@@ -4734,6 +4734,1506 @@
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/access-admin-edge-join.ts#EdgeJoinAdminService.create.spkiSha256:5badcf2363f375cbd81d4c119a36cedb",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/access-admin-edge-join.ts#EdgeJoinAdminService.create.created:1874b66fb2ac777640afed2740f57f8e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/edge-join.ts#createEdgeJoinStore.create"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/access-admin-service.ts#AccessAdminService.createMemberEdgeJoin:5094280bfdd00a1212f1edf75e668d95",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/access-admin-edge-join.ts#EdgeJoinAdminService.create"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/access-admin-service.ts#AccessAdminService.run:b6f4997f5d07e1f6fe3c63670727714a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/access-admin-edge-join.ts#EdgeJoinAdminService.create"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/access-admin-service.ts#AccessAdminService:edb0b155b8bc3ae0af873da0fe694daf",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/access-admin-state.ts#managedPermissionRequestStore.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/access-admin-service.ts#AccessAdminService:aec5f82138da7add3fc6f85e51afaa69",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/access-admin-state.ts#managedPermissionRequestStore.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/access-admin-service.ts#AccessAdminService:aec5f82138da7add3fc6f85e51afaa69:2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/access-admin-state.ts#managedPermissionRequestStore.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/access-admin-service.ts#AccessAdminService:353b628f234ebb102aabab8cebfb40ac",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/access-admin-state.ts#managedRbacReceiptJournal.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/access-admin-service.ts#AccessAdminService:f12d6770ecae26a2f6d53c5459b8884f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/access-admin-state.ts#managedRbacReceiptJournal.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/access-admin-service.ts#AccessAdminService:8ceb5e600a47f413e55fa911bf58f230",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/node-retirement.ts#createNodeRetirement.remove"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/access-admin-service.ts#AccessAdminService:353b628f234ebb102aabab8cebfb40ac:2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/access-admin-state.ts#managedRbacReceiptJournal.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/access-admin-service.ts#AccessAdminService:389749ae9242b29ece1b609b71c7aed8",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/access-admin-service.ts#groupVersion:f6f1d3ac8b9cabd19d5dcdd1d34ebb37",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/access-admin-service.ts#credentialReservation:e6c079075f0b00a3740bbd0d5a4f569a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/access-admin-state.ts#managedRbacReceiptJournal.append:f0cc234a993310d5efe423802970bc17",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.appendFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/access-admin-state.ts#managedPermissionRequestStore.write:1c11769624023ce37cddf34af2457b7d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/access-admin-state.ts#reserveCredentialFile.keep:9d880ab68426de997aa899aa9571e8c0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/access-admin-state.ts#reserveCredentialFile.discard:fe2dd164e2953bc3a73ed350f9390bac",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/access-admin-utils.ts#coded:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/authorization-provider.ts#createIdentityManagement.managed.auditLegacyRoleMigration:afb6f0989afdd6207f9b9f4e0ab45c76",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/access-admin-state.ts#managedRbacReceiptJournal.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/client/daemon-autostart.ts#writeDaemonStoppedMarker:f3a3ccd64bff4a5816569b67da2d2791",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/client/daemon-autostart.ts#clearDaemonStoppedMarker:aab3f5bd0a894bf293765eb5391a0433",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/client/daemon-autostart.ts#writeDaemonServiceUnit:52dd5bb1b88d3f39560251938bc008f2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/client/daemon-autostart.ts#removeDaemonServiceUnit:09e537f7c28d40f972287ae3fcdc0a51",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/client/local-daemon-target.ts#resolveLocalDaemonEndpoint:cc2ae59d740984b8f554a85d19111896",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/client/local-daemon-target.ts#resolveLocalDaemonEndpoint:71c974d4f301f65353d24322f044fda0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/client/local-daemon-target.ts#resolveRelayedDaemonTarget.fail:5778a547d2e0c63d6744f00794c505d5",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/client/local-daemon-target.ts#resolveLocalDaemonTargetFromRepos:9cced7daefe88207233c36d704f8608b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/client/local-daemon-target.ts#registryUnreadable:0e273bc96054bc774aa9b472c162c131",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/client/local-daemon-target.ts#localDaemonTargetHash:ed35f90e307750d3519268d2434125b0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/client/local-daemon-target.ts#assertRuntimeCredentialEndpoint:d4cf8dd198d0a8afde3e4f8b4c483070",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/client/local-json-rpc-client.ts#JsonRpcLineClient.request:8b0895fb33e86f2995fb64148e75be6e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/stream.d.ts#stream.Stream.Writable.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/client/local-json-rpc-client.ts#JsonRpcLineClient.request:cf4a0f84c30576d9754d9f6d1d2d4912",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/client/local-json-rpc-client.ts#JsonRpcLineClient.onOutputError.unavailable:4c931a4c416c7f03308934bab9a179b1",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/client/local-json-rpc-client.ts#assertDaemonAdvertisesMethod:bfc56018526f53dc072a26d9e007dd34",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/client/local-json-rpc-client.ts#responseDeadline:b5d283b5722bcd6b031f52468ce0e6fc",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/client/local-json-rpc-client.ts#responseDeadline:a600f11a570708114f2b1bd9524e90b7",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/timers.d.ts#timers.global.setTimeout"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/client/local-json-rpc-client.ts#daemonClosedError:5ea98f67beb23669e97e7be9bfbda63d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/client/local-json-rpc-stream.ts#streamDaemonFacetAt.connect:cb52387eaaf36739efee7b149678f52c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/client/local-json-rpc-stream.ts#streamDaemonFacetAt.connect:8286e706e2fd581c41a191ee39c23f84",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/client/terminal-relay.ts#relayDaemonTerminal.detach.onValue:cfd34017cf0ca8082443986a2c118b7d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/client/terminal-relay.ts#relayDaemonTerminal.input.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/client/terminal-relay.ts#relayDaemonTerminal.detach.onValue:00ffc94ec39010ca2b2cbb453ac9c9fb",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/client/terminal-relay.ts#relayDaemonTerminal.input.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-center-admission.ts#syncFleetEdgeMirror.advise:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-center-admission.ts#syncFleetEdgeMirror.advise:ce54414a9e30bc7c67f53e247cac2c44",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-center-admission.ts#syncFleetEdgeMirror:f48df147155d630e8f94152d96e26091",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-edge-content.ts#writeMetadata:c9c3d80ab5dd245d30b65f74b5cc02bc",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-edge-content.ts#error:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-edge-content.ts#digestFile:700ba2fad4acd9e264e98f8cc9f786c8",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-edge-content.ts#openFleetDocContentSink.sink.write:a6f6e76ec6851a9f73f2d57d71c20051",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-edge-content.ts#openFleetDocContentSink.sink.abort:89f47e4f729ec646f81c06d145cd883f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-edge-content.ts#openFleetDocContentSink.cleanup:89f47e4f729ec646f81c06d145cd883f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-edge-runtime.ts#openFleetEdgeRuntime.discardExpiredExecutionCredentials:c3e28dd92f2498a4d439db0089c56157",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-edge-runtime.ts#openFleetEdgeRuntime.spawner.remote.releaseExecutionCredential:c3e28dd92f2498a4d439db0089c56157",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-edge-runtime.ts#openFleetEdgeRuntime.run:10ce198d5fc555d0e8234a98527ad254",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet-squad-coordinator.ts#makeFleetSquadCoordinator.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-edge-runtime.ts#openFleetEdgeRuntime.run:578db49425633a495422cf1e49d768e8",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-spawner.ts#makeRuntimeSpawner.cancel"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-edge-runtime.ts#openFleetEdgeRuntime.run:10ce198d5fc555d0e8234a98527ad254:2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet-squad-coordinator.ts#makeFleetSquadCoordinator.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-edge-runtime.ts#openFleetEdgeRuntime.run:e75fe6d8939f6befaf6c94995b31aa28",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-spawner.ts#makeRuntimeSpawner.spawn"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-edge-runtime.ts#openFleetEdgeRuntime.awaitLocalRuntimeSessions.codedError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-edge-runtime.ts#edgeRuntimeError:70bf6004734fd4c1f96973a9e7837f45",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-edge-task.ts#runFleetDocShowRange:894ed15ce94da24cefa47f849154caa7",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/transport-contract.ts#ContentSink.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-edge-task.ts#runFleetEdgeRepositoryRead:dd43785db9aa937227856373cd65519e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-edge-workspace-migration.ts#migrateFleetEdgeWorkspace:9e0e6e8d034c89ad1bfecda2c0623065",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/oidc-center-selection.ts#oidcCenterSelections.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-edge-workspace-migration.ts#codedError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-edge-write.ts#runFleetEdgeRetry.settled:1c0a02758de939f5289f895772bacb2b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet-edge-write.ts#runFleetEdgeRetry.options.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-edge-write.ts#runFleetEdgeWrite.receipt:1c0a02758de939f5289f895772bacb2b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet-edge-write.ts#runFleetEdgeWrite.options.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-squad-coordinator.ts#makeFleetSquadCoordinator.command:17491cf4c9c9618f67dc892413eeb2b4",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-squad-coordinator.ts#makeFleetSquadCoordinator.coordinator.runtimeSpawner.cancel:f72a919ae0a98c523920ba7d957d3195",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-spawner.ts#makeRuntimeSpawner.cancel"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-squad-coordinator.ts#makeFleetSquadCoordinator.run.raw:65c45428de98cfba628c360570723713",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/squad-coordinator.ts#makeSquadCoordinator.cancel"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-task-delivery.ts#assertFleetDeliveryHolder:83939cc02d3e00e6913b104a9afc0d99",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-task-delivery.ts#prepareEdgeTaskDelivery.head:55979061df9b782f3729a8e75ecffd06",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/process-port.ts#makeGitReadinessSource.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-task-delivery.ts#prepareEdgeTaskDelivery:1997ed64b5c300ea283c5684069a071e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-task-delivery.ts#prepareEdgeTaskDelivery:16809e5f8f549fd71add7c2c448f20ca",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-delivery-drain.ts#createFleetDeliveryDrain.admit.settle:38ea0d49ff6b8b57848aa49a4e3d46f1",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-delivery-drain.ts#createFleetDeliveryDrain.admit.preparationFinished:87dec94c55a86cac746c606159f08b6e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/center-delivery-drain.ts#createFleetDeliveryDrain.admit.settle"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-delivery-drain.ts#createFleetDeliveryDrain.admit.sendingFinished:87dec94c55a86cac746c606159f08b6e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/center-delivery-drain.ts#createFleetDeliveryDrain.admit.settle"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-delivery-drain.ts#createFleetDeliveryDrain.admit.released:87dec94c55a86cac746c606159f08b6e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/center-delivery-drain.ts#createFleetDeliveryDrain.admit.settle"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-hello-guard.ts#createHelloRateLimiter:fe3ebbc809b86c09c4447de32eba0417",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-hello-guard.ts#createHelloRateLimiter:360452260c64fd85f0e78dbf0a103451",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-hello-guard.ts#createHelloRateLimiter:360452260c64fd85f0e78dbf0a103451:2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-lease-claims.ts#discardOwnedClaims:5c0be8d2aab7a9795bebd8c811db3463",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-lease-claims.ts#discardOwnedClaims:af58b10efe2b0bdf121e17e4c9286094",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.runFleetCenterWrite:4ded1d566bd0e27824c30f26ae7c5dc2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/center-listener.ts#listenFleetTls.runFleetCenterWrite.execute"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.runCenterWriter:6e74de953efa91d0ef4ccdefed33b45a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/daemon-host-types.ts#DaemonHost.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.rememberRequestReceipt:a93c1b3450586d463c20d20346cc121e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.rememberRequestReceipt:fc99613fa9a1ef871913da7c52b9946a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls:c3afea6da008ab09aa7769e5ab0dbec0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.retireBackup:bc5df1bec773e4d90ab025c284b74783",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.retireBackup.cleanup:d646581bd3582838d998384cc433a2da",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.releaseBackupUser:997c32b752ac91a4a8ea83e61b26163c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.onReplicationStart.lease:cc04f7df0229d0aff71445dc397dd19e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/fleet-replication-slot.ts#openSqliteReplicationSlots.claim"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.handle:55a38ab3df2e028c2d586d0a9d5c4b9f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.handle:e7d63946e7775e2b05f35044857b25a0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.handle:6e106db80b61c316175c4a366028f16e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.appendFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.handle:c741955cb710b3129d6379354eedf09f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.observedHandle.runHandle:8c9520eef49a8fa1f9afbcdf329644ca",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/node-retirement.ts#createNodeRetirementAdmission.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.observedHandle.onSent:e09abb04306c94037bca04832ddaf1b4",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/daemon-operation.ts#DaemonOperationHandle.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.observedHandle.onComplete:e04a41a0486d95720106c840d4c29323",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/daemon-operation.ts#DaemonOperationHandle.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.observedHandle.onFailure:61495043f3abb626d5b36f6f1c73ec23",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/daemon-operation.ts#DaemonOperationHandle.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.observedHandle:90f72e398c5d63236f3a93d033813e1a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/daemon-operation.ts#DaemonOperationScope.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.server.onVersionWarning:9652dfd644fce102967ccd240c1d27b0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls:78db892d774ff45fddb51d774db6fd90",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.removeNode:e27583268a9dbeddea749bf36ab1565e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/node-retirement.ts#createNodeRetirementAdmission.remove"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.removeNode:9652dfd644fce102967ccd240c1d27b0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.removeNode:be404ae109a8383867bf0084dee02667",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.disconnectNode:be404ae109a8383867bf0084dee02667",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-transport.ts#serve.send.sent:c0622be4ccfcfd58de108cb938648dde",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-transport.ts#serve.replicationPeer.send:c0622be4ccfcfd58de108cb938648dde",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-transport.ts#serve:30789ac0b7935268f5c854484200fa7c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/center-transport.ts#serve.enqueue"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-transport.ts#serve.startReplication:fef541a879dac87f263ecee9e168afb1",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-transport.ts#serve:91b1aa8846e34f96391d27650b173ce1",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-transport.ts#serve:3b52128f9a558831444963b8f328030e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/center-transport.ts#serve.enqueue"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-transport.ts#serve:c2610f32074b954b9c46b7ebd1090614",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/center-transport.ts#serve.enqueue"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-transport.ts#serve:ffe3a1998097e102e3fc00b289071143",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/center-transport.ts#serve.dispatch"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-transport.ts#serve.dispatch:cd4da38011f61a1e0bfe02be1ae5533c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/center-transport.ts#serve.enqueue"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-transport.ts#serve.dispatch:4e1376395a98e799c1d3dd933725132f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/center-transport.ts#serve.enqueue"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-transport.ts#serve.dispatch:eb792186d332e0a7d149e7a98cfb372d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-transport.ts#serve.dispatch:4ff0689cd10ccf23c130dfcdcff849a8",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-transport.ts#serve.dispatch:5fdc911819c918651b32d52b78a26e3b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/center-transport.ts#serve.enqueue"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-transport.ts#serve.dispatch:565638cda275d6ae5b7c765c8f4a9a5e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/center-transport.ts#serve.enqueue"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-transport.ts#serve.dispatch:59a71860b48e9909ec6986e8c2998d4a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/center-transport.ts#serve.enqueue"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-transport.ts#serve.dispatch:c9c822d13a1e7431239eb306b6a1cbe0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/center-transport.ts#serve.enqueue"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-transport.ts#serve.dispatch:f0b613b9fe37e41be5a9aa6a478b4896",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-transport.ts#digestId:27f02d96224502988aa62da9f9cd199b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/command-protocol.ts#declaredActionFields.add:0b27a6e0a07f0301b68223e092535d8a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/command-protocol.ts#measureFleetTransferPayload.count:8b72c96f7861d8ea23311416e19f2829",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/command-protocol.ts#measureFleetTransferPayload.count:8b72c96f7861d8ea23311416e19f2829:2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/command-transfer.ts#encodeFleetFrames.sha256:102a44f3bd82f5428c93931f345cb146",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/command-transfer.ts#FleetTransferAssembler.timer:6b2be433f1e972d2b99b7ed14463a4be",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/command-transfer.ts#FleetTransferAssembler.timer:8b9ed1df965dbf9f20f6ff3514decd5d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/timers.d.ts#timers.global.setTimeout"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/command-transfer.ts#FleetTransferAssembler.timer:e18018617472bec2cad8079818e5f579",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/command-transfer.ts#FleetTransferAssembler.timer:49377a77cbb403daaf1c074eb00c2efa",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/timers.d.ts#timers.global.setTimeout"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/command-transfer.ts#FleetTransferAssembler:e18018617472bec2cad8079818e5f579",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/command-transfer.ts#FleetTransferAssembler:6b2be433f1e972d2b99b7ed14463a4be",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/command-transfer.ts#FleetTransferAssembler.push:55986c81d4ae4231e842654d6b032560",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/command-transfer.ts#FleetTransferAssembler.push:0915b6b6fee5d06f1dda21ffaba31193",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/edge-join-admission.ts#restoreEdgeJoinStore.onChange:2265f269d222b964b9f21aff902fff6d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/edge-join-admission.ts#restoreEdgeJoinStore.journal.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/edge-join-client.ts#joinFleetEdge:9c5b804e4bf6babdf24eb6db33c9a46e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/edge-join-client.ts#joinFleetEdge:62eb69f1b2c48baa91c791a598e25367",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/edge-join-client.ts#deriveEdgeJoinQuotaBytes:e8185919af0b85f384f9e7406a1e9fc4",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/edge-join-client.ts#deriveEdgeJoinQuotaBytes:5ed890fa5d4cd2a2fa97066179840403",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/edge-join-client.ts#probeLoginAddress:5b8ab03cec73a50069106c7ddc399ecd",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.dom.d.ts#ReadableStream.cancel"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/edge-join-client.ts#probeLoginAddress:27c2ca7152dfbe61da26d7a138b4bf25",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/edge-join-ssh-tunnel.ts#EdgeJoinSshTunnelManager:50896e25aa884f6513ed9d54a065f67f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/edge-join-ssh-tunnel.ts#validateSshTarget:da21b0eb2861d3c8a7cc91ae40d61951",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/edge-join-ssh-tunnel.ts#tunnelError:b981b04940193f9d9da670c32e50ddc8",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/edge-join.ts#tokenDigest:70a830bcbb199c7baf74e6275754682d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/node-retirement.ts#createNodeRetirement.inspect:447ce0f832f0ee3c92c64857184c1fe2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/node-retirement.ts#createNodeRetirementAdmission.run:e6d1f636c1a3fdb18bd955bceb27898c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/node-retirement.ts#createNodeRetirementAdmission.run:d7b10d30efa881e6bb9633fe53368216",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/node-retirement.ts#createNodeRetirementAdmission.fence:083553246109f98e894acfd3cd03d366",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/node-retirement.ts#createNodeRetirementAdmission.drain.timer:1c01882c23c6c086ebe6d1bf4e34a8c8",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/node-retirement.ts#createNodeRetirementAdmission.drain.timer:ae2949cb1587b823796d3bb58efc72ad",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/timers.d.ts#timers.global.setTimeout"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/node-session-status.ts#createNodeSessionStatus.hello:6883e2ba205a39076507467d6580cc1b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/node-session-status.ts#createNodeSessionStatus.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/node-session-status.ts#createNodeSessionStatus.online:fa3f3b1ae79ba9a5401719744ab44865",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/node-session-status.ts#createNodeSessionStatus.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/node-session-status.ts#createNodeSessionStatus.failure:ce43fca6d4ebcdfba02c26ed157ae3b0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/node-session-status.ts#createNodeSessionStatus.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/node-session-status.ts#createNodeSessionStatus.removeNode:79894919b73ff5f28e9301229db65bcc",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/peer.ts#runFleetReplicaStream:58648c08e74a9838c7652111cd42809e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/peer.ts#runFleetReplicaStream.replicationPeer.send.flushed:21cf7da59a61bcbf636937eefdc7b21a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/peer.ts#runFleetReplicaStream.replicationPeer.receive.waiter.resolve:87dec94c55a86cac746c606159f08b6e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/peer.ts#runFleetReplicaStream.replicationPeer.receive.settle"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/peer.ts#runFleetReplicaStream.replicationPeer.receive.waiter.reject:87dec94c55a86cac746c606159f08b6e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/peer.ts#runFleetReplicaStream.replicationPeer.receive.settle"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/peer.ts#runFleetReplicaStream.replicationPeer.receive.idle:154bab7a9be777dab078e8b4b9515e97",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/peer.ts#runFleetReplicaStream.replicationPeer.receive.idle:646994cb0a3b473c7eca36097804839a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/timers.d.ts#timers.global.setTimeout"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/peer.ts#openPeer.send:af93db67dc59cb2fc8c517440de98f74",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/peer.ts#requestEdgeJoinPinned:9eaa9221608249bd6dc56959806ee9ed",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/peer.ts#requestEdgeJoinPinned.pin:814f803b048fb26357afc0a627f2101a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/peer.ts#requestEdgeJoinPinned:979807cdbb1ff7a407741afda15251d8",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/peer.ts#requestEdgeJoinPinned:d862882019aaf2ab29f9c849cc8df00c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/peer.ts#probeFleetEdgeCenterAddress.socket.unreachable:4833a97779b2815489cf1e044eef360f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/peer.ts#probeFleetEdgeCenterAddress:9eaa9221608249bd6dc56959806ee9ed",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/peer.ts#probeFleetEdgeCenterAddress.pin:814f803b048fb26357afc0a627f2101a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/peer.ts#probeFleetEdgeCenterAddress:979807cdbb1ff7a407741afda15251d8",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/peer.ts#readFleetLoginAuthorityClient:161a5a186f63022051f8e6b5ebb4467b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/protocol.ts#parseReplicationFrameValue:dacc81d2954789bb2fd6a3b299ec467e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-generation.ts#revokeReplicaView:b1766914ef8622cac71f519ff1227a78",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-generation.ts#installReplicaGeneration:c012b41837bc598d5e9fb83a17b1b5ed",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-generation.ts#installReplicaGeneration:4f4a62056e152ae4437b39739592cd32",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.rm"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-generation.ts#createGenerationReaders.collect:e34e442181e9b15541e03deb141205c6",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-generation.ts#createGenerationReaders.discardStaging:da7f497050ac0dfd1b51cf38d73df542",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.rm"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-generation.ts#createGenerationReaders.discardStaging:a1bed5dfbc90e5aaaddea3f297c4fbf1",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.rm"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-generation.ts#createGenerationReaders.discardStaging:836e38cd78b88b11aa6b56291467eda3",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.rm"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-generation.ts#createGenerationReaders.discardStaging:e584e50c929c50ef6bb6708ad6e8f91c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.rm"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-generation.ts#createGenerationReaders.discardStaging:e3f3a40d70e795ed3b4c6b6449ec1e3a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.rm"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-generation.ts#createGenerationReaders.acquire.release:c53bc3c930e95cfbbe7061aeaa46b902",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-status.ts#createReplicaStatusTracker.clearActivity:1b416c277e66db0cf4458277b0563e27",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-status.ts#createReplicaStatusTracker.clearFailure:eda17b199ba9e791e1df6fb113957678",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-status.ts#createReplicaStatusTracker.removeNode:e7e4545773ab47227ab321a478fd9d61",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-status.ts#createReplicaStatusTracker.removeNode:360452260c64fd85f0e78dbf0a103451",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-sync.ts#failFleetReplicaSync:42ee8232587e7343b43f0965b2f259d6",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/replica-sync.ts#settle"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-sync.ts#settle:c62fb1869028a4310eabc0db882365b4",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-sync.ts#settle:c62fb1869028a4310eabc0db882365b4:2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-sync.ts#settle:a51c0d2a0c16ed31a989272fdbbcc2bd",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-sync.ts#settleReady:7eb137aa68fe1929270a87dcc7600c32",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-sync.ts#waitForFleetReplicaSequence.onAbort:c62fb1869028a4310eabc0db882365b4",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-sync.ts#waitForFleetReplicaReady.onAbort:c62fb1869028a4310eabc0db882365b4",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-sync.ts#runFleetReplicaSync.attempt.onApplied:14da80acbe23d70225e6ef38d481e686",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/replica-sync.ts#settle"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-sync.ts#runFleetReplicaSync:9cc22dd13ee5476a437fb76d1252539e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-sync.ts#runFleetReplicaSync:c24c898d941ed957da1400bde68b0e64",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/replica-sync.ts#settle"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-token.ts#requestFleetReplicaToken:da470cbb73ed46490b5265badcbd7236",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-token.ts#requestFleetReplicaToken:c514d858a56ff8576fef31209e2d7e08",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-token.ts#requestFleetReplicaToken:f7dc9c352349ef9661862c59e6f4c294",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/resource-budget.ts#createResourceBudget.reserve.release:52d64a0a3fc4805b23074f0fb6d9facd",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/walreceiver.ts#receiveBytes:c303cd78909e1bffd12bf446c3475ed8",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/fleet/walreceiver.ts#receiveBytes.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/walreceiver.ts#runWalReceiver:71488d15ed1193278c8543357215521e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/walreceiver.ts#runWalReceiver:b7932cb79a6114d55ba7f45b6a3680de",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/walreceiver.ts#runWalReceiver:a77eb421fd2da20b8fe7890d7b274403",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.FileHandle.writeFile"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/walreceiver.ts#runWalReceiver:7cfab6648a33efbdd92cc1993746f5cb",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.rm"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/walreceiver.ts#runWalReceiver:a5101e0253394664a70d1d794bea9c2d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/walreceiver.ts#runWalReceiver:a77eb421fd2da20b8fe7890d7b274403:2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.FileHandle.writeFile"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/walreceiver.ts#runWalReceiver:7cfab6648a33efbdd92cc1993746f5cb:2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.rm"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/gui-s3-control.ts#writeSystemStatus:98936bae2ace6c2e991ad491fc87be11",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/gui-s3-control.ts#write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/gui-s3-control.ts#writeDaemonControlReceipt:18f6b2e2230d8eae1f1ef25a08bd9727",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/gui-s3-control.ts#write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/gui-s3-control.ts#writeCatalogSnapshot:359d89511197e0f92d39d71f0e8abeb8",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/gui-s3-control.ts#write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/gui-s3-control.ts#writeCatalogPreset:cf1c7e26b4fae7abe4df33f92057b57d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/gui-s3-control.ts#write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/gui-s3-control.ts#writeCatalogRereadReceipt:05b2a9822014a0cd8a88229a4a87532e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/gui-s3-control.ts#write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/gui-s3-control.ts#writeTerminalSessionList:8358b69fbe47a21a9aef2aaaeb7ee2df",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/gui-s3-control.ts#write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/gui-s3-control.ts#writeTerminalControlReceipt:4614aba5809b9190d29b218602eaf2af",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/gui-s3-control.ts#write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/gui-s3-control.ts#writeTerminalInputAck:7c6f94f10ced94205c497260cb3c3301",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/gui-s3-control.ts#write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/gui-s3-control.ts#writeTerminalDetachAck:74e3a6438b149517726dd74af6793e89",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/gui-s3-control.ts#write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/gui-s3-control.ts#writeTerminalAttach:49a5272ef4738d3d73ec6148e43d706b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/gui-s3-control.ts#write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/gui-s3-control.ts#writeTerminalAttachEvent:de7245d0d71c3428839d16e3f57dca5d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/gui-s3-control.ts#write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/host-action-authorization.ts#requireAuthorizedHostAction:3c36ab4d3afd3bfc0fe33a55bdd84e2f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/hosting-provider.ts#unknownHostingProvider:fe56855407d57196e355d403a7439ef4",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/keycloak-transport-failure.ts#keycloakUnavailableFailure:25f3d333e853cd1f33983c79692c5fda",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/oidc-center-selection.ts#oidcCenterSelections.binding:3012e6e4275c48e3441868f3f59915bf",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/oidc-center-selection.ts#oidcCenterSelections.write:db4b7adca08a5f42d83ee9ef8f225995",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer.run:aa3eef058d5a0ad5dfd2b36ef2aedc15",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer.run:c54f547ac2f3256d6137304fb21559c1",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer.run:3a3eb6b98083d0d21abfe10774cae2b7",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer.run:972c21597b889c2e4fce1d8c669c7e9b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer.run:8a68630f7282cfaa765843e44197de66",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer.run:1fba965929edd94a89482e8e0f622a1c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer.run:5ea3b7c716b1e15b4366193d89530c02",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer.run.receipt:6022bef7c8e45dd4c99c2dea8e04e70d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/daemon-host-types.ts#DaemonHost.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer.one:6efb26c434e6b7ca27af048572b65e6a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer.one.response:bbf30453503c495eb6e44eecb1132ec7",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer.one:e8ae03769054845cd51e5a5f75b3ec53",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/protocol/json-rpc-server.ts#createJsonRpcProtocolServer.pump:eaec860134232601da0627257b15a9a4",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/protocol/json-rpc-server.ts#raceParkedWait.release:f51c9c98724bb58f2cdba824ea9c709e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/protocol/skill-eval-rpc.ts#dispatchSkillEvalCall.evaluation:58c3cba212769f326f89d9faefa0aef2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/daemon-host-types.ts#DaemonHost.skillEval.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/remote-proxy.ts#openRemoteProxyManager.stream.closeQueue:6cf6de8d6396a06af8210f066de75892",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/remote-proxy.ts#remoteProxyError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/rpc-command-routing.ts#missing:450ee15918b65f8b535f4b5eb332bbf5",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/tls-ca-certificate.ts#probeSystemCaTrust:5b8ab03cec73a50069106c7ddc399ecd",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.dom.d.ts#ReadableStream.cancel"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/tls-listener-admission.ts#validateCertificateNames:40dad9f059ec4690eb17ac5ae0b0cec9",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/tls-listener-admission.ts#mapListenerBindError:e3f0ee7c89a85d9f8c18848540044b0b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/transport/json-rpc-stream.ts#serveJsonRpcStream.writeFrameWithBackpressure.writable:2e84385adf7df9745c24a67087b85e92",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/stream.d.ts#stream.Stream.Writable.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/transport/unix-socket.ts#createUnixSocketTransportServer.server:10562e07dbc9d625ac0ab9f60bf29552",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/transport/unix-socket.ts#createUnixSocketTransportServer.server:193d9bd7842f80387574383ef96708ee",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/transport/unix-socket.ts#createUnixSocketTransportServer.start:2a8ca80e2e29c550134a94345a77c0c9",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/transport/unix-socket.ts#createUnixSocketTransportServer.stop:2a8ca80e2e29c550134a94345a77c0c9",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
       }
     ],
     "technical": true

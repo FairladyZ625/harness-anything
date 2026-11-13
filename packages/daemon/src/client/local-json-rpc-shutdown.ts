@@ -1,3 +1,4 @@
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { connectSocket, jsonRpcRecord, executionCredentialParams, JsonRpcLineClient } from "./local-json-rpc-client.ts";
 
 export interface DaemonStopReply {
@@ -15,8 +16,8 @@ export interface DaemonShutdownExchange {
 // owns framing and version refusal, just as it does for ordinary requests and persistent readers.
 export async function requestDaemonShutdownAt(
   socketPath: string,
-  timeoutMs = 75,
-  responseTimeoutMs = 2_000,
+  timeoutMs: number = daemonProtocolFleetPolicy.defaultValue.client.requestTimeoutMs,
+  responseTimeoutMs: number = daemonProtocolFleetPolicy.defaultValue.client.shutdownResponseTimeoutMs,
 ): Promise<DaemonShutdownExchange> {
   const socket = await connectSocket(socketPath, timeoutMs),
     client = new JsonRpcLineClient(socket, socket);

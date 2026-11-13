@@ -173,6 +173,60 @@ test("all authorization packages stay at zero ontology migration debt", () => {
   );
 });
 
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: daemon protocol, client, transport, access and Fleet closure is shrink-only.
+test("daemon protocol and Fleet boundary remains at zero ontology migration debt", () => {
+  const baseline = loadGateAllowlist("ontology-closure", { report: false }).candidates;
+  const boundary = (row) =>
+    row.owner === "packages/daemon" &&
+    /^packages\/daemon\/src\/(?:protocol\/|client\/|fleet\/|fleet-|access-|gui-s3-|oidc-|keycloak-|host-action-authorization\.ts|authorization-provider\.ts|hosting-provider\.ts|remote-proxy\.ts|rpc-command-routing\.ts|transport\/|tls-)/u.test(
+      row.path,
+    );
+  assert.deepEqual(baseline.filter(boundary), []);
+  const result = evaluateOntologyClosure({ rootDir: repoRoot, base: "HEAD" });
+  const classified = result.classified.filter(
+    (row) =>
+      boundary({ owner: "packages/daemon", path: row.file }) &&
+      (row.category === "action" || row.category === "policy"),
+  );
+  assert.ok(classified.some((row) => row.category === "action"));
+  assert.ok(classified.some((row) => row.category === "policy"));
+  assert.deepEqual(
+    classified.filter((row) => row.status !== "registered"),
+    [],
+    "every daemon boundary action and policy candidate must resolve to its shared declaration",
+  );
+});
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: reject a changed default and a neighboring effect, not just a path.
+test("daemon boundary registrations reject changed policies and undeclared actions", () => {
+  const snapshot = loadOntologyClosureSnapshot(repoRoot);
+  const target = "packages/kernel/src/domain/cli-operational-policy.ts";
+  const source = readFileSync(path.join(repoRoot, target), "utf8");
+  const original = scanOntologyText(target, source);
+  assert.deepEqual(audit(original, { snapshot }).findings, []);
+  const changed = source.replace("reconnectAttemptLimit: 5", "reconnectAttemptLimit: 6");
+  assert.notEqual(changed, source);
+  assert.ok(
+    audit(scanOntologyText(target, changed), { snapshot }).findings.some(
+      ({ code }) => code === "ONTOLOGY_POLICY_UNDECLARED",
+    ),
+  );
+  const daemonTarget = "packages/daemon/src/client/local-json-rpc-stream.ts";
+  const daemonSource = readFileSync(path.join(repoRoot, daemonTarget), "utf8");
+  assert.deepEqual(audit(scanOntologyText(daemonTarget, daemonSource), { snapshot }).findings, []);
+  for (const [extra, expected] of [
+    ["\nconst reconnectAttemptLimit = 6;", "ONTOLOGY_POLICY_UNDECLARED"],
+    ["\nunlinkSync('unregistered-neighbor');", "ONTOLOGY_ACTION_UNDECLARED"],
+  ]) {
+    assert.ok(
+      audit(scanOntologyText(daemonTarget, daemonSource + extra), { snapshot }).findings.some(
+        ({ code }) => code === expected,
+      ),
+      expected,
+    );
+  }
+});
+
 test("leaf Policy bindings preserve defaults and distinguish exact presentation contracts from new budgets", () => {
   const snapshot = loadOntologyClosureSnapshot(repoRoot);
   for (const [target, from, to] of [

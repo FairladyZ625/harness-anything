@@ -1,6 +1,7 @@
 import type * as AccessStatus from "@harness-anything/kernel/internal/domain/access-status.ts";
 import type { FleetNodeSessionStatus } from "./node-session-status.ts";
 import type { FleetReplicaStatus } from "./center-types.ts";
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { runtimeErrorCode } from "../runtime-spawn-errors.ts";
 import type { RepoCell, RepoCellBinding } from "../repo-cell-types.ts";
 import { taskStatusWords } from "../protocol/daemon-protocol-vocabulary.ts";
@@ -581,7 +582,7 @@ function validateFieldState(state: unknown, at: string): readonly string[] {
   return [];
 }
 
-const EVENT_PAGE_LIMIT = 64;
+const EVENT_PAGE_LIMIT = daemonProtocolFleetPolicy.defaultValue.fleet.overviewEventPageLimit;
 
 /** Host 侧装配:把 daemon 既有事实源(副本账本、任务租约投影、派工行、canonical 事件尾部、
  * Keycloak 节点登记、daemon build)聚成一次 overview 读。全部子读只读且走 viewer binding。 */
@@ -612,7 +613,7 @@ export async function readFleetOverviewFromHost(input: {
             // index-bounded and would scan every task the repository ever had.
             {
               status,
-              limit: 500,
+              limit: daemonProtocolFleetPolicy.defaultValue.fleet.overviewLeasePageLimit,
               statusSource: "raw",
               // Start from live lease rows, not from every raw-active task: active work without a
               // lease must not make a fixed lease count scan history.

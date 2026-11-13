@@ -1,3 +1,4 @@
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { X509Certificate } from "node:crypto";
 import { isIP } from "node:net";
 import { connect as tlsConnect } from "node:tls";
@@ -31,7 +32,10 @@ export function mapListenerBindError(error: unknown): Error {
 }
 
 /** Local hairpin NAT can make an otherwise valid advertised address fail; callers report only a warning. */
-export function probeTlsAddress(url: string, timeoutMs = 1_500): Promise<boolean> {
+export function probeTlsAddress(
+  url: string,
+  timeoutMs: number = daemonProtocolFleetPolicy.defaultValue.transport.tlsProbeTimeoutMs,
+): Promise<boolean> {
   const endpoint = new URL(url),
     hostname = endpoint.hostname.replace(/^\[|\]$/gu, ""),
     port = endpoint.port === "" ? 443 : Number(endpoint.port);

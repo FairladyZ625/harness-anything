@@ -1,4 +1,5 @@
 // dec_9284BD6119D453EEECEED62450: authenticated command transport; replication uses its own stream.
+import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { uploadFleetChange } from "./upload-client.ts";
 import { encodeFleetFrames, FleetTransferAssembler } from "./command-transfer.ts";
 import { connect, type TLSSocket } from "node:tls";
@@ -97,7 +98,7 @@ export class FleetRemoteError extends Error {
 export type FleetPeer = Awaited<ReturnType<typeof openPeer>>;
 
 /** Three missed center keepalives (REPLICATION_KEEPALIVE_MS, center-listener.ts). */
-const REPLICATION_IDLE_TIMEOUT_MS = 45_000;
+const REPLICATION_IDLE_TIMEOUT_MS = daemonProtocolFleetPolicy.defaultValue.fleet.replicationIdleTimeoutMs;
 
 export interface FleetReplicaStreamOptions extends FleetPeerOptions {
   readonly onRevoked?: () => void;
@@ -1198,7 +1199,7 @@ function peerFor(
           inReplyTo: transfer.correlationId,
           code: "transfer_timeout",
           message: `Fleet response transfer timed out (actualBytes=${transfer.totalBytes}).`,
-          retryable: true,
+          retryable: daemonProtocolFleetPolicy.defaultValue.fleet.timeoutRetryable,
           resumeOffset: null,
         });
       },
