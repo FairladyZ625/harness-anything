@@ -129,7 +129,8 @@ export function readIndexDdl(): readonly string[] {
         IF processed=0 THEN
           WITH batch AS (
             SELECT task_id FROM ha_task_snapshots WHERE tenant_id=tenant AND project_id=project
-              AND policy_epoch=epoch AND parent_index_version=0 ORDER BY task_id LIMIT 64 FOR UPDATE
+              AND policy_epoch=epoch AND (parent_index_version=0 OR task_index_version<2)
+              ORDER BY task_id LIMIT 64 FOR UPDATE
           ), filled AS (
             UPDATE ha_task_snapshots p SET snapshot=p.snapshot FROM batch b
             WHERE p.tenant_id=tenant AND p.project_id=project AND p.policy_epoch=epoch

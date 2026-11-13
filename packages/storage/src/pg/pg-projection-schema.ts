@@ -80,6 +80,10 @@ export async function ensurePgProjectionSchema(
   options: { readonly indexBuild?: "concurrent" | "isolated" } = {},
 ): Promise<void> {
   for (const statement of projectionDdl()) {
+    if (options.indexBuild !== "isolated" && statement.startsWith("DROP INDEX IF EXISTS ha_task_snapshots_")) {
+      await client.query(statement.replace("DROP INDEX IF EXISTS", "DROP INDEX CONCURRENTLY IF EXISTS"));
+      continue;
+    }
     const index = /^CREATE INDEX IF NOT EXISTS ([a-z0-9_]+)/u.exec(statement);
     if (index?.[1] === "ha_events_summary_pending" && (await contractPgEventSummaryIndex(client, options))) continue;
     if (index && options.indexBuild !== "isolated") {
@@ -189,6 +193,14 @@ export function projectionDdl(): readonly string[] {
       END $migration$`,
     ...artifactTimelineDdl(),
     ...eventReadIndexDdl(),
+    // Workspace scope event windows seek the explicit canonical task id.  The generic
+    // task-index expression also covers runtime ownership, but it cannot serve this
+    // predicate for task bootstrap/progress events without scanning unrelated history.
+    // Keep the index on the ledger row and let the existing event readers apply the
+    // reader visibility predicate and revision cut.
+    `CREATE INDEX IF NOT EXISTS ha_events_canonical_task_revision ON ha_events
+      (tenant_id,project_id,policy_epoch,repo_id,canonical_task_id,revision DESC)
+      WHERE event_type <> 'ci_run_observed'`,
     // Retire only the disposable nonunique expression index after its scalar replacement exists.
     // It rejects valid opaque provider bytes and cannot serve runtime RLS's outcome predicate.
     // No table, column, identity key or canonical value is removed.
@@ -304,10 +316,10 @@ export function projectionDdl(): readonly string[] {
     "CREATE INDEX IF NOT EXISTS ha_task_snapshots_package_path ON ha_task_snapshots (tenant_id,project_id,policy_epoch,package_path)",
     // A lifecycle-status page (home "done in the last 24h", fleet "active leases") is an index
     // range, not a scan of every task the repository ever had.
-    "CREATE INDEX IF NOT EXISTS ha_task_snapshots_lease_active ON ha_task_snapshots (tenant_id, project_id, policy_epoch, task_id) WHERE (snapshot #>> '{task,status}') = 'active' AND raw_lease IS NOT NULL AND raw_lease->>'phase' <> 'released'",
-    "CREATE INDEX IF NOT EXISTS ha_task_snapshots_status_updated ON ha_task_snapshots (tenant_id,project_id,policy_epoch,(snapshot #>> '{task,status}'),updated_at DESC,task_id)",
     "CREATE INDEX IF NOT EXISTS ha_task_snapshots_scope_revision ON ha_task_snapshots (tenant_id, project_id, workspace_revision DESC)",
     ...taskParentIndexDdl(),
+    "CREATE INDEX IF NOT EXISTS ha_task_snapshots_status_updated_v2 ON ha_task_snapshots (tenant_id,project_id,policy_epoch,task_status,updated_at DESC,task_id)",
+    "DROP INDEX IF EXISTS ha_task_snapshots_status_updated",
     ...PG_PROJECTION_TABLES.map(
       (table) => `CREATE INDEX IF NOT EXISTS ${table}_readers_gin ON ${table} USING gin (readers)`,
     ),

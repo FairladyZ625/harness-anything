@@ -1,6 +1,5 @@
 import { readTodos } from "./todo-read.ts";
 import { activeCutReviewDispatches } from "./review-dispatch-state.ts";
-import { taskPresentationReads } from "./task-presentation-read.ts";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import {
@@ -262,15 +261,51 @@ export function makeTaskQueryReadModel(input: {
       ),
     };
   }
+  /**
+   * Select a bounded page from the scalar task index, then hydrate only those task ids.
+   * The old path asked `list` to discover the page while also materializing snapshots and
+   * incoming relations; that made a one-row GUI read pay for unrelated history.  The index
+   * owns filtering and the cursor, while the second read is an explicit point set.
+   */
+  function boundedTaskList(query: TaskProjectionListQuery): ReturnType<TaskProjection["list"]> {
+    // The index contract is task-id ordered. Pinned agenda pages use the list contract's
+    // two-part (pinned, taskId) cursor, so keep that bounded SQL path instead of silently
+    // changing the consumer's ordering and cursor shape.
+    if (query.pinnedFirst === true)
+      return projection.list({
+        ...query,
+        presentationStatus: query.presentationStatus !== false,
+        decisionRelationsOnly: query.decisionRelationsOnly === true,
+      });
+    const index = projection.readTaskIndex({
+        ...query,
+        presentationStatus: query.presentationStatus !== false,
+      }),
+      taskIds = index.rows.map(({ taskId }) => taskId),
+      hydrated = projection.list({
+        taskIds,
+        presentationStatus: query.presentationStatus !== false,
+        decisionRelationsOnly: query.decisionRelationsOnly === true,
+      }),
+      byId = new Map(hydrated.rows.map((row) => [row.taskId, row] as const));
+    return {
+      ...hydrated,
+      // Keep the index's keyset order and page token. `list` is a point hydration read;
+      // its own ordering must not silently change the index contract.
+      rows: taskIds.flatMap((taskId) => {
+        const row = byId.get(taskId);
+        return row === undefined ? [] : [row];
+      }),
+      page: index.page ?? undefined,
+      warnings: [...index.warnings, ...hydrated.warnings],
+    };
+  }
   function guiTasks(query: TaskProjectionListQuery = {}): DaemonTaskSnapshotListResult {
     // Aggregate readers that ask for the raw lifecycle status skip the presentation-status
     // derivation: that CASE walks each task's subtree, so filtering on it cannot be index-bounded
     // and would make a small page linear in the repository's task history.
     const lifecycleQuery = { ...query, limit: query.limit ?? 500, decisionRelationsOnly: true },
-      lifecycle =
-        query.presentationStatus === false
-          ? projection.list(lifecycleQuery)
-          : taskPresentationReads(projection).list(lifecycleQuery),
+      lifecycle = boundedTaskList(lifecycleQuery),
       readPresetSnapshot = presetSnapshotReader(projection),
       { authoredRoot } = resolveHarnessLayout(rootDir),
       { dependencies, downstream, derives, awaits, taskStatuses, blockingByTaskId } = readBlockingAssessments(
@@ -433,15 +468,13 @@ export function makeTaskQueryReadModel(input: {
     // The attention-only aggregation reads lifecycle status: presentation status derives each
     // task's subtree and cannot be index-bounded, which would make a fixed-k home read scan the
     // repository's whole task history.
-    const list = presentationStatus
-        ? taskPresentationReads(projection).list
-        : (query: Parameters<TaskProjection["list"]>[0]) => projection.list(query),
-      lifecycle = list({
+    const lifecycle = boundedTaskList({
         status,
         activePackagesOnly: true,
         limit: sourceLimit,
         pinnedFirst: true,
-        ...(presentationStatus ? {} : { presentationStatus: false }),
+        presentationStatus,
+        decisionRelationsOnly: true,
         ...(pageCursor ? { cursor: pageCursor } : {}),
         // --work narrows the page query itself, so a small limit returns that work's rows
         // instead of the repository's first page with the work's rows filtered away.

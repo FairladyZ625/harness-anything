@@ -1,11 +1,12 @@
 import type { TaskProjection } from "@harness-anything/kernel";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { readActiveDispatchLifecycleSync } from "./runtime-dispatch-admission.ts";
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { inspectScheduleProjection } from "./schedule-projection.ts";
 import type { RepoInFlightWork } from "./repo-cell-types.ts";
 
 export function readRepoInFlightWork(input: {
-  readonly projection: Pick<TaskProjection, "list" | "listEntities" | "readDispatchLifecycle">;
+  readonly projection: Pick<TaskProjection, "read" | "list" | "listEntities" | "readDispatchLifecycle">;
   readonly repoId: string;
   readonly queueDepth: number;
 }): readonly RepoInFlightWork[] {
@@ -25,23 +26,45 @@ export function readRepoInFlightWork(input: {
           : {}),
         nextAction: `ha runtime status ${attempt.runtimeSessionId}`,
       })),
-    leases = input.projection.list({ leaseOnly: true, decisionRelationsOnly: true }).rows.flatMap((row) => {
-      const lease = row.snapshot.lease;
-      if (!lease || lease.phase === "released") return [];
-      const executor = lease.actor.executor,
-        holder = executor ? `${executor.kind}:${executor.id}` : lease.actor.principal.personId;
-      return [
-        {
-          kind: "task-lease" as const,
-          id: `${row.taskId}:${lease.executionId}`,
-          taskId: row.taskId,
-          executionId: lease.executionId,
-          phase: lease.phase,
-          holder,
-          nextAction: `ha task release ${row.taskId}`,
-        },
-      ];
-    }),
+    leases = (() => {
+      // The SQLite and PG list ports both implement leaseOnly as an indexed join/filter.
+      // Consume that contract in bounded pages; readTaskIndex is intentionally not used here
+      // because SQLite's index reader has no lease predicate and would scan every task.
+      const rows: Array<{
+        readonly taskId: string;
+        readonly snapshot: ReturnType<TaskProjection["read"]>["snapshot"];
+      }> = [];
+      let cursor: string | undefined;
+      let nextPage: ReturnType<TaskProjection["list"]>;
+      do {
+        nextPage = input.projection.list({
+          leaseOnly: true,
+          presentationStatus: false,
+          decisionRelationsOnly: true,
+          limit: storageReadPolicy.defaultValue.pageSizes.standard,
+          ...(cursor ? { cursor } : {}),
+        });
+        rows.push(...nextPage.rows);
+        cursor = nextPage.page?.nextCursor ?? undefined;
+      } while (cursor !== undefined);
+      return rows.flatMap((row) => {
+        const lease = row.snapshot.lease;
+        if (!lease || lease.phase === "released") return [];
+        const executor = lease.actor.executor,
+          holder = executor ? `${executor.kind}:${executor.id}` : lease.actor.principal.personId;
+        return [
+          {
+            kind: "task-lease" as const,
+            id: `${row.taskId}:${lease.executionId}`,
+            taskId: row.taskId,
+            executionId: lease.executionId,
+            phase: lease.phase,
+            holder,
+            nextAction: `ha task release ${row.taskId}`,
+          },
+        ];
+      });
+    })(),
     schedules = input.projection.listEntities("schedule").flatMap((row) => {
       const inspected = inspectScheduleProjection(row);
       if (!inspected.valid || !inspected.schedule.status.activeRun) return [];

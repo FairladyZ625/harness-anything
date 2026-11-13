@@ -8,7 +8,12 @@ import { pgAggregateQueries, type PgAggregateQueries } from "./pg-aggregate-quer
 import { pgValueQueries, type PgValueQueries } from "./pg-value-queries.ts";
 import { pgTaskEventQueries, type PgTaskEventQueries } from "./pg-task-event-queries.ts";
 import { pgRelationPortQueries, type PgRelationPortQueries } from "./pg-relation-port-queries.ts";
-import { pgTaskIndexQueries, type PgTaskIndexQueries } from "./pg-task-index-queries.ts";
+import {
+  pgTaskIndexQueries,
+  presentationStatusSql,
+  readScopedTaskIds,
+  type PgTaskIndexQueries,
+} from "./pg-task-index-queries.ts";
 import { readRelationsInTransaction } from "./pg-relation-queries.ts";
 import { checkedPageLimit } from "./pg-query-page.ts";
 import { pgRuntimeDispatchQueries, type PgRuntimeDispatchQueries } from "./pg-runtime-dispatch-queries.ts";
@@ -60,21 +65,6 @@ export interface PgProjectionCut {
   readonly watermark: number;
   readonly sourceRevision: number;
 }
-
-// Keep recursive child lookups parameterized: flattening the lateral subquery permits
-// a hash join that scans unrelated tasks even when only two descendants are needed.
-const presentationStatusSql = (readersParameter: number) => `CASE
-  WHEN ha_task_snapshots.snapshot #>> '{task,status}' IN ('done','cancelled') THEN ha_task_snapshots.snapshot #>> '{task,status}'
-  WHEN ha_task_snapshots.snapshot #>> '{task,taskClass}' = 'work' OR (ha_task_snapshots.parent_task_id IS NULL AND EXISTS (
-    SELECT 1 FROM ha_task_snapshots child WHERE child.tenant_id=ha_task_snapshots.tenant_id AND child.project_id=ha_task_snapshots.project_id AND child.policy_epoch=ha_task_snapshots.policy_epoch AND (cardinality($${readersParameter}::text[])=0 OR child.readers && $${readersParameter}::text[]) AND child.parent_task_id=ha_task_snapshots.task_id
-  )) THEN COALESCE((WITH RECURSIVE members(task_id,status) AS (
-    SELECT child.task_id, child.snapshot #>> '{task,status}' FROM ha_task_snapshots child WHERE child.tenant_id=ha_task_snapshots.tenant_id AND child.project_id=ha_task_snapshots.project_id AND child.policy_epoch=ha_task_snapshots.policy_epoch AND (cardinality($${readersParameter}::text[])=0 OR child.readers && $${readersParameter}::text[]) AND child.parent_task_id=ha_task_snapshots.task_id AND child.task_id<>ha_task_snapshots.task_id
-    UNION SELECT child.task_id, child.status FROM members parent CROSS JOIN LATERAL (
-      SELECT child.task_id, child.snapshot #>> '{task,status}' AS status FROM ha_task_snapshots child
-      WHERE child.tenant_id=ha_task_snapshots.tenant_id AND child.project_id=ha_task_snapshots.project_id AND child.policy_epoch=ha_task_snapshots.policy_epoch AND (cardinality($${readersParameter}::text[])=0 OR child.readers && $${readersParameter}::text[]) AND child.parent_task_id=parent.task_id AND child.task_id<>ha_task_snapshots.task_id OFFSET 0
-    ) child
-  ) SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM members WHERE status NOT IN ('done','cancelled')) THEN CASE WHEN EXISTS (SELECT 1 FROM members) THEN CASE WHEN EXISTS (SELECT 1 FROM members WHERE status='done') THEN 'done' ELSE 'cancelled' END END WHEN ha_task_snapshots.snapshot #>> '{task,status}'='planned' AND EXISTS (SELECT 1 FROM members WHERE status NOT IN ('planned','cancelled')) THEN 'active' END), ha_task_snapshots.snapshot #>> '{task,status}')
-  ELSE ha_task_snapshots.snapshot #>> '{task,status}' END`;
 
 function presentSnapshot(snapshot: TaskLifecycleSnapshot, status: string): TaskLifecycleSnapshot {
   if (!snapshot.task || snapshot.task.status === status) return snapshot;
@@ -235,8 +225,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
     withPostgresTransaction(
       options.pool,
       async (client) => {
-        if (query.presentationStatus || query.parentTaskId !== undefined || query.workRootsOnly)
-          await assertPgTaskParentIndexReady(client, options.scope);
+        await assertPgTaskParentIndexReady(client, options.scope);
         const cut = await readCutInTransaction(client, claims, readers, repoId),
           values: unknown[] = [claims.tenantId, claims.projectId, claims.policyEpoch, readers],
           where = [
@@ -247,15 +236,13 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           ];
         if (query.status !== undefined) {
           values.push(query.status);
-          where.push(
-            `${query.presentationStatus ? presentationStatusSql(4) : "snapshot #>> '{task,status}'"} = $${values.length}`,
-          );
+          where.push(`${query.presentationStatus ? presentationStatusSql(4) : "task_status"} = $${values.length}`);
         }
         if (query.search !== undefined) {
           const search = query.search.replace(/[\\%_]/gu, "\\$&");
           values.push(`${search}%`, `%${search}%`);
           where.push(
-            `(task_id ILIKE $${values.length - 1} ESCAPE '\\' OR snapshot #>> '{task,title}' ILIKE $${values.length} ESCAPE '\\')`,
+            `(task_id ILIKE $${values.length - 1} ESCAPE '\\' OR task_title ILIKE $${values.length} ESCAPE '\\')`,
           );
         }
         if (query.taskIds !== undefined) {
@@ -283,21 +270,8 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
         }
         if (query.scopeRootTaskId !== undefined) {
           await assertPgTaskParentIndexReady(client, options.scope);
-          values.push(query.scopeRootTaskId);
-          const root = `$${values.length}`,
-            visible = `tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
-              AND (cardinality($4::text[])=0 OR readers && $4::text[])`;
-          where.push(`task_id IN (
-            WITH RECURSIVE descendants(task_id) AS (
-              SELECT task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=${root}
-              UNION SELECT child.task_id FROM ha_task_snapshots child JOIN descendants parent
-                ON child.parent_task_id=parent.task_id WHERE ${visible}
-            ), ancestors(task_id,parent_id) AS (
-              SELECT task_id,parent_task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=${root}
-              UNION SELECT parent.task_id,parent.parent_task_id FROM ha_task_snapshots parent
-                JOIN ancestors child ON parent.task_id=child.parent_id WHERE ${visible}
-            ) SELECT task_id FROM descendants UNION SELECT task_id FROM ancestors
-          )`);
+          values.push(await readScopedTaskIds(client, options.scope, readers, query.scopeRootTaskId));
+          where.push(`task_id=ANY($${values.length}::text[])`);
         }
         for (const [key, value] of [
           ["workKind", query.workKind],
@@ -307,16 +281,17 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
         ] as const)
           if (value !== undefined) {
             values.push(value);
-            where.push(`snapshot #>> '{task,metadata,${key}}' = $${values.length}`);
+            where.push(
+              `task_${key === "workKind" ? "work_kind" : key === "riskTier" ? "risk_tier" : key} = $${values.length}`,
+            );
           }
-        if (query.openOnly === true) where.push(`snapshot #>> '{task,status}' NOT IN ('done', 'cancelled')`);
+        if (query.openOnly === true) where.push("task_status NOT IN ('done', 'cancelled')");
         const onlyWithLeases = query.leaseOnly === true;
-        if (onlyWithLeases) where.push(`raw_lease IS NOT NULL AND raw_lease->>'phase' <> 'released'`);
-        if (query.activePackagesOnly === true)
-          where.push(`COALESCE(snapshot #>> '{task,packageDisposition}', 'active') = 'active'`);
+        if (onlyWithLeases) where.push("task_lease_phase IS NOT NULL AND task_lease_phase <> 'released'");
+        if (query.activePackagesOnly === true) where.push("task_package_disposition = 'active'");
         if (query.workRootsOnly === true)
           where.push(
-            `(snapshot #>> '{task,taskClass}' = 'work' OR (
+            `(task_class = 'work' OR (
                parent_task_id IS NULL AND EXISTS (
                  SELECT 1 FROM ha_task_snapshots AS child
                  WHERE child.tenant_id = ha_task_snapshots.tenant_id
@@ -333,7 +308,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
             const cursorPinned = cursor[0]!;
             if (cursorPinned !== "0" && cursorPinned !== "1") throw new Error("query cursor is invalid");
             values.push(cursorPinned === "1", cursorPinned === "1", cursor[1]!);
-            const pinnedExpression = "COALESCE((snapshot #>> '{task,pinned}')::boolean, false)";
+            const pinnedExpression = "task_pinned";
             where.push(
               `(${pinnedExpression} < $${values.length - 2} OR (${pinnedExpression} = $${values.length - 1} AND task_id > $${values.length}))`,
             );
@@ -345,7 +320,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
         const paged = query.limit !== undefined || query.cursor !== undefined,
           limit = paged ? checkedPageLimit(query.limit ?? 100) : null;
         if (limit !== null) values.push(limit + 1);
-        const presentation = query.presentationStatus ? presentationStatusSql(4) : "snapshot #>> '{task,status}'",
+        const presentation = query.presentationStatus ? presentationStatusSql(4) : "task_status",
           result = await client.query<{
             task_id: string;
             package_path: string | null;
@@ -358,7 +333,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
             updated_at: string;
           }>(
             `SELECT task_id, package_path, generation, workspace_revision::text, snapshot, created_at::text, completed_at::text, updated_at::text, ${presentation} AS presentation_status FROM ha_task_snapshots
-           WHERE ${where.join(" AND ")} ORDER BY ${query.pinnedFirst ? "COALESCE((snapshot #>> '{task,pinned}')::boolean, false) DESC, " : ""}task_id${limit === null ? "" : ` LIMIT $${values.length}`}`,
+           WHERE ${where.join(" AND ")} ORDER BY ${query.pinnedFirst ? "task_pinned DESC, " : ""}task_id${limit === null ? "" : ` LIMIT $${values.length}`}`,
             values,
           );
         const truncated = limit !== null && result.rows.length > limit,

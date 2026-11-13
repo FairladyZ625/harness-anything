@@ -1,7 +1,56 @@
-// harness-test-tier: fast
+// harness-test-tier: integration
 import test from "node:test";
 import assert from "node:assert/strict";
+import type { TaskProjection, TaskProjectionListQuery } from "@harness-anything/kernel";
+import { readRepoInFlightWork } from "../src/repo-in-flight-work.ts";
 import { workspaceScopeFromProjection } from "../src/workspace-scope-read.ts";
+
+test("repo in-flight lease reads use filtered bounded list pages instead of the task index", () => {
+  const taskIds = Array.from({ length: 501 }, (_, index) => `task_lease_${String(index).padStart(3, "0")}`),
+    queries: TaskProjectionListQuery[] = [],
+    projection = {
+      readDispatchLifecycle: () => ({ status: "ready", watermark: 1, sourceRevision: 1, rows: [], nextCursor: null }),
+      list: (query: TaskProjectionListQuery = {}) => {
+        queries.push(query);
+        const start = query.cursor === undefined ? 0 : Number(query.cursor),
+          rows = taskIds.slice(start, start + (query.limit ?? 100)).map((taskId) => ({
+            taskId,
+            snapshot: {
+              lease: {
+                executionId: `exe_${taskId}`,
+                phase: "held",
+                actor: { executor: null, principal: { personId: "person_holder" } },
+              },
+            },
+          }));
+        return {
+          status: "ready",
+          watermark: 1,
+          sourceRevision: 1,
+          rows,
+          page: {
+            limit: query.limit ?? 100,
+            cursor: query.cursor ?? null,
+            nextCursor: start + rows.length < taskIds.length ? String(start + rows.length) : null,
+          },
+          warnings: [],
+        };
+      },
+      readTaskIndex: () => {
+        throw new Error("lease reads must not route through the general task index");
+      },
+      listEntities: () => [],
+    } as unknown as TaskProjection;
+
+  const result = readRepoInFlightWork({ projection, repoId: "repo", queueDepth: 0 });
+  assert.equal(result.filter(({ kind }) => kind === "task-lease").length, 501);
+  assert.equal(queries.length, 2);
+  assert.ok(queries.every((query) => query.leaseOnly && query.limit === 500 && query.presentationStatus === false));
+  assert.deepEqual(
+    queries.map(({ cursor }) => cursor),
+    [undefined, "500"],
+  );
+});
 
 const task = (
   taskId: string,
@@ -160,3 +209,49 @@ test("workspace scope filters projected summaries by membership", () => {
   assert.equal(JSON.stringify(result.eventSummaries).includes("test-2406"), false);
   assert.ok(Buffer.byteLength(JSON.stringify(result.eventSummaries)) < 2_000);
 });
+
+if (process.env.FLEET_STRESS_G38_P1 === "1") {
+  test("G38 P1 original-scale production probes, first and warm", { timeout: 1_200_000 }, async () => {
+    assert.ok(Number(process.versions.node.split(".")[0]) >= 26, "G38 PGlite requires Node 26");
+    const { measureReadScale } = await import("./fixtures/g38-read-cost.mjs");
+    const groups = {
+      "task-history": [
+        "agenda",
+        "claimable-tasks",
+        "cli-doctor-health",
+        "cli-graph",
+        "cli-work-list",
+        "cli-work-show",
+        "in-flight-work",
+        "repo.works.briefs.read",
+        "repo.works.index",
+        "repo.workspace.scope.read",
+        "task-list",
+      ],
+      "runtime-sessions": [
+        "agenda",
+        "cli-task-list",
+        "cli-work-list",
+        "repo.works.briefs.read",
+        "repo.works.index",
+        "repo.workspace.scope.read",
+      ],
+      dispatches: [
+        "agenda",
+        "cli-task-list",
+        "cli-work-list",
+        "repo.works.briefs.read",
+        "repo.works.index",
+        "repo.workspace.scope.read",
+      ],
+      relations: ["repo.workspace.scope.read"],
+    };
+    for (const [dimension, probeIds] of Object.entries(groups))
+      for (const size of [200, 2000]) {
+        const measured = await measureReadScale("pglite", dimension, size, { probeIds });
+        process.stdout.write(
+          `G38_P1_ORIGINAL ${JSON.stringify({ node: process.versions.node, dimension, size, measured })}\n`,
+        );
+      }
+  });
+}

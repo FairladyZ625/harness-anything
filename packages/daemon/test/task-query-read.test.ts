@@ -16,17 +16,10 @@ import {
   validateDaemonRelationGraph,
 } from "../src/protocol/daemon-protocol.contract.ts";
 import { readTaskWipSnapshot, wipSnapshotEntries, type TaskQueryCell } from "../src/repo-cell-task-query.ts";
-import { readTaskCompletion } from "../src/task-completion-read.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
-import {
-  blockingOf,
-  emptyTaskLifecycleSnapshot,
-  reduceTaskEvent,
-  submissionDigest,
-  taskCompletionNext,
-} from "@harness-anything/kernel";
-import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
+import { blockingOf, submissionDigest } from "@harness-anything/kernel";
 import { makeTaskQueryReadModel } from "../src/task-query-read.ts";
+import { taskListQueryFromPayload } from "../src/repo-query-payload.ts";
 import { appendIncidentActionReceipt } from "../src/decision-incident-receipt.ts";
 import { openDispatchStream } from "../src/dispatch-stream.ts";
 import {
@@ -47,6 +40,7 @@ const secondEventEdge = {
   relationType: "depends-on" as const,
   ownerRef: "task/task_event",
 };
+
 const neighborhoodQuery = () => ({
   seed: "task/task_event",
   direction: "both" as const,
@@ -154,20 +148,67 @@ test("task control narrows graph, status, and decision reads to the selected lif
   assert.deepEqual(decisionCalls, [["dec_event"]]);
 });
 
-test("an unparameterized guiTasks read serves one default-bounded page, never the full ledger", () => {
+test("an unparameterized guiTasks read preserves the full list contract and page", () => {
   const listCalls: TaskProjectionListQuery[] = [],
+    indexCalls: TaskProjectionListQuery[] = [],
     projection = projectionStub({
       taskRows: Array.from({ length: 501 }, (_, index) =>
         protocolTaskRow(`task_page_${String(index).padStart(4, "0")}`),
       ),
       listCalls,
+      indexCalls,
     });
 
   const result = queryRead(process.cwd(), projection).guiTasks();
 
-  assert.deepEqual(listCalls, [{ limit: 500, decisionRelationsOnly: true, presentationStatus: true }]);
+  assert.equal(indexCalls.length, 1);
+  assert.equal(indexCalls[0]?.presentationStatus, true);
+  assert.equal(indexCalls[0]?.decisionRelationsOnly, true);
+  assert.equal(indexCalls[0]?.activePackagesOnly, undefined);
+  assert.equal(listCalls[0]?.taskIds?.length, 500);
   assert.equal(result.rows.length, 500);
   assert.deepEqual(result.page, { limit: 500, cursor: null, nextCursor: "task_page_0499" });
+});
+
+test("archive filtering is opt-in and delta pages keep using the narrow task index", () => {
+  const archived = protocolTaskRow("task_archived"),
+    taskRows = [
+      protocolTaskRow("task_active"),
+      {
+        ...archived,
+        snapshot: { ...archived.snapshot, task: { ...archived.snapshot.task!, packageDisposition: "archived" } },
+        workspaceRevision: 12,
+      },
+    ];
+  for (const activePackagesOnly of [undefined, false, true]) {
+    const listCalls: TaskProjectionListQuery[] = [],
+      indexCalls: TaskProjectionListQuery[] = [],
+      read = queryRead(process.cwd(), projectionStub({ taskRows, listCalls, indexCalls })),
+      filter = activePackagesOnly === undefined ? {} : { activePackagesOnly },
+      full = read.guiTasks({ ...filter, limit: 2 }),
+      delta = read.guiTasks({ ...filter, changedAfterRevision: 7, limit: 2 });
+    assert.deepEqual(
+      full.rows.map(({ taskId }) => taskId),
+      activePackagesOnly === true ? ["task_active"] : ["task_active", "task_archived"],
+    );
+    assert.deepEqual(
+      delta.rows.map(({ taskId }) => taskId),
+      activePackagesOnly === true ? [] : ["task_archived"],
+    );
+    assert.equal(indexCalls.length, 2);
+    assert.equal(indexCalls[1]?.changedAfterRevision, 7);
+    assert.equal(indexCalls[1]?.activePackagesOnly, activePackagesOnly);
+    assert.deepEqual(listCalls[1]?.taskIds, activePackagesOnly === true ? [] : ["task_archived"]);
+  }
+});
+
+test("repo.tasks.list payload preserves an explicit false activePackagesOnly value", () => {
+  assert.deepEqual(
+    taskListQueryFromPayload({ activePackagesOnly: false }, (code, message) =>
+      Object.assign(new Error(message), { code }),
+    ),
+    { activePackagesOnly: false },
+  );
 });
 
 test("task snapshot list isolates an invalid row and continues serving valid rows", () => {
@@ -243,11 +284,46 @@ test("agenda reads one narrow lifecycle page per status and no wide-assembly rea
   const result = queryRead(process.cwd(), projection).agenda();
 
   assert.deepEqual(listCalls, [
-    { status: "active", activePackagesOnly: true, limit: 100, pinnedFirst: true, presentationStatus: true },
-    { status: "blocked", activePackagesOnly: true, limit: 100, pinnedFirst: true, presentationStatus: true },
-    { status: "planned", activePackagesOnly: true, limit: 100, pinnedFirst: true, presentationStatus: true },
-    { status: "submitted", activePackagesOnly: true, limit: 100, pinnedFirst: true, presentationStatus: true },
-    { status: "in_review", activePackagesOnly: true, limit: 100, pinnedFirst: true, presentationStatus: true },
+    {
+      status: "active",
+      activePackagesOnly: true,
+      limit: 100,
+      pinnedFirst: true,
+      presentationStatus: true,
+      decisionRelationsOnly: true,
+    },
+    {
+      status: "blocked",
+      activePackagesOnly: true,
+      limit: 100,
+      pinnedFirst: true,
+      presentationStatus: true,
+      decisionRelationsOnly: true,
+    },
+    {
+      status: "planned",
+      activePackagesOnly: true,
+      limit: 100,
+      pinnedFirst: true,
+      presentationStatus: true,
+      decisionRelationsOnly: true,
+    },
+    {
+      status: "submitted",
+      activePackagesOnly: true,
+      limit: 100,
+      pinnedFirst: true,
+      presentationStatus: true,
+      decisionRelationsOnly: true,
+    },
+    {
+      status: "in_review",
+      activePackagesOnly: true,
+      limit: 100,
+      pinnedFirst: true,
+      presentationStatus: true,
+      decisionRelationsOnly: true,
+    },
   ]);
   assert.deepEqual(decisionCalls, []);
   assert.deepEqual(
@@ -267,12 +343,31 @@ test("attentionOnly agenda reads raw lifecycle status and skips the presentation
 
   const result = queryRead(process.cwd(), projection).agenda({ attentionOnly: true });
 
-  // Home consumes only the four waiting buckets: blocked/planned pages and the full work-root
-  // scan are not read, and the three remaining pages ask for lifecycle status (index-bounded).
   assert.deepEqual(listCalls, [
-    { status: "active", activePackagesOnly: true, limit: 100, pinnedFirst: true, presentationStatus: false },
-    { status: "submitted", activePackagesOnly: true, limit: 100, pinnedFirst: true, presentationStatus: false },
-    { status: "in_review", activePackagesOnly: true, limit: 100, pinnedFirst: true, presentationStatus: false },
+    {
+      status: "active",
+      activePackagesOnly: true,
+      limit: 100,
+      pinnedFirst: true,
+      presentationStatus: false,
+      decisionRelationsOnly: true,
+    },
+    {
+      status: "submitted",
+      activePackagesOnly: true,
+      limit: 100,
+      pinnedFirst: true,
+      presentationStatus: false,
+      decisionRelationsOnly: true,
+    },
+    {
+      status: "in_review",
+      activePackagesOnly: true,
+      limit: 100,
+      pinnedFirst: true,
+      presentationStatus: false,
+      decisionRelationsOnly: true,
+    },
   ]);
   assert.deepEqual(decisionCalls, []);
   assert.deepEqual(result.attentionItems, []);
@@ -305,21 +400,45 @@ test("agenda labels each task row with its nearest work root and --work keeps on
       ...stub,
       read: (taskId: string) => ({ ...readyCut, packagePath: null, snapshot: byId.get(taskId)?.snapshot ?? {} }),
       listEntities: () => [],
-      readTaskIndex: () => ({
-        ...readyCut,
-        rows: rows.map(({ taskId, snapshot: { task } }) => ({
-          taskId,
-          title: task.title,
-          status: task.status,
-          taskClass: task.taskClass,
-          parentTaskId: task.metadata.parentTaskId,
-          pinned: false,
-          packageDisposition: "active",
-          packagePath: null,
-          updatedAt: "2026-08-30T00:00:00.000Z",
-        })),
-        warnings: [],
-      }),
+      readTaskIndex: (query: TaskProjectionListQuery = {}) => {
+        const scopeIds = (() => {
+          if (query.scopeRootTaskId === undefined) return null;
+          const ids = new Set([query.scopeRootTaskId]);
+          let changed = true;
+          while (changed) {
+            changed = false;
+            for (const row of rows) {
+              const parent = row.snapshot.task.metadata.parentTaskId;
+              if (parent && ids.has(parent) && !ids.has(row.taskId)) {
+                ids.add(row.taskId);
+                changed = true;
+              }
+            }
+          }
+          return ids;
+        })();
+        return {
+          ...readyCut,
+          rows: rows
+            .filter(
+              ({ taskId }) =>
+                (query.taskIds === undefined || query.taskIds.includes(taskId)) &&
+                (scopeIds === null || scopeIds.has(taskId)),
+            )
+            .map(({ taskId, snapshot: { task } }) => ({
+              taskId,
+              title: task.title,
+              status: task.status,
+              taskClass: task.taskClass,
+              parentTaskId: task.metadata.parentTaskId,
+              pinned: false,
+              packageDisposition: "active",
+              packagePath: null,
+              updatedAt: "2026-08-30T00:00:00.000Z",
+            })),
+          warnings: [],
+        };
+      },
     } as unknown as TaskProjection,
     labels = (agenda: ReturnType<ReturnType<typeof queryRead>["agenda"]>) =>
       Object.fromEntries(agenda.waitingOnOthers.map(({ taskId, work }) => [taskId, work?.title ?? null]));
@@ -363,7 +482,6 @@ test("agenda groups a changes_requested return into awaiting rework, not the in-
         ...readyCut,
         rows: taskIds.map((taskId) => ({ taskId, status: "active" })),
       }),
-      // The restarted round has a dispatched worker, so it is genuinely in flight.
       readRuntimeDispatchesByTaskExecution: (taskId: string, executionId: string) =>
         taskId === "task_resubmitted" && executionId === "exe_new"
           ? [
@@ -397,7 +515,6 @@ test("agenda groups a changes_requested return into awaiting rework, not the in-
       },
     }).agenda();
 
-  // 阴性→阳性对照:打回任务此前四组全落空,现在只进「等我修」。
   assert.deepEqual(
     (result.awaitingRework ?? []).map(({ taskId }) => taskId),
     ["task_returned"],
@@ -417,7 +534,6 @@ test("agenda groups a changes_requested return into awaiting rework, not the in-
     result.summary,
     /等我修 \(1\) — status=active 且最新 execution=changes_requested[\s\S]*- task_returned/u,
   );
-  // The produced result passes the same wire validator the GUI-side parser uses.
   assert.deepEqual(validateDaemonAgenda(result), []);
 });
 
@@ -543,8 +659,6 @@ test("agenda flags a stopped worker without delivery, but excludes leased, submi
     result.attentionItems.filter(({ kind }) => kind === "unsubmitted-delivery").map(({ ref, region }) => [ref, region]),
     [["task/task_unsubmitted", "mine"]],
   );
-  // A stopped worker releases the lease and leaves the execution active for `ha task start` to
-  // reconnect; no worker is running, so the in-flight "just wait" line is the wrong place.
   assert.equal(
     result.inFlight.some(({ taskId }) => taskId === "task_unsubmitted"),
     false,
@@ -738,8 +852,6 @@ test("agenda restart rows take the complete completion next, including contract 
       },
     }).agenda();
 
-  // The restart decision does not invent a second priority ladder: when task show would first ask
-  // for a contract migration, the agenda row names that same command.
   assert.deepEqual(
     result.awaitingRestart.map(({ taskId, next }) => [taskId, next]),
     [
@@ -821,9 +933,6 @@ test("agenda projects incident escalation receipts, including a rejected owner w
   appendIncidentActionReceipt(rootDir, currentDispatchId, {
     pointId: "runtime-incident-worker-stop",
     questionVersion: "runtime-incident-disposition/v1",
-    // The pre-fix executor persisted this failed result after relation-relate was rejected. Keeping
-    // failed needs_attention receipts actionable also recovers incidents already on dispatch streams;
-    // it rides the round's last dispatch, the one question not superseded by a later dispatch.
     status: "failed",
     selected: "needs_attention",
     action: "needs_attention",
@@ -1016,8 +1125,6 @@ test("terminal dispatch receipts leave the awaiting-ruling queue", (t) => {
       const row = protocolTaskRow(taskId, [], { status: "active" });
       return { ...row, snapshot: { ...row.snapshot, executions: [...executions] } };
     };
-  // task_terminal_submitted: the receipt's own execution already carries a submission (task_63acdc95's
-  // three stale receipts all had this shape — changes_requested rounds with a delivery in them).
   openStream("a00000000000000000000000", "task_terminal_submitted", "execution_submitted", "2026-10-22T15:22:43.000Z");
   needsAttentionReceipt("a00000000000000000000000", "2026-10-22T15:23:00.000Z");
   dispatchesByExecution.set("execution_submitted", [
@@ -1028,8 +1135,6 @@ test("terminal dispatch receipts leave the awaiting-ruling queue", (t) => {
       "2026-10-22T15:22:43.000Z",
     ),
   ]);
-  // task_terminal_superseded: a fresh dispatch followed the incident inside the same round, so the
-  // round moved past the incident even though the execution never submitted.
   openStream(
     "b00000000000000000000000",
     "task_terminal_superseded",
@@ -1057,8 +1162,6 @@ test("terminal dispatch receipts leave the awaiting-ruling queue", (t) => {
       "2026-10-23T11:51:01.000Z",
     ),
   ]);
-  // task_terminal_replaced: the incident's round was replaced by a later iteration (abandoned, no
-  // submission of its own), so the task's newest question lives in the later round.
   openStream(
     "c00000000000000000000000",
     "task_terminal_replaced",
@@ -1074,8 +1177,6 @@ test("terminal dispatch receipts leave the awaiting-ruling queue", (t) => {
       "2026-10-22T15:37:23.000Z",
     ),
   ]);
-  // task_terminal_dismissed: a live incident the owner already closed with a reason — the receipt's
-  // action is no_action, so it no longer awaits a ruling.
   openStream("d00000000000000000000000", "task_terminal_dismissed", "execution_dismissed", "2026-10-24T05:56:47.000Z");
   needsAttentionReceipt("d00000000000000000000000", "2026-10-24T06:10:00.000Z", "no_action");
   dispatchesByExecution.set("execution_dismissed", [
@@ -1086,7 +1187,6 @@ test("terminal dispatch receipts leave the awaiting-ruling queue", (t) => {
       "2026-10-24T05:56:47.000Z",
     ),
   ]);
-  // task_incident_live: the control — last dispatch of the current, unsubmitted round; still listed.
   openStream("e00000000000000000000000", "task_incident_live", "execution_live", "2026-10-24T04:19:35.000Z");
   needsAttentionReceipt("e00000000000000000000000", "2026-10-24T05:56:47.000Z");
   dispatchesByExecution.set("execution_live", [
@@ -1226,7 +1326,6 @@ test("agenda splits awaiting work by next action and keeps every row in exactly 
     },
   }).agenda();
 
-  // 三种 task 状态各落各组；默认免审的 proposed decision 只落待裁组，互不重复。
   assert.deepEqual(
     result.awaitingAdjudication.map(({ taskId }) => taskId),
     ["task_wait_adjudicate"],
@@ -1254,7 +1353,6 @@ test("agenda splits awaiting work by next action and keeps every row in exactly 
   assert.match(result.summary, /待派审 \(1\)[\s\S]*task_wait_adjudicate/u);
   assert.match(result.summary, /评审中 \(1\)[\s\S]*task_under_review/u);
   assert.match(result.summary, /待裁 Decision \(1\)[\s\S]*dec_split/u);
-  // The produced result passes the same wire validator the GUI-side parser uses.
   assert.deepEqual(validateDaemonAgenda(result), []);
 });
 
@@ -1287,7 +1385,6 @@ test("agenda lists awaits addressed to the reader first and moves the held task 
         readPinnedEntities: () => [],
         judgments: {
           closeout: (() => ({ readiness: "missing", blocker: "execution", gates: [] })) as never,
-          // 状态读桩为空,这里直接给出三条 planned 任务,让真实 kernel 判定消费 awaits 边。
           blocking: (_tasks, relations, state) =>
             blockingOf(
               ["task_held", "task_other", "task_free", "task_moved"].map((taskId) => ({ taskId, status: "planned" })),
@@ -1298,7 +1395,6 @@ test("agenda lists awaits addressed to the reader first and moves the held task 
       }).agenda(principalId === undefined ? {} : { principalId }),
     result = readModel("owner");
 
-  // 只收指向读者本人的 active awaits;retired(已答复)与别人的请求不进「等你处理」。
   assert.deepEqual(result.awaitingYou, [
     {
       relationId: "rel_ask_owner",
@@ -1313,7 +1409,6 @@ test("agenda lists awaits addressed to the reader first and moves the held task 
       askedBy: "codex-sol",
     },
   ]);
-  // 已答复的边只对源实体归属人(task 创建者 person-owner)列出;答复后源已写过的(task_moved)出列。
   assert.deepEqual(result.answeredForYou, []);
   const owner = readModel("person-owner");
   assert.deepEqual(owner.answeredForYou, [
@@ -1335,7 +1430,6 @@ test("agenda lists awaits addressed to the reader first and moves the held task 
     /已答复，待你跟进 \(1\)[\s\S]*答（codex-sol @ [^）]+）: 同意\n {2}下一步: ha task show task_free/u,
   );
   assert.deepEqual(validateDaemonAgenda(owner), []);
-  // 被 active awaits 挂住的任务(不论等谁)离开可派队列,进「球在别人手里」并带上原因。
   assert.deepEqual(
     result.dispatchable.map(({ taskId }) => taskId),
     ["task_free", "task_moved"],
@@ -1351,7 +1445,6 @@ test("agenda lists awaits addressed to the reader first and moves the held task 
   );
   assert.match(result.summary, /- task_held task_held（阻塞: 等 owner acceptance: 请亲自上手验收总览页）/u);
   assert.deepEqual(validateDaemonAgenda(result), []);
-  // 读绑定没有 principal 时不猜读者:「等你处理」为空,阻塞判定照旧。
   const anonymous = readModel();
   assert.deepEqual(anonymous.awaitingYou, []);
   assert.deepEqual(
@@ -1373,12 +1466,10 @@ test("awaits anchored on terminal sources leave both queues while open sources s
       ownerRef: sourceRef,
     }),
     edges = [
-      // active asks:终态源(cancelled task、in_effect decision)与开放源(planned、proposed)对照。
       awaitsEdge("rel_ask_cancelled", "task/task_cancelled_src", "owner", "acceptance: 已取消任务上的验收"),
       awaitsEdge("rel_ask_in_effect", "decision/dec_in_effect", "owner", "consent: 已生效决策的同意"),
       awaitsEdge("rel_ask_open", "task/task_open_src", "owner", "acceptance: 开放任务验收"),
       awaitsEdge("rel_ask_proposed", "decision/dec_proposed", "owner", "consent: 待裁决策同意"),
-      // answered(retired):源实体在答复之前就已终态且答复后再无写入——快照里 19 条滞留的形状。
       {
         ...awaitsEdge("rel_answered_done", "task/task_done_src", "owner", "consent: 已答复的终态任务"),
         state: "retired" as const,
@@ -1422,12 +1513,10 @@ test("awaits anchored on terminal sources leave both queues while open sources s
         },
       }).agenda({ principalId });
 
-  // 终态源的 active 提问不再等读者处理;开放源照常。
   assert.deepEqual(
     readModel("owner").awaitingYou.map(({ sourceRef }) => sourceRef),
     ["task/task_open_src", "decision/dec_proposed"],
   );
-  // 答复后源实体已终态的,没有跟进对象,不进「已答复待跟进」;planned/proposed 源照常等下一次写入。
   assert.deepEqual(
     readModel("person-owner").answeredForYou.map(({ sourceRef }) => sourceRef),
     ["task/task_planned_src", "decision/dec_proposed_b"],
@@ -1486,7 +1575,6 @@ test("agenda counts a cut as reviewed only by an approval of its current submiss
       projection: projectionStub({
         taskRows: [
           reviewedRow("task_settled", "current", [review("task_settled", "r_ok", "approved", "current")]),
-          // Approved before an amendment that kept the commit: the approval is of the old submission.
           reviewedRow("task_amended", "current", [review("task_amended", "r_old", "approved", "before amend")]),
           reviewedRow("task_disagreed", "current", [
             review("task_disagreed", "r_yes", "approved", "current"),
@@ -1565,14 +1653,11 @@ test("the real WIP producer output passes the protocol validator, with or withou
       projection: projectionStub({ taskRows, childCounts: { task_leaf: 0, task_work: 2 } }),
     } as unknown as TaskQueryCell);
 
-  // Contrast 1 — no root: a leaf-only worktable validates.
   const noRoots = wipOf([protocolTaskRow("task_leaf", [], { status: "submitted" })]);
   assert.deepEqual(noRoots.roots, []);
   assert.equal(noRoots.counted[0]?.status, "submitted");
   assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.wip", noRoots), noRoots);
 
-  // Contrast 2 — legit root: the producer's four-field root row validates through the same
-  // parser the GUI client uses. This is the row the old exact-key-count check rejected.
   const withRoots = wipOf([
     protocolTaskRow("task_leaf", [], { status: "active" }),
     protocolTaskRow("task_work", [], { status: "blocked", taskClass: "work" }),
@@ -1580,8 +1665,6 @@ test("the real WIP producer output passes the protocol validator, with or withou
   assert.deepEqual(withRoots.roots, [{ taskId: "task_work", reason: "declared", directChildCount: 2, threshold: 3 }]);
   assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.wip", withRoots), withRoots);
 
-  // Contrast 3 — forward-compat: self-describing extension fields pass at every level while the
-  // declared fields keep their mapping; the client ignores what it does not know.
   const extended = {
     ...withRoots,
     schema: "task-wip/v2",
@@ -1590,7 +1673,6 @@ test("the real WIP producer output passes the protocol validator, with or withou
   };
   assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.wip", extended), extended);
 
-  // Contrast 4 — fail closed: a missing required field is still refused, extra keys or not.
   const { threshold: _threshold, ...missingField } = extended;
   assert.throws(() => parseDaemonGuiReadResult("repo.tasks.wip", missingField), /task WIP fields/u);
   const missingRowField = { ...withRoots, roots: [{ taskId: "task_work", reason: "declared" }] };
@@ -1703,160 +1785,6 @@ function taskRowWithoutDisposition() {
   };
 }
 
-test("single-task completion read carries the canonical next and validates its read cut", () => {
-  const snapshot = reduceTaskEvent(
-      {
-        revision: 0,
-        task: null,
-        executions: [],
-        reviews: [],
-        consents: [],
-        gateWitnesses: [],
-        edgesTaken: [],
-        lease: null,
-      },
-      lifecycleFixture().events[0]!,
-    ),
-    taskId = snapshot.task!.taskId,
-    reads: string[] = [],
-    projection = {
-      read: (id: string) => {
-        reads.push(id);
-        return { ...readyCut, snapshot, packagePath: "tasks/task-1" };
-      },
-      readPresetSnapshot: () => ({ snapshot: null, status: "ready" }),
-      readTaskChildCounts: () => ({}),
-      getEntity: () => null,
-      readDocument: (documentPath: string) => ({
-        ...readyCut,
-        document: {
-          body: documentPath.endsWith("task-contract.json")
-            ? JSON.stringify({
-                documents: [
-                  {
-                    slot: "task.closeout",
-                    path: "closeout.md",
-                    templateRef: "template://planning/closeout@1",
-                    locale: "en-US",
-                  },
-                ],
-              })
-            : "",
-        },
-      }),
-      readRelationQuery: () => ({ ...readyCut, rows: [] }),
-    } as unknown as TaskProjection,
-    result = readTaskCompletion(projection, taskId);
-  const canonical = taskCompletionNext(snapshot, {
-    closeout: "ready",
-    closeoutPath: "tasks/task-1/closeout.md",
-    eligibleDirtyPaths: [],
-    projectionStatus: "ready",
-  });
-  assert.ok(reads.length > 0);
-  assert.ok(
-    reads.every((id) => id === taskId),
-    "only the selected task is read",
-  );
-  assert.deepEqual(result.completionNext, canonical.next);
-  // The structured blocker travels beside its guidance so readers judge the stage without parsing prose.
-  assert.deepEqual(
-    result.completionBlocker,
-    canonical.blocker === null ? null : { code: canonical.blocker.code, gate: canonical.blocker.gate },
-  );
-  assert.equal(result.completionNext?.action, `ha task start ${taskId}`);
-  assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.completion.read", result), result);
-  assert.throws(
-    () =>
-      parseDaemonGuiReadResult("repo.tasks.completion.read", {
-        ...result,
-        completionNext: { ...result.completionNext, readCut: { revision: "wrong" } },
-      }),
-    /completionNext/,
-  );
-  assert.throws(
-    () =>
-      parseDaemonGuiReadResult("repo.tasks.completion.read", {
-        ...result,
-        completionBlocker: { code: "review_pending" },
-      }),
-    /completionBlocker/,
-  );
-  assert.throws(
-    () => parseDaemonGuiReadResult("repo.tasks.completion.read", { ...result, completionNext: null }),
-    /completionBlocker/,
-  );
-  assert.throws(() => parseDaemonGuiReadResult("repo.tasks.completion.read", { ok: true, taskId }));
-  assert.deepEqual(
-    parseDaemonGuiReadResult("repo.tasks.completion.read", {
-      ok: true,
-      taskId,
-      completionNext: null,
-      completionBlocker: null,
-      factRetirement: null,
-    }),
-    { ok: true, taskId, completionNext: null, completionBlocker: null, factRetirement: null },
-  );
-  // factRetirement is additive: absent on older producers it parses through, present it is
-  // validated shape-by-shape.
-  const legacy = { ok: true, taskId, completionNext: null, completionBlocker: null };
-  assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.completion.read", legacy), legacy);
-  assert.throws(
-    () =>
-      parseDaemonGuiReadResult("repo.tasks.completion.read", {
-        ...legacy,
-        factRetirement: { undischarged: [{ factRef: 1 }] },
-      }),
-    /factRetirement/,
-  );
-});
-
-test("a ready submitted low-risk cut exposes ha task complete instead of a null next", () => {
-  const submitted = lifecycleFixture({
-      closeoutGates: { review: false, consent: false, factDisposition: false },
-    })
-      .events.slice(0, 3)
-      .reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot()),
-    // A task-package-only cut has no repository commit, so completion does not wait for a merge.
-    snapshot = {
-      ...submitted,
-      executions: submitted.executions.map((execution) =>
-        execution.submission ? { ...execution, submission: { ...execution.submission, commitSha: null } } : execution,
-      ),
-    },
-    taskId = snapshot.task!.taskId,
-    projection = {
-      read: () => ({ ...readyCut, snapshot, packagePath: "tasks/task-1" }),
-      readPresetSnapshot: () => ({ snapshot: null, status: "ready" }),
-      readTaskChildCounts: () => ({}),
-      getEntity: () => null,
-      readDocument: (documentPath: string) => ({
-        ...readyCut,
-        document: {
-          body: documentPath.endsWith("task-contract.json")
-            ? JSON.stringify({
-                documents: [
-                  {
-                    slot: "task.closeout",
-                    path: "closeout.md",
-                    templateRef: "template://planning/closeout@1",
-                    locale: "en-US",
-                  },
-                ],
-              })
-            : "",
-        },
-      }),
-      readRelationQuery: () => ({ ...readyCut, rows: [] }),
-    } as unknown as TaskProjection,
-    result = readTaskCompletion(projection, taskId);
-  assert.equal(result.completionBlocker, null);
-  assert.equal(result.completionNext?.action, `ha task complete ${taskId}`);
-  assert.match(result.completionNext?.reason ?? "", /lifted independent review and consent/u);
-  // The read names the same step a reader can execute; it no longer reads as blocker-free but empty.
-  assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.completion.read", result), result);
-});
-
 test("agenda marks a second escalation on one task as a shape signal until a newer premise review", () => {
   const taskId = "task_shape_signal",
     packagePath = `tasks/${taskId}`,
@@ -1936,7 +1864,6 @@ test("agenda marks a second escalation on one task as a shape signal until a new
   assert.match(repeated.summary, /ha fact record --task task_shape_signal --source review:premise/u);
   assert.deepEqual(validateDaemonAgenda(repeated), []);
 
-  // A premise review that predates the latest escalation did not see it.
   const stale = agendaFor(
     [first, second],
     [premiseFact("restart: yes alternative: none sunk-cost: no conclusion: continue", "2026-11-05T11:00:00.000Z")],

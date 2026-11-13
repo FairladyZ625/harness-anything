@@ -167,6 +167,10 @@ export function readTaskIndexRows(
     where.push(`${field("$.task.metadata.parentTaskId")} IS ?`);
     values.push(query.parentTaskId);
   }
+  if (query.changedAfterRevision !== undefined) {
+    where.push("task_snapshot.workspace_revision > ?");
+    values.push(query.changedAfterRevision);
+  }
   if (query.updatedAfter !== undefined) {
     where.push("task_snapshot.updated_at >= ?");
     values.push(query.updatedAfter);
