@@ -1471,6 +1471,20 @@ test("daemon runtime Policy owns concrete defaults and consumers have no leaf bu
       workerPushTimeoutMs: 60_000,
       windowsProcessGroupTimeoutMs: 15_000,
       continuationConclusionLimit: 8_192,
+      outcomeRecheckMs: 5_000,
+      cloudDispatchRelay: {
+        maxBodyBytes: 2 * 1024 * 1024,
+        maxResponseBytes: 8 * 1024 * 1024,
+        outputCapTokens: 32_768,
+        requestOverheadTokens: 20_000,
+        codeReserveMicros: 2_000_000,
+        defaultMaxGenerations: 16,
+        maximumGenerations: 10_000,
+        upstreamTimeoutMs: 600_000,
+        requestTimeoutMs: 125_000,
+        headersTimeoutMs: 10_000,
+        defaultMaxUpstreamConcurrency: 2,
+      },
     },
     terminal: {
       loginShellSnapshotTimeoutMs: 4_000,
@@ -1506,6 +1520,11 @@ test("daemon runtime Policy owns concrete defaults and consumers have no leaf bu
     ["packages/daemon/src/runtime-handoff-native.ts", ["daemonRuntimePolicy.defaultValue.runtime"]],
     ["packages/daemon/src/runtime-task-publication.ts", ["daemonRuntimePolicy.defaultValue.runtime"]],
     ["packages/daemon/src/runtime-worker-push.ts", ["daemonRuntimePolicy.defaultValue.runtime"]],
+    ["packages/daemon/src/runtime-settlement.ts", ["daemonRuntimePolicy.defaultValue.runtime.outcomeRecheckMs"]],
+    [
+      "packages/daemon/src/runtime/cloud-dispatch-relay.ts",
+      ["daemonRuntimePolicy.defaultValue.runtime.cloudDispatchRelay"],
+    ],
     ["packages/daemon/src/runtime/windows-process-group-port.ts", ["daemonRuntimePolicy.defaultValue.runtime"]],
     [
       "packages/daemon/src/terminal-environment.ts",
@@ -1523,6 +1542,8 @@ test("daemon runtime Policy owns concrete defaults and consumers have no leaf bu
   const spawnLimits = readFileSync(path.join(repoRoot, "packages/daemon/src/runtime-spawn-limits.ts"), "utf8");
   assert.match(spawnLimits, /daemonRuntimePolicy\.defaultValue\.process/u);
   assert.doesNotMatch(spawnLimits, /(?:64 \* 1024|30_000)/u, "the compatibility exports must not own defaults");
+  const cloudRelay = readFileSync(path.join(repoRoot, "packages/daemon/src/runtime/cloud-dispatch-relay.ts"), "utf8");
+  assert.doesNotMatch(cloudRelay, /(?:600_000|125_000|10_000|\?\? 2|> 10_000)/u, "the relay must not own budgets");
   const policyTarget = "packages/kernel/src/domain/cli-operational-policy.ts",
     policySource = readFileSync(path.join(repoRoot, policyTarget), "utf8"),
     changedDefault = policySource.replace("resumeAdmissionTimeoutMs: 30_000", "resumeAdmissionTimeoutMs: 31_000");

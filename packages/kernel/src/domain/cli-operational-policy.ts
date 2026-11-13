@@ -187,7 +187,7 @@ export const daemonRuntimePolicy = {
   ownerRef: "host",
   unit: "concurrency / bytes / milliseconds / seconds / characters / cases / pass ratio",
   bounds:
-    "Runtime batches default to two and cap at 32; provider diagnostics cap at 65536 bytes; resume admission and exit notification each wait at most 30000ms; process-table probes wait 10000ms; ACP cancellation waits 2000ms before SIGTERM. Health fallback cooldowns are 30/300 seconds with freezing after five failures for 1800 seconds. Runtime model slots cap at 64 globally and per owner; worktree-head probes wait 5000ms, GitHub credential probes 10000ms, handoff Git calls 30000ms, task publication 30000ms, worker pushes 60000ms and Windows process-group probes 15000ms. Continuation summaries cap at 8192 characters. Terminal snapshots wait 4000ms, buffers retain 1048576/262144/262144 bytes, exit drain waits 5000ms, and activity persists every 10000ms. Skill evaluations default to a full-pass threshold, allow 20 cases with 64-character ids and 20000-character inputs, and admit two model runs.",
+    "Runtime batches default to two and cap at 32; provider diagnostics cap at 65536 bytes; resume admission and exit notification each wait at most 30000ms; process-table probes wait 10000ms; ACP cancellation waits 2000ms before SIGTERM. Health fallback cooldowns are 30/300 seconds with freezing after five failures for 1800 seconds. Runtime model slots cap at 64 globally and per owner; worktree-head probes wait 5000ms, GitHub credential probes 10000ms, handoff Git calls 30000ms, task publication 30000ms, worker pushes 60000ms and Windows process-group probes 15000ms. Outcome waiters recheck every 5000ms. The cloud dispatch relay caps bodies at 2097152/8388608 bytes, output at 32768 tokens, generations at 16 by default and 10000 maximum, reserves 2000000 micros for code runs, limits upstream concurrency to two and applies 600000/125000/10000ms upstream/request/header timeouts. Continuation summaries cap at 8192 characters. Terminal snapshots wait 4000ms, buffers retain 1048576/262144/262144 bytes, exit drain waits 5000ms, and activity persists every 10000ms. Skill evaluations default to a full-pass threshold, allow 20 cases with 64-character ids and 20000-character inputs, and admit two model runs.",
   defaultValue: {
     batch: { defaultConcurrency: 2, maximumConcurrency: 32 },
     process: {
@@ -212,6 +212,20 @@ export const daemonRuntimePolicy = {
       workerPushTimeoutMs: 60_000,
       windowsProcessGroupTimeoutMs: 15_000,
       continuationConclusionLimit: 8_192,
+      outcomeRecheckMs: 5_000,
+      cloudDispatchRelay: {
+        maxBodyBytes: 2 * 1024 * 1024,
+        maxResponseBytes: 8 * 1024 * 1024,
+        outputCapTokens: 32_768,
+        requestOverheadTokens: 20_000,
+        codeReserveMicros: 2_000_000,
+        defaultMaxGenerations: 16,
+        maximumGenerations: 10_000,
+        upstreamTimeoutMs: 600_000,
+        requestTimeoutMs: 125_000,
+        headersTimeoutMs: 10_000,
+        defaultMaxUpstreamConcurrency: 2,
+      },
     },
     terminal: {
       loginShellSnapshotTimeoutMs: 4_000,

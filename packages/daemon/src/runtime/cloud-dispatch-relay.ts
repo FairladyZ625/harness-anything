@@ -10,18 +10,20 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { request as httpsRequest } from "node:https";
 import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { modelPriceOf, modelPricingVersion, type ModelPrice } from "../agent-runtime-model-pricing.ts";
 import { RuntimeBoundaryError } from "./model-slot-queue.ts";
 
-export const MAX_BODY_BYTES = 2 * 1024 * 1024;
-export const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
-export const OUTPUT_CAP_TOKENS = 32_768;
+const relayPolicy = daemonRuntimePolicy.defaultValue.runtime.cloudDispatchRelay;
+export const MAX_BODY_BYTES = relayPolicy.maxBodyBytes;
+export const MAX_RESPONSE_BYTES = relayPolicy.maxResponseBytes;
+export const OUTPUT_CAP_TOKENS = relayPolicy.outputCapTokens;
 /** Instructions, tool schemas and framing added by the runtime around a task prompt. */
-export const REQUEST_OVERHEAD_TOKENS = 20_000;
+export const REQUEST_OVERHEAD_TOKENS = relayPolicy.requestOverheadTokens;
 /** Fixed lower bound for a code-run allowance; one run may issue multiple generations. */
-export const CLOUD_CODE_RESERVE_MICROS = 2_000_000;
-export const DEFAULT_MAX_GENERATIONS = 16;
-const UPSTREAM_TIMEOUT_MS = 600_000;
+export const CLOUD_CODE_RESERVE_MICROS = relayPolicy.codeReserveMicros;
+export const DEFAULT_MAX_GENERATIONS = relayPolicy.defaultMaxGenerations;
+const UPSTREAM_TIMEOUT_MS = relayPolicy.upstreamTimeoutMs;
 const ROUTE = "/v1/responses";
 
 export interface RelayPrice {
@@ -432,7 +434,7 @@ export class CloudDispatchRelay {
     if (!Array.isArray(options.allowedHosts))
       throw new CloudDispatchRelayError("RELAY_REFUSED", "allowedHosts is required", 500);
     const max = options.maxGenerations ?? DEFAULT_MAX_GENERATIONS;
-    if (!Number.isSafeInteger(max) || max < 1 || max > 10_000)
+    if (!Number.isSafeInteger(max) || max < 1 || max > relayPolicy.maximumGenerations)
       throw new CloudDispatchRelayError("RELAY_REFUSED", "maxGenerations is invalid", 500);
   }
 
@@ -444,8 +446,8 @@ export class CloudDispatchRelay {
   async start(): Promise<void> {
     if (this.server) return;
     const server = createServer((request, response) => void this.handle(request, response).catch(() => undefined));
-    server.requestTimeout = 125_000;
-    server.headersTimeout = 10_000;
+    server.requestTimeout = relayPolicy.requestTimeoutMs;
+    server.headersTimeout = relayPolicy.headersTimeoutMs;
     server.on("connect", (_request, socket) => socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n"));
     server.on("upgrade", (_request, socket) => socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n"));
     await new Promise<void>((resolve, reject) => {
@@ -478,7 +480,7 @@ export class CloudDispatchRelay {
     if ((input.price === undefined) !== (input.budgetMicros === undefined))
       throw new CloudDispatchRelayError("RELAY_REFUSED", "price and budget must be supplied together", 422);
     const max = input.maxGenerations ?? this.options.maxGenerations ?? DEFAULT_MAX_GENERATIONS;
-    if (!Number.isSafeInteger(max) || max < 1 || max > 10_000)
+    if (!Number.isSafeInteger(max) || max < 1 || max > relayPolicy.maximumGenerations)
       throw new CloudDispatchRelayError("RELAY_REFUSED", "maxGenerations is invalid", 422);
     const outputCap = this.options.outputCapTokens ?? OUTPUT_CAP_TOKENS;
     const ledger =
@@ -531,7 +533,7 @@ export class CloudDispatchRelay {
   }
 
   private async limited<T>(signal: AbortSignal | undefined, run: () => Promise<T>): Promise<T> {
-    const capacity = Math.max(1, this.options.maxUpstreamConcurrency ?? 2);
+    const capacity = Math.max(1, this.options.maxUpstreamConcurrency ?? relayPolicy.defaultMaxUpstreamConcurrency);
     while (this.active >= capacity) {
       await new Promise<void>((resolve, reject) => {
         if (signal?.aborted) return reject(new Error("request aborted while waiting for upstream slot"));
