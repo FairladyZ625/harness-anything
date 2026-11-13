@@ -4,6 +4,12 @@ import ts from "typescript";
 import { fileURLToPath } from "node:url";
 
 const sourceExtensions = new Set([".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts"]);
+const sourceCounterpartExtensions = new Map([
+  [".js", ".ts"],
+  [".jsx", ".tsx"],
+  [".mjs", ".mts"],
+  [".cjs", ".cts"],
+]);
 
 const architecturePackages = [
   { id: "kernel", root: "packages/kernel", packageName: "@harness-anything/kernel" },
@@ -104,7 +110,13 @@ export function explainFile(file, packageEntries = architecturePackages) {
   };
   return {
     file: normalized,
-    package: sourcePackage ? { id: sourcePackage.id, ...targetsForPackage(sourcePackage.id, packageEntries) } : null,
+    package: sourcePackage
+      ? {
+          id: sourcePackage.modeled === false ? sourcePackage.packageName : sourcePackage.id,
+          status: sourcePackage.modeled === false ? "unmodeled" : "modeled",
+          ...targetsForPackage(sourcePackage.id, packageEntries),
+        }
+      : null,
     plane,
   };
 }
@@ -180,7 +192,8 @@ async function loadWorkspace(root) {
     files.push(relative);
     if (path.posix.basename(relative) === "package.json") {
       const packageJson = JSON.parse(await readFile(absolute, "utf8"));
-      if (typeof packageJson.name === "string") packages.push({ name: packageJson.name, root: path.dirname(relative) });
+      if (typeof packageJson.name === "string")
+        packages.push({ name: packageJson.name, root: path.dirname(relative), exports: packageJson.exports });
     }
   });
   const sourceFiles = files.filter(
@@ -188,11 +201,18 @@ async function loadWorkspace(root) {
       sourceExtensions.has(path.extname(file)) &&
       packages.some(({ root: packageRoot }) => file.startsWith(`${packageRoot}/src/`)),
   );
-  const packageEntries = packages.flatMap((workspacePackage) => {
+  const packageEntries = packages.map((workspacePackage) => {
     const authored = architecturePackages.find(
       (item) => item.packageName === workspacePackage.name || item.root === workspacePackage.root,
     );
-    return authored ? [{ ...authored, root: workspacePackage.root }] : [];
+    return authored
+      ? { ...authored, root: workspacePackage.root, modeled: true }
+      : {
+          id: `unmodeled:${workspacePackage.name}`,
+          packageName: workspacePackage.name,
+          root: workspacePackage.root,
+          modeled: false,
+        };
   });
   return {
     packages,
@@ -201,6 +221,63 @@ async function loadWorkspace(root) {
     sourceFileSet: new Set(sourceFiles),
     packagesByName: new Map(packages.map((item) => [item.name, item])),
   };
+}
+
+function sourceFileForTarget(target, packageRoot, root, workspace) {
+  if (typeof target !== "string" || !target.startsWith("./")) return null;
+  const absolutePackageRoot = path.resolve(root, packageRoot);
+  const absolute = path.resolve(absolutePackageRoot, target);
+  if (absolute !== absolutePackageRoot && !absolute.startsWith(`${absolutePackageRoot}${path.sep}`)) return null;
+  const candidates = [absolute];
+  const extension = path.extname(absolute);
+  const sourceExtension = sourceCounterpartExtensions.get(extension);
+  if (sourceExtension) candidates.push(`${absolute.slice(0, -extension.length)}${sourceExtension}`);
+  for (const candidate of candidates) {
+    const relative = normalizeRelative(path.relative(root, candidate));
+    if (workspace.sourceFileSet.has(relative)) return relative;
+  }
+  return null;
+}
+
+function exportTargets(entry) {
+  if (typeof entry === "string") return [entry];
+  if (Array.isArray(entry)) return entry.flatMap(exportTargets);
+  if (!entry || typeof entry !== "object") return [];
+  return Object.values(entry).flatMap(exportTargets);
+}
+
+function wildcardCapture(value, pattern) {
+  const marker = pattern.indexOf("*");
+  if (marker < 0) return value === pattern ? "" : null;
+  const prefix = pattern.slice(0, marker);
+  const suffix = pattern.slice(marker + 1);
+  if (!value.startsWith(prefix) || !value.endsWith(suffix)) return null;
+  return value.slice(prefix.length, value.length - suffix.length);
+}
+
+function resolveExportTargets(workspacePackage, specifier) {
+  const segments = specifier.split("/");
+  const packageNameLength = workspacePackage.name.startsWith("@") ? 2 : 1;
+  const packagePath = segments.slice(packageNameLength).join("/");
+  const exportKey = packagePath ? `./${packagePath}` : ".";
+  const exports = workspacePackage.exports;
+  if (typeof exports === "string" || Array.isArray(exports)) return exportKey === "." ? exportTargets(exports) : [];
+  if (!exports || typeof exports !== "object") return [];
+
+  const hasSubpathKeys = Object.keys(exports).some((key) => key.startsWith("."));
+  let entry = hasSubpathKeys ? exports[exportKey] : exportKey === "." ? exports : undefined;
+  let capture = "";
+  if (entry === undefined && hasSubpathKeys) {
+    const match = Object.keys(exports)
+      .map((key) => ({ key, capture: wildcardCapture(exportKey, key) }))
+      .filter(({ key, capture: value }) => key.includes("*") && value !== null)
+      .sort((left, right) => right.key.indexOf("*") - left.key.indexOf("*") || right.key.length - left.key.length)[0];
+    if (match) {
+      entry = exports[match.key];
+      capture = match.capture;
+    }
+  }
+  return exportTargets(entry).map((target) => target.replaceAll("*", capture));
 }
 
 function resolveTarget(importer, specifier, root, workspace) {
@@ -219,7 +296,12 @@ function resolveTarget(importer, specifier, root, workspace) {
   const segments = specifier.split("/");
   const packageName = specifier.startsWith("@") ? segments.slice(0, 2).join("/") : segments[0];
   const workspacePackage = workspace.packagesByName.get(packageName);
-  if (workspacePackage) return normalizeRelative(path.join(workspacePackage.root, "src"));
+  if (workspacePackage) {
+    for (const target of resolveExportTargets(workspacePackage, specifier)) {
+      const sourceFile = sourceFileForTarget(target, workspacePackage.root, root, workspace);
+      if (sourceFile) return sourceFile;
+    }
+  }
   return null;
 }
 
@@ -269,12 +351,54 @@ function readModelRelations(modelText) {
   return relations;
 }
 
+function stripModelComments(modelText) {
+  let result = "";
+  let quote = null;
+  let escaped = false;
+  for (let index = 0; index < modelText.length; index += 1) {
+    const current = modelText[index];
+    const next = modelText[index + 1];
+    if (quote) {
+      result += current;
+      if (escaped) escaped = false;
+      else if (current === "\\") escaped = true;
+      else if (current === quote) quote = null;
+      continue;
+    }
+    if (current === "'" || current === '"') {
+      quote = current;
+      result += current;
+      continue;
+    }
+    if (current === "/" && next === "/") {
+      while (index < modelText.length && modelText[index] !== "\n") index += 1;
+      if (index < modelText.length) result += "\n";
+      continue;
+    }
+    if (current === "/" && next === "*") {
+      const end = modelText.indexOf("*/", index + 2);
+      if (end < 0) throw new Error("unterminated block comment");
+      result += modelText.slice(index, end + 2).replace(/[^\n]/gu, " ");
+      index = end + 1;
+      continue;
+    }
+    result += current;
+  }
+  return result;
+}
+
 function compareModel(modelText, modelPath) {
-  const relations = readModelRelations(modelText);
+  let activeModelText;
+  try {
+    activeModelText = stripModelComments(modelText);
+  } catch (error) {
+    return [`${modelPath}: ${error.message}`];
+  }
+  const relations = readModelRelations(activeModelText);
   const violations = [];
   const actual = new Map();
   const parsedRelationIds = new Set(relations.map(({ archId }) => archId));
-  for (const [, archId] of modelText.matchAll(/\barchId\s+'(relation\.code\.[^']+)'/gu))
+  for (const [, archId] of activeModelText.matchAll(/\barchId\s+'(relation\.code\.[^']+)'/gu))
     if (!parsedRelationIds.has(archId))
       violations.push(`${modelPath}: ${archId} could not be parsed as a package import relation`);
   for (const relation of relations) {
@@ -332,6 +456,12 @@ export async function checkArchitecture(root = process.cwd()) {
   const violations = [];
   let checkedImports = 0;
   if (workspace.sourceFiles.length === 0) violations.push("packages/: no workspace source files found");
+  for (const workspacePackage of workspace.packageEntries) {
+    if (workspacePackage.modeled === false)
+      violations.push(
+        `${workspacePackage.root}: workspace package ${workspacePackage.packageName} has no canonical architecture endpoint`,
+      );
+  }
 
   for (const file of workspace.sourceFiles) {
     const { imports, parseDiagnostics } = importsFromSource(
@@ -350,8 +480,7 @@ export async function checkArchitecture(root = process.cwd()) {
     for (const imported of imports) {
       const target = resolveTarget(file, imported.specifier, absoluteRoot, workspace);
       const targetPackage = resolveWorkspaceTargetPackage(file, imported.specifier, absoluteRoot, workspace);
-      const targetPlane =
-        target && packageForPath(target, workspace.packageEntries)?.id === "daemon" ? planeForPath(target) : null;
+      const targetPlane = targetPackage?.id === "daemon" && target ? planeForPath(target) : null;
       if (sourcePackage && targetPackage && sourcePackage.id !== targetPackage.id) {
         checkedImports += 1;
         const expectation = expectedRelations.get(relationKey(sourcePackage.id, targetPackage.id));
@@ -368,11 +497,12 @@ export async function checkArchitecture(root = process.cwd()) {
           violations.push(
             `${file}:${imported.line}: ${sourcePlane} -> ${targetPlane} is forbidden (${imported.kind} ${imported.specifier})`,
           );
-      } else if (sourcePlane && target && packageForPath(target, workspace.packageEntries)?.id === "daemon") {
+      } else if (sourcePlane && targetPackage?.id === "daemon") {
         checkedImports += 1;
-        violations.push(
-          `${file}:${imported.line}: ${sourcePlane} imports an unassigned daemon source file (${imported.kind} ${imported.specifier})`,
-        );
+        const reason = target
+          ? "imports an unassigned daemon source file"
+          : "cannot resolve daemon workspace export to an assigned source file";
+        violations.push(`${file}:${imported.line}: ${sourcePlane} ${reason} (${imported.kind} ${imported.specifier})`);
       }
     }
   }
@@ -404,11 +534,14 @@ async function main(args) {
     const file = args[explainIndex + 1];
     if (!file || file.startsWith("--")) throw new Error("--explain requires a file path");
     const normalized = path.isAbsolute(file) ? path.relative(process.cwd(), file) : file;
-    const explanation = explainFile(normalized);
+    const workspace = await loadWorkspace(process.cwd());
+    const explanation = explainFile(normalized, workspace.packageEntries);
     if (json) console.log(JSON.stringify(explanation, null, 2));
     else {
       console.log(`${explanation.file}`);
-      console.log(`package: ${explanation.package?.id ?? "unassigned"}`);
+      console.log(
+        `package: ${explanation.package ? `${explanation.package.id} (${explanation.package.status})` : "unassigned"}`,
+      );
       if (explanation.package) {
         console.log(`allowed package targets: ${explanation.package.allowedTargets.join(", ") || "none"}`);
         console.log(`forbidden package targets: ${explanation.package.forbiddenTargets.join(", ") || "none"}`);

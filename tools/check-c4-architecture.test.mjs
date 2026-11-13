@@ -24,10 +24,13 @@ async function source(root, packageName, relativePath, text) {
   return file;
 }
 
-async function workspacePackage(root, name) {
+async function workspacePackage(root, name, exports) {
   const packageRoot = path.join(root, "packages", name);
   await mkdir(path.join(packageRoot, "src"), { recursive: true });
-  await writeFile(path.join(packageRoot, "package.json"), JSON.stringify({ name: `@harness-anything/${name}` }));
+  await writeFile(
+    path.join(packageRoot, "package.json"),
+    JSON.stringify({ name: `@harness-anything/${name}`, ...(exports ? { exports } : {}) }),
+  );
 }
 
 test("accepts modeled package imports and the four-plane dependency direction", async (t) => {
@@ -67,6 +70,71 @@ test("rejects forbidden package imports and reverse-plane imports", async (t) =>
   assert.ok(result.violations.some((message) => message.includes("runtime-engine -> daemon-host is forbidden")));
 });
 
+test("rejects imports in both directions when a workspace package has no architecture endpoint", async (t) => {
+  const root = await fixture(t);
+  await workspacePackage(root, "kernel");
+  await workspacePackage(root, "authorization-builtin");
+  await source(root, "kernel", "src/index.ts", 'import "@harness-anything/authorization-builtin";\n');
+  await source(root, "authorization-builtin", "src/index.ts", 'import "@harness-anything/kernel";\n');
+
+  const result = await checkArchitecture(root);
+  const unknownPackage = "unmodeled:@harness-anything/authorization-builtin";
+
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.violations.some((message) =>
+      message.includes("@harness-anything/authorization-builtin has no canonical architecture endpoint"),
+    ),
+  );
+  assert.ok(
+    result.violations.some((message) =>
+      message.includes(`kernel -> ${unknownPackage} has no canonical allowed relation`),
+    ),
+  );
+  assert.ok(
+    result.violations.some((message) =>
+      message.includes(`${unknownPackage} -> kernel has no canonical allowed relation`),
+    ),
+  );
+});
+
+test("resolves package self-reference exports before enforcing daemon plane direction", async (t) => {
+  const root = await fixture(t);
+  await workspacePackage(root, "daemon", {
+    ".": "./src/daemon-host/index.ts",
+    "./writer": { default: "./src/writer-cell/write.ts" },
+    "./host": "./src/daemon-host/open.ts",
+    "./internal/*": "./src/*.ts",
+  });
+  await source(
+    root,
+    "daemon",
+    "src/runtime-engine/run.ts",
+    [
+      'import "@harness-anything/daemon/writer";',
+      'import "@harness-anything/daemon/host";',
+      'import "@harness-anything/daemon/internal/writer-cell/write";',
+      "",
+    ].join("\n"),
+  );
+  await source(root, "daemon", "src/writer-cell/write.ts", "export {};\n");
+  await source(root, "daemon", "src/daemon-host/index.ts", "export {};\n");
+  await source(root, "daemon", "src/daemon-host/open.ts", "export {};\n");
+
+  const result = await checkArchitecture(root);
+
+  assert.equal(result.ok, false);
+  assert.ok(result.violations.some((message) => message.includes("runtime-engine -> daemon-host is forbidden")));
+  assert.equal(
+    result.violations.some((message) => message.includes("cannot resolve daemon workspace export")),
+    false,
+  );
+  assert.equal(
+    result.violations.some((message) => message.includes("imports an unassigned daemon source file")),
+    false,
+  );
+});
+
 test("rejects model relations that drift from deterministic package rules", async (t) => {
   const root = await fixture(t);
   await writeFile(path.join(root, "package.json"), "{}");
@@ -84,6 +152,38 @@ test("rejects model relations that drift from deterministic package rules", asyn
   assert.ok(result.violations.some((message) => message.includes("model.c4 import relations differ")));
 });
 
+test("does not count block-commented model relations as active imports", async (t) => {
+  const root = await fixture(t);
+  await writeFile(path.join(root, "package.json"), "{}");
+  const modelPath = path.join(root, ".harness/ledger-files/context/architecture/model/model.c4");
+  await mkdir(path.dirname(modelPath), { recursive: true });
+  await writeFile(
+    modelPath,
+    [
+      "model {}",
+      "/*",
+      "  cli -> daemon 'imports daemon' {",
+      "    metadata {",
+      "      archId 'relation.code.cli-daemon'",
+      "      expectation 'allowed'",
+      "      extractorIds ['js-ts-imports']",
+      "    }",
+      "  }",
+      "*/",
+      "",
+    ].join("\n"),
+  );
+
+  const result = await checkArchitecture(root);
+
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.violations.some((message) =>
+      message.includes("model.c4 import relations differ: missing cli->daemon (allowed)"),
+    ),
+  );
+});
+
 test("prints a JSON explanation for the requested source file", () => {
   const result = spawnSync(
     process.execPath,
@@ -97,4 +197,20 @@ test("prints a JSON explanation for the requested source file", () => {
   assert.equal(explanation.package.id, "daemon");
   assert.equal(explanation.plane.id, "runtime-engine");
   assert.ok(explanation.plane.forbiddenTargets.includes("daemon-host"));
+});
+
+test("explains a discovered workspace package without a C4 endpoint as unmodeled", () => {
+  const result = spawnSync(
+    process.execPath,
+    [checkerPath, "--explain", "packages/authorization-builtin/src/builtin-policy-adapter.ts", "--json"],
+    { cwd: repoRoot, encoding: "utf8" },
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  const explanation = JSON.parse(result.stdout);
+  assert.equal(explanation.package.id, "@harness-anything/authorization-builtin");
+  assert.equal(explanation.package.status, "unmodeled");
+  assert.deepEqual(explanation.package.allowedTargets, []);
+  assert.ok(explanation.package.forbiddenTargets.includes("kernel"));
+  assert.ok(explanation.package.forbiddenTargets.includes("daemon"));
 });
