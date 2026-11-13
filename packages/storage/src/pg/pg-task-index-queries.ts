@@ -1,4 +1,4 @@
-import { taskParentIndexReadyOrThrow } from "./pg-task-parent-index.ts";
+import { assertPgTaskParentIndexReady } from "./pg-task-parent-index.ts";
 import type { TaskProjectionQueries, TaskLifecycleSnapshot, TaskIndexProjectionRow } from "@harness-anything/kernel";
 import type { PoolClient } from "pg";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
@@ -84,7 +84,7 @@ export function pgTaskIndexQueries(
     readTaskChildCounts: (ids) =>
       read(async (client) => {
         if (ids.length === 0) return {};
-        await taskParentIndexReadyOrThrow(client, scope);
+        await assertPgTaskParentIndexReady(client, scope);
         const result = await client.query<{ parent_id: string; count: string }>(
           `SELECT parent_task_id AS parent_id,count(*)::text FROM ha_task_snapshots
          WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND (cardinality($4::text[])=0 OR readers && $4::text[])
@@ -96,7 +96,7 @@ export function pgTaskIndexQueries(
       }),
     readTaskIndex: (query = {}) =>
       read(async (client) => {
-        await taskParentIndexReadyOrThrow(client, scope);
+        await assertPgTaskParentIndexReady(client, scope);
         const cut = await readCutInTransaction(client, scope, readers, options.repoId),
           values: unknown[] = [...parameters],
           where = [

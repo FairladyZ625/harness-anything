@@ -64,7 +64,7 @@ export function taskParentIndexDdl(): readonly string[] {
 }
 
 /** The write trigger covers new rows; only pre-expansion rows need management backfill. */
-export async function taskParentIndexReadyOrThrow(client: PoolClient, scope: PgProjectionScope): Promise<void> {
+async function taskParentIndexReadyOrThrow(client: PoolClient, scope: PgProjectionScope): Promise<void> {
   const pending = await client.query(
     `SELECT 1 FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
       AND (parent_index_version=0 OR task_index_version<2) LIMIT 1`,
@@ -72,4 +72,8 @@ export async function taskParentIndexReadyOrThrow(client: PoolClient, scope: PgP
   );
   if (pending.rows.length)
     throw Object.assign(new Error("Task parent-index backfill is pending"), { code: "projection_pending" });
+}
+
+export async function assertPgTaskParentIndexReady(client: PoolClient, scope: PgProjectionScope): Promise<void> {
+  return taskParentIndexReadyOrThrow(client, scope);
 }
