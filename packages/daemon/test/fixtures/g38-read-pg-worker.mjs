@@ -5,6 +5,7 @@ import pg from "pg";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { localGitWorktreeSettlement } from "../../../storage/src/store/local-version-control-system.ts";
+import { maintainPgRelationCycleAuditPage } from "../../../storage/src/pg/pg-relation-cycle-audit.ts";
 import { rebuildPgProjection } from "../../../storage/src/pg/pg-task-event-materialize.ts";
 import { withPostgresTransaction } from "../../../storage/src/postgres/transaction.ts";
 import { createPGliteStorageBackend } from "../../../storage/src/pglite/storage-backend.ts";
@@ -159,6 +160,24 @@ try {
         AND relation.relation_id=visibility.relation_id
     `);
   }
+  // The production facade drains this write-side maintenance before serving doctor. Keep the
+  // direct async fixture at the same ready cut; a pending audit would measure an error response.
+  for (;;) {
+    const page = await withPostgresTransaction(
+      backend.pool,
+      (client) =>
+        maintainPgRelationCycleAuditPage(client, {
+          tenantId: "g38",
+          projectId: "read",
+          policyEpoch: 0,
+          readers: lowVisibility || allVisible ? ["reader-visible"] : [],
+        }),
+      { tenantId: "g38", projectId: "read", policyEpoch: 0 },
+    );
+    if (page.done) break;
+  }
+  const cycleAudit = await backend.projection.readRelationCycleAudit();
+  if (!directRelationFixture) assert.equal(cycleAudit.status, "ready", "doctor must measure a completed audit");
   // Bulk fixtures need current planner statistics, just like PostgreSQL bulk restores.
   // https://www.postgresql.org/docs/current/populate.html#POPULATE-ANALYZE
   // This is setup, outside both cold/warm cost measurements; no scan is hidden.

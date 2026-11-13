@@ -230,6 +230,12 @@ const postgresProjectionTables = Object.freeze(
     "ha_artifact_documents",
     "ha_artifact_counts",
     "ha_relation_freshness_dirty",
+    "ha_relation_cycle_edge",
+    "ha_relation_cycle_count",
+    "ha_relation_cycle_dirty",
+    "ha_relation_cycle_component",
+    "ha_relation_cycle_member",
+    "ha_relation_cycle_result",
   ].map((table) => projectionTable(table, "postgres-table")),
 );
 

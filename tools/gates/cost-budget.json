@@ -1782,19 +1782,6 @@
         "expiresAt": "2026-11-26T00:00:00Z"
       },
       {
-        "probe": "cli-doctor-health",
-        "backend": "pglite",
-        "dimension": "runtime-sessions",
-        "metric": "sqlResultBytes",
-        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 1184315 at 200 -> 11305621 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlResultBytes warm 90969 -> 343115, firstCall 90969 -> 343115 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
         "probe": "cli-graph",
         "backend": "pglite",
         "dimension": "runtime-sessions",
@@ -1987,24 +1974,6 @@
         "expiresAt": "2026-11-26T00:00:00Z"
       },
       {
-        "probe": "cli-doctor-health",
-        "backend": "pglite",
-        "dimension": "relations",
-        "metric": "sqlResultBytes",
-        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 257323 at 200 -> 2009035 at 2000 (cold/warm maximum).",
-        "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "cli-doctor-health",
-        "backend": "pglite",
-        "dimension": "relations",
-        "metric": "sqlRowsRead",
-        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 2035 at 200 -> 18235 at 2000 (cold/warm maximum).",
-        "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
         "probe": "cli-graph",
         "backend": "pglite",
         "dimension": "relations",
@@ -2088,19 +2057,6 @@
         "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 463 at 200 -> 4063 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlRowsRead warm 73 -> 163, firstCall 73 -> 163 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
         "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
         "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "cli-doctor-health",
-        "backend": "pglite",
-        "dimension": "dispatches",
-        "metric": "sqlResultBytes",
-        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 1184397 at 200 -> 11306983 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlResultBytes warm 90971 -> 343197, firstCall 90971 -> 343197 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
       },
       {
         "probe": "cli-graph",
