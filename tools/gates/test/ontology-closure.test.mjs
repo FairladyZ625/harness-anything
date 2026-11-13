@@ -111,6 +111,157 @@ test("the full repository passes the classified closure gate", (t) => {
   );
 });
 
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: daemon domain services have no migration debt,
+// and business effects stay attached to their owning ActionDeclaration.
+test("daemon domain service actions and policies are closed under the shared ontology", () => {
+  const domainPath =
+    /^packages\/daemon\/src\/(?:schedule-|squad-|decision-|fact-|artifact-|agent-(?!runtime-instance)|task-|todo-|work-|person-|settings-|vertical-|entity-action-|entity-pin-|assignment-|distill-|reckoning-|home\/)/u;
+  const baseline = loadGateAllowlist("ontology-closure", { report: false }).candidates;
+  assert.deepEqual(
+    baseline.filter((row) => domainPath.test(row.path)),
+    [],
+    "dec_7E44897ECDCAEF2B92EC66A260/CH1 requires zero daemon domain service migration entries",
+  );
+
+  const result = evaluateOntologyClosure({ rootDir: repoRoot, base: "HEAD" });
+  const candidates = result.classified.filter(
+    (row) => ["action", "policy"].includes(row.category) && domainPath.test(row.file),
+  );
+  const actions = candidates.filter((row) => row.category === "action");
+  const policies = candidates.filter((row) => row.category === "policy");
+  assert.equal(actions.length, 162);
+  assert.equal(
+    policies.length,
+    129,
+    "126 legacy policies plus 3 daemon policies already registered outside the migration baseline",
+  );
+  assert.deepEqual(
+    candidates.filter((row) => row.status !== "registered"),
+    [],
+    "every daemon domain action and policy candidate must resolve to the shared ontology",
+  );
+
+  const actionById = new Map(actions.map((row) => [row.id, row]));
+  assert.deepEqual(
+    actions.filter((row) => row.declarationRef === "action:cli-local-effects"),
+    [],
+    "daemon domain actions must not be hidden in the CLI-only effect bucket",
+  );
+  for (const [candidateId, declarationRef] of [
+    [
+      "action:packages/daemon:packages/daemon/src/schedule-scheduler.ts#makeScheduleScheduler.tick:03f7df144e0da4b8d8de43d116dd75a0",
+      "action:schedule-run-now",
+    ],
+    [
+      "action:packages/daemon:packages/daemon/src/decision-point-executor.ts#openDecisionPointExecutor.settle.apply:79a44954c303732a0c96fdbd6afe2c74",
+      "action:decision-reckon",
+    ],
+    [
+      "action:packages/daemon:packages/daemon/src/fact-archive-document.ts#archiveAllFacts:f62e63de0d5257051d2b5b71ac126b0d",
+      "action:fact-archive",
+    ],
+    [
+      "action:packages/daemon:packages/daemon/src/task-action-catalog-runtime.ts#runTaskActionCatalogRuntime:3141039e8e0edac7120fa68967ce7466",
+      "action:task-transition",
+    ],
+    [
+      "action:packages/daemon:packages/daemon/src/settings-action-runtime.ts#publishSettingsDraft.appended:27280392f0c307d2d9bd09af88c49ab7",
+      "action:settings-update",
+    ],
+    [
+      "action:packages/daemon:packages/daemon/src/vertical-declaration-action.ts#runVerticalDeclarationAction.appended:5ca10d09f5449f58673022183be08681",
+      "action:vertical-kind-upsert",
+    ],
+  ]) {
+    assert.equal(actionById.get(candidateId)?.declarationRef, declarationRef, candidateId);
+  }
+
+  const snapshot = loadOntologyClosureSnapshot(repoRoot);
+  const sourceById = new Map(
+    snapshot.actions.flatMap(({ kind, ontology }) =>
+      (ontology?.sources ?? []).map((source) => [source.candidateId, { kind, ...source }]),
+    ),
+  );
+  for (const [candidateId, kind, route, role] of [
+    [
+      "action:packages/daemon:packages/daemon/src/schedule-scheduler.ts#makeScheduleScheduler.tick:03f7df144e0da4b8d8de43d116dd75a0",
+      "schedule-run-now",
+      "schedule-run-now",
+      "effect",
+    ],
+    [
+      "action:packages/daemon:packages/daemon/src/schedule-scheduler.ts#makeScheduleScheduler.targetFor.execute:fedd751c9cee14e8e02fbafe0cb48ac1",
+      "schedule-run-now",
+      "schedule-run-now",
+      "support",
+    ],
+    [
+      "action:packages/daemon:packages/daemon/src/decision-point-executor.ts#openDecisionPointExecutor.settle.apply:79a44954c303732a0c96fdbd6afe2c74",
+      "decision-reckon",
+      "decision-reckon",
+      "effect",
+    ],
+    [
+      "action:packages/daemon:packages/daemon/src/fact-archive-document.ts#archiveAllFacts:f62e63de0d5257051d2b5b71ac126b0d",
+      "fact-archive",
+      "fact-archive",
+      "effect",
+    ],
+  ]) {
+    assert.deepEqual(sourceById.get(candidateId), { candidateId, kind, route, role }, candidateId);
+  }
+  const policyRefByCandidate = new Map(
+    snapshot.kinds.flatMap(({ kind, policies = [] }) =>
+      policies.flatMap((policy) => policy.sources.map((source) => [source.candidateId, `policy:${kind}/${policy.id}`])),
+    ),
+  );
+  assert.equal(
+    policyRefByCandidate.get(
+      "policy:packages/daemon:packages/daemon/src/schedule-scheduler.ts#HUMAN_BLOCK_RETRY_MS:92965c5ace2b459d9fd1e652e9c7097d",
+    ),
+    "policy:schedule/daemon-schedule-domain-policy",
+  );
+  assert.equal(
+    policyRefByCandidate.get(
+      "policy:packages/daemon:packages/daemon/src/task-wip-settings.ts#TASK_WIP_LIMIT_SETTING:ca330956d3d92d07a920b97f0da879bb",
+    ),
+    "policy:task/daemon-task-domain-policy",
+  );
+  for (const candidateId of [
+    "policy:packages/daemon:packages/daemon/src/squad-coordinator-publication.ts#makeSquadPublicationController.publishState:c33102c3afb14ad57596688874a8b88c",
+    "policy:packages/daemon:packages/daemon/src/task-query-read.ts#makeTaskQueryReadModel.agenda.awaitingRuling:632767b9b836887b526c540ca6ec1de4",
+    "policy:packages/daemon:packages/daemon/src/task-query-read.ts#makeTaskQueryReadModel.agenda.awaitingRuling:c6e10f3bdbdac92ac14cf8e1b3956656",
+  ]) {
+    assert.equal(policyRefByCandidate.get(candidateId), "policy:runtime-session/dispatch-reservations", candidateId);
+  }
+
+  const schedulerPath = "packages/daemon/src/schedule-scheduler.ts";
+  const scheduler = readFileSync(path.join(repoRoot, schedulerPath), "utf8");
+  const changedScheduler = scheduler.replace(
+    "const HUMAN_BLOCK_RETRY_MS = 60_000;",
+    "const HUMAN_BLOCK_RETRY_MS = 60_001;",
+  );
+  assert.notEqual(changedScheduler, scheduler);
+  assert.deepEqual(
+    audit(
+      scanOntologyText(schedulerPath, changedScheduler).filter((row) => row.category === "policy"),
+      { snapshot },
+    ).findings.map((row) => row.code),
+    ["ONTOLOGY_POLICY_UNDECLARED"],
+    "changing a registered daemon policy value must leave an unregistered candidate",
+  );
+
+  const undeclared = scanOntologyText(
+    "packages/daemon/src/schedule-scheduler.ts",
+    "function undeclaredDaemonScheduleAction() { dispatch(); }",
+  );
+  assert.equal(undeclared.length, 1);
+  assert.deepEqual(
+    audit(undeclared, { snapshot }).findings.map((row) => row.code),
+    ["ONTOLOGY_ACTION_UNDECLARED"],
+  );
+});
+
 // dec_7E44897ECDCAEF2B92EC66A260 / S3d: retired debt cannot return to the leaf packages.
 // dec_7E44897ECDCAEF2B92EC66A260/CH1: application, builtin and DSH have no remaining migration debt.
 test("application, builtin authorization and DSH remain closed in every ontology category", () => {

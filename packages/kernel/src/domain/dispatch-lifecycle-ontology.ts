@@ -131,3 +131,71 @@ export const dispatchLifecycleJudgment = {
   consumers: ["packages/daemon/src/task-query-read.ts"],
   sources: [],
 } as const satisfies OntologyJudgmentDeclaration;
+// Source identities and values for daemon policy declarations registered by EntityKindContract.
+export const daemonRuntimeSessionPolicySources = [
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-runtime-read.ts#makeAgentRuntimeReadModel.sessionDto.attemptChain:fd82fa4d3f11f92b2b835daa6b6a0ba5",
+    "packages/daemon/src/agent-runtime-read.ts#makeAgentRuntimeReadModel.sessionDto.attemptChain",
+    "attemptChain = detail.attemptChain === true ? input.readAttemptChain?.(session.runtimeSessionId) : undefined,",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-runtime-read.ts#makeAgentRuntimeReadModel.readRuntimeSessionById.candidates.limit:84d5701d2773edd2d7075dc1615f708c",
+    "packages/daemon/src/agent-runtime-read.ts#makeAgentRuntimeReadModel.readRuntimeSessionById.candidates.limit",
+    ".readRuntimeSessionPage({ limit: 8, afterRuntimeSessionId: runtimeSessionId })",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-runtime-read.ts#makeAgentRuntimeReadModel.sessionGroups.dispatches.shallow:00191b086680e4e98da6ac785758b04a",
+    "packages/daemon/src/agent-runtime-read.ts#makeAgentRuntimeReadModel.sessionGroups.dispatches.shallow",
+    "...(query.unsettledOnly ? { shallow: true } : {}),",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-runtime-read.ts#makeAgentRuntimeReadModel.session.dto.attemptChain:14d0762c2a4e9497984a3bcef48b5748",
+    "packages/daemon/src/agent-runtime-read.ts#makeAgentRuntimeReadModel.session.dto.attemptChain",
+    "{ attemptChain: true, context: true },",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-runtime-read.ts#sessionGroupsQuery:a3384c1f39c688cb348429e371fd365d",
+    "packages/daemon/src/agent-runtime-read.ts#sessionGroupsQuery",
+    "if (",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-runtime-read.ts#sessionGroupsQuery.limit:13e34ed06a7f8e0b91c55872c8faef0b",
+    "packages/daemon/src/agent-runtime-read.ts#sessionGroupsQuery.limit",
+    'limit: typeof limit === "number" ? limit : 200,',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-runtime-read.ts#overviewQuery:08e907891399e385fd46dad90280fddd",
+    "packages/daemon/src/agent-runtime-read.ts#overviewQuery",
+    "if (",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-runtime-read.ts#overviewQuery.limit:5b9089c35509a9df61ead8005a774475",
+    "packages/daemon/src/agent-runtime-read.ts#overviewQuery.limit",
+    'limit: typeof payload.limit === "number" ? payload.limit : null,',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-runtime-stream.ts#BUFFER_LIMIT:a18e2d7cd087689da1cdcf957be93f10",
+    "packages/daemon/src/agent-runtime-stream.ts#BUFFER_LIMIT",
+    "const BUFFER_LIMIT = 32,",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-runtime-stream.ts#validateAgentRuntimeAttachEvent:ec07371839e42d2c84ea69efe396fcb1",
+    "packages/daemon/src/agent-runtime-stream.ts#validateAgentRuntimeAttachEvent",
+    "return allowed &&",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-runtime-token-usage.ts#windowDispatches.page.limit:bf38217595aafee0d2b364031d7e7000",
+    "packages/daemon/src/agent-runtime-token-usage.ts#windowDispatches.page.limit",
+    "limit: 200,",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-runtime-token-usage.ts#validateAgentRuntimeTokenUsage:acae5077ef34610dd5953a85c09bd548",
+    "packages/daemon/src/agent-runtime-token-usage.ts#validateAgentRuntimeTokenUsage",
+    "return isRecord(value) &&",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/entity-action-runtime-session.ts#compileRuntimeSessionDraft:d03e2d428abfb3b4114994b23051f290",
+    "packages/daemon/src/entity-action-runtime-session.ts#compileRuntimeSessionDraft",
+    'if (draft.event.type === "runtime_session_outcome_observed" && (!claim || draft.resultBody === undefined))',
+  ],
+] as const;

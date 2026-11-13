@@ -18,12 +18,18 @@ import {
   taskKernelPolicies,
   executionDelegationPolicy,
 } from "./task-submission-policy.ts";
-import { dispatchLifecyclePolicies, dispatchLifecycleJudgment } from "./dispatch-lifecycle-ontology.ts";
+import {
+  daemonRuntimeSessionPolicySources,
+  dispatchLifecyclePolicies,
+  dispatchLifecycleJudgment,
+} from "./dispatch-lifecycle-ontology.ts";
 import { todoSchema } from "./todo.ts";
 import { createTodoActionCatalog } from "./todo-action-contract.ts";
 import {
   AGENT_DECLARATION_V1_SCHEMA,
   SQUAD_DECLARATION_V1_SCHEMA,
+  daemonAgentPolicySources,
+  daemonSquadPolicySources,
   squadLeaderTurnPolicy,
 } from "./agent-squad-schema.ts";
 import { createAgentActionCatalog } from "./agent-action-contract.ts";
@@ -63,6 +69,7 @@ import {
   relationOrigins,
   relationStates,
   relationTypes,
+  daemonRelationPolicySources,
   type RelationDirection,
   type RelationType,
   relationEndpointPolicy,
@@ -77,7 +84,7 @@ import { SCHEDULE_V1_SCHEMA, scheduleRunOutcomes, scheduleStates } from "./sched
 import { SETTINGS_REPOSITORY_V1_SCHEMA } from "./settings.ts";
 import { PERSON_V1_SCHEMA } from "./person-profile.ts";
 import { createTaskActionCatalog } from "./task-action-contract.ts";
-import { createScheduleActionCatalog } from "./schedule-action-contract.ts";
+import { createScheduleActionCatalog, daemonSchedulePolicySources } from "./schedule-action-contract.ts";
 import { createRuntimeSessionActionCatalog } from "./runtime-session-action-contract.ts";
 import { createRuntimeInstanceActionCatalog, createRuntimeInstanceKindContract } from "./runtime-instance-contract.ts";
 import { createSettingsActionCatalog } from "./settings-action-contract.ts";
@@ -101,14 +108,15 @@ import { runtimeReleasePolicy, runtimeReleasePolicyJudgment } from "./runtime-re
 import { supplyChainReleasePolicy, supplyChainReleasePolicyJudgment } from "./supply-chain-release-readiness.ts";
 import { storageReadPolicy, storageReadJudgment, storageReadAdditionalJudgments } from "./storage-read-policy.ts";
 import {
+  daemonDecisionPolicySources,
   decisionAdmissionPolicy,
   decisionAdmissionJudgments,
   decisionStandingClassPolicy,
 } from "./decision-admission.ts";
 import { storageScopePolicy, storageScopePolicyJudgments } from "./storage-scope-policy.ts";
 import { taskLeasePolicy, taskLeasePolicyJudgments, taskLeasePhasePolicy } from "./task-lease-policy.ts";
-import { taskExecutionWipPolicy } from "./task-wip-policy.ts";
-import { todoSoftLimitPolicy } from "./todo-soft-limit.ts";
+import { daemonTaskPolicySources, taskExecutionWipPolicy } from "./task-wip-policy.ts";
+import { daemonTodoPolicySources, todoSoftLimitPolicy } from "./todo-soft-limit.ts";
 import { settingsDefaultsPolicy } from "./settings-field-declarations.ts";
 import { scheduleOccurrencePolicy } from "./schedule-action-contract.ts";
 import { guiAdmissionPolicy, guiAdmissionPolicyJudgments } from "./gui-admission-policy.ts";
@@ -135,6 +143,7 @@ import {
   identityDatabaseProcessPolicy,
   identityHealthProbePolicy,
   identityFleetPrincipalPolicy,
+  daemonRuntimeInstancePolicySources,
 } from "./managed-identity-policy.ts";
 import { guiQueryPacing } from "./gui-query-pacing.ts";
 import { taskLeaseGuidancePolicy, returnToPlannedJudgment } from "./task-lease-guidance.ts";
@@ -1024,6 +1033,132 @@ const documentActionCatalog = Object.freeze({
       ),
     ]),
   });
+const daemonDomainPolicy = (
+  kind: string,
+  sourceRows: readonly (readonly [candidateId: string, route: string, expression: string])[],
+  fixtures: readonly string[],
+) =>
+  ({
+    id: `daemon-${kind}-domain-policy`,
+    ownerRef: kind,
+    unit: "existing daemon literal values and branch constraints",
+    bounds:
+      "Preserve the literal defaults and branch outcomes recorded in defaultValue; this declaration does not alter runtime evaluation.",
+    defaultValue: Object.fromEntries(sourceRows.map(([candidateId, , expression]) => [candidateId, expression])),
+    version: 1,
+    scope: `${kind} daemon domain services`,
+    reason:
+      "Keep each existing domain policy candidate attached to its EntityKindContract while preserving the daemon source behavior.",
+    fixtures,
+    sources: sourceRows.map(([candidateId, route]) => ({ candidateId, route })),
+  }) as const satisfies import("./ontology-source.ts").OntologyPolicyDeclaration;
+
+const daemonAgentPolicy = daemonDomainPolicy("agent", daemonAgentPolicySources, [
+  "packages/daemon/test/agent-declaration-migration.integration.test.ts",
+  "packages/daemon/test/agent-runtime-web-search.test.ts",
+]);
+
+const daemonRuntimeInstancePolicy = daemonDomainPolicy("runtime-instance", daemonRuntimeInstancePolicySources, [
+  "packages/daemon/test/agent-runtime-credential-port.test.ts",
+  "packages/daemon/test/agent-runtime-instance-registry-store.test.ts",
+  "packages/daemon/test/agent-runtime-instance-provider-specifics.test.ts",
+]);
+
+const daemonRuntimeSessionPolicy = daemonDomainPolicy("runtime-session", daemonRuntimeSessionPolicySources, [
+  "packages/daemon/test/agent-runtime-read-cut.contract.test.ts",
+  "packages/daemon/test/agent-runtime-session-groups.contract.test.ts",
+  "packages/daemon/test/agent-runtime-token-usage.test.ts",
+]);
+
+const daemonHostPolicy = daemonDomainPolicy(
+  "host",
+  [
+    [
+      "policy:packages/daemon:packages/daemon/src/artifact-entity-action.ts#ARTIFACT_SOURCE_FETCH_TIMEOUT_MS:ef8206418caa74a4b0f18132c3deddfb",
+      "packages/daemon/src/artifact-entity-action.ts#ARTIFACT_SOURCE_FETCH_TIMEOUT_MS",
+      "const ARTIFACT_SOURCE_FETCH_TIMEOUT_MS = 10_000;",
+    ],
+    [
+      "policy:packages/daemon:packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.runWrite:ed37612883c2e0639d581e416d2ab6f4",
+      "packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.runWrite",
+      'if (lease && ["held", "reserving"].includes(lease.phase))',
+    ],
+    [
+      "policy:packages/daemon:packages/daemon/src/entity-action-catalog-executor.ts#compileDraft:2cd9dab3f18abfab0502c9c5fcc91009",
+      "packages/daemon/src/entity-action-catalog-executor.ts#compileDraft",
+      'if (lifecycle.status === "ready" && lifecycle.rows.some(({ attempt }) => attempt.stopProof === "proven_stopped"))',
+    ],
+    [
+      "policy:packages/daemon:packages/daemon/src/entity-pin-action.ts#runEntityPinAction.guidance:6432d7607fac0093129d2f236d52fbc6",
+      "packages/daemon/src/entity-pin-action.ts#runEntityPinAction.guidance",
+      'pinned && used / pinLimit >= 0.8 ? [{ kind: "pin-agenda" as const, args: { used, limit: pinLimit } }] : undefined;',
+    ],
+    [
+      "policy:packages/daemon:packages/daemon/src/home/home-overview-read.ts#readSingleRepoOverviewWithTimeout.fetchPromise.limit:281836eca24c2eb78d50f8542399ca4d",
+      "packages/daemon/src/home/home-overview-read.ts#readSingleRepoOverviewWithTimeout.fetchPromise.limit",
+      "limit: 100,",
+    ],
+  ],
+  [
+    "packages/daemon/test/task-action-catalog-executor.test.ts",
+    "packages/daemon/test/home-overview-read.test.ts",
+    "packages/daemon/test/entity-action-explain-contract.integration.test.ts",
+  ],
+);
+
+const daemonDecisionPolicy = daemonDomainPolicy("decision", daemonDecisionPolicySources, [
+  "packages/daemon/test/decision-provider.integration.test.ts",
+  "packages/daemon/test/decision-point-executor.test.ts",
+  "packages/daemon/test/decision-surface.test.ts",
+]);
+
+const daemonFactPolicy = daemonDomainPolicy(
+  "fact",
+  [
+    [
+      "policy:packages/daemon:packages/daemon/src/distill-actions.ts#readDistillEntity.relationReads.limit:566e0d0917d2d5e10ead25ab3a9e3260",
+      "packages/daemon/src/distill-actions.ts#readDistillEntity.relationReads.limit",
+      'projection.readRelationQuery({ source: entityRef, state: "active", limit: 500 }),',
+    ],
+    [
+      "policy:packages/daemon:packages/daemon/src/distill-actions.ts#readDistillEntity.relationReads.limit:566e0d0917d2d5e10ead25ab3a9e3260:2",
+      "packages/daemon/src/distill-actions.ts#readDistillEntity.relationReads.limit",
+      'projection.readRelationQuery({ target: entityRef, state: "active", limit: 500 }),',
+    ],
+  ],
+  [
+    "packages/daemon/test/fact-archive.integration.test.ts",
+    "packages/daemon/test/fact-retirement-completion.contract.test.ts",
+  ],
+);
+
+const daemonRelationPolicy = daemonDomainPolicy("relation", daemonRelationPolicySources, [
+  "packages/daemon/test/entity-action-relation.test.ts",
+]);
+
+const daemonSchedulePolicy = daemonDomainPolicy("schedule", daemonSchedulePolicySources, [
+  "packages/daemon/test/schedule-scheduler.test.ts",
+  "packages/daemon/test/schedule-backup-worker.test.ts",
+  "packages/daemon/test/schedule-runs-read.test.ts",
+]);
+
+const daemonSquadPolicy = daemonDomainPolicy("squad", daemonSquadPolicySources, [
+  "packages/daemon/test/squad-coordinator.test.ts",
+  "packages/daemon/test/squad-runtime-ingress.test.ts",
+  "packages/daemon/test/squad-run.contract.test.ts",
+]);
+
+const daemonTaskPolicy = daemonDomainPolicy("task", daemonTaskPolicySources, [
+  "packages/daemon/test/task-action-catalog-executor.test.ts",
+  "packages/daemon/test/task-worktree.test.ts",
+  "packages/daemon/test/task-risk-tier.test.ts",
+]);
+
+const daemonTodoPolicy = daemonDomainPolicy("todo", daemonTodoPolicySources, [
+  "packages/daemon/test/todo-read.test.ts",
+  "packages/daemon/test/todo.integration.test.ts",
+]);
+
 // prettier-ignore
 export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActions([
   {
@@ -1103,7 +1238,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
         candidateId: "policy:packages/kernel:packages/kernel/src/domain/task-lifecycle-runtime-lease-transition.ts#releaseRuntimeLease:42071ecbd09d23461798f3ebce8ef7eb",
         route: "releaseRuntimeLease → createTaskEvent",
       }],
-    }],
+    }, daemonTaskPolicy],
     statusVocabulary: [{ field: "lifecycle.status", words: domainStatuses }],
     actionCatalog: Object.freeze({
       ...taskActionCatalog,
@@ -1160,6 +1295,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     relations: relationsFor("fact"),
     canonicalProjection: null,
     stateStores: stateStoresForKind("fact"),
+    policies: [daemonFactPolicy],
     statusVocabulary: [{ field: "state", words: ["standing", "superseded_fact"] }],
     actionCatalog: Object.freeze({
       ...factActionCatalog,
@@ -1229,7 +1365,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     relations: relationsFor("decision"),
     canonicalProjection: null,
     stateStores: stateStoresForKind("decision"),
-    policies: [decisionAdmissionPolicy, decisionStandingClassPolicy,{
+    policies: [decisionAdmissionPolicy, decisionStandingClassPolicy, daemonDecisionPolicy, {
       id: "acceptance-draft-fields", ownerRef: "decision", unit: "decision-event/v1 acceptance draft",
       bounds: "standingPolicy starts false; policyRevision is copied only when numeric; the acceptance writer retains final admission.",
       defaultValue: false, version: 1, scope: "Decision accept action compilation",
@@ -1270,7 +1406,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     entityStore: null,
     authoring: { kind: "relation-event", contractRef: "relation-event/v1" },
     sdkExposure: noSdkExposure,
-    policies: [relationEndpointPolicy],
+    policies: [relationEndpointPolicy, daemonRelationPolicy],
   },
   {
     kind: "todo",
@@ -1286,7 +1422,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     entityStore: genericEntityStore("todos/{id}.json"),
     authoring: genericAuthoring,
     sdkExposure: noSdkExposure,
-    policies: [todoSoftLimitPolicy],
+    policies: [todoSoftLimitPolicy, daemonTodoPolicy],
   },
   {
     kind: "agent",
@@ -1305,6 +1441,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     entityStore: genericEntityStore("agents/{id}.json"),
     authoring: genericAuthoring,
     sdkExposure: noSdkExposure,
+    policies: [daemonAgentPolicy],
   },
   {
     kind: "squad",
@@ -1323,7 +1460,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     entityStore: genericEntityStore("squads/{id}.json"),
     authoring: genericAuthoring,
     sdkExposure: noSdkExposure,
-    policies: [squadLeaderTurnPolicy],
+    policies: [squadLeaderTurnPolicy, daemonSquadPolicy],
   },
   {
     kind: "execution",
@@ -1417,17 +1554,20 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
       },
     ],
     actionCatalog: runtimeSessionCatalog,
-    policies: dispatchLifecyclePolicies,
+    policies: [...dispatchLifecyclePolicies, daemonRuntimeSessionPolicy],
     judgments: [dispatchLifecycleJudgment],
     entityStore: null,
     authoring: { kind: "agent-runtime-event", contractRef: "agent-runtime-event/v1" },
     sdkExposure: noSdkExposure,
   },
-  createRuntimeInstanceKindContract({
-    typeFields: entityTypeContractFields("runtime-instance"),
-    actionCatalog: runtimeInstanceActionCatalog,
-    noSdkExposure,
-  }),
+  {
+    ...createRuntimeInstanceKindContract({
+      typeFields: entityTypeContractFields("runtime-instance"),
+      actionCatalog: runtimeInstanceActionCatalog,
+      noSdkExposure,
+    }),
+    policies: [daemonRuntimeInstancePolicy],
+  },
   {
     kind: "schedule",
     ...entityTypeContractFields("schedule"),
@@ -1451,7 +1591,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     entityStore: null,
     authoring: { kind: "schedule-event", contractRef: "schedule-event/v1" },
     sdkExposure: noSdkExposure,
-    policies: [scheduleOccurrencePolicy],
+    policies: [scheduleOccurrencePolicy, daemonSchedulePolicy],
   },
   {
     kind: "settings",
@@ -1534,6 +1674,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     ...hostEntityTypeContract,
     judgments: [runtimeReleasePolicyJudgment, supplyChainReleasePolicyJudgment, storageReadJudgment, ...storageReadAdditionalJudgments, ...storageReplayJudgments, ...storageScopePolicyJudgments, ...guiAdmissionPolicyJudgments, ...gateMappingPolicyJudgments],
     policies: [
+      daemonHostPolicy,
       cliOperationalPolicy, cliContractPolicy,
       writerLifecyclePolicy,
       managedIdentityPolicy,

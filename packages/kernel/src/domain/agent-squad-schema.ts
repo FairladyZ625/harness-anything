@@ -266,3 +266,100 @@ export const squadLeaderTurnPolicy = {
     "policy:packages/kernel:packages/kernel/src/domain/agent-squad-schema.ts#SQUAD_DECLARATION_V1_SCHEMA.properties.leaderTurnBudget:99331d04107f982fe2caac04edd7dc17",
   ].map((candidateId) => ({ candidateId, route: "SQUAD_DECLARATION_V1_SCHEMA" })),
 } as const satisfies OntologyPolicyDeclaration;
+// Source identities and values for daemon policy declarations registered by EntityKindContract.
+export const daemonAgentPolicySources = [
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-entities.ts#agentReferenceCounts.relations.limit:566e0d0917d2d5e10ead25ab3a9e3260",
+    "packages/daemon/src/agent-entities.ts#agentReferenceCounts.relations.limit",
+    'projection.readRelationQuery({ source: ref, state: "active", limit: 500 }).rows.length +',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-entities.ts#agentReferenceCounts.relations.limit:566e0d0917d2d5e10ead25ab3a9e3260:2",
+    "packages/daemon/src/agent-entities.ts#agentReferenceCounts.relations.limit",
+    'projection.readRelationQuery({ target: ref, state: "active", limit: 500 }).rows.length;',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-version-action.ts#runAgentVersionRead.current.limit:0dd585c292e12f6bf0b47a1d330750d6",
+    "packages/daemon/src/agent-version-action.ts#runAgentVersionRead.current.limit",
+    "current = readAgentHistory(ports, { agentId, limit: 1, summaries: false }).revision;",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-version-read.ts#LCS_CELL_BUDGET:28fa4e26dd6bce235155a5348f7a37e6",
+    "packages/daemon/src/agent-version-read.ts#LCS_CELL_BUDGET",
+    "const LCS_CELL_BUDGET = 250_000;",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-version-read.ts#DEFAULT_AGENT_HISTORY_LIMIT:64b7ed26576631e2d231f8cfd439ac41",
+    "packages/daemon/src/agent-version-read.ts#DEFAULT_AGENT_HISTORY_LIMIT",
+    "export const DEFAULT_AGENT_HISTORY_LIMIT = 50;",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-version-read.ts#MAX_AGENT_HISTORY_LIMIT:46d703ff74d2dcbe762a6e1f09a23b17",
+    "packages/daemon/src/agent-version-read.ts#MAX_AGENT_HISTORY_LIMIT",
+    "export const MAX_AGENT_HISTORY_LIMIT = 500;",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-version-read.ts#currentIdentity.page.limit:0dd585c292e12f6bf0b47a1d330750d6",
+    "packages/daemon/src/agent-version-read.ts#currentIdentity.page.limit",
+    'page = ports.projection.readEventList({ entity: `agent/${agentId}`, type: "entity_upserted", limit: 1 }),',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-version-read.ts#claimOf:3329465408def07b94beb3d97c48482c",
+    "packages/daemon/src/agent-version-read.ts#claimOf",
+    'if (typeof claim?.sha256 !== "string" || typeof claim.size !== "number")',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-version-read.ts#readAgentHistory:b9975b1b5b28711e5b78257e02621f89",
+    "packages/daemon/src/agent-version-read.ts#readAgentHistory",
+    "if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_AGENT_HISTORY_LIMIT)",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-version-read.ts#readAgentVersion.page.limit:0dd585c292e12f6bf0b47a1d330750d6",
+    "packages/daemon/src/agent-version-read.ts#readAgentVersion.page.limit",
+    "limit: 1,",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-version-read.ts#resolveVersion.page.limit:0dd585c292e12f6bf0b47a1d330750d6",
+    "packages/daemon/src/agent-version-read.ts#resolveVersion.page.limit",
+    "limit: 1,",
+  ],
+] as const;
+
+// Source identities and values for daemon policy declarations registered by EntityKindContract.
+export const daemonSquadPolicySources = [
+  [
+    "policy:packages/daemon:packages/daemon/src/squad-coordinator.ts#makeSquadCoordinator.startScheduled.state.permissionMode:2665c47e7dffa0fb0b27e66e0bab7d70",
+    "packages/daemon/src/squad-coordinator.ts#makeSquadCoordinator.startScheduled.state.permissionMode",
+    'permissionMode: claimed.schedule.mode === "detect" ? "read-only" : null,',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/squad-coordinator.ts#makeSquadCoordinator.spawnWorker:98607b4d1520a1a2a50e4fcbab597776",
+    "packages/daemon/src/squad-coordinator.ts#makeSquadCoordinator.spawnWorker",
+    'if (childLease?.phase !== "held" || isSameExecution(childLease.actor, state.binding.actor))',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/squad-run-contract.ts#validateSquadRunRead:489f31d305ae5d005ed88b84014bf6a3",
+    "packages/daemon/src/squad-run-contract.ts#validateSquadRunRead",
+    "return squadRunRecord(value) &&",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/squad-run-list.ts#listQuery:fa138dbee2dfc5729a9c0df606ff2726",
+    "packages/daemon/src/squad-run-list.ts#listQuery",
+    "if (",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/squad-run-list.ts#listQuery.limit:13e34ed06a7f8e0b91c55872c8faef0b",
+    "packages/daemon/src/squad-run-list.ts#listQuery.limit",
+    'limit: typeof limit === "number" ? limit : 200,',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/squad-run-state.ts#squadState:531cd70010a6e5aa264f25873ee04731",
+    "packages/daemon/src/squad-run-state.ts#squadState",
+    'return row.schema === "squad-run/v1" &&',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/squad-runtime-ingress.ts#requireSquadBusinessAction:9e72d9b485b6f62c246a81196d897364",
+    "packages/daemon/src/squad-runtime-ingress.ts#requireSquadBusinessAction",
+    "if (",
+  ],
+] as const;
