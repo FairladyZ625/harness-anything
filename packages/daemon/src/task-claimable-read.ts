@@ -21,6 +21,8 @@ export async function readClaimableTasks(input: {
   readonly now: string;
   readonly page: (query: {
     readonly activePackagesOnly: true;
+    /** Claimability uses lifecycle status; skip presentation subtree derivation. */
+    readonly statusSource: "raw";
     readonly limit: 500;
     readonly cursor?: string;
   }) => Promise<ReturnType<TaskProjection["list"]>>;
@@ -61,7 +63,12 @@ export async function readClaimableTasks(input: {
   );
   let cursor: string | undefined;
   do {
-    const page = await input.page({ activePackagesOnly: true, limit: 500, ...(cursor ? { cursor } : {}) });
+    const page = await input.page({
+      activePackagesOnly: true,
+      statusSource: "raw",
+      limit: 500,
+      ...(cursor ? { cursor } : {}),
+    });
     if (page.status !== "ready") throw cellCodedError("projection_pending", "Task candidates are not ready.");
     for (const row of page.rows) {
       const snapshot = row.snapshot,

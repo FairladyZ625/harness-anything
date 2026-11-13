@@ -122,8 +122,10 @@ export function pgTaskIndexQueries(
             UNION SELECT parent.task_id,parent.parent_task_id FROM ancestors child CROSS JOIN LATERAL (
               SELECT task_id,parent_task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=child.parent_id OFFSET 0
             ) parent
+          ), scoped(scope_task_id) AS (
+            SELECT task_id FROM descendants UNION SELECT task_id FROM ancestors
           )`;
-          where.push(`task_id=ANY(ARRAY(SELECT task_id FROM descendants UNION SELECT task_id FROM ancestors))`);
+          where.push("task_id=ANY(ARRAY(SELECT scope_task_id FROM scoped))");
         }
         if (query.status !== undefined) {
           values.push(query.status);
@@ -170,7 +172,7 @@ export function pgTaskIndexQueries(
             where.push(`${column}=$${values.length}`);
           }
         if (query.openOnly === true) where.push("task_status NOT IN ('done','cancelled')");
-        if (query.leaseOnly === true) where.push("task_lease_phase IS NOT NULL AND task_lease_phase <> 'released'");
+        if (query.leaseOnly) where.push("task_lease_phase IS NOT NULL AND task_lease_phase <> 'released'");
         if (query.activePackagesOnly === true) where.push("task_package_disposition='active'");
         if (query.workRootsOnly === true)
           where.push(`(task_class='work' OR (parent_task_id IS NULL AND EXISTS (
@@ -224,7 +226,9 @@ export function pgTaskIndexQueries(
                   limit,
                   cursor: query.cursor ?? null,
                   nextCursor:
-                    result.rows.length > limit && rows.at(-1) ? encodeTaskIndexCursor([rows.at(-1)!.taskId]) : null,
+                    result.rows.slice(limit).length > 0 && rows.at(-1)
+                      ? encodeTaskIndexCursor([rows.at(-1)!.taskId])
+                      : null,
                 },
           warnings: [],
           rows,

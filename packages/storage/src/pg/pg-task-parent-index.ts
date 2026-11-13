@@ -43,6 +43,11 @@ export function taskParentIndexDdl(): readonly string[] {
       ON ha_task_snapshots FOR EACH ROW EXECUTE FUNCTION ha_task_parent_index_fields()`,
     `CREATE INDEX IF NOT EXISTS ha_task_snapshots_parent ON ha_task_snapshots
       (tenant_id,project_id,policy_epoch,parent_task_id,task_id)`,
+    // Keep the seek key narrow.  The task payload stays in the heap/TOAST row;
+    // putting title or package text in INCLUDE would turn a legal task into an
+    // index-tuple-size failure.
+    `CREATE INDEX IF NOT EXISTS ha_task_snapshots_task_index_v2 ON ha_task_snapshots
+      (tenant_id,project_id,policy_epoch,task_id)`,
     `CREATE INDEX IF NOT EXISTS ha_task_snapshots_active_task_index_v2 ON ha_task_snapshots
       (tenant_id,project_id,policy_epoch,task_id)
       WHERE task_package_disposition='active'`,
