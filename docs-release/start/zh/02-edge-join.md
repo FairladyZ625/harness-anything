@@ -105,21 +105,28 @@ App 为邀请的每个仓库依次显示：准备工作区 → 注册仓库 → 
 在没有 App 安装包的机器上，下面的一键安装器就是边缘节点的源码安装路径，内部执行同一套构建步骤。需要通用源码 checkout
 （CLI、daemon 与 GUI）时按 [harness-download](../../../skills/harness-download/SKILL.md) 办理，不要在这里重复一套命令。
 
-在干净的 macOS 或 Linux 机器上准备 Git、Node.js 24+ 与 curl，再运行源码安装命令：
+在干净的 macOS、Linux 或 Windows 机器上准备 Git、Node.js 24+，再运行源码安装命令：
+
+macOS / Linux：
 
 ```bash
 git --version
 node --version  # 必须为 v24 或更高版本
 curl --version
-```
-
-```bash
 curl -fsSL https://raw.githubusercontent.com/FairladyZ625/harness-anything/main/scripts/install-source.sh | bash
 ```
 
-安装器把源码保存在 `~/.local/share/harness-anything`，执行 `npm ci`（依赖未变时跳过），下载或校验 Electron 运行时，
-构建 daemon、CLI 与 Electron GUI，并把 `ha` 入口 link 到用户自己的 npm 前缀（`~/.local/share/harness-anything-npm`），
-不改 npm 的宿主全局前缀；结束时打印 `ha` 的绝对路径、可直接运行的命令，以及可选的 `export PATH=...` 行。
+Windows PowerShell：
+
+```powershell
+git --version
+node --version  # 必须为 v24 或更高版本
+irm https://raw.githubusercontent.com/FairladyZ625/harness-anything/main/scripts/install-source.ps1 | iex
+```
+
+安装器把源码保存在 `~/.local/share/harness-anything`（Windows 下为 `$HOME\.local\share\harness-anything`），执行 `npm ci`（依赖未变时跳过），下载或校验 Electron 运行时，
+构建 daemon、CLI 与 Electron GUI，并把 `ha` 入口 link 到用户自己的 npm 前缀（macOS/Linux 为 `~/.local/share/harness-anything-npm/bin/ha`，Windows 为 `$HOME\.local\share\harness-anything-npm\ha.cmd`），
+不改 npm 的宿主全局前缀；结束时打印 `ha` 的绝对路径、可直接运行的命令，以及把该目录加入当前 shell `PATH` 的示例命令。
 安装器不改写 shell 启动文件。Linux 会设置 Electron 所需的 `chrome-sandbox`
 属主与 setuid 权限（必要时使用 `sudo`）。
 
@@ -135,9 +142,15 @@ curl -fsSL https://raw.githubusercontent.com/FairladyZ625/harness-anything/main/
 # 在另一台机器上执行（center 是中心机的 SSH 别名）
 git push center HEAD:refs/heads/laptop/main
 
-# 在中心机上执行
+# 在中心机上执行（macOS / Linux）
 git -C ~/.local/share/harness-anything merge --ff-only laptop/main
 bash ~/.local/share/harness-anything/scripts/install-source.sh --offline
+```
+
+```powershell
+# Windows 中心机上执行
+git -C "$HOME\.local\share\harness-anything" merge --ff-only laptop/main
+powershell -NoProfile -ExecutionPolicy Bypass -File "$HOME\.local\share\harness-anything\scripts\install-source.ps1" --offline
 ```
 
 `--offline`（同义 `--no-pull`）完全跳过 pull，只使用中心已有的源码。若还想让安装器校验中心源码正好是某个提交，
@@ -145,7 +158,7 @@ bash ~/.local/share/harness-anything/scripts/install-source.sh --offline
 不带参数时仍要求 pull 成功，拉取失败即退出，避免把未知源码当成新版本构建。首次安装需要现有 checkout，
 没有时 `--offline` 会直接报错而不是猜测目录。
 
-受邀成员在新终端里直接运行安装器打印的 `ha` 绝对路径（默认前缀下是 `~/.local/share/harness-anything-npm/bin/ha`）：
+受邀成员在新终端里直接运行安装器打印的 `ha` 绝对路径（默认前缀下 macOS/Linux 为 `~/.local/share/harness-anything-npm/bin/ha`，Windows 为 `"$HOME\.local\share\harness-anything-npm\ha.cmd"`）：
 
 ```bash
 ~/.local/share/harness-anything-npm/bin/ha edge join '<邀请链接>' [--root <目录>] [--quota-bytes <字节数>]

@@ -140,22 +140,29 @@ On machines without an app package, the one-command installer below is the edge 
 steps. For a general source checkout (CLI, daemon, and GUI), follow
 [harness-download](../../../skills/harness-download/SKILL.md) instead of repeating them.
 
-On a clean macOS or Linux machine, check for Git, Node.js 24+, and curl:
+On a clean macOS, Linux, or Windows machine, check for Git and Node.js 24+, then run the source installer:
+
+macOS / Linux:
 
 ```bash
 git --version
 node --version  # must be v24 or newer
 curl --version
-```
-
-```bash
 curl -fsSL https://raw.githubusercontent.com/FairladyZ625/harness-anything/main/scripts/install-source.sh | bash
 ```
 
-The installer keeps the checkout under `~/.local/share/harness-anything`, runs `npm ci` (skipped when dependencies are
+Windows PowerShell:
+
+```powershell
+git --version
+node --version  # must be v24 or newer
+irm https://raw.githubusercontent.com/FairladyZ625/harness-anything/main/scripts/install-source.ps1 | iex
+```
+
+The installer keeps the checkout under `~/.local/share/harness-anything` (`$HOME\.local\share\harness-anything` on Windows), runs `npm ci` (skipped when dependencies are
 unchanged), downloads or checks the Electron runtime, builds the daemon, CLI and Electron GUI bundles, and links the
-`ha` entry into a user-owned npm prefix (`~/.local/share/harness-anything-npm`) without changing npm's host-global
-prefix. It prints the absolute `ha` path, ready-to-run commands, and an optional `export PATH=...` line; it does not
+`ha` entry into a user-owned npm prefix (`~/.local/share/harness-anything-npm/bin/ha` on macOS/Linux, `$HOME\.local\share\harness-anything-npm\ha.cmd` on Windows) without changing npm's host-global
+prefix. It prints the absolute `ha` path, ready-to-run commands, and an optional line to add that prefix directory to `PATH`; it does not
 edit your shell startup files. On Linux it sets Electron's `chrome-sandbox` owner and setuid mode
 (using `sudo` when needed).
 
@@ -172,9 +179,15 @@ from the local source:
 # on the machine that can reach the repository (center is the center host's SSH alias)
 git push center HEAD:refs/heads/laptop/main
 
-# on the center
+# on a macOS / Linux center
 git -C ~/.local/share/harness-anything merge --ff-only laptop/main
 bash ~/.local/share/harness-anything/scripts/install-source.sh --offline
+```
+
+```powershell
+# on a Windows center
+git -C "$HOME\.local\share\harness-anything" merge --ff-only laptop/main
+powershell -NoProfile -ExecutionPolicy Bypass -File "$HOME\.local\share\harness-anything\scripts\install-source.ps1" --offline
 ```
 
 `--offline` (also `--no-pull`) skips pull entirely and uses the source already on the center. To also require that the
@@ -185,7 +198,7 @@ presented as a new build. A first install needs an existing checkout; without on
 guessing a directory.
 
 The invited person runs the absolute `ha` path printed by the installer (with the default prefix,
-`~/.local/share/harness-anything-npm/bin/ha`) in a new terminal:
+`~/.local/share/harness-anything-npm/bin/ha` on macOS/Linux or `"$HOME\.local\share\harness-anything-npm\ha.cmd"` on Windows) in a new terminal:
 
 ```bash
 ~/.local/share/harness-anything-npm/bin/ha edge join '<invite-link>'
