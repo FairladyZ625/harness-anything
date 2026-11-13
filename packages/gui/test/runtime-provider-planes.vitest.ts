@@ -203,10 +203,12 @@ describe("provider planes (2026-08-20 adjudication)", () => {
     expect(planeAllowsApiKey("claude", "api-key")).toBe(true);
     expect(planeAllowsEffort("claude")).toBe(true);
   });
-  it("offers claude only the enum values the launcher forwards as typed", () => {
+  it("offers claude and agy only the enum values the launcher forwards as typed", () => {
     expect(runtimeProviderPlane("claude").effort).toBe("enum");
     // `minimal` is excluded on purpose: the launcher silently rewrites it to `low`.
     expect(runtimeProviderPlane("claude").effortValues).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(runtimeProviderPlane("agy").effort).toBe("enum");
+    expect(runtimeProviderPlane("agy").effortValues).toEqual(["low", "medium", "high", "xhigh", "max"]);
   });
   it("keeps codex's two call paths separate and its models codex-only", () => {
     expect(planeUsesApiOverride("codex")).toBe(false);

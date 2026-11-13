@@ -487,7 +487,7 @@ function renderInvalidInput(args: GuidanceArgs): string {
     pattern = optionalTextArg(args, "pattern"),
     helpCommand = textArg(args, "helpCommand");
   if (args.code === "invalid_runtime_effort")
-    return "Use minimal, low, medium, high, xhigh, or max with Claude or Codex; agy supports low, medium, or high.";
+    return "Use minimal, low, medium, high, xhigh, or max with Claude or Codex; agy supports low, medium, high, xhigh, or max.";
   if (values.length > 0) return `Use ${name} with one of ${values.join(", ")}.`;
   if (format) return `Use ${name} with format ${format}.`;
   if (pattern) return `Use ${name} with a value matching /${pattern}/u.`;

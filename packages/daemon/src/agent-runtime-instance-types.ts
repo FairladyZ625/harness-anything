@@ -50,7 +50,7 @@ export interface CodexRuntimeInstanceConfig {
 }
 
 export interface AgyRuntimeInstanceConfig {
-  readonly effort?: "low" | "medium" | "high";
+  readonly effort?: "low" | "medium" | "high" | "xhigh" | "max";
 }
 
 export type RuntimeInstanceConfig = RuntimeInstanceCommon & {

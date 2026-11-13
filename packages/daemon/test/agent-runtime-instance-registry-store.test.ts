@@ -328,7 +328,7 @@ test("runtime instance CRUD is a closed defineCliCommand surface", async () => {
     ok: false,
     code: "invalid_runtime_effort",
     nextAction:
-      "Use minimal, low, medium, high, xhigh, or max with Claude or Codex; agy supports low, medium, or high.",
+      "Use minimal, low, medium, high, xhigh, or max with Claude or Codex; agy supports low, medium, high, xhigh, or max.",
     json: false,
   });
   const probed = parseThinCommand(["runtime", "instance", "show", "codex-review", "--probe"]);

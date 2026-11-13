@@ -489,14 +489,14 @@ export function runtimeEffort(value: unknown): string {
   return effort;
 }
 
-export function agyEffort(value: unknown): "low" | "medium" | "high" {
+export function agyEffort(value: unknown): NonNullable<AgyRuntimeInstanceConfig["effort"]> {
   const effort = typeof value === "string" ? value.trim() : "";
-  if (!["low", "medium", "high"].includes(effort))
+  if (!["low", "medium", "high", "xhigh", "max"].includes(effort))
     throw runtimeInstanceError(
       "invalid_runtime_effort",
-      `agy reasoning effort ${String(value)} is not supported; use low, medium, or high.`,
+      `agy reasoning effort ${String(value)} is not supported; use low, medium, high, xhigh, or max.`,
     );
-  return effort as "low" | "medium" | "high";
+  return effort as NonNullable<AgyRuntimeInstanceConfig["effort"]>;
 }
 
 export function runtimeInstanceId(value: unknown): string {
