@@ -28,7 +28,10 @@ export async function openStorageMigrationEndpoint(
   }
   if (storage.backend !== "postgres")
     throw new StorageMigrationError("storage_migration_invalid", "unknown storage backend");
-  const pool = new Pool({ connectionString: storage.connectionString, max: 2 });
+  const pool = new Pool({
+    connectionString: storage.authorityConnectionString || storage.connectionString,
+    max: 2,
+  });
   try {
     const endpoint = await openPgMigrationEndpoint({ pool, repoId, scope });
     return { ...endpoint, close: () => pool.end() };
