@@ -595,7 +595,7 @@ partitionedTest("caller-owned CLI output and cleanup cannot claim a canonical le
 // ports and cannot hide under package-assets-build or spoof a mismatched route.
 partitionedTest(
   "root tools sources need a typed port under package-assets-build; client calls bind business actions",
-  (t) => {
+  () => {
     const build = inputs.constants.actionDeclarations.find((action) => action.kind === "package-assets-build");
     const audit = (sources, target = build) =>
       auditDurableActionAuthorization(
