@@ -39,6 +39,9 @@ export function createSeededScenario({ seed, requests, shuffle = false }) {
   });
 }
 
+/**
+ * @param {{ scenario: ReturnType<typeof createSeededScenario>, adapter: { submit(request: object, options: { signal: AbortSignal, barrier: Function }): Promise<unknown> }, receiptLog: any, barrier?: Function, watchdogMs?: number }} options
+ */
 export async function runScenario({
   scenario,
   adapter,

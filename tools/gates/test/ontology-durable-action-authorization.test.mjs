@@ -34,7 +34,7 @@ let partitionTestOrdinal = 0;
 // Greedy balance from measured durations; each partition sums to 209–221s versus 350/497s with
 // ordinal modulo two. New tests must update this map after measuring their duration.
 const authorizationTestPartitionAssignments = [
-  4, 2, 4, 3, 1, 2, 4, 1, 2, 2, 3, 4, 1, 3, 1, 4, 3, 2, 3, 3, 4, 1, 1, 2, 3, 4, 1,
+  4, 2, 4, 3, 1, 2, 4, 1, 2, 2, 3, 4, 1, 3, 1, 4, 3, 2, 3, 3, 4, 1, 1, 2, 3, 4, 1, 2,
 ];
 function partitionedTest(name, testFn) {
   const ordinal = partitionTestOrdinal++;
@@ -586,4 +586,41 @@ partitionedTest("caller-owned CLI output and cleanup cannot claim a canonical le
   const result = auditDurableActionAuthorization(repoRoot, { ...inputs, constants }, { only: ["cli-local-effects"] });
   assert.ok(result.sourceRows.length > 0);
   assert.ok(result.sourceRows.every((source) => !source.ok));
+});
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1 S4: root tools/ sources are owned by package-assets-build only
+// through exact typed ports or intrinsic support; neither an unported tool effect nor a packages/
+// build source naming a port can borrow that route.
+partitionedTest("root tools sources need a typed port under package-assets-build; package scripts keep dist", () => {
+  const build = inputs.constants.actionDeclarations.find((action) => action.kind === "package-assets-build");
+  const audit = (sources) =>
+    auditDurableActionAuthorization(
+      repoRoot,
+      {
+        ...inputs,
+        constants: {
+          ...inputs.constants,
+          actionDeclarations: inputs.constants.actionDeclarations.map((action) =>
+            action === build ? { ...action, ontology: { ...action.ontology, sources } } : action,
+          ),
+        },
+      },
+      { only: [build.kind] },
+    ).sourceRows.map(({ ok, violations }) => ({ ok, violations }));
+  const tools = build.ontology.sources.filter((source) => source.candidateId.startsWith("action:tools:"));
+  assert.ok(tools.some((source) => source.role === "technical-port"));
+  assert.ok(tools.some((source) => source.role === "support"));
+  assert.deepEqual(
+    audit(build.ontology.sources).filter((row) => !row.ok),
+    [],
+  );
+  const { port: _port, ...unported } = tools.find((source) => source.role === "technical-port");
+  assert.deepEqual(audit([{ ...unported, role: "effect" }]), [
+    { ok: false, violations: ["root tooling source needs a typed technical port or intrinsic support"] },
+  ]);
+  const packaged = build.ontology.sources.find((source) => source.candidateId.startsWith("action:packages/"));
+  assert.deepEqual(
+    audit([{ ...packaged, role: "technical-port", port: "node_modules/@types/node/fs.d.ts#fs.rmSync" }]),
+    [{ ok: false, violations: ["source has no verified owner/authority chain"] }],
+  );
 });

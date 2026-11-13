@@ -249,6 +249,7 @@ async function raceClaimChildren(root, certFile, port, subjects, action, childre
   return Promise.all(runs.map((run) => run.result));
 }
 
+/** @param {Set<import("node:child_process").ChildProcess>} children */
 function claimChild(configFile, children) {
   const child = spawn(process.execPath, [path.join(import.meta.dirname, "schedule-claim-child.mjs"), configFile], {
     stdio: ["pipe", "pipe", "pipe"],

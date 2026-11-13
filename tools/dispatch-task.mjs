@@ -81,6 +81,7 @@ function receiptText(receipt, field, step) {
   return value;
 }
 
+/** @param {{ cwd?: string, workspaceRoot?: string, run?: ReturnType<typeof subprocessRunner> }} [dependencies] */
 export function runDispatch(input, dependencies = {}) {
   const callerCwd = dependencies.cwd ?? process.cwd();
   const workspaceRoot = dependencies.workspaceRoot ?? findWorkspaceRoot();

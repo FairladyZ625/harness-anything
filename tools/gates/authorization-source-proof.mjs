@@ -44,14 +44,20 @@ export function intrinsicSupport(graph, node) {
   );
 }
 
+/** The repository root's tools/ scripts belong to no package: they have no bin and no dist, so a
+ * package-script action owns their caller-process effects only through typed ports or intrinsic
+ * support (dec_7E44897ECDCAEF2B92EC66A260/CH1). Sources under packages/ keep the dist boundary. */
+export const rootToolingSource = (graph, node) => graph.fileOf(node).startsWith("tools/");
+
 /** A shared driver has its own reviewed declaration; it does not borrow a command's permission. */
 export function technicalPortEvidence(graph, node, source, action) {
+  const { authority } = action.ontology;
   if (
     !source.port ||
     source.role !== "technical-port" ||
     source.route !== action.kind ||
     !action.ontology.technical ||
-    action.ontology.authority !== "local-process" ||
+    !(authority === "local-process" || (authority === "package-script" && rootToolingSource(graph, node))) ||
     action.receiptSettlement !== "none"
   )
     return null;

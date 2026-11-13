@@ -26,6 +26,7 @@ import {
   moduleEntry,
   processSourceSites,
   buildOutputWithinPackage,
+  rootToolingSource,
 } from "./authorization-source-proof.mjs";
 import { EVIDENCE_INDEX } from "./evidence-index.mjs";
 import { exitCodeFor, lineNumber, parseCommonArgs, parseTypeScript } from "./ontology-gate-lib.mjs";
@@ -277,7 +278,10 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
         action.residency.scope === "host-local" &&
         action.residency.writer === "caller-process" &&
         processOwnedOutput(graph, node);
-      const within = action.ontology.authority !== "package-script" || (node && buildOutputWithinPackage(graph, node));
+      const tooling = action.ontology.authority === "package-script" && node && rootToolingSource(graph, node);
+      const within =
+        action.ontology.authority !== "package-script" ||
+        (node && (tooling ? Boolean(proof || port) : buildOutputWithinPackage(graph, node)));
       const ok = Boolean(node && within && (proof || port || output || (trace?.seen && trace.ok)));
       return {
         id: source.candidateId,
@@ -299,7 +303,13 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
               : (trace?.evidence ?? [])),
         violations: ok
           ? []
-          : [!within ? "build output escapes package dist" : "source has no verified owner/authority chain"],
+          : [
+              !within
+                ? tooling
+                  ? "root tooling source needs a typed technical port or intrinsic support"
+                  : "build output escapes package dist"
+                : "source has no verified owner/authority chain",
+            ],
       };
     }),
   );

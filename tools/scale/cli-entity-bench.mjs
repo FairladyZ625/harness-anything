@@ -44,7 +44,7 @@ async function main() {
   const { openSqliteEventStore } = await import("../../packages/storage/src/store/sqlite-event-store.ts");
   mkdirSync(args.out, { recursive: true });
   const started = Date.now(),
-    f = fixture(args.seed, { daemonId: "scale-bench", frames: false }),
+    f = await fixture(args.seed, { daemonId: "scale-bench", frames: false }),
     n = args.tasks,
     writes = [],
     rpcRows = [],
@@ -328,6 +328,7 @@ async function readMetrics() {
 }
 
 // Same exit test as the calibration fixture's close(): an empty cmdline is a zombie, a foreign one a reused pid.
+/** @param {Awaited<ReturnType<typeof fixture>>} f */
 async function stopDaemon(f) {
   const stopped = f.invoke("daemon-stop", ["daemon", "stop"], { requireSuccess: false, timeoutMs: 600_000 }),
     alive = () => {

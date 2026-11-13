@@ -163,3 +163,51 @@ test("storage technical ports require the actual typed declaration, not a matchi
     );
   }
 });
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1 S4: root tools/ scripts have no package dist, so the
+// package-script build action owns them only through an exact typed port; packages/ keep the
+// dist boundary and gain no port route.
+test("a package-script technical port proves a root tools/ effect but never a package script effect", async () => {
+  const { technicalPortEvidence, rootToolingSource } = await import("../authorization-source-proof.mjs");
+  const tool = "tools/demo-tool.mjs";
+  const text =
+    '/// <reference types="node" />\nimport { writeFileSync } from "node:fs";\nwriteFileSync("/tmp/demo", "x");\n';
+  const { rootDir } = makeRepo({
+    "packages/demo/package.json": JSON.stringify({ name: "demo", type: "module" }),
+    [file]: text,
+    [tool]: text,
+  });
+  symlinkSync(realpathSync(path.join(repoRoot, "node_modules")), path.join(rootDir, "node_modules"), "dir");
+  const graph = buildFlowGraph(rootDir, { sourceFiles: [file, tool] });
+  const witness = (target) => {
+    const sources = scanOntologyText(target, text)
+      .filter((row) => row.category === "action")
+      .map((row) => ({ candidateId: row.id }));
+    assert.equal(sources.length, 1);
+    return sourceWitnesses(graph, sources).get(sources[0].candidateId);
+  };
+  const port = "node_modules/@types/node/fs.d.ts#fs.writeFileSync";
+  const action = {
+    kind: "package-assets-build",
+    ontology: { technical: true, authority: "package-script" },
+    receiptSettlement: "none",
+  };
+  const source = { port, route: action.kind, role: "technical-port" };
+  const [toolNode, packageNode] = [witness(tool), witness(file)];
+  assert.equal(rootToolingSource(graph, toolNode), true);
+  assert.equal(rootToolingSource(graph, packageNode), false);
+  assert.ok(technicalPortEvidence(graph, toolNode, source, action));
+  assert.equal(technicalPortEvidence(graph, packageNode, source, action), null);
+  assert.equal(technicalPortEvidence(graph, toolNode, { ...source, port: `${port}x` }, action), null);
+  assert.equal(technicalPortEvidence(graph, toolNode, { ...source, route: "task-delete" }, action), null);
+  assert.equal(
+    technicalPortEvidence(graph, toolNode, source, { ...action, ontology: { ...action.ontology, technical: false } }),
+    null,
+  );
+  assert.equal(
+    technicalPortEvidence(graph, toolNode, source, { ...action, ontology: { technical: true, authority: "remote" } }),
+    null,
+  );
+  const local = { ...action, ontology: { technical: true, authority: "local-process" } };
+  assert.ok(technicalPortEvidence(graph, packageNode, source, local));
+});

@@ -868,6 +868,56 @@ test("tools judgment candidates leave the migration baseline and undeclared help
   );
 });
 
+// dec_7E44897ECDCAEF2B92EC66A260/CH1 S4: every tools/ action source is owned by the
+// package-assets-build technical declaration, so tools/ carries no baseline row of any category,
+// and a new unregistered execution call in tools/ or packages/ still fails closed.
+test("tools baseline is permanently zero and new tool execution calls fail closed", () => {
+  const baseline = loadGateAllowlist("ontology-closure", {
+    allowlistRoot: path.join(repoRoot, "tools/gate-allowlists"),
+    report: false,
+  }).candidates;
+  assert.deepEqual(
+    baseline.filter((row) => row.owner === "tools" || row.path?.startsWith("tools/")),
+    [],
+  );
+  const result = evaluateOntologyClosure({ rootDir: repoRoot, base: "HEAD" });
+  const tools = result.classified.filter((row) => row.file.startsWith("tools/") && row.category === "action");
+  assert.ok(tools.length > 0);
+  assert.deepEqual(
+    tools.filter((row) => row.status !== "registered" || row.declarationRef !== "action:package-assets-build"),
+    [],
+  );
+  assert.deepEqual(
+    result.findings.filter((row) => row.file?.startsWith("tools/")),
+    [],
+  );
+
+  const snapshot = loadOntologyClosureSnapshot(repoRoot);
+  const text = 'import { writeFileSync } from "node:fs";\nwriteFileSync("/tmp/unregistered", "x");\n';
+  for (const target of [
+    "tools/unregistered-effect.mjs",
+    "tools/scale/unregistered-effect.mjs",
+    "packages/cli/src/x.ts",
+  ]) {
+    const undeclared = scanOntologyText(target, text);
+    assert.deepEqual(
+      undeclared.map(({ category, name }) => ({ category, name })),
+      [{ category: "action", name: "writeFileSync" }],
+      target,
+    );
+    assert.deepEqual(
+      audit(undeclared, { snapshot }).findings.map((row) => row.code),
+      ["ONTOLOGY_ACTION_UNDECLARED"],
+      target,
+    );
+    assert.deepEqual(
+      audit(undeclared, { snapshot, baseline: [debt(undeclared[0])], previous: [] }).findings.map((row) => row.code),
+      ["ONTOLOGY_BASELINE_GROWTH"],
+      target,
+    );
+  }
+});
+
 // dec_7E44897ECDCAEF2B92EC66A260/CH1 S3c: technical tool settings are not domain defaults.
 test("tool technical syntax is classified without relaxing identical product policies", () => {
   const cases = JSON.parse(
