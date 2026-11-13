@@ -577,6 +577,34 @@ test("baseline git source scan handles >16MiB total test sources without ENOBUFS
     }
     execFileSync("git", ["add", "."], { cwd: repoRoot });
     execFileSync("git", ["commit", "-q", "-m", "baseline"], { cwd: repoRoot });
+    const files = execFileSync("git", ["ls-tree", "-r", "--name-only", "HEAD", "--", "packages", "tools"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    })
+      .split(/\r?\n/u)
+      .filter((file) => /\.(?:test|spec)\.(?:mjs|js|ts)$/u.test(file));
+    assert.equal(files.length, 150 + integrationShardCount);
+    const batchInput = files.map((file) => `HEAD:${file}`).join("\n") + "\n";
+    const unbatched = execFileSync("git", ["cat-file", "--batch"], {
+      cwd: repoRoot,
+      input: batchInput,
+      maxBuffer: 64 * 1024 * 1024,
+      stdio: ["pipe", "pipe", "ignore"],
+    });
+    assert.ok(unbatched.length > 16 * 1024 * 1024, `fixture frame stream ${unbatched.length} bytes must exceed 16MiB`);
+    // Negative control: the pre-fix one-shot read of this same fixture hits the 16 MiB buffer,
+    // so the passing checker call below cannot be explained by a fixture that fits in one batch.
+    assert.throws(
+      () =>
+        execFileSync("git", ["cat-file", "--batch"], {
+          cwd: repoRoot,
+          input: batchInput,
+          maxBuffer: 16 * 1024 * 1024,
+          stdio: ["pipe", "pipe", "ignore"],
+        }),
+      (error) => error.code === "ENOBUFS",
+      "one-shot git cat-file over the >16MiB fixture must fail with ENOBUFS",
+    );
     const result = checkIntegrationTestShards({
       repoRoot,
       weightOverrides: {},

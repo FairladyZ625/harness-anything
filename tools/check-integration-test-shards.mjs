@@ -163,6 +163,7 @@ function previousIntegrationTestState(repoRoot, requestedRef) {
 
 function readGitSources(repoRoot, ref, files) {
   const sources = [];
+  // The whole-repository frame stream can exceed the 16 MiB child buffer, so read bounded slices.
   for (let offset = 0; offset < files.length; offset += 32) {
     sources.push(...readGitSourceBatch(repoRoot, ref, files.slice(offset, offset + 32)));
   }
