@@ -1,6 +1,6 @@
 import type * as ReadSet from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
-import { assertPgTaskParentIndexReady } from "./pg-task-parent-index.ts";
+import { taskParentIndexReadyOrThrow } from "./pg-task-parent-index.ts";
 import { projectPgFactLiveness, readPgFactsInTransaction } from "./pg-fact-reads.ts";
 import { pgGraphQueries, type PgGraphQueries } from "./pg-graph-queries.ts";
 import { pgKnowledgeQueries, type PgKnowledgeQueries } from "./pg-knowledge-queries.ts";
@@ -175,7 +175,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
     withPostgresTransaction(
       options.pool,
       async (client) => {
-        if (presentationStatus) await assertPgTaskParentIndexReady(client, options.scope);
+        if (presentationStatus) await taskParentIndexReadyOrThrow(client, options.scope);
         const cut = await readCutInTransaction(client, claims, readers, repoId),
           // Keep main's bounded raw path: presentationStatus=false only projects the task's own
           // snapshot status, never the recursive subtree rollup. The rollup is computed only when
@@ -220,7 +220,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
     withPostgresTransaction(
       options.pool,
       async (client) => {
-        await assertPgTaskParentIndexReady(client, options.scope);
+        await taskParentIndexReadyOrThrow(client, options.scope);
         const cut = await readCutInTransaction(client, claims, readers, repoId),
           values: unknown[] = [claims.tenantId, claims.projectId, claims.policyEpoch, readers],
           where = [
@@ -264,7 +264,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           }
         }
         if (query.scopeRootTaskId !== undefined) {
-          await assertPgTaskParentIndexReady(client, options.scope);
+          await taskParentIndexReadyOrThrow(client, options.scope);
           values.push(query.scopeRootTaskId);
           const root = `$${values.length}`,
             visible = `tenant_id=$1 AND project_id=$2 AND policy_epoch=$3

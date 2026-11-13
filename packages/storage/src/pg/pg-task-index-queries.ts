@@ -1,4 +1,4 @@
-import { assertPgTaskParentIndexReady } from "./pg-task-parent-index.ts";
+import { taskParentIndexReadyOrThrow } from "./pg-task-parent-index.ts";
 import type { TaskProjectionQueries, TaskLifecycleSnapshot, TaskIndexProjectionRow } from "@harness-anything/kernel";
 import type { PoolClient } from "pg";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
@@ -84,7 +84,7 @@ export function pgTaskIndexQueries(
     readTaskChildCounts: (ids) =>
       read(async (client) => {
         if (ids.length === 0) return {};
-        await assertPgTaskParentIndexReady(client, scope);
+        await taskParentIndexReadyOrThrow(client, scope);
         const result = await client.query<{ parent_id: string; count: string }>(
           `SELECT parent_task_id AS parent_id,count(*)::text FROM ha_task_snapshots
          WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND (cardinality($4::text[])=0 OR readers && $4::text[])
@@ -96,7 +96,7 @@ export function pgTaskIndexQueries(
       }),
     readTaskIndex: (query = {}) =>
       read(async (client) => {
-        await assertPgTaskParentIndexReady(client, scope);
+        await taskParentIndexReadyOrThrow(client, scope);
         const cut = await readCutInTransaction(client, scope, readers, options.repoId),
           values: unknown[] = [...parameters],
           where = [
@@ -189,8 +189,8 @@ export function pgTaskIndexQueries(
           where.push(`task_id>$${values.length}`);
         }
         const paged = query.limit !== undefined || query.cursor !== undefined,
-          limit = paged ? checkedPageLimit(query.limit ?? 100) : null;
-        if (limit !== null) values.push(limit + 1);
+          pageSize = paged ? checkedPageLimit(query.limit ?? 100) : null;
+        if (pageSize !== null) values.push(pageSize + 1);
         const result = await client.query<{
           task_id: string;
           task_title: string | null;
@@ -211,24 +211,22 @@ export function pgTaskIndexQueries(
              task_urgency,task_class,task_superseded_by,task_package_disposition,package_path,updated_at::text,
              ${presentation} AS presentation_status FROM ha_task_snapshots
              WHERE ${where.join(" AND ")} ORDER BY task_id
-             ${limit === null ? "" : `LIMIT $${values.length}`}`,
+             ${pageSize === null ? "" : `LIMIT $${values.length}`}`,
           values,
         );
-        const visible = limit === null ? result.rows : result.rows.slice(0, limit),
+        const visible = pageSize === null ? result.rows : result.rows.slice(0, pageSize),
           rows = visible.flatMap((row) => indexRow(row));
         return {
           ...cut,
           schema: "task-index-projection/v1" as const,
           page:
-            limit === null
+            pageSize === null
               ? null
               : {
-                  limit,
+                  limit: pageSize!,
                   cursor: query.cursor ?? null,
                   nextCursor:
-                    result.rows.slice(limit).length > 0 && rows.at(-1)
-                      ? encodeTaskIndexCursor([rows.at(-1)!.taskId])
-                      : null,
+                    result.rows.length > pageSize! && rows.at(-1) ? encodeTaskIndexCursor([rows.at(-1)!.taskId]) : null,
                 },
           warnings: [],
           rows,
