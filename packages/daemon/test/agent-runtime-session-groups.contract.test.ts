@@ -303,6 +303,45 @@ test("stopped session semantics pass overview contracts while unknown words rema
   );
 });
 
+test("runtime overview accepts an instance whose account model catalog has not been probed", () => {
+  const instance = {
+    schemaVersion: 2,
+    instanceId: "agy-unprobed",
+    name: "AGY unprobed",
+    kindId: "agy",
+    installationId: "agy-installation",
+    providerId: "google",
+    models: ["gemini-4-hydrogen-low"],
+    defaultModel: "gemini-4-hydrogen-low",
+    enabled: true,
+    credentialSource: "instance",
+    permissionMode: "bypass",
+    configuration: {},
+    authMode: "subscription",
+    authState: "unknown",
+    authReadiness: {
+      status: "not-ready",
+      code: "runtime_auth_not_checked",
+      hint: "Authentication has not been verified in this daemon generation.",
+    },
+    isolationState: "enforced",
+  };
+  const overview = {
+    ok: true,
+    status: "ready",
+    installations: [],
+    instances: [instance],
+    sessions: [],
+    watermark: 0,
+    sourceRevision: 0,
+  } as const;
+  assert.deepEqual(validateAgentRuntimeOverview(overview), []);
+  assert.notDeepEqual(
+    validateAgentRuntimeOverview({ ...overview, instances: [{ ...instance, availableModels: [] }] }),
+    [],
+  );
+});
+
 test("session groups preserve stopped runtime session status in the projection contract", () => {
   const stopped = runtimeSession(
       "runtime-stopped-group",

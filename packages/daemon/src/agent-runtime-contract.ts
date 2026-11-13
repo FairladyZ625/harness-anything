@@ -486,7 +486,7 @@ function validInstance(value: unknown): value is AgentRuntimeInstanceDto {
         "authReadiness",
         "isolationState",
       ],
-      ["hostingCredentialState", "mcpPolicy"],
+      ["availableModels", "hostingCredentialState", "mcpPolicy"],
     ) &&
     value.schemaVersion === 2 &&
     Array.isArray(value.models) &&

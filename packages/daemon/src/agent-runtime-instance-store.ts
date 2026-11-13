@@ -503,41 +503,43 @@ export function openRuntimeInstanceStore(input: {
           recursive: true,
           mode: 0o700,
         });
-      return rememberAuthReadiness(
-        config.instanceId,
-        await (async () => {
-          const result = await probeSubscription(
-            installation,
+      const result = await (async () => {
+        const result = await probeSubscription(
+          installation,
+          env,
+          config.isolationState,
+          codexProbe,
+          config,
+          witnessed,
+          true,
+        );
+        if (result.readiness.status !== "ready") {
+          currentAccountForCut(cut);
+          return result;
+        }
+        if (result.availableModels?.length) persistAvailableModels(config, result.availableModels, cut);
+        if (probeTarget && !input.subscriptionReady) {
+          const resetAt = await accountProbe.probeAgyQuota({
+            executablePath: probeTarget.installation.executablePath,
             env,
-            config.isolationState,
-            codexProbe,
-            config,
-            witnessed,
-            true,
-          );
-          if (result.readiness.status !== "ready") {
-            currentAccountForCut(cut);
-            return result.readiness;
-          }
-          if (result.availableModels?.length) persistAvailableModels(config, result.availableModels, cut);
-          if (probeTarget && !input.subscriptionReady) {
-            const resetAt = await accountProbe.probeAgyQuota({
-              executablePath: probeTarget.installation.executablePath,
-              env,
+          });
+          currentAccountForCut(cut);
+          if (resetAt)
+            providerHealth.recordFailure({
+              instanceId: config.instanceId,
+              reason: "quota_exhausted",
+              occurredAt: nowIso(),
+              resetAt,
             });
-            currentAccountForCut(cut);
-            if (resetAt)
-              providerHealth.recordFailure({
-                instanceId: config.instanceId,
-                reason: "quota_exhausted",
-                occurredAt: nowIso(),
-                resetAt,
-              });
-            else providerHealth.recordSuccess(config.instanceId, probeStartedAt);
-          }
-          return result.readiness;
-        })(),
-      );
+          else providerHealth.recordSuccess(config.instanceId, probeStartedAt);
+        }
+        return result;
+      })();
+      // The final readiness publication is also an account effect. Revalidate after every
+      // asynchronous provider operation so a concurrent update/delete cannot leave the old
+      // account's readiness attached to a replacement instance with the same id.
+      const current = currentAccountForCut(cut);
+      return rememberAuthReadiness(current.instanceId, result.readiness);
     }
     try {
       const secret = await resolveCredential(config.auth.credentialRef);
