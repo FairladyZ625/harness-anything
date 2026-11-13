@@ -15,6 +15,7 @@ import { isMainThread, parentPort, Worker, workerData } from "node:worker_thread
 import ts from "typescript";
 import { authorizationPolicyGraph, buildFlowGraph, isFunctionNode } from "./authorization-flow-graph.mjs";
 import { makeAuthorizationTracer } from "./authorization-flow-trace.mjs";
+import { withArtifactActionIngressDeclarations } from "./ontology-gate-lib.mjs";
 import {
   sourceFileOf,
   sourceSite,
@@ -46,19 +47,27 @@ const sessionAnchors = [
 /** The protocol authorities the trace reads: descriptors, the method table and kernel constants. */
 export async function loadAuthorizationInputs(rootDir) {
   const load = (file) => import(pathToFileURL(path.join(rootDir, file)).href);
-  const [contract, commands, kernel] = await Promise.all([
+  const actionDeclarationRelPath = "packages/kernel/src/domain/action-declaration.ts";
+  const [contract, commands, kernel, domainDeclarations] = await Promise.all([
     load("packages/daemon/src/protocol/daemon-protocol.contract.ts"),
     load("packages/daemon/src/protocol/daemon-protocol-commands.ts"),
     load("packages/kernel/src/index.ts"),
+    fs.existsSync(path.join(rootDir, actionDeclarationRelPath)) ? load(actionDeclarationRelPath) : null,
   ]);
   const constants = {},
     functions = {};
   for (const [name, value] of Object.entries(kernel))
     (typeof value === "function" ? functions : constants)[name] = value;
+  const actionDeclarations = withArtifactActionIngressDeclarations(
+    rootDir,
+    kernel.actionDeclarations ?? [],
+    domainDeclarations?.artifactActionIngressKinds ?? kernel.artifactActionIngressKinds ?? [],
+  );
+  constants.actionDeclarations = actionDeclarations;
   const descriptors = [...contract.daemonProtocolCommands, ...contract.daemonGuiActionMethods].map((row) => ({
     ...row,
   }));
-  for (const action of kernel.actionDeclarations) {
+  for (const action of actionDeclarations) {
     if (action.ontology?.authority || action.executionClass === "repo-read") continue;
     for (const source of action.ontology?.sources ?? []) {
       const descriptor = descriptors.find((row) => row.id === source.route);

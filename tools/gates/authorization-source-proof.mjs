@@ -62,8 +62,20 @@ function declaredPortKey(graph, node) {
 }
 
 const NON_CLIENT_COMMANDS = new Set(["git", "npm", "npx", "gh", "taskkill", "cat"]);
+const OFFLINE_READ_CLI_DESCRIPTORS = Object.freeze([
+  { id: "events-tail", path: ["events", "tail"], commandClass: "repo-read" },
+]);
 function isHelpOrVersionFlag(token) {
   return token === "--help" || token === "-h" || token === "--version" || token === "-V" || token === "-v";
+}
+function isCliCapabilitiesMeta(remaining) {
+  return (
+    remaining.length >= 1 &&
+    remaining.length <= 2 &&
+    ts.isStringLiteralLike(remaining[0]) &&
+    remaining[0].text === "capabilities" &&
+    (remaining.length === 1 || (ts.isStringLiteralLike(remaining[1]) && remaining[1].text === "--json"))
+  );
 }
 const fleetSchemaKindsCache = new WeakMap();
 const wrapperSignalsCache = new WeakMap();
@@ -81,7 +93,7 @@ function leadingFlagAdvance(token, descriptors) {
 
 function matchCliDescriptor(tokens, descriptors) {
   let best = null;
-  for (const descriptor of descriptors) {
+  for (const descriptor of [...descriptors, ...OFFLINE_READ_CLI_DESCRIPTORS]) {
     const cmdPath = descriptor.path;
     if (!Array.isArray(cmdPath) || cmdPath.length === 0 || tokens.length < cmdPath.length) continue;
     if (!cmdPath.every((segment, idx) => tokens[idx] === segment)) continue;
@@ -362,6 +374,15 @@ function extractArrayTokenSequences(graph, arrayExpr, descriptors, seen) {
     index = 1;
   }
   const remaining = elements.slice(index).map(unwrap);
+  if (isCliCapabilitiesMeta(remaining)) {
+    helpOnly = true;
+    return {
+      tokensList: [remaining.map((node) => node.text)],
+      targetsCliEntry,
+      helpOnly,
+      unresolved: false,
+    };
+  }
   if (
     remaining.length > 0 &&
     remaining.length <= 2 &&
@@ -550,32 +571,6 @@ function walkWrapperCommandSignals(graph, declaration, fleetSchemas, descriptors
   return result;
 }
 
-function matrixRowActionKind(row, descriptors) {
-  const tuple = unwrap(row);
-  if (!ts.isArrayLiteralExpression(tuple) || tuple.elements.length < 2) return null;
-  const metricExpr = unwrap(tuple.elements[0]);
-  const builderExpr = unwrap(tuple.elements[1]);
-  if (!metricExpr || !ts.isStringLiteralLike(metricExpr) || !isFunctionNode(builderExpr)) return null;
-  const d = findDescriptorForKind(metricExpr.text.split("~", 1)[0], descriptors);
-  return d ? (d.actionKind ?? d.id) : null;
-}
-
-function matrixLoopActionKinds(graph, node, descriptors) {
-  if (descriptors.length === 0) return new Set();
-  for (let current = node.parent; current && !ts.isSourceFile(current); current = current.parent) {
-    if (!ts.isForOfStatement(current)) continue;
-    const rows = arrayElementsFromExpression(graph, current.expression);
-    if (!rows || rows.length < 2) continue;
-    const kinds = new Set();
-    for (const row of rows) {
-      const kind = matrixRowActionKind(row, descriptors);
-      if (kind) kinds.add(kind);
-    }
-    if (kinds.size >= 2) return kinds;
-  }
-  return new Set();
-}
-
 function clientPortReachesCliEntry(graph, declaration, seen = new Set()) {
   if (!declaration || seen.has(declaration)) return false;
   seen.add(declaration);
@@ -600,7 +595,7 @@ function clientPortReachesCliEntry(graph, declaration, seen = new Set()) {
 
 /** Resolve all business CLI/RPC descriptors bound directly or indirectly by a callsite. */
 export function resolvedCommandBindings(graph, node, descriptors = []) {
-  const empty = { descriptors: [], targetsCliEntry: false, helpOnly: false, matrixTable: false };
+  const empty = { descriptors: [], targetsCliEntry: false, helpOnly: false };
   if (!ts.isCallExpression(node)) return empty;
   const firstArg = unwrap(node.arguments[0]);
   if (firstArg && ts.isStringLiteralLike(firstArg) && NON_CLIENT_COMMANDS.has(firstArg.text)) return empty;
@@ -639,8 +634,7 @@ export function resolvedCommandBindings(graph, node, descriptors = []) {
   }
 
   const finalHelpOnly = sawAnyArgs && allHelpOnly && byId.size === 0;
-  const matrixTable = byId.size === 0 && !finalHelpOnly && matrixLoopActionKinds(graph, node, descriptors).size >= 2;
-  return { descriptors: [...byId.values()], targetsCliEntry, helpOnly: finalHelpOnly, matrixTable };
+  return { descriptors: [...byId.values()], targetsCliEntry, helpOnly: finalHelpOnly };
 }
 
 /** Extracts the concrete protocol/CLI descriptor invoked at a call site, or null for generic/dynamic runners. */
@@ -730,7 +724,7 @@ export function technicalPortEvidence(graph, node, source, action, descriptors =
   if (rootToolingSource(graph, node)) {
     const resolved = resolvedCommandBindings(graph, node, descriptors);
     if (resolved.descriptors.length > 0 && !resolved.helpOnly) return null;
-    if (resolved.targetsCliEntry && !resolved.helpOnly && !resolved.matrixTable) return null;
+    if (resolved.targetsCliEntry && !resolved.helpOnly) return null;
   }
   return [
     `typed technical port ${source.port}; ${action.ontology.owner} owns the implementation, not remote authorization`,

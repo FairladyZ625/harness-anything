@@ -634,7 +634,7 @@ partitionedTest(
     const clientKinds = ["task-create", "task-start", "runtime-run", "agent-install"];
     const clientAudit = auditDurableActionAuthorization(repoRoot, inputs, { only: clientKinds });
     const clientRows = clientAudit.sourceRows.filter((row) => row.id.startsWith("action:tools:"));
-    assert.equal(clientRows.length, 12);
+    assert.equal(clientRows.length, 15);
     assert.deepEqual(
       clientRows.filter((row) => !row.ok),
       [],
@@ -704,6 +704,42 @@ partitionedTest(
         violations,
       })),
       [{ ok: false, violations: ["root tooling source needs a typed technical port or intrinsic support"] }],
+    );
+
+    const benchEntityImport = inputs.constants.actionDeclarations
+      .find((action) => action.kind === "entity-import")
+      ?.ontology.sources.find(
+        (source) =>
+          source.role === "client" &&
+          source.candidateId.includes("tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:"),
+      );
+    assert.ok(benchEntityImport);
+    const benchRead = inputs.constants.actionDeclarations
+      .find((action) => action.kind === "repository-read")
+      ?.ontology.sources.find(
+        (source) =>
+          source.role === "client" &&
+          source.candidateId.includes("tools/scale/cli-entity-bench.mjs#main.invokeReadBenchCommand.runRead:"),
+      );
+    assert.ok(benchRead);
+    assert.deepEqual(
+      auditDurableActionAuthorization(repoRoot, inputs, {
+        only: ["entity-import", "task-create", "ledger-backup", "repository-read"],
+      }).sourceRows.filter((row) => !row.ok),
+      [],
+    );
+    assert.deepEqual(
+      audit([{ ...benchEntityImport, role: "technical-port", route: build.kind }], build).map(({ ok, violations }) => ({
+        ok,
+        violations,
+      })),
+      [{ ok: false, violations: ["root tooling source needs a typed technical port or intrinsic support"] }],
+    );
+    assert.equal(
+      build.ontology.sources.some((source) =>
+        source.candidateId.includes("tools/scale/cli-entity-bench.mjs#main.receipt:"),
+      ),
+      false,
     );
   },
 );

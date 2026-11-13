@@ -486,3 +486,95 @@ test("fleet schema RPC writes and indirect/computed CLI wrappers bind business a
     null,
   );
 });
+
+test("command-table wrapper loops cannot stay in package-assets-build while split operations resolve cleanly", async () => {
+  const { clientEntryEvidence, resolvedCommandBindings, technicalPortEvidence } = await import(
+    "../authorization-source-proof.mjs"
+  );
+  const tool = "tools/bench-table-demo.mjs";
+  const toolBody = [
+    '/// <reference types="node" />',
+    'import { execFileSync } from "node:child_process";',
+    "function invoke(metric, argv) {",
+    '  return execFileSync("node", ["packages/cli/src/index.ts", ...argv], { encoding: "utf8" });',
+    "}",
+    "const commandTable = [",
+    '  ["task-create", (c) => ["task", "create", "--title", c.title]],',
+    '  ["entity-import~adr", (c) => ["entity", "import", "--kind", "adr", "--locator", c.loc]],',
+    "];",
+    "export function runLoop(c, argv) {",
+    "  for (const [metric, build] of commandTable) {",
+    "    invoke(metric, build(c));",
+    "  }",
+    '  invoke("capabilities", ["capabilities"]);',
+    '  invoke("events-tail", ["events", "tail"]);',
+    '  invoke("entity-import", ["entity", "import", ...argv.slice(2)]);',
+    "}",
+  ].join("\n");
+  const { rootDir } = makeRepo({ [tool]: toolBody });
+  symlinkSync(realpathSync(path.join(repoRoot, "node_modules")), path.join(rootDir, "node_modules"), "dir");
+  const graph = buildFlowGraph(rootDir, { sourceFiles: [tool] });
+  const sources = scanOntologyText(tool, toolBody)
+    .filter((row) => row.category === "action")
+    .map((row) => ({ candidateId: row.id }));
+  const nodes = [...sourceWitnesses(graph, sources).values()];
+  const loopNode = nodes.find((node) => node.getText().includes("invoke(metric, build(c))"));
+  const capNode = nodes.find((node) => node.getText().includes('invoke("capabilities"'));
+  const tailNode = nodes.find((node) => node.getText().includes('invoke("events-tail"'));
+  const importNode = nodes.find((node) => node.getText().includes('invoke("entity-import"'));
+  assert.ok(loopNode && capNode && tailNode && importNode);
+
+  const descriptors = [
+    { id: "task-create", path: ["task", "create"] },
+    { id: "entity-import", path: ["entity", "import"], commandClass: "repo-write" },
+  ];
+  const buildAction = {
+    kind: "package-assets-build",
+    ontology: { owner: "distribution", technical: true, authority: "package-script" },
+    receiptSettlement: "none",
+  };
+  const importAction = { kind: "entity-import", executionClass: "repo-write", ontology: {} };
+  const readAction = { kind: "repository-read", executionClass: "repo-read", ontology: {} };
+  const invokePort = `${tool}#invoke`;
+
+  const loopBinding = resolvedCommandBindings(graph, loopNode, descriptors);
+  assert.equal(Object.hasOwn(loopBinding, "matrixTable"), false);
+  assert.deepEqual(loopBinding, { descriptors: [], targetsCliEntry: true, helpOnly: false });
+  assert.equal(
+    technicalPortEvidence(
+      graph,
+      loopNode,
+      { role: "technical-port", route: "package-assets-build", port: invokePort },
+      buildAction,
+      descriptors,
+    ),
+    null,
+  );
+  assert.ok(
+    technicalPortEvidence(
+      graph,
+      capNode,
+      { role: "technical-port", route: "package-assets-build", port: invokePort },
+      buildAction,
+      descriptors,
+    ),
+  );
+  assert.ok(
+    clientEntryEvidence(
+      graph,
+      tailNode,
+      { role: "client", route: "events-tail", port: invokePort },
+      readAction,
+      descriptors,
+    ),
+  );
+  assert.ok(
+    clientEntryEvidence(
+      graph,
+      importNode,
+      { role: "client", route: "entity-import", port: invokePort },
+      importAction,
+      descriptors,
+    ),
+  );
+});

@@ -123,6 +123,12 @@
         "route": "task-submit",
         "role": "client",
         "port": "tools/smoke-cli-package.mjs#run"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:ab5f4d17780b060adfa70a2c33dd389c",
+        "route": "task-submit",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       }
     ]
   },
@@ -164,6 +170,12 @@
         "route": "agent-install",
         "role": "client",
         "port": "packages/daemon/src/daemon-host-types.ts#DaemonHost.run"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:aae1206508d25e53509b286dc3c3567d",
+        "route": "agent-install",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       }
     ]
   },
@@ -191,6 +203,12 @@
         "route": "task-artifact-add",
         "role": "client",
         "port": "tools/e2e-probe-support.mjs#runCliJson"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:517aa2f5dd5e4b0b54e0664dd466629a",
+        "route": "task-artifact-add",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       }
     ]
   },
@@ -970,6 +988,12 @@
         "route": "task-list",
         "role": "client",
         "port": "tools/smoke-cli-package.mjs#run"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeReadBenchCommand.runRead:06b7dd18fda34ee0a9ae04c8000069df",
+        "route": "repository-read",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       }
     ],
     "concurrency": {
@@ -1718,6 +1742,12 @@
         "route": "doc-sync-submit",
         "role": "client",
         "port": "tools/stress/fleet/upload-boundary.mjs#write"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:8a337dd9bc156cab40fe6d111e787dd4",
+        "route": "doc-sync-submit",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       }
     ]
   },
@@ -1821,6 +1851,12 @@
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/relation-event.ts#relationAdmissionError:c7276d09bcd9207af88027c3719f181d",
         "route": "relation-relate",
         "role": "support"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:bc1eab28a03dabfc241aeb00af18e45c",
+        "route": "relation-relate",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       }
     ]
   },
@@ -1836,6 +1872,12 @@
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/schedule-action-contract.ts#rejectCriterion:5e760bf72f2e4e84a5d8c4f6eddc5d65",
         "route": "schedule-create",
         "role": "support"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:87cf30b7843a1ad1dddc43f1f124af70",
+        "route": "schedule-create",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       }
     ]
   },
@@ -1866,6 +1908,12 @@
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/task-action-state-transition.ts#stateTransition:91ca8ff68c6c1c8082f07ccc43684d9b",
         "route": "task-transition",
         "role": "support"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:5637d761228f164c5065617e8138682e",
+        "route": "task-transition",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       }
     ]
   },
@@ -1876,6 +1924,12 @@
         "candidateId": "action:packages/kernel:packages/kernel/src/local/local-layout-file-system.ts#localLedgerBackupFileSystem.remove:7dc766d5b1c412a2c5c94b5b2a7fcefa",
         "route": "ledger-backup",
         "role": "effect"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:ba0bb8131ad86b9d0cc41730c975440a",
+        "route": "ledger-backup",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       }
     ],
     "concurrency": {
@@ -1918,6 +1972,12 @@
         "candidateId": "action:packages/preset:packages/preset/src/scaffold-overlay.ts#scaffoldFailure:5e760bf72f2e4e84a5d8c4f6eddc5d65",
         "route": "preset-seed",
         "role": "support"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:d40ee674065b65cb7e597c993896f112",
+        "route": "preset-seed",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       }
     ],
     "concurrency": {
@@ -1965,6 +2025,12 @@
         "candidateId": "action:packages/preset:packages/preset/src/preset-system.ts#presetActionError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
         "route": "preset-install",
         "role": "support"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:d813596bc213a847cddf3b47b3fef449",
+        "route": "preset-install",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       }
     ],
     "concurrency": {
@@ -1997,6 +2063,12 @@
         "candidateId": "action:packages/preset:packages/preset/src/preset-installation.ts#uninstallPresetPackage:f95f2bef64349fd3229689ec2ae67260",
         "route": "preset-uninstall",
         "role": "effect"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:d3520a317ed06946e57a1d739c5d0517",
+        "route": "preset-uninstall",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       }
     ],
     "concurrency": {
@@ -3940,12 +4012,6 @@
         "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
       },
       {
-        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.receipt:67eae70c5d166a25924a07eb75364061",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
         "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main:4df25a4154e738ba2fe388f85f8ece2e",
         "route": "package-assets-build",
         "role": "technical-port",
@@ -4777,6 +4843,24 @@
         "route": "package-assets-build",
         "role": "technical-port",
         "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:a9fe792adda3e8db3775758f42ed3ee0",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:4a330738645388191b6f1abd0fc67a12",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:0d306349dbe25475668892a2bf306b07",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       }
     ],
     "technical": true
@@ -9053,6 +9137,12 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/doc-sync-materialize-action.ts#runDocMaterialize:7c03e74857c479aa3e6a14e60dc37d6e",
         "route": "doc-materialize",
         "role": "effect"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:e8af67f5bf458eca21045d483c6f1a84",
+        "route": "doc-materialize",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       }
     ],
     "concurrency": {
@@ -9189,6 +9279,12 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-action-dispatch.ts#declareExecutionExecutor.declaration.eventId:a29f1d8dc5945125c2c24bf5941ea324",
         "route": "task-declare-executor",
         "role": "support"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:b3cd49cc112df87c5afa8e478924f224",
+        "route": "task-declare-executor",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       }
     ]
   },
@@ -9256,6 +9352,12 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-packets.ts#packetDigest:98350a69023f5557ad3864aab246cd81",
         "route": "task-review-execution",
         "role": "support"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:c552f33df8b71881cfa57012515e7adf",
+        "route": "task-review-execution",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       }
     ]
   },
@@ -9271,6 +9373,12 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-settings-state.ts#makeRepoCellSettingsState.initialize.digest:411148ad2d2fb4f023b190dd56d5f02d",
         "route": "settings-update",
         "role": "support"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:e114a5215ac2023c03ab2a03c695abe4",
+        "route": "settings-update",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       }
     ]
   },
@@ -9333,6 +9441,12 @@
         "route": "task-create",
         "role": "client",
         "port": "tools/stress/daemon/registry-runtime-scenarios.mjs#invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:8d9da53c13f1bcbfa40f69d5721c18cd",
+        "route": "task-create",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       }
     ]
   },
@@ -9348,6 +9462,12 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-task-maintenance.ts#migrateTaskPreset.compiled.eventId:a29f1d8dc5945125c2c24bf5941ea324",
         "route": "preset-upgrade",
         "role": "support"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:e120cb72493c5168225fde028e5d4778",
+        "route": "preset-upgrade",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       }
     ]
   },
@@ -9358,6 +9478,12 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-task-maintenance.ts#upsertEntity.compiled.eventId:e38a030d75845133725d797cc736efe2",
         "route": "task-amend",
         "role": "support"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:b507a5cce0442142b87f7663ca58e6e1",
+        "route": "task-amend",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       }
     ]
   },
@@ -9368,6 +9494,12 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-task-progress.ts#appendProgress.compiled.eventId:a29f1d8dc5945125c2c24bf5941ea324",
         "route": "task-progress-append",
         "role": "support"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:7735c983767fc655faece8db003a5da5",
+        "route": "task-progress-append",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       }
     ]
   },
@@ -9390,6 +9522,12 @@
         "route": "task-start",
         "role": "client",
         "port": "tools/smoke-cli-package.mjs#run"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:f2c78e6a198973a255e3df7e90284e31",
+        "route": "task-start",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       }
     ],
     "owner": "task"
@@ -9504,6 +9642,595 @@
         "route": "fact-record",
         "role": "client",
         "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:b2974dec33e1453cb09d550ad456fade",
+        "route": "fact-record",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "entity-pin": {
+    "owner": "entity",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:f0c1767f321fffa510ccc11901dd5739",
+        "route": "task-pin",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "entity-unpin": {
+    "owner": "entity",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:4b37d14eeb0ff919c1551cac2e58251d",
+        "route": "task-unpin",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "task-review-consent": {
+    "owner": "task",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:94c49ac951f47c04272ff02b1b5712f3",
+        "route": "task-review-consent",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "task-complete": {
+    "owner": "task",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:5a9a49a8c9b328fc830591e2aa1dc597",
+        "route": "task-complete",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "task-release": {
+    "owner": "task",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:72e08bde94bc5234af09233eea312242",
+        "route": "task-release",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "task-archive": {
+    "owner": "task",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:00fef3a441186bb6567a8b538f79bcf6",
+        "route": "task-archive",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "task-reopen": {
+    "owner": "task",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:9b707ba006ba78dbed07e5ba25345f0e",
+        "route": "task-reopen",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "task-supersede": {
+    "owner": "task",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:3bde91843b1bf991877cba39cdd66db8",
+        "route": "task-supersede",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "task-delete": {
+    "owner": "task",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:5191629efda20fd86f16bb97df658808",
+        "route": "task-delete",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "task-contract-migrate": {
+    "owner": "task",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:893220db289410a070b15bd0e0cfb979",
+        "route": "task-contract-migrate",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "fact-type-register": {
+    "owner": "fact",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:ae62b017d4a569bbb51db752670aabfb",
+        "route": "fact-type-register",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "fact-reclassify": {
+    "owner": "fact",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:4b19ea0700d31f56c1da7312100b525f",
+        "route": "fact-reclassify",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "distill-candidate": {
+    "owner": "distill",
+    "execution": {
+      "ingress": "distill-candidate",
+      "read": false
+    },
+    "concurrency": {
+      "expectedVersion": {
+        "authority": "not-applicable"
+      },
+      "leasePolicy": {
+        "authority": "daemon-host"
+      },
+      "occurrenceClaim": {
+        "authority": "not-applicable"
+      },
+      "idempotency": {
+        "authority": "caller-owned"
+      },
+      "artifactOwnership": {
+        "owner": "host-local",
+        "refTemplate": "daemon-host"
+      }
+    },
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:3b61d30afbba351d03238aa35cead0a7",
+        "route": "distill-candidate",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "distill-promote": {
+    "owner": "fact",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:8c492f39daf82f04135ee9c96c2222f5",
+        "route": "distill-promote",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "decision-propose": {
+    "owner": "decision",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:853f1ccd3dd438d785c17c78c0fe327e",
+        "route": "decision-propose",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "decision-amend": {
+    "owner": "decision",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:082440e4d36dbf27178513e46e48dee3",
+        "route": "decision-amend",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "decision-claim-add": {
+    "owner": "decision",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:b781fded774cdeed81918ea24d4c46e2",
+        "route": "decision-claim-add",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "decision-reckon": {
+    "owner": "decision",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:6dbe9728c60d4a06303d3dacfdda8c6c",
+        "route": "decision-reckon",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "decision-accept": {
+    "owner": "decision",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:3528424ae45d4349697f2ab79a199087",
+        "route": "decision-accept",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "decision-claim-fulfill": {
+    "owner": "decision",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:4c6352b7cbbcf9bc1bbd68718946ca92",
+        "route": "decision-claim-fulfill",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "decision-transition": {
+    "owner": "decision",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:1511225cd79c6aa35b8869ec2c04fb5a",
+        "route": "decision-transition",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "decision-defer": {
+    "owner": "decision",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:c6826ba63d0746cc94de6844c439eb6f",
+        "route": "decision-defer",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "decision-reject": {
+    "owner": "decision",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:03355dd92aef9c0d8bcf6dc1dde04a8b",
+        "route": "decision-reject",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "decision-retire": {
+    "owner": "decision",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:1e483623af814ae3d749ac02d215e355",
+        "route": "decision-retire",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "decision-repin": {
+    "owner": "decision",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:00ea49bd866cda5c6d1ccb115516fbe9",
+        "route": "decision-repin",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "relation-reconfirm": {
+    "owner": "relation",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:a99611a7789beb34c3d46f377c191adf",
+        "route": "relation-reconfirm",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "relation-unrelate": {
+    "owner": "relation",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:f9a36be1a755c8c85390a6a6da8b0bf6",
+        "route": "relation-unrelate",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "entity-import": {
+    "owner": "entity",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:498cd02a2642723392324b53762c825d",
+        "route": "entity-import",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "entity-update": {
+    "owner": "entity",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:811f3eba91db9ce94f1f5542d1b6d693",
+        "route": "entity-update",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "entity-archive": {
+    "owner": "entity",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:3f35df3242e71e0976d420118be35bb8",
+        "route": "entity-archive",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "entity-delete": {
+    "owner": "entity",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:b3a6295aaae1b6ec9d1dc0c04fe263ff",
+        "route": "entity-delete",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "squad-install": {
+    "owner": "squad",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:3a009ac121a64a9e22cc4af6d51b548e",
+        "route": "squad-install",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "runtime-instance-create": {
+    "owner": "runtime-instance",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:709e82ddf0901a01ae20520c90dd2811",
+        "route": "runtime-instance-create",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "runtime-instance-list": {
+    "owner": "runtime-instance",
+    "execution": {
+      "ingress": "runtime-instance-list",
+      "read": false
+    },
+    "concurrency": {
+      "expectedVersion": {
+        "authority": "not-applicable"
+      },
+      "leasePolicy": {
+        "authority": "runtime-host"
+      },
+      "occurrenceClaim": {
+        "authority": "not-applicable"
+      },
+      "idempotency": {
+        "authority": "caller-owned"
+      },
+      "artifactOwnership": {
+        "owner": "runtime-local",
+        "refTemplate": "runtime-host"
+      }
+    },
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:0bf82ef094d2f5eb84edc77fa2bc1b1c",
+        "route": "runtime-instance-list",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "runtime-instance-show": {
+    "owner": "runtime-instance",
+    "execution": {
+      "ingress": "runtime-instance-show",
+      "read": false
+    },
+    "concurrency": {
+      "expectedVersion": {
+        "authority": "not-applicable"
+      },
+      "leasePolicy": {
+        "authority": "runtime-host"
+      },
+      "occurrenceClaim": {
+        "authority": "not-applicable"
+      },
+      "idempotency": {
+        "authority": "caller-owned"
+      },
+      "artifactOwnership": {
+        "owner": "runtime-local",
+        "refTemplate": "runtime-host"
+      }
+    },
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:6d3edd1f0133ec064123925d23b79d1e",
+        "route": "runtime-instance-show",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "runtime-instance-update": {
+    "owner": "runtime-instance",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:5760456c8a5823b0205c52adfb0064db",
+        "route": "runtime-instance-update",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "schedule-update": {
+    "owner": "schedule",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:7275c5c5a898eaa57999dd1c0981daa8",
+        "route": "schedule-update",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "schedule-disable": {
+    "owner": "schedule",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:9d9db6541164dee948a790c8661d7adc",
+        "route": "schedule-disable",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "schedule-delete": {
+    "owner": "schedule",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:4f01ef5317719b611a0a97132fb761b2",
+        "route": "schedule-delete",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "runtime-instance-delete": {
+    "owner": "runtime-instance",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:bd9c5a88220ec838ba1ccd0c6907075d",
+        "route": "runtime-instance-delete",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "agent-delete": {
+    "owner": "agent",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:582723dbfa1790e55b25b532bf4cc843",
+        "route": "agent-delete",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "squad-delete": {
+    "owner": "squad",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:965dcb99ba16258fc12ca89f8a90a65d",
+        "route": "squad-delete",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "vertical-declaration-migrate": {
+    "owner": "vertical-declaration",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:abddfbe281e8d1c7364ef39b76f6ec43",
+        "route": "vertical-declaration-migrate",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "doc-retire": {
+    "owner": "document",
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:78904356f7068ba19700f3e8e8b12981",
+        "route": "doc-retire",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ]
+  },
+  "ledger-restore-drill": {
+    "owner": "ledger",
+    "execution": {
+      "ingress": "ledger-restore-drill",
+      "read": false
+    },
+    "concurrency": {
+      "expectedVersion": {
+        "authority": "not-applicable"
+      },
+      "leasePolicy": {
+        "authority": "daemon-host"
+      },
+      "occurrenceClaim": {
+        "authority": "not-applicable"
+      },
+      "idempotency": {
+        "authority": "caller-owned"
+      },
+      "artifactOwnership": {
+        "owner": "host-local",
+        "refTemplate": "daemon-host"
+      }
+    },
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:4c07bf1335dedd91b5ae29d29f81af0a",
+        "route": "ledger-restore-drill",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       }
     ]
   }
