@@ -118,8 +118,8 @@ probe(); const timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(r
       if (failSuccessor) assert.notEqual(injectedRuntime, hooked, "fixture must inject the successor failure");
       const deadlineRuntime = failDeadline
         ? injectedRuntime.replace(
-            "input.shutdownDeadlineMs ?? 30_000",
-            'buildObserver.status().loadedBuildId === "build-a" ? 100 : 30_000',
+            /input\.shutdownDeadlineMs \?\? [^;\r\n]+/,
+            (deadline) => `buildObserver.status().loadedBuildId === "build-a" ? 100 : (${deadline})`,
           )
         : injectedRuntime;
       if (failDeadline)
