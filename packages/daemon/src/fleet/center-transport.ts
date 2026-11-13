@@ -388,7 +388,7 @@ export async function serve(
                 inReplyTo: messageId,
                 code: "invalid_frame",
                 message: error instanceof Error ? error.message : String(error),
-                retryable: daemonProtocolFleetPolicy.defaultValue.fleet.replicaDuplicateRetryable,
+                retryable: daemonProtocolFleetPolicy.defaultValue.fleet.invalidFrameRetryable,
                 resumeOffset: null,
               }),
             ).catch((enqueueError) => consumeKnownError(enqueueError));

@@ -5378,7 +5378,7 @@
         "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-transport.ts#serve:d3b0e5f9274f918ca7679fc55645538f",
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-transport.ts#serve:30789ac0b7935268f5c854484200fa7c",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/fleet/center-transport.ts#serve.enqueue"
@@ -5396,7 +5396,7 @@
         "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-transport.ts#serve:92c2b5323416933b29b107e7ffe09e0d",
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-transport.ts#serve:3b52128f9a558831444963b8f328030e",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/fleet/center-transport.ts#serve.enqueue"

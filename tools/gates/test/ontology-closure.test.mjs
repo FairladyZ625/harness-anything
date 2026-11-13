@@ -216,7 +216,7 @@ test("daemon boundary registrations reject changed policies and undeclared actio
   assert.deepEqual(audit(scanOntologyText(daemonTarget, daemonSource), { snapshot }).findings, []);
   for (const [extra, expected] of [
     ["\nconst reconnectAttemptLimit = 6;", "ONTOLOGY_POLICY_UNDECLARED"],
-    ["\nsetTimeout(() => reconnect(), 123);", "ONTOLOGY_ACTION_UNDECLARED"],
+    ["\nunlinkSync('unregistered-neighbor');", "ONTOLOGY_ACTION_UNDECLARED"],
   ]) {
     assert.ok(
       audit(scanOntologyText(daemonTarget, daemonSource + extra), { snapshot }).findings.some(
