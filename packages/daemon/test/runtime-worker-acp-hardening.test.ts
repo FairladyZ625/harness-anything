@@ -859,7 +859,7 @@ test("acp worker stops after the declared continuation limit", async () => {
 });
 
 test("acp result usage normalizes cache-exclusive input while retaining provider provenance", async () => {
-  const { parent, capture, executablePath } = groupedFixture(
+  const { parent, executablePath } = groupedFixture(
     { usage: { inputTokens: 80, outputTokens: 20, totalTokens: 100, cachedReadTokens: 3, cachedWriteTokens: 2 } },
     { configOptions: [] },
   );
