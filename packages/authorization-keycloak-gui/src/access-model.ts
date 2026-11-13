@@ -3,6 +3,7 @@ import type {
   AccessReceipt,
   AccessRejection,
 } from "@harness-anything/authorization-gui/access-admin-contract";
+import { identityGuiRejectionPolicy } from "@harness-anything/kernel/internal/domain/gui-interaction-policy.ts";
 import type { MessageKey } from "./ui-host.js";
 import type { KeycloakUiHost } from "./ui-host.js";
 export type AccessScope =
@@ -50,10 +51,7 @@ export function createAccessModel(host: KeycloakUiHost) {
   const REJECTION_KEYS: Readonly<Record<string, MessageKey>> = {
     authentication_required: "accessControl.error.authenticationRequired",
     authorization_denied: "accessControl.error.authorizationDenied",
-    base_policy_group_read_only: "accessControl.error.baseReadOnly",
-    policy_group_exists: "accessControl.error.groupExists",
-    policy_group_unknown: "accessControl.error.groupUnknown",
-    policy_group_in_use: "accessControl.error.groupInUse",
+    ...identityGuiRejectionPolicy.defaultValue,
     version_conflict: "accessControl.error.versionConflict",
     access_person_unknown: "accessControl.error.personUnknown",
     access_resource_invalid: "accessControl.error.resourceInvalid",

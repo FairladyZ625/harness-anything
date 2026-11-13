@@ -74,3 +74,63 @@ export const guiInteractionPolicy = {
     "policy:packages/kernel:packages/kernel/src/domain/gui-interaction-policy.ts#guiInteractionPolicy.defaultValue.retry:f4bc68586c42d270647259214461f126",
   ].map((candidateId) => ({ candidateId, route: "guiInteractionPolicy" })),
 } as const satisfies OntologyPolicyDeclaration;
+
+export const identityGuiRejectionPolicy = {
+  id: "identity-gui-rejection-codes",
+  ownerRef: "host",
+  unit: "authorization rejection code to translation key",
+  bounds: "Keep the existing policy-group rejection codes mapped to their localized access-control messages.",
+  defaultValue: {
+    base_policy_group_read_only: "accessControl.error.baseReadOnly",
+    policy_group_exists: "accessControl.error.groupExists",
+    policy_group_unknown: "accessControl.error.groupUnknown",
+    policy_group_in_use: "accessControl.error.groupInUse",
+  },
+  version: 1,
+  scope: "Identity provider access-management GUI rejection presentation",
+  reason:
+    "Keep the GUI's existing rejection vocabulary and presentation mapping declared at the kernel policy boundary.",
+  fixtures: ["packages/gui/test/access-control.vitest.tsx"],
+  sources: [
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/gui-interaction-policy.ts#identityGuiRejectionPolicy.defaultValue.base_policy_group_read_only:98a37103a373fd5b52c36eb08d95c2ba",
+      route: "default-base-policy-group-read-only",
+    },
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/gui-interaction-policy.ts#identityGuiRejectionPolicy.defaultValue.policy_group_exists:cea53634fefb8e5866134be75cc92586",
+      route: "default-policy-group-exists",
+    },
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/gui-interaction-policy.ts#identityGuiRejectionPolicy.defaultValue.policy_group_unknown:0794a054e454c8b95f12e6d92e0de87d",
+      route: "default-policy-group-unknown",
+    },
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/gui-interaction-policy.ts#identityGuiRejectionPolicy.defaultValue.policy_group_in_use:e75fc34ea9acc4e438f402cf12a4677c",
+      route: "default-policy-group-in-use",
+    },
+    {
+      candidateId:
+        "policy:packages/authorization-keycloak-gui:packages/authorization-keycloak-gui/src/access-model.ts#createAccessModel.REJECTION_KEYS.base_policy_group_read_only:98a37103a373fd5b52c36eb08d95c2ba",
+      route: "base-policy-group-read-only",
+    },
+    {
+      candidateId:
+        "policy:packages/authorization-keycloak-gui:packages/authorization-keycloak-gui/src/access-model.ts#createAccessModel.REJECTION_KEYS.policy_group_exists:cea53634fefb8e5866134be75cc92586",
+      route: "policy-group-exists",
+    },
+    {
+      candidateId:
+        "policy:packages/authorization-keycloak-gui:packages/authorization-keycloak-gui/src/access-model.ts#createAccessModel.REJECTION_KEYS.policy_group_unknown:0794a054e454c8b95f12e6d92e0de87d",
+      route: "policy-group-unknown",
+    },
+    {
+      candidateId:
+        "policy:packages/authorization-keycloak-gui:packages/authorization-keycloak-gui/src/access-model.ts#createAccessModel.REJECTION_KEYS.policy_group_in_use:e75fc34ea9acc4e438f402cf12a4677c",
+      route: "policy-group-in-use",
+    },
+  ],
+} as const satisfies OntologyPolicyDeclaration;

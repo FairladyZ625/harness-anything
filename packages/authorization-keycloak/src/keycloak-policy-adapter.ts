@@ -2,6 +2,12 @@ import type * as AuthorizationReceipt from "@harness-anything/kernel/internal/do
 import { validatePolicyGroupScopes } from "@harness-anything/kernel/internal/domain/policy-groups.ts";
 import type * as AccessStatus from "@harness-anything/kernel/internal/domain/access-status.ts";
 import {
+  managedClientScopePolicy,
+  managedAuthorizationSettingsPolicy,
+  identityAdapterContractPolicy,
+  identityAdminNotFoundPolicy,
+} from "@harness-anything/kernel/internal/domain/managed-identity-policy.ts";
+import {
   issueRuntimeExecutionCredential,
   authenticateRuntimeExecutionCredential,
   readRuntimeExecutionPrincipal,
@@ -184,7 +190,7 @@ export class KeycloakPolicyAdapter
   writeSessionLifetime(token: string, seconds: number): Promise<void> {
     return writeSessionLifetime({ ...this.#config, accessToken: token }, seconds, this.#fetch);
   }
-  readonly policyRef = "keycloak-policy@1";
+  readonly policyRef = `keycloak-policy@${identityAdapterContractPolicy.defaultValue}`;
   readonly authority = "keycloak";
   readonly deniedReasonCode = "keycloak_denied";
   withFetchPort(fetchPort: FetchPort): KeycloakPolicyAdapter {
@@ -343,7 +349,7 @@ export class KeycloakPolicyAdapter
           standardFlowEnabled: true,
           directAccessGrantsEnabled: false,
           serviceAccountsEnabled: isNodeClient,
-          ...(isNodeClient ? { fullScopeAllowed: false } : {}),
+          ...(isNodeClient ? { fullScopeAllowed: managedClientScopePolicy.defaultValue.fullScopeAllowed } : {}),
           redirectUris: ["http://127.0.0.1/*"],
           attributes: {
             ...client.attributes,
@@ -545,7 +551,11 @@ export class KeycloakPolicyAdapter
       if (policy) await send(`/policy/user/${policy.id}`, "DELETE");
       return;
     }
-    const policyBody = { name: `${grantUsersPrefix}${suffix}`, logic: "POSITIVE", users: grant.userIds };
+    const policyBody = {
+      name: `${grantUsersPrefix}${suffix}`,
+      logic: managedAuthorizationSettingsPolicy.defaultValue.userPolicyLogic,
+      users: grant.userIds,
+    };
     let policyId = policy?.id;
     if (policyId) await send(`/policy/user/${policyId}`, "PUT", { ...policyBody, id: policyId });
     else policyId = requiredId(await (await send("/policy/user", "POST", policyBody)).json(), suffix);
@@ -568,7 +578,7 @@ export class KeycloakPolicyAdapter
       resources: [resourceId],
       scopes,
       policies: [policyId],
-      decisionStrategy: "AFFIRMATIVE",
+      decisionStrategy: managedAuthorizationSettingsPolicy.defaultValue.decisionStrategy,
     };
     if (permission) await send(`/permission/scope/${permission.id}`, "PUT", { ...permissionBody, id: permission.id });
     else await send("/permission/scope", "POST", permissionBody);
@@ -1075,7 +1085,12 @@ export class KeycloakPolicyAdapter
     return (await response.json()) as T;
   }
 
-  async #request(token: string, path: string, init: RequestInit = {}, allowNotFound = false): Promise<Response> {
+  async #request(
+    token: string,
+    path: string,
+    init: RequestInit = {},
+    allowNotFound: boolean = identityAdminNotFoundPolicy.defaultValue.allowNotFoundByDefault,
+  ): Promise<Response> {
     const send = (accessToken: string) =>
       this.#fetch(this.#adminUrl(path), {
         ...init,
@@ -1091,7 +1106,10 @@ export class KeycloakPolicyAdapter
       this.#refreshedAdminAccessToken = await this.#refreshAdminAccessToken(token);
       response = await send(this.#refreshedAdminAccessToken);
     }
-    if (!response.ok && !(allowNotFound && response.status === 404))
+    if (
+      !response.ok &&
+      !(allowNotFound && response.status === identityAdminNotFoundPolicy.defaultValue.toleratedStatus)
+    )
       throw Object.assign(new Error(`Keycloak Admin REST ${path} returned HTTP ${response.status}.`), {
         code: "keycloak_admin_rejected",
         status: response.status,
@@ -1152,7 +1170,7 @@ function nodeClientBody(config: KeycloakPolicyAdapterConfig, node: KeycloakNode)
     enabled: node.state === "active" && node.revocation === "complete",
     publicClient: false,
     serviceAccountsEnabled: true,
-    fullScopeAllowed: false,
+    fullScopeAllowed: managedClientScopePolicy.defaultValue.fullScopeAllowed,
     standardFlowEnabled: true,
     directAccessGrantsEnabled: false,
     redirectUris: ["http://127.0.0.1/*"],

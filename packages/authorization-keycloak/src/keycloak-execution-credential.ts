@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { managedClientScopePolicy } from "@harness-anything/kernel/internal/domain/managed-identity-policy.ts";
 import {
   executionCredentialRejected,
   runtimeExecutionLifetimeMs,
@@ -160,7 +161,7 @@ export async function issueRuntimeExecutionCredential(
       serviceAccountsEnabled: true,
       standardFlowEnabled: false,
       directAccessGrantsEnabled: false,
-      fullScopeAllowed: false,
+      fullScopeAllowed: managedClientScopePolicy.defaultValue.fullScopeAllowed,
       defaultClientScopes: [],
       optionalClientScopes: [],
       attributes: { harness_execution: JSON.stringify(principal) },

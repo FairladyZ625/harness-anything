@@ -1,14 +1,16 @@
+import { identitySessionLifetimePolicy } from "@harness-anything/kernel/internal/domain/managed-identity-policy.ts";
+
 /**
  * The session lifetime: how long a signed-in session survives without being used. Keycloak holds
  * the only copy, as the realm's SSO session idle timeout; the daemon reads and writes it there and
  * keeps none of its own. Access tokens stay short-lived and are renewed against this session.
  */
 export const sessionLifetimeBounds = Object.freeze({
-  defaultSeconds: 6 * 60 * 60,
+  defaultSeconds: identitySessionLifetimePolicy.defaultValue.defaultSeconds,
   // The access token itself lives five minutes; a shorter session would end before its first renewal.
-  minimumSeconds: 5 * 60,
+  minimumSeconds: identitySessionLifetimePolicy.defaultValue.minimumSeconds,
   // Keycloak requires an absolute session length. A year never ends a session that is in use.
-  maximumSeconds: 365 * 24 * 60 * 60,
+  maximumSeconds: identitySessionLifetimePolicy.defaultValue.maximumSeconds,
 });
 
 export interface KeycloakRealmAdmin {
@@ -29,10 +31,10 @@ export function sessionLifetimeRealmSettings(seconds: number): {
   return {
     ssoSessionIdleTimeout: seconds,
     ssoSessionMaxLifespan: sessionLifetimeBounds.maximumSeconds,
-    offlineSessionIdleTimeout: 90 * 24 * 60 * 60,
-    offlineSessionMaxLifespanEnabled: false,
-    revokeRefreshToken: true,
-    refreshTokenMaxReuse: 0,
+    offlineSessionIdleTimeout: identitySessionLifetimePolicy.defaultValue.offlineSessionIdleTimeout,
+    offlineSessionMaxLifespanEnabled: identitySessionLifetimePolicy.defaultValue.offlineSessionMaxLifespanEnabled,
+    revokeRefreshToken: identitySessionLifetimePolicy.defaultValue.revokeRefreshToken,
+    refreshTokenMaxReuse: identitySessionLifetimePolicy.defaultValue.refreshTokenMaxReuse,
   };
 }
 

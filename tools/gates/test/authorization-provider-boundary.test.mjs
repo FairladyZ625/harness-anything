@@ -154,6 +154,60 @@ test("registered ActionDeclaration sources are data while unregistered reference
   );
 });
 
+test("registered Policy source references are data while unregistered references remain forbidden", () => {
+  const source =
+    "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-service.ts#ManagedRbacService.attempt:11ab76e8d0c02192aa2b1be4c6731dd8";
+  const route = "realm-readiness-attempts";
+  const fixture = "packages/daemon/test/keycloak-policy-adapter.test.ts";
+  assert.deepEqual(
+    findProviderBoundaryViolations(
+      `+++ b/packages/kernel/src/domain/managed-identity-policy.ts\n+{ candidateId: "${source}", route: "${route}" }\n+fixtures: ["${fixture}"]`,
+      [],
+      new Set([source, route, fixture]),
+    ),
+    [],
+  );
+  assert.deepEqual(
+    findProviderBoundaryViolations(
+      `+++ b/packages/kernel/src/domain/managed-identity-policy.ts\n+{ candidateId: "${source}", route: "${route}" }`,
+      [],
+      new Set([source]),
+    ),
+    [
+      `packages/kernel/src/domain/managed-identity-policy.ts: Keycloak-specific symbol, error, or REST path: { candidateId: "${source}", route: "${route}" }`,
+    ],
+  );
+  assert.deepEqual(
+    findProviderBoundaryViolations(
+      `+++ b/packages/kernel/src/domain/managed-identity-policy.ts\n+fixtures: ["${fixture}"]`,
+      [],
+      new Set(),
+    ),
+    [
+      `packages/kernel/src/domain/managed-identity-policy.ts: Keycloak-specific symbol, error, or REST path: fixtures: ["${fixture}"]`,
+    ],
+  );
+});
+
+test("registered Policy references never waive adjacent provider implementation", () => {
+  const source = "policy:packages/authorization-keycloak:packages/authorization-keycloak/src/provider.ts#timeout:123";
+  const fixture = "packages/daemon/test/keycloak-policy-adapter.test.ts";
+  const refs = new Set([source, "request", fixture]);
+  for (const line of [
+    `{ candidateId: "${source}", route: "request", realm: "main" }`,
+    `{ candidateId: "${source}", route: "request", explain: "Keycloak behavior" }`,
+    `const provider = "keycloak"; const data = { candidateId: "${source}" };`,
+    `fixtures: ["${fixture}"], realm: "main",`,
+    `const data = { candidateId: "${source}", route: "request" };`,
+  ])
+    assert.equal(
+      findProviderBoundaryViolations(`+++ b/packages/kernel/src/domain/managed-identity-policy.ts\n+${line}`, [], refs)
+        .length,
+      1,
+      line,
+    );
+});
+
 test("keeps builtin provider shapes inside the tracked remediation boundary", () => {
   assert.deepEqual(
     findProviderBoundaryViolations(

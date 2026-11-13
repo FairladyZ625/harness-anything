@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, realpathSync, readlinkSync } from "node:fs";
 import path from "node:path";
+import { identityDatabaseProcessPolicy } from "@harness-anything/kernel/internal/domain/managed-identity-policy.ts";
 import type { ManagedRbacHost } from "./managed-host.ts";
 
 export async function stopManagedPostgresOrphan(input: {
@@ -34,7 +35,7 @@ export async function stopManagedPostgresOrphan(input: {
     undefined,
     undefined,
     undefined,
-    { timeoutMs: 5_000 },
+    { timeoutMs: identityDatabaseProcessPolicy.defaultValue.statusTimeoutMs },
   );
   if (status.exitCode !== 0 || !(await processOwnsPostgres(input, pid))) return;
 
@@ -45,7 +46,7 @@ export async function stopManagedPostgresOrphan(input: {
     undefined,
     undefined,
     undefined,
-    { timeoutMs: 35_000 },
+    { timeoutMs: identityDatabaseProcessPolicy.defaultValue.stopTimeoutMs },
   );
   if (stopped.exitCode !== 0)
     throw Object.assign(new Error("The managed PostgreSQL postmaster could not be stopped cleanly."), {

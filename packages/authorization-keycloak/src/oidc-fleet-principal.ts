@@ -1,5 +1,11 @@
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import type { IdentityAuthenticationContext } from "@harness-anything/kernel";
+import {
+  managedClientScopePolicy,
+  identityFleetPrincipalPolicy,
+} from "@harness-anything/kernel/internal/domain/managed-identity-policy.ts";
+
+const admission = identityFleetPrincipalPolicy.defaultValue;
 
 export async function verifyFleetReplica<T extends IdentityAuthenticationContext>(input: {
   readonly auth: T;
@@ -24,7 +30,7 @@ export async function verifyFleetReplica<T extends IdentityAuthenticationContext
     node = input.auth.nodePrincipal;
   if (!token || !node) return null;
   const realmPath = `/realms/${encodeURIComponent(input.realm)}`,
-    expectedClientId = `harness-node-${node.nodeId}`,
+    expectedClientId = `${admission.nodeClientPrefix}${node.nodeId}`,
     reject = () =>
       Object.assign(new Error("The Fleet replica credential was rejected by the identity authority."), {
         code: "fleet_replica_credential_rejected",
@@ -47,23 +53,26 @@ export async function verifyFleetReplica<T extends IdentityAuthenticationContext
   });
   if (!response.ok) return null;
   const claims = (await response.json()) as Record<string, unknown>;
-  if (typeof claims.harness_person_id === "string" && claims.harness_person_id.length > 0) return null;
-  if (claims.active !== true || claims.azp !== expectedClientId) {
+  const personClaim = claims[admission.personClaim];
+  if (typeof personClaim === "string" && personClaim.length > 0) return null;
+  const authorizedParty = claims[admission.authorizedPartyClaim];
+  if (claims[admission.activeClaim] !== admission.activeValue || authorizedParty !== expectedClientId) {
     // A device-login token also uses the node client as `azp`, but carries the
     // verified person's claim rather than the service-account subject. Let the
     // existing human admission path handle it; rejecting it here would make
     // interactive edge replication fail before `verifyFleetHuman` runs.
-    if (typeof claims.azp === "string" && claims.azp.startsWith("harness-node-")) throw reject();
+    if (typeof authorizedParty === "string" && authorizedParty.startsWith(admission.nodeClientPrefix)) throw reject();
     return null;
   }
-  const expiresAt = typeof claims.exp === "number" ? claims.exp * 1_000 : 0;
+  const expiresAt =
+    typeof claims[admission.expiryClaim] === "number" ? (claims[admission.expiryClaim] as number) * 1_000 : 0;
   if (
     !Number.isFinite(expiresAt) ||
     expiresAt <= input.now ||
-    claims.iss !== `${input.issuerUrl}${realmPath}` ||
-    ![claims.aud].flat().includes(input.clientId) ||
-    typeof claims.sub !== "string" ||
-    claims.sub.length === 0
+    claims[admission.issuerClaim] !== `${input.issuerUrl}${realmPath}` ||
+    ![claims[admission.audienceClaim]].flat().includes(input.clientId) ||
+    typeof claims[admission.subjectClaim] !== "string" ||
+    (claims[admission.subjectClaim] as string).length === 0
   )
     throw reject();
   const clientResponse = await request(
@@ -84,7 +93,7 @@ export async function verifyFleetReplica<T extends IdentityAuthenticationContext
     client.id.length === 0 ||
     client.enabled !== true ||
     client.serviceAccountsEnabled !== true ||
-    client.fullScopeAllowed !== false
+    client.fullScopeAllowed !== managedClientScopePolicy.defaultValue.fullScopeAllowed
   )
     throw reject();
   // UserRepresentation has no owning-client field; this endpoint binds the subject to this client.
@@ -100,7 +109,7 @@ export async function verifyFleetReplica<T extends IdentityAuthenticationContext
     readonly id?: unknown;
     readonly enabled?: boolean;
   };
-  if (user.id !== claims.sub || user.enabled !== true) throw reject();
+  if (user.id !== claims[admission.subjectClaim] || user.enabled !== admission.activeValue) throw reject();
   const current = await input.readNode(node.nodeId).catch((cause: unknown) =>
     Promise.reject(
       Object.assign(new Error("Keycloak could not be reached to verify the Fleet node registration."), {
@@ -143,41 +152,45 @@ export async function verifyFleetHuman<T extends IdentityAuthenticationContext>(
   });
   if (!response.ok) throw reject();
   const claims = (await response.json()) as Record<string, unknown>;
-  const expiresAt = typeof claims.exp === "number" ? claims.exp * 1_000 : 0;
+  const authorizedParty = claims[admission.authorizedPartyClaim];
+  const personClaim = claims[admission.personClaim];
+  const subjectClaim = claims[admission.subjectClaim];
+  const expiresAt =
+    typeof claims[admission.expiryClaim] === "number" ? (claims[admission.expiryClaim] as number) * 1_000 : 0;
   if (
-    claims.active !== true ||
+    claims[admission.activeClaim] !== admission.activeValue ||
     !Number.isFinite(expiresAt) ||
     expiresAt <= input.now ||
-    claims.iss !== `${input.issuerUrl}${realmPath}` ||
-    typeof claims.azp !== "string" ||
-    claims.azp.length === 0 ||
-    (claims.azp.startsWith("harness-node-") && claims.azp !== `harness-node-${input.auth.nodePrincipal?.nodeId}`) ||
+    claims[admission.issuerClaim] !== `${input.issuerUrl}${realmPath}` ||
+    typeof authorizedParty !== "string" ||
+    authorizedParty.length === 0 ||
+    (authorizedParty.startsWith(admission.nodeClientPrefix) &&
+      authorizedParty !== `${admission.nodeClientPrefix}${input.auth.nodePrincipal?.nodeId}`) ||
     (input.expectedAzps !== undefined &&
       !input.expectedAzps.some(
         (expected) =>
-          claims.azp === expected.clientId &&
-          (expected.personId === undefined || claims.harness_person_id === expected.personId),
+          authorizedParty === expected.clientId &&
+          (expected.personId === undefined || personClaim === expected.personId),
       )) ||
-    ![claims.aud].flat().includes(input.clientId) ||
-    typeof claims.sub !== "string" ||
-    typeof claims.harness_person_id !== "string" ||
-    claims.harness_person_id.length === 0
+    ![claims[admission.audienceClaim]].flat().includes(input.clientId) ||
+    typeof subjectClaim !== "string" ||
+    typeof personClaim !== "string" ||
+    personClaim.length === 0
   )
     throw reject();
-  const userResponse = await input.fetch(`${input.url}/admin${realmPath}/users/${encodeURIComponent(claims.sub)}`, {
-    headers: { authorization: `Bearer ${input.adminAccessToken}` },
-  });
+  const userResponse = await input.fetch(
+    `${input.url}/admin${realmPath}/users/${encodeURIComponent(subjectClaim as string)}`,
+    {
+      headers: { authorization: `Bearer ${input.adminAccessToken}` },
+    },
+  );
   if (!userResponse.ok) throw reject();
   const user = (await userResponse.json()) as {
     readonly enabled?: boolean;
     readonly serviceAccountClientId?: string;
     readonly attributes?: Readonly<Record<string, readonly string[]>>;
   };
-  if (
-    user.enabled !== true ||
-    user.serviceAccountClientId ||
-    user.attributes?.harness_person_id?.[0] !== claims.harness_person_id
-  )
+  if (user.enabled !== true || user.serviceAccountClientId || user.attributes?.harness_person_id?.[0] !== personClaim)
     throw reject();
   return {
     ...input.auth,
@@ -186,10 +199,13 @@ export async function verifyFleetHuman<T extends IdentityAuthenticationContext>(
         { url: input.url, realm: input.realm, resourceServerClientId: input.clientId },
         input.fetch,
       ),
-      personId: claims.harness_person_id,
-      subject: claims.sub,
-      azp: claims.azp,
-      scopes: typeof claims.scope === "string" ? claims.scope.split(/\s+/u).filter(Boolean) : [],
+      personId: personClaim as string,
+      subject: subjectClaim as string,
+      azp: authorizedParty as string,
+      scopes:
+        typeof claims[admission.scopeClaim] === "string"
+          ? (claims[admission.scopeClaim] as string).split(/\s+/u).filter(Boolean)
+          : [],
       expiresAt,
       accessToken: token,
       authority: { url: input.url, realm: input.realm, clientId: input.clientId },

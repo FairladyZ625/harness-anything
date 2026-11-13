@@ -27,6 +27,10 @@ import { keycloakConsoleUrl, managedRbacListenerUrl, managedRbacSessionStore } f
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import { verifyFleetHuman, verifyFleetReplica } from "./oidc-fleet-principal.ts";
 import type { FleetDeviceLoginNotice } from "@harness-anything/kernel";
+import {
+  identityAdminNotFoundPolicy,
+  identityFleetPrincipalPolicy,
+} from "@harness-anything/kernel/internal/domain/managed-identity-policy.ts";
 import { openDeviceConfirmationGateway, type DeviceConfirmationGateway } from "./oidc-device-confirmation-gateway.ts";
 
 export type { DeviceLoginRequest, OidcLoginAuthority, OidcSessionPorts } from "@harness-anything/kernel";
@@ -601,7 +605,8 @@ export class OidcSessionService {
         const principal = bound.oidcPrincipal!;
         // A BFF's personal token supplies request authority, never device ownership.
         if (
-          principal.azp !== `harness-node-${auth.nodePrincipal?.nodeId}` ||
+          principal.azp !==
+            `${identityFleetPrincipalPolicy.defaultValue.nodeClientPrefix}${auth.nodePrincipal?.nodeId}` ||
           principal.personId === auth.nodePrincipal?.personId
         )
           return bound;
@@ -947,10 +952,10 @@ export class OidcSessionService {
     suffix: string,
     token: string,
     body?: unknown,
-    allowNotFound = false,
+    allowNotFound: boolean = identityAdminNotFoundPolicy.defaultValue.allowNotFoundByDefault,
   ): Promise<unknown> {
     const response = await this.#adminFetch(method, suffix, token, body);
-    if (allowNotFound && response.status === 404) return undefined;
+    if (allowNotFound && response.status === identityAdminNotFoundPolicy.defaultValue.toleratedStatus) return undefined;
     if (!response.ok) throw coded("keycloak_admin_rejected", `Keycloak Admin REST returned HTTP ${response.status}.`);
     if (response.status === 204 || response.headers.get("content-length") === "0") return undefined;
     const text = await response.text();
