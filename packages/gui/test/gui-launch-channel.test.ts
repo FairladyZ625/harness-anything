@@ -498,11 +498,11 @@ test("F3: legacy Electron migration copies only Harness localStorage keys idempo
 
   // Explicit --user-data-dir and packaged builds must never migrate.
   assert.equal(
-    resolveLegacyElectronMigrationPlan(fakeApp({ hasSwitch: true }), "win32", { APPDATA: appData }).shouldMigrate,
+    resolveLegacyElectronMigrationPlan(fakeApp({ hasSwitch: true }), "win32", { APPDATA: appData }).copyRequired,
     false,
   );
   assert.equal(
-    resolveLegacyElectronMigrationPlan(fakeApp({ isPackaged: true }), "win32", { APPDATA: appData }).shouldMigrate,
+    resolveLegacyElectronMigrationPlan(fakeApp({ isPackaged: true }), "win32", { APPDATA: appData }).copyRequired,
     false,
   );
 
@@ -529,7 +529,7 @@ test("F3: legacy Electron migration copies only Harness localStorage keys idempo
     },
   });
 
-  assert.deepEqual(firstRun, { status: "migrated", migratedKeys: 2 });
+  assert.deepEqual(firstRun, { status: "migrated", copiedCount: 2 });
   assert.equal(readCalls, 1);
   assert.equal(migratedStore.get("harness:gui:favorites:repo1"), '["task_1","task_2"]');
   assert.equal(migratedStore.get("harness:gui:terminal-layout"), '{"activeGroupId":"g1","groups":[]}');
@@ -545,5 +545,5 @@ test("F3: legacy Electron migration copies only Harness localStorage keys idempo
     },
     writeMissingTargetEntries: async () => 0,
   });
-  assert.deepEqual(secondRun, { status: "skipped", migratedKeys: 0 });
+  assert.deepEqual(secondRun, { status: "skipped", copiedCount: 0 });
 });

@@ -373,7 +373,7 @@ export interface WindowReadinessTracker {
   markReady(): void;
   markFailed(message: string): void;
   waitUntilReady(): Promise<void>;
-  assertHealthy(): void;
+  verifyHealthy(): void;
   raceFailure<T>(operation: Promise<T>): Promise<T>;
 }
 
@@ -385,7 +385,7 @@ export function createWindowReadinessTracker(): WindowReadinessTracker {
   let ready = false;
   let failureMessage: string | null = null;
   const readyWaiters = new Set<{ resolve: () => void; reject: (error: Error) => void }>();
-  const failureListeners = new Set<(error: Error) => void>();
+  const failureListeners = new Set<{ readonly notify: (error: Error) => void; active: boolean }>();
 
   return {
     isReady: () => ready && failureMessage === null,
@@ -402,7 +402,9 @@ export function createWindowReadinessTracker(): WindowReadinessTracker {
       const error = new Error(failureMessage);
       for (const waiter of readyWaiters) waiter.reject(error);
       readyWaiters.clear();
-      for (const listener of failureListeners) listener(error);
+      for (const listener of failureListeners) {
+        if (listener.active) listener.notify(error);
+      }
       failureListeners.clear();
     },
     waitUntilReady() {
@@ -412,7 +414,7 @@ export function createWindowReadinessTracker(): WindowReadinessTracker {
         readyWaiters.add({ resolve, reject });
       });
     },
-    assertHealthy() {
+    verifyHealthy() {
       if (failureMessage !== null) throw new Error(failureMessage);
       if (!ready) throw new Error("GUI window did not finish becoming ready.");
     },
@@ -421,14 +423,14 @@ export function createWindowReadinessTracker(): WindowReadinessTracker {
         void operation.catch(() => undefined);
         return Promise.reject(new Error(failureMessage));
       }
-      let listener: ((error: Error) => void) | null = null;
+      let listenerEntry: { readonly notify: (error: Error) => void; active: boolean } | null = null;
       const onFail = new Promise<never>((_resolve, reject) => {
-        listener = reject;
-        failureListeners.add(reject);
+        listenerEntry = { notify: reject, active: true };
+        failureListeners.add(listenerEntry);
       });
       void operation.catch(() => undefined);
       return Promise.race([operation, onFail]).finally(() => {
-        if (listener !== null) failureListeners.delete(listener);
+        if (listenerEntry !== null) listenerEntry.active = false;
       });
     },
   };
@@ -558,14 +560,14 @@ export async function ensureGuiWindowReadyAndVisible(
   const preFailure = tracker?.failure();
   if (preFailure !== null && preFailure !== undefined) throw new Error(preFailure);
   if (tracker && !tracker.isReady()) await tracker.waitUntilReady();
-  tracker?.assertHealthy();
+  tracker?.verifyHealthy();
   if (win.isDestroyed()) throw new Error("GUI window was closed before becoming ready.");
   if (win.webContents.isCrashed?.()) throw new Error("GUI renderer crashed before becoming ready.");
   if (options.backgroundTest) return;
 
   focusDesktopWindow(win);
 
-  tracker?.assertHealthy();
+  tracker?.verifyHealthy();
   if (win.isDestroyed()) throw new Error("GUI window was closed while showing.");
   if (win.webContents.isCrashed?.()) throw new Error("GUI renderer crashed while showing.");
   if (!win.isVisible()) throw new Error("Electron main window reported hidden after show().");
@@ -575,7 +577,7 @@ export async function ensureGuiWindowReadyAndVisible(
     const verifyVisible = options.verifyWindowsVisible ?? verifyWindowsWindowHandleVisible;
     const probe = verifyVisible(options.pid ?? process.pid);
     const win32Visible = await (tracker ? tracker.raceFailure(probe) : probe);
-    tracker?.assertHealthy();
+    tracker?.verifyHealthy();
     if (win.isDestroyed()) throw new Error("GUI window was closed while verifying visibility.");
     if (win.webContents.isCrashed?.()) throw new Error("GUI renderer crashed while verifying visibility.");
     if (!win32Visible.ok) throw new Error(win32Visible.detail ?? win32Visible.reason ?? "Window is not visible.");
@@ -610,8 +612,10 @@ export async function activateSecondInstance<TWindow extends ReadinessWindowPort
       reason: "Existing Harness Anything GUI instance is running in --headless mode and cannot show a desktop window.",
     };
   }
-  let targetWindow: TWindow | null = null;
-  if (request.requestedRoot !== null) {
+  let targetWindow: TWindow | null;
+  if (request.requestedRoot === null) {
+    targetWindow = params.existingOrNewWindow();
+  } else {
     const resolved = await params.resolveRequestedRoot(request.requestedRoot);
     if (resolved.ok) {
       targetWindow = params.openProjectWindow(resolved.repoId);
@@ -622,8 +626,6 @@ export async function activateSecondInstance<TWindow extends ReadinessWindowPort
       }
       targetWindow = params.existingOrNewWindow();
     }
-  } else {
-    targetWindow = params.existingOrNewWindow();
   }
   if (targetWindow === null) {
     return { ok: false, reason: "GUI window could not be created." };
@@ -639,16 +641,16 @@ export async function activateSecondInstance<TWindow extends ReadinessWindowPort
 }
 
 export interface LegacyElectronMigrationPlan {
-  readonly shouldMigrate: boolean;
+  readonly copyRequired: boolean;
   readonly legacyUserDataDir: string | null;
   readonly targetUserDataDir: string | null;
 }
 
 export type LegacyProfileMigrationResult =
-  | { readonly status: "skipped"; readonly migratedKeys: 0 }
-  | { readonly status: "no_harness_entries"; readonly migratedKeys: 0 }
-  | { readonly status: "migrated"; readonly migratedKeys: number }
-  | { readonly status: "failed"; readonly migratedKeys: 0; readonly detail: string };
+  | { readonly status: "skipped"; readonly copiedCount: 0 }
+  | { readonly status: "no_harness_entries"; readonly copiedCount: 0 }
+  | { readonly status: "migrated"; readonly copiedCount: number }
+  | { readonly status: "failed"; readonly copiedCount: 0; readonly detail: string };
 
 /** Only localStorage keys owned by Harness Anything may cross from legacy Electron userData. */
 export function isHarnessLocalStorageKey(key: string): boolean {
@@ -671,18 +673,18 @@ export function resolveLegacyElectronMigrationPlan(
   pathExists: (candidatePath: string) => boolean = existsSync,
 ): LegacyElectronMigrationPlan {
   if (appLike.commandLine.hasSwitch("user-data-dir") || appLike.isPackaged) {
-    return { shouldMigrate: false, legacyUserDataDir: null, targetUserDataDir: null };
+    return { copyRequired: false, legacyUserDataDir: null, targetUserDataDir: null };
   }
   const appDataDir = resolveAppDataDir(appLike, platform, env);
   const legacyUserDataDir = path.join(appDataDir, LEGACY_ELECTRON_DIR_NAME);
   const targetUserDataDir = path.join(appDataDir, GUI_APP_NAME);
   if (path.resolve(legacyUserDataDir) === path.resolve(targetUserDataDir)) {
-    return { shouldMigrate: false, legacyUserDataDir: null, targetUserDataDir: null };
+    return { copyRequired: false, legacyUserDataDir: null, targetUserDataDir: null };
   }
   const legacyHasDb = pathExists(path.join(legacyUserDataDir, "Local Storage", "leveldb"));
   const targetHasDb = pathExists(path.join(targetUserDataDir, "Local Storage", "leveldb"));
   return {
-    shouldMigrate: legacyHasDb && !targetHasDb,
+    copyRequired: legacyHasDb && !targetHasDb,
     legacyUserDataDir,
     targetUserDataDir,
   };
@@ -705,19 +707,19 @@ export async function migrateLegacyElectronLocalStorage(params: {
   ) => Promise<number>;
 }): Promise<LegacyProfileMigrationResult> {
   const plan = resolveLegacyElectronMigrationPlan(params.app, params.platform, params.env, params.pathExists);
-  if (!plan.shouldMigrate || plan.legacyUserDataDir === null || plan.targetUserDataDir === null) {
-    return { status: "skipped", migratedKeys: 0 };
+  if (!plan.copyRequired || plan.legacyUserDataDir === null || plan.targetUserDataDir === null) {
+    return { status: "skipped", copiedCount: 0 };
   }
   try {
     const legacyEntries = await params.readLegacyEntries(plan.legacyUserDataDir);
     const harnessEntries = selectLegacyHarnessEntries(legacyEntries, new Set());
     if (harnessEntries.length === 0) {
-      return { status: "no_harness_entries", migratedKeys: 0 };
+      return { status: "no_harness_entries", copiedCount: 0 };
     }
-    const migratedKeys = await params.writeMissingTargetEntries(plan.targetUserDataDir, harnessEntries);
-    return { status: "migrated", migratedKeys };
+    const copiedCount = await params.writeMissingTargetEntries(plan.targetUserDataDir, harnessEntries);
+    return { status: "migrated", copiedCount };
   } catch (error) {
     const detail = error instanceof Error ? error.message : typeof error === "string" ? error : "Migration failed.";
-    return { status: "failed", migratedKeys: 0, detail };
+    return { status: "failed", copiedCount: 0, detail };
   }
 }

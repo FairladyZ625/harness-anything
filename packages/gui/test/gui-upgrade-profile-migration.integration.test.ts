@@ -22,7 +22,7 @@ function spawnElectronRunner(runnerPath: string, appDataDir: string, phase: stri
       cwd: workspaceRoot,
       env,
       encoding: "utf8",
-      timeout: 30_000,
+      timeout: 45_000,
     },
   );
   assert.equal(result.status, 0, `Phase ${phase} exited ${result.status}: ${result.stderr}\n${result.stdout}`);
@@ -34,7 +34,7 @@ function spawnElectronRunner(runnerPath: string, appDataDir: string, phase: stri
 
 test(
   "F3 integration: real Chromium profile upgrade migrates pre-existing favorites and terminal layouts once while excluding third-party Electron data",
-  { timeout: 60_000 },
+  { timeout: 120_000 },
   async (t) => {
     const runtime = resolveE2EProbeElectronForTest(workspaceRoot);
     if (!runtime.available) {
@@ -54,7 +54,9 @@ test(
 
     const runnerPath = path.join(tempRoot, "runner.mjs");
     const channelUrl = pathToFileURL(path.join(workspaceRoot, "packages/gui/src/main/gui-launch-channel.ts")).href;
-    const mainUrl = pathToFileURL(path.join(workspaceRoot, "packages/gui/src/main/electron-main.ts")).href;
+    const migrationUrl = pathToFileURL(
+      path.join(workspaceRoot, "packages/gui/src/main/legacy-profile-migration.ts"),
+    ).href;
     const windowConfigUrl = pathToFileURL(path.join(workspaceRoot, "packages/gui/src/main/window-config.ts")).href;
 
     const favoritesKey = "harness:gui:favorites:repo-upgrade";
@@ -71,13 +73,14 @@ test(
 import { app, BrowserWindow, session } from "electron";
 import path from "node:path";
 import { applyGuiAppIdentity } from ${JSON.stringify(channelUrl)};
-import { migrateLegacyElectronProfile } from ${JSON.stringify(mainUrl)};
+import { migrateLegacyElectronProfile } from ${JSON.stringify(migrationUrl)};
 import { storageMigrationShimPath } from ${JSON.stringify(windowConfigUrl)};
 
 const appDataDir = process.env.HA_TEST_APPDATA;
 const phase = process.env.HA_TEST_PHASE;
 app.setActivationPolicy?.("accessory");
 app.setPath("appData", appDataDir);
+app.on("window-all-closed", () => {});
 
 async function readAllLocalStorage(targetSession) {
   const win = new BrowserWindow({

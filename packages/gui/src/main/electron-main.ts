@@ -7,7 +7,6 @@ import {
   ensureGuiWindowReadyAndVisible,
   focusDesktopWindow,
   GUI_ROOT_EXPLICIT_ENV,
-  migrateLegacyElectronLocalStorage,
   readLaunchSignalTarget,
   sendLoopbackSignal,
   verifyWindowsDesktopSession,
@@ -25,7 +24,7 @@ import {
 import { darwinAppMenuTemplate } from "./darwin-app-menu.ts";
 import { ensureApplicationsFolder } from "./darwin-applications-folder.ts";
 import { APP_COMMAND_CHANNEL, type AppNavigationCommand } from "../api/app-command-contract.ts";
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell, type Session } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell } from "electron";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -69,9 +68,9 @@ import {
   isNavigableAppDocumentUrl,
   packagedRendererIndexPath,
   resolveGuiPackageRoot,
-  storageMigrationShimPath,
   windowBackgroundColor,
 } from "./window-config.ts";
+import { migrateLegacyElectronProfile } from "./legacy-profile-migration.ts";
 import { registerFirstRunIpcHandlers } from "./first-run-ipc.ts";
 import { DESKTOP_FIRST_RUN_UPDATED_CHANNEL, type DesktopSetupFailure } from "../api/first-run-contract.ts";
 import { desktopRuntimePaths, desktopFirstRunReport, runDesktopSetup } from "./desktop-first-run.ts";
@@ -372,105 +371,6 @@ async function ensureWindowReadyAndVisible(win: BrowserWindow): Promise<void> {
   });
 }
 
-async function closeTransientMigrationWindow(win: BrowserWindow): Promise<void> {
-  if (win.isDestroyed()) return;
-  await new Promise<void>((resolve) => {
-    let finished = false;
-    const done = () => {
-      if (finished) return;
-      finished = true;
-      clearTimeout(timer);
-      resolve();
-    };
-    const timer = setTimeout(() => {
-      if (!win.isDestroyed()) win.destroy();
-      done();
-    }, 2_000);
-    timer.unref?.();
-    win.once("closed", done);
-    win.close();
-  });
-}
-
-async function runInMigrationShimWindow<T>(
-  shimPath: string,
-  targetSession: Session | undefined,
-  run: (win: BrowserWindow) => Promise<T>,
-): Promise<T> {
-  const win = new BrowserWindow({
-    show: false,
-    focusable: false,
-    webPreferences: {
-      offscreen: true,
-      nodeIntegration: false,
-      contextIsolation: true,
-      sandbox: true,
-      webSecurity: true,
-      ...(targetSession ? { session: targetSession } : {}),
-    },
-  });
-  try {
-    await win.loadFile(shimPath);
-    return await run(win);
-  } finally {
-    await closeTransientMigrationWindow(win);
-  }
-}
-
-/**
- * Copy only Harness-owned localStorage keys once when upgrading an unpackaged source install
- * from generic `appData/Electron` to isolated `appData/Harness Anything`.
- */
-export async function migrateLegacyElectronProfile(): Promise<void> {
-  const shimPath = storageMigrationShimPath();
-  runningLegacyStorageMigration = true;
-  try {
-    const result = await migrateLegacyElectronLocalStorage({
-      app,
-      readLegacyEntries: async (legacyUserDataDir) => {
-        const legacySession = session.fromPath(legacyUserDataDir, { cache: false });
-        return runInMigrationShimWindow(shimPath, legacySession, async (win) => {
-          const entries: unknown = await win.webContents.executeJavaScript(`(() => {
-            const out = {};
-            for (let index = 0; index < localStorage.length; index += 1) {
-              const key = localStorage.key(index);
-              if (key === null) continue;
-              const value = localStorage.getItem(key);
-              if (value !== null) out[key] = value;
-            }
-            return out;
-          })()`);
-          return typeof entries === "object" && entries !== null ? (entries as Readonly<Record<string, string>>) : {};
-        });
-      },
-      writeMissingTargetEntries: async (_targetUserDataDir, entries) => {
-        const serializedEntries = JSON.stringify(JSON.stringify(entries));
-        const written = await runInMigrationShimWindow(shimPath, undefined, async (win) => {
-          const count: unknown = await win.webContents.executeJavaScript(`(() => {
-            const items = JSON.parse(${serializedEntries});
-            let applied = 0;
-            for (const [key, value] of items) {
-              if (localStorage.getItem(key) === null) {
-                localStorage.setItem(key, value);
-                applied += 1;
-              }
-            }
-            return applied;
-          })()`);
-          return typeof count === "number" ? count : 0;
-        });
-        await session.defaultSession.flushStorageData();
-        return written;
-      },
-    });
-    if (result.status === "failed") {
-      console.warn("[gui] legacy Electron profile migration skipped:", result.detail);
-    }
-  } finally {
-    runningLegacyStorageMigration = false;
-  }
-}
-
 let startupAborting = false;
 async function reportStartupFailureAndExit(detail: string, reason = "gui_launch_failed"): Promise<void> {
   if (startupAborting) return;
@@ -529,7 +429,12 @@ export async function startGuiApp(): Promise<void> {
   }
   installContentSecurityPolicy();
   loginWebviewSecurity.installCertificateErrorHandler(app);
-  await migrateLegacyElectronProfile();
+  runningLegacyStorageMigration = true;
+  try {
+    await migrateLegacyElectronProfile();
+  } finally {
+    runningLegacyStorageMigration = false;
+  }
   const trustedWebContentsIds = new Set<number>();
   // 项目窗口注册表(task_ca1ee6b9e8f83c89cb376e5f07):窗口↔项目记账。开窗两条路
   // (CEO 2026-10-17 裁定):切换器「在新窗口打开」已开即聚焦(openProjectWindow);
@@ -743,7 +648,7 @@ export async function startGuiApp(): Promise<void> {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) projectWindows.newWindow(null);
   });
-  windowReadiness.get(initialWindow)?.assertHealthy();
+  windowReadiness.get(initialWindow)?.verifyHealthy();
   if (initialWindow.isDestroyed() || initialWindow.webContents.isCrashed()) {
     throw new Error("GUI window failed before startup readiness could be confirmed.");
   }
