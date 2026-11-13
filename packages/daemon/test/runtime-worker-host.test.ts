@@ -569,6 +569,8 @@ test(
       "test-model",
       "--config",
       'web_search="disabled"',
+      "--config",
+      'shell_environment_policy={inherit="all",ignore_default_excludes=true,exclude=[],include_only=[]}',
       "provider-thread-stable",
       "-",
     ]);
@@ -935,6 +937,8 @@ test(
         "test-model",
         "--config",
         'web_search="disabled"',
+        "--config",
+        'shell_environment_policy={inherit="all",ignore_default_excludes=true,exclude=[],include_only=[]}',
         "provider-thread-compaction",
         "-",
       ]);
@@ -1098,6 +1102,8 @@ test("a task-bound Codex turn that ends on a progress note resumes the same thre
       "test-model",
       "--config",
       'web_search="disabled"',
+      "--config",
+      'shell_environment_policy={inherit="all",ignore_default_excludes=true,exclude=[],include_only=[]}',
       "provider-thread-compaction",
       "-",
     ]);

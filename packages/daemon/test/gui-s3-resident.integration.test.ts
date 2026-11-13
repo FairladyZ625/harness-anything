@@ -303,6 +303,8 @@ test(
         "runtime-test-model-2",
         "--config",
         'web_search="disabled"',
+        "--config",
+        'shell_environment_policy={inherit="all",ignore_default_excludes=true,exclude=[],include_only=[]}',
         "-",
       ]);
       assert.match(

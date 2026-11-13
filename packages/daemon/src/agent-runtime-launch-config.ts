@@ -13,12 +13,18 @@ import type {
 import { runExecutable, runExecutableResult } from "./agent-runtime-installation-discovery.ts";
 import { providerConfigDirectory, tomlString } from "./agent-runtime-instance-storage.ts";
 import {
+  isRuntimeInstanceRecord,
   requiredRuntimeInstanceText,
   runtimeInstanceError,
   available,
   unavailable,
 } from "./agent-runtime-instance-values.ts";
-import { claudeWorkspaceWriteSandbox, runtimeKindForId, type RuntimeProviderDeclaration } from "./runtime-inventory.ts";
+import {
+  claudeWorkspaceWriteSandbox,
+  codexToolEnvironmentConfig,
+  runtimeKindForId,
+  type RuntimeProviderDeclaration,
+} from "./runtime-inventory.ts";
 import { assertRuntimeWebSearchSupported, runtimeWebSearchForConfig } from "./agent-runtime-web-search.ts";
 
 // Platform-derived isolation environment. POSIX keeps HOME/TMPDIR/XDG_RUNTIME_DIR
@@ -59,6 +65,37 @@ export function isolatedEnvironment(
   };
   for (const key of ["PATH", "LANG", "LC_ALL"]) if (source[key]) result[key] = source[key];
   return result;
+}
+
+const codexShellEnvironmentKey = "shell_environment_policy";
+
+function codexAcpSessionConfig(raw: string | undefined): string {
+  if (raw === undefined || raw.trim() === "")
+    return JSON.stringify({ [codexShellEnvironmentKey]: codexToolEnvironmentConfig });
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw runtimeInstanceError("invalid_runtime_launch", "CODEX_CONFIG must be a JSON object.");
+  }
+  if (!isRuntimeInstanceRecord(parsed))
+    throw runtimeInstanceError("invalid_runtime_launch", "CODEX_CONFIG must be a JSON object.");
+  return JSON.stringify({ ...parsed, [codexShellEnvironmentKey]: codexToolEnvironmentConfig });
+}
+
+export function launchEnvironment(
+  config: RuntimeInstanceConfig,
+  baseEnv: NodeJS.ProcessEnv,
+  permissionMode?: RuntimePermissionMode,
+  commandInterceptions: CommandInterceptions = [],
+): NodeJS.ProcessEnv {
+  const declaration = runtimeKindForId(config.kindId);
+  return {
+    ...baseEnv,
+    ...(permissionMode ? declaration.launch.permissionEnvironment?.[permissionMode] : undefined),
+    ...(config.kindId === "claude" && commandInterceptions.length ? { CLAUDE_CODE_SIMPLE: undefined } : {}),
+    ...(config.kindId === "codex-acp" ? { CODEX_CONFIG: codexAcpSessionConfig(baseEnv.CODEX_CONFIG) } : {}),
+  };
 }
 
 export function launchArgs(

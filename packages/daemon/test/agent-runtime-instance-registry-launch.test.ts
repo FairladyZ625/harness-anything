@@ -395,6 +395,8 @@ test("Codex sidecar launch materializes the complete non-secret provider config 
       "gpt-5.6-sol",
       "--config",
       'web_search="disabled"',
+      "--config",
+      'shell_environment_policy={inherit="all",ignore_default_excludes=true,exclude=[],include_only=[]}',
       "-",
     ]);
     assert.deepEqual(launch.env, expectedIsolatedEnvironment(stateRoot, "codex", { PATH: "/runtime/tools" }));

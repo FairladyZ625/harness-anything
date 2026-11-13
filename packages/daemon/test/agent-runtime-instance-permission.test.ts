@@ -240,6 +240,8 @@ test("permission defaults open and tightens through the instance record or a sin
       "gpt-5.6-sol",
       "--config",
       'web_search="disabled"',
+      "--config",
+      'shell_environment_policy={inherit="all",ignore_default_excludes=true,exclude=[],include_only=[]}',
       "-",
     ]);
     assert.deepEqual(claudeDefault.args, [
@@ -270,6 +272,8 @@ test("permission defaults open and tightens through the instance record or a sin
       "gpt-5.6-sol",
       "--config",
       'web_search="disabled"',
+      "--config",
+      'shell_environment_policy={inherit="all",ignore_default_excludes=true,exclude=[],include_only=[]}',
       "-",
     ]);
     const relayEnabled = await store.prepareLaunch("codex-open", {
@@ -294,6 +298,8 @@ test("permission defaults open and tightens through the instance record or a sin
       "gpt-5.6-sol",
       "--config",
       'web_search="disabled"',
+      "--config",
+      'shell_environment_policy={inherit="all",ignore_default_excludes=true,exclude=[],include_only=[]}',
       "-",
     ]);
     const resumedRelay = await store.prepareLaunch("codex-open", {
@@ -320,6 +326,8 @@ test("permission defaults open and tightens through the instance record or a sin
       "gpt-5.6-sol",
       "--config",
       'web_search="disabled"',
+      "--config",
+      'shell_environment_policy={inherit="all",ignore_default_excludes=true,exclude=[],include_only=[]}',
       "session-relay",
       "-",
     ]);
@@ -343,6 +351,8 @@ test("permission defaults open and tightens through the instance record or a sin
       "gpt-5.6-sol",
       "--config",
       'web_search="disabled"',
+      "--config",
+      'shell_environment_policy={inherit="all",ignore_default_excludes=true,exclude=[],include_only=[]}',
       "-",
     ]);
     assert.deepEqual(claudeDispatched.args, [
@@ -375,6 +385,8 @@ test("permission defaults open and tightens through the instance record or a sin
         "gpt-5.6-sol",
         "--config",
         'web_search="disabled"',
+        "--config",
+        'shell_environment_policy={inherit="all",ignore_default_excludes=true,exclude=[],include_only=[]}',
         ...(providerSessionId ? [providerSessionId] : []),
         "-",
       ]);
@@ -405,6 +417,8 @@ test("permission defaults open and tightens through the instance record or a sin
       "gpt-5.6-sol",
       "--config",
       'web_search="disabled"',
+      "--config",
+      'shell_environment_policy={inherit="all",ignore_default_excludes=true,exclude=[],include_only=[]}',
       "session-bypass",
       "-",
     ]);
@@ -422,6 +436,8 @@ test("permission defaults open and tightens through the instance record or a sin
       "gpt-5.6-sol",
       "--config",
       'web_search="disabled"',
+      "--config",
+      'shell_environment_policy={inherit="all",ignore_default_excludes=true,exclude=[],include_only=[]}',
       "session-workspace",
       "-",
     ]);
@@ -435,6 +451,8 @@ test("permission defaults open and tightens through the instance record or a sin
       "gpt-5.6-sol",
       "--config",
       'web_search="disabled"',
+      "--config",
+      'shell_environment_policy={inherit="all",ignore_default_excludes=true,exclude=[],include_only=[]}',
       "session-read-only",
       "-",
     ]);
