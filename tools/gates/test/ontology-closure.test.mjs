@@ -173,6 +173,45 @@ test("all authorization packages stay at zero ontology migration debt", () => {
   );
 });
 
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: daemon protocol, client, transport, access and Fleet closure is shrink-only.
+test("daemon protocol and Fleet boundary remains at zero ontology migration debt", () => {
+  const baseline = loadGateAllowlist("ontology-closure", { report: false }).candidates;
+  const boundary = (row) =>
+    row.owner === "packages/daemon" &&
+    /^packages\/daemon\/src\/(?:protocol\/|client\/|fleet\/|fleet-|access-|gui-s3-|oidc-|keycloak-|host-action-authorization\.ts|authorization-provider\.ts|hosting-provider\.ts|remote-proxy\.ts|rpc-command-routing\.ts|transport\/|tls-)/u.test(
+      row.path,
+    );
+  assert.deepEqual(baseline.filter(boundary), []);
+  const result = evaluateOntologyClosure({ rootDir: repoRoot, base: "HEAD" });
+  const classified = result.classified.filter(
+    (row) =>
+      boundary({ owner: "packages/daemon", path: row.file }) &&
+      (row.category === "action" || row.category === "policy"),
+  );
+  assert.ok(classified.some((row) => row.category === "action"));
+  assert.ok(classified.some((row) => row.category === "policy"));
+  assert.deepEqual(
+    classified.filter((row) => row.status !== "registered"),
+    [],
+    "every daemon boundary action and policy candidate must resolve to its shared declaration",
+  );
+  for (const candidate of [
+    {
+      owner: "packages/daemon",
+      path: "packages/daemon/src/client/local-json-rpc-client.ts",
+      category: "action",
+      status: "legacy-to-remove",
+    },
+    {
+      owner: "packages/daemon",
+      path: "packages/daemon/src/fleet/peer.ts",
+      category: "policy",
+      status: "legacy-to-remove",
+    },
+  ])
+    assert.equal(boundary(candidate), true, `${candidate.category} boundary mutation must be detected`);
+});
+
 test("leaf Policy bindings preserve defaults and distinguish exact presentation contracts from new budgets", () => {
   const snapshot = loadOntologyClosureSnapshot(repoRoot);
   for (const [target, from, to] of [
