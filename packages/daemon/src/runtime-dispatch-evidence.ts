@@ -340,12 +340,22 @@ function correlationOf(streamText: string, rolloutText: string | null, nativeNam
   const explicitTurns = [...buckets.get("turnIds")!],
     nativeTurns = [...buckets.get("nativeTurnIds")!];
   return {
-    threadIds: [...buckets.get("threadIds")!].sort().slice(0, 64),
-    turnIds: [...new Set([...explicitTurns, ...nativeTurns])].sort().slice(0, 64),
-    nativeTurnIds: nativeTurns.sort().slice(0, 64),
-    requestIds: [...buckets.get("requestIds")!].sort().slice(0, 64),
-    responseIds: [...buckets.get("responseIds")!].sort().slice(0, 64),
-    passthroughTurnIds: [...buckets.get("passthroughTurnIds")!].sort().slice(0, 64),
+    threadIds: [...buckets.get("threadIds")!]
+      .sort()
+      .slice(0, daemonRuntimePolicy.defaultValue.evidence.correlationIdsLimit),
+    turnIds: [...new Set([...explicitTurns, ...nativeTurns])]
+      .sort()
+      .slice(0, daemonRuntimePolicy.defaultValue.evidence.correlationIdsLimit),
+    nativeTurnIds: nativeTurns.sort().slice(0, daemonRuntimePolicy.defaultValue.evidence.correlationIdsLimit),
+    requestIds: [...buckets.get("requestIds")!]
+      .sort()
+      .slice(0, daemonRuntimePolicy.defaultValue.evidence.correlationIdsLimit),
+    responseIds: [...buckets.get("responseIds")!]
+      .sort()
+      .slice(0, daemonRuntimePolicy.defaultValue.evidence.correlationIdsLimit),
+    passthroughTurnIds: [...buckets.get("passthroughTurnIds")!]
+      .sort()
+      .slice(0, daemonRuntimePolicy.defaultValue.evidence.correlationIdsLimit),
   };
 }
 

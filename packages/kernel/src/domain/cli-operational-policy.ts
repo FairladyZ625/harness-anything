@@ -187,7 +187,7 @@ export const daemonRuntimePolicy = {
   ownerRef: "host",
   unit: "concurrency / bytes / milliseconds / seconds / characters / cases / pass ratio",
   bounds:
-    "Local authentication probes retain their 5000/10000/15000/60000ms budgets and unsettled turns allow three continuations. Runtime batches default to two and cap at 32; provider diagnostics cap at 65536 bytes; resume admission and exit notification each wait at most 30000ms; process-table probes wait 10000ms; ACP cancellation waits 2000ms before SIGTERM. Health fallback cooldowns are 30/300 seconds with freezing after five failures for 1800 seconds. Runtime model slots cap at 64 globally and per owner; worktree-head probes wait 5000ms, GitHub credential probes 10000ms, handoff Git calls 30000ms, task publication 30000ms, worker pushes 60000ms and Windows process-group probes 15000ms. Shutdown waits 30000ms, drain rechecks every 1000ms and fleet drain caps at 1800000ms. Process exit probes poll every 25ms with 500ms termination grace; group sweeps stop after 80 attempts and force kill at attempt 40. Stream/first-record polling uses 250/10ms; auth file removal allows five retries separated by 20ms. Evidence captures 4MiB, prompts 128KiB, traces 512KiB, correlation values 256 characters, provider transcripts 16MiB and compressed frames 4096. Worker push diagnostics/history cap at 512 characters/1MiB. Model slot queues default to one, cap at 64, wait 1800000ms by default and at most 86400000ms. Outcome waiters recheck every 5000ms. The cloud dispatch relay caps bodies at 2097152/8388608 bytes, output at 32768 tokens, generations at 16 by default and 10000 maximum, reserves 2000000 micros for code runs, limits upstream concurrency to two and applies 600000/125000/10000ms upstream/request/header timeouts. Continuation summaries cap at 8192 characters. Terminal snapshots wait 4000ms, buffers retain 1048576/262144/262144 bytes, exit drain waits 5000ms, and activity persists every 10000ms. Skill evaluations default to a full-pass threshold, allow 20 cases with 64-character ids and 20000-character inputs, and admit two model runs.",
+    "Windows lock-holder probes wait 8000ms, recovery escalation 120000ms, workspace observations coalesce for 1000ms and handoffs expire after 86400000ms. Native print timeout remains 120m. Local model context reserves 4096 of 40960 tokens. Terminal dimensions default to 80x24 within 2..500 with 96 bytes frame accounting overhead. Evaluation bodies/names/markers cap at 100000/200/1000 characters, required-text lists at 100 entries of 1000 characters, runtime observation at 1000 polls and diagnostics at 200 characters. Correlation ID lists retain 64 entries. Local authentication probes retain their 5000/10000/15000/60000ms budgets and unsettled turns allow three continuations. Runtime batches default to two and cap at 32; provider diagnostics cap at 65536 bytes; resume admission and exit notification each wait at most 30000ms; process-table probes wait 10000ms; ACP cancellation waits 2000ms before SIGTERM. Health fallback cooldowns are 30/300 seconds with freezing after five failures for 1800 seconds. Runtime model slots cap at 64 globally and per owner; worktree-head probes wait 5000ms, GitHub credential probes 10000ms, handoff Git calls 30000ms, task publication 30000ms, worker pushes 60000ms and Windows process-group probes 15000ms. Shutdown waits 30000ms, drain rechecks every 1000ms and fleet drain caps at 1800000ms. Process exit probes poll every 25ms with 500ms termination grace; group sweeps stop after 80 attempts and force kill at attempt 40. Stream/first-record polling uses 250/10ms; auth file removal allows five retries separated by 20ms. Evidence captures 4MiB, prompts 128KiB, traces 512KiB, correlation values 256 characters, provider transcripts 16MiB and compressed frames 4096. Worker push diagnostics/history cap at 512 characters/1MiB. Model slot queues default to one, cap at 64, wait 1800000ms by default and at most 86400000ms. Outcome waiters recheck every 5000ms. The cloud dispatch relay caps bodies at 2097152/8388608 bytes, output at 32768 tokens, generations at 16 by default and 10000 maximum, reserves 2000000 micros for code runs, limits upstream concurrency to two and applies 600000/125000/10000ms upstream/request/header timeouts. Continuation summaries cap at 8192 characters. Terminal snapshots wait 4000ms, buffers retain 1048576/262144/262144 bytes, exit drain waits 5000ms, and activity persists every 10000ms. Skill evaluations default to a full-pass threshold, allow 20 cases with 64-character ids and 20000-character inputs, and admit two model runs.",
   defaultValue: {
     batch: { defaultConcurrency: 2, maximumConcurrency: 32 },
     process: {
@@ -201,6 +201,7 @@ export const daemonRuntimePolicy = {
       firstRecordPollMs: 10,
       groupSweepAttempts: 80,
       groupKillAttempt: 40,
+      lockHolderProbeTimeoutMs: 8_000,
       authFileRemovalRetries: 5,
       authFileRemovalRetryDelayMs: 20,
     },
@@ -213,6 +214,7 @@ export const daemonRuntimePolicy = {
       correlationValueLimit: 256,
       providerTranscriptLimitBytes: 16 * 1024 * 1024,
       maximumCompressedFrames: 4096,
+      correlationIdsLimit: 64,
     },
     health: {
       cooldownBaseSeconds: 30,
@@ -223,6 +225,11 @@ export const daemonRuntimePolicy = {
     runtime: {
       subscriptionProbeTimeoutMs: { status: 5_000, standard: 10_000, extended: 15_000, modelListing: 60_000 },
       unsettledTurnMaxContinuations: 3,
+      nativePrintTimeout: "120m",
+      recoveryStuckAfterMs: 2 * 60_000,
+      workspaceActivityIntervalMs: 1_000,
+      handoffLifetimeMs: 86_400_000,
+      localContextWindow: { nCtx: 40_960, outputReserve: 4_096 },
       modelSlots: {
         globalCapacity: 64,
         perOwnerCapacity: 64,
@@ -256,6 +263,11 @@ export const daemonRuntimePolicy = {
       },
     },
     terminal: {
+      defaultCols: 80,
+      defaultRows: 24,
+      minimumDimension: 2,
+      maximumDimension: 500,
+      frameOverheadBytes: 96,
       loginShellSnapshotTimeoutMs: 4_000,
       scrollbackLimit: 1024 * 1024,
       replayLimit: 256 * 1024,
@@ -264,6 +276,13 @@ export const daemonRuntimePolicy = {
       activityPersistIntervalMs: 10_000,
     },
     skillEvaluation: {
+      maxBodyLength: 100_000,
+      maxNameLength: 200,
+      maxUsageMarkerLength: 1_000,
+      maxRequiredTextCount: 100,
+      maxRequiredTextLength: 1_000,
+      maximumObservePolls: 1_000,
+      diagnosticLimit: 200,
       defaultThreshold: 1,
       maxCases: 20,
       maxCaseIdLength: 64,
@@ -283,6 +302,11 @@ export const daemonRuntimePolicy = {
   ],
   sources: [
     "policy:packages/daemon:packages/daemon/src/runtime-orchestration.ts#parseRuntimeBatchDeclaration:b06f120109c8d98943ee5b8e99057c75",
+    "policy:packages/daemon:packages/daemon/src/skill-eval-runner.ts#SkillEvalRunner.registerVersion:7e7ebd759f8ecdfda9d8d6ab38df11f8",
+    "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.process.lockHolderProbeTimeoutMs:77b91e44273526b6c04b93bc907986e5",
+    "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.evidence.correlationIdsLimit:a1ba24ea33dddbe9b9cd82641c90cb96",
+    "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.runtime.nativePrintTimeout:49d322be04f96999dccf813c2d07ec2c",
+    "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.skillEvaluation.diagnosticLimit:a222101bc7bfd2ba991fafeff9cfa773",
     "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs:f52061a2e1b86ea1aab17cc1d694d90a",
     "policy:packages/daemon:packages/daemon/src/runtime-spawn-active.ts#attachActiveRuntime.handlers.exit:55b839f8212dfbd3892f6308bc6806ca",
     "policy:packages/daemon:packages/daemon/src/runtime-spawn-active.ts#attachActiveRuntime.handlers.exit:fe4a3668aad8e018ebfe54fd4b0a87e1",

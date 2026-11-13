@@ -275,7 +275,7 @@ export class ModelSlotQueue {
   }
 }
 
-export const LOCAL_CONTEXT_WINDOW = Object.freeze({ nCtx: 40_960, outputReserve: 4_096 });
+export const LOCAL_CONTEXT_WINDOW = Object.freeze(daemonRuntimePolicy.defaultValue.runtime.localContextWindow);
 
 /** Conservative token estimate without requiring a provider-specific tokenizer. */
 export function estimateInputTokens(text: string): number {

@@ -1465,6 +1465,7 @@ test("daemon runtime Policy owns concrete defaults and consumers have no leaf bu
       firstRecordPollMs: 10,
       groupSweepAttempts: 80,
       groupKillAttempt: 40,
+      lockHolderProbeTimeoutMs: 8_000,
       authFileRemovalRetries: 5,
       authFileRemovalRetryDelayMs: 20,
     },
@@ -1477,11 +1478,17 @@ test("daemon runtime Policy owns concrete defaults and consumers have no leaf bu
       correlationValueLimit: 256,
       providerTranscriptLimitBytes: 16 * 1024 * 1024,
       maximumCompressedFrames: 4096,
+      correlationIdsLimit: 64,
     },
     health: { cooldownBaseSeconds: 30, cooldownMaxSeconds: 300, freezeAfter: 5, freezeDurationSeconds: 1_800 },
     runtime: {
       subscriptionProbeTimeoutMs: { status: 5_000, standard: 10_000, extended: 15_000, modelListing: 60_000 },
       unsettledTurnMaxContinuations: 3,
+      nativePrintTimeout: "120m",
+      recoveryStuckAfterMs: 2 * 60_000,
+      workspaceActivityIntervalMs: 1_000,
+      handoffLifetimeMs: 86_400_000,
+      localContextWindow: { nCtx: 40_960, outputReserve: 4_096 },
       modelSlots: {
         globalCapacity: 64,
         perOwnerCapacity: 64,
@@ -1515,6 +1522,11 @@ test("daemon runtime Policy owns concrete defaults and consumers have no leaf bu
       },
     },
     terminal: {
+      defaultCols: 80,
+      defaultRows: 24,
+      minimumDimension: 2,
+      maximumDimension: 500,
+      frameOverheadBytes: 96,
       loginShellSnapshotTimeoutMs: 4_000,
       scrollbackLimit: 1024 * 1024,
       replayLimit: 256 * 1024,
@@ -1523,6 +1535,13 @@ test("daemon runtime Policy owns concrete defaults and consumers have no leaf bu
       activityPersistIntervalMs: 10_000,
     },
     skillEvaluation: {
+      maxBodyLength: 100_000,
+      maxNameLength: 200,
+      maxUsageMarkerLength: 1_000,
+      maxRequiredTextCount: 100,
+      maxRequiredTextLength: 1_000,
+      maximumObservePolls: 1_000,
+      diagnosticLimit: 200,
       defaultThreshold: 1,
       maxCases: 20,
       maxCaseIdLength: 64,
@@ -1587,9 +1606,9 @@ test("daemon runtime Policy owns concrete defaults and consumers have no leaf bu
   assert.doesNotMatch(spawnLimits, /(?:64 \* 1024|30_000)/u, "the compatibility exports must not own defaults");
   const cloudRelay = readFileSync(path.join(repoRoot, "packages/daemon/src/runtime/cloud-dispatch-relay.ts"), "utf8");
   assert.doesNotMatch(cloudRelay, /(?:600_000|125_000|10_000|\?\? 2|> 10_000)/u, "the relay must not own budgets");
-  const daemonTarget = "packages/daemon/src/runtime.ts",
+  const daemonTarget = "packages/daemon/src/runtime-orchestration.ts",
     daemonSource = readFileSync(path.join(repoRoot, daemonTarget), "utf8"),
-    restoredLeaf = daemonSource.replace("daemonRuntimePolicy.defaultValue.daemon.shutdownDeadlineMs", "30_000");
+    restoredLeaf = daemonSource.replace("daemonRuntimePolicy.defaultValue.batch.defaultConcurrency", "2");
   assert.notEqual(restoredLeaf, daemonSource);
   assert.ok(
     audit(scanOntologyText(daemonTarget, restoredLeaf), { snapshot }).findings.some(

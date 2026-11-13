@@ -218,14 +218,24 @@ export class SkillEvalRunner {
       ) ||
       typeof input.body !== "string" ||
       !input.body.trim() ||
-      input.body.length > 100_000 ||
-      (input.name !== undefined && (typeof input.name !== "string" || !input.name.trim() || input.name.length > 200)) ||
+      input.body.length > daemonRuntimePolicy.defaultValue.skillEvaluation.maxBodyLength ||
+      (input.name !== undefined &&
+        (typeof input.name !== "string" ||
+          !input.name.trim() ||
+          input.name.length > daemonRuntimePolicy.defaultValue.skillEvaluation.maxNameLength)) ||
       (input.usageMarker !== undefined &&
-        (typeof input.usageMarker !== "string" || !input.usageMarker.trim() || input.usageMarker.length > 1_000)) ||
+        (typeof input.usageMarker !== "string" ||
+          !input.usageMarker.trim() ||
+          input.usageMarker.length > daemonRuntimePolicy.defaultValue.skillEvaluation.maxUsageMarkerLength)) ||
       (input.requiredText !== undefined &&
         (!Array.isArray(input.requiredText) ||
-          input.requiredText.length > 100 ||
-          input.requiredText.some((value) => typeof value !== "string" || !value.trim() || value.length > 1_000)))
+          input.requiredText.length > daemonRuntimePolicy.defaultValue.skillEvaluation.maxRequiredTextCount ||
+          input.requiredText.some(
+            (value) =>
+              typeof value !== "string" ||
+              !value.trim() ||
+              value.length > daemonRuntimePolicy.defaultValue.skillEvaluation.maxRequiredTextLength,
+          )))
     )
       throw skillEvalRunnerError("VALIDATION_ERROR", "skill version draft is invalid");
     const skill: SkillEvalSkill = {
@@ -364,14 +374,18 @@ export class SkillEvalRunner {
         binding,
       });
       let polls = 0;
-      while (observed.status === "running" && this.#runtime.observe && polls++ < 1_000)
+      while (
+        observed.status === "running" &&
+        this.#runtime.observe &&
+        polls++ < daemonRuntimePolicy.defaultValue.skillEvaluation.maximumObservePolls
+      )
         observed = await this.#runtime.observe(attemptId);
       if (observed.status === "running" && this.#runtime.stop) observed = await this.#runtime.stop(attemptId);
       runtimeStatus = observed.status;
       output = runtimeOutput(observed);
     } catch (error) {
       consumeKnownError(error);
-      runtimeStatus = `failed: ${errorText(error).slice(0, 200)}`;
+      runtimeStatus = `failed: ${errorText(error).slice(0, daemonRuntimePolicy.defaultValue.skillEvaluation.diagnosticLimit)}`;
     } finally {
       if (acquired) this.#options.queue!.release(attemptId);
     }

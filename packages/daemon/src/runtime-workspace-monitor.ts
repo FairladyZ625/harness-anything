@@ -1,3 +1,4 @@
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { statSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import { resolveHarnessLayout } from "@harness-anything/kernel/internal/layout/index.ts";
@@ -71,7 +72,7 @@ export function observeRuntimeWorkspace(
       pendingActivity = Date.now();
       noteActivity(pendingActivity);
     }
-    const remaining = lastEmittedAt + 1_000 - Date.now();
+    const remaining = lastEmittedAt + daemonRuntimePolicy.defaultValue.runtime.workspaceActivityIntervalMs - Date.now();
     if (remaining <= 0) flush();
     else if (!timer) {
       timer = setTimeout(flush, remaining);

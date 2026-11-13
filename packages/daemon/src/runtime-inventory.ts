@@ -520,7 +520,7 @@ export const runtimeKinds = [
         "--output-format",
         "stream-json",
         "--print-timeout",
-        "120m",
+        daemonRuntimePolicy.defaultValue.runtime.nativePrintTimeout,
         "--model",
         "$model",
         "$permission",

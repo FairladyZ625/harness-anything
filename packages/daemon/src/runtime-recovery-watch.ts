@@ -1,3 +1,4 @@
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import type { RuntimeRecoveryResult } from "./runtime-spawn-adoption.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "./runtime-spawn-errors.ts";
 
@@ -15,7 +16,7 @@ export interface StuckRuntimeRecovery extends RuntimeRecoveryFailure {
 }
 
 /** A transient failure clears on the next confirmed position; one that outlives this is an owner's problem. */
-export const RUNTIME_RECOVERY_STUCK_AFTER_MS = 2 * 60_000;
+export const RUNTIME_RECOVERY_STUCK_AFTER_MS = daemonRuntimePolicy.defaultValue.runtime.recoveryStuckAfterMs;
 
 /** The scan's failures as one error that names every failed runtime and its own error code. */
 export function runtimeRecoveryError(results: readonly RuntimeRecoveryResult[]): Error | null {

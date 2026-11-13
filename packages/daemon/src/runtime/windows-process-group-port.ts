@@ -146,7 +146,7 @@ export function observeWindowsProcessGroup(
     ),
     undefined,
     undefined,
-    15_000,
+    daemonRuntimePolicy.defaultValue.runtime.windowsProcessGroupTimeoutMs,
   );
   const value = JSON.parse(output) as WindowsGroupObservation;
   // External process output is decoded here; malformed/partial accounting cannot authorize release.
