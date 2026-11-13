@@ -143,57 +143,47 @@ export const schedulesClient = {
       throw new Error(rendererErrorHint(value, "Schedule runs bridge returned an invalid result."));
     return value as unknown as ScheduleRunsResult;
   },
-  create: (repoId: string, input: ScheduleDefinitionInput, idempotencyKey: string): Promise<ScheduleActionReceipt> =>
-    invokeSchedule("createSchedule", { repoId, ...input, idempotencyKey }),
-  update: (
+  create: async (
+    repoId: string,
+    input: ScheduleDefinitionInput,
+    idempotencyKey: string,
+  ): Promise<ScheduleActionReceipt> => {
+    const params = { repoId, ...input, idempotencyKey };
+    return parseScheduleReceipt(await invoke("repo.schedule.create", params, "createSchedule"));
+  },
+  update: async (
     repoId: string,
     input: ScheduleDefinitionInput | ScheduleBuiltinEditInput,
     idempotencyKey: string,
-  ): Promise<ScheduleActionReceipt> => invokeSchedule("updateSchedule", { repoId, ...input, idempotencyKey }),
-  delete: (
+  ): Promise<ScheduleActionReceipt> => {
+    const params = { repoId, ...input, idempotencyKey };
+    return parseScheduleReceipt(await invoke("repo.schedule.update", params, "updateSchedule"));
+  },
+  delete: async (
     repoId: string,
     scheduleId: string,
     idempotencyKey: string,
     reason?: string,
-  ): Promise<ScheduleActionReceipt> =>
-    invokeSchedule("deleteSchedule", { repoId, scheduleId, ...(reason ? { reason } : {}), idempotencyKey }),
-  enable: (repoId: string, scheduleId: string, idempotencyKey: string): Promise<ScheduleActionReceipt> =>
-    scheduleAction("enableSchedule", repoId, scheduleId, idempotencyKey),
-  disable: (repoId: string, scheduleId: string, idempotencyKey: string): Promise<ScheduleActionReceipt> =>
-    scheduleAction("disableSchedule", repoId, scheduleId, idempotencyKey),
-  runNow: (repoId: string, scheduleId: string, idempotencyKey: string): Promise<ScheduleActionReceipt> =>
-    scheduleAction("runScheduleNow", repoId, scheduleId, idempotencyKey),
+  ): Promise<ScheduleActionReceipt> => {
+    const params = { repoId, scheduleId, ...(reason ? { reason } : {}), idempotencyKey };
+    return parseScheduleReceipt(await invoke("repo.schedule.delete", params, "deleteSchedule"));
+  },
+  enable: async (repoId: string, scheduleId: string, idempotencyKey: string): Promise<ScheduleActionReceipt> => {
+    const params = { repoId, scheduleId, idempotencyKey };
+    return parseScheduleReceipt(await invoke("repo.schedule.enable", params, "enableSchedule"));
+  },
+  disable: async (repoId: string, scheduleId: string, idempotencyKey: string): Promise<ScheduleActionReceipt> => {
+    const params = { repoId, scheduleId, idempotencyKey };
+    return parseScheduleReceipt(await invoke("repo.schedule.disable", params, "disableSchedule"));
+  },
+  runNow: async (repoId: string, scheduleId: string, idempotencyKey: string): Promise<ScheduleActionReceipt> => {
+    const params = { repoId, scheduleId, idempotencyKey };
+    return parseScheduleReceipt(await invoke("repo.schedule.runNow", params, "runScheduleNow"));
+  },
 };
 
-async function scheduleAction(
-  method: "enableSchedule" | "disableSchedule" | "runScheduleNow",
-  repoId: string,
-  scheduleId: string,
-  idempotencyKey: string,
-): Promise<ScheduleActionReceipt> {
-  return invokeSchedule(method, { repoId, scheduleId, idempotencyKey });
-}
-
-async function invokeSchedule(
-  method:
-    | "createSchedule"
-    | "updateSchedule"
-    | "deleteSchedule"
-    | "enableSchedule"
-    | "disableSchedule"
-    | "runScheduleNow",
-  payload: Readonly<Record<string, unknown>>,
-): Promise<ScheduleActionReceipt> {
-  const methods = {
-      createSchedule: "repo.schedule.create",
-      updateSchedule: "repo.schedule.update",
-      deleteSchedule: "repo.schedule.delete",
-      enableSchedule: "repo.schedule.enable",
-      disableSchedule: "repo.schedule.disable",
-      runScheduleNow: "repo.schedule.runNow",
-    } as const,
-    value = await invoke(methods[method], payload as { readonly repoId: string }, method),
-    receipt = value as Readonly<Record<string, unknown>> & { readonly outcome: string };
+function parseScheduleReceipt(value: unknown): ScheduleActionReceipt {
+  const receipt = value as Readonly<Record<string, unknown>> & { readonly outcome: string };
   // A daemon rejection arrives as a resolved `ok:false` receipt, not a thrown error; it must
   // reach the caller's error path with the daemon's own explanation, never as a success receipt.
   if (receipt.ok !== true) throw new Error(receiptFailureText(receipt));

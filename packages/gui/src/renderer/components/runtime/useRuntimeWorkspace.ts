@@ -730,11 +730,13 @@ export function useProviderWorkspace(repoId: string, requestedInstanceId: string
     validateInstance: (instanceId: string) =>
       channel.run(t("agentRuntime.opAuthChecked"), () => runtimeInstanceClient.probe(instanceId, repoId)),
     authInstance: (instanceId: string, action: "login" | "logout") =>
-      channel.run(
-        t(action === "logout" ? "agentRuntime.opSignOut" : "agentRuntime.opSignIn"),
-        () => runtimeInstanceClient.auth(repoId, instanceId, action),
-        false,
-      ),
+      action === "logout"
+        ? channel.run(
+            t("agentRuntime.opSignOut"),
+            () => runtimeInstanceClient.auth(repoId, instanceId, "logout"),
+            false,
+          )
+        : channel.run(t("agentRuntime.opSignIn"), () => runtimeInstanceClient.auth(repoId, instanceId, "login"), false),
     selfTest,
   };
 }

@@ -7,7 +7,15 @@ import { bindArguments, isFunctionNode, makeEvaluator, unwrap } from "./authoriz
 import { scanOntologyText } from "./ontology-closure-scan.mjs";
 
 export const sourceFileOf = (source) => source.candidateId.split(":")[2].split("#")[0];
-export const sourceSite = (graph, node) => `${graph.fileOf(node)}:${node.getStart(node.getSourceFile())}:${node.end}`;
+import {
+  declaredPortKey,
+  guiCallbackCallerFiles,
+  guiClientSource,
+  resolvedGuiClientBindings,
+  returnExpressions,
+  sourceSite,
+} from "./authorization-gui-source-proof.mjs";
+export { guiCallbackCallerFiles, guiClientSource, resolvedGuiClientBindings, sourceSite };
 
 /** Identity and AST come from the same scanner as closure, never a second fingerprint. */
 export function sourceWitnesses(graph, sources) {
@@ -49,17 +57,6 @@ export function intrinsicSupport(graph, node) {
  * package-script action owns their caller-process effects only through typed ports or intrinsic
  * support (dec_7E44897ECDCAEF2B92EC66A260/CH1). Sources under packages/ keep the dist boundary. */
 export const rootToolingSource = (graph, node) => graph.fileOf(node).startsWith("tools/");
-
-function declaredPortKey(graph, node) {
-  const declaration = graph.callDeclaration(node);
-  if (!declaration) return null;
-  const names = [];
-  for (let current = declaration; current && !ts.isSourceFile(current); current = current.parent)
-    if (current.name && (ts.isIdentifier(current.name) || ts.isStringLiteralLike(current.name)))
-      names.unshift(current.name.text);
-  const file = graph.fileOf(declaration).replace(/^.*\/node_modules\//u, "node_modules/");
-  return `${file}#${names.join(".")}`;
-}
 
 const NON_CLIENT_COMMANDS = new Set(["git", "npm", "npx", "gh", "taskkill", "cat"]);
 const OFFLINE_READ_CLI_DESCRIPTORS = Object.freeze([
@@ -227,18 +224,6 @@ function cliEntryTarget(graph, expression, seen = new Set()) {
       return cliEntryTarget(graph, binding.declaration.initializer, seen);
   }
   return null;
-}
-
-function returnExpressions(declaration) {
-  const returns = [];
-  if (!declaration?.body) return returns;
-  if (!ts.isBlock(declaration.body)) return [declaration.body];
-  ts.forEachChild(declaration.body, function walk(node) {
-    if (isFunctionNode(node)) return;
-    if (ts.isReturnStatement(node) && node.expression) returns.push(node.expression);
-    ts.forEachChild(node, walk);
-  });
-  return returns;
 }
 
 function arrayElementsFromExpression(graph, expression, seen = new Set()) {
@@ -677,16 +662,53 @@ function clientPortReachesTransport(graph, declaration, seen = new Set()) {
   return reached;
 }
 
-/** A root tools/ script calling an authorized CLI or daemon action must bind its typed client port and command/kind. */
+/** Server descriptor routes whose AuthorizationPort dominance must hold for a client entry source. */
+export function clientEntryRequiredRoutes(graph, node, source, action, descriptors = []) {
+  if (!clientEntryEvidence(graph, node, source, action, descriptors) || action.executionClass === "repo-read")
+    return [];
+  if (guiClientSource(graph, node)) {
+    const resolved = resolvedGuiClientBindings(graph, node, descriptors);
+    return [...new Set(resolved.bindings.filter((b) => !b.isRead).map((b) => b.route))].sort();
+  }
+  return [source.route];
+}
+
+/** A root tools/ script or non-main GUI surface calling an authorized CLI/daemon action must bind its typed client port and action route. */
 export function clientEntryEvidence(graph, node, source, action, descriptors = []) {
-  if (
-    !source.port ||
-    source.role !== "client" ||
-    action.ontology?.technical ||
-    action.ontology?.authority ||
-    !rootToolingSource(graph, node)
-  )
-    return null;
+  if (!source.port || source.role !== "client" || action.ontology?.technical || action.ontology?.authority) return null;
+  if (guiClientSource(graph, node)) {
+    const declaration = graph.callDeclaration(node);
+    if (!declaration || declaredPortKey(graph, node) !== source.port) return null;
+    const resolved = resolvedGuiClientBindings(graph, node, descriptors);
+    if (!resolved.reachesDaemonTransport || resolved.hasUnprovenCallback || resolved.bindings.length === 0) return null;
+    if (resolved.bindings.length === 1) {
+      const binding = resolved.bindings[0];
+      if (binding.actionKind !== action.kind) return null;
+      if (action.executionClass === "repo-read") {
+        if (source.route !== binding.route && source.route !== action.kind) return null;
+      } else {
+        if (source.route !== binding.route) return null;
+        if (!descriptors.some((d) => d.id === source.route && (d.actionKind ?? d.id) === action.kind)) return null;
+      }
+      return [`typed GUI client port ${source.port} invokes ${source.route} (${action.kind})`];
+    }
+    if (!resolved.viaCallbackParam) return null;
+    if (action.executionClass === "repo-read") {
+      if (!resolved.bindings.every((b) => b.isRead && b.actionKind === action.kind)) return null;
+      if (!resolved.bindings.some((b) => b.route === source.route) && source.route !== action.kind) return null;
+    } else {
+      const nonReads = resolved.bindings.filter((b) => !b.isRead);
+      if (nonReads.length === 0) return null;
+      if (!nonReads.some((b) => b.actionKind === action.kind && b.route === source.route)) return null;
+      if (!nonReads.every((b) => descriptors.some((d) => d.id === b.route && (d.actionKind ?? d.id) === b.actionKind)))
+        return null;
+    }
+    const routeList = resolved.bindings.map((b) => b.route).join(", ");
+    return [
+      `typed GUI callback client port ${source.port} multiplexes [${routeList}] under ${source.route} (${action.kind})`,
+    ];
+  }
+  if (!rootToolingSource(graph, node)) return null;
   const declaration = graph.callDeclaration(node);
   if (!declaration || declaredPortKey(graph, node) !== source.port) return null;
   if (!clientPortReachesTransport(graph, declaration)) return null;
@@ -725,6 +747,11 @@ export function technicalPortEvidence(graph, node, source, action, descriptors =
     const resolved = resolvedCommandBindings(graph, node, descriptors);
     if (resolved.descriptors.length > 0 && !resolved.helpOnly) return null;
     if (resolved.targetsCliEntry && !resolved.helpOnly) return null;
+  }
+  // Business RPCs, daemon-forwarding IPC calls, and unproven callbacks in GUI cannot claim daemon-local-state.
+  if (guiClientSource(graph, node)) {
+    const resolved = resolvedGuiClientBindings(graph, node, descriptors);
+    if (resolved.bindings.length > 0 || resolved.reachesDaemonTransport || resolved.hasUnprovenCallback) return null;
   }
   return [
     `typed technical port ${source.port}; ${action.ontology.owner} owns the implementation, not remote authorization`,
