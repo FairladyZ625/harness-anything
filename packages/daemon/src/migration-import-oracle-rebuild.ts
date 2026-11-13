@@ -263,7 +263,7 @@ function rebuildEventOracle(sourceRoot: string, inspection: MigrationEventInspec
     );
   } finally {
     projection?.close();
-    /* @gate-identity state-store/legacy.ef127f14027bb02f */ rmSync(scratch, { recursive: true, force: true });
+    /* @gate-identity non-state/environment-io.ef127f14027bb02f */ rmSync(scratch, { recursive: true, force: true });
   }
 }
 
@@ -727,9 +727,11 @@ export function createMigrationPlanningWorkspace(sourceRoot: string): {
       ? realpathSync.native(sourceLayout.localRoot)
       : sourceLayout.localRoot,
     authoredRoot = resolveHarnessLayout(rootDir).authoredRoot;
-  /* @gate-identity state-store/legacy.6873cfbd268957bd */ mkdirSync(path.dirname(authoredRoot), { recursive: true });
+  /* @gate-identity non-state/environment-io.6873cfbd268957bd */ mkdirSync(path.dirname(authoredRoot), {
+    recursive: true,
+  });
   if (existsSync(sourceAuthoredRoot))
-    /* @gate-identity state-store/legacy.86fb0c028d105218 */ cpSync(
+    /* @gate-identity non-state/environment-io.86fb0c028d105218 */ cpSync(
       realpathSync.native(sourceAuthoredRoot),
       authoredRoot,
       {
@@ -738,11 +740,11 @@ export function createMigrationPlanningWorkspace(sourceRoot: string): {
         filter: (source) => path.basename(source) !== ".git" && source !== sourceLocalRoot,
       },
     );
-  else /* @gate-identity state-store/legacy.32dc7fc6cbd587cd */ mkdirSync(authoredRoot, { recursive: true });
+  else /* @gate-identity non-state/environment-io.32dc7fc6cbd587cd */ mkdirSync(authoredRoot, { recursive: true });
   // Layout discovery must remain confined to this fresh scratch workspace.
   const scratchConfig = path.join(authoredRoot, "harness.yaml");
   removeAuthored(scratchConfig);
-  /* @gate-identity state-store/legacy.e02399272b58363c */ writeFileSync(
+  /* @gate-identity non-state/environment-io.e02399272b58363c */ writeFileSync(
     scratchConfig,
     "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
   );
@@ -750,7 +752,7 @@ export function createMigrationPlanningWorkspace(sourceRoot: string): {
     rootDir,
     stage: (bundle) => stageAuthored(bundle, authoredRoot),
     close: () =>
-      /* @gate-identity state-store/legacy.c07c59eed7fad03a */ rmSync(rootDir, { recursive: true, force: true }),
+      /* @gate-identity non-state/environment-io.c07c59eed7fad03a */ rmSync(rootDir, { recursive: true, force: true }),
   };
 }
 
@@ -764,15 +766,15 @@ function stageAuthored(bundle: CanonicalWriteBundle, authoredRoot: string): void
     const body = blobs.get(claim.sha256);
     if (!body) throw migrationImportError("invalid_store", `staged document ${claim.path} has no content object`);
     const target = authoredPath(authoredRoot, claim.path);
-    /* @gate-identity state-store/legacy.70e4977de157f4d9 */ mkdirSync(path.dirname(target), { recursive: true });
+    /* @gate-identity non-state/environment-io.70e4977de157f4d9 */ mkdirSync(path.dirname(target), { recursive: true });
     removeAuthored(target);
     const symbolicLink =
       entity?.kind === "repo-document" &&
       entity.nodeKind === "symbolic-link" &&
       entity.documentClaim.path === claim.path;
     if (symbolicLink)
-      /* @gate-identity state-store/legacy.d019bd23ffa62061 */ symlinkSync(body.toString("utf8"), target);
-    else /* @gate-identity state-store/legacy.b548a080b558cfef */ writeFileSync(target, body);
+      /* @gate-identity non-state/environment-io.d019bd23ffa62061 */ symlinkSync(body.toString("utf8"), target);
+    else /* @gate-identity non-state/environment-io.b548a080b558cfef */ writeFileSync(target, body);
   }
 }
 
@@ -793,7 +795,7 @@ function authoredPath(root: string, relative: string): string {
 
 function removeAuthored(target: string): void {
   if (!existsSync(target) && !lstatExists(target)) return;
-  /* @gate-identity state-store/legacy.53b511126c97e1e8 */ rmSync(target, { recursive: true, force: true });
+  /* @gate-identity non-state/environment-io.53b511126c97e1e8 */ rmSync(target, { recursive: true, force: true });
 }
 
 function lstatExists(target: string): boolean {

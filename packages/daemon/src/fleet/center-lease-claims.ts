@@ -100,13 +100,13 @@ export function discardOwnedClaims(
         context.safeLocal(upload.repoId, "doc-sync-claims"),
         path.basename(upload.descriptor.ref),
       );
-      if (existsSync(claim)) /* @gate-identity state-store/legacy.3f0981f00a081dce */ unlinkSync(claim);
+      if (existsSync(claim)) /* @gate-identity state-store/document.fleet-claim-cleanup */ unlinkSync(claim);
     } catch (error) {
       consumeKnownError(error);
     }
     try {
       const part = context.uploadPath(uploadId, upload);
-      if (existsSync(part)) /* @gate-identity state-store/legacy.040f95285cd98df8 */ unlinkSync(part);
+      if (existsSync(part)) /* @gate-identity state-store/document.fleet-claim-cleanup */ unlinkSync(part);
     } catch (error) {
       consumeKnownError(error);
     }

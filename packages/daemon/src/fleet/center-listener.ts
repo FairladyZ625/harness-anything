@@ -104,7 +104,7 @@ function awaitWithSignal<T>(promise: Promise<T>, signal: AbortSignal): Promise<T
   });
 }
 export async function listenFleetTls(options: FleetCenterOptions): Promise<FleetTlsCenter> {
-  /* @gate-identity state-store/legacy.f4d8382218704581 */ mkdirSync(options.stateRoot, { recursive: true });
+  /* @gate-identity non-state/environment-io.f4d8382218704581 */ mkdirSync(options.stateRoot, { recursive: true });
   const closing = new AbortController();
   const nodeAdmission = createNodeRetirementAdmission();
   const deliveries = createFleetDeliveryDrain(options.onDeliverySettled);
@@ -369,7 +369,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   const backupCache = new Map<string, CachedBackup>();
   // Each backup owns a directory under replication-backups; none outlives the process that built it.
   const backupsRoot = path.join(options.stateRoot, "replication-backups");
-  /* @gate-identity state-store/legacy.22ed4ffe787ceb39 */ rmSync(backupsRoot, { recursive: true, force: true });
+  /* @gate-identity non-state/environment-io.22ed4ffe787ceb39 */ rmSync(backupsRoot, { recursive: true, force: true });
   const retireBackup = (repoId: string, cached: CachedBackup): void => {
     if (cached.retired) return;
     cached.retired = true;
@@ -377,7 +377,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     if (cached.building) cached.controller.abort();
     const cleanup = () => {
       cached.releaseRetention();
-      /* @gate-identity state-store/legacy.39e0ae0592525fc2 */ rmSync(cached.directory, {
+      /* @gate-identity non-state/environment-io.39e0ae0592525fc2 */ rmSync(cached.directory, {
         recursive: true,
         force: true,
       });
@@ -858,8 +858,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           };
         const file = uploadPath(uploadId, upload);
         if (!upload.descriptor) {
-          /* @gate-identity state-store/legacy.bb7589f490707ca5 */ mkdirSync(path.dirname(file), { recursive: true });
-          if (!existsSync(file)) /* @gate-identity state-store/legacy.333f0d78b849cffc */ writeFileSync(file, "");
+          /* @gate-identity state-store/document.fleet-upload-staging */ mkdirSync(path.dirname(file), {
+            recursive: true,
+          });
+          if (!existsSync(file)) /* @gate-identity state-store/document.fleet-upload-staging */ writeFileSync(file, "");
         }
         if (!upload.descriptor) window.uploads.add(uploadId);
         persist();
@@ -896,7 +898,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           if (!readFileWindow(file, frame.offset, bytes.length).equals(bytes))
             throw new FleetFault("upload_replay_mismatch", "Replayed chunk differs from durable bytes.");
         } else {
-          /* @gate-identity state-store/legacy.ae0842de8ed23187 */ appendFileSync(file, bytes);
+          /* @gate-identity state-store/document.fleet-upload-staging */ appendFileSync(file, bytes);
           syncFile(file);
         }
         return immediate({
@@ -935,9 +937,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
               true,
               bytes.byteLength,
             );
-          /* @gate-identity state-store/legacy.b29d2e456848826d */ mkdirSync(path.dirname(target), { recursive: true });
+          /* @gate-identity state-store/document.fleet-upload-staging */ mkdirSync(path.dirname(target), {
+            recursive: true,
+          });
           if (source !== target) {
-            /* @gate-identity state-store/legacy.8798db72aa9b1cf8 */ renameSync(source, target);
+            /* @gate-identity state-store/document.fleet-upload-staging */ renameSync(source, target);
             syncDirectory(path.dirname(source));
           }
           syncDirectory(path.dirname(target));

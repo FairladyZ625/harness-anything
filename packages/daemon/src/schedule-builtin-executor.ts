@@ -310,7 +310,7 @@ function existingSnapshotIsVerified(backupDir: string): boolean {
   try {
     readVerifiedLedgerBackup(backupDir);
   } catch {
-    /* @gate-identity state-store/legacy.acc11724f9341ee2 */ rmSync(backupDir, { recursive: true, force: true });
+    /* @gate-identity non-state/environment-io.acc11724f9341ee2 */ rmSync(backupDir, { recursive: true, force: true });
     return false;
   }
   return true;

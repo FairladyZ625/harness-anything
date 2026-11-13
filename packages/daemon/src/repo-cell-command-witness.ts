@@ -81,7 +81,7 @@ export async function collectCommandWitness(
         );
       scratch = mkdtempSync(path.join(tmpdir(), "ha-witness-code-"));
       codeRoot = path.join(scratch, "code");
-      /* @gate-identity state-store/legacy.fce35847c1d968e8 */ mkdirSync(codeRoot);
+      /* @gate-identity non-state/environment-io.fce35847c1d968e8 */ mkdirSync(codeRoot);
       const archive = path.join(scratch, "code.tar"),
         env = { PATH: globalThis.process.env.PATH, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_SYSTEM: devNull };
       await runProcessTextAsync(
@@ -170,6 +170,6 @@ export async function collectCommandWitness(
     };
   } finally {
     if (scratch)
-      /* @gate-identity state-store/legacy.8c352b21fa3e0324 */ rmSync(scratch, { recursive: true, force: true });
+      /* @gate-identity non-state/environment-io.8c352b21fa3e0324 */ rmSync(scratch, { recursive: true, force: true });
   }
 }
