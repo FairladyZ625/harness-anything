@@ -58,6 +58,7 @@ function sourceCopy(t) {
     }
   }
   symlinkSync(path.join(repoRoot, "node_modules"), path.join(dir, "node_modules"), "dir");
+  symlinkSync(path.join(repoRoot, "tools"), path.join(dir, "tools"), "dir");
   // The gate enumerates sources through git; the excludesFile pin keeps host ignores out.
   runGit(dir, ["init", "--quiet"]);
   runGit(dir, ["config", "core.excludesFile", "/dev/null"]);
