@@ -218,18 +218,19 @@ test("tools client entries bind business actions with transport + command proof 
   const pkgCaller = "packages/demo/scripts/client-demo.mjs";
   const body = [
     '/// <reference types="node" />',
-    'import { execFileSync } from "node:child_process";',
-    "function runCli(args) { return execFileSync('ha', args, { encoding: 'utf8' }); }",
-    "function sendRpc(payload) { return execFileSync('ha', ['rpc', JSON.stringify(payload)], { encoding: 'utf8' }); }",
-    "function noTransport(args) { return args.join(' '); }",
+    'import { execFileSync, spawn } from "node:child_process";',
+    "function run(args) { return execFileSync('ha', args, { encoding: 'utf8' }); }",
+    "class RpcClient { run(payload) { return execFileSync('ha', ['rpc', JSON.stringify(payload)]); } }",
+    "function invoke(args) { return args.join(' '); }",
     "export function main(taskId, runnerArgs) {",
-    '  const created = runCli(["--json", "task", "create", "title"]);',
+    "  const client = new RpcClient();",
+    '  const created = run(["--json", "task", "create", "title"]);',
     '  const runtimeArgs = ["runtime", "run", taskId];',
-    "  const dispatched = runCli(runtimeArgs);",
-    '  const installed = sendRpc({ kind: "agent-install", id: "coder" });',
-    '  const dynamic = execFileSync("node", runnerArgs);',
-    '  const decoupled = noTransport(["task", "create"]);',
-    "  return { created, dispatched, installed, dynamic, decoupled };",
+    "  const dispatched = run(runtimeArgs);",
+    '  const installed = client.run({ kind: "agent-install", id: "coder" });',
+    '  spawn("node", runnerArgs);',
+    '  const decoupled = invoke(["task", "create"]);',
+    "  return { created, dispatched, installed, decoupled };",
     "}",
   ].join("\n");
   const { rootDir } = makeRepo({
@@ -248,23 +249,23 @@ test("tools client entries bind business actions with transport + command proof 
   const nodes = witnessMap(tool);
   const pkgNodes = witnessMap(pkgCaller);
   const byCall = (list, fragment) => list.find((node) => node.getText().includes(fragment));
-  const createNode = byCall(nodes, 'runCli(["--json", "task", "create"');
-  const runtimeNode = byCall(nodes, "runCli(runtimeArgs)");
+  const createNode = byCall(nodes, '"task", "create"');
+  const runtimeNode = byCall(nodes, "run(runtimeArgs)");
   const installNode = byCall(nodes, 'kind: "agent-install"');
-  const dynamicNode = byCall(nodes, 'execFileSync("node", runnerArgs)');
-  const noTransportNode = byCall(nodes, 'noTransport(["task", "create"])');
-  const pkgCreateNode = byCall(pkgNodes, 'runCli(["--json", "task", "create"');
+  const dynamicNode = byCall(nodes, 'spawn("node", runnerArgs)');
+  const noTransportNode = byCall(nodes, 'invoke(["task", "create"])');
+  const pkgCreateNode = byCall(pkgNodes, '"task", "create"');
   assert.ok(createNode && runtimeNode && installNode && dynamicNode && noTransportNode && pkgCreateNode);
 
   const descriptors = [
-    { id: "task-create", cliPath: ["task", "create"] },
-    { id: "runtime-run", cliPath: ["runtime", "run"] },
+    { id: "task-create", path: ["task", "create"] },
+    { id: "runtime-run", path: ["runtime", "run"] },
     { id: "agent-install", actionKind: "agent-install" },
   ];
-  const runCliPort = `${tool}#runCli`;
-  const sendRpcPort = `${tool}#sendRpc`;
-  const noTransportPort = `${tool}#noTransport`;
-  const execFileSyncPort = "node_modules/@types/node/child_process.d.ts#child_process.execFileSync";
+  const runCliPort = `${tool}#run`;
+  const sendRpcPort = `${tool}#RpcClient.run`;
+  const noTransportPort = `${tool}#invoke`;
+  const spawnPort = "node_modules/@types/node/child_process.d.ts#child_process.spawn";
 
   const createAction = { kind: "task-create", executionClass: "repo-write", ontology: {} };
   const runtimeAction = { kind: "runtime-run", executionClass: "repo-write", ontology: {} };
@@ -366,7 +367,7 @@ test("tools client entries bind business actions with transport + command proof 
     technicalPortEvidence(
       graph,
       dynamicNode,
-      { role: "technical-port", route: "package-assets-build", port: execFileSyncPort },
+      { role: "technical-port", route: "package-assets-build", port: spawnPort },
       buildAction,
       descriptors,
     ),

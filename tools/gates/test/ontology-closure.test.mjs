@@ -957,14 +957,14 @@ test("tools baseline is permanently zero and new tool execution calls fail close
   }
 
   const businessCallText = [
-    'import { execFileSync } from "node:child_process";',
-    'export function deleteTask(id) { return execFileSync("ha", ["task", "delete", id]); }',
+    'import { spawn } from "node:child_process";',
+    'export function deleteTask(id) { spawn("ha", ["task", "delete", id]); }',
   ].join("\n");
   for (const target of ["tools/unregistered-business-call.mjs", "tools/scale/unregistered-business-call.mjs"]) {
     const undeclared = scanOntologyText(target, businessCallText);
     assert.deepEqual(
       undeclared.map(({ category, name }) => ({ category, name })),
-      [{ category: "action", name: "execFileSync" }],
+      [{ category: "action", name: "spawn" }],
       target,
     );
     assert.deepEqual(
