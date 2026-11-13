@@ -4,8 +4,20 @@ import type { Pool, PoolClient } from "pg";
 import { randomUUID } from "node:crypto";
 import { canonicalLedgerCut } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
 import { parseCanonicalEvent } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events.ts";
+import { isMigrationImportEvent } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
+import { documentNodeKind } from "../document-node-kind.ts";
+import {
+  canonicalDocumentClaims,
+  canonicalDocumentMode,
+  canonicalDocumentRetirements,
+} from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 import { canonicalEventEntityRefs } from "@harness-anything/kernel";
-import { withPostgresTransaction } from "../postgres/transaction.ts";
+import {
+  advanceConfirmedRepoCut,
+  resolveConfirmedRepoCut,
+  afterPostgresCommit,
+  withPostgresTransaction,
+} from "../postgres/transaction.ts";
 import { updateDocumentHeads, type PostgresEventStoreScope } from "../postgres/pg-event-store.ts";
 import { createPgTaskProjectionSource } from "../pg/pg-task-source.ts";
 import { rebuildPgProjection } from "../pg/pg-task-event-materialize.ts";
@@ -93,10 +105,12 @@ export async function openPgMigrationEndpoint(input: {
         const data = await withPostgresTransaction(
           reader,
           async (client) => {
+            const confirmed = await resolveConfirmedRepoCut(client, tupleScope, repoId);
+            if (!confirmed) throw new StorageMigrationError("storage_migration_conflict", "repository head is missing");
             const rows = (
                 await client.query<Record<string, unknown>>(
-                  "SELECT *, COALESCE(recorded_at_text,to_char(recorded_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')) AS stamp FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 ORDER BY revision",
-                  tupleKey,
+                  "SELECT *, COALESCE(recorded_at_text,to_char(recorded_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')) AS stamp FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND revision<=$4 ORDER BY revision",
+                  [...tupleKey, confirmed.confirmedRevision],
                 )
               ).rows,
               events = rows.map((row) => ({
@@ -111,8 +125,8 @@ export async function openPgMigrationEndpoint(input: {
               })),
               outcomes = (
                 await client.query<Record<string, unknown>>(
-                  "SELECT *, COALESCE(recorded_at_text,to_char(recorded_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')) AS stamp FROM ha_command_outcomes WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 ORDER BY op_id",
-                  tupleKey,
+                  "SELECT *, COALESCE(recorded_at_text,to_char(recorded_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')) AS stamp FROM ha_command_outcomes WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND replication_sequence IS NOT NULL AND replication_sequence<=$4 ORDER BY op_id",
+                  [...tupleKey, confirmed.confirmedSequence],
                 )
               ).rows
                 .map((row) => ({
@@ -160,43 +174,47 @@ export async function openPgMigrationEndpoint(input: {
                 : null,
             );
             assertMigrationValue(
-              Number(persisted.revision),
+              confirmed.confirmedRevision,
               derived.revision,
               "PostgreSQL persisted head revision differs",
             );
-            if (derived.revision > 0)
+            if (derived.revision > 0 && Number(persisted.revision) === confirmed.confirmedRevision)
               assertMigrationValue(
                 persisted.head_digest,
                 derived.headDigest,
                 "PostgreSQL persisted headDigest differs",
               );
-            const documentHeads = (
-              await client.query<{
-                path: string;
-                sha256: string | null;
-                size: string | null;
-                node_kind: string | null;
-                revision: string;
-                readers: string[];
-                policy_epoch: string;
-              }>(
-                "SELECT * FROM ha_document_heads WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 ORDER BY path",
-                tupleKey,
-              )
-            ).rows
-              .map((row) => ({
-                path: row.path,
-                sha256: row.sha256,
-                size: row.size == null ? null : Number(row.size),
-                nodeKind: row.node_kind,
-                revision: Number(row.revision),
-                readers: row.readers,
-                policyEpoch: Number(row.policy_epoch),
-              }))
-              .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+            const documentHeads = new Map<string, MigrationTuple["documentHeads"][number]>();
+            for (const row of events) {
+              const event = parseCanonicalEvent(row.eventJson);
+              for (const claim of canonicalDocumentClaims(event))
+                documentHeads.set(claim.path, {
+                  path: claim.path,
+                  sha256: claim.sha256,
+                  size: claim.size,
+                  nodeKind: documentNodeKind(
+                    isMigrationImportEvent(event) ? canonicalDocumentMode(event, claim.path) : "100644",
+                  ),
+                  revision: row.revision,
+                  readers: row.readers,
+                  policyEpoch: row.policyEpoch,
+                });
+              for (const { path } of canonicalDocumentRetirements(event))
+                documentHeads.set(path, {
+                  path,
+                  sha256: null,
+                  size: null,
+                  nodeKind: null,
+                  revision: row.revision,
+                  readers: row.readers,
+                  policyEpoch: row.policyEpoch,
+                });
+            }
             return {
               scope: tupleScope,
-              documentHeads,
+              documentHeads: [...documentHeads.values()].sort((a, b) =>
+                a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
+              ),
               events,
               outcomes,
               blobs,
@@ -363,7 +381,7 @@ export async function openPgMigrationEndpoint(input: {
             }
             for (const o of tuple.outcomes)
               await client.query(
-                "INSERT INTO ha_command_outcomes(tenant_id,project_id,repo_id,op_id,status,first_revision,last_revision,intent_digest,intent_summary,rejection_code,recorded_at,member_op_ids,readers,policy_epoch,recorded_at_text) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::text::timestamptz,$12,$13,$14,$11::text) ON CONFLICT DO NOTHING",
+                "INSERT INTO ha_command_outcomes(tenant_id,project_id,repo_id,op_id,status,first_revision,last_revision,intent_digest,intent_summary,rejection_code,recorded_at,member_op_ids,readers,policy_epoch,recorded_at_text,replication_sequence) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::text::timestamptz,$12,$13,$14,$11::text,0) ON CONFLICT DO NOTHING",
                 [
                   ...k,
                   o.opId,
@@ -379,7 +397,9 @@ export async function openPgMigrationEndpoint(input: {
                   o.policyEpoch,
                 ],
               );
-            const last = tuple.events.at(-1);
+            const last = tuple.events.at(-1),
+              history = randomUUID();
+            await client.query("SET LOCAL synchronous_commit = on");
             await client.query(
               "UPDATE ha_repo_heads SET revision=$4,head_op_id=$5,head_event_digest=$6,head_digest=$7,replication_history=$8 WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3",
               [
@@ -388,8 +408,15 @@ export async function openPgMigrationEndpoint(input: {
                 last?.opId ?? null,
                 last?.digest ?? null,
                 last ? tuple.cut.headDigest : null,
-                randomUUID(),
+                history,
               ],
+            );
+            afterPostgresCommit(client, () =>
+              advanceConfirmedRepoCut(client, s, repoId, {
+                history,
+                confirmedRevision: tuple.cut.revision,
+                confirmedSequence: 0,
+              }),
             );
             await rebuildPgProjection(client, s, {
               events: tuple.events.map((row) => parseCanonicalEvent(row.eventJson)),

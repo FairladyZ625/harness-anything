@@ -13,6 +13,7 @@ export async function pgRuntimeFixture() {
     await fixture.adminPool.query(`CREATE ROLE "${roles.schemaOwner}" ${roleAttributes.schemaOwner}`);
     await fixture.adminPool.query(`CREATE ROLE "${roles.runtime}" ${roleAttributes.runtime} PASSWORD '${password}'`);
     await fixture.adminPool.query(`CREATE ROLE "${roles.migration}" ${roleAttributes.migration}`);
+    await fixture.adminPool.query(`GRANT pg_read_all_stats TO "${roles.schemaOwner}" WITH INHERIT TRUE`);
     await fixture.adminPool.query(`GRANT CREATE ON SCHEMA public TO "${roles.schemaOwner}"`);
     await fixture.adminPool.query(`SET ROLE "${roles.schemaOwner}"`);
     try {

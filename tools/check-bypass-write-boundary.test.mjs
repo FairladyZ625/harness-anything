@@ -55,6 +55,38 @@ test("classifies PostgreSQL DDL separately from SQLite helper tables", () => {
   }
 });
 
+test("classifies UNLOGGED PostgreSQL tables and enforces their aggregate ownership", () => {
+  const relativePath = "packages/storage/src/postgres/demo-schema.ts",
+    root = fixture("`CREATE UNLOGGED TABLE IF NOT EXISTS ha_demo (id text)`;", relativePath);
+  try {
+    const unowned = checkBypassWriteBoundary(root, { contracts: [], baseline: [] });
+    assert.ok(unowned.violations.some(({ table }) => table === "ha_demo"));
+    writeFileSync(
+      path.join(root, relativePath),
+      "/* @gate-identity state-store/demo.pg */ `CREATE UNLOGGED TABLE IF NOT EXISTS ha_demo (id text)`;",
+    );
+    const result = checkBypassWriteBoundary(root, {
+      contracts: [
+        {
+          kind: "demo",
+          stateStores: [
+            authority("demo.pg", {
+              kind: "postgres-database",
+              module: relativePath,
+              tables: ["ha_demo"],
+            }),
+          ],
+        },
+      ],
+      baseline: [],
+    });
+    assert.equal(result.findings.filter(({ table }) => table === "ha_demo").length, 1);
+    assert.deepEqual(result.violations, []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 const authority = (id, medium) => ({
   id,
   role: "authority",

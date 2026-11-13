@@ -25,7 +25,13 @@ import {
   canonicalLedgerCut,
   validateCanonicalWriteBundle,
 } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
-import { withPostgresTransaction } from "./transaction.ts";
+import {
+  afterPostgresCommit,
+  withPostgresTransaction,
+  advanceConfirmedRepoCut,
+  resolveConfirmedRepoCut,
+  type ConfirmedRepoCut,
+} from "./transaction.ts";
 import {
   assertAuthorizedReplacements,
   requiresReplacementAuthorization,
@@ -41,6 +47,14 @@ import {
 import type { PostgresEventStoreScope } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
 export type { PostgresEventStoreScope } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
 export interface PostgresAppendHooks {
+  readonly onSyncRepInterrupted?: (notice: {
+    readonly repoId: string;
+    readonly opId: string;
+    readonly code?: string;
+    readonly routine?: string;
+    readonly file?: string;
+    readonly message?: string;
+  }) => void;
   /** A4 may supply live authored bytes. Without a worktree, only canonical document bases are available. */
   readonly readAuthoredDocument?: (path: string) => DocumentNode | null | Promise<DocumentNode | null>;
   /** A3 updates its projection and watermark using this same transaction/client. Never commit here. */
@@ -75,6 +89,8 @@ export async function executePostgresRead(
   return withPostgresTransaction(
     pool,
     async (client) => {
+      const repoId = (payload as { repoId?: string }).repoId,
+        cut = repoId === undefined ? null : await resolveConfirmedRepoCut(client, scope, repoId);
       switch (operation) {
         case "stream":
         case "batch": {
@@ -84,16 +100,10 @@ export async function executePostgresRead(
           const rows = operation === "batch" ? limit! : storageReadPolicy.defaultValue.minimumRows;
           if (!validateStorageReadWindow(rows, undefined, after))
             throw new TaskEventStoreError("invalid_store", "event batch cursor or size is invalid");
-          const head = (
-              await client.query<{ revision: string }>(
-                "SELECT revision FROM ha_repo_heads WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3",
-                [scope.tenantId, scope.projectId, input.repoId],
-              )
-            ).rows[0],
-            sourceRevision = Number(head?.revision ?? 0),
-            events = (await readEvents(client, scope, { repoId: input.repoId, afterRevision: after, limit })).map(
-              (body) => JSON.parse(body) as CanonicalEventV1,
-            ),
+          const sourceRevision = cut?.confirmedRevision ?? 0,
+            events = (
+              await readEvents(client, scope, { repoId: input.repoId, afterRevision: after, limit }, sourceRevision)
+            ).map((body) => JSON.parse(body) as CanonicalEventV1),
             next = events.at(-1)?.workspaceRevision ?? after;
           return operation === "stream"
             ? { schema: "canonical-event-stream/v1", revision: sourceRevision, events }
@@ -106,20 +116,13 @@ export async function executePostgresRead(
               };
         }
         case "head":
-          return (
-            (
-              await client.query<HeadRow>(
-                "SELECT revision, head_op_id, head_event_digest, head_digest, writer_holder_id, writer_epoch, replication_history FROM ha_repo_heads WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3",
-                [scope.tenantId, scope.projectId, (payload as { repoId: string }).repoId],
-              )
-            ).rows[0] ?? null
-          );
+          return readConfirmedHead(client, scope, repoId!, cut);
         case "events":
-          return readEvents(client, scope, payload as ReadEventsPayload);
+          return readEvents(client, scope, payload as ReadEventsPayload, cut?.confirmedRevision ?? 0);
         case "event":
-          return readEvent(client, scope, payload as ReadEventPayload);
+          return readEvent(client, scope, payload as ReadEventPayload, cut?.confirmedRevision ?? 0);
         case "outcome":
-          return readOutcome(client, scope, payload as ReadOutcomePayload);
+          return readOutcome(client, scope, payload as ReadOutcomePayload, cut?.confirmedSequence ?? 0);
         case "content-blob":
           return readContentBlob(client, scope, payload as ReadContentBlobPayload);
         case "content-blob-range":
@@ -187,11 +190,26 @@ export async function executePostgresAppend(
     fence = input.writerFence;
   if (!fence || fence.repoId !== repoId || !fence.holderId || !Number.isSafeInteger(fence.epoch) || fence.epoch < 1)
     throw new TaskEventStoreError("revision_conflict", "writer epoch fence does not match the PostgreSQL repository");
+  // Serialize and validate immutable input before entering the repository lock.
+  const prepared = input.bundle ? prepareBundle(input.bundle, repoId) : null,
+    events = prepared?.events ?? [],
+    blobs = prepared?.blobs ?? [],
+    claims = prepared?.claims ?? [],
+    opId = input.bundle?.event.opId ?? input.rejection!.opId,
+    intentDigest = prepared?.intentDigest ?? input.rejection!.intentDigest,
+    summary = input.bundle?.event.type ?? input.rejection!.summary,
+    rejectionCode = input.rejection?.rejectionCode,
+    genesisHeadDigest = canonicalLedgerCut(repoId, null).headDigest;
+
   let committing = false;
   return withPostgresTransaction(
     pool,
     async (client) => {
       signal?.throwIfAborted();
+      await client.query("SET LOCAL synchronous_commit = on");
+      await client.query("SET LOCAL statement_timeout = 0");
+      const prior = await readOutcome(client, scope, { repoId, opId });
+      if (prior) return replayOutcome(client, scope, repoId, prior, intentDigest);
       await client.query(
         `INSERT INTO ha_repo_heads (tenant_id, project_id, repo_id, revision, readers, policy_epoch)
            VALUES ($1,$2,$3,0,$4,$5) ON CONFLICT (tenant_id,project_id,repo_id) DO NOTHING`,
@@ -213,30 +231,8 @@ export async function executePostgresAppend(
           "storage_migration_read_only: recover the persisted migration before writing",
         );
 
-      // Validate the full declaration under the same lock as revision admission and every write.
-      const prepared = input.bundle ? prepareBundle(input.bundle, repoId) : null,
-        events = prepared?.events ?? [],
-        blobs = prepared?.blobs ?? [],
-        claims = prepared?.claims ?? [],
-        opId = input.bundle?.event.opId ?? input.rejection!.opId,
-        intentDigest = prepared?.intentDigest ?? input.rejection!.intentDigest,
-        summary = input.bundle?.event.type ?? input.rejection!.summary,
-        rejectionCode = input.rejection?.rejectionCode,
-        genesisHeadDigest = canonicalLedgerCut(repoId, null).headDigest;
-
-      const previous = (
-        await client.query<OutcomeRow>(
-          `SELECT op_id, status, first_revision, last_revision, intent_digest, intent_summary, rejection_code,
-                  to_char(recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS recorded_at, member_op_ids
-           FROM ha_command_outcomes WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND op_id=$4`,
-          [scope.tenantId, scope.projectId, repoId, opId],
-        )
-      ).rows[0];
-      if (previous) {
-        if (previous.intent_digest !== intentDigest)
-          throw new TaskEventStoreError("op_conflict", `opId ${opId} already names another command intent`);
-        return { outcome: previous, head: locked, replicationSequence: null, replayed: true };
-      }
+      const previous = await readOutcome(client, scope, { repoId, opId });
+      if (previous) return replayOutcome(client, scope, repoId, previous, intentDigest);
 
       const currentEpoch = Number(locked.writer_epoch);
       if (fence.epoch < currentEpoch)
@@ -341,44 +337,6 @@ export async function executePostgresAppend(
           scope.policyEpoch,
         ],
       );
-      const outcome = {
-        op_id: opId,
-        status: rejectionCode === undefined ? "accepted_durable" : "rejected",
-        first_revision: finalEvent ? events[0]!.revision : null,
-        last_revision: finalEvent ? finalEvent.revision : null,
-        intent_digest: intentDigest,
-        intent_summary: summary,
-        rejection_code: rejectionCode ?? null,
-        recorded_at: recordedAt,
-        member_op_ids: events.map(({ opId }) => opId),
-      } satisfies OutcomeRow;
-      await client.query(
-        `INSERT INTO ha_command_outcomes
-            (tenant_id,project_id,repo_id,op_id,status,first_revision,last_revision,intent_digest,intent_summary,
-             rejection_code,recorded_at,member_op_ids,readers,policy_epoch)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
-        [
-          scope.tenantId,
-          scope.projectId,
-          repoId,
-          outcome.op_id,
-          outcome.status,
-          outcome.first_revision,
-          outcome.last_revision,
-          outcome.intent_digest,
-          outcome.intent_summary,
-          outcome.rejection_code,
-          recordedAt,
-          outcome.member_op_ids,
-          scope.readers,
-          scope.policyEpoch,
-        ],
-      );
-      await hooks.project?.(client, {
-        revision,
-        events: events.map(({ eventJson }) => JSON.parse(eventJson) as CanonicalEventV1),
-      });
-      signal?.throwIfAborted();
       const position = (
         await client.query<{ readonly sequence: string }>(
           `INSERT INTO ha_replication_positions
@@ -401,6 +359,46 @@ export async function executePostgresAppend(
           ],
         )
       ).rows[0]!;
+      const outcome = {
+        op_id: opId,
+        replication_sequence: position.sequence,
+        status: rejectionCode === undefined ? "accepted_durable" : "rejected",
+        first_revision: finalEvent ? events[0]!.revision : null,
+        last_revision: finalEvent ? finalEvent.revision : null,
+        intent_digest: intentDigest,
+        intent_summary: summary,
+        rejection_code: rejectionCode ?? null,
+        recorded_at: recordedAt,
+        member_op_ids: events.map(({ opId }) => opId),
+      } satisfies OutcomeRow;
+      await client.query(
+        `INSERT INTO ha_command_outcomes
+            (tenant_id,project_id,repo_id,op_id,status,first_revision,last_revision,intent_digest,intent_summary,
+             rejection_code,recorded_at,member_op_ids,readers,policy_epoch,replication_sequence)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+        [
+          scope.tenantId,
+          scope.projectId,
+          repoId,
+          outcome.op_id,
+          outcome.status,
+          outcome.first_revision,
+          outcome.last_revision,
+          outcome.intent_digest,
+          outcome.intent_summary,
+          outcome.rejection_code,
+          recordedAt,
+          outcome.member_op_ids,
+          scope.readers,
+          scope.policyEpoch,
+          position.sequence,
+        ],
+      );
+      await hooks.project?.(client, {
+        revision,
+        events: events.map(({ eventJson }) => JSON.parse(eventJson) as CanonicalEventV1),
+      });
+      signal?.throwIfAborted();
       await client.query("SELECT pg_notify('ha_event_ledger_changed', $1)", [
         JSON.stringify({
           tenantId: scope.tenantId,
@@ -413,6 +411,13 @@ export async function executePostgresAppend(
         }),
       ]);
       signal?.throwIfAborted();
+      afterPostgresCommit(client, () =>
+        advanceConfirmedRepoCut(client, scope, repoId, {
+          history: locked.replication_history,
+          confirmedRevision: revision,
+          confirmedSequence: Number(position.sequence),
+        }),
+      );
       committing = true;
       return {
         outcome,
@@ -430,6 +435,10 @@ export async function executePostgresAppend(
       };
     },
     scope,
+    {
+      rollbackOnly: (result) => result.replayed,
+      onSyncRepInterrupted: (notice) => hooks.onSyncRepInterrupted?.({ ...notice, repoId, opId }),
+    },
   ).catch((error: unknown) => {
     if (committing)
       throw Object.assign(
@@ -553,6 +562,7 @@ export interface HeadRow {
   readonly replication_history: string;
 }
 export interface OutcomeRow {
+  readonly replication_sequence: string | null;
   readonly op_id: string;
   readonly status: Extract<(typeof receiptAcceptanceStatuses)[number], "accepted_durable" | "rejected">;
   readonly first_revision: string | number | null;
@@ -564,9 +574,77 @@ export interface OutcomeRow {
   readonly member_op_ids: readonly string[];
 }
 
-async function readEvents(client: PoolClient, scope: PostgresEventStoreScope, input: ReadEventsPayload) {
-  const clauses = ["tenant_id=$1", "project_id=$2", "repo_id=$3"],
-    values: unknown[] = [scope.tenantId, scope.projectId, input.repoId];
+async function replayOutcome(
+  client: PoolClient,
+  scope: PostgresEventStoreScope,
+  repoId: string,
+  previous: OutcomeRow,
+  intentDigest: string,
+): Promise<PostgresAppendResult> {
+  const cut = await resolveConfirmedRepoCut(client, scope, repoId);
+  if (!cut || previous.replication_sequence === null || Number(previous.replication_sequence) > cut.confirmedSequence)
+    throw new TaskEventStoreError(
+      "publication_indeterminate",
+      "PostgreSQL operation has no synchronous replication proof",
+    );
+  if (previous.intent_digest !== intentDigest)
+    throw new TaskEventStoreError("op_conflict", `opId ${previous.op_id} already names another command intent`);
+  return {
+    outcome: previous,
+    head: (await readConfirmedHead(client, scope, repoId, cut))!,
+    replicationSequence: null,
+    replayed: true,
+  };
+}
+
+async function readConfirmedHead(
+  client: PoolClient,
+  scope: PostgresEventStoreScope,
+  repoId: string,
+  cut: ConfirmedRepoCut | null,
+): Promise<HeadRow | null> {
+  if (!cut) return null;
+  const row = (
+    await client.query<HeadRow>(
+      `SELECT revision,head_op_id,head_event_digest,head_digest,writer_holder_id,writer_epoch,replication_history
+     FROM ha_repo_heads WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3`,
+      [scope.tenantId, scope.projectId, repoId],
+    )
+  ).rows[0]!;
+  if (Number(row.revision) <= cut.confirmedRevision) return row;
+  const event = (
+    await client.query<{ op_id: string; event_digest: `sha256:${string}` }>(
+      "SELECT op_id,event_digest FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND revision=$4",
+      [scope.tenantId, scope.projectId, repoId, cut.confirmedRevision],
+    )
+  ).rows[0];
+  const confirmed = canonicalLedgerCut(
+    repoId,
+    event
+      ? {
+          revision: cut.confirmedRevision,
+          opId: event.op_id,
+          eventDigest: event.event_digest,
+        }
+      : null,
+  );
+  return {
+    ...row,
+    revision: cut.confirmedRevision,
+    head_op_id: event?.op_id ?? null,
+    head_event_digest: event?.event_digest ?? null,
+    head_digest: event ? confirmed.headDigest : null,
+  };
+}
+
+async function readEvents(
+  client: PoolClient,
+  scope: PostgresEventStoreScope,
+  input: ReadEventsPayload,
+  through: number,
+) {
+  const clauses = ["tenant_id=$1", "project_id=$2", "repo_id=$3", "revision<=$4"],
+    values: unknown[] = [scope.tenantId, scope.projectId, input.repoId, through];
   const add = (clause: string, value: unknown) => {
     values.push(value);
     clauses.push(clause.replace("?", `$${values.length}`));
@@ -607,27 +685,32 @@ async function readEvents(client: PoolClient, scope: PostgresEventStoreScope, in
   return result.rows.map(({ event_json }) => event_json);
 }
 
-async function readEvent(client: PoolClient, scope: PostgresEventStoreScope, input: ReadEventPayload) {
+async function readEvent(client: PoolClient, scope: PostgresEventStoreScope, input: ReadEventPayload, through: number) {
   const columns = { op_id: "op_id", event_id: "event_id", revision: "revision" } as const,
     column = columns[input.key];
   if (!column) throw new TaskEventStoreError("invalid_store", "event lookup key is invalid");
   const row = (
     await client.query<{ readonly event_json: string }>(
-      `SELECT event_json FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND ${column}=$4 ORDER BY revision LIMIT 1`,
-      [scope.tenantId, scope.projectId, input.repoId, input.value],
+      `SELECT event_json FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND ${column}=$4 AND revision<=$5 ORDER BY revision LIMIT 1`,
+      [scope.tenantId, scope.projectId, input.repoId, input.value, through],
     )
   ).rows[0];
   return row?.event_json ?? null;
 }
 
-async function readOutcome(client: PoolClient, scope: PostgresEventStoreScope, input: ReadOutcomePayload) {
+async function readOutcome(
+  client: PoolClient,
+  scope: PostgresEventStoreScope,
+  input: ReadOutcomePayload,
+  through?: number,
+) {
   const row = (
     await client.query<OutcomeRow>(
-      `SELECT op_id,status,first_revision,last_revision,intent_digest,intent_summary,rejection_code,
+      `SELECT op_id,status,first_revision,last_revision,intent_digest,intent_summary,rejection_code,replication_sequence,
             to_char(recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS recorded_at,member_op_ids
      FROM ha_command_outcomes WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3
-       AND (op_id=$4 OR member_op_ids @> ARRAY[$4]::text[]) ORDER BY recorded_at LIMIT 1`,
-      [scope.tenantId, scope.projectId, input.repoId, input.opId],
+       AND ${through === undefined ? "op_id=$4" : "(op_id=$4 OR member_op_ids @> ARRAY[$4]::text[]) AND replication_sequence IS NOT NULL AND replication_sequence<=$5"} ORDER BY recorded_at LIMIT 1`,
+      [scope.tenantId, scope.projectId, input.repoId, input.opId, ...(through === undefined ? [] : [through])],
     )
   ).rows[0];
   return row ?? null;
