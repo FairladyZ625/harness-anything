@@ -1166,3 +1166,93 @@ test("GUI source-proof resolves omitted optional callbacks, concrete class metho
     ),
   );
 });
+
+test("all 197 live non-main GUI client sources and 110 daemon-local-state sources pass source proof and reject local evasion", async () => {
+  const { loadAuthorizationInputs } = await import("../ontology-durable-action-authorization.mjs");
+  const {
+    clientEntryEvidence,
+    clientEntryRequiredRoutes,
+    guiCallbackCallerFiles,
+    resolvedGuiClientBindings,
+    technicalPortEvidence,
+  } = await import("../authorization-source-proof.mjs");
+  const inputs = await loadAuthorizationInputs(repoRoot);
+  const isNonMainGui = (candidateId) =>
+    candidateId.startsWith("action:packages/gui:") &&
+    !candidateId.startsWith("action:packages/gui:packages/gui/src/main/");
+
+  const guiClientPairs = inputs.constants.actionDeclarations.flatMap((action) =>
+    (action.ontology?.sources ?? [])
+      .filter((source) => source.role === "client" && isNonMainGui(source.candidateId))
+      .map((source) => ({ action, source })),
+  );
+  const localState = inputs.constants.actionDeclarations.find((action) => action.kind === "daemon-local-state");
+  const guiLocalSources = (localState?.ontology?.sources ?? []).filter((source) => isNonMainGui(source.candidateId));
+  assert.equal(guiClientPairs.length, 197);
+  assert.equal(new Set(guiClientPairs.map(({ action }) => action.kind)).size, 78);
+  assert.equal(guiLocalSources.length, 110);
+
+  const allSources = [...guiClientPairs.map(({ source }) => source), ...guiLocalSources];
+  const sourceFiles = [...new Set(allSources.map((s) => s.candidateId.split(":")[2].split("#")[0]))];
+  const lexicalFiles = guiCallbackCallerFiles(
+    repoRoot,
+    sourceFiles.filter((f) => /^packages\/gui\/src\/(?:renderer|preload|browser)\//u.test(f)),
+  );
+  const graph = buildFlowGraph(repoRoot, { sourceFiles, lexicalFiles });
+  const witnesses = sourceWitnesses(graph, allSources);
+  const durableIds = new Set(inputs.descriptors.filter((d) => d.commandClass !== "repo-read").map((d) => d.id));
+
+  for (const { action, source } of guiClientPairs) {
+    const node = witnesses.get(source.candidateId);
+    assert.ok(node, `missing witness for ${source.candidateId}`);
+    assert.ok(
+      clientEntryEvidence(graph, node, source, action, inputs.descriptors),
+      `expected clientEntryEvidence for ${source.candidateId} (${action.kind})`,
+    );
+    const routes = clientEntryRequiredRoutes(graph, node, source, action, inputs.descriptors);
+    if (action.executionClass !== "repo-read") {
+      assert.ok(routes.length >= 1, `expected required routes for ${source.candidateId}`);
+      for (const route of routes) {
+        assert.ok(durableIds.has(route), `missing durable server descriptor ${route} for ${source.candidateId}`);
+      }
+    }
+    assert.equal(
+      technicalPortEvidence(
+        graph,
+        node,
+        { ...source, role: "technical-port", route: "daemon-local-state" },
+        localState,
+        inputs.descriptors,
+      ),
+      null,
+      `expected technicalPortEvidence to reject GUI client ${source.candidateId}`,
+    );
+  }
+
+  for (const source of guiLocalSources) {
+    const node = witnesses.get(source.candidateId);
+    assert.ok(node, `missing witness for local GUI source ${source.candidateId}`);
+    if (source.role === "support") {
+      assert.ok(intrinsicSupport(graph, node), `expected intrinsicSupport for ${source.candidateId}`);
+    } else {
+      assert.ok(
+        technicalPortEvidence(graph, node, source, localState, inputs.descriptors),
+        `expected technicalPortEvidence for ${source.candidateId}`,
+      );
+    }
+  }
+
+  // Unmapped non-read RPC in a callback runner branch must fail closed (hasUnprovenCallback = true) rather than silently dropping the route.
+  const reviewPair = guiClientPairs.find(({ source }) =>
+    source.candidateId.includes("decision-review-actions.ts#useDecisionReviewActions.run.receipt"),
+  );
+  assert.ok(reviewPair);
+  const reviewNode = witnesses.get(reviewPair.source.candidateId);
+  const droppedDispatchDescriptors = inputs.descriptors.filter((d) => d.id !== "decision.dispatchReview");
+  const droppedResolved = resolvedGuiClientBindings(graph, reviewNode, droppedDispatchDescriptors);
+  assert.equal(droppedResolved.hasUnprovenCallback, true);
+  assert.equal(
+    clientEntryEvidence(graph, reviewNode, reviewPair.source, reviewPair.action, droppedDispatchDescriptors),
+    null,
+  );
+});

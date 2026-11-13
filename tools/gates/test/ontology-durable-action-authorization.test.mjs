@@ -34,7 +34,7 @@ let partitionTestOrdinal = 0;
 // Greedy balance from measured durations; each partition sums to 209–221s versus 350/497s with
 // ordinal modulo two. New tests must update this map after measuring their duration.
 const authorizationTestPartitionAssignments = [
-  4, 2, 4, 3, 1, 2, 4, 1, 2, 2, 3, 4, 1, 3, 1, 4, 3, 2, 3, 3, 4, 1, 1, 2, 3, 4, 1, 2, 3,
+  4, 2, 4, 3, 1, 2, 4, 1, 2, 2, 3, 4, 1, 3, 1, 4, 3, 2, 3, 3, 4, 1, 1, 2, 3, 4, 1, 2, 1,
 ];
 function partitionedTest(name, testFn) {
   const ordinal = partitionTestOrdinal++;
@@ -750,25 +750,31 @@ partitionedTest(
 partitionedTest(
   "non-main GUI client and higher-order callback sources prove business ActionDeclaration ownership and server AuthorizationPort dominance",
   (t) => {
-    const audit = (sources, target) =>
-      auditDurableActionAuthorization(
-        repoRoot,
-        {
-          ...inputs,
-          constants: {
-            ...inputs.constants,
-            actionDeclarations: inputs.constants.actionDeclarations.map((action) =>
-              action === target ? { ...action, ontology: { ...action.ontology, sources } } : action,
-            ),
-          },
-        },
-        { only: [target.kind] },
-      ).sourceRows.map(({ id, ok, violations }) => ({ id, ok, violations }));
-
     const localState = inputs.constants.actionDeclarations.find((action) => action.kind === "daemon-local-state");
     const decisionAccept = inputs.constants.actionDeclarations.find((action) => action.kind === "decision-accept");
+    const decisionPropose = inputs.constants.actionDeclarations.find((action) => action.kind === "decision-propose");
+    const decisionRespondReview = inputs.constants.actionDeclarations.find(
+      (action) => action.kind === "decision-respond-review",
+    );
+    const taskStart = inputs.constants.actionDeclarations.find((action) => action.kind === "task-start");
     const todoAdd = inputs.constants.actionDeclarations.find((action) => action.kind === "todo-add");
     const accessManage = inputs.constants.actionDeclarations.find((action) => action.kind === "access-manage");
+    const runtimeCancel = inputs.constants.actionDeclarations.find((action) => action.kind === "runtime-cancel");
+
+    const isNonMainGui = (candidateId) =>
+      candidateId.startsWith("action:packages/gui:") &&
+      !candidateId.startsWith("action:packages/gui:packages/gui/src/main/");
+
+    const allGuiClientActions = inputs.constants.actionDeclarations.filter((action) =>
+      (action.ontology?.sources ?? []).some((source) => source.role === "client" && isNonMainGui(source.candidateId)),
+    );
+    assert.equal(allGuiClientActions.length, 78);
+    const expectedGuiClientCount = allGuiClientActions
+      .flatMap((action) => action.ontology?.sources ?? [])
+      .filter((source) => source.role === "client" && isNonMainGui(source.candidateId)).length;
+    assert.equal(expectedGuiClientCount, 197);
+    assert.equal((localState.ontology.sources ?? []).filter((source) => isNonMainGui(source.candidateId)).length, 110);
+
     const guiAcceptClient = decisionAccept.ontology.sources.find(
       (source) =>
         source.role === "client" && source.candidateId.includes("api-client.ts#harnessClient.acceptDecision:"),
@@ -780,64 +786,6 @@ partitionedTest(
       (source) =>
         source.role === "client" && source.candidateId.includes("access-admin-preload.ts#accessAdminPreloadApi.ask:"),
     );
-    assert.ok(guiAcceptClient && guiTodoClient && guiAccessClient);
-
-    const allGuiClientActions = inputs.constants.actionDeclarations.filter((action) =>
-      (action.ontology?.sources ?? []).some(
-        (source) =>
-          source.role === "client" &&
-          source.candidateId.startsWith("action:packages/gui:") &&
-          !source.candidateId.startsWith("action:packages/gui:packages/gui/src/main/"),
-      ),
-    );
-    const guiClientKinds = [...new Set(allGuiClientActions.map((action) => action.kind))];
-    const expectedGuiClientCount = allGuiClientActions
-      .flatMap((action) => action.ontology?.sources ?? [])
-      .filter(
-        (source) =>
-          source.role === "client" &&
-          source.candidateId.startsWith("action:packages/gui:") &&
-          !source.candidateId.startsWith("action:packages/gui:packages/gui/src/main/"),
-      ).length;
-    assert.equal(expectedGuiClientCount, 197);
-    const guiServerDescriptorIds = [
-      ...new Set(
-        inputs.descriptors
-          .filter((descriptor) => descriptor.commandClass !== "repo-read")
-          .map((descriptor) => descriptor.id),
-      ),
-    ];
-    const guiClientAudit = auditDurableActionAuthorization(repoRoot, inputs, {
-      only: [...guiClientKinds, ...guiServerDescriptorIds],
-    });
-    const nonMainGuiClientRows = guiClientAudit.sourceRows.filter(
-      (row) =>
-        row.id.startsWith("action:packages/gui:") &&
-        !row.id.startsWith("action:packages/gui:packages/gui/src/main/") &&
-        row.authority === "client-entry",
-    );
-    assert.equal(nonMainGuiClientRows.length, expectedGuiClientCount);
-    assert.deepEqual(
-      nonMainGuiClientRows.filter((row) => !row.ok),
-      [],
-    );
-
-    const localStateAudit = auditDurableActionAuthorization(repoRoot, inputs, { only: ["daemon-local-state"] });
-    const nonMainGuiLocalRows = localStateAudit.sourceRows.filter(
-      (row) =>
-        row.id.startsWith("action:packages/gui:") && !row.id.startsWith("action:packages/gui:packages/gui/src/main/"),
-    );
-    assert.equal(nonMainGuiLocalRows.length, 110);
-    assert.deepEqual(
-      nonMainGuiLocalRows.filter((row) => !row.ok),
-      [],
-    );
-
-    const decisionRespondReview = inputs.constants.actionDeclarations.find(
-      (action) => action.kind === "decision-respond-review",
-    );
-    const decisionPropose = inputs.constants.actionDeclarations.find((action) => action.kind === "decision-propose");
-    const taskStart = inputs.constants.actionDeclarations.find((action) => action.kind === "task-start");
     const guiReviewCallback = decisionRespondReview.ontology.sources.find((source) =>
       source.candidateId.includes("decision-review-actions.ts#useDecisionReviewActions.run.receipt:"),
     );
@@ -850,48 +798,114 @@ partitionedTest(
     const guiTodoCallback = todoAdd.ontology.sources.find((source) =>
       source.candidateId.includes("TodosView.tsx#TodosView.mutation.mutationFn:973c6c96"),
     );
-    assert.ok(guiReviewCallback && guiDecisionCallback && guiTaskCallback && guiTodoCallback);
-    assert.deepEqual(nonMainGuiClientRows.find((row) => row.id === guiReviewCallback.candidateId)?.clientRoutes, [
+    assert.ok(
+      guiAcceptClient &&
+        guiTodoClient &&
+        guiAccessClient &&
+        guiReviewCallback &&
+        guiDecisionCallback &&
+        guiTaskCallback &&
+        guiTodoCallback,
+    );
+
+    const positiveOnly = [
+      "decision-accept",
+      "decision-propose",
+      "decision-respond-review",
+      "task-start",
+      "todo-add",
+      "access-manage",
+      "schedule-create",
+      "runtime-instance-logout",
+      "entity-update",
+      "repository-read",
+      "daemon-local-state",
+      "decision.accept",
+      "decision.propose",
+      "decision.respondReview",
+      "decision.dispatchReview",
+      "decision.overrideReview",
+    ];
+    const positiveAudit = auditDurableActionAuthorization(repoRoot, inputs, { only: positiveOnly });
+    const nonMainGuiRows = positiveAudit.sourceRows.filter((row) => isNonMainGui(row.id));
+    assert.ok(nonMainGuiRows.length >= 135);
+    assert.deepEqual(
+      nonMainGuiRows.filter((row) => !row.ok),
+      [],
+    );
+    assert.equal(nonMainGuiRows.filter((row) => row.kind === "daemon-local-state").length, 110);
+    assert.deepEqual(nonMainGuiRows.find((row) => row.id === guiReviewCallback.candidateId)?.clientRoutes, [
       "decision.dispatchReview",
       "decision.overrideReview",
       "decision.respondReview",
     ]);
-    assert.deepEqual(nonMainGuiClientRows.find((row) => row.id === guiDecisionCallback.candidateId)?.clientRoutes, [
+    assert.deepEqual(nonMainGuiRows.find((row) => row.id === guiDecisionCallback.candidateId)?.clientRoutes, [
       "decision.accept",
       "decision.defer",
       "decision.propose",
       "decision.reject",
     ]);
-    assert.equal(nonMainGuiClientRows.find((row) => row.id === guiTaskCallback.candidateId)?.clientRoutes.length, 9);
-    assert.equal(nonMainGuiClientRows.find((row) => row.id === guiTodoCallback.candidateId)?.clientRoutes.length, 6);
+    assert.equal(nonMainGuiRows.find((row) => row.id === guiTaskCallback.candidateId)?.clientRoutes.length, 9);
+    assert.equal(nonMainGuiRows.find((row) => row.id === guiTodoCallback.candidateId)?.clientRoutes.length, 6);
 
-    // F1 negative 1: rebinding GUI business RPCs, preload IPC channels, or higher-order business callback runners to daemon-local-state fails closed.
+    // F1 negatives 1–3: rebinding GUI RPC/IPC/callback runners to daemon-local-state, spoofing a mismatched route, or claiming role: "client" from a server file all fail closed.
+    const daemonEffectSource = runtimeCancel.ontology.sources.find(
+      (source) => source.role === "effect" && source.candidateId.startsWith("action:packages/daemon:"),
+    );
+    assert.ok(daemonEffectSource);
+    const reboundSources = [
+      guiAcceptClient,
+      guiTodoClient,
+      guiAccessClient,
+      guiReviewCallback,
+      guiDecisionCallback,
+      guiTaskCallback,
+      guiTodoCallback,
+    ].map((source) => ({ ...source, role: "technical-port", route: localState.kind }));
+    const negativeAudit = auditDurableActionAuthorization(
+      repoRoot,
+      {
+        ...inputs,
+        constants: {
+          ...inputs.constants,
+          actionDeclarations: inputs.constants.actionDeclarations.map((action) => {
+            if (action === localState) return { ...action, ontology: { ...action.ontology, sources: reboundSources } };
+            if (action === decisionAccept)
+              return {
+                ...action,
+                ontology: { ...action.ontology, sources: [{ ...guiAcceptClient, route: "task.submit" }] },
+              };
+            if (action === runtimeCancel)
+              return {
+                ...action,
+                ontology: {
+                  ...action.ontology,
+                  sources: [
+                    {
+                      candidateId: daemonEffectSource.candidateId,
+                      role: "client",
+                      route: "runtime.cancel",
+                      port: "packages/gui/src/renderer/api-client-invoke.ts#invoke",
+                    },
+                  ],
+                },
+              };
+            return action;
+          }),
+        },
+      },
+      { only: ["daemon-local-state", "decision-accept", "runtime-cancel"] },
+    );
     assert.deepEqual(
-      audit(
-        [
-          guiAcceptClient,
-          guiTodoClient,
-          guiAccessClient,
-          guiReviewCallback,
-          guiDecisionCallback,
-          guiTaskCallback,
-          guiTodoCallback,
-        ].map((source) => ({
-          ...source,
-          role: "technical-port",
-          route: localState.kind,
-        })),
-        localState,
-      ).map(({ ok, violations }) => ({ ok, violations })),
+      negativeAudit.sourceRows
+        .filter((row) => row.kind === "daemon-local-state")
+        .map(({ ok, violations }) => ({ ok, violations })),
       Array.from({ length: 7 }, () => ({ ok: false, violations: ["source has no verified owner/authority chain"] })),
     );
-
-    // F1 negative 2: spoofing a mismatched RPC route on a GUI client binding fails closed.
     assert.deepEqual(
-      audit([{ ...guiAcceptClient, route: "task.submit" }], decisionAccept).map(({ ok, violations }) => ({
-        ok,
-        violations,
-      })),
+      negativeAudit.sourceRows
+        .filter((row) => row.kind === "decision-accept")
+        .map(({ ok, violations }) => ({ ok, violations })),
       [
         {
           ok: false,
@@ -899,25 +913,10 @@ partitionedTest(
         },
       ],
     );
-
-    // F1 negative 3: server write-path files cannot claim role: "client".
-    const runtimeCancel = inputs.constants.actionDeclarations.find((action) => action.kind === "runtime-cancel");
-    const daemonEffectSource = runtimeCancel.ontology.sources.find(
-      (source) => source.role === "effect" && source.candidateId.startsWith("action:packages/daemon:"),
-    );
-    assert.ok(daemonEffectSource);
     assert.deepEqual(
-      audit(
-        [
-          {
-            candidateId: daemonEffectSource.candidateId,
-            role: "client",
-            route: "runtime.cancel",
-            port: "packages/gui/src/renderer/api-client-invoke.ts#invoke",
-          },
-        ],
-        runtimeCancel,
-      ).map(({ ok, violations }) => ({ ok, violations })),
+      negativeAudit.sourceRows
+        .filter((row) => row.kind === "runtime-cancel")
+        .map(({ ok, violations }) => ({ ok, violations })),
       [
         {
           ok: false,
@@ -944,25 +943,24 @@ partitionedTest(
       });
       restoreServer();
     }
-    {
-      const restoredAudit = auditDurableActionAuthorization(dir, inputs, {
-        only: ["decision-accept", "decision.accept"],
-      });
-      assert.equal(restoredAudit.rows.find((row) => row.id === "decision.accept")?.ok, true);
-      assert.equal(restoredAudit.sourceRows.find((row) => row.id === guiAcceptClient.candidateId)?.ok, true);
-    }
 
     // F1 negative 5: breaking server AuthorizationPort dominance on a secondary multiplexed callback route flips the callback runner red even when its primary declared route remains green.
     {
-      const restoreSecondary = edit(
-        dir,
-        "packages/daemon/src/repo-cell-authorization.ts",
-        'if (action.kind !== "entity-pin" && action.kind !== "entity-unpin") return action.kind;',
-        'if (action.kind === "decision-dispatch-review") return "task-create";\n  if (action.kind !== "entity-pin" && action.kind !== "entity-unpin") return action.kind;',
+      const secondaryBrokenAudit = auditDurableActionAuthorization(
+        repoRoot,
+        {
+          ...inputs,
+          constants: {
+            ...inputs.constants,
+            durableActionKinds: inputs.constants.durableActionKinds.filter(
+              (kind) => kind !== "decision-dispatch-review",
+            ),
+          },
+        },
+        {
+          only: ["decision-respond-review", "decision.respondReview", "decision.dispatchReview"],
+        },
       );
-      const secondaryBrokenAudit = auditDurableActionAuthorization(dir, inputs, {
-        only: ["decision-respond-review", "decision.respondReview", "decision.dispatchReview"],
-      });
       assert.equal(secondaryBrokenAudit.rows.find((row) => row.id === "decision.respondReview")?.ok, true);
       assert.equal(secondaryBrokenAudit.rows.find((row) => row.id === "decision.dispatchReview")?.ok, false);
       const brokenCallbackRow = secondaryBrokenAudit.sourceRows.find((row) => row.id === guiReviewCallback.candidateId);
@@ -972,14 +970,14 @@ partitionedTest(
           "client source route decision.dispatchReview targets an unverified server authorization descriptor",
         ],
       });
-      restoreSecondary();
     }
+
     {
-      const secondaryRestoredAudit = auditDurableActionAuthorization(dir, inputs, {
-        only: ["decision-respond-review", "decision.respondReview", "decision.dispatchReview"],
+      const restoredAudit = auditDurableActionAuthorization(dir, inputs, {
+        only: ["decision-accept", "decision.accept"],
       });
-      assert.equal(secondaryRestoredAudit.rows.find((row) => row.id === "decision.dispatchReview")?.ok, true);
-      assert.equal(secondaryRestoredAudit.sourceRows.find((row) => row.id === guiReviewCallback.candidateId)?.ok, true);
+      assert.equal(restoredAudit.rows.find((row) => row.id === "decision.accept")?.ok, true);
+      assert.equal(restoredAudit.sourceRows.find((row) => row.id === guiAcceptClient.candidateId)?.ok, true);
     }
   },
 );

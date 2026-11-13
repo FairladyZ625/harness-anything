@@ -167,6 +167,14 @@ function readGuiObjectStringField(graph, expr, fieldName, env) {
   return result;
 }
 
+const GUI_NON_DESCRIPTOR_READ_METHODS = new Set([
+  "daemon.fleet.center.read",
+  "daemon.fleet.center.external-address.read",
+  "repo.agentRuntime.quote",
+  "repo.agentRuntime.attach",
+  "daemon.skillEval.cases.list",
+]);
+
 function resolveGuiRpcMethod(graph, method, payloadExpr, env, descriptors) {
   if (method === "repo.agentRuntime.handoff") {
     const op = readGuiObjectStringField(graph, payloadExpr, "operation", env);
@@ -192,6 +200,7 @@ function resolveGuiRpcMethod(graph, method, payloadExpr, env, descriptors) {
   if (!proto) return null;
   if (method === "daemon.fleet.center.external-address.set")
     return { actionKind: "daemon-fleet-center-start", route: "daemon-fleet-center-start", isRead: false };
+  if (proto.commandClass !== "repo-read" && !GUI_NON_DESCRIPTOR_READ_METHODS.has(method)) return null;
   const isFleetRead =
     method === "repo.fleet.overview.read" ||
     method === "daemon.fleet.center.read" ||
@@ -990,12 +999,14 @@ function walkGuiCall(ctx, callExpr, env, depth) {
     const method = evalGuiString(ctx.graph, callExpr.arguments[0], env);
     const hit = method ? resolveGuiRpcMethod(ctx.graph, method, callExpr.arguments[1], env, ctx.descriptors) : null;
     if (hit) ctx.rawBindings.push({ ...hit, depth });
+    else ctx.hasUnprovenCallback = true;
     return;
   }
   const preloadHit = resolveGuiPreloadIpcLeaf(ctx.graph, callExpr, portKey, env);
   if (preloadHit) {
     if (preloadHit.reachesDaemon) ctx.reachesDaemonTransport = true;
     if (preloadHit.binding) ctx.rawBindings.push({ ...preloadHit.binding, depth });
+    else if (preloadHit.reachesDaemon) ctx.hasUnprovenCallback = true;
     return;
   }
   if (portKey && GUI_BRIDGE_INTERFACE_PORTS.has(portKey)) {
