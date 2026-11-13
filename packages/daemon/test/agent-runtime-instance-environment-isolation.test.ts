@@ -131,7 +131,6 @@ test("claude isolation defaults to the operator environment and stays enforced o
       kindId: "codex",
       providerId: "openai",
       models: ["gpt-5.6-sol"],
-      isolationState: "operator-environment",
       authMode: "subscription",
     }).instance as { readonly isolationState: string };
     assert.equal(codexOperator.isolationState, "operator-environment");
@@ -329,6 +328,7 @@ test(
       store.create({
         schemaVersion: 2,
         instanceId: "codex-shared-auth",
+        isolationState: "enforced",
         name: "Codex Shared Auth",
         kindId: "codex",
         installationId: observed.installationId,
@@ -508,6 +508,7 @@ test(
       store.create({
         schemaVersion: 2,
         instanceId: "codex-auth-refresh",
+        isolationState: "enforced",
         name: "Codex Auth Refresh",
         kindId: "codex",
         installationId: observed.installationId,
@@ -557,6 +558,7 @@ test("a missing operator auth file links nothing and leaves an instance-local lo
     store.create({
       schemaVersion: 2,
       instanceId: "codex-auth-absent",
+      isolationState: "enforced",
       name: "Codex Auth Absent",
       kindId: "codex",
       installationId: observed.installationId,

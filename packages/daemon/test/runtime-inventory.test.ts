@@ -496,3 +496,9 @@ test("every acp kind resumes through protocol negotiation with one family declar
   const flagKinds = runtimeKinds.filter((entry) => entry.launch.resumeFlag !== undefined).map((entry) => entry.kindId);
   assert.deepEqual(flagKinds, ["claude", "codex", "agy", "zcode"]);
 });
+
+test("Codex subscription defaults to the operator environment while API keys remain isolated", () => {
+  const codex = runtimeKinds.find((kind) => kind.kindId === "codex")!;
+  assert.equal(codex.isolation.defaultState, "operator-environment");
+  assert.equal(codex.auth.apiKeyIsolation, "enforced");
+});

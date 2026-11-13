@@ -12,6 +12,7 @@ import {
   buildRuntimeInstanceUpdatePayload,
   runtimeInstanceEditForm,
   runtimeInstanceFormReady,
+  runtimeInstanceEditReady,
   runtimeInstanceIdAvailable,
   type CreateInstanceFormState,
 } from "../src/renderer/runtime-instance-form.ts";
@@ -28,6 +29,7 @@ import {
   planeRequiresBaseUrl,
   planeUsesApiOverride,
   runtimeProviderPlane,
+  runtimeWebSearchRestriction,
   RUNTIME_KIND_IDS,
 } from "../src/renderer/runtime-provider-planes.ts";
 import { squadChartLayout } from "../src/renderer/components/runtime/SquadCard.tsx";
@@ -94,6 +96,22 @@ describe("provider edit form", () => {
     authState: "authenticated",
     authReadiness: { status: "ready", code: null, hint: null },
   } as const;
+  it("round-trips permissions, isolation and native search through the provider edit payload", () => {
+    const edit = runtimeInstanceEditForm({ ...apiCodex, configuration: { webSearch: "cached" } });
+    expect(
+      buildRuntimeInstanceUpdatePayload("codex-edit", {
+        ...edit,
+        permissionMode: "read-only",
+        isolation: "enforced",
+        webSearch: "live",
+      }),
+    ).toMatchObject({ permissionMode: "read-only", isolationState: "enforced", webSearch: "live" });
+    expect(edit).toMatchObject({ permissionMode: "bypass", isolation: "enforced", webSearch: "cached" });
+    const subscription = runtimeInstanceEditForm({ ...apiCodex, authMode: "subscription", configuration: {} });
+    expect(
+      buildRuntimeInstanceUpdatePayload("codex-edit", { ...subscription, isolation: "operator-environment" }),
+    ).toMatchObject({ isolationState: "operator-environment" });
+  });
   it("seeds the edit form with the current base URL and keeps it editable", () => {
     const form = runtimeInstanceEditForm(apiCodex);
     expect(form.baseUrl).toBe("https://old.example/v1");
@@ -701,12 +719,12 @@ describe("runtime capability flows declaration -> install -> daemon state -> GUI
           baseUrlAvailability(declaration.auth.endpoints.baseUrl, instance.authMode) !== "none",
         );
         expect(edit.apiKeyEditable).toBe(instance.authMode === "api-key" && declaration.auth.modes.includes("api-key"));
-        // Negative control: the provider name is not a capability input; only the declaration is.
+        // The provider identity participates in search availability; other capabilities still follow the kind.
         const renamedProvider = runtimeInstanceEditForm({
           ...instance,
           providerId: kind === "codex" ? "anthropic" : "openai",
         });
-        expect(renamedProvider).toEqual(edit);
+        expect({ ...renamedProvider, providerId: edit.providerId }).toEqual(edit);
       } finally {
         vi.unstubAllGlobals();
         rmSync(userRoot, { recursive: true, force: true });
@@ -719,5 +737,60 @@ describe("runtime capability flows declaration -> install -> daemon state -> GUI
     expect(codex.authShape).toBe(runtimeKindForId("codex").auth.shape);
     expect(claude.authShape).toBe(runtimeKindForId("claude").auth.shape);
     expect(codex.authShape).not.toBe(claude.authShape);
+  });
+});
+
+describe("native search availability follows the existing write boundary", () => {
+  const codex = { ...form, kindId: "codex", providerId: "openai", webSearch: "live" as const };
+  it("permits official subscription search and emits all three tiers on create", () => {
+    expect(runtimeWebSearchRestriction(codex)).toBeUndefined();
+    for (const webSearch of ["disabled", "cached", "live"] as const) {
+      const payload = buildRuntimeInstanceCreatePayload({ ...codex, webSearch }, "install");
+      expect(payload.codex).toMatchObject({ webSearch });
+    }
+    expect(runtimeInstanceFormReady(codex, "install")).toBe(true);
+  });
+  it("blocks subscription gateways, missing endpoints and the chat wire API before save", () => {
+    const custom = { ...codex, providerId: "custom", baseUrl: "https://gateway.example/v1" };
+    expect(runtimeWebSearchRestriction(custom)).toBe("webSearchSubscriptionGateway");
+    expect(runtimeInstanceFormReady(custom, "install")).toBe(false);
+    expect(runtimeWebSearchRestriction({ ...custom, baseUrl: "" })).toBe("webSearchEndpointRequired");
+    const api = {
+      ...custom,
+      authMode: "api-key" as const,
+      isolation: "enforced" as const,
+      apiKey: "test-key",
+      wireApi: "responses",
+    };
+    expect(runtimeInstanceFormReady(api, "install")).toBe(true);
+    expect(runtimeWebSearchRestriction({ ...api, wireApi: "chat" })).toBe("webSearchResponsesRequired");
+    const edit = runtimeInstanceEditForm({
+      schemaVersion: 2,
+      instanceId: "custom",
+      name: "Custom",
+      kindId: "codex",
+      providerId: "custom",
+      installationId: "install",
+      models: ["gpt"],
+      defaultModel: "gpt",
+      enabled: true,
+      permissionMode: "bypass",
+      isolationState: "operator-environment",
+      authMode: "subscription",
+      authState: "authenticated",
+      authReadiness: { status: "ready", code: null, hint: null },
+      configuration: { baseUrl: custom.baseUrl, webSearch: "disabled" },
+    });
+    expect(runtimeInstanceEditReady({ ...edit, webSearch: "live" })).toBe(false);
+    expect(runtimeInstanceEditReady(edit)).toBe(true);
+  });
+  it("resets native search when switching to a provider without that capability", () => {
+    expect(
+      applyRuntimeKind(codex, "claude", { permissionMode: "bypass", isolation: "operator-environment" }).webSearch,
+    ).toBeUndefined();
+    expect(
+      applyRuntimeAuthMode({ ...codex, authMode: "api-key", baseUrl: "https://gateway.example/v1" }, "subscription")
+        .webSearch,
+    ).toBe("disabled");
   });
 });

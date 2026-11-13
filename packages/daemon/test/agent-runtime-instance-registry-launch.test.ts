@@ -502,7 +502,7 @@ test("runtime kinds receive prompt-injected skills without native discovery moun
         defaultModel: "skill-model",
         enabled: true,
         ...(installation.kindId === "codex"
-          ? { codex: {} }
+          ? { codex: {}, isolationState: "enforced" }
           : installation.kindId === "claude"
             ? { claude: {} }
             : { agy: {} }),
