@@ -440,6 +440,7 @@ export async function scheduleFallbackContinuation(args: {
               ...(header.reasoningEffort ? { effort: header.reasoningEffort } : {}),
               ...(header.fast === undefined ? {} : { fast: header.fast }),
               ...(header.permissionMode ? { permissionMode: header.permissionMode } : {}),
+              ...(header.mcpPolicy ? { mcpPolicy: header.mcpPolicy } : {}),
               cwd:
                 dispatchCwd === input.rootDir
                   ? { scope: "repo-root" }

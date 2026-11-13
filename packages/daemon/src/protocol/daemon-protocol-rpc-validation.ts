@@ -455,6 +455,7 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
       (value.effort !== undefined && !nonEmpty(value.effort)) ||
       (value.fast !== undefined && typeof value.fast !== "boolean") ||
       (value.permissionMode !== undefined && !nonEmpty(value.permissionMode)) ||
+      (value.mcpPolicy !== undefined && !["disabled", "inherit"].includes(String(value.mcpPolicy))) ||
       (value.prompt !== undefined && !nonEmpty(value.prompt)) ||
       (value.prompt === undefined && value.dispatchId === undefined && !nonEmpty(value.taskId)) ||
       (value.onExitCommand !== undefined && !nonEmpty(value.onExitCommand)) ||

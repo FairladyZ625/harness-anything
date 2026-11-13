@@ -10,6 +10,7 @@ export function runtimeSpawnReceipt(
   const revision = event.workspaceRevision,
     canonicalVisible = publication.cut.opId === event.opId && publication.cut.revision === revision,
     webSearch = event.type === "runtime_dispatch_requested" ? event.payload.definitionSnapshot.webSearch : undefined,
+    mcpPolicy = event.type === "runtime_dispatch_requested" ? event.payload.definitionSnapshot.mcpPolicy : undefined,
     base = {
       schema: "command-receipt/v2",
       ok: true,
@@ -19,6 +20,7 @@ export function runtimeSpawnReceipt(
       dispatchId,
       revision,
       ...(webSearch === undefined ? {} : { webSearch }),
+      ...(mcpPolicy === undefined ? {} : { mcpPolicy }),
       evidence: `event-object:${event.opId}`,
       visibility: "center" as const,
       proof: {

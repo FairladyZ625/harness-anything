@@ -34,6 +34,7 @@ export type SquadState = {
   readonly model: string | null;
   readonly effort: string | null;
   readonly permissionMode?: string | null;
+  readonly mcpPolicy?: string | null;
   readonly leaderAgentId: string;
   readonly roster: string;
   readonly workers: readonly string[];

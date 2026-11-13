@@ -34,7 +34,12 @@ import {
 import { type JsonObject } from "./protocol/json-rpc-types.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import { resolveRuntimeDispatchResources } from "./runtime-spawn-allowlist.ts";
-import { runtimePermissionMode } from "./runtime-permissions.ts";
+import {
+  resolveRuntimeMcpPolicy,
+  runtimeMcpPolicy,
+  runtimePermissionMode,
+  runtimeSupportsMcpPolicy,
+} from "./runtime-permissions.ts";
 import { dispatchCallbackRelay, removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { cancelRuntime, closeRuntimes, enforceRuntimeSpendCap, steerRuntime } from "./runtime-spawn-control.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
@@ -295,6 +300,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         payload.permissionMode === undefined
           ? (inherited?.permissionMode ?? undefined)
           : requiredRuntimeSpawnText(payload.permissionMode, "permissionMode"),
+      mcpPolicy =
+        payload.mcpPolicy === undefined
+          ? (inherited?.mcpPolicy ?? undefined)
+          : requiredRuntimeSpawnText(payload.mcpPolicy, "mcpPolicy"),
       promptSource =
         payload.promptSource === undefined ? undefined : requiredRuntimeSpawnText(payload.promptSource, "promptSource"),
       onExitCommand =
@@ -620,6 +629,17 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             configuredPermissionMode = runtimeInstance?.permissionMode ?? undefined,
             declaredPermissionMode = permissionMode ?? agent?.permissionMode,
             effectivePermissionMode = declaredPermissionMode ?? configuredPermissionMode,
+            declaredMcpPolicy = mcpPolicy ?? agent?.mcpPolicy,
+            effectiveMcpPolicy = runtimeInstance
+              ? resolveRuntimeMcpPolicy({
+                  kindId: runtimeInstance.kindId,
+                  dispatchMcpPolicy: mcpPolicy,
+                  agentMcpPolicy: agent?.mcpPolicy,
+                  instanceMcpPolicy: runtimeInstance.mcpPolicy,
+                })
+              : declaredMcpPolicy
+                ? runtimeMcpPolicy(declaredMcpPolicy)
+                : undefined,
             callbackRelay = dispatchCallbackRelay(newDispatchId, daemonRoute, runtimeInstance, effectivePermissionMode),
             // A relayed sandbox still hides the host user root and daemon id; a bypass worker
             // already has that host access and keeps the real identity in its mission. Only the
@@ -753,6 +773,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 ...(selectedEffort ? { effort: selectedEffort } : {}),
                 ...(fast === undefined ? {} : { fast }),
                 ...(declaredPermissionMode ? { permissionMode: declaredPermissionMode } : {}),
+                ...(effectiveMcpPolicy ? { mcpPolicy: effectiveMcpPolicy } : {}),
                 ...(callbackRelay ? { callbackRelayPath: callbackRelay.path } : {}),
                 ...(providerSessionId ? { providerSessionId } : {}),
                 ...(cloudRelay ? { cloudRelay: { baseUrl: cloudRelay.baseUrl, token: cloudRelay.token } } : {}),
@@ -771,6 +792,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             fallbackAttempt: fallbackAttemptForDispatch,
             runtimeInstance,
             effectivePermissionMode,
+            effectiveMcpPolicy,
             callbackRelay,
             readOnlyDispatch,
             prompt,
@@ -789,8 +811,16 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       throw error;
     }
     const runtimeInstanceId = selection.instanceId,
-      { runtimeInstance, effectivePermissionMode, callbackRelay, readOnlyDispatch, prompt, preview, cloudRelay } =
-        selection.launch;
+      {
+        runtimeInstance,
+        effectivePermissionMode,
+        effectiveMcpPolicy,
+        callbackRelay,
+        readOnlyDispatch,
+        prompt,
+        preview,
+        cloudRelay,
+      } = selection.launch;
     if (preview) return preview;
     const runtimeSelection = selectedRuntimeInstance({
         agent,
@@ -805,7 +835,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       definition = prepared.definition,
       installation = prepared.installation,
       declaredKindId = runtimeKindForId(definition.kindId).kindId,
-      launchedPermissionMode = runtimePermissionMode(effectivePermissionMode, declaredKindId);
+      launchedPermissionMode = runtimePermissionMode(effectivePermissionMode, declaredKindId),
+      launchedMcpPolicy = runtimeSupportsMcpPolicy(declaredKindId)
+        ? (effectiveMcpPolicy ?? definition.mcpPolicy ?? "disabled")
+        : undefined;
     const tasklessExecutionRole =
         !taskId && !trustedSchedule && !reviewerBinding && !decisionReviewTarget
           ? runtimeExecutionRoleForLaunch({
@@ -929,6 +962,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         dispatchOpId,
         kindId: definition.kindId,
         permissionMode: launchedPermissionMode ?? null,
+        mcpPolicy: launchedMcpPolicy ?? null,
         binding: runtimeBindingForDispatch(activeBinding),
         executionOwner: input.runtimeNode ?? "local",
         cwd,
@@ -1241,6 +1275,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       kindId: declaredKindId,
       resolvedProviderDirectory: resolvedProviderDirectory ?? null,
       permissionMode: launchedPermissionMode ?? null,
+      mcpPolicy: launchedMcpPolicy ?? null,
       agent,
       role: dispatchRole ?? null,
       delegatedBy,

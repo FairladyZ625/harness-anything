@@ -555,6 +555,15 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         { pathKind: "non-path", enum: ["bypass", "workspace-write", "read-only"] },
       ),
       cliInput(
+        "--mcp-policy",
+        "single",
+        false,
+        {
+          code: "invalid_runtime_mcp_policy",
+        },
+        { pathKind: "non-path", enum: ["disabled", "inherit"] },
+      ),
+      cliInput(
         "--isolation",
         "single",
         false,
@@ -783,6 +792,15 @@ export const runtimeConfigProtocolCommands = Object.freeze([
           code: "invalid_runtime_permission",
         },
         { pathKind: "non-path", enum: ["bypass", "workspace-write", "read-only"] },
+      ),
+      cliInput(
+        "--mcp-policy",
+        "single",
+        false,
+        {
+          code: "invalid_runtime_mcp_policy",
+        },
+        { pathKind: "non-path", enum: ["disabled", "inherit"] },
       ),
       cliInput(
         "--isolation",

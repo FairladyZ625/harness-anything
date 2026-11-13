@@ -219,6 +219,7 @@ export function AgentSquadView({
             prompts: [],
             instance: "",
             permissionMode: "" as const,
+            mcpPolicy: "" as const,
             // A blank Agent declares no hostAccess: the daemon default applies until the editor picks one.
             hostAccess: null,
             hostAccessExplicit: false,

@@ -23,6 +23,8 @@ export {
 /** Native search tiers HA exposes. Codex's config schema also has `indexed`, which this
  *  product does not offer: issue #4369 names disabled/cached/live. */
 export const runtimeWebSearchModes = ["disabled", "cached", "live"] as const satisfies readonly RuntimeWebSearchMode[];
+export const runtimeMcpPolicies = ["disabled", "inherit"] as const;
+export type RuntimeMcpPolicy = (typeof runtimeMcpPolicies)[number];
 
 // Only daemon-mediated task commands: `ha task artifact add --run`, for example,
 // executes a local subprocess before daemon authorization. Never approve `ha *`.
@@ -239,6 +241,7 @@ export const runtimeKinds = [
         "$model",
         "$effort-flag",
         "$api-auth",
+        "$mcp-policy",
         "$resume",
       ],
       permissionArgs: {
@@ -379,6 +382,7 @@ export const runtimeKinds = [
         "exec",
         "$resume-command",
         "--json",
+        "$mcp-policy",
         "$permission",
         "$callback-relay-socket",
         "--model",
@@ -448,7 +452,7 @@ export const runtimeKinds = [
       independentSandbox: "supported",
       approvalEvent: "unverified",
       effort: "supported",
-      mcp: "unverified",
+      mcp: "supported",
       cwdRestriction: "unverified",
       gracefulCancel: "unverified",
     },

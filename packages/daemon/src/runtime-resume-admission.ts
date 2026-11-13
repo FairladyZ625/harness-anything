@@ -332,6 +332,7 @@ export function resolveRuntimeResume(
       "effort",
       "fast",
       "permissionMode",
+      "mcpPolicy",
       "cwd",
       "prompt",
       "promptSource",
@@ -369,6 +370,7 @@ export function resolveRuntimeResume(
         model: handoff.model,
         instanceId: undefined,
         permissionMode: undefined,
+        mcpPolicy: undefined,
         cwd: undefined,
       }
     : resumed?.header;

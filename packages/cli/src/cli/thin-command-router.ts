@@ -8,7 +8,7 @@ import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon
 import { parseDecision } from "./thin-command-decision.ts";
 import { parseDoc } from "./thin-command-doc.ts";
 import { parseFact } from "./thin-command-fact.ts";
-import { accepted, nonEmpty, readFlags, rejected, rejectInput } from "./thin-command-flags.ts";
+import { accepted, nonEmpty, optionalFlags, readFlags, rejected, rejectInput } from "./thin-command-flags.ts";
 import { parsePreset } from "./thin-command-preset.ts";
 import { parseProjected, projectFlags } from "./thin-command-projection.ts";
 import { parseRuntimeInstance } from "./thin-command-runtime-instance.ts";
@@ -425,10 +425,7 @@ function parseAgentRun(
   if (!f.one.get("--task") && !resumeDispatch && !f.booleans.has("--claim-next"))
     return rejected("missing_field", "Use --task <task-id>, --claim-next, or --resume-dispatch <dispatch-id>.", json);
   const cwd = f.one.get("--cwd"),
-    missionName = f.one.get("--mission"),
-    prompt = f.one.get("--prompt"),
-    noStream = f.booleans.has("--no-stream"),
-    onExitCommand = f.one.get("--on-exit");
+    noStream = f.booleans.has("--no-stream");
   return accepted(
     rootDir,
     repoId,
@@ -440,20 +437,23 @@ function parseAgentRun(
       ...(resumeDispatch ? { dispatchId: resumeDispatch } : {}),
       ...agentRunRecovery(f.one),
       ...(f.booleans.has("--enable-handoff") ? { handoffEnabled: true } : {}),
-      ...(f.one.get("--to") ? { targetAgentId: f.one.get("--to") } : {}),
       taskId: f.one.get("--task"),
-      ...(f.one.get("--instance") ? { runtimeInstanceId: f.one.get("--instance") } : {}),
-      ...(prompt ? { prompt } : {}),
-      ...(f.one.get("--prompt-file") ? { promptFile: f.one.get("--prompt-file") } : {}),
-      ...(missionName ? { missionName } : {}),
-      ...(f.one.get("--model") ? { model: f.one.get("--model") } : {}),
-      ...(f.one.get("--effort") ? { effort: f.one.get("--effort") } : {}),
+      ...optionalFlags(f.one, [
+        ["--to", "targetAgentId"],
+        ["--instance", "runtimeInstanceId"],
+        ["--prompt", "prompt"],
+        ["--prompt-file", "promptFile"],
+        ["--mission", "missionName"],
+        ["--model", "model"],
+        ["--effort", "effort"],
+        ["--mcp-policy", "mcpPolicy"],
+        ["--on-exit", "onExitCommand"],
+      ]),
       ...(f.booleans.has("--fast") ? { fast: true } : {}),
       ...(f.booleans.has("--dry-run") ? { dryRun: true } : {}),
       // Without --cwd the daemon picks: the task's own worktree, or the resumed dispatch's cwd.
       ...(cwd ? { cwd: cwd !== "." ? { scope: "repo-relative", path: cwd } : { scope: "repo-root" } } : {}),
       ...(!noStream ? { detach: true } : {}),
-      ...(onExitCommand ? { onExitCommand } : {}),
       ...(noStream ? { noStream: true } : {}),
     },
     route.method,

@@ -18,6 +18,7 @@ export type {
   RuntimeInstallationState,
   RuntimeKind,
   RuntimeKindId,
+  RuntimeMcpPolicy,
   RuntimeProtocolFamily,
   RuntimeProviderUnreachable,
   RuntimeResultClaim,

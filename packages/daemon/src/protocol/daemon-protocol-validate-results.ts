@@ -559,6 +559,7 @@ export const writeReceiptFields = generatedWriteReceiptFields,
     "runtimeSelection",
     // runtime-spawn also states the effective Codex hosted-search tier without credentials.
     "webSearch",
+    "mcpPolicy",
     // runtime-steer locks its target (dispatch leaf, task binding, steer version) into the
     // receipt so a compare-and-steer caller can chain its next expectation (#4372).
     "steerTarget",

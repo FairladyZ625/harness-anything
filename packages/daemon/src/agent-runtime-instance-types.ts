@@ -1,7 +1,11 @@
 import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import type { SettingsV1, AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import type { AgentRuntimeInstanceDto } from "./agent-runtime-contract.ts";
-import { type RuntimeIsolationState, type RuntimePermissionMode } from "./runtime-permissions.ts";
+import {
+  type RuntimeIsolationState,
+  type RuntimeMcpPolicy,
+  type RuntimePermissionMode,
+} from "./runtime-permissions.ts";
 import type { RuntimeKindId, RuntimeWebSearchMode } from "./runtime-inventory.ts";
 
 export type RuntimeInstanceKind = RuntimeKindId;
@@ -23,6 +27,7 @@ export interface RuntimeInstanceCommon {
   readonly defaultModel: string;
   readonly enabled: boolean;
   readonly permissionMode?: RuntimePermissionMode;
+  readonly mcpPolicy?: RuntimeMcpPolicy;
   readonly isolationState: RuntimeIsolationState;
   readonly auth: RuntimeInstanceAuth;
   /** Disk-only previous-version residue; never used to authorize publication. Remove 2026-12-05. */
@@ -133,6 +138,7 @@ export interface RuntimeLaunchRequest {
   /** Auth route selected by the instance; ACP uses it to choose a declared methodId. */
   readonly authMode?: "subscription" | "api-key";
   readonly permissionMode?: string;
+  readonly mcpPolicy?: string;
   readonly runtimeSessionId?: string;
   /**
    * The Settings `runtime.providerHandshakeTimeoutMs` value. It rides the launch to the ACP worker
@@ -159,6 +165,7 @@ export interface PreparedRuntimeLaunch {
   /** Auth route selected by the instance; ACP uses it to choose a declared methodId. */
   readonly authMode?: "subscription" | "api-key";
   readonly permissionMode?: RuntimePermissionMode;
+  readonly mcpPolicy?: RuntimeMcpPolicy;
   /** Resolved API key delivered to the ACP client for `authenticate`; never enters the provider's environment. */
   readonly acpApiKey?: string;
   /** The caller's ACP handshake deadline; acp-family launches carry it to the worker host. */

@@ -136,6 +136,7 @@ function RuntimeFacts({
         <KVRow name="enabled">{String(instance.enabled)}</KVRow>
         <KVRow name="isolation">{instance.isolationState}</KVRow>
         <KVRow name="permission">{instance.permissionMode ?? t("agentRuntime.providerDefault")}</KVRow>
+        {instance.mcpPolicy ? <KVRow name="mcp policy">{instance.mcpPolicy}</KVRow> : null}
       </KV>
     </Section>
   );

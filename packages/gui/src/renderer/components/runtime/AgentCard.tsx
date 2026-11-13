@@ -40,6 +40,7 @@ export type AgentDraft = {
   // Optional declaration facets the editor does not render controls for still round-trip.
   readonly instance: string;
   readonly permissionMode: AgentDeclarationV1["permissionMode"] | "";
+  readonly mcpPolicy: NonNullable<AgentDeclarationV1["mcpPolicy"]> | "";
   /** Effective host access; a default-sourced value stays omitted on save until the user picks one. */
   readonly hostAccess: AgentHostAccess | null;
   readonly hostAccessExplicit: boolean;
@@ -58,6 +59,7 @@ export const agentDraftFrom = (detail: AgentEntityDetail): AgentDraft => ({
   prompts: detail.prompts,
   instance: detail.instance ?? "",
   permissionMode: detail.permissionMode ?? "",
+  mcpPolicy: detail.mcpPolicy ?? "",
   hostAccess: detail.hostAccess ?? null,
   hostAccessExplicit: detail.hostAccessSource === "declared",
 });
@@ -80,6 +82,7 @@ export function agentDeclarationFrom(id: string, draft: AgentDraft): AgentDeclar
     ...(draft.preset.trim() ? { preset: draft.preset.trim() } : {}),
     ...(draft.instance.trim() ? { instance: draft.instance.trim() } : {}),
     ...(draft.permissionMode ? { permissionMode: draft.permissionMode } : {}),
+    ...(draft.mcpPolicy ? { mcpPolicy: draft.mcpPolicy } : {}),
     ...(draft.hostAccessExplicit && draft.hostAccess !== null ? { hostAccess: draft.hostAccess } : {}),
   } as AgentDeclarationV1;
 }
@@ -771,6 +774,25 @@ export function AgentCard({
             <Button size="sm" variant="ghost" onClick={() => setRuntimeListOpen(!runtimeListOpen)}>
               {t(runtimeListOpen ? "agentRuntime.collapse" : "agentRuntime.expand")}
             </Button>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <label className="grid min-w-0 gap-0.5">
+              <span className="font-mono ui-micro uppercase tracking-[0.08em] text-text-faint">
+                {t("agentRuntime.mcpPolicy")}
+              </span>
+              <select
+                aria-label={t("agentRuntime.mcpPolicy")}
+                data-testid="agent-mcp-policy"
+                value={draft.mcpPolicy}
+                disabled={busy}
+                onChange={(event) => patch({ mcpPolicy: event.target.value as AgentDraft["mcpPolicy"] })}
+                className="control"
+              >
+                <option value="">{t("agentRuntime.mcpPolicyDefault")}</option>
+                <option value="disabled">{t("agentRuntime.mcpPolicyDisabled")}</option>
+                <option value="inherit">{t("agentRuntime.mcpPolicyInherit")}</option>
+              </select>
+            </label>
           </div>
           {runtimeListOpen && (
             <div className="mt-2 rounded border border-border px-2 py-1.5">

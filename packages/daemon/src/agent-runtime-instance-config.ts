@@ -27,7 +27,7 @@ export {
   runtimeInstanceError,
   unavailable,
 } from "./agent-runtime-instance-values.ts";
-import { runtimeIsolationState, runtimePermissionMode } from "./runtime-permissions.ts";
+import { runtimeIsolationState, runtimeMcpPolicy, runtimePermissionMode } from "./runtime-permissions.ts";
 import { agentRuntimeModelSpelling } from "./agent-runtime-contract.ts";
 import {
   isRuntimeKindId,
@@ -88,6 +88,7 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
           "defaultModel",
           "enabled",
           "permissionMode",
+          "mcpPolicy",
           "isolationState",
           "reasoningEffort",
           "baseUrl",
@@ -143,6 +144,7 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
     );
   const kindId = String(value.kindId) as RuntimeInstanceKind,
     permissionMode = runtimePermissionMode(value.permissionMode, kindId),
+    mcpPolicy = runtimeMcpPolicy(value.mcpPolicy, kindId),
     apiKeyIsolation = "apiKeyIsolation" in declaration.auth ? declaration.auth.apiKeyIsolation : undefined,
     subscriptionIsolation =
       "subscriptionIsolation" in declaration.auth ? declaration.auth.subscriptionIsolation : undefined,
@@ -174,6 +176,7 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
     defaultModel,
     enabled,
     ...(permissionMode ? { permissionMode } : {}),
+    ...(mcpPolicy ? { mcpPolicy } : {}),
     isolationState,
     auth,
     ...(value.hostingCredentialRefs === undefined

@@ -38,6 +38,7 @@ export interface DispatchRequest {
   readonly taskId: string | null;
   readonly model?: string;
   readonly effort?: string;
+  readonly mcpPolicy?: "disabled" | "inherit";
   readonly dispatchKey: string;
 }
 export const dispatchExecutorRef = (request: Pick<DispatchRequest, "subject">): DispatchAgentRef | undefined =>
@@ -79,6 +80,7 @@ export function buildDispatchSpawnInput(
     ...(request.handoffEnabled ? { handoffEnabled: true } : {}),
     ...(request.model ? { model: request.model } : {}),
     ...(request.effort ? { effort: request.effort } : {}),
+    ...(request.mcpPolicy ? { mcpPolicy: request.mcpPolicy } : {}),
     ...(request.handoffEnabled ? {} : { cwd: request.cwd }),
     prompt: request.mission,
     taskId: request.taskId,

@@ -371,6 +371,7 @@ export {
 } from "./person-action-contract.ts";
 
 export {
+  agentMcpPolicies,
   entityNonEmpty,
   entitySlug,
   parseAgentDeclarationV1,
@@ -385,6 +386,7 @@ export type {
   AgentDeclarationV1,
   AgentEntityKind,
   AgentHostAccess,
+  AgentMcpPolicy,
   AgentPermissionMode,
   AgentRole,
   AgentRuntimeTargetV1,

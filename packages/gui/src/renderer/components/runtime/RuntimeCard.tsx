@@ -369,6 +369,7 @@ export function RuntimeCard({
                 : t("agentRuntime.operatorEnvironment")}
             </KVRow>
             <KVRow name="permission">{instance.permissionMode ?? t("agentRuntime.providerDefault")}</KVRow>
+            {instance.mcpPolicy ? <KVRow name="mcp policy">{instance.mcpPolicy}</KVRow> : null}
           </KV>
           <div className="mt-2.5 flex items-center gap-2 border-t border-border pt-2.5">
             <Button

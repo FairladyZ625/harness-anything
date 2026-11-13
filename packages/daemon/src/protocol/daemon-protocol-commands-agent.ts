@@ -838,6 +838,15 @@ export const agentProtocolCommands = Object.freeze([
         { pathKind: "non-path", enum: ["bypass", "workspace-write", "read-only"] },
       ),
       cliInput(
+        "--mcp-policy",
+        "single",
+        false,
+        {
+          code: "invalid_runtime_mcp_policy",
+        },
+        { pathKind: "non-path", enum: ["disabled", "inherit"] },
+      ),
+      cliInput(
         "--cwd",
         "single",
         false,

@@ -113,10 +113,16 @@ describe("RuntimeCard isolation editing follows the declared capability states",
     );
     expect(container.textContent).toContain("API key requires dedicated environment");
     await pickSelect(container, "runtime-provider-permission-mode", "workspace-write");
+    await pickSelect(container, "runtime-provider-mcp-policy", "inherit");
     await pickSelect(container, "runtime-provider-web-search", "cached");
     await submitPermissions(container);
     expect(onUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ permissionMode: "workspace-write", isolationState: "enforced", webSearch: "cached" }),
+      expect.objectContaining({
+        permissionMode: "workspace-write",
+        mcpPolicy: "inherit",
+        isolationState: "enforced",
+        webSearch: "cached",
+      }),
     );
     expect(container.querySelector('[data-testid="runtime-instance-permissions"]')).toBeNull();
   });
@@ -183,7 +189,9 @@ describe("RuntimeCard isolation editing follows the declared capability states",
     const onUpdate = vi.fn(async () => ({ ok: false }));
     const container = await renderCard(runtimeInstance("agy", "operator-environment"), onUpdate);
     expect(container.querySelector('[data-testid="runtime-provider-isolation"]')).toBeNull();
+    expect(container.querySelector('[data-testid="runtime-provider-mcp-policy"]')).toBeNull();
     await submitPermissions(container);
     expect(onUpdate.mock.calls[0]?.[0]).not.toHaveProperty("isolationState");
+    expect(onUpdate.mock.calls[0]?.[0]).not.toHaveProperty("mcpPolicy");
   });
 });

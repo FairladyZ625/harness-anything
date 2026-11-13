@@ -63,6 +63,7 @@ export interface AgentEntityGuiAvailableRow {
   readonly runtimes: readonly AgentRuntimeTargetV1[];
   readonly instance: string | null;
   readonly permissionMode: AgentDeclarationV1["permissionMode"] | null;
+  readonly mcpPolicy: AgentDeclarationV1["mcpPolicy"] | null;
   /** Effective host access; an undeclared declaration resolves to the Kernel default. */
   readonly hostAccess: AgentHostAccess;
   /** Whether `hostAccess` came from the declaration or from the undeclared default. */
@@ -105,6 +106,7 @@ export interface AgentEntityGuiDetail {
   readonly preset: string | null;
   readonly instance: string | null;
   readonly permissionMode: AgentDeclarationV1["permissionMode"] | null;
+  readonly mcpPolicy: AgentDeclarationV1["mcpPolicy"] | null;
   /** Effective host access; an undeclared declaration resolves to the Kernel default. */
   readonly hostAccess: AgentHostAccess;
   /** Whether `hostAccess` came from the declaration or from the undeclared default. */
@@ -233,6 +235,7 @@ export function readAgentEntityGuiProjection<
         runtimes: agent.runtimes,
         instance: agent.instance ?? null,
         permissionMode: agent.permissionMode ?? null,
+        mcpPolicy: agent.mcpPolicy ?? null,
         ...resolveAgentHostAccess(agent.hostAccess),
         role: agent.role ?? "worker",
         instructions: agent.instructions,
@@ -354,6 +357,7 @@ function agentEntityCatalogRow(row: AgentEntityProjectionRow): AgentEntityGuiRow
     runtimes: agent.runtimes,
     instance: agent.instance ?? null,
     permissionMode: agent.permissionMode ?? null,
+    mcpPolicy: agent.mcpPolicy ?? null,
     ...resolveAgentHostAccess(agent.hostAccess),
     role: agent.role ?? "worker",
     layer: "user",

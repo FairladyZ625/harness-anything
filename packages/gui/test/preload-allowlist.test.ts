@@ -723,6 +723,7 @@ test("runtime update accepts exactly the fields the registry declares", () => {
     "installationId",
     "instanceId",
     "isolationState",
+    "mcpPolicy",
     "models",
     "name",
     "permissionMode",
@@ -740,9 +741,11 @@ test("runtime update accepts exactly the fields the registry declares", () => {
               ? { permissionMode: "bypass" }
               : field === "isolationState"
                 ? { isolationState: "enforced" }
-                : field === "webSearch"
-                  ? { webSearch: "disabled" }
-                  : { [field]: "value" };
+                : field === "mcpPolicy"
+                  ? { mcpPolicy: "disabled" }
+                  : field === "webSearch"
+                    ? { webSearch: "disabled" }
+                    : { [field]: "value" };
     assert.equal(
       assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", ...sample }),
       true,
@@ -775,6 +778,29 @@ test("runtime update still rejects empty values, empty model lists, and secret-l
   assert.throws(
     () => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", webSearch: "live-ish" }),
     /invalid/u,
+  );
+  for (const mcpPolicy of ["disabled", "inherit", ""])
+    assert.equal(assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", mcpPolicy }), true);
+  assert.throws(
+    () => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", mcpPolicy: "all" }),
+    /invalid/u,
+  );
+  const codexCreate = buildRuntimeInstanceCreatePayload(
+    { ...runtimeCreateForm, kindId: "codex", providerId: "openai", isolation: "enforced", mcpPolicy: "inherit" },
+    "codex-install",
+  );
+  assert.equal(codexCreate.mcpPolicy, "inherit");
+  assert.equal(assertPreloadPayload("createRuntimeInstance", codexCreate), true);
+  assert.throws(
+    () =>
+      assertPreloadPayload("createRuntimeInstance", {
+        ...codexCreate,
+        kindId: "agy",
+        agy: {},
+        codex: undefined,
+        permissionMode: undefined,
+      }),
+    /mcpPolicy.*omitted/u,
   );
   // No usage payload crosses the preload boundary, so string-valued token keys stay rejected
   // under every spelling — the value-type line from the dispatch scrubber has no traffic here.

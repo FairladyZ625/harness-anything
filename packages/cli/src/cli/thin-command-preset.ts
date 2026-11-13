@@ -32,6 +32,7 @@ export function parsePreset(
         ...(f.one.get("--effort") ? { effort: f.one.get("--effort") } : {}),
         ...(f.one.get("--model") ? { model: f.one.get("--model") } : {}),
         ...(f.one.get("--permission-mode") ? { permissionMode: f.one.get("--permission-mode") } : {}),
+        ...(f.one.get("--mcp-policy") ? { mcpPolicy: f.one.get("--mcp-policy") } : {}),
         // Without --cwd the Squad runs in the task's own worktree.
         ...(f.one.get("--cwd")
           ? {

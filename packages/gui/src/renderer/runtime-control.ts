@@ -15,6 +15,7 @@ export interface RuntimeSpawnInput {
   readonly model?: string;
   readonly effort?: string;
   readonly permissionMode?: string;
+  readonly mcpPolicy?: "disabled" | "inherit";
   readonly cwd?: { readonly scope: "repo-root" } | { readonly scope: "repo-relative"; readonly path: string };
   readonly prompt?: string;
   readonly taskId?: string | null;

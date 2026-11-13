@@ -20,6 +20,7 @@ import type {
 } from "@harness-anything/kernel";
 import type {
   AgentHostAccess,
+  AgentMcpPolicy,
   AgentPermissionMode,
   AgentRole,
   AgentRuntimeTargetV1,
@@ -37,7 +38,7 @@ import type { AgentRuntimeStreamHub, AgentRuntimeNativeSignal } from "./agent-ru
 import { type DispatchStreamWriter } from "./dispatch-stream.ts";
 import { type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import { type JsonObject } from "./protocol/json-rpc-types.ts";
-import { type RuntimePermissionMode } from "./runtime-permissions.ts";
+import { type RuntimeMcpPolicy, type RuntimePermissionMode } from "./runtime-permissions.ts";
 import type { RuntimeFallbackAttempt, RuntimeProviderFault } from "./runtime-fallback-contract.ts";
 import type { RuntimeProviderHealthStore } from "./runtime-provider-health.ts";
 import type { RuntimeContinuationSeed } from "./runtime-continuation-context.ts";
@@ -180,6 +181,7 @@ export type RuntimeAgent = {
    *  never fails a dispatch when a preferred instance is unavailable on this node. */
   readonly preferredInstances?: readonly string[];
   readonly permissionMode?: AgentPermissionMode;
+  readonly mcpPolicy?: AgentMcpPolicy;
   readonly hostAccess?: AgentHostAccess;
   readonly role?: AgentRole;
   readonly skills?: readonly AgentSkillDeclarationV1[];
@@ -198,6 +200,7 @@ export type ActiveRuntime = {
    * when the launch environment resolved no provider home. */
   readonly resolvedProviderDirectory: string | null;
   readonly permissionMode: RuntimePermissionMode | null;
+  readonly mcpPolicy?: RuntimeMcpPolicy | null;
   readonly agent: Pick<RuntimeAgent, "id" | "name"> | null;
   readonly role: string | null;
   readonly delegatedBy: Pick<RuntimeAgent, "id" | "name"> | null;

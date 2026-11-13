@@ -25,6 +25,7 @@ const futureCatalog = {
       runtimes: [{ type: "codex" }],
       instance: null,
       permissionMode: null,
+      mcpPolicy: null,
       hostAccess: "operator",
       hostAccessSource: "default",
       role: "worker",

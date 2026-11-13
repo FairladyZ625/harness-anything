@@ -57,6 +57,11 @@ function entityReadRowErrors(value: unknown, fields: readonly string[], prefix: 
 }
 const agentGuiRoles = Object.freeze(["worker", "commander", "reviewer"]),
   agentGuiHostAccess = Object.freeze(["isolated", "operator", "bypass"]),
+  agentGuiMcpPolicies = Object.freeze(["disabled", "inherit"]),
+  agentMcpPolicyError = (row: Record<string, unknown>, prefix: string): readonly string[] =>
+    row.mcpPolicy !== null && !agentGuiMcpPolicies.includes(String(row.mcpPolicy))
+      ? [`${prefix} mcpPolicy must be null, disabled, or inherit.`]
+      : [],
   agentHostAccessErrors = (row: Record<string, unknown>, prefix: string): readonly string[] =>
     [
       !agentGuiHostAccess.includes(String(row.hostAccess))
@@ -72,6 +77,7 @@ const agentGuiRoles = Object.freeze(["worker", "commander", "reviewer"]),
     "runtimes",
     "instance",
     "permissionMode",
+    "mcpPolicy",
     "hostAccess",
     "hostAccessSource",
     "role",
@@ -86,6 +92,7 @@ const agentGuiRoles = Object.freeze(["worker", "commander", "reviewer"]),
     "runtimes",
     "instance",
     "permissionMode",
+    "mcpPolicy",
     "hostAccess",
     "hostAccessSource",
     "role",
@@ -193,6 +200,7 @@ const agentCatalogRowChecks = (row: Record<string, unknown>): readonly string[] 
       ? "agent catalog row runtimes must be an array of unique {type, model?, effort?} targets."
       : [],
     ...agentHostAccessErrors(row, "agent catalog row"),
+    ...agentMcpPolicyError(row, "agent catalog row"),
     ...agentRetirementErrors(row, "agent catalog row"),
   ].flat();
 const agentDetailChecks = (row: Record<string, unknown>): readonly string[] =>
@@ -218,6 +226,7 @@ const agentDetailChecks = (row: Record<string, unknown>): readonly string[] =>
       ? ["agent detail preset must be null or a non-empty preset id."]
       : [],
     ...agentHostAccessErrors(row, "agent detail"),
+    ...agentMcpPolicyError(row, "agent detail"),
     ...positiveRevision(row),
     ...agentRetirementErrors(row, "agent detail"),
   ].flat();
@@ -358,7 +367,10 @@ function agentDiffFieldErrors(value: unknown, prefix: string): readonly string[]
     return errors;
   }
   errors.push(...entityReadRowErrors(value, ["field", "kind", "from", "to"], prefix));
-  if (!["name", "role", "preset", "instance", "permissionMode"].includes(field) || value.kind !== "changed")
+  if (
+    !["name", "role", "preset", "instance", "permissionMode", "mcpPolicy"].includes(field) ||
+    value.kind !== "changed"
+  )
     errors.push(`${prefix} names an undeclared scalar field or a non-changed kind.`);
   return errors;
 }

@@ -3,7 +3,7 @@ import type { CreateInstanceFormState } from "../../runtime-instance-form.ts";
 import { runtimeProviderPlane, runtimeWebSearchRestriction } from "../../runtime-provider-planes.ts";
 import { t } from "../../i18n/index.tsx";
 
-type AccessValues = Pick<CreateInstanceFormState, "permissionMode" | "isolation" | "webSearch">;
+type AccessValues = Pick<CreateInstanceFormState, "permissionMode" | "mcpPolicy" | "isolation" | "webSearch">;
 /** One set of controls for new and existing providers; the daemon remains the write authority. */
 export function RuntimeAccessFields({
   value,
@@ -43,6 +43,22 @@ export function RuntimeAccessFields({
             <option value="bypass">{t("agentRuntime.permissionBypass")}</option>
             <option value="workspace-write">{t("agentRuntime.permissionWorkspaceWrite")}</option>
             <option value="read-only">{t("agentRuntime.permissionReadOnly")}</option>
+          </select>
+        </label>
+      )}
+      {declaration.capabilities.mcp === "supported" && (
+        <label className="grid min-w-0 gap-0.5">
+          <span className="font-mono ui-micro text-text-faint">{t("agentRuntime.mcpPolicy")}</span>
+          <select
+            className="control"
+            aria-label={t("agentRuntime.mcpPolicy")}
+            data-testid={`${testIdPrefix}-mcp-policy`}
+            value={value.mcpPolicy ?? "disabled"}
+            disabled={busy}
+            onChange={(event) => onChange({ mcpPolicy: event.target.value as AccessValues["mcpPolicy"] })}
+          >
+            <option value="disabled">{t("agentRuntime.mcpPolicyDisabled")}</option>
+            <option value="inherit">{t("agentRuntime.mcpPolicyInherit")}</option>
           </select>
         </label>
       )}

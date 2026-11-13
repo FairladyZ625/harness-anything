@@ -37,6 +37,7 @@ interface AgentRuntimeInstanceCommonDto {
   readonly defaultModel: string;
   readonly enabled: boolean;
   readonly permissionMode: "bypass" | "workspace-write" | "read-only" | null;
+  readonly mcpPolicy?: "disabled" | "inherit" | null;
   readonly authMode: "subscription" | "api-key";
   readonly authState: OperationalStatus.RuntimeAuthState;
   readonly authReadiness: {
@@ -482,7 +483,7 @@ function validInstance(value: unknown): value is AgentRuntimeInstanceDto {
         "authReadiness",
         "isolationState",
       ],
-      ["hostingCredentialState"],
+      ["hostingCredentialState", "mcpPolicy"],
     ) &&
     value.schemaVersion === 2 &&
     Array.isArray(value.models) &&
@@ -493,6 +494,9 @@ function validInstance(value: unknown): value is AgentRuntimeInstanceDto {
     typeof value.enabled === "boolean" &&
     (value.permissionMode === null ||
       ["bypass", "workspace-write", "read-only"].includes(String(value.permissionMode))) &&
+    (value.mcpPolicy === undefined ||
+      value.mcpPolicy === null ||
+      ["disabled", "inherit"].includes(String(value.mcpPolicy))) &&
     [value.instanceId, value.name, value.installationId, value.providerId].every(
       (item) => typeof item === "string" && item.length > 0,
     ) &&
