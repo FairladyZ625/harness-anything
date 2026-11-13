@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import ts from "typescript";
+import { stripGlobals } from "../../packages/cli/src/cli/thin-command-flags.ts";
 import { bindArguments, isFunctionNode, makeEvaluator, unwrap } from "./authorization-flow-graph.mjs";
 import { scanOntologyText } from "./ontology-closure-scan.mjs";
 
@@ -60,17 +61,26 @@ function declaredPortKey(graph, node) {
   return `${file}#${names.join(".")}`;
 }
 
-const VALUE_LEADING_FLAGS = new Set(["--root", "--actor", "--daemon-id", "--user-root", "--format"]);
-const BOOLEAN_LEADING_FLAGS = new Set(["--json"]);
 const NON_CLIENT_COMMANDS = new Set(["git", "npm", "npx", "gh", "taskkill", "cat"]);
 
-function cliArgTokens(graph, expression, seen = new Set()) {
+function leadingFlagAdvance(token, descriptors) {
+  const globalStripped = stripGlobals([token, "__value__"]);
+  if (globalStripped.length === 0) return 2;
+  if (globalStripped.length === 1) return 1;
+  for (const descriptor of descriptors) {
+    const match = descriptor.inputs?.find((input) => input.name === token);
+    if (match) return match.kind === "boolean" ? 1 : 2;
+  }
+  return 0;
+}
+
+function cliArgTokens(graph, expression, descriptors = [], seen = new Set()) {
   const expr = unwrap(expression);
   if (!expr || seen.has(expr)) return null;
   seen.add(expr);
   if (ts.isIdentifier(expr)) {
     const binding = graph.lookup(expr.text, expr);
-    return binding?.kind === "var" ? cliArgTokens(graph, binding.declaration.initializer, seen) : null;
+    return binding?.kind === "var" ? cliArgTokens(graph, binding.declaration.initializer, descriptors, seen) : null;
   }
   if (!ts.isArrayLiteralExpression(expr)) return null;
   const elements = expr.elements;
@@ -78,15 +88,9 @@ function cliArgTokens(graph, expression, seen = new Set()) {
   while (index < elements.length) {
     const head = unwrap(elements[index]);
     if (!head || !ts.isStringLiteralLike(head)) break;
-    if (BOOLEAN_LEADING_FLAGS.has(head.text)) {
-      index += 1;
-      continue;
-    }
-    if (VALUE_LEADING_FLAGS.has(head.text)) {
-      index += 2;
-      continue;
-    }
-    break;
+    const step = leadingFlagAdvance(head.text, descriptors);
+    if (step === 0) break;
+    index += step;
   }
   const tokens = [];
   while (index < elements.length) {
@@ -105,7 +109,7 @@ export function clientCommandBinding(graph, node, descriptors = []) {
   if (firstArg && ts.isStringLiteralLike(firstArg) && NON_CLIENT_COMMANDS.has(firstArg.text)) return null;
   let bestCliMatch = null;
   for (const arg of node.arguments) {
-    const tokens = cliArgTokens(graph, arg);
+    const tokens = cliArgTokens(graph, arg, descriptors);
     if (!tokens) continue;
     for (const descriptor of descriptors) {
       const cmdPath = descriptor.path;
