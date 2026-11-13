@@ -308,29 +308,45 @@ test("agenda labels each task row with its nearest work root and --work keeps on
       ...stub,
       read: (taskId: string) => ({ ...readyCut, packagePath: null, snapshot: byId.get(taskId)?.snapshot ?? {} }),
       listEntities: () => [],
-      readTaskIndex: (query: TaskProjectionListQuery = {}) => ({
-        ...readyCut,
-        rows: rows
-          .filter(
-            ({ taskId, snapshot: { task } }) =>
-              (query.taskIds === undefined || query.taskIds.includes(taskId)) &&
-              (query.scopeRootTaskId === undefined ||
-                taskId === query.scopeRootTaskId ||
-                task.metadata.parentTaskId === query.scopeRootTaskId),
-          )
-          .map(({ taskId, snapshot: { task } }) => ({
-            taskId,
-            title: task.title,
-            status: task.status,
-            taskClass: task.taskClass,
-            parentTaskId: task.metadata.parentTaskId,
-            pinned: false,
-            packageDisposition: "active",
-            packagePath: null,
-            updatedAt: "2026-08-30T00:00:00.000Z",
-          })),
-        warnings: [],
-      }),
+      readTaskIndex: (query: TaskProjectionListQuery = {}) => {
+        const scopeIds = (() => {
+          if (query.scopeRootTaskId === undefined) return null;
+          const ids = new Set([query.scopeRootTaskId]);
+          let changed = true;
+          while (changed) {
+            changed = false;
+            for (const row of rows) {
+              const parent = row.snapshot.task.metadata.parentTaskId;
+              if (parent && ids.has(parent) && !ids.has(row.taskId)) {
+                ids.add(row.taskId);
+                changed = true;
+              }
+            }
+          }
+          return ids;
+        })();
+        return {
+          ...readyCut,
+          rows: rows
+            .filter(
+              ({ taskId, snapshot: { task } }) =>
+                (query.taskIds === undefined || query.taskIds.includes(taskId)) &&
+                (scopeIds === null || scopeIds.has(taskId)),
+            )
+            .map(({ taskId, snapshot: { task } }) => ({
+              taskId,
+              title: task.title,
+              status: task.status,
+              taskClass: task.taskClass,
+              parentTaskId: task.metadata.parentTaskId,
+              pinned: false,
+              packageDisposition: "active",
+              packagePath: null,
+              updatedAt: "2026-08-30T00:00:00.000Z",
+            })),
+          warnings: [],
+        };
+      },
     } as unknown as TaskProjection,
     labels = (agenda: ReturnType<ReturnType<typeof queryRead>["agenda"]>) =>
       Object.fromEntries(agenda.waitingOnOthers.map(({ taskId, work }) => [taskId, work?.title ?? null]));
