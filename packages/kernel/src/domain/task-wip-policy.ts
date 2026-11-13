@@ -233,7 +233,7 @@ export const taskExecutionWipPolicy = {
   ].map((candidateId) => ({ candidateId, route: "admitTaskExecutionWip" })),
 } as const satisfies OntologyPolicyDeclaration;
 
-export const nodeTaskMaterializationPolicies = Object.freeze(["none", "in_flight", "include_done"] as const);
+const nodeTaskMaterializationPolicies = Object.freeze(["none", "in_flight", "include_done"] as const);
 export type NodeTaskMaterializationPolicy = (typeof nodeTaskMaterializationPolicies)[number];
 
 /** A node-local choice; canonical Task state and content remain complete in storage. */
@@ -269,12 +269,6 @@ export const nodeTaskMaterializationPolicy = {
     },
   ],
 } as const satisfies OntologyPolicyDeclaration;
-
-export function normalizeNodeTaskMaterializationPolicy(value: unknown): NodeTaskMaterializationPolicy {
-  if ((nodeTaskMaterializationPolicies as readonly unknown[]).includes(value))
-    return value as NodeTaskMaterializationPolicy;
-  throw new Error(`nodeTaskMaterializationPolicy must be one of ${nodeTaskMaterializationPolicies.join(", ")}`);
-}
 
 export function taskIncludedByNodeMaterializationPolicy(
   policy: NodeTaskMaterializationPolicy,

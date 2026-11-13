@@ -63,15 +63,14 @@ export function derivesRelationClause(sourceRef: string): {
   return match ? { decisionId: match[1]!, clauseId: match[2]! } : null;
 }
 
-export const terminalFactMaterializationStates = Object.freeze(["archived", "superseded_fact"] as const);
-export type TerminalFactMaterializationState = (typeof terminalFactMaterializationStates)[number];
+const terminalFactMaterializationStates = Object.freeze(["archived", "superseded_fact"] as const);
 export const terminalDecisionMaterializationStates = Object.freeze([
   "outcome_retired",
   "superseded",
   "rejected",
 ] as const);
 export type TerminalDecisionMaterializationState = (typeof terminalDecisionMaterializationStates)[number];
-export const canonicalMaterializationStates = Object.freeze([
+const canonicalMaterializationStates = Object.freeze([
   "materialized",
   "dematerialized_terminal",
   "skipped_by_node_policy",
@@ -158,7 +157,7 @@ function activeTask(state: string | undefined): boolean {
   return ["planned", "active", "blocked", "submitted", "in_review"].includes(state ?? "");
 }
 
-export function isTerminalMaterializationState(entity: Pick<MaterializationEntityState, "kind" | "state">): boolean {
+function isTerminalMaterializationState(entity: Pick<MaterializationEntityState, "kind" | "state">): boolean {
   return entity.kind === "fact"
     ? (terminalFactMaterializationStates as readonly string[]).includes(entity.state)
     : entity.kind === "decision"
