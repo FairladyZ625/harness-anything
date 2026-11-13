@@ -25,8 +25,7 @@ export function readRepoInFlightWork(input: {
           : {}),
         nextAction: `ha runtime status ${attempt.runtimeSessionId}`,
       })),
-    leaseIndex = input.projection.readTaskIndex({ leaseOnly: true, presentationStatus: false }),
-    leases = leaseIndex.rows.flatMap((row) => {
+    leases = input.projection.readTaskIndex({ leaseOnly: true, presentationStatus: false }).rows.flatMap((row) => {
       // The scalar index finds live leases without hydrating unrelated snapshots. Each
       // selected id is then a bounded point read for the lease payload itself.
       const lease = input.projection.read(row.taskId, false, false).snapshot.lease;
