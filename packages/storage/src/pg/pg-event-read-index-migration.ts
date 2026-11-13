@@ -286,6 +286,13 @@ export async function pgDefaultEventSummaryGate(
   scope: PgProjectionScope,
   repoId: string,
 ): Promise<void> {
+  const ready = await client.query(
+    `SELECT 1 FROM ha_event_summary_state
+     WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4 AND ready
+     LIMIT 1`,
+    [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
+  );
+  if (ready.rowCount) return;
   const pending = await client.query(
     `SELECT 1 FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4
       AND default_summary_json IS NULL LIMIT 1`,
@@ -310,8 +317,51 @@ export async function backfillPgDefaultEventSummaries(
       (client) => backfillPgDefaultEventSummariesPage(client, scope, repoId),
       scope,
     );
-    if (page.done) return;
+    if (page.done) {
+      await withPostgresTransaction(
+        pool,
+        (client) =>
+          client.query(
+            `INSERT INTO ha_event_summary_state(tenant_id,project_id,policy_epoch,repo_id,ready)
+             VALUES ($1,$2,$3,$4,true)
+             ON CONFLICT (tenant_id,project_id,policy_epoch,repo_id) DO UPDATE SET ready=true`,
+            [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
+          ),
+        scope,
+      );
+      return;
+    }
   }
+}
+
+/** Resolve only selected missing rows after a ready repository accepts a previous-version write.
+ * Serving transactions are read-only; the management drain remains the only writer of this column.
+ */
+export async function hydratePgDefaultEventSummaries(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  repoId: string,
+  rows: readonly { readonly revision: string; readonly summary_json: string | null }[],
+): Promise<ReadonlyMap<string, string>> {
+  const missing = rows.filter((row) => row.summary_json === null);
+  if (missing.length === 0) return new Map();
+  const revisions = missing.map((row) => row.revision),
+    result = await client.query<{ readonly revision: string; readonly event_json: string }>(
+      `SELECT revision::text AS revision, event_json FROM ha_events
+       WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4
+         AND (cardinality($5::text[]) = 0 OR readers && $5::text[])
+         AND default_summary_json IS NULL AND revision = ANY($6::bigint[])`,
+      [scope.tenantId, scope.projectId, scope.policyEpoch, repoId, scope.readers ?? [], revisions],
+    ),
+    entries = result.rows.map((row) =>
+      pgDefaultEventSummaryEntry(JSON.parse(row.event_json) as PersistedCanonicalEventV1, Number(row.revision)),
+    );
+  if (entries.length !== missing.length) {
+    const error = new Error("Default event summaries are not backfilled");
+    Object.defineProperty(error, "code", { value: "projection_pending" });
+    throw error;
+  }
+  return new Map(entries.map((entry) => [String(entry.revision), entry.summaryJson]));
 }
 
 /** Schema-owner contract step, outside serving PostgreSQL transactions. A scoped page only

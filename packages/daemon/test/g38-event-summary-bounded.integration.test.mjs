@@ -743,6 +743,10 @@ if (!isMainThread) {
             "UPDATE ha_events SET default_summary_json = NULL WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4",
             [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
           );
+          await client.query(
+            "DELETE FROM ha_event_summary_state WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4",
+            [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
+          );
         },
         scope,
       );
@@ -829,10 +833,6 @@ if (!isMainThread) {
         scope,
       );
       assert.equal(invalidated.rows[0].default_summary_json, null);
-      pgReader.withSession((pgQueries) => {
-        assert.throws(() => pgQueries.readEventSummaries(0, 200), { code: "projection_pending" });
-      });
-      await backfillPgDefaultEventSummaries(pgFixture.pool, scope, repoId);
       pgReader.withSession((pgQueries) => {
         const refreshed = pgQueries
           .readEventSummaries(0, 200)
