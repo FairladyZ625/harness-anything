@@ -884,6 +884,21 @@ test("generation paths coexist beneath the local store root", (t) => {
   assert.equal(sqliteLedgerPath(rootDir, 2), path.join(rootDir, ".harness/store/generations/2/ledger.sqlite"));
 });
 
+function batchedSnapshotSource(events: unknown[]) {
+  return {
+    read: () => ({ events }),
+    readBatch: () => ({
+      sourceRevision: events.length,
+      events,
+      cursor: null,
+      done: true,
+      accessedItems: events.length,
+      prefetchContent: () => new Map(),
+    }),
+    readContentBlob: () => null,
+  } as never;
+}
+
 test("reconciliation uses immutable source, import evidence, row digests, outcomes and real Git read-back", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-reconcile-"));
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
@@ -898,7 +913,7 @@ test("reconciliation uses immutable source, import evidence, row digests, outcom
   createImmutableLegacyGenerationSnapshot({
     repoId,
     snapshotPath,
-    source: { read: () => ({ events }), readContentBlob: () => null } as never,
+    source: batchedSnapshotSource(events),
   });
   convertLegacyGeneration({ rootDir, snapshotPath, databasePath });
   assert.equal(git(rootDir, "status", "--short", "--untracked-files=all", "--", "harness"), "");
@@ -950,7 +965,7 @@ test("certified reopen retires stale legacy index entries without changing unrel
   createImmutableLegacyGenerationSnapshot({
     repoId,
     snapshotPath,
-    source: { read: () => ({ events }), readContentBlob: () => null } as never,
+    source: batchedSnapshotSource(events),
   });
   convertLegacyGeneration({ rootDir, snapshotPath, databasePath });
   const backupDir = path.join(parent, "backup"),
