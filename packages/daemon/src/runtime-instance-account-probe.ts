@@ -1,4 +1,5 @@
 import path from "node:path";
+import { cliOperationalPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { runtimeInstanceError } from "./agent-runtime-instance-config.ts";
 import {
   parseRuntimeModelCatalogOutput,
@@ -14,7 +15,10 @@ export interface RuntimeAccountModelCatalog {
   readonly searchCapableModels?: readonly string[];
 }
 
-export function createRuntimeInstanceAccountProbe(platform: NodeJS.Platform, maxConcurrent = 2) {
+export function createRuntimeInstanceAccountProbe(
+  platform: NodeJS.Platform,
+  maxConcurrent = cliOperationalPolicy.defaultValue.batch.defaultConcurrency,
+) {
   const runBounded = boundedExecutor(maxConcurrent);
   return Object.freeze({
     probeModels: (input: {
@@ -136,7 +140,7 @@ function probeSignal(signal: AbortSignal | undefined, timeoutMs: number): AbortS
 function boundedExecutor(
   limit: number,
 ): <T>(signal: AbortSignal | undefined, operation: () => Promise<T>) => Promise<T> {
-  if (!Number.isInteger(limit) || limit < 1)
+  if (!Number.isInteger(limit) || limit <= Number.EPSILON)
     throw new RangeError("Runtime account probe concurrency must be a positive integer.");
   let active = 0;
   type Waiter = {

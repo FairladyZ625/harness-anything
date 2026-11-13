@@ -117,6 +117,75 @@ test("trusted runtime auth terminal executes an exact non-platform fixture witho
   }
 });
 
+test("runtime auth terminals are bounded and cancelled sessions release their slot", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-auth-boundary-"));
+  let host: ReturnType<typeof openTerminalHost> | undefined;
+  try {
+    host = openTerminalHost({
+      repoId: "repo-auth-boundary",
+      rootDir: root,
+      daemonGeneration: 9,
+      spawnPty: recordingPtySpawner([]),
+    });
+    const launch = (idempotencyKey: string) =>
+      host!.spawnTrusted({
+        idempotencyKey,
+        name: `AGY ${idempotencyKey}`,
+        executablePath: process.execPath,
+        args: [],
+        env: {},
+        cwd: root,
+        publicCwd: `runtime-instance:${idempotencyKey}`,
+        profile: "runtime-auth",
+      });
+    const first = launch("auth-1"),
+      second = launch("auth-2");
+    assert.equal(launch("auth-2").sessionId, second.sessionId);
+    assert.throws(
+      () => launch("auth-3"),
+      (error: unknown) => (error as { code?: string }).code === "runtime_auth_concurrency_exceeded",
+    );
+    assert.equal(host.terminate({ sessionId: first.sessionId!, confirmed: true }).state, "exited");
+    assert.equal(terminalRows(host).find((session) => session.sessionId === first.sessionId)?.exitCode, 130);
+    assert.equal(launch("auth-3").ok, true);
+  } finally {
+    await host?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("runtime auth deadline aborts the provider process with a failure exit", { timeout: 5_000 }, async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-auth-deadline-"));
+  let host: ReturnType<typeof openTerminalHost> | undefined;
+  try {
+    host = openTerminalHost({
+      repoId: "repo-auth-deadline",
+      rootDir: root,
+      daemonGeneration: 9,
+      runtimeAuthTimeoutMs: 15,
+      spawnPty: recordingPtySpawner([]),
+    });
+    const spawned = host.spawnTrusted({
+      idempotencyKey: "auth-deadline",
+      name: "AGY sign in",
+      executablePath: process.execPath,
+      args: [],
+      env: {},
+      cwd: root,
+      publicCwd: "runtime-instance:auth-deadline",
+      profile: "runtime-auth",
+    });
+    const attached = host.attach(spawned.sessionId!, 0);
+    assert.equal((await attached.next())?.kind, "exit");
+    const session = terminalRows(host).find((row) => row.sessionId === spawned.sessionId);
+    assert.equal(session?.status, "exited");
+    assert.equal(session?.exitCode, 124);
+  } finally {
+    await host?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("direct terminals receive the cached login shell environment", async () => {
   // realpath: the host resolves the spawn cwd, and on macOS tmpdir() is the /var symlink.
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-terminal-environment-"))),

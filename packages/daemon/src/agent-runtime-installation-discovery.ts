@@ -111,19 +111,21 @@ export function discoverRuntimeModelCatalog(input: {
     timeoutMs,
     captureOutput: true,
     signal: input.signal ?? AbortSignal.timeout(timeoutMs),
-  }).then((output) => {
-    const models = [...parseRuntimeModelCatalogOutput(input.kindId, output)],
-      searchCapableModels =
-        declaration.executable.modelProbeFormat === "json-models" ? modelSearchCapableModels(output) : [],
-      capable = [...new Set(searchCapableModels)].filter((model) => models.includes(model));
-    return models[0]
-      ? {
-          models,
-          defaultModel: models[0],
-          ...(capable.length > 0 ? { searchCapableModels: capable } : {}),
-        }
-      : null;
-  });
+  })
+    .then((output) => {
+      const models = [...parseRuntimeModelCatalogOutput(input.kindId, output)],
+        searchCapableModels =
+          declaration.executable.modelProbeFormat === "json-models" ? modelSearchCapableModels(output) : [],
+        capable = [...new Set(searchCapableModels)].filter((model) => models.includes(model));
+      return models[0]
+        ? {
+            models,
+            defaultModel: models[0],
+            ...(capable.length > 0 ? { searchCapableModels: capable } : {}),
+          }
+        : null;
+    })
+    .catch(() => null);
 }
 
 type ModelProbeFormat = RuntimeProviderDeclaration["executable"]["modelProbeFormat"];

@@ -205,7 +205,7 @@ export function openRuntimeInstanceStore(input: {
       instances = read();
     if (instances.some(({ instanceId }) => instanceId === config.instanceId))
       throw runtimeInstanceError("runtime_instance_exists", `Runtime instance ${config.instanceId} already exists.`);
-    assertOperatorInstanceUnique(config, instances);
+    ensureOperatorInstanceSlot(config, instances);
     const installation = witnessed.find(({ installationId: witnessedId }) => witnessedId === config.installationId);
     if (!installation || installation.kindId !== config.kindId)
       throw runtimeInstanceError(
@@ -214,7 +214,7 @@ export function openRuntimeInstanceStore(input: {
       );
     return config;
   }
-  function assertOperatorInstanceUnique(
+  function ensureOperatorInstanceSlot(
     config: RuntimeInstanceConfig,
     instances: readonly RuntimeInstanceConfig[],
   ): void {
@@ -1109,7 +1109,7 @@ export function openRuntimeInstanceStore(input: {
         },
         platform,
       );
-      assertOperatorInstanceUnique(
+      ensureOperatorInstanceSlot(
         updated,
         read().filter((entry) => entry.instanceId !== current.instanceId),
       );

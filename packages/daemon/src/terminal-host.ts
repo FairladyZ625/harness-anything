@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import * as pty from "node-pty";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
-import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
+import { cliOperationalPolicy, daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import {
   writeTerminalAttach,
@@ -33,6 +33,8 @@ import { terminalEnvironment } from "./terminal-environment.ts";
 
 const { scrollbackLimit, replayLimit, subscriberLimit, ptyExitDrainMs, activityPersistIntervalMs } =
   daemonRuntimePolicy.defaultValue.terminal;
+const runtimeAuthMaxConcurrent = cliOperationalPolicy.defaultValue.batch.defaultConcurrency,
+  runtimeAuthTimeoutMs = cliOperationalPolicy.defaultValue.probeMaximumTimeoutMs;
 type Frame = JsonObject & {
   readonly schema: "terminal-attach-event/v1";
   readonly sessionId: string;
@@ -66,6 +68,9 @@ type Session = {
   acceptedThrough: number;
   frames: Frame[];
   frameBytes: number;
+  runtimeAuthController?: AbortController;
+  runtimeAuthDeadline?: NodeJS.Timeout;
+  runtimeAuthAbort?: () => void;
   readonly subscribers: Map<string, Subscriber>;
 };
 type Subscriber = {
@@ -85,6 +90,7 @@ type OpenTerminalHostInput = {
   readonly tmux?: TmuxController;
   readonly registryFilePath?: string;
   readonly resolveTerminalEnvironment?: (platform: NodeJS.Platform, shell: string) => Readonly<Record<string, string>>;
+  readonly runtimeAuthTimeoutMs?: number;
 };
 type SpawnLaunch = {
   readonly key: string;
@@ -254,6 +260,14 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
         const session = requiredSession(existing);
         return control("applied", existing, terminalState(session), launch.idempotencyKey);
       }
+      if (
+        [...sessions.values()].filter((session) => isRuntimeAuthSession(session) && isRunningSession(session)).length >=
+        runtimeAuthMaxConcurrent
+      )
+        throw terminalHostError(
+          "runtime_auth_concurrency_exceeded",
+          `At most ${runtimeAuthMaxConcurrent} provider sign-in sessions may run at once.`,
+        );
       const sessionId = terminalSessionId(input.repoId, launch.idempotencyKey);
       const command = terminalCommand(launch.executablePath, launch.args, launch.env, platform);
       return spawnProcess({
@@ -357,6 +371,7 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
           session.status = "exited";
           session.attachable = false;
         }
+        releaseRuntimeAuthDeadline(session);
         if (child) {
           child.kill();
           destroyPty(child);
@@ -428,6 +443,21 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
     };
     sessions.set(session.sessionId, session);
     idempotency.set(launch.key, session.sessionId);
+    if (launch.profile === "runtime-auth") {
+      const controller = new AbortController(),
+        deadline = setTimeout(
+          () => controller.abort(new DOMException("Provider sign-in exceeded its deadline.", "TimeoutError")),
+          input.runtimeAuthTimeoutMs ?? runtimeAuthTimeoutMs,
+        ),
+        abort = () => {
+          if (!isExitedSession(session)) terminateSession(session);
+        };
+      deadline.unref?.();
+      session.runtimeAuthController = controller;
+      session.runtimeAuthDeadline = deadline;
+      session.runtimeAuthAbort = abort;
+      controller.signal.addEventListener("abort", abort, { once: true });
+    }
     bindChild(session, child);
     if (session.backend === "tmux") {
       registryTouched = true;
@@ -494,6 +524,15 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
     return child;
   }
   function terminateSession(session: Session): void {
+    if (session.runtimeAuthController && !session.runtimeAuthController.signal.aborted) {
+      session.runtimeAuthController.abort(new DOMException("Provider sign-in was cancelled.", "AbortError"));
+      return;
+    }
+    const exitCode = session.runtimeAuthController
+      ? session.runtimeAuthController.signal.reason?.name === "TimeoutError"
+        ? 124
+        : 130
+      : 0;
     if (session.backend === "tmux") {
       if (!tmuxProbe.executable || !session.tmuxNamespace)
         throw terminalHostError("terminal_backend_unavailable", "TMUX is unavailable; the session was not terminated.");
@@ -506,9 +545,10 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
       child.kill();
       destroyPty(child);
     }
-    markSessionExited(session, 0);
+    markSessionExited(session, exitCode);
   }
   function markSessionExited(session: Session, exitCode: number): void {
+    releaseRuntimeAuthDeadline(session);
     session.status = "exited";
     session.attachable = false;
     session.exitCode = exitCode;
@@ -517,6 +557,17 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
       publishTerminalFrame(session, "exit", "", null);
     }
     if (session.backend === "tmux") persistSessions();
+  }
+  function releaseRuntimeAuthDeadline(session: Session): void {
+    if (session.runtimeAuthController && session.runtimeAuthAbort)
+      session.runtimeAuthController.signal.removeEventListener("abort", session.runtimeAuthAbort);
+    if (session.runtimeAuthDeadline) clearTimeout(session.runtimeAuthDeadline);
+    const controller = session.runtimeAuthController;
+    delete session.runtimeAuthController;
+    delete session.runtimeAuthDeadline;
+    delete session.runtimeAuthAbort;
+    if (controller && !controller.signal.aborted)
+      controller.abort(new DOMException("Provider sign-in session ended.", "AbortError"));
   }
   function restoreSession(stored: StoredTmuxSession): Session {
     const spawnCwd = restoreTerminalCwd(input.rootDir, stored.cwd);
@@ -672,6 +723,9 @@ function terminalState(session: Session): ClientStatus.TerminalTabState {
 }
 function isRunningSession(session: Session): boolean {
   return terminalState(session) === "running";
+}
+function isRuntimeAuthSession(session: Session): boolean {
+  return session.shellProfile === "runtime-auth";
 }
 function isUnknownSession(session: Session): boolean {
   return terminalState(session) === "unknown";
