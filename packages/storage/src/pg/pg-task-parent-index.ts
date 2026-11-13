@@ -59,7 +59,13 @@ export function taskParentIndexDdl(): readonly string[] {
     "CREATE INDEX IF NOT EXISTS ha_task_snapshots_active_pinned ON ha_task_snapshots (tenant_id,project_id,policy_epoch,task_pinned DESC,task_id) WHERE task_package_disposition='active'",
     "CREATE INDEX IF NOT EXISTS ha_task_snapshots_open_task ON ha_task_snapshots (tenant_id,project_id,policy_epoch,task_id) WHERE task_status NOT IN ('done','cancelled')",
     "CREATE INDEX IF NOT EXISTS ha_task_snapshots_pinned_task ON ha_task_snapshots (tenant_id,project_id,policy_epoch,task_pinned DESC,task_id)",
-    "CREATE INDEX IF NOT EXISTS ha_task_snapshots_lease_phase ON ha_task_snapshots (tenant_id,project_id,policy_epoch,task_lease_phase,task_id) WHERE task_lease_phase IS NOT NULL AND task_lease_phase <> 'released'",
+    // The pre-v2 lease index also required raw task status='active'.  That is not the
+    // lease contract (submitted/in-review tasks may hold a live lease), and retaining
+    // the same index would leave the planner with a history-wide fallback after the
+    // scalar lease predicate changed.  Replace it with a versioned lease-only index.
+    "DROP INDEX IF EXISTS ha_task_snapshots_lease_active",
+    "DROP INDEX IF EXISTS ha_task_snapshots_lease_phase",
+    "CREATE INDEX IF NOT EXISTS ha_task_snapshots_lease_phase_v2 ON ha_task_snapshots (tenant_id,project_id,policy_epoch,task_lease_phase,task_id) WHERE task_lease_phase IS NOT NULL AND task_lease_phase <> 'released'",
   ];
 }
 

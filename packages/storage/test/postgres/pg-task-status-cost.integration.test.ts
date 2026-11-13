@@ -118,9 +118,12 @@ test("PG task lists and legacy index upgrade preserve wide titles and bounded re
               "ha_task_snapshots_parent_pending",
               "ha_task_snapshots_task_index",
               "ha_task_snapshots_active_task_index",
+              "ha_task_snapshots_lease_active",
+              "ha_task_snapshots_lease_phase",
             ].includes(indexname),
           ),
         );
+        assert.ok(indexes.rows.some(({ indexname }) => indexname === "ha_task_snapshots_lease_phase_v2"));
       } finally {
         admin.release();
       }
@@ -195,6 +198,26 @@ test("PG task lists and legacy index upgrade preserve wide titles and bounded re
           ["target-a"],
         );
         observe(`scope-list/${phase}`, size);
+        // The daemon's bounded list/claimable path hydrates only selected ids.
+        // Keep this point-list probe beside the index probe so a future change cannot
+        // silently route the real consumer back through an unbounded snapshot scan.
+        plans.length = 0;
+        const pointList = await source.list({ taskIds: ["target-a"], presentationStatus: false });
+        assert.deepEqual(
+          pointList.rows.map(({ taskId }) => taskId),
+          ["target-a"],
+        );
+        observe(`point-list/${phase}`, size);
+
+        // Raw lease discovery must remain valid with an empty reader scope.  The
+        // reader predicate is always bound at $4 even when the array is empty.
+        plans.length = 0;
+        const indexed = await source.readTaskIndex({ taskIds: ["target-a"], presentationStatus: false });
+        assert.deepEqual(
+          indexed.rows.map(({ taskId }) => taskId),
+          ["target-a"],
+        );
+        observe(`index/raw-point/${phase}`, size);
       }
     }
     for (const [name, [small, large]] of Object.entries(pairs))

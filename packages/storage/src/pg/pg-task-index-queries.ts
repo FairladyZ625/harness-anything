@@ -51,7 +51,10 @@ export function pgTaskIndexQueries(
 ): PgTaskIndexQueries {
   const { scope } = options,
     readers = [...(scope.readers ?? [])],
-    readerVisibility = readers.length === 0 ? "" : " AND (cardinality($4::text[])=0 OR readers && $4::text[])",
+    // Keep the reader array at $4 for every query shape. Raw index reads can skip
+    // presentationStatusSql, so omitting this predicate when readers is empty left
+    // a parameter hole before taskIds and made valid point reads fail at bind time.
+    readerVisibility = " AND (cardinality($4::text[])=0 OR readers && $4::text[])",
     parameters = [scope.tenantId, scope.projectId, scope.policyEpoch, readers];
   const read = <Result>(operation: (client: PoolClient) => Promise<Result>) =>
     withPostgresTransaction(options.pool, operation, scope, { isolationLevel: "repeatable read" });
@@ -100,12 +103,7 @@ export function pgTaskIndexQueries(
         await assertPgTaskParentIndexReady(client, scope);
         const cut = await readCutInTransaction(client, scope, readers, options.repoId),
           values: unknown[] = [...parameters],
-          where = [
-            "tenant_id=$1",
-            "project_id=$2",
-            "policy_epoch=$3",
-            ...(readerVisibility === "" ? [] : [readerVisibility.slice(5)]),
-          ],
+          where = ["tenant_id=$1", "project_id=$2", "policy_epoch=$3", readerVisibility.slice(5)],
           presentation = query.presentationStatus ? presentationStatusSql(4) : "task_status";
         let withClause = "";
         if (query.scopeRootTaskId !== undefined) {

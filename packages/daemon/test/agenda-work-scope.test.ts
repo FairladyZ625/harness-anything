@@ -61,22 +61,39 @@ function taskRow(
 function scopeProjection(taskRows: readonly FixtureRow[], listCalls?: TaskProjectionListQuery[]): TaskProjection {
   return {
     listEntities: () => [],
-    readTaskIndex: () => ({
-      ...cut,
-      page: null,
-      warnings: [],
-      rows: taskRows.map((row) => ({
-        taskId: row.taskId,
-        title: row.snapshot.task.title,
-        status: row.snapshot.task.status,
-        taskClass: row.snapshot.task.taskClass,
-        parentTaskId: row.snapshot.task.metadata?.parentTaskId ?? null,
-        pinned: row.snapshot.task.pinned,
-        packageDisposition: "active",
-        packagePath: null,
-        updatedAt: "2026-10-08T00:00:00.000Z",
-      })),
-    }),
+    readTaskIndex: (query: TaskProjectionListQuery = {}) => {
+      const selected = taskRows
+          .filter((row) => query.taskIds === undefined || query.taskIds.includes(row.taskId))
+          .filter((row) => query.status === undefined || row.snapshot.task.status === query.status)
+          .filter((row) => query.cursor === undefined || row.taskId > query.cursor)
+          .sort((left, right) => left.taskId.localeCompare(right.taskId)),
+        limit = query.limit,
+        visible = limit === undefined ? selected : selected.slice(0, limit),
+        last = visible.at(-1);
+      return {
+        ...cut,
+        page:
+          limit === undefined
+            ? null
+            : {
+                limit,
+                cursor: query.cursor ?? null,
+                nextCursor: selected.length > limit && last ? last.taskId : null,
+              },
+        warnings: [],
+        rows: visible.map((row) => ({
+          taskId: row.taskId,
+          title: row.snapshot.task.title,
+          status: row.snapshot.task.status,
+          taskClass: row.snapshot.task.taskClass,
+          parentTaskId: row.snapshot.task.metadata?.parentTaskId ?? null,
+          pinned: row.snapshot.task.pinned,
+          packageDisposition: "active",
+          packagePath: null,
+          updatedAt: "2026-10-08T00:00:00.000Z",
+        })),
+      };
+    },
     list: (query: TaskProjectionListQuery = {}) => {
       listCalls?.push(query);
       const pinned = (row: FixtureRow) => Number(row.snapshot.task.pinned),
@@ -155,13 +172,7 @@ test("a work-scoped agenda page serves the work's in-flight rows when other work
   // work subtree instead of taking the repository's page and filtering it afterwards.
   assert.deepEqual(
     listCalls.map(({ taskIds }) => taskIds),
-    [
-      ["task_release_root", "task_z_release_lane"],
-      ["task_release_root", "task_z_release_lane"],
-      ["task_release_root", "task_z_release_lane"],
-      ["task_release_root", "task_z_release_lane"],
-      ["task_release_root", "task_z_release_lane"],
-    ],
+    [["task_z_release_lane"], [], ["task_release_root"], [], []],
   );
 });
 
@@ -222,5 +233,7 @@ test("an unscoped agenda keeps the repository-wide page and passes no membership
     unscoped.inFlight.map(({ taskId }) => taskId),
     ["task_a_other_lane", "task_b_other_lane"],
   );
-  assert.ok(listCalls.every(({ taskIds }) => taskIds === undefined));
+  // Every lifecycle bucket now hydrates the bounded index selection. Empty buckets
+  // carry an empty id set; none falls back to the repository-wide snapshot list.
+  assert.ok(listCalls.every(({ taskIds }) => Array.isArray(taskIds)));
 });
