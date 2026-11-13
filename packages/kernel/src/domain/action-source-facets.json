@@ -7245,7 +7245,29 @@
         "route": "runtime-instance-hosting-credential-unset",
         "role": "effect"
       }
-    ]
+    ],
+    "concurrency": {
+      "expectedVersion": {
+        "authority": "not-applicable"
+      },
+      "leasePolicy": {
+        "authority": "runtime-host"
+      },
+      "occurrenceClaim": {
+        "authority": "not-applicable"
+      },
+      "idempotency": {
+        "authority": "caller-owned"
+      },
+      "artifactOwnership": {
+        "owner": "runtime-local",
+        "refTemplate": "runtime-host"
+      }
+    },
+    "execution": {
+      "ingress": "runtime-instance-hosting-credential-unset",
+      "read": false
+    }
   },
   "decision-reckon": {
     "owner": "decision",
@@ -7280,7 +7302,29 @@
         "route": "provider-delete",
         "role": "effect"
       }
-    ]
+    ],
+    "concurrency": {
+      "expectedVersion": {
+        "authority": "not-applicable"
+      },
+      "leasePolicy": {
+        "authority": "daemon-host"
+      },
+      "occurrenceClaim": {
+        "authority": "not-applicable"
+      },
+      "idempotency": {
+        "authority": "caller-owned"
+      },
+      "artifactOwnership": {
+        "owner": "host-local",
+        "refTemplate": "daemon-host"
+      }
+    },
+    "execution": {
+      "ingress": "provider-delete",
+      "read": false
+    }
   },
   "entity-pin": {
     "owner": "entity",
