@@ -24,6 +24,7 @@ import { readFileWindow } from "../durable-file.ts";
 import { validateContentRange } from "../content-blob-range.ts";
 import { openSqliteEventStore, sqliteLedgerPath, type SqliteWriterFence } from "./sqlite-event-store.ts";
 import { publishConvertedGeneration, readCertifiedGitFollower } from "./sqlite-task-event-publication.ts";
+import { sqliteEventBatch } from "./sqlite-task-event-store.ts";
 import {
   TaskEventStoreError,
   type CanonicalContentBlob,
@@ -79,7 +80,7 @@ export function createImmutableLegacyGenerationSnapshot(input: {
   readonly source: CanonicalEventStore;
   readonly snapshotPath: string;
 }): { readonly sourceDigest: `sha256:${string}`; readonly eventCount: number; readonly objectCount: number } {
-  const events = input.source.read().events,
+  const events = readBatchedSourceEvents(input.source),
     // The offline snapshot preserves accepted source shapes; conversion validates its output.
     eventBytes = events.map(serializeCanonicalEventUnchecked),
     claims = new Map(events.flatMap((event) => contentClaims(event).map((claim) => [claim.sha256, claim] as const))),
@@ -393,13 +394,30 @@ function writeRawSnapshot(input: {
   };
 }
 
+function readBatchedSourceEvents(
+  source: CanonicalEventStore,
+): readonly ReturnType<CanonicalEventStore["readBatch"]>["events"][number][] {
+  const collected: ReturnType<CanonicalEventStore["readBatch"]>["events"][number][] = [];
+  let cursor: string | null = null;
+  for (;;) {
+    const batch = source.readBatch(cursor, SNAPSHOT_EVENT_SEGMENT_SIZE);
+    collected.push(...batch.events);
+    if (batch.done || batch.cursor === null || batch.cursor === cursor) break;
+    cursor = batch.cursor;
+  }
+  return collected;
+}
+
 function sqliteSnapshotStore(store: ReturnType<typeof openSqliteEventStore>): CanonicalEventStore {
-  return arraySnapshotStore(
-    store.events(),
-    (sha256) => store.readContentObject(sha256),
-    (sha256, offset, maxBytes) => store.readContentObjectRange(sha256, offset, maxBytes),
-    (sha256) => store.readContentObjectSize(sha256),
-  );
+  const readContent = (sha256: string) => store.readContentObject(sha256);
+  return {
+    readHead: () => store.headIdentity(),
+    readBatch: (cursor: string | null, maxItems: number) => sqliteEventBatch(store, cursor, maxItems, readContent),
+    readContentBlob: readContent,
+    readContentBlobRange: (sha256: string, offset: number, maxBytes: number) =>
+      store.readContentObjectRange(sha256, offset, maxBytes),
+    readContentBlobSize: (sha256: string) => store.readContentObjectSize(sha256),
+  } as unknown as CanonicalEventStore;
 }
 
 function snapshotSourceDigest(

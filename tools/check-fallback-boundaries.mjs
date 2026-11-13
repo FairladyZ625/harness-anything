@@ -43,6 +43,20 @@ function isQueryKeyBuilderCall(node) {
   );
 }
 
+function isRuntimeReadsEventsCall(node) {
+  return (
+    ts.isPropertyAccessExpression(node.expression) &&
+    ts.isPropertyAccessExpression(node.expression.expression) &&
+    node.expression.expression.name.text === "runtimeReads"
+  );
+}
+
+function isClientEventsResetCall(node) {
+  return (
+    node.arguments.length < 3 || (ts.isStringLiteralLike(node.arguments[2]) && node.arguments[2].text === "lifecycle:0")
+  );
+}
+
 function isFullHistoryCall(node) {
   if (isQueryKeyBuilderCall(node)) return false;
   const name = callName(node.expression);
@@ -50,7 +64,17 @@ function isFullHistoryCall(node) {
   if (name === "readBatch") return isStartArgument(node.arguments[0]);
   if (name === "readPendingEvents")
     return node.arguments.some((argument) => ts.isNumericLiteral(argument) && argument.text === "0");
-  if (name === "events") return true;
+  if (name === "events") {
+    if (isRuntimeReadsEventsCall(node)) return false;
+    if (
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === "agentRuntimeClient"
+    ) {
+      return isClientEventsResetCall(node);
+    }
+    return node.arguments.length === 0;
+  }
   return name === "read" && ts.isPropertyAccessExpression(node.parent) && node.parent.name.text === "events";
 }
 

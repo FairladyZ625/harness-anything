@@ -24,7 +24,18 @@ export function prepareLegacyAudit(context, dimension, size) {
   createImmutableLegacyGenerationSnapshot({
     repoId: "g38-read",
     snapshotPath,
-    source: { read: () => ({ events }), readContentBlob: () => null },
+    source: {
+      read: () => ({ events }),
+      readBatch: () => ({
+        sourceRevision: events.length,
+        events,
+        cursor: null,
+        done: true,
+        accessedItems: events.length,
+        prefetchContent: () => new Map(),
+      }),
+      readContentBlob: () => null,
+    },
   });
   convertLegacyGeneration({ rootDir, snapshotPath });
   preflightConvertedGenerationActivation({ repoId: "g38-read", rootDir, snapshotPath });

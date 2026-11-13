@@ -20,6 +20,7 @@ import {
   type RestatedTaskContract,
 } from "./migration-import-task-restatement.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import { collectQueryEvents } from "./repo-cell-event-query.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { taskMutation } from "./repo-cell-task-mutation.ts";
 import {
@@ -232,9 +233,8 @@ export function migrateTaskContracts(
   if (action.toPresetId !== undefined) return migrateTaskPreset(cell, action, binding);
   const projectedTaskIds = cell.projection.readTaskIdsForTaskContractMigration(),
     migratedTaskIds = new Set(
-      cell.store
-        .read()
-        .events.filter(isMigrationImportEvent)
+      collectQueryEvents(cell.store, [{ eventType: "entity_migrated" }])
+        .filter(isMigrationImportEvent)
         .flatMap((event) => (event.payload.entity.kind === "task" ? [event.payload.entity.task.taskId] : [])),
     ),
     candidates = typeof action.taskId === "string" ? [action.taskId] : [...projectedTaskIds],

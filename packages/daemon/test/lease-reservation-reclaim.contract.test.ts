@@ -127,6 +127,7 @@ test("same principal release settles a canonical-free reservation in the local C
       operationId: () => "op-release-orphaned-reservation",
       store: {
         read: () => ({ events: [] }),
+        queryEvents: () => [],
         readHead: () => ({ revision: 8 }),
       },
     },
