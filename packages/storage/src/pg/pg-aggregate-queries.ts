@@ -18,6 +18,7 @@ import { readRelationsInTransaction } from "./pg-relation-queries.ts";
 import { pgProjectionStoredRows } from "./pg-projection-stored-rows.ts";
 import { PG_PROJECTION_AUDIT_TABLES } from "./pg-projection-schema.ts";
 import { readPgTaskSessions } from "./pg-runtime-session-queries.ts";
+import { assertPgTaskParentIndexReady } from "./pg-task-parent-index.ts";
 import type { PgTaskProjectionSourceOptions } from "./pg-task-source.ts";
 import type { AsyncQueries } from "./pg-runtime-dispatch-queries.ts";
 
@@ -34,37 +35,79 @@ export function pgAggregateQueries(options: PgTaskProjectionSourceOptions): PgAg
   return {
     readWorkspaceSummary: () =>
       read(async (client) => {
+        await assertPgTaskParentIndexReady(client, scope);
         const tasks = await client.query<{
             task_id: string;
             status: string | null;
-            disposition: string;
             updated_at: Date;
           }>(
-            `SELECT task_id,snapshot#>>'{task,status}' AS status, COALESCE(snapshot#>>'{task,packageDisposition}','active') AS disposition, updated_at
-         FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND (cardinality($4::text[])=0 OR readers && $4::text[]) ORDER BY task_id`,
+            `SELECT task_id,task_status AS status,updated_at
+         FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+           AND task_package_disposition='active'
+           AND (cardinality($4::text[])=0 OR readers && $4::text[]) ORDER BY task_id`,
             parameters,
           ),
-          relations = (await readRelationsInTransaction(client, scope, readers, {})).filter(
-            ({ relationType }) => relationType === "depends-on" || relationType === "awaits",
+          taskById = new Map(
+            tasks.rows.map(({ task_id, status }) => [task_id, { taskId: task_id, status: status ?? "unknown" }]),
+          ),
+          sources = new Set(
+            tasks.rows
+              .filter(({ status }) => status === "planned" || status === "active")
+              .map(({ task_id }) => task_id),
+          ),
+          relations = new Map<string, Awaited<ReturnType<typeof readRelationsInTransaction>>[number]>();
+        // Only planned/active current packages can change census status. Expand each visible
+        // dependency component once, including done/archived endpoints. Incoming entries and
+        // relation-id order matter to blockingOf's DFS even when those entries are archived.
+        // Never fabricate a missing/hidden endpoint for the domain judgment.
+        for (const taskId of sources) {
+          if (!taskById.has(taskId)) {
+            const target = await client.query<{ status: string | null }>(
+              `SELECT task_status AS status FROM ha_task_snapshots
+               WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND task_id=$5
+                 AND (cardinality($4::text[])=0 OR readers && $4::text[])`,
+              [...parameters, taskId],
+            );
+            if (!target.rows[0]) continue;
+            taskById.set(taskId, { taskId, status: target.rows[0].status ?? "unknown" });
+          }
+          for (const [relationType, endpoint] of [
+            ["depends-on", "source"],
+            ["depends-on", "target"],
+            ["awaits", "source"],
+          ] as const) {
+            const edges = await readRelationsInTransaction(client, scope, readers, {
+              [endpoint]: `task/${taskId}`,
+              relationType,
+              state: "active",
+            });
+            for (const edge of edges) {
+              relations.set(edge.relationId, edge);
+              if (relationType === "depends-on")
+                for (const ref of [edge.sourceRef, edge.targetRef]) {
+                  const id = /^task\/([^/]+)$/u.exec(ref)?.[1];
+                  if (id) sources.add(id);
+                }
+            }
+          }
+        }
+        const orderedRelations = [...relations.values()].sort((left, right) =>
+            left.relationId < right.relationId ? -1 : left.relationId > right.relationId ? 1 : 0,
           ),
           states = new Map(
-            blockingOf(
-              tasks.rows.map(({ task_id, status }) => ({ taskId: task_id, status: status ?? "unknown" })),
-              relations,
-            ).map(({ taskId, state }) => [taskId, state]),
+            blockingOf([...taskById.values()], orderedRelations).map(({ taskId, state }) => [taskId, state]),
           ),
           counts = emptyWorkspaceTaskCounts();
         let lastChangedAt: string | null = null;
-        for (const row of tasks.rows)
-          if (row.disposition === "active") {
-            const at = row.updated_at.toISOString();
-            if (lastChangedAt === null || at > lastChangedAt) lastChangedAt = at;
-            counts[
-              row.status !== null && isDomainStatus(row.status)
-                ? workspaceTaskStatus({ status: row.status, blockingState: states.get(row.task_id) ?? "unknown" })
-                : "unknown"
-            ] += 1;
-          }
+        for (const row of tasks.rows) {
+          const at = row.updated_at.toISOString();
+          if (lastChangedAt === null || at > lastChangedAt) lastChangedAt = at;
+          counts[
+            row.status !== null && isDomainStatus(row.status)
+              ? workspaceTaskStatus({ status: row.status, blockingState: states.get(row.task_id) ?? "unknown" })
+              : "unknown"
+          ] += 1;
+        }
         const decisions = await client.query<{ decision_id: string; state: DecisionState }>(
           `SELECT decision_id,value->>'state' AS state FROM ha_decisions WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND (cardinality($4::text[])=0 OR readers && $4::text[]) ORDER BY decision_id`,
           parameters,
