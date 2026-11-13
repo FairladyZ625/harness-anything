@@ -913,7 +913,9 @@ if (!isMainThread) {
         }
         if (dimension === "task-outputs") {
           const query = pair.large.warmStatements.find(({ sql }) => sql.includes("canonical_task_id = $6"));
-          assert.ok(query.scanNodes.some(({ indexName }) => indexName === "ha_events_canonical_task"));
+          const scan = query.scanNodes.find(({ indexCond }) => indexCond?.includes("canonical_task_id ="));
+          assert.ok(scan, "workspace event page must use the canonical-task equality index");
+          assert.equal(scan.rowsRemovedByFilter, 0);
         }
       }
       assert.equal(
@@ -1026,7 +1028,7 @@ if (!isMainThread) {
       const tailTraceSmall = await tracePgProbe("event-bytes", 200, "event-tail");
       const tailTraceLarge = await tracePgProbe("event-bytes", 2000, "event-tail");
       const tailEventSelects = tailTraceLarge.warmStatements.filter((stmt) =>
-        stmt.sql.includes("SELECT default_summary_json AS summary_json"),
+        stmt.sql.includes("default_summary_json AS summary_json"),
       );
       assert.equal(tailEventSelects.length, 1, "history event-tail must read ha_events summaries once per call");
       assert.equal(tailTraceLarge.counts.sqlResultBytes, tailTraceSmall.counts.sqlResultBytes);
@@ -1038,7 +1040,7 @@ if (!isMainThread) {
       );
       assert.ok(canonicalTaskSelect, "workspace scope read must query canonical_task_id");
       const canonicalScan = canonicalTaskSelect.scanNodes.find((node) => node.relationName === "ha_events");
-      assert.equal(canonicalScan?.indexName, "ha_events_canonical_task");
+      assert.ok(canonicalScan?.indexCond?.includes("canonical_task_id ="));
       assert.equal(canonicalScan?.rowsRemovedByFilter, 0);
 
       t.diagnostic(

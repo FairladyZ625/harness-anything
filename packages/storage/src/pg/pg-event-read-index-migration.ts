@@ -1,6 +1,9 @@
 import type { Pool, PoolClient } from "pg";
 import type { PersistedCanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync-types.ts";
-import { canonicalEventSummary } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
+import {
+  canonicalEventSummary,
+  SUMMARY_TEXT_LIMIT,
+} from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
 import { normalizeHistoricalEvent } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";
 import {
   storageReadPolicy,
@@ -94,50 +97,61 @@ export function eventReadIndexDdl(): readonly string[] {
     "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS runtime_session_unsettled boolean NOT NULL DEFAULT false",
     "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS summary_json text",
     "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS default_summary_json text",
-    // The previous writer cannot call the new JS builder. Keep only its bounded input in the
-    // same row at INSERT time; canonicalEventSummary remains the only final shape/UTF-16 rule.
-    // JSON tokens (not JSONB/text extraction) retain legal NUL and unpaired surrogate escapes.
-    String.raw`CREATE OR REPLACE FUNCTION ha_default_summary_text(serialized text, path text[]) RETURNS text
-      LANGUAGE plpgsql IMMUTABLE STRICT AS $function$
-      DECLARE token json; encoded text; cursor_pos integer := 2; end_pos integer; units integer := 0;
+    // Previous writers persist only bounded input; the kernel remains the final summary authority.
+    // Even json getters decode unrelated NUL/lone-surrogate escapes. Parse a disposable copy whose
+    // strings contain their original JSON escape tokens, then put those tokens back without loss.
+    String.raw`CREATE OR REPLACE FUNCTION ha_default_summary_text(encoded jsonb, clip boolean DEFAULT false) RETURNS text
+      LANGUAGE plpgsql IMMUTABLE AS $function$
+      DECLARE token text; cursor_pos integer := 2; end_pos integer; units integer := 0;
       BEGIN
-        token := serialized::json #> path;
-        IF json_typeof(token) IS DISTINCT FROM 'string' THEN RETURN NULL; END IF;
-        encoded := token::text;
-        end_pos := char_length(encoded);
-        WHILE cursor_pos < end_pos AND units < 280 LOOP
-          cursor_pos := cursor_pos + CASE WHEN substr(encoded,cursor_pos,1) <> E'\\' THEN 1
-            WHEN substr(encoded,cursor_pos+1,1)='u' THEN 6 ELSE 2 END;
+        IF jsonb_typeof(encoded) IS DISTINCT FROM 'string' THEN RETURN COALESCE(encoded::text,'null'); END IF;
+        token := '"'||(encoded #>> '{}')||'"';
+        IF NOT clip THEN RETURN token; END IF;
+        end_pos := char_length(token);
+        WHILE cursor_pos < end_pos AND units < ${SUMMARY_TEXT_LIMIT} LOOP
+          cursor_pos := cursor_pos + CASE WHEN substr(token,cursor_pos,1) <> E'\\' THEN 1
+            WHEN substr(token,cursor_pos+1,1)='u' THEN 6 ELSE 2 END;
           units := units+1;
         END LOOP;
-        RETURN substr(encoded,1,cursor_pos-1)||'"';
+        RETURN substr(token,1,cursor_pos-1)||'"';
       END $function$`,
     String.raw`CREATE OR REPLACE FUNCTION ha_default_summary_source(serialized text) RETURNS text
       LANGUAGE plpgsql IMMUTABLE STRICT AS $function$
-      DECLARE raw json := serialized::json; payload json := raw->'payload'; claims json;
+      DECLARE raw jsonb; payload jsonb; claims json;
       BEGIN
-        IF json_typeof(payload->'documentClaims')='array' THEN
-          SELECT COALESCE(json_agg(json_build_object('path',claim->'path')),'[]'::json) INTO claims
-          FROM json_array_elements(payload->'documentClaims') claim;
+        SELECT string_agg(CASE WHEN left(part[1],1)='"'
+          THEN to_json(substr(part[1],2,char_length(part[1])-2))::text ELSE part[1] END,'' ORDER BY position)::jsonb
+          INTO raw FROM regexp_matches(serialized,$tokens$("(?:\\.|[^"\\])*"|[^"]+)$tokens$,'g')
+          WITH ORDINALITY AS tokens(part,position);
+        payload := raw->'payload';
+        IF jsonb_typeof(payload->'documentClaims')='array' THEN
+          SELECT COALESCE(json_agg(json_build_object('path',ha_default_summary_text(claim->'path')::json)),'[]'::json)
+          INTO claims FROM jsonb_array_elements(payload->'documentClaims') claim;
         END IF;
         RETURN json_build_object(
-          'eventId',raw->'eventId','schema',raw->'schema','type',raw->'type',
+          'eventId',ha_default_summary_text(raw->'eventId')::json,
+          'schema',ha_default_summary_text(raw->'schema')::json,'type',ha_default_summary_text(raw->'type')::json,
           'occurredAt',to_char((raw->>'occurredAt')::timestamptz AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
           'workspaceRevision',raw->'workspaceRevision',
-          'taskId',raw->'taskId','factId',raw->'factId','decisionId',raw->'decisionId',
-          'actor',json_build_object('executor',json_build_object('id',raw#>'{actor,executor,id}')),
+          'taskId',ha_default_summary_text(raw->'taskId')::json,
+          'factId',ha_default_summary_text(raw->'factId')::json,'decisionId',ha_default_summary_text(raw->'decisionId')::json,
+          'actor',json_build_object('executor',json_build_object('id',ha_default_summary_text(raw#>'{actor,executor,id}')::json)),
           'payload',json_build_object(
-            'taskId',payload->'taskId',
-            'subject',json_build_object('kind',payload#>'{subject,kind}','taskId',payload#>'{subject,taskId}'),
-            'statement',ha_default_summary_text(serialized,ARRAY['payload','statement'])::json,
-            'text',ha_default_summary_text(serialized,ARRAY['payload','text'])::json,
-            'title',ha_default_summary_text(serialized,ARRAY['payload','title'])::json,
-            'runtimeSessionId',payload->'runtimeSessionId','instanceId',payload->'instanceId',
-            'entityKind',payload->'entityKind','entityId',payload->'entityId',
-            'witness',CASE WHEN json_typeof(payload->'witness')='object' THEN json_build_object(
-              'gateId',payload#>'{witness,gateId}','result',payload#>'{witness,result}') END,
-            'review',CASE WHEN json_typeof(payload->'review')='object' THEN json_build_object(
-              'verdict',payload#>'{review,verdict}') END,
+            'taskId',ha_default_summary_text(payload->'taskId')::json,
+            'subject',json_build_object('kind',ha_default_summary_text(payload#>'{subject,kind}')::json,
+              'taskId',ha_default_summary_text(payload#>'{subject,taskId}')::json),
+            'statement',ha_default_summary_text(payload->'statement',true)::json,
+            'text',ha_default_summary_text(payload->'text',true)::json,
+            'title',ha_default_summary_text(payload->'title',true)::json,
+            'runtimeSessionId',ha_default_summary_text(payload->'runtimeSessionId')::json,
+            'instanceId',ha_default_summary_text(payload->'instanceId')::json,
+            'entityKind',ha_default_summary_text(payload->'entityKind')::json,
+            'entityId',ha_default_summary_text(payload->'entityId')::json,
+            'witness',CASE WHEN jsonb_typeof(payload->'witness')='object' THEN json_build_object(
+              'gateId',ha_default_summary_text(payload#>'{witness,gateId}')::json,
+              'result',ha_default_summary_text(payload#>'{witness,result}')::json) END,
+            'review',CASE WHEN jsonb_typeof(payload->'review')='object' THEN json_build_object(
+              'verdict',ha_default_summary_text(payload#>'{review,verdict}')::json) END,
             'documentClaims',claims
           )
         )::text;
