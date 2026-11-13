@@ -268,6 +268,15 @@ export function makeTaskQueryReadModel(input: {
    * owns filtering and the cursor, while the second read is an explicit point set.
    */
   function boundedTaskList(query: TaskProjectionListQuery): ReturnType<TaskProjection["list"]> {
+    // The index contract is task-id ordered. Pinned agenda pages use the list contract's
+    // two-part (pinned, taskId) cursor, so keep that bounded SQL path instead of silently
+    // changing the consumer's ordering and cursor shape.
+    if (query.pinnedFirst === true)
+      return projection.list({
+        ...query,
+        presentationStatus: query.presentationStatus !== false,
+        decisionRelationsOnly: query.decisionRelationsOnly === true,
+      });
     const index = projection.readTaskIndex({
         ...query,
         presentationStatus: query.presentationStatus !== false,

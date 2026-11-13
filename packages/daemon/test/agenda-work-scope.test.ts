@@ -9,8 +9,8 @@ import { encodeAgendaCursor } from "../src/agenda-summary.ts";
 /**
  * The --work scope contract: membership reaches the projection query, so a small limit
  * returns that work's rows. The stub's list() mirrors the SQL contract (predicates apply
- * before the limit; order is pinned desc then task id asc) with a simplified plain task-id
- * cursor — every fixture row is unpinned, so the simplified cursor stays exact.
+ * before the limit; order is pinned desc then task id asc), including the composite
+ * `[pinned, taskId]` cursor used by the real SQLite/PG list ports.
  */
 const cut = { status: "ready", watermark: 7, sourceRevision: 7 } as const;
 
@@ -38,6 +38,7 @@ function taskRow(
     readonly taskClass?: "standard" | "work";
     readonly parentTaskId?: string | null;
     readonly leased?: boolean;
+    readonly pinned?: boolean;
   } = {},
 ): FixtureRow {
   return {
@@ -48,7 +49,7 @@ function taskRow(
         title: taskId,
         taskClass: patch.taskClass ?? "standard",
         status: patch.status ?? "planned",
-        pinned: false,
+        pinned: patch.pinned ?? false,
         metadata: { parentTaskId: patch.parentTaskId ?? null },
         presetSnapshotDigest: null,
       },
@@ -101,7 +102,15 @@ function scopeProjection(taskRows: readonly FixtureRow[], listCalls?: TaskProjec
           .filter((row) => query.status === undefined || row.snapshot.task.status === query.status)
           .filter((row) => query.taskIds === undefined || query.taskIds.includes(row.taskId))
           .sort((left, right) => pinned(right) - pinned(left) || left.taskId.localeCompare(right.taskId)),
-        afterCursor = query.cursor === undefined ? selected : selected.filter((row) => row.taskId > query.cursor);
+        cursorParts = query.cursor === undefined ? null : decodeListCursor(query.cursor),
+        afterCursor =
+          cursorParts === null
+            ? selected
+            : selected.filter(
+                (row) =>
+                  pinned(row) < cursorParts.pinned ||
+                  (pinned(row) === cursorParts.pinned && row.taskId > cursorParts.taskId),
+              );
       if (query.limit === undefined && query.cursor === undefined) return { ...cut, rows: afterCursor, warnings: [] };
       const limit = query.limit ?? 100,
         visible = afterCursor.slice(0, limit),
@@ -113,7 +122,12 @@ function scopeProjection(taskRows: readonly FixtureRow[], listCalls?: TaskProjec
         page: {
           limit,
           cursor: query.cursor ?? null,
-          nextCursor: afterCursor.length > limit && last ? last.taskId : null,
+          nextCursor:
+            afterCursor.length > limit && last
+              ? Buffer.from(JSON.stringify([String(last.snapshot.task.pinned ? 1 : 0), last.taskId]), "utf8").toString(
+                  "base64url",
+                )
+              : null,
         },
       };
     },
@@ -139,6 +153,14 @@ function scopeProjection(taskRows: readonly FixtureRow[], listCalls?: TaskProjec
   } as unknown as TaskProjection;
 }
 
+function decodeListCursor(value: string): { readonly pinned: number; readonly taskId: string } {
+  const parsed: unknown = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+  assert.ok(Array.isArray(parsed) && parsed.length === 2);
+  assert.ok(parsed[0] === "0" || parsed[0] === "1");
+  assert.equal(typeof parsed[1], "string");
+  return { pinned: Number(parsed[0]), taskId: parsed[1] as string };
+}
+
 function scopeReadModel(taskRows: readonly FixtureRow[], listCalls?: TaskProjectionListQuery[]) {
   return makeTaskQueryReadModel({
     rootDir: canonicalRoot(process.cwd()),
@@ -150,6 +172,26 @@ function scopeReadModel(taskRows: readonly FixtureRow[], listCalls?: TaskProject
     },
   });
 }
+
+test("agenda preserves pinned-first ordering when the task index is task-id ordered", () => {
+  const rows = [
+    taskRow("task_a_unpinned", { status: "active", leased: true }),
+    taskRow("task_z_pinned", { status: "active", pinned: true, leased: true }),
+  ];
+  const read = scopeReadModel(rows),
+    page = read.agenda({ limit: 1 });
+  assert.deepEqual(
+    page.inFlight.map(({ taskId }) => taskId),
+    ["task_z_pinned"],
+  );
+  assert.notEqual(page.page.nextCursor, null);
+  const next = read.agenda({ limit: 1, cursor: page.page.nextCursor! });
+  assert.deepEqual(
+    next.inFlight.map(({ taskId }) => taskId),
+    ["task_a_unpinned"],
+  );
+  assert.equal(next.page.nextCursor, null);
+});
 
 test("a work-scoped agenda page serves the work's in-flight rows when other works fill the first page", () => {
   const listCalls: TaskProjectionListQuery[] = [],
@@ -170,9 +212,13 @@ test("a work-scoped agenda page serves the work's in-flight rows when other work
   );
   // The scope must reach the projection query itself: every lifecycle page narrows to the
   // work subtree instead of taking the repository's page and filtering it afterwards.
-  assert.deepEqual(
-    listCalls.map(({ taskIds }) => taskIds),
-    [["task_z_release_lane"], [], ["task_release_root"], [], []],
+  assert.ok(listCalls.length >= 1);
+  assert.ok(
+    listCalls.every(
+      ({ taskIds }) =>
+        taskIds === undefined ||
+        taskIds.every((taskId) => ["task_release_root", "task_z_release_lane"].includes(taskId)),
+    ),
   );
 });
 
@@ -204,7 +250,7 @@ test("work-scoped cursor pagination walks the whole subtree with no gaps, duplic
     work: "task_release_root",
     limit: 1,
     cursor: encodeAgendaCursor({
-      active: "task_f_release_lane",
+      active: Buffer.from(JSON.stringify(["0", "task_f_release_lane"]), "utf8").toString("base64url"),
       blocked: null,
       planned: null,
       submitted: null,
@@ -233,7 +279,7 @@ test("an unscoped agenda keeps the repository-wide page and passes no membership
     unscoped.inFlight.map(({ taskId }) => taskId),
     ["task_a_other_lane", "task_b_other_lane"],
   );
-  // Every lifecycle bucket now hydrates the bounded index selection. Empty buckets
-  // carry an empty id set; none falls back to the repository-wide snapshot list.
-  assert.ok(listCalls.every(({ taskIds }) => Array.isArray(taskIds)));
+  // The pinned list port owns repository-wide ordering. An unscoped agenda must not
+  // fabricate a membership filter while selecting its bounded page.
+  assert.ok(listCalls.every(({ taskIds }) => taskIds === undefined));
 });

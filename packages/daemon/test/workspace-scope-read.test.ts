@@ -1,7 +1,56 @@
 // harness-test-tier: integration
 import test from "node:test";
 import assert from "node:assert/strict";
+import type { TaskProjection, TaskProjectionListQuery } from "@harness-anything/kernel";
+import { readRepoInFlightWork } from "../src/repo-in-flight-work.ts";
 import { workspaceScopeFromProjection } from "../src/workspace-scope-read.ts";
+
+test("repo in-flight lease reads use filtered bounded list pages instead of the task index", () => {
+  const taskIds = Array.from({ length: 501 }, (_, index) => `task_lease_${String(index).padStart(3, "0")}`),
+    queries: TaskProjectionListQuery[] = [],
+    projection = {
+      readDispatchLifecycle: () => ({ status: "ready", watermark: 1, sourceRevision: 1, rows: [], nextCursor: null }),
+      list: (query: TaskProjectionListQuery = {}) => {
+        queries.push(query);
+        const start = query.cursor === undefined ? 0 : Number(query.cursor),
+          rows = taskIds.slice(start, start + (query.limit ?? 100)).map((taskId) => ({
+            taskId,
+            snapshot: {
+              lease: {
+                executionId: `exe_${taskId}`,
+                phase: "held",
+                actor: { executor: null, principal: { personId: "person_holder" } },
+              },
+            },
+          }));
+        return {
+          status: "ready",
+          watermark: 1,
+          sourceRevision: 1,
+          rows,
+          page: {
+            limit: query.limit ?? 100,
+            cursor: query.cursor ?? null,
+            nextCursor: start + rows.length < taskIds.length ? String(start + rows.length) : null,
+          },
+          warnings: [],
+        };
+      },
+      readTaskIndex: () => {
+        throw new Error("lease reads must not route through the general task index");
+      },
+      listEntities: () => [],
+    } as unknown as TaskProjection;
+
+  const result = readRepoInFlightWork({ projection, repoId: "repo", queueDepth: 0 });
+  assert.equal(result.filter(({ kind }) => kind === "task-lease").length, 501);
+  assert.equal(queries.length, 2);
+  assert.ok(queries.every((query) => query.leaseOnly && query.limit === 500 && query.presentationStatus === false));
+  assert.deepEqual(
+    queries.map(({ cursor }) => cursor),
+    [undefined, "500"],
+  );
+});
 
 const task = (
   taskId: string,
