@@ -610,6 +610,14 @@ export function openRuntimeInstanceStore(input: {
     const config = readOne(instanceId);
     if (!config)
       throw runtimeInstanceError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
+    // The launch may await discovery, policy checks, credential resolution, or a provider
+    // probe. Keep the account generation captured before the first such await so a rebind or
+    // delete/recreate cannot publish readiness or admit the old account's prepared launch.
+    const launchCut = accountCut(config),
+      rememberLaunchReadiness = (state: RuntimeAuthReadiness): RuntimeAuthReadiness => {
+        const current = currentAccountForCut(launchCut);
+        return rememberAuthReadiness(current.instanceId, state);
+      };
     if (!config.enabled)
       throw runtimeInstanceError(
         "runtime_instance_disabled",
@@ -632,7 +640,7 @@ export function openRuntimeInstanceStore(input: {
     }
     if (!installation) {
       const hint = missingInstallationHint(config, witnessed);
-      rememberAuthReadiness(config.instanceId, unavailable("runtime_installation_not_found", hint));
+      rememberLaunchReadiness(unavailable("runtime_installation_not_found", hint));
       throw runtimeInstanceError("runtime_installation_not_found", hint);
     }
     // Refuse an unusable build before anything is read for it: no credential lookup, no
@@ -640,22 +648,23 @@ export function openRuntimeInstanceStore(input: {
     // share this one comparison, so neither can report ready while the other refuses.
     const versionRefusal = runtimeVersionGate(installation.kindId, installation.version);
     if (versionRefusal) {
-      rememberAuthReadiness(config.instanceId, unavailable(versionRefusal.code, versionRefusal.hint));
+      rememberLaunchReadiness(unavailable(versionRefusal.code, versionRefusal.hint));
       throw runtimeInstanceError(versionRefusal.code, versionRefusal.hint);
     }
     const webSearchRefusal = runtimeWebSearchVersionGate(config, installation.version);
     if (webSearchRefusal) {
-      rememberAuthReadiness(config.instanceId, unavailable(webSearchRefusal.code, webSearchRefusal.hint));
+      rememberLaunchReadiness(unavailable(webSearchRefusal.code, webSearchRefusal.hint));
       throw runtimeInstanceError(webSearchRefusal.code, webSearchRefusal.hint);
     }
     const modelSearchRefusal = runtimeWebSearchModelGate(config, model, installation);
     if (modelSearchRefusal) {
-      rememberAuthReadiness(config.instanceId, unavailable(modelSearchRefusal.code, modelSearchRefusal.hint));
+      rememberLaunchReadiness(unavailable(modelSearchRefusal.code, modelSearchRefusal.hint));
       throw runtimeInstanceError(modelSearchRefusal.code, modelSearchRefusal.hint);
     }
     const policyRefusal = await runtimeWebSearchPolicyConflict(config, managedPolicyTexts);
+    currentAccountForCut(launchCut);
     if (policyRefusal) {
-      rememberAuthReadiness(config.instanceId, unavailable(policyRefusal.code, policyRefusal.hint));
+      rememberLaunchReadiness(unavailable(policyRefusal.code, policyRefusal.hint));
       throw runtimeInstanceError(policyRefusal.code, policyRefusal.hint);
     }
     if (!path.isAbsolute(request.cwd) || !request.prompt)
@@ -714,9 +723,11 @@ export function openRuntimeInstanceStore(input: {
         resolveGithubToken && config.kindId !== "deepseek-harness"
           ? applyGithubLaunchCredential(env, await resolveGithubToken(operatorEnvironment))
           : undefined;
+    currentAccountForCut(launchCut);
     // The three auth paths finish through the same per-launch scratch port. No
     // rejected credential probe leaves an unowned policy directory behind.
     const finishLaunch = (launch: PreparedRuntimeLaunch): PreparedRuntimeLaunch => {
+      currentAccountForCut(launchCut);
       if (launchTempDirectory)
         /* @gate-identity non-state/environment-io.11ea73f113a7658b */ mkdirSync(launchTempDirectory, {
           recursive: true,
@@ -727,7 +738,7 @@ export function openRuntimeInstanceStore(input: {
     };
     if (config.auth.mode === "subscription") {
       const probe = await probeSubscription(installation, env, config.isolationState, undefined, config, witnessed),
-        readiness = rememberAuthReadiness(config.instanceId, probe.readiness);
+        readiness = rememberLaunchReadiness(probe.readiness);
       if (readiness.code !== null) throw runtimeInstanceError(readiness.code, readiness.hint!);
       return finishLaunch({
         definition,
@@ -754,7 +765,7 @@ export function openRuntimeInstanceStore(input: {
         );
       const configPath = path.join(env.CODEX_HOME!, "config.toml");
       writeCodexConfig(configPath, config, request.cloudRelay.token, request.cloudRelay.baseUrl, platform);
-      rememberAuthReadiness(config.instanceId, available());
+      rememberLaunchReadiness(available());
       return finishLaunch({
         definition,
         installation,
@@ -775,16 +786,14 @@ export function openRuntimeInstanceStore(input: {
     let secret: string;
     try {
       secret = await resolveCredential(config.auth.credentialRef);
+      currentAccountForCut(launchCut);
     } catch (error) {
       consumeKnownError(error);
-      rememberAuthReadiness(config.instanceId, unavailable("runtime_credential_unavailable", credentialHint(error)));
+      rememberLaunchReadiness(unavailable("runtime_credential_unavailable", credentialHint(error)));
       throw runtimeInstanceError("runtime_credential_unavailable", credentialHint(error));
     }
     if (!secret) {
-      rememberAuthReadiness(
-        config.instanceId,
-        unavailable("runtime_credential_unavailable", credentialUnavailableHint),
-      );
+      rememberLaunchReadiness(unavailable("runtime_credential_unavailable", credentialUnavailableHint));
       throw runtimeInstanceError("runtime_credential_unavailable", credentialUnavailableHint);
     }
     if (config.kindId === "codex") {
@@ -798,7 +807,7 @@ export function openRuntimeInstanceStore(input: {
     } else if (config.kindId === "deepseek-harness") {
       env[deepseekHarnessApiKeyEnvironment] = secret;
     } else if (protocolFamily !== "acp") env.ANTHROPIC_API_KEY = secret;
-    rememberAuthReadiness(config.instanceId, available());
+    rememberLaunchReadiness(available());
     return finishLaunch({
       definition,
       installation,

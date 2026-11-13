@@ -334,6 +334,63 @@ test("a delayed AGY quota result cannot update health after the account cut chan
   }
 });
 
+test("a delayed launch model probe cannot publish readiness or return an old account after rebind", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-stale-launch-")),
+    bin = path.join(userRoot, "bin"),
+    modelProbeStarted = path.join(userRoot, "models-started"),
+    modelProbeRelease = path.join(userRoot, "models-release"),
+    firstPath = path.join(bin, process.platform === "win32" ? "agy-first.cmd" : "agy-first"),
+    secondPath = path.join(bin, process.platform === "win32" ? "agy-second.cmd" : "agy-second"),
+    first = { ...agyInstallation, installationId: "agy-first", executablePath: firstPath },
+    second = { ...agyInstallation, installationId: "agy-second", executablePath: secondPath };
+  mkdirSync(bin, { recursive: true });
+  writeProviderExecutable(
+    firstPath,
+    `const fs = require("node:fs"); const args = process.argv.slice(2); if (args[0] === "models") { fs.writeFileSync(${JSON.stringify(modelProbeStarted)}, "started"); while (!fs.existsSync(${JSON.stringify(modelProbeRelease)})) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10); } console.log("gemini-4-hydrogen-low\\tmodel"); } else if (args[0] === "-p") console.log(JSON.stringify({ command: { data: { groups: [{ buckets: [{ remaining_fraction: 1, reset_time: "2026-11-15T12:00:00.000Z" }] }] } } }));`,
+  );
+  writeProviderExecutable(secondPath, `if (process.argv[2] === "models") console.log("gemini-4-carbon-low\\tmodel");`);
+  try {
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      platform: "darwin",
+      env: { PATH: bin, HOME: path.join(userRoot, "operator-home") },
+      discover: () => [first, second],
+    });
+    store.command({
+      kind: "runtime-instance-create",
+      instanceId: "agy-stale-launch",
+      name: "AGY stale launch",
+      kindId: "agy",
+      installationId: first.installationId,
+      providerId: "google",
+      models: ["gemini-4-hydrogen-low"],
+      authMode: "subscription",
+      credentialSource: "instance",
+    });
+
+    const preparing = store.prepareLaunch("agy-stale-launch", {
+      cwd: userRoot,
+      prompt: "Do not admit a launch from a replaced account.",
+    });
+    for (let attempt = 0; attempt < 100 && !existsSync(modelProbeStarted); attempt++)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(existsSync(modelProbeStarted), true);
+    store.command({
+      kind: "runtime-instance-update",
+      instanceId: "agy-stale-launch",
+      installationId: second.installationId,
+    });
+    writeFileSync(modelProbeRelease, "release");
+
+    await assert.rejects(preparing, (error: unknown) => codedAs(error, "runtime_instance_probe_stale"));
+    assert.equal(store.listPublic()[0]?.authReadiness.code, "runtime_auth_not_checked");
+    assert.equal(store.list()[0]?.installationId, second.installationId);
+  } finally {
+    writeFileSync(modelProbeRelease, "release");
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
 test("cold reads reject duplicate legacy operator subscriptions while valid disabled and instance rows remain readable", () => {
   const duplicateRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-legacy-operator-duplicate-")),
     validRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-legacy-operator-valid-"));
