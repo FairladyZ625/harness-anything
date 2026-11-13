@@ -93,6 +93,8 @@ test("parseThinCommand forwards --mcp-policy on runtime instance, dispatch, agen
     "squad",
     "run",
     "core-squad",
+    "--instance",
+    "rti-codex",
     "--task",
     "task_01",
     "--mcp-policy",

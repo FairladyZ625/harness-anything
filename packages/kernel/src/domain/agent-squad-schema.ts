@@ -17,7 +17,7 @@ export interface AgentSkillDeclarationV1 {
 }
 export type AgentRole = "worker" | "commander" | "reviewer";
 export type AgentPermissionMode = "bypass" | "workspace-write" | "read-only";
-export const agentMcpPolicies = ["disabled", "inherit"] as const;
+const agentMcpPolicies = ["disabled", "inherit"] as const;
 export type AgentMcpPolicy = (typeof agentMcpPolicies)[number];
 /** Which host tools and services the dispatch prompt lets this Agent use; distinct from a runtime
  *  instance's `isolation`, which governs only the provider state directory.
@@ -136,7 +136,7 @@ export const AGENT_DECLARATION_V1_SCHEMA = Object.freeze({
     },
     mcpPolicy: {
       type: "string",
-      enum: ["disabled", "inherit"],
+      enum: agentMcpPolicies,
       description: "Host MCP server inheritance policy for unattended dispatches.",
       "x-error": "must be disabled or inherit.",
     },

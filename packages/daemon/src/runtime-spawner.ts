@@ -635,7 +635,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                   kindId: runtimeInstance.kindId,
                   dispatchMcpPolicy: mcpPolicy,
                   agentMcpPolicy: agent?.mcpPolicy,
-                  instanceMcpPolicy: runtimeInstance.mcpPolicy,
+                  instanceMcpPolicy: runtimeInstance.mcpPolicy ?? undefined,
                 })
               : declaredMcpPolicy
                 ? runtimeMcpPolicy(declaredMcpPolicy)
