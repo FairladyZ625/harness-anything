@@ -127,10 +127,15 @@ function scriptKind(file) {
   return ts.ScriptKind.TS;
 }
 
-function addSpecifier(imports, sourceFile, moduleSpecifier, kind) {
+function resolutionModeFromAttributes(attributes) {
+  const mode = attributes?.elements?.find(({ name }) => name.text === "resolution-mode")?.value?.text;
+  return mode === "import" || mode === "require" ? mode : undefined;
+}
+
+function addSpecifier(imports, sourceFile, moduleSpecifier, kind, resolutionMode) {
   if (!moduleSpecifier || !ts.isStringLiteralLike(moduleSpecifier)) return;
   const { line } = sourceFile.getLineAndCharacterOfPosition(moduleSpecifier.getStart(sourceFile));
-  imports.push({ specifier: moduleSpecifier.text, line: line + 1, kind });
+  imports.push({ specifier: moduleSpecifier.text, line: line + 1, kind, resolutionMode });
 }
 
 function importsFromSource(source, file) {
@@ -149,6 +154,7 @@ function importsFromSource(source, file) {
           : statement.isTypeOnly
             ? "import-type"
             : "reexport",
+        resolutionModeFromAttributes(statement.attributes),
       );
     } else if (ts.isImportEqualsDeclaration(statement) && ts.isExternalModuleReference(statement.moduleReference)) {
       addSpecifier(imports, sourceFile, statement.moduleReference.expression, "require");
@@ -162,7 +168,13 @@ function importsFromSource(source, file) {
       if ((dynamicImport || requireCall) && node.arguments.length > 0)
         addSpecifier(imports, sourceFile, node.arguments[0], dynamicImport ? "dynamic" : "require");
     } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) {
-      addSpecifier(imports, sourceFile, node.argument.literal, "import-type");
+      addSpecifier(
+        imports,
+        sourceFile,
+        node.argument.literal,
+        "import-type",
+        resolutionModeFromAttributes(node.attributes),
+      );
     }
     ts.forEachChild(node, visit);
   };
@@ -199,7 +211,12 @@ async function loadWorkspace(root) {
     if (path.posix.basename(relative) === "package.json") {
       const packageJson = JSON.parse(await readFile(absolute, "utf8"));
       if (typeof packageJson.name === "string")
-        packages.push({ name: packageJson.name, root: path.dirname(relative), exports: packageJson.exports });
+        packages.push({
+          name: packageJson.name,
+          root: path.dirname(relative),
+          exports: packageJson.exports,
+          type: packageJson.type,
+        });
     }
   });
   const sourceFiles = files.filter(
@@ -266,13 +283,13 @@ function wildcardCapture(value, pattern) {
   return value.slice(prefix.length, value.length - suffix.length);
 }
 
-function resolveExportTargets(workspacePackage, specifier, kind) {
+function resolveExportTargets(workspacePackage, specifier, kind, resolutionMode) {
   const segments = specifier.split("/");
   const packageNameLength = workspacePackage.name.startsWith("@") ? 2 : 1;
   const packagePath = segments.slice(packageNameLength).join("/");
   const exportKey = packagePath ? `./${packagePath}` : ".";
   const exports = workspacePackage.exports;
-  const conditions = new Set(["node", "node-addons", kind === "require" ? "require" : "import"]);
+  const conditions = new Set(["node", "node-addons", resolutionMode ?? (kind === "require" ? "require" : "import")]);
   if (kind === "import-type") conditions.add("types");
   if (typeof exports === "string" || Array.isArray(exports))
     return exportKey === "." ? exportTargets(exports, conditions) : [];
@@ -294,7 +311,15 @@ function resolveExportTargets(workspacePackage, specifier, kind) {
   return exportTargets(entry, conditions).map((target) => target.replaceAll("*", capture));
 }
 
-function resolveTarget(importer, specifier, root, workspace, kind = "import") {
+function defaultTypeResolutionMode(importer, workspace) {
+  const extension = path.extname(importer);
+  if ([".mts", ".mjs"].includes(extension)) return "import";
+  if ([".cts", ".cjs"].includes(extension)) return "require";
+  const importerPackage = packageForPath(importer, workspace.packages);
+  return importerPackage?.type === "module" ? "import" : "require";
+}
+
+function resolveTarget(importer, specifier, root, workspace, kind = "import", resolutionMode) {
   if (specifier.startsWith(".")) {
     const resolved = path.resolve(root, path.dirname(importer), specifier);
     for (const candidate of [resolved, ...[...sourceExtensions].map((extension) => `${resolved}${extension}`)]) {
@@ -311,7 +336,9 @@ function resolveTarget(importer, specifier, root, workspace, kind = "import") {
   const packageName = specifier.startsWith("@") ? segments.slice(0, 2).join("/") : segments[0];
   const workspacePackage = workspace.packagesByName.get(packageName);
   if (workspacePackage) {
-    for (const target of resolveExportTargets(workspacePackage, specifier, kind)) {
+    const mode =
+      kind === "import-type" ? (resolutionMode ?? defaultTypeResolutionMode(importer, workspace)) : undefined;
+    for (const target of resolveExportTargets(workspacePackage, specifier, kind, mode)) {
       const sourceFile = sourceFileForTarget(target, workspacePackage.root, root, workspace);
       if (sourceFile) return sourceFile;
     }
@@ -492,7 +519,14 @@ export async function checkArchitecture(root = process.cwd()) {
     if (sourcePackage?.id === "daemon" && file.startsWith("packages/daemon/src/") && !sourcePlane)
       violations.push(`${file}: daemon source file must be assigned to one of ${planeOrder.join(", ")}`);
     for (const imported of imports) {
-      const target = resolveTarget(file, imported.specifier, absoluteRoot, workspace, imported.kind);
+      const target = resolveTarget(
+        file,
+        imported.specifier,
+        absoluteRoot,
+        workspace,
+        imported.kind,
+        imported.resolutionMode,
+      );
       const targetPackage = resolveWorkspaceTargetPackage(file, imported.specifier, absoluteRoot, workspace);
       const targetPlane = targetPackage?.id === "daemon" && target ? planeForPath(target) : null;
       if (sourcePackage && targetPackage && sourcePackage.id !== targetPackage.id) {

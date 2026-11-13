@@ -24,12 +24,16 @@ async function source(root, packageName, relativePath, text) {
   return file;
 }
 
-async function workspacePackage(root, name, exports) {
+async function workspacePackage(root, name, exports, type) {
   const packageRoot = path.join(root, "packages", name);
   await mkdir(path.join(packageRoot, "src"), { recursive: true });
   await writeFile(
     path.join(packageRoot, "package.json"),
-    JSON.stringify({ name: `@harness-anything/${name}`, ...(exports ? { exports } : {}) }),
+    JSON.stringify({
+      name: `@harness-anything/${name}`,
+      ...(exports ? { exports } : {}),
+      ...(type ? { type } : {}),
+    }),
   );
 }
 
@@ -179,6 +183,91 @@ test("ignores inactive browser export conditions for Node imports", async (t) =>
   const result = await checkArchitecture(root);
 
   assert.equal(result.ok, true, result.violations.join("\n"));
+});
+
+test("honors type import resolution modes and NodeNext defaults", async (t) => {
+  const root = await fixture(t);
+  await workspacePackage(
+    root,
+    "daemon",
+    {
+      "./dual": {
+        import: "./src/writer-cell/write.ts",
+        require: "./src/daemon-host/open.cts",
+      },
+    },
+    "module",
+  );
+  await source(
+    root,
+    "daemon",
+    "src/runtime-engine/run.mts",
+    [
+      'import type { X as RequireDeclaration } from "@harness-anything/daemon/dual" with { "resolution-mode": "require" };',
+      'import type { X as ImportDeclaration } from "@harness-anything/daemon/dual" with { "resolution-mode": "import" };',
+      'type RequireExpression = import("@harness-anything/daemon/dual", { with: { "resolution-mode": "require" } }).X;',
+      'type ImportExpression = import("@harness-anything/daemon/dual", { with: { "resolution-mode": "import" } }).X;',
+      "",
+    ].join("\n"),
+  );
+  await source(
+    root,
+    "daemon",
+    "src/runtime-engine/default-esm.ts",
+    [
+      'import type { X as DefaultImportDeclaration } from "@harness-anything/daemon/dual";',
+      'type DefaultImportExpression = import("@harness-anything/daemon/dual").X;',
+      "",
+    ].join("\n"),
+  );
+  await source(
+    root,
+    "daemon",
+    "src/runtime-engine/default-commonjs.cts",
+    [
+      'import type { X as DefaultRequireDeclaration } from "@harness-anything/daemon/dual";',
+      'type DefaultRequireExpression = import("@harness-anything/daemon/dual").X;',
+      "",
+    ].join("\n"),
+  );
+  await source(root, "daemon", "src/writer-cell/write.ts", "export interface X {}\n");
+  await source(root, "daemon", "src/daemon-host/open.cts", "export interface X {}\n");
+
+  const result = await checkArchitecture(root);
+
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.violations.some((message) =>
+      message.includes("src/runtime-engine/run.mts:1: runtime-engine -> daemon-host is forbidden"),
+    ),
+  );
+  assert.ok(
+    result.violations.some((message) =>
+      message.includes("src/runtime-engine/run.mts:3: runtime-engine -> daemon-host is forbidden"),
+    ),
+  );
+  assert.equal(
+    result.violations.some((message) => message.includes("run.mts:2:")),
+    false,
+  );
+  assert.equal(
+    result.violations.some((message) => message.includes("run.mts:4:")),
+    false,
+  );
+  assert.equal(
+    result.violations.some((message) => message.includes("default-esm.ts:")),
+    false,
+  );
+  assert.ok(
+    result.violations.some((message) =>
+      message.includes("default-commonjs.cts:1: runtime-engine -> daemon-host is forbidden"),
+    ),
+  );
+  assert.ok(
+    result.violations.some((message) =>
+      message.includes("default-commonjs.cts:2: runtime-engine -> daemon-host is forbidden"),
+    ),
+  );
 });
 
 test("rejects model relations that drift from deterministic package rules", async (t) => {
