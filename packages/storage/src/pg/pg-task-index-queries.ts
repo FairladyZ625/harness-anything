@@ -88,7 +88,7 @@ export function pgTaskIndexQueries(
         const result = await client.query<{ parent_id: string; count: string }>(
           `SELECT parent_task_id AS parent_id,count(*)::text FROM ha_task_snapshots
          WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND (cardinality($4::text[])=0 OR readers && $4::text[])
-         AND COALESCE(snapshot#>>'{task,packageDisposition}','active')='active'
+         AND task_package_disposition='active'
          AND parent_task_id=ANY($5::text[]) GROUP BY parent_task_id`,
           [...parameters, ids],
         );
@@ -114,12 +114,14 @@ export function pgTaskIndexQueries(
               "tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND (cardinality($4::text[])=0 OR readers && $4::text[])";
           withClause = `WITH RECURSIVE descendants(task_id) AS (
             SELECT task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=${root}
-            UNION SELECT child.task_id FROM ha_task_snapshots child JOIN descendants parent
-              ON child.parent_task_id=parent.task_id WHERE ${visible}
+            UNION SELECT child.task_id FROM descendants parent CROSS JOIN LATERAL (
+              SELECT task_id FROM ha_task_snapshots WHERE ${visible} AND parent_task_id=parent.task_id OFFSET 0
+            ) child
           ), ancestors(task_id,parent_id) AS (
             SELECT task_id,parent_task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=${root}
-            UNION SELECT parent.task_id,parent.parent_task_id FROM ha_task_snapshots parent
-              JOIN ancestors child ON parent.task_id=child.parent_id WHERE ${visible}
+            UNION SELECT parent.task_id,parent.parent_task_id FROM ancestors child CROSS JOIN LATERAL (
+              SELECT task_id,parent_task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=child.parent_id OFFSET 0
+            ) parent
           )`;
           where.push(`task_id IN (SELECT task_id FROM descendants UNION SELECT task_id FROM ancestors)`);
         }
@@ -151,8 +153,11 @@ export function pgTaskIndexQueries(
           where.push(`updated_at<=$${values.length}::timestamptz`);
         }
         if (query.parentTaskId !== undefined) {
-          values.push(query.parentTaskId);
-          where.push(`parent_task_id IS NOT DISTINCT FROM $${values.length}`);
+          if (query.parentTaskId === null) where.push("parent_task_id IS NULL");
+          else {
+            values.push(query.parentTaskId);
+            where.push(`parent_task_id=$${values.length}`);
+          }
         }
         for (const [column, value] of [
           ["task_work_kind", query.workKind],
@@ -165,7 +170,7 @@ export function pgTaskIndexQueries(
             where.push(`${column}=$${values.length}`);
           }
         if (query.openOnly === true) where.push("task_status NOT IN ('done','cancelled')");
-        if (query.leaseOnly === true) where.push("raw_lease IS NOT NULL AND raw_lease->>'phase' <> 'released'");
+        if (query.leaseOnly === true) where.push("task_lease_phase IS NOT NULL AND task_lease_phase <> 'released'");
         if (query.activePackagesOnly === true) where.push("task_package_disposition='active'");
         if (query.workRootsOnly === true)
           where.push(`(task_class='work' OR (parent_task_id IS NULL AND EXISTS (

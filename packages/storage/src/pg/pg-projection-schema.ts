@@ -304,10 +304,10 @@ export function projectionDdl(): readonly string[] {
     "CREATE INDEX IF NOT EXISTS ha_task_snapshots_package_path ON ha_task_snapshots (tenant_id,project_id,policy_epoch,package_path)",
     // A lifecycle-status page (home "done in the last 24h", fleet "active leases") is an index
     // range, not a scan of every task the repository ever had.
-    "CREATE INDEX IF NOT EXISTS ha_task_snapshots_lease_active ON ha_task_snapshots (tenant_id, project_id, policy_epoch, task_id) WHERE (snapshot #>> '{task,status}') = 'active' AND raw_lease IS NOT NULL AND raw_lease->>'phase' <> 'released'",
-    "CREATE INDEX IF NOT EXISTS ha_task_snapshots_status_updated ON ha_task_snapshots (tenant_id,project_id,policy_epoch,(snapshot #>> '{task,status}'),updated_at DESC,task_id)",
     "CREATE INDEX IF NOT EXISTS ha_task_snapshots_scope_revision ON ha_task_snapshots (tenant_id, project_id, workspace_revision DESC)",
     ...taskParentIndexDdl(),
+    "CREATE INDEX IF NOT EXISTS ha_task_snapshots_status_updated_v2 ON ha_task_snapshots (tenant_id,project_id,policy_epoch,task_status,updated_at DESC,task_id)",
+    "DROP INDEX IF EXISTS ha_task_snapshots_status_updated",
     ...PG_PROJECTION_TABLES.map(
       (table) => `CREATE INDEX IF NOT EXISTS ${table}_readers_gin ON ${table} USING gin (readers)`,
     ),
