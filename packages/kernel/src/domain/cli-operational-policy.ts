@@ -177,8 +177,924 @@ export const cliContractPolicy = {
   ].map((candidateId) => ({ candidateId, route: "cliContractPolicy" })),
 } as const satisfies OntologyPolicyDeclaration;
 
+/**
+ * dec_7E44897ECDCAEF2B92EC66A260/CH1: daemon runtime, terminal and evaluation
+ * boundaries share the existing host Policy registry. Values stay in their daemon
+ * consumers; this declaration records ownership without introducing a new budget.
+ */
+export const daemonRuntimePolicy = {
+  id: "daemon-runtime",
+  ownerRef: "host",
+  unit: "existing daemon runtime values and branch literals",
+  bounds:
+    "Runtime, terminal, process-port and skill-evaluation branches retain their existing literals and failure behavior; this is an ownership declaration, not a new limit.",
+  defaultValue: null,
+  version: 1,
+  scope: "daemon runtime, terminal, process-port and skill-evaluation subsystems",
+  reason:
+    "Close the daemon runtime ontology boundary through the existing host Policy registry while preserving every online default.",
+  fixtures: ["tools/gates/test/ontology-closure.test.mjs"],
+  sources: [
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/agent-runtime-instance-config.ts#runtimeInstanceConfig:3e75c917fa97f3f11361b120ecb27cd4",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/agent-runtime-instance-config.ts#runtimeInstanceConfig:ad4a0b78e66f3154bace78e2e10f68df",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/agent-runtime-instance-storage.ts#ensureSharedAuthFile.retryDelay:a38f533782efe76e8e50dba711b96f64",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/process-port.ts#launchProcessText.child:2098982cebd838077098ec255724c782",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/process-port.ts#launchProcessText.timeout:a3b068b32021a7dffa0815ada149c02a",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-continuation-context.ts#conclusionLimit:fe79749e1637c0e3ca6ff12cded11822",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-continuation-context.ts#currentWorktreeHead.result.timeoutMs:08b0a8a64d90c6ee0feb0e9b7d52b2ae",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-dispatch-evidence.ts#correlationValueLimit:a872cb745b61dbc709aaf7c8ee3c182e",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-execution-scope.ts#isCurrentSubmittedWorkerWrite:6a36662642580dfd4a7a7fcf0d5fc936",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-github-credentials.ts#tokenProbeTimeoutMs:7217d271c6c55243f6c2ef3077aabf74",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-handoff-native.ts#prepareRuntimeHandoff.runGit.timeout:74baa14f0593fb06f9712e9ba19bf3f6",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-handoff-store.ts#runRuntimeHandoffAction:f51197387f2cba485cfb73e192d8115c",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-handoff-store.ts#buildRuntimeHandoffPacket.attempt:157e165f1a1f4987180a86b47ef31436",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-handoff-store.ts#admitHandoffDispatch:31f8f8202cee1f5e55a592474fad3e8e",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-instance-selection.ts#selectedRuntimeInstance:bd9d26faa37ff11a9d7fad027d1b0890",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-instance-selection.ts#selectedRuntimeInstance:e3380d084b8c6305d128f5ae0f81aa6a",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#claudeWorkspaceWriteSandbox.autoAllowBashIfSandboxed:9f765cc5bca5eaf1b325f2d6e455f698",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#claudeWorkspaceWriteSandbox.allowUnsandboxedCommands:bfe321ced025986a518c9a2296a5df2f",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#claudeWorkspaceWriteSandbox.network.allowLocalBinding:baf41d19b0137c70358e25451d91e9c1",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#acpSteer.strategy:b4f689d42498817801d5dc27fd5c915d",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#acpKind.capabilities.toolAllowlist:7e17542dba8f59dc0fbd345102c8e8a3",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#acpKind.capabilities.toolDenylist:2dc261f1ecd189928a64a4c5e9ce3094",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#acpKind.capabilities.turnLimit:402186af313fb570b090a4c6f9d7d621",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#acpKind.capabilities.gracefulCancel:9745420c81851eb1d250363f7cb2b8c0",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.auth.subscriptionProbeTimeoutMs:862175534cb1857de99db327dae12fb5",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.steer.strategy:5dc5f329f5b0f1fdf005e4997f8915a6",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.toolAllowlist:7a38baeedaf6636c8a11d1cf45faccf8",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.toolDenylist:0d11545c3ec8fa08bd4a2939a09dd5d1",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.turnLimit:747e0a04b75266a1b570c052fee2aefb",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.gracefulCancel:9745420c81851eb1d250363f7cb2b8c0",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.configuration.fields.allowInsecureHttp:4032788d40b177f5738b8d89b0aff674",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.configuration.publicFields.allowInsecureHttp:65c075a40a0e71c435005d4b66054705",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.auth.subscriptionProbeTimeoutMs:862175534cb1857de99db327dae12fb5:2",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.steer.strategy:5dc5f329f5b0f1fdf005e4997f8915a6:2",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.toolAllowlist:7e17542dba8f59dc0fbd345102c8e8a3",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.toolDenylist:2dc261f1ecd189928a64a4c5e9ce3094",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.turnLimit:402186af313fb570b090a4c6f9d7d621",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.gracefulCancel:9745420c81851eb1d250363f7cb2b8c0:2",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.auth.subscriptionProbeTimeoutMs:df815fa358ec57bce8609702d542f26d",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.toolAllowlist:7e17542dba8f59dc0fbd345102c8e8a3:2",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.toolDenylist:2dc261f1ecd189928a64a4c5e9ce3094:2",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.turnLimit:402186af313fb570b090a4c6f9d7d621:2",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.gracefulCancel:9745420c81851eb1d250363f7cb2b8c0:3",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.auth.subscriptionProbeTimeoutMs:862175534cb1857de99db327dae12fb5:3",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.toolAllowlist:7e17542dba8f59dc0fbd345102c8e8a3:3",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.toolDenylist:0d11545c3ec8fa08bd4a2939a09dd5d1:2",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.turnLimit:402186af313fb570b090a4c6f9d7d621:3",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.gracefulCancel:9745420c81851eb1d250363f7cb2b8c0:4",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.auth.subscriptionProbeTimeoutMs:2531964ccd364cc4aaa8e9eb2c125d0b",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.toolAllowlist:7e17542dba8f59dc0fbd345102c8e8a3:4",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.toolDenylist:2dc261f1ecd189928a64a4c5e9ce3094:3",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.turnLimit:402186af313fb570b090a4c6f9d7d621:4",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.gracefulCancel:cb0664c861b27186b13d91a86cdce94f",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.auth.subscriptionProbeTimeoutMs:2531964ccd364cc4aaa8e9eb2c125d0b:2",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.toolAllowlist:7e17542dba8f59dc0fbd345102c8e8a3:5",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.toolDenylist:2dc261f1ecd189928a64a4c5e9ce3094:4",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.turnLimit:402186af313fb570b090a4c6f9d7d621:5",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.gracefulCancel:9745420c81851eb1d250363f7cb2b8c0:5",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.auth.subscriptionProbeTimeoutMs:2531964ccd364cc4aaa8e9eb2c125d0b:3",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.toolAllowlist:7e17542dba8f59dc0fbd345102c8e8a3:6",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.toolDenylist:2dc261f1ecd189928a64a4c5e9ce3094:5",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.turnLimit:402186af313fb570b090a4c6f9d7d621:6",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.gracefulCancel:9745420c81851eb1d250363f7cb2b8c0:6",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.auth.subscriptionProbeTimeoutMs:2531964ccd364cc4aaa8e9eb2c125d0b:4",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.toolAllowlist:7e17542dba8f59dc0fbd345102c8e8a3:7",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.toolDenylist:2dc261f1ecd189928a64a4c5e9ce3094:6",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.turnLimit:402186af313fb570b090a4c6f9d7d621:7",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.gracefulCancel:9745420c81851eb1d250363f7cb2b8c0:7",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.subscriptionProbeTimeoutMs:2531964ccd364cc4aaa8e9eb2c125d0b",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.subscriptionProbeTimeoutMs:2531964ccd364cc4aaa8e9eb2c125d0b:2",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.subscriptionProbeTimeoutMs:2531964ccd364cc4aaa8e9eb2c125d0b:3",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.subscriptionProbeTimeoutMs:2531964ccd364cc4aaa8e9eb2c125d0b:4",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.subscriptionProbeTimeoutMs:13aa9f40d7a7db75c5874c507e868806",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.subscriptionProbeTimeoutMs:2531964ccd364cc4aaa8e9eb2c125d0b:5",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.subscriptionProbeTimeoutMs:2531964ccd364cc4aaa8e9eb2c125d0b:6",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.subscriptionProbeTimeoutMs:2531964ccd364cc4aaa8e9eb2c125d0b:7",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.subscriptionProbeTimeoutMs:2531964ccd364cc4aaa8e9eb2c125d0b:8",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.subscriptionProbeTimeoutMs:2531964ccd364cc4aaa8e9eb2c125d0b:9",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.subscriptionProbeTimeoutMs:2531964ccd364cc4aaa8e9eb2c125d0b:10",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.subscriptionProbeTimeoutMs:13aa9f40d7a7db75c5874c507e868806:2",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.auth.subscriptionProbeTimeoutMs:2531964ccd364cc4aaa8e9eb2c125d0b:5",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.toolAllowlist:7e17542dba8f59dc0fbd345102c8e8a3:8",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.toolDenylist:2dc261f1ecd189928a64a4c5e9ce3094:7",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.turnLimit:402186af313fb570b090a4c6f9d7d621:8",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.gracefulCancel:9745420c81851eb1d250363f7cb2b8c0:8",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.auth.subscriptionProbeTimeoutMs:2531964ccd364cc4aaa8e9eb2c125d0b:6",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.toolAllowlist:7e17542dba8f59dc0fbd345102c8e8a3:9",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.toolDenylist:2dc261f1ecd189928a64a4c5e9ce3094:8",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.turnLimit:402186af313fb570b090a4c6f9d7d621:9",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-inventory.ts#runtimeKinds.capabilities.gracefulCancel:9745420c81851eb1d250363f7cb2b8c0:9",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-orchestration.ts#runtimeBatchDefaultConcurrency:f2fe3d33df8a692124061152770749a2",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-orchestration.ts#runtimeBatchMaxConcurrency:6d65b5143f15c419942132d30b4babe0",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-orchestration.ts#parseRuntimeBatchDeclaration:b06f120109c8d98943ee5b8e99057c75",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-provider-fault.ts#classifyRuntimeExit:b9ed293104e51352a942afa864d01065",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-provider-fault.ts#classifyRuntimeExit:bb31d91aa78dbe3dc51614681b57b925",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-provider-fault.ts#classifyRuntimeExit:b2a544945b431b8eab13bebe423a1cac",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-provider-fault.ts#classifyRuntimeExit:9b40db0d046a5ee24b95a4c374780102",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-publication-queue.ts#mayRescueInfrastructureLatch:9e663702627a3018d30c361402ff3d07",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-resume-admission.ts#admitRuntimeResume:1d24e78f3b5dbed0de88cf195ac44d69",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-resume-admission.ts#admitRuntimeResume:eb846c52fa03633584ef54bcc79f27c0",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-resume-admission.ts#admitRuntimeResume:a8efe8218fae3c67d01dda8c552bad4e",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-settlement.ts#runtimeOutcomeRecheckMs:d44183eef12267c83fa44bf5b8922492",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-settlement.ts#runtimeSessionSettlement:e0c10bbf78a1e71624e7d0b4c7528e91",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-settlement.ts#runtimeSessionSettlement.providerFaultClass:8df2ec2659eb227669c0fbba661b19d5",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-active.ts#createActiveRuntime.stallTimeoutMs:d6fc2d268343cd6b50b0eb90729c2eec",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-active.ts#isRuntimeProcessProvenStopped:1a9b1476cd2f36dab6cea89b9fc4127e",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-active.ts#settleStalledRuntime:2d1d0d36a01d2eced6f15132063c7e38",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-active.ts#attachActiveRuntime.handlers.exit:55b839f8212dfbd3892f6308bc6806ca",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-active.ts#attachActiveRuntime.handlers.exit:fe4a3668aad8e018ebfe54fd4b0a87e1",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-adoption.ts#adoptRuntimes.attempts:732c866a23be48cb4aa696ecfa50fee7",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-adoption.ts#adoptRuntimes.attempts.entry.promise:c3e0af7816200835b05823d9c611012c",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-adoption.ts#restoreRuntime:7d3fd3f7168077bcaf35c303654a655e",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-adoption.ts#restoreRuntime:39e4830081c0babcb59e3341fa031186",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-control.ts#cancelRuntime:f12e9da0d749ff82a1adcbfb4ea3616b",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-deepseek-session.ts#decompressSessionLogBounded:abfa7a199a982ed53bd13e0775cac8e8",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-errors.ts#runtimeTaskLeaseRequiredMessage:25c83a9ee0a22be85f048c21b6b3e2b2",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-errors.ts#runtimeTaskLeaseRequiredMessage:e5517c87db74daadbf1f42db8cebe890",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-errors.ts#runtimeTaskLeaseRequiredMessage:d1dcaf6ee3b6789b199bdf70b1f5e511",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-fallback.ts#initialFallbackAttempt.attemptIndex:0c8160023357cb0919341e53873bd02d",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-fallback.ts#initialFallbackAttempt.retryRound:018baacdfcf52ef81e370bcafd8be70e",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-fallback.ts#scheduleFallbackContinuation.publishTerminal:289c3d1cd6a3e751fb2b29195465510d",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-fallback.ts#scheduleFallbackContinuation.timer:32207adf55dad23335e56d47f1f249a9",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-fallback.ts#scheduleFallbackContinuation.timer.exhausted.payload.attempt:2f74d685e54a426d732e58591ea32ec3",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-limits.ts#resumeAdmissionTimeoutMs:385dca11d55717d3b5f06196e925bd5f",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-limits.ts#exitNotificationTimeoutMs:652446a6b5934a3f87a48ffedd5cc2bb",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-mission.ts#resolveRuntimeCwd:576e2e52a025ebcd3651ec10774959ca",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-mission.ts#resolveRuntimeInstanceCandidates:3d71a58cbf72c9a7726e4a228e954372",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-mission.ts#livingDeliverableProtocol:f79b34d201459ff4adbd5bb1433cb9b7",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-process.ts#readPosixProcessRows.output.timeoutMs:e7081fc1e347ae791f97369495842bd2",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-process.ts#awaitRuntimeProcessExit.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-process.ts#observeDispatchProcess.released:c634ea4f4d8960a8ac39fbdbce66e15c",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-provider-stream.ts#consumeDurableOutput.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-settlement.ts#publishExit:f9594f016439097ccbfe3a344b460bae",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-settlement.ts#publishExit:7c42a91ec838576fd2546774501fafdd",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-settlement.ts#publishExit.attemptOutcome:e3b6075fefe5acc312b071337a6205d1",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-settlement.ts#publishExit.publication.forceWithLease:f291d2814f9a2a6250e059c5ede39592",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-settlement.ts#publishTerminalOutcome:80ea9e816f5f69e7809596f7cdce93ce",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawner.ts#makeRuntimeSpawner.modelSlotQueue.globalCapacity:364f2690112a4e8422a55a585cd8ea63",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawner.ts#makeRuntimeSpawner.modelSlotQueue.perOwnerCapacity:d226771b4061115c649e7eb837e12eec",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawner.ts#makeRuntimeSpawner.spawnClaimAttempt:a012a97a2ce4cbac0087d11ec1d1e41e",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawner.ts#makeRuntimeSpawner.spawnClaimAttempt.tokenLimit:66890bd5b7122be93c828738ed022d2b",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawner.ts#makeRuntimeSpawner.spawnClaimAttempt.openStream:9813dfc42c357216e3adb310aeb4cb6f",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-worker-acp.ts#cancelGraceMs:ed14b5279200162d541b80589f3dcb27",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-worker-acp.ts#runAcpProviderSession.request.timeout:41185da8dd427ca231f76df66e2ed0a7",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-worker-host.ts#runRuntimeWorkerHost.settleAttempted:80a663a97e46f17a66f3281f5fdb9a58",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-worker-host.ts#runRuntimeWorkerHost:162e0449404b6057ea143ae97840a567",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-worker-host.ts#runRuntimeWorkerHost:b07a2383aaf27e0d520ccb81184a85b8",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-worker-host.ts#runRuntimeWorkerHost:2205bcfa809001dba7c320a95245f519",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-worker-host.ts#parseManifest:fc5850d062358d233af275351e75da63",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-worker-push.ts#detailLimit:aeb60c86bf8b015f3439f3b05d0565f7",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-worker-push.ts#workerPushTimeoutMs:1965c93bc10640788d3863cf9e7c7a59",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-worker-push.ts#workerPushFailureCode:63d197dacd856c55aa68547b5fdaea7d",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-worker-push.ts#pushWorkerBranch.attempted:62bc05e193021e979c9028880b4b37a3",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-worker-push.ts#pushWorkerBranch.attempted:aeabc2709a4a76af9fe7b83a2624d15e",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-worker-push.ts#pushWorkerBranch.attempted:62bc05e193021e979c9028880b4b37a3:2",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-worker-push.ts#pushWorkerBranch.attempted:62bc05e193021e979c9028880b4b37a3:3",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-worker-push.ts#pushWorkerBranch.attempted:aeabc2709a4a76af9fe7b83a2624d15e:2",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-worker-push.ts#pushWorkerBranch.attempted:aeabc2709a4a76af9fe7b83a2624d15e:3",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-worker-push.ts#pushWorkerBranch.attempted:aeabc2709a4a76af9fe7b83a2624d15e:4",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-worker-push.ts#pushWorkerBranch.attempted:aeabc2709a4a76af9fe7b83a2624d15e:5",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-worker-push.ts#pushWorkerBranch.invocation:269400b7646a986aa20dc7038cd35ecb",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-worker-push.ts#pushWorkerBranch.attempted:aeabc2709a4a76af9fe7b83a2624d15e:6",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-worker-push.ts#pushWorkerBranch.attempted:aeabc2709a4a76af9fe7b83a2624d15e:7",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-worker-push.ts#pushWorkerBranch.attempted:aeabc2709a4a76af9fe7b83a2624d15e:8",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-worker-push.ts#pushWorkerBranch.attempted:aeabc2709a4a76af9fe7b83a2624d15e:9",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-worker-push.ts#pushWorkerBranch.attempted:aeabc2709a4a76af9fe7b83a2624d15e:10",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-worker-push.ts#pushTaskWorkerBranch.attempted:aeabc2709a4a76af9fe7b83a2624d15e",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId: "policy:packages/daemon:packages/daemon/src/runtime.ts#startDaemon:b4c5f72f3599b26554ff63c0b28de8eb",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime.ts#startDaemon.stop.deadlineExpired:5964cb041ee07b1042243b9a26c6ab5b",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime/cloud-dispatch-relay.ts#UPSTREAM_TIMEOUT_MS:8d8754d918a6eb2d68ca942163928c60",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime/cloud-dispatch-relay.ts#AttemptLedger:36a78395dbfefc9970547031c93c1dd6",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime/cloud-dispatch-relay.ts#httpsUpstream.request:94523c0503d2101a4b6918fa08f1bbd4",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime/process-group-reconciler.ts#sweepUntilProvenStopped.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime/process-group-reconciler.ts#sweepUntilProvenStopped:80781c70fcc2f89fe7bdc666dfe9d534",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime/windows-process-group-port.ts#establishWindowsProcessGroup.timeoutMs:08ce959d3673db2be6251563546f9a16",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/skill-eval-production.ts#defaultPolicy:71be3de7844f99fae703716f25b7ab80",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/skill-eval-runner.ts#SkillEvalRunner.run:798d3e402b66e619cb60c0a1d4b63c1e",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/terminal-environment.ts#loginShellSnapshotTimeoutMs:024ab121b6060ef024067fd0345784ac",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/terminal-host.ts#resolveTerminalCwd:701e772aacb1529ca0cef3a5e777bea7",
+      route: "daemonRuntimePolicy",
+    },
+  ],
+} as const satisfies OntologyPolicyDeclaration;
+
 // dec_7E44897ECDCAEF2B92EC66A260/CH1: host-wide action catalog vocabulary and read budgets declared by the kernel.
 export const hostKernelPolicies = [
+  daemonRuntimePolicy,
   {
     id: "action-presentation",
     ownerRef: "host",

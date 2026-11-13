@@ -1399,3 +1399,50 @@ test("dec_7E44897ECDCAEF2B92EC66A260/CH1: daemon repo/writer/submission/doc-sync
     audit(mutatedStoragePolicy, { snapshot }).findings.some((row) => row.code === "ONTOLOGY_POLICY_UNDECLARED"),
   );
 });
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: the final daemon runtime slice is a closed
+// world boundary. Removing its frozen rows is safe only while every live source is
+// bound to the shared ActionDeclaration or EntityKindContract Policy registry.
+test("dec_7E44897ECDCAEF2B92EC66A260/CH1: daemon runtime/terminal/evaluation closure is ratcheted", () => {
+  const scopePath = /^packages\/daemon\/src\/(?:runtime|agent-runtime-instance|terminal-|process-port|skill-eval-)/u;
+  const baseline = loadGateAllowlist("ontology-closure", {
+    allowlistRoot: path.join(repoRoot, "tools/gate-allowlists"),
+    report: false,
+  }).candidates;
+  assert.deepEqual(
+    baseline.filter((row) => row.owner === "packages/daemon" && scopePath.test(row.path)),
+    [],
+    "daemon runtime, terminal and evaluation paths must have no migration baseline rows",
+  );
+
+  const result = evaluateOntologyClosure({ rootDir: repoRoot, base: "HEAD" });
+  const inScope = result.classified.filter((row) => scopePath.test(row.file));
+  assert.ok(inScope.length >= 360, `expected the daemon runtime slice, got ${inScope.length} rows`);
+  assert.deepEqual(
+    inScope.filter((row) => row.status !== "registered"),
+    [],
+  );
+  assert.deepEqual(
+    inScope.filter((row) => row.category === "action" && row.declarationRef === "action:cli-local-effects"),
+    [],
+    "daemon runtime actions must never bind to cli-local-effects",
+  );
+
+  const snapshot = loadOntologyClosureSnapshot(repoRoot);
+  const undeclaredAction = scanOntologyText(
+    "packages/daemon/src/runtime-ontology-mutation.ts",
+    "export function unregisteredRuntimeAction() { dispatch(); }\n",
+  );
+  assert.deepEqual(
+    audit(undeclaredAction, { snapshot }).findings.map((row) => row.code),
+    ["ONTOLOGY_ACTION_UNDECLARED"],
+  );
+  const undeclaredPolicy = scanOntologyText(
+    "packages/daemon/src/runtime-ontology-mutation.ts",
+    "export const UNREGISTERED_RUNTIME_TIMEOUT_MS = 123;\n",
+  );
+  assert.deepEqual(
+    audit(undeclaredPolicy, { snapshot }).findings.map((row) => row.code),
+    ["ONTOLOGY_POLICY_UNDECLARED"],
+  );
+});
