@@ -1347,6 +1347,55 @@ test("context-occupancy updates do not suppress real usage frames of the same se
   );
 });
 
+test("ACP prompt result usage reaches the shared counters and preserves its raw detail", async () => {
+  const runtime = active("codex-acp"),
+    persistedRuntime = active("codex-acp"),
+    runtimeContext = { ...context(), parseProviderFrame } as never,
+    frame = JSON.stringify({
+      sessionId: "acp-usage-session",
+      type: "acp.result",
+      stopReason: "end_turn",
+      finalText: "done",
+      usage: {
+        input: 85,
+        providerInputTokens: 80,
+        output: 20,
+        total: 100,
+        cacheReadTokens: 3,
+        cacheWriteTokens: 2,
+        thoughtTokens: 5,
+      },
+    }),
+    expected = {
+      input: 85,
+      cacheRead: 3,
+      cacheWrite: 2,
+      output: 20,
+      raw: {
+        input: 85,
+        providerInputTokens: 80,
+        output: 20,
+        total: 100,
+        cacheReadTokens: 3,
+        cacheWriteTokens: 2,
+        thoughtTokens: 5,
+      },
+    };
+  await consumeProviderLine(runtimeContext, runtime, frame);
+  await consumeProviderLine(runtimeContext, persistedRuntime, frame, true, false);
+  for (const observed of [runtime, persistedRuntime])
+    assert.deepEqual(
+      {
+        input: observed.inputTokens,
+        cacheRead: observed.cacheReadTokens,
+        cacheWrite: observed.cacheWriteTokens,
+        output: observed.outputTokens,
+        raw: observed.rawUsage,
+      },
+      expected,
+    );
+});
+
 test("DeepSeek Harness settlement stays unavailable when only the projection checkpoint exists", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-deepseek-session-metrics-missing-")),
     providerHome = mkdtempSync(path.join(tmpdir(), "ha-deepseek-provider-home-missing-"));

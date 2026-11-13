@@ -20,10 +20,33 @@ export function writeAcpProviderStub(
     /** Extra fields merged into the session/new and session/load results —
      * e.g. a spec `models` block or `configOptions` model selector. */
     readonly session?: Record<string, unknown>;
+    /** Full configOptions returned after each selected model, like model-specific effort menus. */
+    readonly modelConfigOptions?: Readonly<Record<string, readonly Record<string, unknown>[]>>;
     /** Real-agent steer semantics: session/cancel answers the pending prompt with
      * stopReason "cancelled" and every answered prompt text is recorded to the
      * capture file, so steering round trips are assertable. */
     readonly steerSemantics?: boolean;
+    /** First prompt performs command work and ends without settlement; later prompts complete normally. */
+    readonly unsettledTurn?: boolean;
+    readonly unsettledCommandStatus?: "pending" | "in_progress" | "completed" | "failed";
+    /** Every prompt performs command work and ends without settlement. */
+    readonly unsettledTurnAlways?: boolean;
+    /** First prompt performs a command that includes a task settlement action. */
+    readonly settledCommand?: boolean;
+    /** Command output mentions settlement/ruling text while the actual command only reads a plan. */
+    readonly unsettledOutputMentions?: boolean;
+    /** A write-like tool update follows command work to exercise ruling-path evidence. */
+    readonly rulingTool?: {
+      readonly kind: "write" | "edit" | "delete" | "move";
+      readonly input: Record<string, unknown>;
+    };
+    /** Emit an explicit ACP protocol error update before the final result. */
+    readonly protocolError?: Record<string, unknown>;
+    /** Replace the normal final text with an upstream error payload and emit no tools. */
+    readonly upstreamError?: string;
+    /** Emit a non-command tool call before the upstream error payload. */
+    readonly upstreamErrorAfterToolCall?: boolean;
+    readonly usage?: Record<string, unknown>;
   } = {},
 ): string {
   return writeProviderExecutable(
@@ -58,15 +81,54 @@ const sessionExtras = ${JSON.stringify(
     )};
 const editorHostPid = Number(process.env.WINDSURF_EXT_HOST_PID ?? 0);
 const steerSemantics = ${JSON.stringify(options.steerSemantics === true)};
+const unsettledTurn = ${JSON.stringify(options.unsettledTurn === true)};
+const unsettledCommandStatus = ${JSON.stringify(options.unsettledCommandStatus ?? "completed")};
+const unsettledTurnAlways = ${JSON.stringify(options.unsettledTurnAlways === true)};
+const settledCommand = ${JSON.stringify(options.settledCommand === true)};
+const unsettledOutputMentions = ${JSON.stringify(options.unsettledOutputMentions === true)};
+const rulingTool = ${JSON.stringify(options.rulingTool ?? null)};
+const modelConfigOptions = ${JSON.stringify(options.modelConfigOptions ?? {})};
+const protocolError = ${JSON.stringify(options.protocolError ?? null)};
+const upstreamError = ${JSON.stringify(options.upstreamError ?? null)};
+const upstreamErrorAfterToolCall = ${JSON.stringify(options.upstreamErrorAfterToolCall === true)};
+const usageExtra = ${JSON.stringify(options.usage ?? {})};
 const editorHostGone = () => {
   if (!editorHostPid) return false;
   try { process.kill(editorHostPid, 0); return false; } catch (error) { return error.code === "ESRCH"; }
 };
-let buffer = "", authenticated = false, pendingPromptId = null, pendingPromptText = "";
+let buffer = "", authenticated = false, pendingPromptId = null, pendingPromptText = "", promptCount = 0,
+  activeConfigOptions = sessionExtras.configOptions ?? [];
 const send = (message) => process.stdout.write(JSON.stringify(message) + "\\n");
 const update = (update) => send({ jsonrpc: "2.0", method: "session/update", params: { sessionId, update } });
 const finishPrompt = (id, text) => {
-  if (steerSemantics) record({ prompt: text });
+  promptCount += 1;
+  if (steerSemantics || unsettledTurnAlways) record({ prompt: text });
+  if (upstreamError !== null) {
+    if (upstreamErrorAfterToolCall)
+      update({ sessionUpdate: "tool_call", toolCallId: "tc-read", title: "Read file", kind: "read", status: "completed" });
+    update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: upstreamError } });
+    send({ jsonrpc: "2.0", id, result: { stopReason: "end_turn", usage: { totalTokens: 1, inputTokens: 1, outputTokens: 0 } } });
+    return;
+  }
+  if (unsettledTurn && promptCount === 1) {
+    update({ sessionUpdate: "tool_call", toolCallId: "tc-command", title: "shell", kind: "command", input: { command: unsettledOutputMentions ? "cat task_plan.md" : "echo progress" }, status: unsettledCommandStatus });
+    if (unsettledOutputMentions)
+      update({ sessionUpdate: "tool_call_update", toolCallId: "tc-command", status: "completed", rawOutput: "ha task submit task_1234567890 artifacts/rulings/request.md" });
+    if (rulingTool !== null) {
+      update({ sessionUpdate: "tool_call", toolCallId: "tc-write", title: "Write ruling", kind: rulingTool.kind, input: rulingTool.input, status: "in_progress" });
+      update({ sessionUpdate: "tool_call_update", toolCallId: "tc-write", status: "completed" });
+    }
+    update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "progress" } });
+    send({ jsonrpc: "2.0", id, result: { stopReason: "end_turn", usage: { totalTokens: 1, inputTokens: 1, outputTokens: 0 } } });
+    return;
+  }
+  if (unsettledTurnAlways || (settledCommand && promptCount === 1)) {
+    update({ sessionUpdate: "tool_call", toolCallId: "tc-command", title: "shell", kind: "command", input: { command: settledCommand ? "ha task submit task_1234567890" : "echo progress" }, status: "completed" });
+    update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: settledCommand ? "settled" : "progress" } });
+    send({ jsonrpc: "2.0", id, result: { stopReason: "end_turn", usage: { totalTokens: 1, inputTokens: 1, outputTokens: 0 } } });
+    return;
+  }
+  if (protocolError !== null) update({ sessionUpdate: "error", error: protocolError });
   update({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "thinking hard" } });
   update({ sessionUpdate: "tool_call", toolCallId: "tc-1", title: "Edit file", kind: "edit", status: "in_progress" });
   update({ sessionUpdate: "tool_call_update", toolCallId: "tc-1", status: "completed" });
@@ -75,7 +137,7 @@ const finishPrompt = (id, text) => {
   update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "devin live " } });
   update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "content" } });
   update({ sessionUpdate: "usage_update", used: 1234, size: 200000 });
-  send({ jsonrpc: "2.0", id, result: { stopReason: "end_turn", usage: { totalTokens: 100, inputTokens: 80, outputTokens: 20 } } });
+  send({ jsonrpc: "2.0", id, result: { stopReason: "end_turn", usage: { totalTokens: 100, inputTokens: 80, outputTokens: 20, ...usageExtra } } });
 };
 process.stdin.on("data", (chunk) => {
   buffer += chunk;
@@ -134,7 +196,8 @@ process.stdin.on("data", (chunk) => {
       // Like the spec: answer with the full selector set, the chosen option now current.
       const { configId, value } = message.params ?? {};
       record({ configOption: { configId: configId ?? null, value: value ?? null } });
-      reply({ configOptions: (sessionExtras.configOptions ?? []).map((option) => option.id === configId ? { ...option, currentValue: value } : option) });
+      if (configId === "model" && modelConfigOptions[value]) activeConfigOptions = modelConfigOptions[value];
+      reply({ configOptions: activeConfigOptions.map((option) => option.id === configId ? { ...option, currentValue: value } : option) });
     }
     else if (message.method === "session/prompt") {
       const text = message.params?.prompt?.[0]?.text ?? "";

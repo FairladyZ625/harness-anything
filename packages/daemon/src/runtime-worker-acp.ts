@@ -22,6 +22,7 @@ import { consumeKnownError, DEFAULT_PROVIDER_HANDSHAKE_TIMEOUT_MS } from "@harne
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import type { RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
+import type { RuntimeAuthMode } from "./runtime-inventory-types.ts";
 import { providerConfigDirectory } from "./agent-runtime-instance-storage.ts";
 
 export interface AcpWorkerManifest {
@@ -32,10 +33,16 @@ export interface AcpWorkerManifest {
   readonly permissionMode?: string;
   readonly providerSessionId?: string;
   readonly acpApiKey?: string;
+  readonly authMode?: RuntimeAuthMode;
   /** The Settings runtime.providerHandshakeTimeoutMs value the launch carried; the declared default when absent. */
   readonly handshakeTimeoutMs?: number;
   /** The instance's selected model, applied through the session's `model` configOptions selector when it offers one. */
   readonly model?: string;
+  readonly effort?: string;
+  readonly unsettledTurnContinuation?: {
+    readonly maxContinuations: number;
+    readonly prompt?: string;
+  };
 }
 
 type JsonRpcId = number;
@@ -83,9 +90,19 @@ export function runAcpProviderSession(
     // cancel. The cancel is then issued as soon as that turn's prompt has been written.
     cancelOnTurnStart = false,
     turnFinished = false,
+    turnCommandWorkObserved = false,
+    turnToolCallObserved = false,
+    turnSettleObserved = false,
+    turnRulingObserved = false,
+    turnProtocolError: string | null = null,
+    continuations = 0,
     // Set when the child closes: from then on no request can be answered.
     exited: Error | null = null;
   const steerQueue: string[] = [];
+  const turnToolEvidence = new Map<
+    string,
+    { readonly command: boolean; readonly settle: boolean; readonly ruling: boolean }
+  >();
   const pending = new Map<JsonRpcId, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
   const send = (message: Record<string, unknown>): void => {
     try {
@@ -175,9 +192,21 @@ export function runAcpProviderSession(
     const params = (message.params ?? {}) as Record<string, unknown>,
       update = (params.update ?? {}) as Record<string, unknown>,
       updateKind = String(update.sessionUpdate ?? "");
+    if (!replayingHistory && (updateKind === "error" || updateKind === "exception" || update.isError === true)) {
+      const detail = update.error ?? update.message ?? update.detail ?? update;
+      turnProtocolError =
+        turnProtocolError ?? (typeof detail === "string" ? detail : (JSON.stringify(detail) ?? String(detail)));
+    }
     if (updateKind === "agent_message_chunk" && !replayingHistory) {
       const content = update.content as Record<string, unknown> | undefined;
       if (typeof content?.text === "string") finalText += content.text;
+    }
+    if (!replayingHistory && (updateKind === "tool_call" || updateKind === "tool_call_update")) {
+      turnToolCallObserved = true;
+      const evidence = recordAcpToolEvidence(update, turnToolEvidence);
+      turnCommandWorkObserved ||= evidence.commandCompleted;
+      turnSettleObserved ||= evidence.settle;
+      turnRulingObserved ||= evidence.ruling;
     }
     if (!observedUpdates.has(updateKind)) return;
     event(
@@ -249,8 +278,14 @@ export function runAcpProviderSession(
       if (authMethods.length) {
         const declaration = runtimeKindForId(manifest.kindId),
           apiKey = manifest.acpApiKey ?? subscriptionApiKey(manifest),
-          declaredMethod = "acpAuthMethod" in declaration.auth ? declaration.auth.acpAuthMethod : undefined,
-          method = authMethods.find((entry) => entry.id === declaredMethod) ?? authMethods[0],
+          declaredMethod =
+            "acpAuthMethod" in declaration.auth
+              ? resolveAcpAuthMethod(declaration.auth.acpAuthMethod, manifest.authMode)
+              : undefined,
+          matchingMethod = declaredMethod ? authMethods.find((entry) => entry.id === declaredMethod) : undefined;
+        if (declaredMethod && !matchingMethod && manifest.authMode !== undefined)
+          throw new Error(`ACP provider does not advertise the declared authenticate method ${declaredMethod}`);
+        const method = matchingMethod ?? authMethods[0],
           methodId = typeof method?.id === "string" ? method.id : "default";
         // File-based login methods (cursor_login, chat-gpt) accept an empty
         // api_key and read the provider's own credential store; key-based
@@ -269,8 +304,9 @@ export function runAcpProviderSession(
           })) as Record<string, unknown>);
       sessionId = typeof session.sessionId === "string" ? session.sessionId : manifest.providerSessionId!;
       replayingHistory = false;
-      const modes = acpModes(session),
-        models = acpModels(session);
+      const modes = acpModes(session);
+      let latestSession = session;
+      const models = acpModels(latestSession);
       event({
         type: "acp.session",
         modes: modes.available,
@@ -282,7 +318,10 @@ export function runAcpProviderSession(
         applied = requested ? pickAcpMode(requested, modes.available) : null;
       if (applied && applied !== modes.current)
         try {
-          await request("session/set_mode", { sessionId, modeId: applied });
+          latestSession = sessionAfterConfigChange(
+            latestSession,
+            await request("session/set_mode", { sessionId, modeId: applied }),
+          );
         } catch (error) {
           consumeKnownError(error);
         }
@@ -296,20 +335,48 @@ export function runAcpProviderSession(
           throw new Error(
             `ACP session does not offer model ${manifest.model}; offered: ${models.available.join(", ")}`,
           );
-        const appliedModel =
-          models.current === manifest.model
-            ? models.current
-            : acpModels(
+        let appliedModel = models.current;
+        if (models.current !== manifest.model) {
+          const changed = await request("session/set_config_option", {
+            sessionId,
+            configId: models.configId,
+            value: manifest.model,
+          });
+          latestSession = sessionAfterConfigChange(latestSession, changed);
+          appliedModel = acpModels(latestSession).current;
+        }
+        event({ type: "acp.model", requested: manifest.model, applied: appliedModel });
+      }
+      const effort = acpEffort(latestSession, runtimeKindForId(manifest.kindId));
+      if (manifest.effort !== undefined && effort.configId === null && effort.required)
+        throw new Error(`ACP session does not offer the required effort selector for ${manifest.effort}`);
+      if (manifest.effort !== undefined && effort.configId !== null) {
+        const requestedValue = effort.valueMap[manifest.effort] ?? manifest.effort;
+        if (!effort.available.includes(requestedValue))
+          throw new Error(
+            `ACP session does not offer effort ${manifest.effort}; offered: ${effort.available.join(", ")}`,
+          );
+        const appliedEffort =
+          effort.current === requestedValue
+            ? effort.current
+            : (acpEffort(
                 (await request("session/set_config_option", {
                   sessionId,
-                  configId: models.configId,
-                  value: manifest.model,
+                  configId: effort.configId,
+                  value: requestedValue,
                 })) as Record<string, unknown>,
-              ).current;
-        event({ type: "acp.model", requested: manifest.model, applied: appliedModel });
+                runtimeKindForId(manifest.kindId),
+              ).current ?? requestedValue);
+        event({ type: "acp.effort", requested: manifest.effort, applied: appliedEffort });
       }
       let promptText = manifest.prompt;
       for (;;) {
+        turnCommandWorkObserved = false;
+        turnToolCallObserved = false;
+        turnSettleObserved = false;
+        turnRulingObserved = false;
+        turnProtocolError = null;
+        turnToolEvidence.clear();
         turnActive = true;
         // request() writes its frame synchronously, so by the next statement the prompt is
         // with the provider and a queued cancel targets this turn rather than the void.
@@ -327,14 +394,41 @@ export function runAcpProviderSession(
         }
         const result = (await pendingResult) as Record<string, unknown>;
         turnActive = false;
+        const stopReason = String(result.stopReason ?? "end_turn");
+        if (turnProtocolError !== null) throw new Error(`ACP provider reported a protocol error: ${turnProtocolError}`);
+        if (
+          stopReason === "end_turn" &&
+          !turnToolCallObserved &&
+          looksLikeAcpUpstreamError(finalText, runtimeKindForId(manifest.kindId))
+        )
+          throw new Error(`ACP provider reported an upstream error: ${finalText.trim()}`);
         event({
           type: "acp.result",
-          stopReason: result.stopReason ?? "end_turn",
+          stopReason,
           ...(finalText ? { finalText } : {}),
-          ...(isRecord(result.usage) ? { usage: acpResultUsage(result.usage) } : {}),
+          ...(isRecord(result.usage) ? { usage: acpResultUsage(result.usage, runtimeKindForId(manifest.kindId)) } : {}),
         });
         const next = steerQueue.shift();
         if (next === undefined) {
+          if (
+            stopReason === "end_turn" &&
+            manifest.unsettledTurnContinuation !== undefined &&
+            turnCommandWorkObserved &&
+            !turnSettleObserved &&
+            !turnRulingObserved &&
+            continuations < Math.max(0, manifest.unsettledTurnContinuation.maxContinuations)
+          ) {
+            continuations += 1;
+            promptText =
+              manifest.unsettledTurnContinuation.prompt ?? "Continue the current task from where it left off.";
+            finalText = "";
+            event({
+              type: "acp.continuation",
+              continuation: continuations,
+              reason: "command work ended without a settlement action",
+            });
+            continue;
+          }
           turnFinished = true;
           break;
         }
@@ -361,6 +455,14 @@ export function runAcpProviderSession(
 interface AcpModes {
   readonly available: readonly string[];
   readonly current: string | null;
+}
+
+interface AcpEffort {
+  readonly configId: string | null;
+  readonly available: readonly string[];
+  readonly current: string | null;
+  readonly valueMap: Readonly<Record<string, string>>;
+  readonly required: boolean;
 }
 
 // ACP carries two resume methods, each gated by an initialize capability: `session/load`
@@ -435,12 +537,44 @@ function acpModels(session: Record<string, unknown>): AcpModels {
       ),
     ],
     current:
-      typeof models.currentModelId === "string"
-        ? models.currentModelId
-        : isRecord(modelOption) && typeof modelOption.currentValue === "string"
-          ? modelOption.currentValue
+      isRecord(modelOption) && typeof modelOption.currentValue === "string"
+        ? modelOption.currentValue
+        : typeof models.currentModelId === "string"
+          ? models.currentModelId
           : null,
   };
+}
+
+function acpEffort(session: Record<string, unknown>, declaration: ReturnType<typeof runtimeKindForId>): AcpEffort {
+  const configOptions = Array.isArray(session.configOptions) ? session.configOptions : [],
+    override = declaration.acp?.effortSelector,
+    ids = override
+      ? [...(override.id === undefined ? [] : [override.id]), ...(override.ids ?? [])]
+      : ["reasoning_effort", "effort"],
+    categories = override
+      ? [...(override.category === undefined ? [] : [override.category]), ...(override.categories ?? [])]
+      : ["thought_level"],
+    option = configOptions
+      .filter(isRecord)
+      .find(
+        (candidate) =>
+          (typeof candidate.id === "string" && ids.includes(candidate.id)) ||
+          (typeof candidate.category === "string" && categories.includes(candidate.category)),
+      );
+  return {
+    configId: isRecord(option) && typeof option.id === "string" ? option.id : null,
+    available: [
+      ...new Set(selectOptionValues(option?.options).filter((value): value is string => typeof value === "string")),
+    ],
+    current: isRecord(option) && typeof option.currentValue === "string" ? option.currentValue : null,
+    valueMap: override?.valueMap ?? {},
+    required: override?.required === true,
+  };
+}
+
+function sessionAfterConfigChange(current: Record<string, unknown>, response: unknown): Record<string, unknown> {
+  if (!isRecord(response) || !Array.isArray(response.configOptions)) return current;
+  return { ...current, configOptions: response.configOptions };
 }
 
 // A select configOption lists its values flat ({value, name}) or grouped
@@ -467,12 +601,129 @@ function acpUsage(update: Record<string, unknown>): Record<string, unknown> {
   return usage;
 }
 
-function acpResultUsage(usage: Record<string, unknown>): Record<string, unknown> {
+function acpResultUsage(
+  usage: Record<string, unknown>,
+  declaration: ReturnType<typeof runtimeKindForId>,
+): Record<string, unknown> {
   const result: Record<string, unknown> = {};
-  if (typeof usage.inputTokens === "number") result.input = usage.inputTokens;
+  const cachedReadTokens = typeof usage.cachedReadTokens === "number" ? usage.cachedReadTokens : 0,
+    cachedWriteTokens = typeof usage.cachedWriteTokens === "number" ? usage.cachedWriteTokens : 0;
+  if (typeof usage.inputTokens === "number") {
+    result.input =
+      declaration.acp?.inputTokensIncludeCache === false
+        ? usage.inputTokens + cachedReadTokens + cachedWriteTokens
+        : usage.inputTokens;
+    if (declaration.acp?.inputTokensIncludeCache === false) result.providerInputTokens = usage.inputTokens;
+  }
   if (typeof usage.outputTokens === "number") result.output = usage.outputTokens;
   if (typeof usage.totalTokens === "number") result.total = usage.totalTokens;
+  if (typeof usage.cachedReadTokens === "number") result.cacheReadTokens = usage.cachedReadTokens;
+  if (typeof usage.cachedWriteTokens === "number") result.cacheWriteTokens = usage.cachedWriteTokens;
+  if (typeof usage.thoughtTokens === "number") result.thoughtTokens = usage.thoughtTokens;
   return result;
+}
+
+function resolveAcpAuthMethod(
+  declared: string | Readonly<Partial<Record<RuntimeAuthMode, string>>> | undefined,
+  authMode: RuntimeAuthMode | undefined,
+): string | undefined {
+  if (typeof declared === "string") return declared;
+  if (declared === undefined) return undefined;
+  return declared[authMode ?? "subscription"];
+}
+
+function acpToolEvidence(update: Record<string, unknown>): {
+  readonly command: boolean;
+  readonly settle: boolean;
+  readonly ruling: boolean;
+} {
+  const input = isRecord(update.input) ? update.input : null,
+    rawInput = isRecord(update.rawInput) ? update.rawInput : null,
+    standard = isRecord(update.standard) ? update.standard : null,
+    standardInput = isRecord(standard?.input) ? standard.input : null,
+    commandText = [input?.command, rawInput?.command, standardInput?.command]
+      .filter((value): value is string => typeof value === "string")
+      .join(" "),
+    command =
+      update.kind === "command" ||
+      update.kind === "execute" ||
+      /(?:\b(?:bash|sh|zsh|shell|terminal|powershell)\b|(?:^|\s)ha\s+(?:task|doc|fact)\b)/iu.test(commandText),
+    settle = command && settleCommand.test(commandText),
+    toolKind = String(update.kind),
+    destinationFields =
+      toolKind === "write" || toolKind === "edit"
+        ? ["path", "filePath", "file_path", "destination", "to", "newPath"]
+        : toolKind === "move"
+          ? ["destination", "to", "newPath"]
+          : [],
+    destinations = acpToolDestinations(destinationFields, input, rawInput, standardInput),
+    ruling = destinations.some((destination) => rulingArtifactPath.test(destination));
+  return { command, settle, ruling };
+}
+
+function acpToolDestinations(
+  destinationFields: readonly string[],
+  ...inputs: readonly (Record<string, unknown> | null)[]
+): string[] {
+  return inputs.flatMap((input) =>
+    input === null
+      ? []
+      : destinationFields.flatMap((field) => (typeof input[field] === "string" ? [input[field] as string] : [])),
+  );
+}
+
+function recordAcpToolEvidence(
+  update: Record<string, unknown>,
+  states: Map<string, { readonly command: boolean; readonly settle: boolean; readonly ruling: boolean }>,
+): { readonly commandCompleted: boolean; readonly settle: boolean; readonly ruling: boolean } {
+  const evidence = acpToolEvidence(update),
+    toolCallId = typeof update.toolCallId === "string" ? update.toolCallId : null,
+    previous = toolCallId === null ? undefined : states.get(toolCallId),
+    merged = {
+      command: evidence.command || previous?.command === true,
+      settle: evidence.settle || previous?.settle === true,
+      ruling: evidence.ruling || previous?.ruling === true,
+    },
+    status = update.status;
+  if (toolCallId !== null) {
+    states.set(toolCallId, merged);
+  }
+  return {
+    commandCompleted: merged.command && status === "completed",
+    settle: evidence.settle || previous?.settle === true,
+    ruling: merged.ruling && status === "completed",
+  };
+}
+
+const settleCommand = /\btask\s+(?:submit|review-execution|escalate)\s+task_[0-9A-Za-z]{6,}/u,
+  rulingArtifactPath = /artifacts[\\/]rulings[\\/][^\\"']+/u;
+
+function looksLikeAcpUpstreamError(finalText: string, declaration: ReturnType<typeof runtimeKindForId>): boolean {
+  const text = finalText.trim();
+  if (!text) return false;
+  try {
+    const parsed = JSON.parse(text) as unknown,
+      record = isRecord(parsed) ? parsed : null,
+      error = record && isRecord(record.error) ? record.error : null,
+      code =
+        error && typeof error.code === "string"
+          ? error.code
+          : record && typeof record.code === "string"
+            ? record.code
+            : null,
+      declared = declaration.acp?.upstreamErrorCodes,
+      known = declared ?? [
+        "model_not_found",
+        "quota_exceeded",
+        "rate_limit",
+        "invalid_api_key",
+        "authentication_failed",
+        "unauthorized",
+      ];
+    return code !== null && known.includes(code);
+  } catch {
+    return false;
+  }
 }
 
 // Subscription instances authenticate with the provider's own credential file:

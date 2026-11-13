@@ -119,6 +119,11 @@ test("sign-in argv is generated from each kind's declaration", () => {
 test("Codex and Claude declare steer resume, every ACP kind steers in place, others declare nothing", () => {
   const codex = runtimeKinds.find((entry) => entry.kindId === "codex")!,
     claude = runtimeKinds.find((entry) => entry.kindId === "claude")!;
+  assert.deepEqual(codex.unsettledTurnContinuation, claude.unsettledTurnContinuation);
+  assert.deepEqual(codex.unsettledTurnContinuation, {
+    maxContinuations: 3,
+    prompt: "Continue the current task from where it left off.",
+  });
   const resumeSteer = (kind: (typeof runtimeKinds)[number]) => {
     assert.equal(kind.steer?.strategy, "interrupt-resume", `${kind.kindId} must restart through resume`);
     return kind.steer as Extract<NonNullable<typeof kind.steer>, { strategy: "interrupt-resume" }>;
@@ -181,6 +186,8 @@ test("Codex and Claude declare steer resume, every ACP kind steers in place, oth
   assert.deepEqual(runtimeKinds.find((entry) => entry.kindId === "codex-acp")!.steer, {
     strategy: "cancel-reprompt",
   });
+  for (const kind of runtimeKinds.filter((entry) => entry.protocolFamily === "acp" && entry.kindId !== "codex-acp"))
+    assert.equal(kind.unsettledTurnContinuation, undefined, `${kind.kindId} leaves continuation disabled`);
   // Non-ACP kinds without a resume contract keep refusing: agy has no steer declaration.
   assert.equal(runtimeKinds.find((entry) => entry.kindId === "agy")!.steer, undefined);
   assert.equal(runtimeKinds.find((entry) => entry.kindId === "zcode")!.steer, undefined);
@@ -467,11 +474,18 @@ test("the DeepSeek Harness launch contract keeps subscription shared and enables
     subscriptionProbeTimeoutMs: 10_000,
     endpoints: { baseUrl: "optional" },
   });
-  assert.deepEqual(kind.configuration.fields, { baseUrl: "url", wireApi: "identifier" });
+  assert.deepEqual(kind.configuration.fields, { baseUrl: "url", wireApi: "identifier", reasoningEffort: "effort" });
   assert.deepEqual(kind.configuration.choices, {
     wireApi: ["openai-completions", "openai-responses", "anthropic-messages"],
   });
   assert.equal(kind.auth.acpAuthMethod, undefined);
+  assert.deepEqual(kind.acp?.effortSelector, {
+    ids: ["reasoning_effort", "effort"],
+    categories: ["thought_level"],
+    valueMap: { minimal: "off" },
+  });
+  assert.deepEqual(kind.gui.effortValues, ["minimal", "low", "high", "max"]);
+  assert.equal(kind.capabilities.effort, "supported");
   assert.deepEqual(kind.declaredCapabilities, ["structured_witness", "resume", "attach", "session_identity"]);
   assert.equal(kind.capabilities.resume, "supported");
   // Negative control: no other kind declares an environment-borne permission mapping.
@@ -479,6 +493,23 @@ test("the DeepSeek Harness launch contract keeps subscription shared and enables
     runtimeKinds.filter((entry) => entry.launch.permissionEnvironment !== undefined).map((entry) => entry.kindId),
     ["deepseek-harness"],
   );
+});
+
+test("codex-acp declares dual auth routes and session effort negotiation", () => {
+  const kind = runtimeKinds.find((entry) => entry.kindId === "codex-acp")!;
+  assert.deepEqual(kind.auth.modes, ["subscription", "api-key"]);
+  assert.deepEqual(kind.auth.acpAuthMethod, { subscription: "chat-gpt", "api-key": "api-key" });
+  assert.deepEqual(kind.configuration.fields, { reasoningEffort: "effort" });
+  assert.deepEqual(kind.gui, {
+    modelFamily: "codex-only",
+    effort: "enum",
+    effortValues: ["low", "medium", "high", "xhigh", "max"],
+  });
+  assert.equal(kind.capabilities.effort, "supported");
+  assert.deepEqual(kind.unsettledTurnContinuation, {
+    maxContinuations: 3,
+    prompt: "Continue the current task from where it left off.",
+  });
 });
 
 // Resume on an acp kind is a protocol negotiation (session/load vs session/resume from the

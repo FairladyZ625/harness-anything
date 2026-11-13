@@ -17,7 +17,7 @@ const observed: RuntimeInstallationWitness = {
 type EffortConfiguration = { readonly configuration: { readonly effort: string | null } };
 type CodexEffortConfiguration = { readonly configuration: { readonly reasoningEffort: string | null } };
 
-function installationWitness(kindId: "codex" | "agy" | "zcode"): RuntimeInstallationWitness {
+function installationWitness(kindId: "codex" | "codex-acp" | "agy" | "zcode"): RuntimeInstallationWitness {
   return {
     installationId: `${kindId}-installation-test`,
     kindId,
@@ -306,6 +306,49 @@ test("Codex instances without a declared effort preserve the provider default", 
     });
     assert.equal(explicit.definition.reasoningEffort, "low");
     assert.ok(explicit.args.includes('model_reasoning_effort="low"'));
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("codex-acp stored and requested effort reach the ACP launch manifest", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-codex-acp-effort-"));
+  try {
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      env: { HOME: "/operator/home", PATH: "/bin" },
+      discover: () => [installationWitness("codex-acp")],
+      resolveCredential: () => "instance-secret",
+    });
+    store.command({
+      kind: "runtime-instance-create",
+      instanceId: "codex-acp-effort",
+      name: "Codex ACP Effort",
+      kindId: "codex-acp",
+      installationId: "codex-acp-installation-test",
+      providerId: "openai",
+      models: ["gpt-5.6-sol"],
+      "codex-acp": { reasoningEffort: "high" },
+      authMode: "api-key",
+      credentialRef: "credential:v1:codex-acp-effort",
+    });
+    const stored = await store.prepareLaunch("codex-acp-effort", {
+        cwd: "/workspace/repo",
+        prompt: "Stored effort",
+      }),
+      overridden = await store.prepareLaunch("codex-acp-effort", {
+        cwd: "/workspace/repo",
+        prompt: "Request effort",
+        effort: "max",
+      });
+    assert.equal(stored.effort, "high");
+    assert.equal(stored.authMode, "api-key");
+    assert.equal(stored.acpApiKey, "instance-secret");
+    assert.equal(JSON.stringify(stored.env).includes("instance-secret"), false);
+    assert.equal(stored.definition.reasoningEffort, "high");
+    assert.equal(overridden.effort, "max");
+    assert.equal(overridden.definition.reasoningEffort, "max");
+    assert.equal(store.read("codex-acp-effort")?.["codex-acp"].reasoningEffort, "high");
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }

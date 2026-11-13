@@ -29,9 +29,11 @@ type RuntimeWorkerManifest = {
   readonly protocolFamily?: string;
   readonly permissionMode?: string;
   readonly providerSessionId?: string;
+  readonly authMode?: "subscription" | "api-key";
   readonly acpApiKey?: string;
   readonly handshakeTimeoutMs?: number;
   readonly model?: string;
+  readonly effort?: string;
 };
 
 // One `codex exec` invocation is one *turn*, and a dispatched worker needs many: 40–90 tool calls
@@ -57,9 +59,6 @@ type RuntimeWorkerManifest = {
 // are outside the judgment. Every continuation must re-earn its own evidence: each resumed turn
 // that ends the same way is one more turn of the same dispatch, and the bound stops a session that
 // ends every turn without settling.
-const continuationPrompt = "Continue the current task from where it left off.",
-  maxContinuations = 3;
-
 // `ha task submit <task-id>` / `ha task review-execution <task-id> …`, including the same verb
 // reached through a wrapper (`npx harness-anything task submit …`, a compound shell line). The
 // verb plus a task id is the stable part; a worker that only *read* about the verb (`--help`, a
@@ -230,7 +229,10 @@ export async function runRuntimeWorkerHost(): Promise<void> {
         manifest.env.HARNESS_WORKER_PERMISSION_MODE === "restricted" ? "restricted" : "full",
         manifest.kindId,
       );
-    const declaration = manifest.kindId ? runtimeKindForId(manifest.kindId) : null;
+    const declaration = manifest.kindId ? runtimeKindForId(manifest.kindId) : null,
+      continuation = declaration?.unsettledTurnContinuation,
+      maxContinuations = continuation?.maxContinuations ?? 0,
+      continuationPrompt = continuation?.prompt ?? "Continue the current task from where it left off.";
     const baseArgs = [...manifest.args];
     let args = [...baseArgs],
       prompt = manifest.prompt,
@@ -275,7 +277,14 @@ export async function runRuntimeWorkerHost(): Promise<void> {
       // owns stdout parsing and stdin writes instead of the line-relay path.
       const acp =
         manifest.protocolFamily === "acp" && typeof manifest.kindId === "string"
-          ? runAcpProviderSession(child, manifest as RuntimeWorkerManifest & { readonly kindId: string }, append)
+          ? runAcpProviderSession(
+              child,
+              {
+                ...(manifest as RuntimeWorkerManifest & { readonly kindId: string }),
+                unsettledTurnContinuation: owesSettleAction ? continuation : undefined,
+              },
+              append,
+            )
           : null;
       // An ACP kind steers in place: session/cancel ends the turn, the same session reprompts.
       if (acp) control.handler = acp.steer;

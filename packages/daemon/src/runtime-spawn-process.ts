@@ -489,6 +489,8 @@ export function launchNative(
     readonly rootDir: string;
     readonly dispatchId: string;
     readonly callbackRelay?: { readonly endpoint: string; readonly path: string };
+    readonly authMode?: PreparedRuntimeLaunch["authMode"];
+    readonly effort?: PreparedRuntimeLaunch["effort"];
   },
 ): RuntimeProcess {
   let command: ReturnType<typeof nativeCommand>, child: ReturnType<typeof spawn>;
@@ -513,6 +515,11 @@ export function launchNative(
     pid,
   });
   child.stdin?.on("error", consumeKnownError);
+  persistence = {
+    ...persistence,
+    ...(input.authMode !== undefined ? { authMode: input.authMode } : {}),
+    ...(input.effort !== undefined ? { effort: input.effort } : {}),
+  };
   child.stdin?.write(
     `${JSON.stringify({
       ...persistence,
