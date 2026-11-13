@@ -1,3 +1,4 @@
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { globSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { zstdDecompressSync } from "node:zlib";
@@ -75,7 +76,8 @@ export function readDeepSeekSessionTranscript(
     const file = path.join(sessionsRoot, matches[0]!),
       stat = statSync(file, { throwIfNoEntry: false });
     // The compressed input itself is bounded before any frame decode starts.
-    if (!stat?.isFile() || stat.size > 16 * 1024 * 1024) return null;
+    if (!stat?.isFile() || stat.size > daemonRuntimePolicy.defaultValue.evidence.providerTranscriptLimitBytes)
+      return null;
     const raw = readFileSync(file);
     return decompressSessionLogBounded(raw, matches[0]!.endsWith(".zstd"), maxBytes);
   } catch (error) {
@@ -93,7 +95,7 @@ function decompressSessionLogBounded(raw: Buffer, zstd: boolean, maxBytes: numbe
     total = 0,
     truncated = false;
   while (offset < raw.length) {
-    if (frames.length >= 4096 || total >= limit) {
+    if (frames.length >= daemonRuntimePolicy.defaultValue.evidence.maximumCompressedFrames || total >= limit) {
       truncated = true;
       break;
     }

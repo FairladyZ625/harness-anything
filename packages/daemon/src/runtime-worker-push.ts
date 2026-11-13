@@ -11,9 +11,9 @@ import { assertNoIgnoredLedgerDelivery } from "./ignored-ledger-delivery.ts";
 import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 
 const execFileAsync = promisify(execFile),
-  detailLimit = 512,
+  detailLimit = daemonRuntimePolicy.defaultValue.runtime.workerPushDetailLimit,
   // One formatted line per commit; a rebased worker branch carries every recreated commit again.
-  workerHistoryLimit = 1 << 20,
+  workerHistoryLimit = daemonRuntimePolicy.defaultValue.runtime.workerHistoryLimitBytes,
   // Bound remote transfers even when publication continues outside the repository write queue.
   workerPushTimeoutMs = daemonRuntimePolicy.defaultValue.runtime.workerPushTimeoutMs;
 

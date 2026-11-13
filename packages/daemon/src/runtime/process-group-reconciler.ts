@@ -1,3 +1,4 @@
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import type { RuntimeKind } from "@harness-anything/kernel";
 import type { ProviderGroupSweepVerdict } from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { childProcessErrorCode, terminateRuntimePid } from "../runtime-process-signals.ts";
@@ -176,10 +177,15 @@ export async function sweepUntilProvenStopped(
   deps: ProcessGroupReconcilerDeps = {},
 ): Promise<ProviderGroupSweepVerdict> {
   let stop = probeProcessGroup(input, deps);
-  for (let attempt = 0; stop === "running" && attempt < 80; attempt++) {
-    if (attempt === 40) stop = sweepOrphanedProcessGroup(input, deps);
+  for (
+    let attempt = 0;
+    stop === "running" && attempt < daemonRuntimePolicy.defaultValue.process.groupSweepAttempts;
+    attempt++
+  ) {
+    if (attempt === daemonRuntimePolicy.defaultValue.process.groupKillAttempt)
+      stop = sweepOrphanedProcessGroup(input, deps);
     else {
-      await new Promise<void>((resolve) => setTimeout(resolve, 25));
+      await new Promise<void>((resolve) => setTimeout(resolve, daemonRuntimePolicy.defaultValue.process.exitPollMs));
       stop = probeProcessGroup(input, deps);
     }
   }

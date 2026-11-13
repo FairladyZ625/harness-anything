@@ -315,8 +315,13 @@ async function awaitRuntimeProcessExit(pids: readonly number[], timeoutMs: numbe
   // A fixed number of attempts, not a clock deadline: survivors are the durable read, and the
   // attempt count is the product budget.
   let survivors = pids.filter(runtimePidIsAlive);
-  for (let attempt = 0; survivors.length > 0 && attempt < Math.max(1, Math.ceil(timeoutMs / 25)); attempt += 1) {
-    await delay(25);
+  for (
+    let attempt = 0;
+    survivors.length > 0 &&
+    attempt < Math.max(1, Math.ceil(timeoutMs / daemonRuntimePolicy.defaultValue.process.exitPollMs));
+    attempt += 1
+  ) {
+    await delay(daemonRuntimePolicy.defaultValue.process.exitPollMs);
     survivors = survivors.filter(runtimePidIsAlive);
   }
   return survivors;
@@ -350,7 +355,7 @@ export async function terminateRuntimeTree(rootDir: string, dispatchId: string, 
     processGroupIds,
   });
   signalRuntimeTargets(rows, rootPid, ownProcessGroupId, "SIGTERM");
-  let survivors = await awaitRuntimeProcessExit(pids, 500);
+  let survivors = await awaitRuntimeProcessExit(pids, daemonRuntimePolicy.defaultValue.process.terminationGraceMs);
   if (survivors.length > 0) {
     signalRuntimeTargets(
       rows.filter(({ pid }) => survivors.includes(pid)),
@@ -358,7 +363,7 @@ export async function terminateRuntimeTree(rootDir: string, dispatchId: string, 
       ownProcessGroupId,
       "SIGKILL",
     );
-    survivors = await awaitRuntimeProcessExit(pids, 500);
+    survivors = await awaitRuntimeProcessExit(pids, daemonRuntimePolicy.defaultValue.process.terminationGraceMs);
   }
   appendRuntimeWorkerRecord(rootDir, dispatchId, {
     kind: "process_descendants_terminated",
@@ -664,7 +669,7 @@ function observeDispatchProcess(
       consumeKnownError(error);
     }
   };
-  const timer = setInterval(drain, 250);
+  const timer = setInterval(drain, daemonRuntimePolicy.defaultValue.process.streamPollMs);
   timer.unref();
   queueMicrotask(drain);
   return {

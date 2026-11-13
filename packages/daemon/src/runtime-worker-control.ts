@@ -1,3 +1,4 @@
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 // Cross-process steering channel for a live runtime: the dispatch stream is the command
 // transport. The daemon appends a `steer_requested` record; the worker host that owns the
 // provider follows the same file and applies it. No in-memory handle is involved, so a host
@@ -9,7 +10,7 @@ import { parseRecord, readRuntimeWorkerChunk } from "./dispatch-stream.ts";
 
 // One poll interval mirrors the adoption drain: provider output is already read this way, and
 // a steering prompt tolerates sub-second latency.
-const steerPollIntervalMs = 250;
+const steerPollIntervalMs = daemonRuntimePolicy.defaultValue.process.streamPollMs;
 
 export interface RuntimeSteerTail {
   readonly stop: () => void;

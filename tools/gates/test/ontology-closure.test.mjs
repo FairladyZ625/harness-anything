@@ -1459,16 +1459,42 @@ test("daemon runtime Policy owns concrete defaults and consumers have no leaf bu
       resumeAdmissionTimeoutMs: 30_000,
       exitNotificationTimeoutMs: 30_000,
       processTableTimeoutMs: 10_000,
+      exitPollMs: 25,
+      terminationGraceMs: 500,
+      streamPollMs: 250,
+      firstRecordPollMs: 10,
+      groupSweepAttempts: 80,
+      groupKillAttempt: 40,
+      authFileRemovalRetries: 5,
+      authFileRemovalRetryDelayMs: 20,
     },
     acp: { cancelGraceMs: 2_000 },
+    daemon: { shutdownDeadlineMs: 30_000, drainRecheckMs: 1_000, fleetDrainDeadlineMs: 30 * 60_000 },
+    evidence: {
+      snapshotLimitBytes: 4 * 1024 * 1024,
+      promptLimitBytes: 128 * 1024,
+      traceLimitBytes: 512 * 1024,
+      correlationValueLimit: 256,
+      providerTranscriptLimitBytes: 16 * 1024 * 1024,
+      maximumCompressedFrames: 4096,
+    },
     health: { cooldownBaseSeconds: 30, cooldownMaxSeconds: 300, freezeAfter: 5, freezeDurationSeconds: 1_800 },
     runtime: {
-      modelSlots: { globalCapacity: 64, perOwnerCapacity: 64 },
+      modelSlots: {
+        globalCapacity: 64,
+        perOwnerCapacity: 64,
+        defaultCapacity: 1,
+        maximumCapacity: 64,
+        defaultWaitMs: 30 * 60 * 1000,
+        maximumWaitMs: 24 * 3600 * 1000,
+      },
       currentWorktreeHeadTimeoutMs: 5_000,
       githubCredentialProbeTimeoutMs: 10_000,
       handoffGitTimeoutMs: 30_000,
       taskPublicationTimeoutMs: 30_000,
       workerPushTimeoutMs: 60_000,
+      workerPushDetailLimit: 512,
+      workerHistoryLimitBytes: 1 << 20,
       windowsProcessGroupTimeoutMs: 15_000,
       continuationConclusionLimit: 8_192,
       outcomeRecheckMs: 5_000,
@@ -1504,6 +1530,14 @@ test("daemon runtime Policy owns concrete defaults and consumers have no leaf bu
   });
 
   const consumers = [
+    ["packages/daemon/src/runtime.ts", ["daemonRuntimePolicy.defaultValue.daemon"]],
+    ["packages/daemon/src/runtime-dispatch-evidence.ts", ["daemonRuntimePolicy.defaultValue.evidence"]],
+    ["packages/daemon/src/runtime-spawn-deepseek-session.ts", ["daemonRuntimePolicy.defaultValue.evidence"]],
+    ["packages/daemon/src/runtime-worker-control.ts", ["daemonRuntimePolicy.defaultValue.process"]],
+    ["packages/daemon/src/runtime-spawn-provider-stream.ts", ["daemonRuntimePolicy.defaultValue.process"]],
+    ["packages/daemon/src/runtime/process-group-reconciler.ts", ["daemonRuntimePolicy.defaultValue.process"]],
+    ["packages/daemon/src/runtime/model-slot-queue.ts", ["daemonRuntimePolicy.defaultValue.runtime.modelSlots"]],
+    ["packages/daemon/src/agent-runtime-instance-storage.ts", ["daemonRuntimePolicy.defaultValue.process"]],
     [
       "packages/daemon/src/runtime-orchestration.ts",
       [
@@ -1544,6 +1578,16 @@ test("daemon runtime Policy owns concrete defaults and consumers have no leaf bu
   assert.doesNotMatch(spawnLimits, /(?:64 \* 1024|30_000)/u, "the compatibility exports must not own defaults");
   const cloudRelay = readFileSync(path.join(repoRoot, "packages/daemon/src/runtime/cloud-dispatch-relay.ts"), "utf8");
   assert.doesNotMatch(cloudRelay, /(?:600_000|125_000|10_000|\?\? 2|> 10_000)/u, "the relay must not own budgets");
+  const daemonTarget = "packages/daemon/src/runtime.ts",
+    daemonSource = readFileSync(path.join(repoRoot, daemonTarget), "utf8"),
+    restoredLeaf = daemonSource.replace("daemonRuntimePolicy.defaultValue.daemon.shutdownDeadlineMs", "30_000");
+  assert.notEqual(restoredLeaf, daemonSource);
+  assert.ok(
+    audit(scanOntologyText(daemonTarget, restoredLeaf), { snapshot }).findings.some(
+      (row) => row.code === "ONTOLOGY_POLICY_UNDECLARED",
+    ),
+    "restoring a former leaf default must not reuse a stale source registration",
+  );
   const policyTarget = "packages/kernel/src/domain/cli-operational-policy.ts",
     policySource = readFileSync(path.join(repoRoot, policyTarget), "utf8"),
     changedDefault = policySource.replace("resumeAdmissionTimeoutMs: 30_000", "resumeAdmissionTimeoutMs: 31_000");

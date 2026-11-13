@@ -1,3 +1,4 @@
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { readDaemonRegistry } from "@harness-anything/kernel";
@@ -145,7 +146,7 @@ export async function startDaemon(input: {
     stopPromise = (async () => {
       let drainFailed = false,
         deadlineExpired = false;
-      const shutdownDeadlineMs = input.shutdownDeadlineMs ?? 30_000;
+      const shutdownDeadlineMs = input.shutdownDeadlineMs ?? daemonRuntimePolicy.defaultValue.daemon.shutdownDeadlineMs;
       const deadline = setTimeout(async () => {
         deadlineExpired = true;
         lifecycle.record({
@@ -370,7 +371,7 @@ export async function startDaemon(input: {
             // A parked read can be the first request to observe drift and never settle. Start
             // checking here, and keep checking while work drains even if no more RPCs complete.
             // This only rechecks the existing gates; elapsed time never cancels a write or attach.
-            buildDrainRecheck = setInterval(requestDrainCheck, 1_000);
+            buildDrainRecheck = setInterval(requestDrainCheck, daemonRuntimePolicy.defaultValue.daemon.drainRecheckMs);
             buildDrainRecheck.unref();
             requestDrainCheck();
             // Admitted deliveries already have a 30-minute total deadline. Preparation can
@@ -378,7 +379,7 @@ export async function startDaemon(input: {
             fleetDrainDeadline = setTimeout(() => {
               fleetDrainExpired = true;
               requestDrainCheck();
-            }, 30 * 60_000);
+            }, daemonRuntimePolicy.defaultValue.daemon.fleetDrainDeadlineMs);
             fleetDrainDeadline.unref();
           },
           onRequestSettled: () => {

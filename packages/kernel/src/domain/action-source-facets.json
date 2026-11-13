@@ -9022,7 +9022,7 @@
         "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-instance-storage.ts#ensureSharedAuthFile:133213bc3bde648ca98d145915d2cd57",
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-instance-storage.ts#ensureSharedAuthFile:e7c7fe2694ae129d1aaf336f54ea6b6b",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"

@@ -1,3 +1,4 @@
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { existsSync, globSync, readFileSync, readSync, statSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
@@ -92,11 +93,11 @@ export function captureDispatchForensics(input: DispatchForensicsInput): Runtime
   };
 }
 
-const evidenceSnapshotLimitBytes = 4 * 1024 * 1024,
+const evidenceSnapshotLimitBytes = daemonRuntimePolicy.defaultValue.evidence.snapshotLimitBytes,
   evidenceHeadBytes = evidenceSnapshotLimitBytes / 2,
-  promptLimitBytes = 128 * 1024,
-  traceLimitBytes = 512 * 1024,
-  correlationValueLimit = 256,
+  promptLimitBytes = daemonRuntimePolicy.defaultValue.evidence.promptLimitBytes,
+  traceLimitBytes = daemonRuntimePolicy.defaultValue.evidence.traceLimitBytes,
+  correlationValueLimit = daemonRuntimePolicy.defaultValue.evidence.correlationValueLimit,
   truncatedRecordSchema = "runtime-dispatch-evidence-truncated/v1";
 
 interface Snapshot {
