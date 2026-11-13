@@ -147,7 +147,7 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
     subscriptionIsolation =
       "subscriptionIsolation" in declaration.auth ? declaration.auth.subscriptionIsolation : undefined,
     isolationState = runtimeIsolationState(
-      value.isolationState ?? (auth.mode === "api-key" ? apiKeyIsolation : undefined),
+      value.isolationState ?? (auth.mode === "api-key" ? apiKeyIsolation : subscriptionIsolation),
       kindId,
     );
   if (auth.mode === "api-key" && apiKeyIsolation && isolationState !== apiKeyIsolation)
