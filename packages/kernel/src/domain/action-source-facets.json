@@ -146,6 +146,12 @@
         "candidateId": "action:packages/cli:packages/cli/src/cli-agent-rollback.ts#evidencePayload:a6ec68cd91a443604a304280d0928f47",
         "route": "agent-install",
         "role": "support"
+      },
+      {
+        "candidateId": "action:tools:tools/stress/fleet/fleet-fixture.mjs#openFleetCampaignFixture.installed:8657606fb6a6e38dd7dd960fe4cefb14",
+        "route": "agent-install",
+        "role": "client",
+        "port": "packages/daemon/src/daemon-host-types.ts#DaemonHost.run"
       }
     ]
   },
@@ -796,6 +802,18 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-read-pool.ts#readError:c6e3ef20ab1e44dd47021d577c3818c4",
         "route": "repository-read",
         "role": "support"
+      },
+      {
+        "candidateId": "action:tools:tools/stress/entity-cli-calibration.fixture.mjs#fixture.publish.published:3256bdac31184b92deda25f319a0d2f8",
+        "route": "receipt-show",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/stress/entity-v2-scale.fixture.mjs#fixture.publish.published:1920aec08ea0aa8538b518356588095d",
+        "route": "receipt-show",
+        "role": "client",
+        "port": "tools/stress/entity-v2-scale.fixture.mjs#fixture.invoke"
       }
     ],
     "concurrency": {
@@ -843,6 +861,12 @@
         "candidateId": "action:packages/kernel:packages/kernel/src/ports/runtime-execution-credential.ts#executionCredentialRejected:f6adfe894c0a4c63cbd374f09013d440",
         "route": "runtime-run",
         "role": "support"
+      },
+      {
+        "candidateId": "action:tools:tools/dispatch-task.mjs#runDispatch.dispatched:87fdb4d67496dcabe68fb5191092ec1a",
+        "route": "runtime-run",
+        "role": "client",
+        "port": "tools/dispatch-task.mjs#runDispatch.invoke"
       }
     ]
   },
@@ -1187,6 +1211,36 @@
         "candidateId": "action:packages/cli:packages/cli/src/daemon/control.ts#requestCooperativeStop:e6615fba2679360e1ce697ab9350ac40",
         "route": "daemon-stop",
         "role": "support"
+      },
+      {
+        "candidateId": "action:tools:tools/measure-cli-command-timing.mjs#main:cae8f770d49c4ccf092c3e830795e07a",
+        "route": "daemon-stop",
+        "role": "client",
+        "port": "tools/measure-cli-command-timing.mjs#invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#stopDaemon.stopped:6a97d03f9699256dba9b8d76cb75a2ee",
+        "route": "daemon-stop",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/smoke-cli-package.mjs#runCliPackageSmoke:fd647a7e52789b1380f5315072c5fbf4",
+        "route": "daemon-stop",
+        "role": "client",
+        "port": "tools/smoke-cli-package.mjs#run"
+      },
+      {
+        "candidateId": "action:tools:tools/stress/entity-cli-calibration.fixture.mjs#fixture.close.stopped:aa9d25046e84d3e704e529e1f3669b4d",
+        "route": "daemon-stop",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/stress/entity-v2-scale.fixture.mjs#fixture.stopDaemon.stopped:63957b575385f657d3649c5e94ff6775",
+        "route": "daemon-stop",
+        "role": "client",
+        "port": "tools/stress/entity-v2-scale.fixture.mjs#fixture.invoke"
       }
     ],
     "concurrency": {
@@ -2291,28 +2345,10 @@
         "port": "tools/dispatch-task.mjs#subprocessRunner"
       },
       {
-        "candidateId": "action:tools:tools/dispatch-task.mjs#runDispatch.created:af6e933980fd681782dea0c6c5b3378d",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/dispatch-task.mjs#runDispatch.invoke"
-      },
-      {
         "candidateId": "action:tools:tools/dispatch-task.mjs#runDispatch:2dda8ecc56927d74b87336bc5de0b57e",
         "route": "package-assets-build",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
-      },
-      {
-        "candidateId": "action:tools:tools/dispatch-task.mjs#runDispatch.started:0093d222ea8f5c746b8628b32f79b4c2",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/dispatch-task.mjs#runDispatch.invoke"
-      },
-      {
-        "candidateId": "action:tools:tools/dispatch-task.mjs#runDispatch.dispatched:87fdb4d67496dcabe68fb5191092ec1a",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/dispatch-task.mjs#runDispatch.invoke"
       },
       {
         "candidateId": "action:tools:tools/dispatch-task.mjs#main:c5760c4b369f409df959784c5c9ef21a",
@@ -2798,18 +2834,6 @@
         "port": "tools/measure-cli-command-timing.mjs#invoke"
       },
       {
-        "candidateId": "action:tools:tools/measure-cli-command-timing.mjs#main.initialized:5b50ba71dc5a624a5efdbc94d92d665d",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/measure-cli-command-timing.mjs#invoke"
-      },
-      {
-        "candidateId": "action:tools:tools/measure-cli-command-timing.mjs#main.created:2681bc1b6378b86b94a3aaafcf8be651",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/measure-cli-command-timing.mjs#invoke"
-      },
-      {
         "candidateId": "action:tools:tools/measure-cli-command-timing.mjs#main:c5fd5bac60d8abe94db1a9a556b7874e",
         "route": "package-assets-build",
         "role": "technical-port",
@@ -2826,12 +2850,6 @@
         "route": "package-assets-build",
         "role": "technical-port",
         "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
-      },
-      {
-        "candidateId": "action:tools:tools/measure-cli-command-timing.mjs#main:cae8f770d49c4ccf092c3e830795e07a",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/measure-cli-command-timing.mjs#invoke"
       },
       {
         "candidateId": "action:tools:tools/measure-cli-command-timing.mjs#main:5ec08fe02066ba52e8e37a6c3cb17867",
@@ -3087,18 +3105,6 @@
         "route": "package-assets-build",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
-      },
-      {
-        "candidateId": "action:tools:tools/perf/baseline-fixture.mjs#initializeFixtureRepo.initialized:d9f3ab4b0a1683828dd05e76d5cb0373",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/perf/baseline-fixture.mjs#invoke"
-      },
-      {
-        "candidateId": "action:tools:tools/perf/baseline-fixture.mjs#initializeFixtureRepo.created:ce7f1bd3ee5b4ebd5e0b02f71827ca0b",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/perf/baseline-fixture.mjs#invoke"
       },
       {
         "candidateId": "action:tools:tools/perf/baseline-fixture.mjs#withoutExecutionCredential:90d561d956b02f0d62f7368a46eb5fbc",
@@ -3759,12 +3765,6 @@
         "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
       },
       {
-        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main:f67f31b7475330cff10ad44e0a07ba3a",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
         "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main.receipt:67eae70c5d166a25924a07eb75364061",
         "route": "package-assets-build",
         "role": "technical-port",
@@ -3777,12 +3777,6 @@
         "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
       },
       {
-        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main:34d7319835fbf7b4517b9271a22b4323",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
         "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main:26c917913640e7495c41db2e0040a01a",
         "route": "package-assets-build",
         "role": "technical-port",
@@ -3790,12 +3784,6 @@
       },
       {
         "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main:44e56f1f6a60907a5d22273cb5014ba0",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main:d45570a10b24d67a82f7097e037429b2",
         "route": "package-assets-build",
         "role": "technical-port",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
@@ -3816,12 +3804,6 @@
         "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#digestRows.sha256:092ae3d8cd38b787f7c7a8437b774fb4",
         "route": "package-assets-build",
         "role": "support"
-      },
-      {
-        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#stopDaemon.stopped:6a97d03f9699256dba9b8d76cb75a2ee",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       },
       {
         "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#concurrentCli.child:1812c980f4a7b5268e81c04c68a5ad39",
@@ -4041,12 +4023,6 @@
         "route": "package-assets-build",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
-      },
-      {
-        "candidateId": "action:tools:tools/smoke-cli-package.mjs#runCliPackageSmoke:fd647a7e52789b1380f5315072c5fbf4",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/smoke-cli-package.mjs#run"
       },
       {
         "candidateId": "action:tools:tools/smoke-cli-package.mjs#runCliPackageSmoke:384889fb0c821e5482209f42ac571619",
@@ -4316,18 +4292,6 @@
         "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
       },
       {
-        "candidateId": "action:tools:tools/stress/entity-cli-calibration.fixture.mjs#fixture.publish.published:3256bdac31184b92deda25f319a0d2f8",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:tools:tools/stress/entity-cli-calibration.fixture.mjs#fixture.close.stopped:aa9d25046e84d3e704e529e1f3669b4d",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
-      },
-      {
         "candidateId": "action:tools:tools/stress/entity-cli-calibration.fixture.mjs#fixture.close:47bc549676564f8b3b98d5aac30347b0",
         "route": "package-assets-build",
         "role": "technical-port",
@@ -4364,18 +4328,6 @@
         "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
       },
       {
-        "candidateId": "action:tools:tools/stress/entity-v2-scale.fixture.mjs#fixture.publish.published:1920aec08ea0aa8538b518356588095d",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/stress/entity-v2-scale.fixture.mjs#fixture.invoke"
-      },
-      {
-        "candidateId": "action:tools:tools/stress/entity-v2-scale.fixture.mjs#fixture.stopDaemon.stopped:63957b575385f657d3649c5e94ff6775",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "tools/stress/entity-v2-scale.fixture.mjs#fixture.invoke"
-      },
-      {
         "candidateId": "action:tools:tools/stress/entity-v2-scale.fixture.mjs#fixture.close:47bc549676564f8b3b98d5aac30347b0",
         "route": "package-assets-build",
         "role": "technical-port",
@@ -4408,12 +4360,6 @@
         "route": "package-assets-build",
         "role": "technical-port",
         "port": "node_modules/@types/node/worker_threads.d.ts#worker_threads.MessagePort.on"
-      },
-      {
-        "candidateId": "action:tools:tools/stress/fleet/fleet-fixture.mjs#openFleetCampaignFixture.installed:8657606fb6a6e38dd7dd960fe4cefb14",
-        "route": "package-assets-build",
-        "role": "technical-port",
-        "port": "packages/daemon/src/daemon-host-types.ts#DaemonHost.run"
       },
       {
         "candidateId": "action:tools:tools/stress/fleet/fleet-fixture.mjs#openFleetCampaignFixture.close:36cd25b4a4778c39783913e581a324d9",
@@ -9024,8 +8970,48 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-bootstrap.ts#bootstrapContentHash:98350a69023f5557ad3864aab246cd81",
         "route": "repo-bootstrap",
         "role": "support"
+      },
+      {
+        "candidateId": "action:tools:tools/measure-cli-command-timing.mjs#main.initialized:5b50ba71dc5a624a5efdbc94d92d665d",
+        "route": "repo-bootstrap",
+        "role": "client",
+        "port": "tools/measure-cli-command-timing.mjs#invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/perf/baseline-fixture.mjs#initializeFixtureRepo.initialized:d9f3ab4b0a1683828dd05e76d5cb0373",
+        "route": "repo-bootstrap",
+        "role": "client",
+        "port": "tools/perf/baseline-fixture.mjs#invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main:f67f31b7475330cff10ad44e0a07ba3a",
+        "route": "repo-bootstrap",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
       }
-    ]
+    ],
+    "execution": {
+      "ingress": "repo-bootstrap",
+      "read": false
+    },
+    "concurrency": {
+      "expectedVersion": {
+        "authority": "not-applicable"
+      },
+      "leasePolicy": {
+        "authority": "daemon-host"
+      },
+      "occurrenceClaim": {
+        "authority": "not-applicable"
+      },
+      "idempotency": {
+        "authority": "caller-owned"
+      },
+      "artifactOwnership": {
+        "owner": "host-local",
+        "refTemplate": "daemon-host"
+      }
+    }
   },
   "task-declare-executor": {
     "owner": "task",
@@ -9136,6 +9122,24 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-task-create.ts#prepareTaskCreateAt.eventId:a29f1d8dc5945125c2c24bf5941ea324",
         "route": "task-create",
         "role": "support"
+      },
+      {
+        "candidateId": "action:tools:tools/dispatch-task.mjs#runDispatch.created:af6e933980fd681782dea0c6c5b3378d",
+        "route": "task-create",
+        "role": "client",
+        "port": "tools/dispatch-task.mjs#runDispatch.invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/measure-cli-command-timing.mjs#main.created:2681bc1b6378b86b94a3aaafcf8be651",
+        "route": "task-create",
+        "role": "client",
+        "port": "tools/measure-cli-command-timing.mjs#invoke"
+      },
+      {
+        "candidateId": "action:tools:tools/perf/baseline-fixture.mjs#initializeFixtureRepo.created:ce7f1bd3ee5b4ebd5e0b02f71827ca0b",
+        "route": "task-create",
+        "role": "client",
+        "port": "tools/perf/baseline-fixture.mjs#invoke"
       }
     ]
   },
@@ -9173,5 +9177,79 @@
         "role": "support"
       }
     ]
+  },
+  "task-start": {
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/dispatch-task.mjs#runDispatch.started:0093d222ea8f5c746b8628b32f79b4c2",
+        "route": "task-start",
+        "role": "client",
+        "port": "tools/dispatch-task.mjs#runDispatch.invoke"
+      }
+    ]
+  },
+  "daemon-start": {
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main:34d7319835fbf7b4517b9271a22b4323",
+        "route": "daemon-start",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ],
+    "execution": {
+      "ingress": "daemon-start",
+      "read": false
+    },
+    "concurrency": {
+      "expectedVersion": {
+        "authority": "not-applicable"
+      },
+      "leasePolicy": {
+        "authority": "daemon-host"
+      },
+      "occurrenceClaim": {
+        "authority": "not-applicable"
+      },
+      "idempotency": {
+        "authority": "caller-owned"
+      },
+      "artifactOwnership": {
+        "owner": "host-local",
+        "refTemplate": "daemon-host"
+      }
+    }
+  },
+  "projection-rebuild": {
+    "sources": [
+      {
+        "candidateId": "action:tools:tools/scale/cli-entity-bench.mjs#main:d45570a10b24d67a82f7097e037429b2",
+        "route": "daemon-projection-rebuild",
+        "role": "client",
+        "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      }
+    ],
+    "execution": {
+      "ingress": "daemon-projection-rebuild",
+      "read": false
+    },
+    "concurrency": {
+      "expectedVersion": {
+        "authority": "not-applicable"
+      },
+      "leasePolicy": {
+        "authority": "daemon-host"
+      },
+      "occurrenceClaim": {
+        "authority": "not-applicable"
+      },
+      "idempotency": {
+        "authority": "caller-owned"
+      },
+      "artifactOwnership": {
+        "owner": "host-local",
+        "refTemplate": "daemon-host"
+      }
+    }
   }
 }

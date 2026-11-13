@@ -21,6 +21,7 @@ import {
   sourceWitnesses,
   intrinsicSupport,
   technicalPortEvidence,
+  clientEntryEvidence,
   processOwnedOutput,
   processEntry,
   moduleEntry,
@@ -141,6 +142,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
           (source) =>
             source.role !== "support" &&
             source.role !== "technical-port" &&
+            source.role !== "client" &&
             (!route || (source.role !== "script" && source.route === route)) &&
             witnesses.has(source.candidateId),
         )
@@ -271,7 +273,8 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       const node = witnesses.get(source.candidateId);
       const proof = source.role === "support" && node && intrinsicSupport(graph, node);
       const trace = sourceResults.get(source.candidateId);
-      const port = node && technicalPortEvidence(graph, node, source, action);
+      const port = node && technicalPortEvidence(graph, node, source, action, inputs.descriptors);
+      const client = node && clientEntryEvidence(graph, node, source, action, inputs.descriptors);
       const output =
         node &&
         action.ontology.authority === "local-process" &&
@@ -282,20 +285,23 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       const within =
         action.ontology.authority !== "package-script" ||
         (node && (tooling ? Boolean(proof || port) : buildOutputWithinPackage(graph, node)));
-      const ok = Boolean(node && within && (proof || port || output || (trace?.seen && trace.ok)));
+      const ok = Boolean(node && within && (proof || port || client || output || (trace?.seen && trace.ok)));
       return {
         id: source.candidateId,
         kind: action.kind,
         authority: port
           ? "technical-port"
-          : source.role === "support"
-            ? "intrinsic-support"
-            : output
-              ? "process-stdio"
-              : (action.ontology.authority ?? "authorization-port"),
+          : client
+            ? "client-entry"
+            : source.role === "support"
+              ? "intrinsic-support"
+              : output
+                ? "process-stdio"
+                : (action.ontology.authority ?? "authorization-port"),
         ok,
         evidence:
           port ??
+          client ??
           (proof
             ? ["typed process-local intrinsic; no external effect"]
             : output
@@ -308,7 +314,9 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
                 ? tooling
                   ? "root tooling source needs a typed technical port or intrinsic support"
                   : "build output escapes package dist"
-                : "source has no verified owner/authority chain",
+                : source.role === "client"
+                  ? "root tooling client source needs a typed client port whose command/action argument matches its declared route"
+                  : "source has no verified owner/authority chain",
             ],
       };
     }),

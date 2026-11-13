@@ -125,7 +125,9 @@ export function checkAuthorizationProviderBoundary(rootDir) {
       (action.ontology?.sources ?? []).flatMap((source) => [source.candidateId, source.route]),
     ),
     ...Object.values(actionSourceFacets).flatMap((facet) =>
-      (facet.sources ?? []).filter((source) => source.role === "technical-port").map((source) => source.port),
+      (facet.sources ?? [])
+        .filter((source) => ["technical-port", "client"].includes(source.role))
+        .map((source) => source.port),
     ),
   ]);
   return [

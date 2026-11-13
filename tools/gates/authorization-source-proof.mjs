@@ -49,8 +49,147 @@ export function intrinsicSupport(graph, node) {
  * support (dec_7E44897ECDCAEF2B92EC66A260/CH1). Sources under packages/ keep the dist boundary. */
 export const rootToolingSource = (graph, node) => graph.fileOf(node).startsWith("tools/");
 
+function declaredPortKey(graph, node) {
+  const declaration = graph.callDeclaration(node);
+  if (!declaration) return null;
+  const names = [];
+  for (let current = declaration; current && !ts.isSourceFile(current); current = current.parent)
+    if (current.name && (ts.isIdentifier(current.name) || ts.isStringLiteralLike(current.name)))
+      names.unshift(current.name.text);
+  const file = graph.fileOf(declaration).replace(/^.*\/node_modules\//u, "node_modules/");
+  return `${file}#${names.join(".")}`;
+}
+
+const VALUE_LEADING_FLAGS = new Set(["--root", "--actor", "--daemon-id", "--user-root", "--format"]);
+const BOOLEAN_LEADING_FLAGS = new Set(["--json"]);
+const NON_CLIENT_COMMANDS = new Set(["git", "npm", "npx", "gh", "taskkill", "cat"]);
+
+function cliArgTokens(graph, expression, seen = new Set()) {
+  const expr = unwrap(expression);
+  if (!expr || seen.has(expr)) return null;
+  seen.add(expr);
+  if (ts.isIdentifier(expr)) {
+    const binding = graph.lookup(expr.text, expr);
+    return binding?.kind === "var" ? cliArgTokens(graph, binding.declaration.initializer, seen) : null;
+  }
+  if (!ts.isArrayLiteralExpression(expr)) return null;
+  const elements = expr.elements;
+  let index = 0;
+  while (index < elements.length) {
+    const head = unwrap(elements[index]);
+    if (!head || !ts.isStringLiteralLike(head)) break;
+    if (BOOLEAN_LEADING_FLAGS.has(head.text)) {
+      index += 1;
+      continue;
+    }
+    if (VALUE_LEADING_FLAGS.has(head.text)) {
+      index += 2;
+      continue;
+    }
+    break;
+  }
+  const tokens = [];
+  while (index < elements.length) {
+    const item = unwrap(elements[index]);
+    if (!item || !ts.isStringLiteralLike(item)) break;
+    tokens.push(item.text);
+    index += 1;
+  }
+  return tokens.length > 0 ? tokens : null;
+}
+
+/** Extracts the concrete protocol/CLI descriptor invoked at a call site, or null for generic/dynamic runners. */
+export function clientCommandBinding(graph, node, descriptors = []) {
+  if (!ts.isCallExpression(node) || descriptors.length === 0) return null;
+  const firstArg = unwrap(node.arguments[0]);
+  if (firstArg && ts.isStringLiteralLike(firstArg) && NON_CLIENT_COMMANDS.has(firstArg.text)) return null;
+  let bestCliMatch = null;
+  for (const arg of node.arguments) {
+    const tokens = cliArgTokens(graph, arg);
+    if (!tokens) continue;
+    for (const descriptor of descriptors) {
+      const cmdPath = descriptor.path;
+      if (!Array.isArray(cmdPath) || cmdPath.length === 0 || tokens.length < cmdPath.length) continue;
+      if (!cmdPath.every((segment, idx) => tokens[idx] === segment)) continue;
+      if (!bestCliMatch || cmdPath.length > bestCliMatch.path.length) bestCliMatch = descriptor;
+    }
+  }
+  if (bestCliMatch) return bestCliMatch;
+  for (const arg of node.arguments) {
+    const obj = unwrap(arg);
+    if (!obj || !ts.isObjectLiteralExpression(obj)) continue;
+    const kindProp = obj.properties.find(
+      (prop) =>
+        ts.isPropertyAssignment(prop) &&
+        (ts.isIdentifier(prop.name) || ts.isStringLiteralLike(prop.name)) &&
+        prop.name.text === "kind",
+    );
+    const kindValue = kindProp ? unwrap(kindProp.initializer) : null;
+    if (kindValue && ts.isStringLiteralLike(kindValue)) {
+      const match =
+        descriptors.find((descriptor) => descriptor.id === kindValue.text) ??
+        descriptors.find((descriptor) => (descriptor.actionKind ?? descriptor.id) === kindValue.text);
+      if (match) return match;
+    }
+  }
+  return null;
+}
+
+function clientPortReachesTransport(graph, declaration, seen = new Set()) {
+  if (!declaration || seen.has(declaration)) return false;
+  seen.add(declaration);
+  const file = graph.fileOf(declaration);
+  if (file.startsWith("packages/daemon/") || file.startsWith("packages/cli/")) return true;
+  if (/\/node_modules\/@types\/node\/child_process\.d\.ts$/u.test(declaration.getSourceFile()?.fileName ?? ""))
+    return true;
+  let reached = false;
+  function visit(child) {
+    if (reached) return;
+    if (ts.isCallExpression(child)) {
+      const target = graph.callDeclaration(child);
+      if (clientPortReachesTransport(graph, target, seen)) {
+        reached = true;
+        return;
+      }
+      const callee = unwrap(child.expression);
+      if (ts.isIdentifier(callee)) {
+        const binding = graph.lookup(callee.text, callee);
+        if (binding?.kind === "var" && clientPortReachesTransport(graph, binding.declaration.initializer, seen)) {
+          reached = true;
+          return;
+        }
+      }
+    }
+    ts.forEachChild(child, visit);
+  }
+  visit(declaration);
+  return reached;
+}
+
+/** A root tools/ script calling an authorized CLI or daemon action must bind its typed client port and command/kind. */
+export function clientEntryEvidence(graph, node, source, action, descriptors = []) {
+  if (
+    !source.port ||
+    source.role !== "client" ||
+    action.ontology?.technical ||
+    action.ontology?.authority ||
+    !rootToolingSource(graph, node)
+  )
+    return null;
+  const declaration = graph.callDeclaration(node);
+  if (!declaration || declaredPortKey(graph, node) !== source.port) return null;
+  if (!clientPortReachesTransport(graph, declaration)) return null;
+  const descriptor = clientCommandBinding(graph, node, descriptors);
+  if (!descriptor || descriptor.id !== source.route) return null;
+  const expectedKind =
+    action.executionClass === "repo-read" ? descriptor.commandClass : (descriptor.actionKind ?? descriptor.id);
+  const targetKind = action.executionClass === "repo-read" ? "repo-read" : action.kind;
+  if (expectedKind !== targetKind) return null;
+  return [`typed client port ${source.port} invokes ${source.route} (${action.kind})`];
+}
+
 /** A shared driver has its own reviewed declaration; it does not borrow a command's permission. */
-export function technicalPortEvidence(graph, node, source, action) {
+export function technicalPortEvidence(graph, node, source, action, descriptors = []) {
   const { authority } = action.ontology;
   if (
     !source.port ||
@@ -62,17 +201,17 @@ export function technicalPortEvidence(graph, node, source, action) {
   )
     return null;
   const declaration = graph.callDeclaration(node);
-  if (!declaration) return null;
-  const names = [];
-  for (let current = declaration; current && !ts.isSourceFile(current); current = current.parent)
-    if (current.name && (ts.isIdentifier(current.name) || ts.isStringLiteralLike(current.name)))
-      names.unshift(current.name.text);
-  const file = graph.fileOf(declaration).replace(/^.*\/node_modules\//u, "node_modules/");
-  return source.port === `${file}#${names.join(".")}`
-    ? [
-        `typed technical port ${source.port}; ${action.ontology.owner} owns the implementation, not remote authorization`,
-      ]
-    : null;
+  if (!declaration || declaredPortKey(graph, node) !== source.port) return null;
+  // Concrete business CLI/RPC calls in tools/ belong to their business ActionDeclaration, not package-assets-build.
+  if (
+    rootToolingSource(graph, node) &&
+    clientPortReachesTransport(graph, declaration) &&
+    clientCommandBinding(graph, node, descriptors)
+  )
+    return null;
+  return [
+    `typed technical port ${source.port}; ${action.ontology.owner} owns the implementation, not remote authorization`,
+  ];
 }
 
 /** Node gives each caller its own stdout/stderr; these cannot name a repository writer. */

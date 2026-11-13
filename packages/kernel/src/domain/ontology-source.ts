@@ -2,8 +2,8 @@
 export interface OntologySourceBinding {
   readonly candidateId: string;
   readonly route: string;
-  readonly role?: "effect" | "support" | "script" | "technical-port";
-  /** Exact compiler-resolved declaration (file#qualified member) of a shared technical port. */
+  readonly role?: "effect" | "support" | "script" | "technical-port" | "client";
+  /** Exact compiler-resolved declaration (file#qualified member) of a shared technical or client port. */
   readonly port?: string;
 }
 
