@@ -15,17 +15,20 @@ import { isMainThread, parentPort, Worker, workerData } from "node:worker_thread
 import ts from "typescript";
 import { authorizationPolicyGraph, buildFlowGraph, isFunctionNode } from "./authorization-flow-graph.mjs";
 import { makeAuthorizationTracer } from "./authorization-flow-trace.mjs";
+import { withArtifactActionIngressDeclarations } from "./ontology-gate-lib.mjs";
 import {
   sourceFileOf,
   sourceSite,
   sourceWitnesses,
   intrinsicSupport,
   technicalPortEvidence,
+  clientEntryEvidence,
   processOwnedOutput,
   processEntry,
   moduleEntry,
   processSourceSites,
   buildOutputWithinPackage,
+  rootToolingSource,
 } from "./authorization-source-proof.mjs";
 import { EVIDENCE_INDEX } from "./evidence-index.mjs";
 import { exitCodeFor, lineNumber, parseCommonArgs, parseTypeScript } from "./ontology-gate-lib.mjs";
@@ -44,19 +47,27 @@ const sessionAnchors = [
 /** The protocol authorities the trace reads: descriptors, the method table and kernel constants. */
 export async function loadAuthorizationInputs(rootDir) {
   const load = (file) => import(pathToFileURL(path.join(rootDir, file)).href);
-  const [contract, commands, kernel] = await Promise.all([
+  const actionDeclarationRelPath = "packages/kernel/src/domain/action-declaration.ts";
+  const [contract, commands, kernel, domainDeclarations] = await Promise.all([
     load("packages/daemon/src/protocol/daemon-protocol.contract.ts"),
     load("packages/daemon/src/protocol/daemon-protocol-commands.ts"),
     load("packages/kernel/src/index.ts"),
+    fs.existsSync(path.join(rootDir, actionDeclarationRelPath)) ? load(actionDeclarationRelPath) : null,
   ]);
   const constants = {},
     functions = {};
   for (const [name, value] of Object.entries(kernel))
     (typeof value === "function" ? functions : constants)[name] = value;
+  const actionDeclarations = withArtifactActionIngressDeclarations(
+    rootDir,
+    kernel.actionDeclarations ?? [],
+    domainDeclarations?.artifactActionIngressKinds ?? kernel.artifactActionIngressKinds ?? [],
+  );
+  constants.actionDeclarations = actionDeclarations;
   const descriptors = [...contract.daemonProtocolCommands, ...contract.daemonGuiActionMethods].map((row) => ({
     ...row,
   }));
-  for (const action of kernel.actionDeclarations) {
+  for (const action of actionDeclarations) {
     if (action.ontology?.authority || action.executionClass === "repo-read") continue;
     for (const source of action.ontology?.sources ?? []) {
       const descriptor = descriptors.find((row) => row.id === source.route);
@@ -140,6 +151,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
           (source) =>
             source.role !== "support" &&
             source.role !== "technical-port" &&
+            source.role !== "client" &&
             (!route || (source.role !== "script" && source.route === route)) &&
             witnesses.has(source.candidateId),
         )
@@ -270,28 +282,35 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       const node = witnesses.get(source.candidateId);
       const proof = source.role === "support" && node && intrinsicSupport(graph, node);
       const trace = sourceResults.get(source.candidateId);
-      const port = node && technicalPortEvidence(graph, node, source, action);
+      const port = node && technicalPortEvidence(graph, node, source, action, inputs.descriptors);
+      const client = node && clientEntryEvidence(graph, node, source, action, inputs.descriptors);
       const output =
         node &&
         action.ontology.authority === "local-process" &&
         action.residency.scope === "host-local" &&
         action.residency.writer === "caller-process" &&
         processOwnedOutput(graph, node);
-      const within = action.ontology.authority !== "package-script" || (node && buildOutputWithinPackage(graph, node));
-      const ok = Boolean(node && within && (proof || port || output || (trace?.seen && trace.ok)));
+      const tooling = action.ontology.authority === "package-script" && node && rootToolingSource(graph, node);
+      const within =
+        action.ontology.authority !== "package-script" ||
+        (node && (tooling ? Boolean(proof || port) : buildOutputWithinPackage(graph, node)));
+      const ok = Boolean(node && within && (proof || port || client || output || (trace?.seen && trace.ok)));
       return {
         id: source.candidateId,
         kind: action.kind,
         authority: port
           ? "technical-port"
-          : source.role === "support"
-            ? "intrinsic-support"
-            : output
-              ? "process-stdio"
-              : (action.ontology.authority ?? "authorization-port"),
+          : client
+            ? "client-entry"
+            : source.role === "support"
+              ? "intrinsic-support"
+              : output
+                ? "process-stdio"
+                : (action.ontology.authority ?? "authorization-port"),
         ok,
         evidence:
           port ??
+          client ??
           (proof
             ? ["typed process-local intrinsic; no external effect"]
             : output
@@ -299,7 +318,15 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
               : (trace?.evidence ?? [])),
         violations: ok
           ? []
-          : [!within ? "build output escapes package dist" : "source has no verified owner/authority chain"],
+          : [
+              !within
+                ? tooling
+                  ? "root tooling source needs a typed technical port or intrinsic support"
+                  : "build output escapes package dist"
+                : source.role === "client"
+                  ? "root tooling client source needs a typed client port whose command/action argument matches its declared route"
+                  : "source has no verified owner/authority chain",
+            ],
       };
     }),
   );

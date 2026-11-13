@@ -446,15 +446,22 @@ export function runCommandAsync(label, command, failureHint = null, { cwd = repo
   });
 }
 
+const runManifestGate = (entry) => runCommand(entry.id, entry.command, entry.failureHint);
+const runManifestGateAsync = (entry, githubGroups = false) =>
+  runCommandAsync(entry.id, entry.command, entry.failureHint, { githubGroups });
+
 /**
  * Run every gate in the plan and decide the aggregate verdict only at the end.
  *
  * A workflow job must not stop at the first red gate: the local PR-body entry and the single CI
  * job exist so one run reports every failing check. Package aggregates keep their historical
  * short-circuit through `stopOnFailure`.
+ *
+ * @param {any[]} plan
+ * @param {{ execute?: typeof runManifestGate, stopOnFailure?: boolean, githubGroups?: boolean }} [options]
  */
 export function runManifestGatePlan(plan, { execute, stopOnFailure = false, githubGroups = false } = {}) {
-  const run = execute ?? ((entry) => runCommand(entry.id, entry.command, entry.failureHint));
+  const run = execute ?? runManifestGate;
   const results = [];
   for (const entry of plan) {
     if (githubGroups) console.log(`::group::${entry.id}`);
@@ -479,9 +486,12 @@ export function runManifestGatePlan(plan, { execute, stopOnFailure = false, gith
  * The first submitted gate starts immediately; a worker takes the next gate when its current one
  * finishes. Results stay in plan order so a caller's failure list is stable across concurrency.
  * Independent gates only: callers keep gates that write the same tree (typecheck) out of the pool.
+ *
+ * @param {any[]} plan
+ * @param {{ execute?: typeof runManifestGateAsync, concurrency?: number, githubGroups?: boolean }} [options]
  */
 export async function runManifestGatePlanParallel(plan, { execute, concurrency = 1, githubGroups = false } = {}) {
-  const run = execute ?? ((entry) => runCommandAsync(entry.id, entry.command, entry.failureHint, { githubGroups }));
+  const run = execute ?? ((entry) => runManifestGateAsync(entry, githubGroups));
   const results = new Array(plan.length);
   let nextIndex = 0;
   const workerCount = Math.min(Math.max(1, concurrency), plan.length);

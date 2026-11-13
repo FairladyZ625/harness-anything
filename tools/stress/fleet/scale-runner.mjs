@@ -607,6 +607,7 @@ function immediate() {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
+/** @param {ReturnType<typeof createProcessTree>} tree */
 function capture(tree, command, args) {
   return new Promise((resolve, reject) => {
     const child = tree.spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -623,6 +624,7 @@ function capture(tree, command, args) {
   });
 }
 
+/** @param {(roots: { scratch: string, targetRoot: string, controllerRoot: string }) => Promise<any>} run */
 async function withScratch(seed, run) {
   const scratch = await mkdtemp(path.join(tmpdir(), `ha-stress-s4-${seed}-`));
   const targetRoot = path.join(scratch, "target");

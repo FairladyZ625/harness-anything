@@ -193,7 +193,7 @@ export async function runMultiClientScenario(root) {
       beforeTasks = runCli(fixture.repoRoot, env, ["task", "list"]),
       clients = await Promise.all(
         Array.from({ length: 8 }, (_, index) =>
-          spawnCli(fixture.repoRoot, env, ["task", "create", "--title", `Multi client ${String(index + 1)}`]),
+          invoke(fixture.repoRoot, env, ["task", "create", "--title", `Multi client ${String(index + 1)}`]),
         ),
       );
     assert.equal(
@@ -586,9 +586,13 @@ function runCliMaybe(root, env, args) {
   };
 }
 
-function spawnCli(root, env, args) {
+function spawnChildProcess(command, argv, options) {
+  return spawn(command, argv, options);
+}
+
+function invoke(root, env, args) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [cli, "--root", root, "--json", ...args], {
+    const child = spawnChildProcess(process.execPath, [cli, "--root", root, "--json", ...args], {
       env,
       stdio: ["ignore", "pipe", "pipe"],
     });

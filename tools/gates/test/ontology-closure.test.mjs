@@ -868,6 +868,118 @@ test("tools judgment candidates leave the migration baseline and undeclared help
   );
 });
 
+// dec_7E44897ECDCAEF2B92EC66A260/CH1 S4: every tools/ action source is registered with zero
+// baseline debt; business CLI/RPC calls bind to their owning business ActionDeclaration while
+// temp/report writes, harness runners, and build scripts remain owned by package-assets-build,
+// and new unregistered technical or business calls fail closed.
+test("tools baseline is permanently zero and new tool execution calls fail closed", () => {
+  const baseline = loadGateAllowlist("ontology-closure", {
+    allowlistRoot: path.join(repoRoot, "tools/gate-allowlists"),
+    report: false,
+  }).candidates;
+  assert.deepEqual(
+    baseline.filter((row) => row.owner === "tools" || row.path?.startsWith("tools/")),
+    [],
+  );
+  const result = evaluateOntologyClosure({ rootDir: repoRoot, base: "HEAD" });
+  const tools = result.classified.filter((row) => row.file.startsWith("tools/") && row.category === "action");
+  assert.ok(tools.length > 0);
+  assert.deepEqual(
+    tools.filter((row) => row.status !== "registered"),
+    [],
+  );
+  assert.deepEqual(
+    result.findings.filter((row) => row.file?.startsWith("tools/")),
+    [],
+  );
+
+  const snapshot = loadOntologyClosureSnapshot(repoRoot);
+  const byId = new Map(tools.map((row) => [row.id, row]));
+  for (const [id, kind, route] of [
+    [
+      "action:tools:tools/dispatch-task.mjs#runDispatch.created:af6e933980fd681782dea0c6c5b3378d",
+      "task-create",
+      "task-create",
+    ],
+    [
+      "action:tools:tools/dispatch-task.mjs#runDispatch.started:0093d222ea8f5c746b8628b32f79b4c2",
+      "task-start",
+      "task-start",
+    ],
+    [
+      "action:tools:tools/dispatch-task.mjs#runDispatch.dispatched:87fdb4d67496dcabe68fb5191092ec1a",
+      "runtime-run",
+      "runtime-run",
+    ],
+    [
+      "action:tools:tools/stress/fleet/fleet-fixture.mjs#openFleetCampaignFixture.installed:8657606fb6a6e38dd7dd960fe4cefb14",
+      "agent-install",
+      "agent-install",
+    ],
+  ]) {
+    const row = byId.get(id);
+    assert.equal(row?.declarationRef, `action:${kind}`, id);
+    const source = snapshot.actions
+      .find((action) => action.kind === kind)
+      ?.ontology?.sources?.find((entry) => entry.candidateId === id);
+    assert.equal(source?.route, route, id);
+    assert.equal(source?.role, "client", id);
+  }
+  for (const id of [
+    "action:tools:tools/dispatch-task.mjs#runDispatch:2dda8ecc56927d74b87336bc5de0b57e",
+    "action:tools:tools/measure-cli-command-timing.mjs#main:c5fd5bac60d8abe94db1a9a556b7874e",
+  ]) {
+    assert.equal(byId.get(id)?.declarationRef, "action:package-assets-build", id);
+  }
+
+  const text = 'import { writeFileSync } from "node:fs";\nwriteFileSync("/tmp/unregistered", "x");\n';
+  for (const target of [
+    "tools/unregistered-effect.mjs",
+    "tools/scale/unregistered-effect.mjs",
+    "packages/cli/src/x.ts",
+  ]) {
+    const undeclared = scanOntologyText(target, text);
+    assert.deepEqual(
+      undeclared.map(({ category, name }) => ({ category, name })),
+      [{ category: "action", name: "writeFileSync" }],
+      target,
+    );
+    assert.deepEqual(
+      audit(undeclared, { snapshot }).findings.map((row) => row.code),
+      ["ONTOLOGY_ACTION_UNDECLARED"],
+      target,
+    );
+    assert.deepEqual(
+      audit(undeclared, { snapshot, baseline: [debt(undeclared[0])], previous: [] }).findings.map((row) => row.code),
+      ["ONTOLOGY_BASELINE_GROWTH"],
+      target,
+    );
+  }
+
+  const businessCallText = [
+    'import { spawn } from "node:child_process";',
+    'export function deleteTask(id) { spawn("ha", ["task", "delete", id]); }',
+  ].join("\n");
+  for (const target of ["tools/unregistered-business-call.mjs", "tools/scale/unregistered-business-call.mjs"]) {
+    const undeclared = scanOntologyText(target, businessCallText);
+    assert.deepEqual(
+      undeclared.map(({ category, name }) => ({ category, name })),
+      [{ category: "action", name: "spawn" }],
+      target,
+    );
+    assert.deepEqual(
+      audit(undeclared, { snapshot }).findings.map((row) => row.code),
+      ["ONTOLOGY_ACTION_UNDECLARED"],
+      target,
+    );
+    assert.deepEqual(
+      audit(undeclared, { snapshot, baseline: [debt(undeclared[0])], previous: [] }).findings.map((row) => row.code),
+      ["ONTOLOGY_BASELINE_GROWTH"],
+      target,
+    );
+  }
+});
+
 // dec_7E44897ECDCAEF2B92EC66A260/CH1 S3c: technical tool settings are not domain defaults.
 test("tool technical syntax is classified without relaxing identical product policies", () => {
   const cases = JSON.parse(

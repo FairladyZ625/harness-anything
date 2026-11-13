@@ -163,3 +163,418 @@ test("storage technical ports require the actual typed declaration, not a matchi
     );
   }
 });
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1 S4: root tools/ scripts have no package dist, so the
+// package-script build action owns them only through an exact typed port; packages/ keep the
+// dist boundary and gain no port route.
+test("a package-script technical port proves a root tools/ effect but never a package script effect", async () => {
+  const { technicalPortEvidence, rootToolingSource } = await import("../authorization-source-proof.mjs");
+  const tool = "tools/demo-tool.mjs";
+  const text =
+    '/// <reference types="node" />\nimport { writeFileSync } from "node:fs";\nwriteFileSync("/tmp/demo", "x");\n';
+  const { rootDir } = makeRepo({
+    "packages/demo/package.json": JSON.stringify({ name: "demo", type: "module" }),
+    [file]: text,
+    [tool]: text,
+  });
+  symlinkSync(realpathSync(path.join(repoRoot, "node_modules")), path.join(rootDir, "node_modules"), "dir");
+  const graph = buildFlowGraph(rootDir, { sourceFiles: [file, tool] });
+  const witness = (target) => {
+    const sources = scanOntologyText(target, text)
+      .filter((row) => row.category === "action")
+      .map((row) => ({ candidateId: row.id }));
+    assert.equal(sources.length, 1);
+    return sourceWitnesses(graph, sources).get(sources[0].candidateId);
+  };
+  const port = "node_modules/@types/node/fs.d.ts#fs.writeFileSync";
+  const action = {
+    kind: "package-assets-build",
+    ontology: { technical: true, authority: "package-script" },
+    receiptSettlement: "none",
+  };
+  const source = { port, route: action.kind, role: "technical-port" };
+  const [toolNode, packageNode] = [witness(tool), witness(file)];
+  assert.equal(rootToolingSource(graph, toolNode), true);
+  assert.equal(rootToolingSource(graph, packageNode), false);
+  assert.ok(technicalPortEvidence(graph, toolNode, source, action));
+  assert.equal(technicalPortEvidence(graph, packageNode, source, action), null);
+  assert.equal(technicalPortEvidence(graph, toolNode, { ...source, port: `${port}x` }, action), null);
+  assert.equal(technicalPortEvidence(graph, toolNode, { ...source, route: "task-delete" }, action), null);
+  assert.equal(
+    technicalPortEvidence(graph, toolNode, source, { ...action, ontology: { ...action.ontology, technical: false } }),
+    null,
+  );
+  assert.equal(
+    technicalPortEvidence(graph, toolNode, source, { ...action, ontology: { technical: true, authority: "remote" } }),
+    null,
+  );
+  const local = { ...action, ontology: { technical: true, authority: "local-process" } };
+  assert.ok(technicalPortEvidence(graph, packageNode, source, local));
+});
+
+test("tools client entries bind business actions with transport + command proof and cannot hide under package-assets-build", async () => {
+  const { clientEntryEvidence, technicalPortEvidence } = await import("../authorization-source-proof.mjs");
+  const tool = "tools/client-demo.mjs";
+  const pkgCaller = "packages/demo/scripts/client-demo.mjs";
+  const body = [
+    '/// <reference types="node" />',
+    'import { execFileSync, spawn } from "node:child_process";',
+    "function run(args) { return execFileSync('ha', args, { encoding: 'utf8' }); }",
+    "class RpcClient { run(payload) { return execFileSync('ha', ['rpc', JSON.stringify(payload)]); } }",
+    "function invoke(args) { return args.join(' '); }",
+    "export function main(taskId, runnerArgs) {",
+    "  const client = new RpcClient();",
+    '  const created = run(["--json", "task", "create", "title"]);',
+    '  const runtimeArgs = ["runtime", "run", taskId];',
+    "  const dispatched = run(runtimeArgs);",
+    '  const installed = client.run({ kind: "agent-install", id: "coder" });',
+    '  spawn("node", runnerArgs);',
+    '  const decoupled = invoke(["task", "create"]);',
+    "  return { created, dispatched, installed, decoupled };",
+    "}",
+  ].join("\n");
+  const { rootDir } = makeRepo({
+    "packages/demo/package.json": JSON.stringify({ name: "demo", type: "module" }),
+    [tool]: body,
+    [pkgCaller]: body,
+  });
+  symlinkSync(realpathSync(path.join(repoRoot, "node_modules")), path.join(rootDir, "node_modules"), "dir");
+  const graph = buildFlowGraph(rootDir, { sourceFiles: [tool, pkgCaller] });
+  const witnessMap = (target) => {
+    const sources = scanOntologyText(target, body)
+      .filter((row) => row.category === "action")
+      .map((row) => ({ candidateId: row.id }));
+    return [...sourceWitnesses(graph, sources).values()];
+  };
+  const nodes = witnessMap(tool);
+  const pkgNodes = witnessMap(pkgCaller);
+  const byCall = (list, fragment) => list.find((node) => node.getText().includes(fragment));
+  const createNode = byCall(nodes, '"task", "create"');
+  const runtimeNode = byCall(nodes, "run(runtimeArgs)");
+  const installNode = byCall(nodes, 'kind: "agent-install"');
+  const dynamicNode = byCall(nodes, 'spawn("node", runnerArgs)');
+  const noTransportNode = byCall(nodes, 'invoke(["task", "create"])');
+  const pkgCreateNode = byCall(pkgNodes, '"task", "create"');
+  assert.ok(createNode && runtimeNode && installNode && dynamicNode && noTransportNode && pkgCreateNode);
+
+  const descriptors = [
+    { id: "task-create", path: ["task", "create"] },
+    { id: "runtime-run", path: ["runtime", "run"] },
+    { id: "agent-install", actionKind: "agent-install" },
+  ];
+  const runCliPort = `${tool}#run`;
+  const sendRpcPort = `${tool}#RpcClient.run`;
+  const noTransportPort = `${tool}#invoke`;
+  const spawnPort = "node_modules/@types/node/child_process.d.ts#child_process.spawn";
+
+  const createAction = { kind: "task-create", executionClass: "repo-write", ontology: {} };
+  const runtimeAction = { kind: "runtime-run", executionClass: "repo-write", ontology: {} };
+  const installAction = { kind: "agent-install", executionClass: "repo-write", ontology: {} };
+  const buildAction = {
+    kind: "package-assets-build",
+    ontology: { owner: "distribution", technical: true, authority: "package-script" },
+    receiptSettlement: "none",
+  };
+
+  assert.ok(
+    clientEntryEvidence(
+      graph,
+      createNode,
+      { role: "client", route: "task-create", port: runCliPort },
+      createAction,
+      descriptors,
+    ),
+  );
+  assert.ok(
+    clientEntryEvidence(
+      graph,
+      runtimeNode,
+      { role: "client", route: "runtime-run", port: runCliPort },
+      runtimeAction,
+      descriptors,
+    ),
+  );
+  assert.ok(
+    clientEntryEvidence(
+      graph,
+      installNode,
+      { role: "client", route: "agent-install", port: sendRpcPort },
+      installAction,
+      descriptors,
+    ),
+  );
+  assert.equal(
+    clientEntryEvidence(
+      graph,
+      createNode,
+      { role: "client", route: "task-start", port: runCliPort },
+      createAction,
+      descriptors,
+    ),
+    null,
+  );
+  assert.equal(
+    clientEntryEvidence(
+      graph,
+      createNode,
+      { role: "client", route: "task-create", port: `${runCliPort}x` },
+      createAction,
+      descriptors,
+    ),
+    null,
+  );
+  assert.equal(
+    clientEntryEvidence(
+      graph,
+      pkgCreateNode,
+      { role: "client", route: "task-create", port: `${pkgCaller}#runCli` },
+      createAction,
+      descriptors,
+    ),
+    null,
+  );
+  assert.equal(
+    clientEntryEvidence(
+      graph,
+      noTransportNode,
+      { role: "client", route: "task-create", port: noTransportPort },
+      createAction,
+      descriptors,
+    ),
+    null,
+  );
+  assert.equal(
+    clientEntryEvidence(
+      graph,
+      createNode,
+      { role: "client", route: "task-create", port: runCliPort },
+      { ...createAction, ontology: { technical: true } },
+      descriptors,
+    ),
+    null,
+  );
+  assert.equal(
+    technicalPortEvidence(
+      graph,
+      createNode,
+      { role: "technical-port", route: "package-assets-build", port: runCliPort },
+      buildAction,
+      descriptors,
+    ),
+    null,
+  );
+  assert.ok(
+    technicalPortEvidence(
+      graph,
+      dynamicNode,
+      { role: "technical-port", route: "package-assets-build", port: spawnPort },
+      buildAction,
+      descriptors,
+    ),
+  );
+});
+
+test("fleet schema RPC writes and indirect/computed CLI wrappers bind business actions and fail package-assets-build", async () => {
+  const { clientEntryEvidence, technicalPortEvidence } = await import("../authorization-source-proof.mjs");
+  const tool = "tools/fleet-upload-demo.mjs";
+  const peer = "packages/daemon/src/fleet/peer.ts";
+  const centerListener = "packages/daemon/src/fleet/center-listener.ts";
+  const toolBody = [
+    '/// <reference types="node" />',
+    'import { execFileSync } from "node:child_process";',
+    'import { runFleetWriteClient } from "../packages/daemon/src/fleet/peer.ts";',
+    "function write(docPath, content) {",
+    '  return runFleetWriteClient({ schema: "fleet.doc.submit/v1", path: docPath, body: content });',
+    "}",
+    "function invoke(argv) {",
+    '  return execFileSync("ha", argv, { encoding: "utf8" });',
+    "}",
+    'const factRecordArgv = (sampleId) => ["--json", "fact", "record", "--task", "t1", "--statement", sampleId];',
+    "export function main(sampleId, command = {}) {",
+    '  const written = write("docs/a.md", "hello");',
+    "  const recorded = invoke(command.argv ?? factRecordArgv(sampleId));",
+    "  return { written, recorded };",
+    "}",
+  ].join("\n");
+  const peerBody = "export function runFleetWriteClient(payload: Record<string, unknown>) { return payload; }\n";
+  const listenerBody = [
+    "declare function precheck(): boolean;",
+    "declare function dispatch(action: { kind: string }): unknown;",
+    "export function handleFrame(frame: { schema: string }) {",
+    '  if (frame.schema === "fleet.doc.submit/v1") {',
+    '    if (precheck()) return dispatch({ kind: "task-show" });',
+    '    return dispatch({ kind: "doc-submit" });',
+    "  }",
+    "  return null;",
+    "}",
+  ].join("\n");
+  const { rootDir } = makeRepo({
+    [peer]: peerBody,
+    [centerListener]: listenerBody,
+    [tool]: toolBody,
+  });
+  symlinkSync(realpathSync(path.join(repoRoot, "node_modules")), path.join(rootDir, "node_modules"), "dir");
+  const graph = buildFlowGraph(rootDir, { sourceFiles: [peer, centerListener, tool] });
+  const sources = scanOntologyText(tool, toolBody)
+    .filter((row) => row.category === "action")
+    .map((row) => ({ candidateId: row.id }));
+  const nodes = [...sourceWitnesses(graph, sources).values()];
+  const writeNode = nodes.find((node) => node.getText().includes('write("docs/a.md"'));
+  const recordedNode = nodes.find((node) => node.getText().includes("factRecordArgv(sampleId)"));
+  assert.ok(writeNode && recordedNode);
+
+  const descriptors = [
+    { id: "doc-sync-submit", actionKind: "doc-submit", path: ["doc", "sync"] },
+    { id: "fact-record", path: ["fact", "record"] },
+    { id: "task-show", path: ["task", "show"] },
+  ];
+  const docSubmitAction = { kind: "doc-submit", executionClass: "repo-write", ontology: {} };
+  const factRecordAction = { kind: "fact-record", executionClass: "repo-write", ontology: {} };
+  const buildAction = {
+    kind: "package-assets-build",
+    ontology: { owner: "distribution", technical: true, authority: "package-script" },
+    receiptSettlement: "none",
+  };
+  const writePort = `${tool}#write`;
+  const invokePort = `${tool}#invoke`;
+
+  assert.ok(
+    clientEntryEvidence(
+      graph,
+      writeNode,
+      { role: "client", route: "doc-sync-submit", port: writePort },
+      docSubmitAction,
+      descriptors,
+    ),
+  );
+  assert.ok(
+    clientEntryEvidence(
+      graph,
+      writeNode,
+      { role: "client", route: "doc-submit", port: writePort },
+      docSubmitAction,
+      descriptors,
+    ),
+  );
+  assert.equal(
+    technicalPortEvidence(
+      graph,
+      writeNode,
+      { role: "technical-port", route: "package-assets-build", port: writePort },
+      buildAction,
+      descriptors,
+    ),
+    null,
+  );
+  assert.ok(
+    clientEntryEvidence(
+      graph,
+      recordedNode,
+      { role: "client", route: "fact-record", port: invokePort },
+      factRecordAction,
+      descriptors,
+    ),
+  );
+  assert.equal(
+    technicalPortEvidence(
+      graph,
+      recordedNode,
+      { role: "technical-port", route: "package-assets-build", port: invokePort },
+      buildAction,
+      descriptors,
+    ),
+    null,
+  );
+});
+
+test("command-table wrapper loops cannot stay in package-assets-build while split operations resolve cleanly", async () => {
+  const { clientEntryEvidence, resolvedCommandBindings, technicalPortEvidence } = await import(
+    "../authorization-source-proof.mjs"
+  );
+  const tool = "tools/bench-table-demo.mjs";
+  const toolBody = [
+    '/// <reference types="node" />',
+    'import { execFileSync } from "node:child_process";',
+    "function invoke(metric, argv) {",
+    '  return execFileSync("node", ["packages/cli/src/index.ts", ...argv], { encoding: "utf8" });',
+    "}",
+    "const commandTable = [",
+    '  ["task-create", (c) => ["task", "create", "--title", c.title]],',
+    '  ["entity-import~adr", (c) => ["entity", "import", "--kind", "adr", "--locator", c.loc]],',
+    "];",
+    "export function runLoop(c, argv) {",
+    "  for (const [metric, build] of commandTable) {",
+    "    invoke(metric, build(c));",
+    "  }",
+    '  invoke("capabilities", ["capabilities"]);',
+    '  invoke("events-tail", ["events", "tail"]);',
+    '  invoke("entity-import", ["entity", "import", ...argv.slice(2)]);',
+    "}",
+  ].join("\n");
+  const { rootDir } = makeRepo({ [tool]: toolBody });
+  symlinkSync(realpathSync(path.join(repoRoot, "node_modules")), path.join(rootDir, "node_modules"), "dir");
+  const graph = buildFlowGraph(rootDir, { sourceFiles: [tool] });
+  const sources = scanOntologyText(tool, toolBody)
+    .filter((row) => row.category === "action")
+    .map((row) => ({ candidateId: row.id }));
+  const nodes = [...sourceWitnesses(graph, sources).values()];
+  const loopNode = nodes.find((node) => node.getText().includes("invoke(metric, build(c))"));
+  const capNode = nodes.find((node) => node.getText().includes('invoke("capabilities"'));
+  const tailNode = nodes.find((node) => node.getText().includes('invoke("events-tail"'));
+  const importNode = nodes.find((node) => node.getText().includes('invoke("entity-import"'));
+  assert.ok(loopNode && capNode && tailNode && importNode);
+
+  const descriptors = [
+    { id: "task-create", path: ["task", "create"] },
+    { id: "entity-import", path: ["entity", "import"], commandClass: "repo-write" },
+  ];
+  const buildAction = {
+    kind: "package-assets-build",
+    ontology: { owner: "distribution", technical: true, authority: "package-script" },
+    receiptSettlement: "none",
+  };
+  const importAction = { kind: "entity-import", executionClass: "repo-write", ontology: {} };
+  const readAction = { kind: "repository-read", executionClass: "repo-read", ontology: {} };
+  const invokePort = `${tool}#invoke`;
+
+  const loopBinding = resolvedCommandBindings(graph, loopNode, descriptors);
+  assert.equal(Object.hasOwn(loopBinding, "matrixTable"), false);
+  assert.deepEqual(loopBinding, { descriptors: [], targetsCliEntry: true, helpOnly: false });
+  assert.equal(
+    technicalPortEvidence(
+      graph,
+      loopNode,
+      { role: "technical-port", route: "package-assets-build", port: invokePort },
+      buildAction,
+      descriptors,
+    ),
+    null,
+  );
+  assert.ok(
+    technicalPortEvidence(
+      graph,
+      capNode,
+      { role: "technical-port", route: "package-assets-build", port: invokePort },
+      buildAction,
+      descriptors,
+    ),
+  );
+  assert.ok(
+    clientEntryEvidence(
+      graph,
+      tailNode,
+      { role: "client", route: "events-tail", port: invokePort },
+      readAction,
+      descriptors,
+    ),
+  );
+  assert.ok(
+    clientEntryEvidence(
+      graph,
+      importNode,
+      { role: "client", route: "entity-import", port: invokePort },
+      importAction,
+      descriptors,
+    ),
+  );
+});

@@ -197,9 +197,27 @@ function withReceipt(result) {
   return { ...result, receipt: lastReceipt(result.stdout ?? "") };
 }
 
+function invokeMeasuredCommand(fixture, commandId, sampleId) {
+  switch (commandId) {
+    case NOOP_ID:
+      return invoke(fixture, ["--help"]);
+    case "task-list":
+      return invoke(fixture, ["--json", "task", "list"]);
+    case "task-show":
+      return invoke(fixture, ["--json", "task", "show", PROBE_TASK]);
+    case "doc-status":
+      return invoke(fixture, ["--json", "doc", "status"]);
+    case "agenda-read":
+      return invoke(fixture, ["--json", "agenda"]);
+    case "fact-record":
+      return invoke(fixture, factRecordArgv(sampleId));
+    default:
+      throw new Error(`Unsupported measured command: ${commandId}`);
+  }
+}
+
 function sample(fixture, command, sampleId) {
-  const argv = command.argv ?? factRecordArgv(sampleId),
-    result = invoke(fixture, argv);
+  const result = invokeMeasuredCommand(fixture, command.id, sampleId);
   if (result.status !== 0) throw new Error(`${command.id} exited ${result.status}: ${failureDetail(result)}`);
   if (!result.record)
     throw new Error(
@@ -224,14 +242,14 @@ function measure(fixture, options) {
           // Alternating arm order inside each round keeps a scheduler pause from landing on the
           // same arm every time; medians then absorb it into one sample, not the verdict.
           first = (round + index) % 2 === 0,
-          run = () => record(command, sample(fixture, command, sampleId)),
-          runNoop = () => record(MEASURED_COMMANDS[0], sample(fixture, MEASURED_COMMANDS[0], sampleId));
+          sampleMeasured = () => record(command, sample(fixture, command, sampleId)),
+          sampleNoop = () => record(MEASURED_COMMANDS[0], sample(fixture, MEASURED_COMMANDS[0], sampleId));
         if (first) {
-          run();
-          runNoop();
+          sampleMeasured();
+          sampleNoop();
         } else {
-          runNoop();
-          run();
+          sampleNoop();
+          sampleMeasured();
         }
       }
     }

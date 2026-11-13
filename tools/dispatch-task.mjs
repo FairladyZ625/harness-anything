@@ -81,6 +81,7 @@ function receiptText(receipt, field, step) {
   return value;
 }
 
+/** @param {{ cwd?: string, workspaceRoot?: string, run?: ReturnType<typeof subprocessRunner> }} [dependencies] */
 export function runDispatch(input, dependencies = {}) {
   const callerCwd = dependencies.cwd ?? process.cwd();
   const workspaceRoot = dependencies.workspaceRoot ?? findWorkspaceRoot();
@@ -90,10 +91,10 @@ export function runDispatch(input, dependencies = {}) {
   const promptFile = input.promptFile === undefined ? undefined : path.resolve(callerCwd, input.promptFile);
   if (promptFile !== undefined) readFileSync(promptFile, "utf8");
 
-  const run = dependencies.run ?? subprocessRunner({ cwd: workspaceRoot });
+  const executeStep = dependencies.run ?? subprocessRunner({ cwd: workspaceRoot });
   const steps = [];
   const invoke = (step, args) => {
-    const result = run({ step, args });
+    const result = executeStep({ step, args });
     steps.push({ step, command: result.command, receipt: result.receipt });
     return result.receipt;
   };

@@ -99,22 +99,24 @@ export async function runCliPackageSmoke(root = process.cwd()) {
       chmodSync(deniedRoot, 0o555);
       try {
         const failClosedStarted = performance.now(),
-          failedStart = runJson(
-            binPath,
-            [
-              "--root",
+          failedStart = parseJsonReceipt(
+            run(
+              binPath,
+              [
+                "--root",
+                projectDir,
+                "--json",
+                "init",
+                "--repo-id",
+                "smoke",
+                "--person-id",
+                "owner",
+                "--display-name",
+                "Owner",
+              ],
               projectDir,
-              "--json",
-              "init",
-              "--repo-id",
-              "smoke",
-              "--person-id",
-              "owner",
-              "--display-name",
-              "Owner",
-            ],
-            projectDir,
-            env(path.join(deniedRoot, "user"), home),
+              env(path.join(deniedRoot, "user"), home),
+            ),
           );
         unstartableMs = performance.now() - failClosedStarted;
         assertUnstartableDaemonFailedClosed(failedStart, existsSync(path.join(projectDir, "harness")));
@@ -134,11 +136,8 @@ export async function runCliPackageSmoke(root = process.cwd()) {
     }
     identity = await smokeIdentity(tempRoot, "smoke");
     identity.configure(userRoot);
-    const daemonStart = runJson(
-      binPath,
-      ["--root", projectDir, "--json", "daemon", "start", "--service"],
-      projectDir,
-      env(userRoot, home),
+    const daemonStart = parseJsonReceipt(
+      run(binPath, ["--root", projectDir, "--json", "daemon", "start", "--service"], projectDir, env(userRoot, home)),
     );
     started = daemonStart.status === 0 && daemonStart.receipt?.ok === true;
     if (!started) {
@@ -147,70 +146,76 @@ export async function runCliPackageSmoke(root = process.cwd()) {
     }
     expectOk(daemonStart, "daemon start");
     identity.prepare((args, input) =>
-      runJson(binPath, ["--root", projectDir, "--json", ...args], projectDir, env(userRoot, home), input),
+      parseJsonReceipt(run(binPath, ["--root", projectDir, "--json", ...args], projectDir, env(userRoot, home), input)),
     );
     const initialized = expectOk(
-      runJson(
-        binPath,
-        [
-          "--root",
+      parseJsonReceipt(
+        run(
+          binPath,
+          [
+            "--root",
+            projectDir,
+            "--json",
+            "init",
+            "--repo-id",
+            "smoke",
+            "--person-id",
+            "owner",
+            "--display-name",
+            "Owner",
+          ],
           projectDir,
-          "--json",
-          "init",
-          "--repo-id",
-          "smoke",
-          "--person-id",
-          "owner",
-          "--display-name",
-          "Owner",
-        ],
-        projectDir,
-        env(userRoot, home),
+          env(userRoot, home),
+        ),
       ),
       "init",
     );
     if (initialized.repoId !== "smoke" || !existsSync(path.join(projectDir, "harness/harness.yaml")))
       throw new Error(`unexpected init receipt: ${JSON.stringify(initialized)}`);
     const created = expectOk(
-      runJson(
-        binPath,
-        [
-          "--root",
+      parseJsonReceipt(
+        run(
+          binPath,
+          [
+            "--root",
+            projectDir,
+            "--json",
+            "task",
+            "create",
+            "--id",
+            "task-smoke",
+            "--admin",
+            "--title",
+            "Smoke Task",
+            "--preset",
+            "docs-task",
+          ],
           projectDir,
-          "--json",
-          "task",
-          "create",
-          "--id",
-          "task-smoke",
-          "--admin",
-          "--title",
-          "Smoke Task",
-          "--preset",
-          "docs-task",
-        ],
-        projectDir,
-        env(userRoot, home),
+          env(userRoot, home),
+        ),
       ),
       "task create",
     );
     // Writes return at durable acceptance; the package directory appears once both followers publish it.
     expectOk(
-      runJson(
-        binPath,
-        [
-          "--root",
+      parseJsonReceipt(
+        run(
+          binPath,
+          [
+            "--root",
+            projectDir,
+            "--json",
+            "receipt",
+            "show",
+            String(created.opId),
+            "--wait",
+            "git_verified,worktree_visible",
+            "--timeout-ms",
+            "5000",
+          ],
           projectDir,
-          "--json",
-          "receipt",
-          "show",
-          String(created.opId),
-          "--wait",
-          "git_verified,worktree_visible",
-          "--timeout-ms",
-          "5000",
-        ],
-        projectDir,
-        env(userRoot, home),
+          env(userRoot, home),
+        ),
       ),
       "receipt show",
     );
@@ -219,24 +224,30 @@ export async function runCliPackageSmoke(root = process.cwd()) {
     const planPath = `${String(created.workspacePackagePath)}/task_plan.md`;
     writeFileSync(path.join(projectDir, planPath), realizedTaskPlan("Smoke Task"));
     expectOk(
-      runJson(
-        binPath,
-        ["--root", projectDir, "--json", "doc", "sync", "--submit", "--path", planPath],
-        projectDir,
-        env(userRoot, home),
+      parseJsonReceipt(
+        run(
+          binPath,
+          ["--root", projectDir, "--json", "doc", "sync", "--submit", "--path", planPath],
+          projectDir,
+          env(userRoot, home),
+        ),
       ),
       "task plan submit",
     );
     expectOk(
-      runJson(binPath, ["--root", projectDir, "--json", "task", "show", "task-smoke"], projectDir, env(userRoot, home)),
+      parseJsonReceipt(
+        run(binPath, ["--root", projectDir, "--json", "task", "show", "task-smoke"], projectDir, env(userRoot, home)),
+      ),
       "task show",
     );
     expectOk(
-      runJson(
-        binPath,
-        ["--root", projectDir, "--json", "task", "start", "task-smoke", "--execution-id", "execution-smoke"],
-        projectDir,
-        env(userRoot, home),
+      parseJsonReceipt(
+        run(
+          binPath,
+          ["--root", projectDir, "--json", "task", "start", "task-smoke", "--execution-id", "execution-smoke"],
+          projectDir,
+          env(userRoot, home),
+        ),
       ),
       "task start",
     );
@@ -248,11 +259,13 @@ export async function runCliPackageSmoke(root = process.cwd()) {
     );
     const artifactPath = `${String(created.workspacePackagePath)}/artifacts/smoke.md`;
     const artifactSync = expectOk(
-      runJson(
-        binPath,
-        ["--root", projectDir, "--json", "doc", "sync", "--submit", "--task", "task-smoke"],
-        projectDir,
-        env(userRoot, home),
+      parseJsonReceipt(
+        run(
+          binPath,
+          ["--root", projectDir, "--json", "doc", "sync", "--submit", "--task", "task-smoke"],
+          projectDir,
+          env(userRoot, home),
+        ),
       ),
       "smoke artifact submit",
     );
@@ -264,26 +277,29 @@ export async function runCliPackageSmoke(root = process.cwd()) {
         "## Same Mechanism Elsewhere\n\nThe installed ha alias uses the same lifecycle entry point.\n",
     );
     expectOk(
-      runJson(
-        binPath,
-        ["--root", projectDir, "--json", "task", "submit", "task-smoke"],
-        projectDir,
-        env(userRoot, home),
+      parseJsonReceipt(
+        run(binPath, ["--root", projectDir, "--json", "task", "submit", "task-smoke"], projectDir, env(userRoot, home)),
       ),
       "task submit",
     );
     expectOk(
-      runJson(binPath, ["--root", projectDir, "--json", "daemon", "status"], projectDir, env(userRoot, home)),
+      parseJsonReceipt(
+        run(binPath, ["--root", projectDir, "--json", "daemon", "status"], projectDir, env(userRoot, home)),
+      ),
       "daemon status",
     );
     expectOk(
-      runJson(binPath, ["--root", projectDir, "--json", "daemon", "stop"], projectDir, env(userRoot, home)),
+      parseJsonReceipt(
+        run(binPath, ["--root", projectDir, "--json", "daemon", "stop"], projectDir, env(userRoot, home)),
+      ),
       "daemon stop",
     );
     started = false;
     // An explicit operator stop sticks: a plain repository command is refused by name
     // instead of resurrecting the daemon (the cold-migration single-writer window).
-    const refused = runJson(binPath, ["--root", projectDir, "--json", "task", "list"], projectDir, env(userRoot, home));
+    const refused = parseJsonReceipt(
+      run(binPath, ["--root", projectDir, "--json", "task", "list"], projectDir, env(userRoot, home)),
+    );
     if (refused.status === 0 || refused.receipt?.ok !== false || refused.receipt?.code !== "daemon_stopped_by_operator")
       throw new Error(
         `task list after an explicit stop must be refused with daemon_stopped_by_operator: ${JSON.stringify(refused)}`,
@@ -291,11 +307,8 @@ export async function runCliPackageSmoke(root = process.cwd()) {
     if (existsSync(path.join(userRoot, "daemon-default.pid")))
       throw new Error("explicit stop was not sticky: a daemon pid appeared after the refused command");
     expectOk(
-      runJson(
-        binPath,
-        ["--root", projectDir, "--json", "daemon", "start", "--service"],
-        projectDir,
-        env(userRoot, home),
+      parseJsonReceipt(
+        run(binPath, ["--root", projectDir, "--json", "daemon", "start", "--service"], projectDir, env(userRoot, home)),
       ),
       "daemon start after operator stop",
     );
@@ -314,12 +327,14 @@ export async function runCliPackageSmoke(root = process.cwd()) {
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
     }
     expectOk(
-      runJson(binPath, ["--root", projectDir, "--json", "task", "list"], projectDir, env(userRoot, home)),
+      parseJsonReceipt(run(binPath, ["--root", projectDir, "--json", "task", "list"], projectDir, env(userRoot, home))),
       "task list after auto-start",
     );
     started = true;
     expectOk(
-      runJson(binPath, ["--root", projectDir, "--json", "daemon", "stop"], projectDir, env(userRoot, home)),
+      parseJsonReceipt(
+        run(binPath, ["--root", projectDir, "--json", "daemon", "stop"], projectDir, env(userRoot, home)),
+      ),
       "daemon stop after auto-start",
     );
     started = false;
@@ -420,8 +435,7 @@ export function assertUnstartableDaemonFailedClosed(result, harnessExists) {
     throw new Error(`unexpected unstartable-daemon code: ${String(code)}; ${detail}`);
   if (harnessExists) throw new Error(`unstartable-daemon created harness before failing: ${detail}`);
 }
-function runJson(command, args, cwd, environment, input) {
-  const result = run(command, args, cwd, environment, input);
+function parseJsonReceipt(result) {
   let receipt;
   try {
     receipt = lastReceipt(result.stdout);

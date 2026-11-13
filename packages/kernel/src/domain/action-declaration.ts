@@ -19,8 +19,8 @@ export const actionPresentation = {
   },
   "package-assets-build": {
     domain: "distribution",
-    name: "构建包资产",
-    description: "由包声明的构建脚本更新本包 dist 资产。",
+    name: "运行包与仓库工具脚本",
+    description: "包构建脚本更新本包 dist 资产；仓库根 tools/ 脚本在调用者进程内产生本地技术效果。",
   },
   "todo-add": { domain: "todo", name: "添加待办", description: "记录一句话待办。" },
   "todo-done": { domain: "todo", name: "完成待办", description: "勾选完成并收起。" },

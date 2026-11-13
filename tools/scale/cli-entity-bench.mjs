@@ -44,7 +44,7 @@ async function main() {
   const { openSqliteEventStore } = await import("../../packages/storage/src/store/sqlite-event-store.ts");
   mkdirSync(args.out, { recursive: true });
   const started = Date.now(),
-    f = fixture(args.seed, { daemonId: "scale-bench", frames: false }),
+    f = await fixture(args.seed, { daemonId: "scale-bench", frames: false }),
     n = args.tasks,
     writes = [],
     rpcRows = [],
@@ -151,6 +151,248 @@ async function main() {
       };
     }
     const context = benchContext(f, n, writes, args.samples);
+    const invokeReadBenchCommand = (commandId, metric, argv, callOptions) => {
+      const runRead = (prefix) => f.invoke(metric, [...prefix, ...argv.slice(prefix.length)], callOptions);
+      switch (commandId) {
+        case "task-show":
+          return runRead(["task", "show"]);
+        case "task-read-set":
+          return runRead(["task", "read-set"]);
+        case "task-dispatches":
+          return runRead(["task", "dispatches"]);
+        case "receipt-show":
+          return runRead(["receipt", "show"]);
+        case "doc-status":
+          return runRead(["doc", "status"]);
+        case "doc-sync-dry-run":
+          return runRead(["doc", "sync", "--dry-run"]);
+        case "doc-show":
+          return runRead(["doc", "show"]);
+        case "task-review":
+          return runRead(["task", "review"]);
+        case "task-list":
+          return runRead(["task", "list"]);
+        case "agenda":
+          return runRead(["agenda"]);
+        case "fact-show":
+          return runRead(["fact", "show"]);
+        case "fact-type-list":
+          return runRead(["fact", "type", "list"]);
+        case "decision-show":
+          return runRead(["decision", "show"]);
+        case "decision-list":
+          return runRead(["decision", "list"]);
+        case "decision-validate":
+          return runRead(["decision", "validate"]);
+        case "decision-verify":
+          return runRead(["decision", "verify"]);
+        case "relation-list":
+          return runRead(["relation", "list"]);
+        case "entity-get":
+          return runRead(["entity", "get"]);
+        case "entity-list":
+          return runRead(["entity", "list"]);
+        case "explain":
+          return runRead(["explain"]);
+        case "agent-validate":
+          return runRead(["agent", "validate"]);
+        case "agent-list":
+          return runRead(["agent", "list"]);
+        case "agent-inspect":
+          return runRead(["agent", "inspect"]);
+        case "squad-validate":
+          return runRead(["squad", "validate"]);
+        case "squad-list":
+          return runRead(["squad", "list"]);
+        case "squad-inspect":
+          return runRead(["squad", "inspect"]);
+        case "runtime-status":
+          return runRead(["runtime", "status"]);
+        case "schedule-list":
+          return runRead(["schedule", "list"]);
+        case "schedule-show":
+          return runRead(["schedule", "show"]);
+        case "schedule-runs":
+          return runRead(["schedule", "runs"]);
+        case "settings-read":
+          return runRead(["settings", "read"]);
+        case "vertical-validate":
+          return runRead(["vertical", "validate"]);
+        case "preset-list":
+          return runRead(["preset", "list"]);
+        case "preset-inspect":
+          return runRead(["preset", "inspect"]);
+        case "preset-check":
+          return runRead(["preset", "check"]);
+        case "preset-audit":
+          return runRead(["preset", "audit"]);
+        case "preset-validate":
+          return runRead(["preset", "validate"]);
+        case "template-list":
+          return runRead(["template", "list"]);
+        case "template-render":
+          return runRead(["template", "render"]);
+        case "script-list":
+          return runRead(["script", "list"]);
+        case "script-inspect":
+          return runRead(["script", "inspect"]);
+        case "ledger-reconcile":
+          return runRead(["ledger", "reconcile"]);
+        case "daemon-status":
+          return runRead(["daemon", "status"]);
+        case "events-tail":
+          return runRead(["events", "tail"]);
+        default:
+          return undefined;
+      }
+    };
+    const invokeBenchCommand = (metric, argv, callOptions) => {
+      const commandId = metric.split("~", 1)[0];
+      const readReceipt = invokeReadBenchCommand(commandId, metric, argv, callOptions);
+      if (readReceipt !== undefined) return readReceipt;
+      switch (commandId) {
+        case "version":
+          return f.invoke(metric, ["--version"], callOptions);
+        case "help":
+          return f.invoke(metric, ["--help"], callOptions);
+        case "capabilities":
+          return f.invoke(metric, ["capabilities"], callOptions);
+        case "task-create":
+          return f.invoke(metric, ["task", "create", ...argv.slice(2)], callOptions);
+        case "task-amend":
+          return f.invoke(metric, ["task", "amend", ...argv.slice(2)], callOptions);
+        case "task-pin":
+          return f.invoke(metric, ["task", "pin", ...argv.slice(2)], callOptions);
+        case "task-unpin":
+          return f.invoke(metric, ["task", "unpin", ...argv.slice(2)], callOptions);
+        case "doc-sync-submit":
+          return f.invoke(metric, ["doc", "sync", "--submit", ...argv.slice(3)], callOptions);
+        case "task-start":
+          return f.invoke(metric, ["task", "start", ...argv.slice(2)], callOptions);
+        case "task-progress-append":
+          return f.invoke(metric, ["task", "progress", "append", ...argv.slice(3)], callOptions);
+        case "task-artifact-add":
+          return f.invoke(metric, ["task", "artifact", "add", ...argv.slice(3)], callOptions);
+        case "fact-record":
+          return f.invoke(metric, ["fact", "record", ...argv.slice(2)], callOptions);
+        case "task-submit":
+          return f.invoke(metric, ["task", "submit", ...argv.slice(2)], callOptions);
+        case "task-review-execution":
+          return f.invoke(metric, ["task", "review-execution", ...argv.slice(2)], callOptions);
+        case "task-review-consent":
+          return f.invoke(metric, ["task", "review-consent", ...argv.slice(2)], callOptions);
+        case "task-complete":
+          return f.invoke(metric, ["task", "complete", ...argv.slice(2)], callOptions);
+        case "task-release":
+          return f.invoke(metric, ["task", "release", ...argv.slice(2)], callOptions);
+        case "task-transition":
+          return f.invoke(metric, ["task", "transition", ...argv.slice(2)], callOptions);
+        case "task-declare-executor":
+          return f.invoke(metric, ["task", "declare-executor", ...argv.slice(2)], callOptions);
+        case "task-archive":
+          return f.invoke(metric, ["task", "archive", ...argv.slice(2)], callOptions);
+        case "task-reopen":
+          return f.invoke(metric, ["task", "reopen", ...argv.slice(2)], callOptions);
+        case "task-supersede":
+          return f.invoke(metric, ["task", "supersede", ...argv.slice(2)], callOptions);
+        case "task-delete":
+          return f.invoke(metric, ["task", "delete", ...argv.slice(2)], callOptions);
+        case "task-contract-migrate":
+          return f.invoke(metric, ["task", "contract", "migrate", ...argv.slice(3)], callOptions);
+        case "fact-type-register":
+          return f.invoke(metric, ["fact", "type", "register", ...argv.slice(3)], callOptions);
+        case "fact-reclassify":
+          return f.invoke(metric, ["fact", "reclassify", ...argv.slice(2)], callOptions);
+        case "distill-candidate":
+          return f.invoke(metric, ["distill", "candidate", ...argv.slice(2)], callOptions);
+        case "distill-promote":
+          return f.invoke(metric, ["distill", "promote", ...argv.slice(2)], callOptions);
+        case "decision-propose":
+          return f.invoke(metric, ["decision", "propose", ...argv.slice(2)], callOptions);
+        case "decision-amend":
+          return f.invoke(metric, ["decision", "amend", ...argv.slice(2)], callOptions);
+        case "decision-claim-add":
+          return f.invoke(metric, ["decision", "claim", "add", ...argv.slice(3)], callOptions);
+        case "decision-reckon":
+          return f.invoke(metric, ["decision", "reckon", ...argv.slice(2)], callOptions);
+        case "relation-relate":
+          return f.invoke(metric, ["relation", "relate", ...argv.slice(2)], callOptions);
+        case "decision-accept":
+          return f.invoke(metric, ["decision", "accept", ...argv.slice(2)], callOptions);
+        case "decision-claim-fulfill":
+          return f.invoke(metric, ["decision", "claim", "fulfill", ...argv.slice(3)], callOptions);
+        case "decision-transition":
+          return f.invoke(metric, ["decision", "transition", ...argv.slice(2)], callOptions);
+        case "decision-defer":
+          return f.invoke(metric, ["decision", "defer", ...argv.slice(2)], callOptions);
+        case "decision-reject":
+          return f.invoke(metric, ["decision", "reject", ...argv.slice(2)], callOptions);
+        case "decision-retire":
+          return f.invoke(metric, ["decision", "retire", ...argv.slice(2)], callOptions);
+        case "decision-repin":
+          return f.invoke(metric, ["decision", "repin", ...argv.slice(2)], callOptions);
+        case "relation-reconfirm":
+          return f.invoke(metric, ["relation", "reconfirm", ...argv.slice(2)], callOptions);
+        case "relation-unrelate":
+          return f.invoke(metric, ["relation", "unrelate", ...argv.slice(2)], callOptions);
+        case "entity-import":
+          return f.invoke(metric, ["entity", "import", ...argv.slice(2)], callOptions);
+        case "entity-update":
+          return f.invoke(metric, ["entity", "update", ...argv.slice(2)], callOptions);
+        case "entity-archive":
+          return f.invoke(metric, ["entity", "archive", ...argv.slice(2)], callOptions);
+        case "entity-delete":
+          return f.invoke(metric, ["entity", "delete", ...argv.slice(2)], callOptions);
+        case "agent-install":
+          return f.invoke(metric, ["agent", "install", ...argv.slice(2)], callOptions);
+        case "squad-install":
+          return f.invoke(metric, ["squad", "install", ...argv.slice(2)], callOptions);
+        case "runtime-instance-create":
+          return f.invoke(metric, ["runtime", "instance", "create", ...argv.slice(3)], callOptions);
+        case "runtime-instance-list":
+          return f.invoke(metric, ["runtime", "instance", "list", ...argv.slice(3)], callOptions);
+        case "runtime-instance-show":
+          return f.invoke(metric, ["runtime", "instance", "show", ...argv.slice(3)], callOptions);
+        case "runtime-instance-update":
+          return f.invoke(metric, ["runtime", "instance", "update", ...argv.slice(3)], callOptions);
+        case "schedule-create":
+          return f.invoke(metric, ["schedule", "create", ...argv.slice(2)], callOptions);
+        case "schedule-update":
+          return f.invoke(metric, ["schedule", "update", ...argv.slice(2)], callOptions);
+        case "schedule-disable":
+          return f.invoke(metric, ["schedule", "disable", ...argv.slice(2)], callOptions);
+        case "schedule-delete":
+          return f.invoke(metric, ["schedule", "delete", ...argv.slice(2)], callOptions);
+        case "runtime-instance-delete":
+          return f.invoke(metric, ["runtime", "instance", "delete", ...argv.slice(3)], callOptions);
+        case "agent-delete":
+          return f.invoke(metric, ["agent", "delete", ...argv.slice(2)], callOptions);
+        case "squad-delete":
+          return f.invoke(metric, ["squad", "delete", ...argv.slice(2)], callOptions);
+        case "settings-update":
+          return f.invoke(metric, ["settings", "update", ...argv.slice(2)], callOptions);
+        case "vertical-declaration-migrate":
+          return f.invoke(metric, ["migrate", "vertical-declaration", ...argv.slice(2)], callOptions);
+        case "preset-install":
+          return f.invoke(metric, ["preset", "install", ...argv.slice(2)], callOptions);
+        case "preset-seed":
+          return f.invoke(metric, ["preset", "seed", ...argv.slice(2)], callOptions);
+        case "preset-uninstall":
+          return f.invoke(metric, ["preset", "uninstall", ...argv.slice(2)], callOptions);
+        case "preset-upgrade":
+          return f.invoke(metric, ["preset", "upgrade", ...argv.slice(2)], callOptions);
+        case "doc-materialize":
+          return f.invoke(metric, ["doc", "materialize", ...argv.slice(2)], callOptions);
+        case "doc-retire":
+          return f.invoke(metric, ["doc", "retire", ...argv.slice(2)], callOptions);
+        case "backup":
+          return f.invoke(metric, ["backup", ...argv.slice(1)], callOptions);
+        case "restore-drill":
+          return f.invoke(metric, ["restore", "--drill", ...argv.slice(2)], callOptions);
+        default:
+          throw new Error(`unmapped cli-entity-bench command: ${metric}`);
+      }
+    };
     // CLI arm: every mapped registry command, --samples real processes each, in table order.
     const cliStart = f.rows.length;
     for (const [metric, build, options = {}] of commandTable) {
@@ -163,7 +405,7 @@ async function main() {
           f.rows.push({ metric, s, arm: "cli", buildError: error.message, wallMs: null });
           continue;
         }
-        const receipt = f.invoke(metric, argv, { requireSuccess: false, timeoutMs: 600_000, ...options });
+        const receipt = invokeBenchCommand(metric, argv, { requireSuccess: false, timeoutMs: 600_000, ...options });
         Object.assign(f.rows.at(-1), { s, arm: "cli", expect: context.takeExpect() });
         context.got.set(`${metric}#${s}`, receipt);
       }
@@ -184,11 +426,20 @@ async function main() {
         "cli8:fact-record",
         Array.from({ length: args.clients }, (_, client) => factOp(f, n, `cli8-${round}-${client}`)),
         writes,
+        (op) =>
+          spawn(process.execPath, [cli, "--root", f.root, "--json", "fact", "record", ...op.argv.slice(2)], {
+            env: f.env,
+          }),
       );
       await concurrentCli(
         f,
         "cli8:task-show",
         Array.from({ length: args.clients }, (_, client) => ({ argv: ["task", "show", taskId(client % n)] })),
+        undefined,
+        (op, client) =>
+          spawn(process.execPath, [cli, "--root", f.root, "--json", "task", "show", taskId(client % n)], {
+            env: f.env,
+          }),
       );
     }
     snap("measured");
@@ -328,6 +579,7 @@ async function readMetrics() {
 }
 
 // Same exit test as the calibration fixture's close(): an empty cmdline is a zombie, a foreign one a reused pid.
+/** @param {Awaited<ReturnType<typeof fixture>>} f */
 async function stopDaemon(f) {
   const stopped = f.invoke("daemon-stop", ["daemon", "stop"], { requireSuccess: false, timeoutMs: 600_000 }),
     alive = () => {
@@ -341,13 +593,13 @@ async function stopDaemon(f) {
     await new Promise((resolve) => setTimeout(resolve, 50));
 }
 
-function concurrentCli(f, metric, ops, writes) {
+function concurrentCli(f, metric, ops, writes, launchChild) {
   return Promise.all(
     ops.map(
       (op, client) =>
         new Promise((resolve) => {
           const at = performance.now(),
-            child = spawn(process.execPath, [cli, "--root", f.root, "--json", ...op.argv], { env: f.env });
+            child = launchChild(op, client);
           let stdout = "";
           child.stdout.on("data", (chunk) => (stdout += chunk));
           child.stderr.resume();

@@ -133,6 +133,26 @@ export function loadCatalogSnapshot(rootDir, fixture = null) {
   return JSON.parse(runTypeScriptProbe(modulePath, script, declarationPath));
 }
 
+export function withArtifactActionIngressDeclarations(rootDir, actionDeclarations, artifactIngressKinds = []) {
+  if (!Array.isArray(actionDeclarations)) return actionDeclarations;
+  const seen = new Set(actionDeclarations.map((action) => action.kind));
+  const facetsPath = path.join(rootDir, "packages/kernel/src/domain/action-source-facets.json");
+  const facets = existsSync(facetsPath) ? JSON.parse(readFileSync(facetsPath, "utf8")) : {};
+  const projected = [];
+  for (const kind of artifactIngressKinds) {
+    if (seen.has(kind)) continue;
+    const facet = facets[kind];
+    if (!facet?.sources?.length) continue;
+    seen.add(kind);
+    projected.push({
+      kind,
+      executionClass: "repo-write",
+      ontology: { owner: facet.owner ?? "entity", sources: facet.sources },
+    });
+  }
+  return projected.length > 0 ? [...actionDeclarations, ...projected] : actionDeclarations;
+}
+
 export function loadOntologyClosureSnapshot(rootDir) {
   const modules = ["entity-kind-registry.ts", "action-declaration.ts"].map((file) =>
     path.join(rootDir, "packages/kernel/src/domain", file),
@@ -141,10 +161,15 @@ export function loadOntologyClosureSnapshot(rootDir) {
     "const [registry, actions] = await Promise.all(process.argv.slice(1, 3).map((url) => import(url)));",
     "process.stdout.write(JSON.stringify({",
     "  actions: actions.actionDeclarations,",
+    "  artifactIngressKinds: actions.artifactActionIngressKinds ?? [],",
     "  kinds: registry.entityKindContracts.map(({ kind, judgments, sourceContracts, policies, ontologyExemptions }) => ({ kind, judgments, sourceContracts, policies, ontologyExemptions })),",
     "}));",
   ].join("\n");
-  return JSON.parse(runTypeScriptProbe(modules[0], script, modules[1]));
+  const raw = JSON.parse(runTypeScriptProbe(modules[0], script, modules[1]));
+  return {
+    actions: withArtifactActionIngressDeclarations(rootDir, raw.actions, raw.artifactIngressKinds),
+    kinds: raw.kinds,
+  };
 }
 
 /**

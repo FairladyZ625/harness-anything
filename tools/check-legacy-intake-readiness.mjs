@@ -318,6 +318,7 @@ export function collectGitIgnoredFiles(root, files, options = {}) {
   return ignored;
 }
 
+/** @param {typeof spawnSync} run */
 function runGitCheckIgnoreChunk(run, root, chunk, options) {
   const input = `${chunk.join("\0")}\0`;
   // Tests inject spawnSync and assert on the passed input; honor that path directly.
