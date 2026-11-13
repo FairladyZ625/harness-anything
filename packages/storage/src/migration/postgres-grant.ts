@@ -47,6 +47,7 @@ export async function createMigrationGrant(
     );
     await client.query(`GRANT USAGE ON SCHEMA public TO "${role}"`);
     await client.query(`GRANT SELECT ON ha_migration_grants, ${tables.join(",")} TO "${role}"`);
+    await client.query(`GRANT EXECUTE ON FUNCTION ha_is_lsn_sync_confirmed(pg_lsn) TO "${role}"`);
     await client.query(
       `CREATE POLICY "${role}" ON ha_migration_grants FOR SELECT TO "${role}" USING(role_name=session_user)`,
     );
@@ -87,6 +88,7 @@ export async function createMigrationGrant(
   return {
     pool,
     role,
+    runId,
     async close() {
       await pool.end();
       await withPostgresTransaction(admin, (client) => removeGrant(client, role));

@@ -10,6 +10,7 @@ export const POSTGRES_EVENT_LEDGER_TABLES = Object.freeze([
   "ha_document_heads",
   "ha_replication_positions",
   "ha_replication_slots",
+  "ha_repo_sync_watermarks",
 ] as const);
 
 /** Shared by cold ledger creation and the existing schema-owner read-index upgrade. */
@@ -98,6 +99,10 @@ export const POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS: readonly string[] = Object
   )`,
   `CREATE INDEX IF NOT EXISTS ha_command_outcomes_members_gin_idx
     ON ha_command_outcomes USING gin (member_op_ids)`,
+  `ALTER TABLE ha_command_outcomes ADD COLUMN IF NOT EXISTS replication_sequence bigint
+    CHECK (replication_sequence IS NULL OR replication_sequence >= 0)`,
+  `CREATE INDEX IF NOT EXISTS ha_command_outcomes_null_seq_idx
+    ON ha_command_outcomes (tenant_id,project_id,repo_id) WHERE replication_sequence IS NULL`,
   /* @gate-identity state-store/task.source.storage.src.postgres.event-ledger-schema.postgres-database */ `CREATE TABLE IF NOT EXISTS ha_content_blobs (
     tenant_id text NOT NULL,
     project_id text NOT NULL,
@@ -143,12 +148,52 @@ export const POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS: readonly string[] = Object
       REFERENCES ha_repo_heads (tenant_id, project_id, repo_id)
   )`,
   ...POSTGRES_STORAGE_MIGRATION_SCHEMA,
+  // dec_659E15CF expansion: retain the previous writer through the next schema contract step.
+  `CREATE OR REPLACE FUNCTION ha_stamp_outcome_replication_sequence() RETURNS trigger
+    LANGUAGE plpgsql SET search_path = public, pg_catalog, pg_temp AS $$ BEGIN
+      UPDATE ha_command_outcomes SET replication_sequence=NEW.sequence
+      WHERE tenant_id=NEW.tenant_id AND project_id=NEW.project_id AND repo_id=NEW.repo_id
+        AND op_id=NEW.last_op_id AND replication_sequence IS NULL;
+      RETURN NEW;
+    END $$`,
+  "DROP TRIGGER IF EXISTS trg_ha_stamp_outcome_replication_sequence ON ha_replication_positions",
+  `CREATE TRIGGER trg_ha_stamp_outcome_replication_sequence AFTER INSERT ON ha_replication_positions
+    FOR EACH ROW EXECUTE FUNCTION ha_stamp_outcome_replication_sequence()`,
+  /* @gate-identity state-store/task.source.storage.src.postgres.event-ledger-schema.postgres-database */ `CREATE UNLOGGED TABLE IF NOT EXISTS ha_repo_sync_watermarks (
+    tenant_id text NOT NULL, project_id text NOT NULL, repo_id text NOT NULL,
+    replication_history text NOT NULL,
+    confirmed_revision bigint NOT NULL CHECK (confirmed_revision >= 0),
+    confirmed_sequence bigint NOT NULL CHECK (confirmed_sequence >= 0),
+    ${scopeColumns()}, updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    PRIMARY KEY (tenant_id,project_id,repo_id)
+  )`,
+  `CREATE OR REPLACE FUNCTION ha_is_lsn_sync_confirmed(target_lsn pg_lsn) RETURNS boolean
+    LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+      SELECT CASE WHEN current_setting('synchronous_standby_names', true) = '' THEN true
+        ELSE EXISTS (SELECT 1 FROM pg_catalog.pg_stat_replication
+          WHERE state='streaming' AND sync_state IN ('sync','quorum') AND flush_lsn >= target_lsn)
+        END
+    $$`,
+  "REVOKE ALL ON FUNCTION ha_is_lsn_sync_confirmed(pg_lsn) FROM PUBLIC",
+  // Embedded and isolated schema fixtures need not create both login roles.
+  `DO $$ DECLARE role_name text; BEGIN
+    FOR role_name IN SELECT rolname FROM pg_roles WHERE rolname IN ('ha_runtime','ha_migrator') LOOP
+      EXECUTE format('GRANT EXECUTE ON FUNCTION ha_is_lsn_sync_confirmed(pg_lsn) TO %I', role_name);
+    END LOOP;
+  END $$`,
   /* @gate-identity state-store/task.source.storage.src.postgres.event-ledger-schema.postgres-database */ `CREATE TABLE IF NOT EXISTS ha_replication_slots (
     tenant_id text NOT NULL, project_id text NOT NULL, repo_id text NOT NULL, node_id text NOT NULL,
     fence bigint NOT NULL, history text NOT NULL, ack text, acked_at text,
     ${scopeColumns()}, PRIMARY KEY(tenant_id,project_id,repo_id,node_id)
   )`,
   ...POSTGRES_EVENT_LEDGER_TABLES.flatMap((tableName) => postgresScopeRlsStatements(tableName)),
+  // Expansion also covers pre-trigger outcomes. Unknown pruned positions require a WAL proof.
+  `UPDATE ha_command_outcomes o SET replication_sequence=p.sequence FROM ha_replication_positions p
+    WHERE o.tenant_id=p.tenant_id AND o.project_id=p.project_id AND o.repo_id=p.repo_id
+      AND o.op_id=p.last_op_id AND o.replication_sequence IS NULL`,
+  `WITH proof AS MATERIALIZED (SELECT ha_is_lsn_sync_confirmed(pg_current_wal_flush_lsn()) AS confirmed)
+    UPDATE ha_command_outcomes SET replication_sequence=0
+    WHERE replication_sequence IS NULL AND (SELECT confirmed FROM proof)`,
 ]);
 
 function scopeColumns(): string {

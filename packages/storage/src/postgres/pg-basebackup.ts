@@ -47,8 +47,8 @@ export async function prepareSqlBaseBackup(
           projectionSchema: taskProjectionSchemaVersion,
         };
       pinned(metadata);
-      const events = await pgEventRows(client, scope, input.repoId),
-        outcomes = await pgOutcomes(client, scope, input.repoId),
+      const events = await pgEventRows(client, scope, input.repoId, 0, position.revision),
+        outcomes = await pgOutcomes(client, scope, input.repoId, undefined, position.sequence),
         writer = (
           await client.query<{ writer_holder_id: string; writer_epoch: string }>(
             "SELECT writer_holder_id,writer_epoch FROM ha_repo_heads WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3",

@@ -649,6 +649,7 @@ const physicalSourceStoreRows = Object.freeze([
       "ha_document_heads",
       "ha_replication_positions",
       "ha_replication_slots",
+      "ha_repo_sync_watermarks",
     ],
   },
   {

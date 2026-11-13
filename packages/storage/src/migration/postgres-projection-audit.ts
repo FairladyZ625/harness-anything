@@ -78,5 +78,6 @@ export async function auditPgProjectionRows(
       await client.query(`DROP SCHEMA "${schema}" CASCADE`);
     },
     tuple.scope,
+    { rollbackOnly: () => true },
   );
 }

@@ -134,7 +134,7 @@ function inspectSource(root, rel, source, localAdapters) {
       const sql = sqlText(node, source);
       const scanSql = sql.replace(/--[^\n]*|\/\*[\s\S]*?\*\//gu, (comment) => " ".repeat(comment.length));
       const pattern =
-        /\bCREATE\s+(?:VIRTUAL\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?((?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[\w$]+|\$\{[^}]+\})(?:\s*\.\s*(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[\w$]+))?)/giu;
+        /\bCREATE\s+(?:(?:VIRTUAL|UNLOGGED)\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?((?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[\w$]+|\$\{[^}]+\})(?:\s*\.\s*(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[\w$]+))?)/giu;
       for (const match of scanSql.matchAll(pattern)) {
         const table = match[1]
           .replaceAll(/["`\s]/gu, "")
