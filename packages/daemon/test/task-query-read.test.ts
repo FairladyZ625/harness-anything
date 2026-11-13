@@ -19,6 +19,7 @@ import { readTaskWipSnapshot, wipSnapshotEntries, type TaskQueryCell } from "../
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import { blockingOf, submissionDigest } from "@harness-anything/kernel";
 import { makeTaskQueryReadModel } from "../src/task-query-read.ts";
+import { taskListQueryFromPayload } from "../src/repo-query-payload.ts";
 import { appendIncidentActionReceipt } from "../src/decision-incident-receipt.ts";
 import { openDispatchStream } from "../src/dispatch-stream.ts";
 import {
@@ -147,23 +148,67 @@ test("task control narrows graph, status, and decision reads to the selected lif
   assert.deepEqual(decisionCalls, [["dec_event"]]);
 });
 
-test("an unparameterized guiTasks read serves one default-bounded page, never the full ledger", () => {
+test("an unparameterized guiTasks read preserves the full list contract and page", () => {
   const listCalls: TaskProjectionListQuery[] = [],
+    indexCalls: TaskProjectionListQuery[] = [],
     projection = projectionStub({
       taskRows: Array.from({ length: 501 }, (_, index) =>
         protocolTaskRow(`task_page_${String(index).padStart(4, "0")}`),
       ),
       listCalls,
+      indexCalls,
     });
 
   const result = queryRead(process.cwd(), projection).guiTasks();
 
-  assert.equal(listCalls.length, 1);
-  assert.equal(listCalls[0]?.presentationStatus, true);
-  assert.equal(listCalls[0]?.decisionRelationsOnly, true);
+  assert.equal(indexCalls.length, 1);
+  assert.equal(indexCalls[0]?.presentationStatus, true);
+  assert.equal(indexCalls[0]?.decisionRelationsOnly, true);
+  assert.equal(indexCalls[0]?.activePackagesOnly, undefined);
   assert.equal(listCalls[0]?.taskIds?.length, 500);
   assert.equal(result.rows.length, 500);
   assert.deepEqual(result.page, { limit: 500, cursor: null, nextCursor: "task_page_0499" });
+});
+
+test("archive filtering is opt-in and delta pages keep using the narrow task index", () => {
+  const archived = protocolTaskRow("task_archived"),
+    taskRows = [
+      protocolTaskRow("task_active"),
+      {
+        ...archived,
+        snapshot: { ...archived.snapshot, task: { ...archived.snapshot.task!, packageDisposition: "archived" } },
+        workspaceRevision: 12,
+      },
+    ];
+  for (const activePackagesOnly of [undefined, false, true]) {
+    const listCalls: TaskProjectionListQuery[] = [],
+      indexCalls: TaskProjectionListQuery[] = [],
+      read = queryRead(process.cwd(), projectionStub({ taskRows, listCalls, indexCalls })),
+      filter = activePackagesOnly === undefined ? {} : { activePackagesOnly },
+      full = read.guiTasks({ ...filter, limit: 2 }),
+      delta = read.guiTasks({ ...filter, changedAfterRevision: 7, limit: 2 });
+    assert.deepEqual(
+      full.rows.map(({ taskId }) => taskId),
+      activePackagesOnly === true ? ["task_active"] : ["task_active", "task_archived"],
+    );
+    assert.deepEqual(
+      delta.rows.map(({ taskId }) => taskId),
+      activePackagesOnly === true ? [] : ["task_archived"],
+    );
+    assert.equal(indexCalls.length, 2);
+    assert.equal(indexCalls[1]?.changedAfterRevision, 7);
+    assert.equal(indexCalls[1]?.activePackagesOnly, activePackagesOnly);
+    assert.deepEqual(listCalls[1]?.taskIds, activePackagesOnly === true ? [] : ["task_archived"]);
+  }
+});
+
+test("repo.tasks.list payload preserves an explicit false activePackagesOnly value", () => {
+  assert.deepEqual(
+    taskListQueryFromPayload({ activePackagesOnly: false }, (code, message) =>
+      Object.assign(new Error(message), { code }),
+    ),
+    { activePackagesOnly: false },
+  );
 });
 
 test("task snapshot list isolates an invalid row and continues serving valid rows", () => {

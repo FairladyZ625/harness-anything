@@ -109,6 +109,7 @@ export function projectionStub(
     readonly calls?: TaskRelationQuery[];
     readonly taskRows?: readonly unknown[];
     readonly listCalls?: TaskProjectionListQuery[];
+    readonly indexCalls?: TaskProjectionListQuery[];
     readonly dependencyCalls?: string[][];
     readonly targetCalls?: { targetRefs: readonly string[]; relationType: string }[];
     readonly statusCalls?: string[][];
@@ -128,6 +129,7 @@ export function projectionStub(
     readDispatchLifecycle: lifecycleReadForSync([]),
     listEntities: () => [],
     readTaskIndex: (query: TaskProjectionListQuery = {}) => {
+      options.indexCalls?.push(query);
       const allRows = taskRows as ReturnType<typeof protocolTaskRow>[],
         scopeIds = (() => {
           if (query.scopeRootTaskId === undefined) return null;
@@ -157,6 +159,7 @@ export function projectionStub(
             (query.taskIds === undefined || query.taskIds.includes(row.taskId)) &&
             (query.status === undefined || row.snapshot.task?.status === query.status) &&
             (query.activePackagesOnly !== true || (row.snapshot.task?.packageDisposition ?? "active") === "active") &&
+            (query.changedAfterRevision === undefined || row.workspaceRevision > query.changedAfterRevision) &&
             (query.parentTaskId === undefined ||
               (row.snapshot.task?.metadata?.parentTaskId ?? null) === query.parentTaskId),
         );
@@ -201,7 +204,12 @@ export function projectionStub(
         query.taskIds === undefined
           ? (taskRows as ReturnType<typeof protocolTaskRow>[])
           : (taskRows as ReturnType<typeof protocolTaskRow>[]).filter((row) => query.taskIds!.includes(row.taskId))
-      ).filter((row) => (query.status === undefined ? true : row.snapshot.task.status === query.status));
+      ).filter(
+        (row) =>
+          (query.status === undefined || row.snapshot.task.status === query.status) &&
+          (query.activePackagesOnly !== true || (row.snapshot.task.packageDisposition ?? "active") === "active") &&
+          (query.changedAfterRevision === undefined || row.workspaceRevision > query.changedAfterRevision),
+      );
       if (query.limit === undefined && query.cursor === undefined) return { ...cut, rows: selected, warnings: [] };
       const limit = query.limit ?? 100,
         visible = selected.slice(0, limit),

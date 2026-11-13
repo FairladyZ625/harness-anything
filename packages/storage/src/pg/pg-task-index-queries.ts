@@ -19,14 +19,15 @@ export type PgTaskIndexQueries = AsyncQueries<
 
 /** Presentation status is derived from the indexed task scalars and parent key.  Keeping the
  * recursive member walk parameterized makes the planner use the parent index for each frontier
- * instead of flattening a repository-wide join. */
+ * instead of flattening a repository-wide join. OFFSET 0 also keeps the child-existence
+ * check correlated: a hashed EXISTS subplan scans all parents even for a one-row page. */
 export const presentationStatusSql = (readersParameter: number) => `CASE
   WHEN task_status IN ('done','cancelled') THEN task_status
   WHEN task_class = 'work' OR (parent_task_id IS NULL AND EXISTS (
     SELECT 1 FROM ha_task_snapshots child WHERE child.tenant_id=ha_task_snapshots.tenant_id
       AND child.project_id=ha_task_snapshots.project_id AND child.policy_epoch=ha_task_snapshots.policy_epoch
       AND (cardinality($${readersParameter}::text[])=0 OR child.readers && $${readersParameter}::text[])
-      AND child.parent_task_id=ha_task_snapshots.task_id
+      AND child.parent_task_id=ha_task_snapshots.task_id OFFSET 0
   )) THEN COALESCE((WITH RECURSIVE members(task_id,status) AS (
     SELECT child.task_id, child.task_status FROM ha_task_snapshots child
       WHERE child.tenant_id=ha_task_snapshots.tenant_id AND child.project_id=ha_task_snapshots.project_id

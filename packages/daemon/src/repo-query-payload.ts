@@ -83,6 +83,6 @@ export function taskListQueryFromPayload(
     ...(common.cursor ? { cursor: common.cursor } : {}),
     ...(payload.statusSource === "raw" ? { presentationStatus: false } : {}),
     ...(payload.leaseOnly === true ? { leaseOnly: true } : {}),
-    ...(payload.activePackagesOnly === true ? { activePackagesOnly: true } : {}),
+    ...(typeof payload.activePackagesOnly === "boolean" ? { activePackagesOnly: payload.activePackagesOnly } : {}),
   };
 }

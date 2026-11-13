@@ -329,7 +329,12 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
     }
     assert.deepEqual(
       taskActionRows.map(({ taskId }) => taskId),
-      unparameterizedRows.map((row: { taskId: string }) => row.taskId),
+      unparameterizedRows
+        .filter(
+          (row: { snapshot?: { task?: { packageDisposition?: string } } }) =>
+            (row.snapshot?.task?.packageDisposition ?? "active") === "active",
+        )
+        .map((row: { taskId: string }) => row.taskId),
     );
     const relationActionFull = evidence(await cell.run({ kind: "relation-list" }, binding));
     let relationActionPage = evidence(await cell.run({ kind: "relation-list", limit: 1 }, binding)),
@@ -412,6 +417,37 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
       cell.read("repo.triadic.relationGraph", { facet: "facts", relationType: "derives" }),
       /invalid/u,
     );
+    const deltaBase = await cell.read("repo.tasks.list", {}),
+      archive = await cell.run(
+        { kind: "task-archive", taskIds: ["task_real_Alpha"], reason: "Verify archive delta visibility" },
+        binding,
+      );
+    assert.equal(archive.outcome, "applied", JSON.stringify(archive));
+    for (const activePackagesOnly of [undefined, false, true]) {
+      const filter = activePackagesOnly === undefined ? {} : { activePackagesOnly };
+      let delta = await cell.read("repo.tasks.list", {
+        ...filter,
+        changedAfterRevision: deltaBase.watermark,
+        limit: 1,
+      });
+      const rows = [...delta.rows];
+      while (delta.page?.nextCursor) {
+        delta = await cell.read("repo.tasks.list", {
+          ...filter,
+          changedAfterRevision: deltaBase.watermark,
+          limit: 1,
+          cursor: delta.page.nextCursor,
+        });
+        rows.push(...delta.rows);
+      }
+      assert.ok(rows.every(({ workspaceRevision }) => workspaceRevision > deltaBase.watermark));
+      assert.equal(
+        rows.some(
+          ({ taskId, snapshot }) => taskId === "task_real_Alpha" && snapshot.task?.packageDisposition === "archived",
+        ),
+        activePackagesOnly !== true,
+      );
+    }
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
