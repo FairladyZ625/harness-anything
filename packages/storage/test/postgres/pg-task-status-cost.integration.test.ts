@@ -101,12 +101,19 @@ test("PG task lists and legacy index upgrade preserve wide titles and bounded re
       const admin = await fixture.adminPool.connect();
       try {
         await admin.query("DROP INDEX IF EXISTS ha_task_snapshots_parent_pending_v2");
+        await admin.query("DROP INDEX IF EXISTS ha_task_snapshots_lease_phase_v2");
         await admin.query(`CREATE INDEX IF NOT EXISTS ha_task_snapshots_parent_pending ON ha_task_snapshots
           (tenant_id,project_id,policy_epoch,task_id) WHERE parent_index_version=0`);
         await admin.query(`CREATE INDEX IF NOT EXISTS ha_task_snapshots_task_index ON ha_task_snapshots
           (tenant_id,project_id,policy_epoch,task_id) INCLUDE(task_title,task_slug,package_path)`);
         await admin.query(`CREATE INDEX IF NOT EXISTS ha_task_snapshots_active_task_index ON ha_task_snapshots
           (tenant_id,project_id,policy_epoch,task_id) INCLUDE(task_title,task_slug,package_path) WHERE task_package_disposition='active'`);
+        await admin.query(`CREATE INDEX IF NOT EXISTS ha_task_snapshots_lease_active ON ha_task_snapshots
+          (tenant_id,project_id,policy_epoch,task_id)
+          WHERE (snapshot #>> '{task,status}') = 'active' AND raw_lease IS NOT NULL AND raw_lease->>'phase' <> 'released'`);
+        await admin.query(`CREATE INDEX IF NOT EXISTS ha_task_snapshots_lease_phase ON ha_task_snapshots
+          (tenant_id,project_id,policy_epoch,task_lease_phase,task_id)
+          WHERE task_lease_phase IS NOT NULL AND task_lease_phase <> 'released'`);
         await ensurePgProjectionSchema(admin);
         const indexes = await admin.query(
           `SELECT indexname,indexdef FROM pg_indexes WHERE tablename='ha_task_snapshots'`,
