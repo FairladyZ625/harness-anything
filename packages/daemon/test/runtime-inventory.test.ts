@@ -498,6 +498,12 @@ test("the DeepSeek Harness launch contract keeps subscription shared and enables
 test("codex-acp declares dual auth routes and session effort negotiation", () => {
   const kind = runtimeKinds.find((entry) => entry.kindId === "codex-acp")!;
   assert.deepEqual(kind.auth.modes, ["subscription", "api-key"]);
+  assert.equal(kind.auth.apiKeyIsolation, "enforced");
+  assert.equal(kind.auth.subscriptionIsolation, undefined);
+  assert.deepEqual(kind.isolation, {
+    defaultState: "operator-environment",
+    states: ["enforced", "operator-environment"],
+  });
   assert.deepEqual(kind.auth.acpAuthMethod, { subscription: "chat-gpt", "api-key": "api-key" });
   assert.deepEqual(kind.configuration.fields, { reasoningEffort: "effort" });
   assert.deepEqual(kind.gui, {

@@ -760,7 +760,6 @@ export const runtimeKinds = [
       shape: "separate",
       modes: ["subscription", "api-key"],
       apiKeyIsolation: "enforced",
-      subscriptionIsolation: "operator-environment",
       // The wrapper has no login-status subcommand; version output is the
       // weakest available presence probe. The ACP `authenticate` handshake is
       // the authoritative check at launch time.

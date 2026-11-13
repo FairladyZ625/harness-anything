@@ -200,6 +200,103 @@ test("claude isolation defaults to the operator environment and stays enforced o
   }
 });
 
+test("codex-acp preserves enforced subscription instances on disk while enforcing API-key isolation", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-codex-acp-isolation-")),
+    userRoot = path.join(root, "user"),
+    operatorHome = path.join(root, "operator-home"),
+    codexAcp: RuntimeInstallationWitness = {
+      installationId: "codex-acp-isolation",
+      kindId: "codex-acp",
+      executablePath: "/opt/runtime-test/codex-acp",
+      version: "2.6.0",
+      observedAt: "2026-08-23T00:00:00.000Z",
+    },
+    dsh: RuntimeInstallationWitness = {
+      installationId: "dsh-isolation",
+      kindId: "deepseek-harness",
+      executablePath: "/opt/runtime-test/dsh",
+      version: "0.4.0",
+      observedAt: "2026-08-23T00:00:00.000Z",
+    };
+  try {
+    mkdirSync(path.join(operatorHome, ".codex"), { recursive: true });
+    writeFileSync(path.join(operatorHome, ".codex", "auth.json"), '{"OPENAI_API_KEY":null}\n');
+    mkdirSync(userRoot, { recursive: true });
+    writeFileSync(
+      path.join(userRoot, "runtime-instances.json"),
+      JSON.stringify(
+        {
+          schema: "runtime-instances/v1",
+          instances: [
+            {
+              schemaVersion: 2,
+              instanceId: "codex-acp",
+              name: "Codex ACP Enforced Subscription",
+              kindId: "codex-acp",
+              installationId: codexAcp.installationId,
+              installationIdentity: "path-entry/v1",
+              providerId: "openai",
+              models: ["gpt-5.6-sol"],
+              defaultModel: "gpt-5.6-sol",
+              enabled: true,
+              permissionMode: "bypass",
+              isolationState: "enforced",
+              "codex-acp": {},
+              auth: { mode: "subscription" },
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+    );
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      discover: () => [codexAcp, dsh],
+      env: { HOME: operatorHome, PATH: "/runtime/tools" },
+      resolveCredential: () => "instance-secret",
+      subscriptionReady: () => ({ status: "ready", code: null, hint: null }),
+    });
+    assert.deepEqual(
+      store.list().map((entry) => ({ instanceId: entry.instanceId, isolationState: entry.isolationState })),
+      [{ instanceId: "codex-acp", isolationState: "enforced" }],
+    );
+    assert.throws(
+      () =>
+        store.command({
+          kind: "runtime-instance-create",
+          instanceId: "codex-acp-key-operator",
+          name: "Codex ACP Key Operator",
+          kindId: "codex-acp",
+          installationId: codexAcp.installationId,
+          providerId: "openai",
+          models: ["gpt-5.6-sol"],
+          isolationState: "operator-environment",
+          authMode: "api-key",
+          credentialRef: "credential:v1:codex-acp-key-operator",
+        }),
+      (error: unknown) => codedAs(error, "invalid_runtime_isolation"),
+    );
+    assert.throws(
+      () =>
+        store.command({
+          kind: "runtime-instance-create",
+          instanceId: "dsh-enforced-sub",
+          name: "DSH Enforced Subscription",
+          kindId: "deepseek-harness",
+          installationId: dsh.installationId,
+          providerId: "deepseek",
+          models: ["deepseek-v4-flash"],
+          isolationState: "enforced",
+          authMode: "subscription",
+        }),
+      (error: unknown) => codedAs(error, "invalid_runtime_isolation"),
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("macOS Claude operator probes use the OS username and report the probed environment", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-claude-operator-probe-")),
     userRoot = path.join(root, "user"),
