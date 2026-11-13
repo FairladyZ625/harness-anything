@@ -1,13 +1,17 @@
 import {
+  activateSecondInstance,
   applyGuiAppIdentity,
+  bindWindowReadiness,
   createLaunchSignalReporter,
   createSecondaryAckWaiter,
+  ensureGuiWindowReadyAndVisible,
+  focusDesktopWindow,
   GUI_ROOT_EXPLICIT_ENV,
-  type GuiLaunchSignalPayload,
+  migrateLegacyElectronLocalStorage,
   readLaunchSignalTarget,
   sendLoopbackSignal,
   verifyWindowsDesktopSession,
-  verifyWindowsWindowHandleVisible,
+  type WindowReadinessTracker,
 } from "./gui-launch-channel.ts";
 import { guiArtifactCacheRoot, guiDaemonUserRoot, guiGlobalDaemonTarget } from "./gui-daemon-target.ts";
 import { registerProjectDirectoryIpc } from "./project-directory-ipc.ts";
@@ -21,7 +25,7 @@ import {
 import { darwinAppMenuTemplate } from "./darwin-app-menu.ts";
 import { ensureApplicationsFolder } from "./darwin-applications-folder.ts";
 import { APP_COMMAND_CHANNEL, type AppNavigationCommand } from "../api/app-command-contract.ts";
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell, type Session } from "electron";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -65,6 +69,7 @@ import {
   isNavigableAppDocumentUrl,
   packagedRendererIndexPath,
   resolveGuiPackageRoot,
+  storageMigrationShimPath,
   windowBackgroundColor,
 } from "./window-config.ts";
 import { registerFirstRunIpcHandlers } from "./first-run-ipc.ts";
@@ -112,6 +117,7 @@ delete process.env[GUI_ROOT_EXPLICIT_ENV];
 // harness-edge:// 协议激活(task_0499bcc75d0f):点击邀请链接唤起本 app,把链接交给加入向导。
 // 冷启动时窗口可能尚未加载完,先暂存,任一窗口 did-finish-load 后送达;注册在 whenReady 之前,
 // macOS 冷启动的 open-url 才不会丢。打包态才注册协议,dev 运行不接管系统的协议绑定。
+let runningLegacyStorageMigration = false;
 let pendingEdgeJoinLink: string | null = null;
 function deliverEdgeJoinLink(link: string): void {
   const loaded = BrowserWindow.getAllWindows().filter(
@@ -125,8 +131,8 @@ function deliverEdgeJoinLink(link: string): void {
 }
 
 app.on("web-contents-created", (_event, contents) => {
-  // A top-level BrowserWindow's webContents reports type "window"; webviews/background pages must not receive it.
-  if (contents.getType() !== "window") return;
+  // Ignore transient storage-migration windows so they never steal cold-start deep links.
+  if (runningLegacyStorageMigration || contents.getType() !== "window") return;
   contents.once("did-finish-load", () => {
     if (pendingEdgeJoinLink === null || contents.isDestroyed()) return;
     contents.send(EDGE_JOIN_LINK_CHANNEL, { link: pendingEdgeJoinLink });
@@ -159,63 +165,10 @@ app.on("second-instance", (_event, argv, _workingDirectory, additionalData) => {
   enqueueSecondInstance(argv, additionalData);
 });
 
-interface WindowReadiness {
-  readonly promise: Promise<void>;
-  isReady(): boolean;
-}
-const windowReadiness = new WeakMap<BrowserWindow, WindowReadiness>();
+const windowReadiness = new WeakMap<BrowserWindow, WindowReadinessTracker>();
 
 function trackMainWindowReadiness(mainWindow: BrowserWindow, loadPromise: Promise<void>): void {
-  let settled = false;
-  let ready = false;
-  let resolveReady: (() => void) | null = null;
-  let rejectReady: ((error: Error) => void) | null = null;
-  const promise = new Promise<void>((resolve, reject) => {
-    resolveReady = resolve;
-    rejectReady = reject;
-  });
-  // Keep failure rejections handled even when callers open extra windows outside launch wait.
-  promise.catch(() => undefined);
-  const finishOk = () => {
-    if (settled) return;
-    settled = true;
-    ready = true;
-    resolveReady?.();
-  };
-  const finishErr = (message: string) => {
-    if (settled) return;
-    settled = true;
-    rejectReady?.(new Error(message));
-  };
-  if (backgroundTest) {
-    mainWindow.webContents.once("did-finish-load", finishOk);
-  } else {
-    mainWindow.once("ready-to-show", () => {
-      if (mainWindow.isDestroyed()) {
-        finishErr("GUI window was destroyed before showing.");
-        return;
-      }
-      mainWindow.show();
-      mainWindow.focus();
-      finishOk();
-    });
-  }
-  mainWindow.once("closed", () => finishErr("GUI window closed before finishing startup."));
-  mainWindow.webContents.once("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
-    if (isMainFrame && errorCode !== -3) {
-      finishErr(`Failed to load GUI (${errorCode}: ${errorDescription}) at ${validatedURL}`);
-    }
-  });
-  mainWindow.webContents.once("render-process-gone", (_event, details) => {
-    if (details.reason !== "clean-exit") {
-      finishErr(`GUI renderer exited unexpectedly (${details.reason}).`);
-    }
-  });
-  void loadPromise.catch((error: unknown) => {
-    const detail = error instanceof Error ? error.message : typeof error === "string" ? error : "Load failed.";
-    finishErr(`Failed to load GUI document: ${detail}`);
-  });
-  windowReadiness.set(mainWindow, { promise, isReady: () => ready });
+  windowReadiness.set(mainWindow, bindWindowReadiness(mainWindow, loadPromise, backgroundTest));
 }
 
 /** Per-sign-in login webview boundary; created once so its certificate-error handler is, too. */
@@ -413,20 +366,108 @@ function windowForWebContentsId(webContentsId: number): BrowserWindow | null {
 }
 
 async function ensureWindowReadyAndVisible(win: BrowserWindow): Promise<void> {
-  const readiness = windowReadiness.get(win);
-  if (readiness && !readiness.isReady()) await readiness.promise;
-  if (win.isDestroyed()) throw new Error("GUI window was closed before becoming ready.");
-  if (backgroundTest) return;
-  if (!win.isVisible() || win.isMinimized()) {
-    if (win.isMinimized()) win.restore();
-    win.show();
-    win.focus();
+  await ensureGuiWindowReadyAndVisible(win, windowReadiness.get(win), {
+    backgroundTest,
+    pid: process.pid,
+  });
+}
+
+async function closeTransientMigrationWindow(win: BrowserWindow): Promise<void> {
+  if (win.isDestroyed()) return;
+  await new Promise<void>((resolve) => {
+    let finished = false;
+    const done = () => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      if (!win.isDestroyed()) win.destroy();
+      done();
+    }, 2_000);
+    timer.unref?.();
+    win.once("closed", done);
+    win.close();
+  });
+}
+
+async function runInMigrationShimWindow<T>(
+  shimPath: string,
+  targetSession: Session | undefined,
+  run: (win: BrowserWindow) => Promise<T>,
+): Promise<T> {
+  const win = new BrowserWindow({
+    show: false,
+    focusable: false,
+    webPreferences: {
+      offscreen: true,
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+      ...(targetSession ? { session: targetSession } : {}),
+    },
+  });
+  try {
+    await win.loadFile(shimPath);
+    return await run(win);
+  } finally {
+    await closeTransientMigrationWindow(win);
   }
-  if (!win.isVisible()) throw new Error("Electron main window reported hidden after show().");
-  if (win.getNativeWindowHandle().length === 0) throw new Error("Electron main window has no native handle.");
-  if (process.platform === "win32") {
-    const win32Visible = await verifyWindowsWindowHandleVisible(process.pid);
-    if (!win32Visible.ok) throw new Error(win32Visible.detail ?? win32Visible.reason ?? "Window is not visible.");
+}
+
+/**
+ * Copy only Harness-owned localStorage keys once when upgrading an unpackaged source install
+ * from generic `appData/Electron` to isolated `appData/Harness Anything`.
+ */
+export async function migrateLegacyElectronProfile(): Promise<void> {
+  const shimPath = storageMigrationShimPath();
+  runningLegacyStorageMigration = true;
+  try {
+    const result = await migrateLegacyElectronLocalStorage({
+      app,
+      readLegacyEntries: async (legacyUserDataDir) => {
+        const legacySession = session.fromPath(legacyUserDataDir, { cache: false });
+        return runInMigrationShimWindow(shimPath, legacySession, async (win) => {
+          const entries: unknown = await win.webContents.executeJavaScript(`(() => {
+            const out = {};
+            for (let index = 0; index < localStorage.length; index += 1) {
+              const key = localStorage.key(index);
+              if (key === null) continue;
+              const value = localStorage.getItem(key);
+              if (value !== null) out[key] = value;
+            }
+            return out;
+          })()`);
+          return typeof entries === "object" && entries !== null ? (entries as Readonly<Record<string, string>>) : {};
+        });
+      },
+      writeMissingTargetEntries: async (_targetUserDataDir, entries) => {
+        const serializedEntries = JSON.stringify(JSON.stringify(entries));
+        const written = await runInMigrationShimWindow(shimPath, undefined, async (win) => {
+          const count: unknown = await win.webContents.executeJavaScript(`(() => {
+            const items = JSON.parse(${serializedEntries});
+            let applied = 0;
+            for (const [key, value] of items) {
+              if (localStorage.getItem(key) === null) {
+                localStorage.setItem(key, value);
+                applied += 1;
+              }
+            }
+            return applied;
+          })()`);
+          return typeof count === "number" ? count : 0;
+        });
+        await session.defaultSession.flushStorageData();
+        return written;
+      },
+    });
+    if (result.status === "failed") {
+      console.warn("[gui] legacy Electron profile migration skipped:", result.detail);
+    }
+  } finally {
+    runningLegacyStorageMigration = false;
   }
 }
 
@@ -488,6 +529,7 @@ export async function startGuiApp(): Promise<void> {
   }
   installContentSecurityPolicy();
   loginWebviewSecurity.installCertificateErrorHandler(app);
+  await migrateLegacyElectronProfile();
   const trustedWebContentsIds = new Set<number>();
   // 项目窗口注册表(task_ca1ee6b9e8f83c89cb376e5f07):窗口↔项目记账。开窗两条路
   // (CEO 2026-10-17 裁定):切换器「在新窗口打开」已开即聚焦(openProjectWindow);
@@ -669,45 +711,25 @@ export async function startGuiApp(): Promise<void> {
     const ackAddr = typeof data.ackAddr === "string" ? data.ackAddr : null;
     const ackToken = typeof data.ackToken === "string" ? data.ackToken : null;
     const ackTarget = ackAddr && ackToken ? { addr: ackAddr, token: ackToken } : null;
-    const sendAck = (payload: GuiLaunchSignalPayload) =>
-      ackTarget ? sendLoopbackSignal(ackTarget, payload) : Promise.resolve(true);
     const requestedRoot = typeof data.rootDir === "string" && data.rootDir.length > 0 ? data.rootDir : null;
-    const explicitRoot = data.explicitRoot === true;
-    const requesterHeadless = data.headless === true;
-    if (!requesterHeadless && backgroundTest) {
-      await sendAck({
-        ok: false,
-        reason:
-          "Existing Harness Anything GUI instance is running in --headless mode and cannot show a desktop window.",
-      });
-      return;
-    }
-    let targetWindow: BrowserWindow | null = null;
-    if (requestedRoot !== null) {
-      const resolved = await resolveRequestedDaemonTarget(requestedRoot);
-      if (resolved.ok) {
-        targetWindow = windowForWebContentsId(projectWindows.openProjectWindow(resolved.target.repoId).webContentsId);
-      } else {
-        console.warn("[gui] requested project root could not be opened:", resolved.reason);
-        if (explicitRoot) {
-          await sendAck({ ok: false, reason: resolved.reason });
-          return;
-        }
-        targetWindow = existingOrNewWindow();
-      }
-    } else if (ackTarget !== null) {
-      targetWindow = existingOrNewWindow();
-    }
-    if (targetWindow === null) {
-      await sendAck({ ok: false, reason: "GUI window could not be created." });
-      return;
-    }
-    const readiness = await checkSecondInstanceWindowReady(targetWindow, ensureWindowReadyAndVisible);
-    if (!readiness.ok) {
-      await sendAck({ ok: false, reason: readiness.reason });
-      return;
-    }
-    await sendAck({ ok: true, mode: "second_instance", pid: process.pid });
+    const payload = await activateSecondInstance({
+      request: {
+        requestedRoot,
+        explicitRoot: data.explicitRoot === true,
+        requesterHeadless: data.headless === true,
+        primaryHeadless: backgroundTest,
+      },
+      pid: process.pid,
+      resolveRequestedRoot: async (rootDir) => {
+        const resolved = await resolveRequestedDaemonTarget(rootDir);
+        return resolved.ok ? { ok: true, repoId: resolved.target.repoId } : resolved;
+      },
+      openProjectWindow: (repoId) => windowForWebContentsId(projectWindows.openProjectWindow(repoId).webContentsId),
+      existingOrNewWindow,
+      ensureWindowReady: ensureWindowReadyAndVisible,
+      warn: (message, reason) => console.warn(message, reason),
+    });
+    if (ackTarget !== null) await sendLoopbackSignal(ackTarget, payload);
   };
   while (queuedSecondInstances.length > 0) {
     const next = queuedSecondInstances.shift();
@@ -721,6 +743,10 @@ export async function startGuiApp(): Promise<void> {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) projectWindows.newWindow(null);
   });
+  windowReadiness.get(initialWindow)?.assertHealthy();
+  if (initialWindow.isDestroyed() || initialWindow.webContents.isCrashed()) {
+    throw new Error("GUI window failed before startup readiness could be confirmed.");
+  }
   await launchReporter?.report({
     ok: true,
     mode: backgroundTest ? "headless" : "window",
@@ -753,30 +779,10 @@ async function resolveRequestedDaemonTarget(
   }
 }
 
-async function checkSecondInstanceWindowReady(
-  targetWindow: BrowserWindow,
-  ensureReady: (window: BrowserWindow) => Promise<void>,
-): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string }> {
-  try {
-    await ensureReady(targetWindow);
-    return { ok: true };
-  } catch (error) {
-    return {
-      ok: false,
-      reason:
-        error instanceof Error ? error.message : typeof error === "string" ? error : "GUI window could not be shown.",
-    };
-  }
-}
-
 function toProjectWindowEntry(mainWindow: BrowserWindow): ProjectWindowRegistryEntry {
   return {
     webContentsId: mainWindow.webContents.id,
-    focus() {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.show();
-      mainWindow.focus();
-    },
+    focus: () => focusDesktopWindow(mainWindow),
     onClosed: (listener) => mainWindow.once("closed", listener),
   };
 }
@@ -794,6 +800,7 @@ function createTrustedMainWindow(trustedWebContentsIds: Set<number>, initialRepo
 }
 
 app.on("window-all-closed", () => {
+  if (runningLegacyStorageMigration) return;
   if (process.platform !== "darwin") app.quit();
 });
 

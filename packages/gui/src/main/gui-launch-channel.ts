@@ -1,10 +1,12 @@
 import { guiInteractionPolicy } from "@harness-anything/kernel/internal/domain/gui-interaction-policy.ts";
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 
 export const GUI_APP_NAME = "Harness Anything";
+export const LEGACY_ELECTRON_DIR_NAME = "Electron";
 export const GUI_APP_USER_MODEL_ID = "dev.harness-anything.gui";
 export const GUI_LAUNCH_ADDR_ENV = "HARNESS_GUI_LAUNCH_ADDR";
 export const GUI_LAUNCH_TOKEN_ENV = "HARNESS_GUI_LAUNCH_TOKEN";
@@ -363,4 +365,359 @@ export async function verifyWindowsWindowHandleVisible(
     };
   }
   return { ok: true };
+}
+
+export interface WindowReadinessTracker {
+  isReady(): boolean;
+  failure(): string | null;
+  markReady(): void;
+  markFailed(message: string): void;
+  waitUntilReady(): Promise<void>;
+  assertHealthy(): void;
+  raceFailure<T>(operation: Promise<T>): Promise<T>;
+}
+
+/**
+ * Tracks window startup readiness while keeping subsequent load/crash/close failures
+ * authoritative so a window never reports healthy after `ready-to-show` races with failure.
+ */
+export function createWindowReadinessTracker(): WindowReadinessTracker {
+  let ready = false;
+  let failureMessage: string | null = null;
+  const readyWaiters = new Set<{ resolve: () => void; reject: (error: Error) => void }>();
+  const failureListeners = new Set<(error: Error) => void>();
+
+  return {
+    isReady: () => ready && failureMessage === null,
+    failure: () => failureMessage,
+    markReady() {
+      if (failureMessage !== null || ready) return;
+      ready = true;
+      for (const waiter of readyWaiters) waiter.resolve();
+      readyWaiters.clear();
+    },
+    markFailed(message) {
+      ready = false;
+      if (failureMessage === null) failureMessage = message;
+      const error = new Error(failureMessage);
+      for (const waiter of readyWaiters) waiter.reject(error);
+      readyWaiters.clear();
+      for (const listener of failureListeners) listener(error);
+      failureListeners.clear();
+    },
+    waitUntilReady() {
+      if (failureMessage !== null) return Promise.reject(new Error(failureMessage));
+      if (ready) return Promise.resolve();
+      return new Promise((resolve, reject) => {
+        readyWaiters.add({ resolve, reject });
+      });
+    },
+    assertHealthy() {
+      if (failureMessage !== null) throw new Error(failureMessage);
+      if (!ready) throw new Error("GUI window did not finish becoming ready.");
+    },
+    raceFailure<T>(operation: Promise<T>): Promise<T> {
+      if (failureMessage !== null) {
+        void operation.catch(() => undefined);
+        return Promise.reject(new Error(failureMessage));
+      }
+      let listener: ((error: Error) => void) | null = null;
+      const onFail = new Promise<never>((_resolve, reject) => {
+        listener = reject;
+        failureListeners.add(reject);
+      });
+      void operation.catch(() => undefined);
+      return Promise.race([operation, onFail]).finally(() => {
+        if (listener !== null) failureListeners.delete(listener);
+      });
+    },
+  };
+}
+
+export interface ReadinessWindowPort {
+  isDestroyed(): boolean;
+  isVisible(): boolean;
+  isMinimized(): boolean;
+  restore(): void;
+  show(): void;
+  focus(): void;
+  getNativeWindowHandle(): { readonly length: number };
+  once(event: "ready-to-show" | "closed", listener: () => void): void;
+  readonly webContents: {
+    isCrashed?(): boolean;
+    on(
+      event: "did-fail-load",
+      listener: (
+        event: unknown,
+        errorCode: number,
+        errorDescription: string,
+        validatedURL: string,
+        isMainFrame: boolean,
+      ) => void,
+    ): void;
+    on(event: "render-process-gone", listener: (event: unknown, details: { readonly reason: string }) => void): void;
+    once(event: "did-finish-load", listener: () => void): void;
+    off?: ((
+      event: "did-fail-load",
+      listener: (
+        event: unknown,
+        errorCode: number,
+        errorDescription: string,
+        validatedURL: string,
+        isMainFrame: boolean,
+      ) => void,
+    ) => void) &
+      ((
+        event: "render-process-gone",
+        listener: (event: unknown, details: { readonly reason: string }) => void,
+      ) => void);
+  };
+}
+
+/** Restore a minimized window, show it, and raise desktop keyboard focus unconditionally. */
+export function focusDesktopWindow(win: Pick<ReadinessWindowPort, "isMinimized" | "restore" | "show" | "focus">): void {
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
+/** Bind main-window lifecycle events onto a revocable readiness tracker. */
+export function bindWindowReadiness(
+  win: ReadinessWindowPort,
+  loadPromise: Promise<void>,
+  backgroundTest: boolean,
+): WindowReadinessTracker {
+  const tracker = createWindowReadinessTracker();
+  const markReadyIfHealthy = (showDesktop: boolean) => {
+    if (win.isDestroyed()) {
+      tracker.markFailed("GUI window was destroyed before showing.");
+      return;
+    }
+    if (tracker.failure() !== null) return;
+    if (win.webContents.isCrashed?.()) {
+      tracker.markFailed("GUI renderer crashed before showing.");
+      return;
+    }
+    if (showDesktop) focusDesktopWindow(win);
+    tracker.markReady();
+  };
+
+  if (backgroundTest) {
+    win.webContents.once("did-finish-load", () => markReadyIfHealthy(false));
+  } else {
+    win.once("ready-to-show", () => markReadyIfHealthy(true));
+  }
+
+  const onDidFailLoad = (
+    _event: unknown,
+    errorCode: number,
+    errorDescription: string,
+    validatedURL: string,
+    isMainFrame: boolean,
+  ) => {
+    if (isMainFrame && errorCode !== -3) {
+      tracker.markFailed(`Failed to load GUI (${errorCode}: ${errorDescription}) at ${validatedURL}`);
+    }
+  };
+  const onRenderProcessGone = (_event: unknown, details: { readonly reason: string }) => {
+    if (details.reason !== "clean-exit") {
+      tracker.markFailed(`GUI renderer exited unexpectedly (${details.reason}).`);
+    }
+  };
+
+  win.webContents.on("did-fail-load", onDidFailLoad);
+  win.webContents.on("render-process-gone", onRenderProcessGone);
+  win.once("closed", () => {
+    win.webContents.off?.("did-fail-load", onDidFailLoad);
+    win.webContents.off?.("render-process-gone", onRenderProcessGone);
+    tracker.markFailed("GUI window closed before finishing startup.");
+  });
+  void loadPromise.catch((error: unknown) => {
+    const detail = error instanceof Error ? error.message : typeof error === "string" ? error : "Load failed.";
+    tracker.markFailed(`Failed to load GUI document: ${detail}`);
+  });
+  return tracker;
+}
+
+export interface EnsureGuiWindowOptions {
+  readonly backgroundTest: boolean;
+  readonly platform?: NodeJS.Platform;
+  readonly pid?: number;
+  readonly verifyWindowsVisible?: (pid: number) => Promise<WindowsSessionCheckResult>;
+}
+
+/**
+ * Wait for window readiness, restore/show/focus desktop windows (even when already visible
+ * behind another app), and re-verify health after Win32 visibility probing.
+ */
+export async function ensureGuiWindowReadyAndVisible(
+  win: ReadinessWindowPort,
+  tracker: WindowReadinessTracker | undefined,
+  options: EnsureGuiWindowOptions,
+): Promise<void> {
+  const preFailure = tracker?.failure();
+  if (preFailure !== null && preFailure !== undefined) throw new Error(preFailure);
+  if (tracker && !tracker.isReady()) await tracker.waitUntilReady();
+  tracker?.assertHealthy();
+  if (win.isDestroyed()) throw new Error("GUI window was closed before becoming ready.");
+  if (win.webContents.isCrashed?.()) throw new Error("GUI renderer crashed before becoming ready.");
+  if (options.backgroundTest) return;
+
+  focusDesktopWindow(win);
+
+  tracker?.assertHealthy();
+  if (win.isDestroyed()) throw new Error("GUI window was closed while showing.");
+  if (win.webContents.isCrashed?.()) throw new Error("GUI renderer crashed while showing.");
+  if (!win.isVisible()) throw new Error("Electron main window reported hidden after show().");
+  if (win.getNativeWindowHandle().length === 0) throw new Error("Electron main window has no native handle.");
+
+  if ((options.platform ?? process.platform) === "win32") {
+    const verifyVisible = options.verifyWindowsVisible ?? verifyWindowsWindowHandleVisible;
+    const probe = verifyVisible(options.pid ?? process.pid);
+    const win32Visible = await (tracker ? tracker.raceFailure(probe) : probe);
+    tracker?.assertHealthy();
+    if (win.isDestroyed()) throw new Error("GUI window was closed while verifying visibility.");
+    if (win.webContents.isCrashed?.()) throw new Error("GUI renderer crashed while verifying visibility.");
+    if (!win32Visible.ok) throw new Error(win32Visible.detail ?? win32Visible.reason ?? "Window is not visible.");
+  }
+}
+
+export interface SecondInstanceActivationParams<TWindow extends ReadinessWindowPort> {
+  readonly request: {
+    readonly requestedRoot: string | null;
+    readonly explicitRoot: boolean;
+    readonly requesterHeadless: boolean;
+    readonly primaryHeadless: boolean;
+  };
+  readonly pid: number;
+  readonly resolveRequestedRoot: (
+    rootDir: string,
+  ) => Promise<{ readonly ok: true; readonly repoId: string } | { readonly ok: false; readonly reason: string }>;
+  readonly openProjectWindow: (repoId: string) => TWindow | null;
+  readonly existingOrNewWindow: () => TWindow | null;
+  readonly ensureWindowReady: (win: TWindow) => Promise<void>;
+  readonly warn?: (message: string, reason: string) => void;
+}
+
+/** Route secondary `ha gui` activation to a target window, verify readiness/focus, and return ACK payload. */
+export async function activateSecondInstance<TWindow extends ReadinessWindowPort>(
+  params: SecondInstanceActivationParams<TWindow>,
+): Promise<GuiLaunchSignalPayload> {
+  const { request } = params;
+  if (!request.requesterHeadless && request.primaryHeadless) {
+    return {
+      ok: false,
+      reason: "Existing Harness Anything GUI instance is running in --headless mode and cannot show a desktop window.",
+    };
+  }
+  let targetWindow: TWindow | null = null;
+  if (request.requestedRoot !== null) {
+    const resolved = await params.resolveRequestedRoot(request.requestedRoot);
+    if (resolved.ok) {
+      targetWindow = params.openProjectWindow(resolved.repoId);
+    } else {
+      params.warn?.("[gui] requested project root could not be opened:", resolved.reason);
+      if (request.explicitRoot) {
+        return { ok: false, reason: resolved.reason };
+      }
+      targetWindow = params.existingOrNewWindow();
+    }
+  } else {
+    targetWindow = params.existingOrNewWindow();
+  }
+  if (targetWindow === null) {
+    return { ok: false, reason: "GUI window could not be created." };
+  }
+  try {
+    await params.ensureWindowReady(targetWindow);
+    return { ok: true, mode: "second_instance", pid: params.pid };
+  } catch (error) {
+    const detail =
+      error instanceof Error ? error.message : typeof error === "string" ? error : "GUI window could not be shown.";
+    return { ok: false, reason: detail };
+  }
+}
+
+export interface LegacyElectronMigrationPlan {
+  readonly shouldMigrate: boolean;
+  readonly legacyUserDataDir: string | null;
+  readonly targetUserDataDir: string | null;
+}
+
+export type LegacyProfileMigrationResult =
+  | { readonly status: "skipped"; readonly migratedKeys: 0 }
+  | { readonly status: "no_harness_entries"; readonly migratedKeys: 0 }
+  | { readonly status: "migrated"; readonly migratedKeys: number }
+  | { readonly status: "failed"; readonly migratedKeys: 0; readonly detail: string };
+
+/** Only localStorage keys owned by Harness Anything may cross from legacy Electron userData. */
+export function isHarnessLocalStorageKey(key: string): boolean {
+  return key.startsWith("harness:") || key.startsWith("harness-") || key.startsWith("harness.");
+}
+
+/** Pick legacy Harness keys that do not exist in target storage yet (never clobbering newer state). */
+export function selectLegacyHarnessEntries(
+  legacyEntries: Readonly<Record<string, string>>,
+  existingTargetKeys: ReadonlySet<string>,
+): ReadonlyArray<readonly [string, string]> {
+  return Object.entries(legacyEntries).filter(([key]) => isHarnessLocalStorageKey(key) && !existingTargetKeys.has(key));
+}
+
+/** Determine whether an unpackaged launch should run one-time legacy Electron localStorage migration. */
+export function resolveLegacyElectronMigrationPlan(
+  appLike: GuiIdentityApp,
+  platform: NodeJS.Platform = process.platform,
+  env: Record<string, string | undefined> = process.env,
+  pathExists: (candidatePath: string) => boolean = existsSync,
+): LegacyElectronMigrationPlan {
+  if (appLike.commandLine.hasSwitch("user-data-dir") || appLike.isPackaged) {
+    return { shouldMigrate: false, legacyUserDataDir: null, targetUserDataDir: null };
+  }
+  const appDataDir = resolveAppDataDir(appLike, platform, env);
+  const legacyUserDataDir = path.join(appDataDir, LEGACY_ELECTRON_DIR_NAME);
+  const targetUserDataDir = path.join(appDataDir, GUI_APP_NAME);
+  if (path.resolve(legacyUserDataDir) === path.resolve(targetUserDataDir)) {
+    return { shouldMigrate: false, legacyUserDataDir: null, targetUserDataDir: null };
+  }
+  const legacyHasDb = pathExists(path.join(legacyUserDataDir, "Local Storage", "leveldb"));
+  const targetHasDb = pathExists(path.join(targetUserDataDir, "Local Storage", "leveldb"));
+  return {
+    shouldMigrate: legacyHasDb && !targetHasDb,
+    legacyUserDataDir,
+    targetUserDataDir,
+  };
+}
+
+/**
+ * Migrate only Harness-owned localStorage keys once when upgrading from legacy `appData/Electron`
+ * to isolated `appData/Harness Anything`. Third-party app keys, cookies, caches, and existing
+ * target keys are never copied or overwritten.
+ */
+export async function migrateLegacyElectronLocalStorage(params: {
+  readonly app: GuiIdentityApp;
+  readonly platform?: NodeJS.Platform;
+  readonly env?: Record<string, string | undefined>;
+  readonly pathExists?: (candidatePath: string) => boolean;
+  readonly readLegacyEntries: (legacyUserDataDir: string) => Promise<Readonly<Record<string, string>>>;
+  readonly writeMissingTargetEntries: (
+    targetUserDataDir: string,
+    entries: ReadonlyArray<readonly [string, string]>,
+  ) => Promise<number>;
+}): Promise<LegacyProfileMigrationResult> {
+  const plan = resolveLegacyElectronMigrationPlan(params.app, params.platform, params.env, params.pathExists);
+  if (!plan.shouldMigrate || plan.legacyUserDataDir === null || plan.targetUserDataDir === null) {
+    return { status: "skipped", migratedKeys: 0 };
+  }
+  try {
+    const legacyEntries = await params.readLegacyEntries(plan.legacyUserDataDir);
+    const harnessEntries = selectLegacyHarnessEntries(legacyEntries, new Set());
+    if (harnessEntries.length === 0) {
+      return { status: "no_harness_entries", migratedKeys: 0 };
+    }
+    const migratedKeys = await params.writeMissingTargetEntries(plan.targetUserDataDir, harnessEntries);
+    return { status: "migrated", migratedKeys };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : typeof error === "string" ? error : "Migration failed.";
+    return { status: "failed", migratedKeys: 0, detail };
+  }
 }

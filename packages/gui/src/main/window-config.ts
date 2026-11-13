@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -150,6 +151,16 @@ export function resolveGuiPackageRoot(fromUrl: string = import.meta.url): string
 
 export function packagedRendererIndexPath(fromUrl: string = import.meta.url): string {
   return path.join(resolveGuiPackageRoot(fromUrl), "dist/index.html");
+}
+
+/**
+ * Inert same-origin HTML document used by one-time localStorage migration without
+ * mounting the React renderer or opening daemon connections.
+ */
+export function storageMigrationShimPath(fromUrl: string = import.meta.url): string {
+  const pkgRoot = resolveGuiPackageRoot(fromUrl);
+  const builtShim = path.join(pkgRoot, "dist/storage-migration-shim.html");
+  return existsSync(builtShim) ? builtShim : path.join(pkgRoot, "public/storage-migration-shim.html");
 }
 
 /**
