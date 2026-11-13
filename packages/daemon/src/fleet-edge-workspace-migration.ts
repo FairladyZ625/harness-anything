@@ -46,7 +46,10 @@ export function migrateFleetEdgeWorkspace(oldRoot: string, newRoot: string, repo
       writeFleetEdgeConfig(targetRoot, { ...config, caPath, viewRoot });
     } catch (error) {
       if (moveView && existsSync(newDefaultViewRoot) && !existsSync(oldDefaultViewRoot))
-        /* @gate-identity state-store/legacy.d90f54cfa166773c */ renameSync(newDefaultViewRoot, oldDefaultViewRoot);
+        /* @gate-identity state-store/task.replica-view-relocation */ renameSync(
+          newDefaultViewRoot,
+          oldDefaultViewRoot,
+        );
       throw error;
     }
   }
@@ -70,7 +73,7 @@ function moveDefaultView(source: string, target: string): void {
       "fleet_edge_migration_conflict",
       `Both replica directories exist at ${source} and ${target}; resolve the duplicate mirror data, then retry the root update.`,
     );
-  /* @gate-identity state-store/legacy.4e66a63192f6353f */ renameSync(source, target);
+  /* @gate-identity state-store/task.replica-view-relocation */ renameSync(source, target);
 }
 
 function codedError(code: string, message: string): Error {

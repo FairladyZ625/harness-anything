@@ -356,44 +356,7 @@ test("removes resolved debt and rejects a stale baseline entry", () => {
   }
 });
 
-// dec_499E4E98A3D4754132B3BCA1E6 CH1: slice 7 retires all non-daemon debt.
-test("state residency debt is confined to the deferred daemon slice", () => {
-  assert.deepEqual(
-    stateResidencyBaseline.filter(({ comment }) => !comment.startsWith("packages/daemon/src/")),
-    [],
-  );
-});
-
-// dec_499E4E98A3D4754132B3BCA1E6/CH1: slice 8a retires batch-1 daemon runtime-instance, dispatch-stream, and environment-io debt.
-const retiredSlice8aDaemonModules = new Set([
-  "packages/daemon/src/access-admin-state.ts",
-  "packages/daemon/src/agent-declaration-migration.ts",
-  "packages/daemon/src/agent-runtime-instance-storage.ts",
-  "packages/daemon/src/agent-runtime-instance-store.ts",
-  "packages/daemon/src/client/daemon-autostart.ts",
-  "packages/daemon/src/client/local-daemon-target.ts",
-  "packages/daemon/src/conn-log.ts",
-  "packages/daemon/src/daemon-singleton.ts",
-  "packages/daemon/src/dispatch-stream-archive.ts",
-  "packages/daemon/src/dispatch-stream-compaction.ts",
-  "packages/daemon/src/dispatch-stream.ts",
-  "packages/daemon/src/lifecycle-log.ts",
-  "packages/daemon/src/observe-jsonl-tail.ts",
-  "packages/daemon/src/oidc-center-selection.ts",
-  "packages/daemon/src/probe-log-sink.ts",
-  "packages/daemon/src/repo-cache-purge.ts",
-  "packages/daemon/src/request-log.ts",
-  "packages/daemon/src/runtime-callback-relay.ts",
-  "packages/daemon/src/runtime-provider-health.ts",
-  "packages/daemon/src/skill-eval-production.ts",
-  "packages/daemon/src/skill-eval-runner.ts",
-  "packages/daemon/src/task-worktree.ts",
-  "packages/daemon/src/transport/unix-socket.ts",
-]);
-
-test("slice 8a daemon modules carry zero residual state residency baseline debt", () => {
-  assert.deepEqual(
-    stateResidencyBaseline.filter(({ comment }) => retiredSlice8aDaemonModules.has(comment.split("#")[0])),
-    [],
-  );
+// dec_499E4E98A3D4754132B3BCA1E6/CH1: slice 8b retires the final daemon state residency baseline debt.
+test("state residency baseline carries zero residual debt", () => {
+  assert.deepEqual(stateResidencyBaseline, []);
 });

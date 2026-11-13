@@ -141,7 +141,7 @@ export function claimFile(rootDir: string, ref: string): string | null {
 export function recycleClaims(rootDir: string, intent: DocWriteIntent): void {
   for (const change of intent.changes) {
     const target = change.candidate && claimFile(rootDir, change.candidate.ref);
-    if (target) /* @gate-identity state-store/legacy.3ed3551cf53107fd */ unlinkSync(target);
+    if (target) /* @gate-identity state-store/document.claim-recycle */ unlinkSync(target);
   }
 }
 

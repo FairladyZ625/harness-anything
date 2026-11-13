@@ -32,7 +32,7 @@ const metadataSuffix = ".json",
 
 function transferRoot(rootDir: string): string {
   const root = path.resolve(rootDir);
-  /* @gate-identity state-store/legacy.c7ba9ff796f24b2f */ mkdirSync(root, { recursive: true });
+  /* @gate-identity state-store/document.fleet-edge-content */ mkdirSync(root, { recursive: true });
   return root;
 }
 
@@ -67,10 +67,10 @@ export function readFleetDocContentMetadata(rootDir: string, key: string): Fleet
 
 function writeMetadata(target: string, value: FleetDocContentMetadata): void {
   const temporary = `${target}.${process.pid}.tmp`;
-  /* @gate-identity state-store/legacy.64efdb3ae74ab322 */ writeFileSync(temporary, `${JSON.stringify(value)}\n`, {
+  /* @gate-identity state-store/document.fleet-edge-content */ writeFileSync(temporary, `${JSON.stringify(value)}\n`, {
     mode: 0o600,
   });
-  /* @gate-identity state-store/legacy.fcd7fb49b050dfe1 */ renameSync(temporary, target);
+  /* @gate-identity state-store/document.fleet-edge-content */ renameSync(temporary, target);
 }
 
 function fileSize(file: string): number {
@@ -82,7 +82,7 @@ function error(code: string, message: string): Error & { readonly code: string }
 }
 
 function digestFile(file: string, expectedSize: number): string {
-  const fd = /* @gate-identity state-store/legacy.677ffccfaad978a6 */ openSync(file, "r"),
+  const fd = /* @gate-identity state-store/document.fleet-edge-content */ openSync(file, "r"),
     hash = createHash("sha256"),
     buffer = Buffer.allocUnsafe(64 * 1024);
   let offset = 0;
@@ -94,7 +94,7 @@ function digestFile(file: string, expectedSize: number): string {
       offset += read;
     }
   } finally {
-    /* @gate-identity state-store/legacy.7f926f2fe522d47f */ closeSync(fd);
+    /* @gate-identity state-store/document.fleet-edge-content */ closeSync(fd);
   }
   if (offset !== expectedSize) throw error("content_claim_mismatch", "Sealed Fleet content has the wrong size");
   return hash.digest("hex");
@@ -149,32 +149,32 @@ export function openFleetDocContentSink(options: {
         throw error("upload_gap", `Fleet content gap at offset ${offset}; durable offset is ${current}`);
       if (offset < current) {
         const overlap = Math.min(bytes.byteLength, current - offset),
-          fd = /* @gate-identity state-store/legacy.ad7d736df4f23d69 */ openSync(target.part, "r"),
+          fd = /* @gate-identity state-store/document.fleet-edge-content */ openSync(target.part, "r"),
           existingBytes = Buffer.allocUnsafe(overlap);
         try {
           readSync(fd, existingBytes, 0, overlap, offset);
         } finally {
-          /* @gate-identity state-store/legacy.1792971d9c2af451 */ closeSync(fd);
+          /* @gate-identity state-store/document.fleet-edge-content */ closeSync(fd);
         }
         if (!existingBytes.equals(Buffer.from(bytes).subarray(0, overlap)))
           throw error("upload_replay_mismatch", `Fleet content replay differs at offset ${offset}`);
         if (overlap === bytes.byteLength) return status();
         bytes = bytes.subarray(overlap);
       }
-      const fd = /* @gate-identity state-store/legacy.d04b96a095931c3d */ openSync(target.part, "a");
+      const fd = /* @gate-identity state-store/document.fleet-edge-content */ openSync(target.part, "a");
       try {
-        /* @gate-identity state-store/legacy.b5628385a691a9e7 */ writeFileSync(fd, bytes);
+        /* @gate-identity state-store/document.fleet-edge-content */ writeFileSync(fd, bytes);
       } finally {
-        /* @gate-identity state-store/legacy.cdfe665c69f40d0d */ closeSync(fd);
+        /* @gate-identity state-store/document.fleet-edge-content */ closeSync(fd);
       }
       return status();
     },
     flush: async () => {
-      const fd = /* @gate-identity state-store/legacy.fbbc2bd9dcd6956f */ openSync(target.part, "r+");
+      const fd = /* @gate-identity state-store/document.fleet-edge-content */ openSync(target.part, "r+");
       try {
-        /* @gate-identity state-store/legacy.a91de7b81877b910 */ fsyncSync(fd);
+        /* @gate-identity state-store/document.fleet-edge-content */ fsyncSync(fd);
       } finally {
-        /* @gate-identity state-store/legacy.30221505526be7dc */ closeSync(fd);
+        /* @gate-identity state-store/document.fleet-edge-content */ closeSync(fd);
       }
       return fileSize(target.part);
     },
@@ -183,13 +183,13 @@ export function openFleetDocContentSink(options: {
       await sink.flush(new AbortController().signal);
       if (fileSize(target.part) !== identity.size || digestFile(target.part, identity.size) !== identity.sha256)
         throw error("content_claim_mismatch", "Fleet content does not match its accepted identity");
-      /* @gate-identity state-store/legacy.2d6b9ca24397f204 */ renameSync(target.part, target.sealed);
+      /* @gate-identity state-store/document.fleet-edge-content */ renameSync(target.part, target.sealed);
       sealed = true;
       return { ref: target.sealed, ...identity };
     },
     abort: async () => {
       for (const file of [target.part, target.sealed, target.metadata])
-        if (existsSync(file)) /* @gate-identity state-store/legacy.bde6f832029e2605 */ unlinkSync(file);
+        if (existsSync(file)) /* @gate-identity state-store/document.fleet-edge-content */ unlinkSync(file);
       sealed = false;
     },
   };
@@ -203,7 +203,7 @@ export function openFleetDocContentSink(options: {
     },
     cleanup: () => {
       for (const file of [target.part, target.sealed, target.metadata])
-        if (existsSync(file)) /* @gate-identity state-store/legacy.9569821c244cfdbe */ unlinkSync(file);
+        if (existsSync(file)) /* @gate-identity state-store/document.fleet-edge-content */ unlinkSync(file);
     },
   };
 }

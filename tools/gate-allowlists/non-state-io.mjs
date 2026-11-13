@@ -1231,4 +1231,314 @@ export const nonStateIoDeclarations = Object.freeze([
     api: "rmSync",
     scope: "createUnixSocketTransportServer",
   },
+  {
+    id: "environment-io.f4d8382218704581",
+    path: "packages/daemon/src/fleet/center-listener.ts",
+    category: "environment-io",
+    subtype: "fleet-replication-scratch",
+    reason:
+      "Allocates or removes a per-request OS temporary basebackup staging directory streamed over TLS and deleted immediately on request completion or listener shutdown; stores no durable domain state. Signal: mkdirSync in listenFleetTls.",
+    api: "mkdirSync",
+    scope: "listenFleetTls",
+  },
+  {
+    id: "environment-io.22ed4ffe787ceb39",
+    path: "packages/daemon/src/fleet/center-listener.ts",
+    category: "environment-io",
+    subtype: "fleet-replication-scratch",
+    reason:
+      "Allocates or removes a per-request OS temporary basebackup staging directory streamed over TLS and deleted immediately on request completion or listener shutdown; stores no durable domain state. Signal: rmSync in listenFleetTls.",
+    api: "rmSync",
+    scope: "listenFleetTls",
+  },
+  {
+    id: "environment-io.39e0ae0592525fc2",
+    path: "packages/daemon/src/fleet/center-listener.ts",
+    category: "environment-io",
+    subtype: "fleet-replication-scratch",
+    reason:
+      "Allocates or removes a per-request OS temporary basebackup staging directory streamed over TLS and deleted immediately on request completion or listener shutdown; stores no durable domain state. Signal: rmSync in cleanup.",
+    api: "rmSync",
+    scope: "cleanup",
+  },
+  {
+    id: "environment-io.6cc0d5c726eb11a2",
+    path: "packages/daemon/src/fleet/edge-join-client.ts",
+    category: "environment-io",
+    subtype: "workspace-bootstrap-scaffolding",
+    reason:
+      "Creates empty local workspace and fleet layout parent directories before TLS enrollment and canonical replica/config commits; directories alone carry no domain state. Signal: mkdirSync in prepareJoinWorkspace.",
+    api: "mkdirSync",
+    scope: "prepareJoinWorkspace",
+  },
+  {
+    id: "environment-io.983af9eb1df07bc2",
+    path: "packages/daemon/src/fleet/edge-join-client.ts",
+    category: "environment-io",
+    subtype: "workspace-bootstrap-scaffolding",
+    reason:
+      "Creates empty local workspace and fleet layout parent directories before TLS enrollment and canonical replica/config commits; directories alone carry no domain state. Signal: mkdirSync in ensureCenterLayout.",
+    api: "mkdirSync",
+    scope: "ensureCenterLayout",
+  },
+  {
+    id: "environment-io.4f62e1d5a38603ae",
+    path: "packages/daemon/src/fleet/walreceiver.ts",
+    category: "environment-io",
+    subtype: "fleet-replication-scratch",
+    reason:
+      "Stages an in-flight basebackup download tarball in an ephemeral directory hydrated into the replica seed and deleted in finally; stores no durable domain state. Signal: mkdir in runWalReceiver.",
+    api: "mkdir",
+    scope: "runWalReceiver",
+  },
+  {
+    id: "environment-io.86c097b43a2b67a1",
+    path: "packages/daemon/src/fleet/walreceiver.ts",
+    category: "environment-io",
+    subtype: "fleet-replication-scratch",
+    reason:
+      "Stages an in-flight basebackup download tarball in an ephemeral directory hydrated into the replica seed and deleted in finally; stores no durable domain state. Signal: open in handle.",
+    api: "open",
+    scope: "handle",
+  },
+  {
+    id: "environment-io.4d1cb7398be78de6",
+    path: "packages/daemon/src/fleet/walreceiver.ts",
+    category: "environment-io",
+    subtype: "fleet-replication-scratch",
+    reason:
+      "Stages an in-flight basebackup download tarball in an ephemeral directory hydrated into the replica seed and deleted in finally; stores no durable domain state. Signal: rm in runWalReceiver.",
+    api: "rm",
+    scope: "runWalReceiver",
+  },
+  {
+    id: "environment-io.b3f141dd21d8d0b1",
+    path: "packages/daemon/src/fleet/walreceiver.ts",
+    category: "environment-io",
+    subtype: "fleet-replication-scratch",
+    reason:
+      "Stages an in-flight basebackup download tarball in an ephemeral directory hydrated into the replica seed and deleted in finally; stores no durable domain state. Signal: mkdir in runWalReceiver.",
+    api: "mkdir",
+    scope: "runWalReceiver",
+  },
+  {
+    id: "environment-io.cf6e8fcf123657de",
+    path: "packages/daemon/src/fleet/walreceiver.ts",
+    category: "environment-io",
+    subtype: "fleet-replication-scratch",
+    reason:
+      "Stages an in-flight basebackup download tarball in an ephemeral directory hydrated into the replica seed and deleted in finally; stores no durable domain state. Signal: open in handle.",
+    api: "open",
+    scope: "handle",
+  },
+  {
+    id: "environment-io.5eeaceccac6eef1d",
+    path: "packages/daemon/src/fleet/walreceiver.ts",
+    category: "environment-io",
+    subtype: "fleet-replication-scratch",
+    reason:
+      "Stages an in-flight basebackup download tarball in an ephemeral directory hydrated into the replica seed and deleted in finally; stores no durable domain state. Signal: rm in runWalReceiver.",
+    api: "rm",
+    scope: "runWalReceiver",
+  },
+  {
+    id: "environment-io.ef127f14027bb02f",
+    path: "packages/daemon/src/migration-import-oracle-rebuild.ts",
+    category: "environment-io",
+    subtype: "migration-oracle-scratch",
+    reason:
+      "Constructs and tears down an ephemeral OS temporary sandbox under tmpdir() to replay historical git revisions into an in-memory migration import oracle; deleted in finally with zero persistent state. Signal: rmSync in rebuildEventOracle.",
+    api: "rmSync",
+    scope: "rebuildEventOracle",
+  },
+  {
+    id: "environment-io.6873cfbd268957bd",
+    path: "packages/daemon/src/migration-import-oracle-rebuild.ts",
+    category: "environment-io",
+    subtype: "migration-oracle-scratch",
+    reason:
+      "Constructs and tears down an ephemeral OS temporary sandbox under tmpdir() to replay historical git revisions into an in-memory migration import oracle; deleted in finally with zero persistent state. Signal: mkdirSync in createMigrationPlanningWorkspace.",
+    api: "mkdirSync",
+    scope: "createMigrationPlanningWorkspace",
+  },
+  {
+    id: "environment-io.86fb0c028d105218",
+    path: "packages/daemon/src/migration-import-oracle-rebuild.ts",
+    category: "environment-io",
+    subtype: "migration-oracle-scratch",
+    reason:
+      "Constructs and tears down an ephemeral OS temporary sandbox under tmpdir() to replay historical git revisions into an in-memory migration import oracle; deleted in finally with zero persistent state. Signal: cpSync in createMigrationPlanningWorkspace.",
+    api: "cpSync",
+    scope: "createMigrationPlanningWorkspace",
+  },
+  {
+    id: "environment-io.32dc7fc6cbd587cd",
+    path: "packages/daemon/src/migration-import-oracle-rebuild.ts",
+    category: "environment-io",
+    subtype: "migration-oracle-scratch",
+    reason:
+      "Constructs and tears down an ephemeral OS temporary sandbox under tmpdir() to replay historical git revisions into an in-memory migration import oracle; deleted in finally with zero persistent state. Signal: mkdirSync in createMigrationPlanningWorkspace.",
+    api: "mkdirSync",
+    scope: "createMigrationPlanningWorkspace",
+  },
+  {
+    id: "environment-io.e02399272b58363c",
+    path: "packages/daemon/src/migration-import-oracle-rebuild.ts",
+    category: "environment-io",
+    subtype: "migration-oracle-scratch",
+    reason:
+      "Constructs and tears down an ephemeral OS temporary sandbox under tmpdir() to replay historical git revisions into an in-memory migration import oracle; deleted in finally with zero persistent state. Signal: writeFileSync in createMigrationPlanningWorkspace.",
+    api: "writeFileSync",
+    scope: "createMigrationPlanningWorkspace",
+  },
+  {
+    id: "environment-io.c07c59eed7fad03a",
+    path: "packages/daemon/src/migration-import-oracle-rebuild.ts",
+    category: "environment-io",
+    subtype: "migration-oracle-scratch",
+    reason:
+      "Constructs and tears down an ephemeral OS temporary sandbox under tmpdir() to replay historical git revisions into an in-memory migration import oracle; deleted in finally with zero persistent state. Signal: rmSync in createMigrationPlanningWorkspace.",
+    api: "rmSync",
+    scope: "createMigrationPlanningWorkspace",
+  },
+  {
+    id: "environment-io.70e4977de157f4d9",
+    path: "packages/daemon/src/migration-import-oracle-rebuild.ts",
+    category: "environment-io",
+    subtype: "migration-oracle-scratch",
+    reason:
+      "Constructs and tears down an ephemeral OS temporary sandbox under tmpdir() to replay historical git revisions into an in-memory migration import oracle; deleted in finally with zero persistent state. Signal: mkdirSync in stageAuthored.",
+    api: "mkdirSync",
+    scope: "stageAuthored",
+  },
+  {
+    id: "environment-io.d019bd23ffa62061",
+    path: "packages/daemon/src/migration-import-oracle-rebuild.ts",
+    category: "environment-io",
+    subtype: "migration-oracle-scratch",
+    reason:
+      "Constructs and tears down an ephemeral OS temporary sandbox under tmpdir() to replay historical git revisions into an in-memory migration import oracle; deleted in finally with zero persistent state. Signal: symlinkSync in stageAuthored.",
+    api: "symlinkSync",
+    scope: "stageAuthored",
+  },
+  {
+    id: "environment-io.b548a080b558cfef",
+    path: "packages/daemon/src/migration-import-oracle-rebuild.ts",
+    category: "environment-io",
+    subtype: "migration-oracle-scratch",
+    reason:
+      "Constructs and tears down an ephemeral OS temporary sandbox under tmpdir() to replay historical git revisions into an in-memory migration import oracle; deleted in finally with zero persistent state. Signal: writeFileSync in stageAuthored.",
+    api: "writeFileSync",
+    scope: "stageAuthored",
+  },
+  {
+    id: "environment-io.53b511126c97e1e8",
+    path: "packages/daemon/src/migration-import-oracle-rebuild.ts",
+    category: "environment-io",
+    subtype: "migration-oracle-scratch",
+    reason:
+      "Constructs and tears down an ephemeral OS temporary sandbox under tmpdir() to replay historical git revisions into an in-memory migration import oracle; deleted in finally with zero persistent state. Signal: rmSync in removeAuthored.",
+    api: "rmSync",
+    scope: "removeAuthored",
+  },
+  {
+    id: "environment-io.cd6fcfe8c25c3338",
+    path: "packages/daemon/src/repo-bootstrap.ts",
+    category: "environment-io",
+    subtype: "workspace-bootstrap-scaffolding",
+    reason:
+      "Initializes local project git repository scaffolding (.git/info/exclude, .gitignore, initial README.md, and .harness directory skeleton) before canonical ledger attach; carries no Harness entity state. Signal: mkdirSync in resolveBootstrapAuthoredBranch.",
+    api: "mkdirSync",
+    scope: "resolveBootstrapAuthoredBranch",
+  },
+  {
+    id: "environment-io.f91d4dbc214c0e3c",
+    path: "packages/daemon/src/repo-bootstrap.ts",
+    category: "environment-io",
+    subtype: "workspace-bootstrap-scaffolding",
+    reason:
+      "Initializes local project git repository scaffolding (.git/info/exclude, .gitignore, initial README.md, and .harness directory skeleton) before canonical ledger attach; carries no Harness entity state. Signal: mkdirSync in bootstrapRepo.",
+    api: "mkdirSync",
+    scope: "bootstrapRepo",
+  },
+  {
+    id: "environment-io.81621353db3b2f8a",
+    path: "packages/daemon/src/repo-bootstrap.ts",
+    category: "environment-io",
+    subtype: "workspace-bootstrap-scaffolding",
+    reason:
+      "Initializes local project git repository scaffolding (.git/info/exclude, .gitignore, initial README.md, and .harness directory skeleton) before canonical ledger attach; carries no Harness entity state. Signal: writeFileSync in bootstrapRepo.",
+    api: "writeFileSync",
+    scope: "bootstrapRepo",
+  },
+  {
+    id: "environment-io.d3524ad117c02bfc",
+    path: "packages/daemon/src/repo-bootstrap.ts",
+    category: "environment-io",
+    subtype: "workspace-bootstrap-scaffolding",
+    reason:
+      "Initializes local project git repository scaffolding (.git/info/exclude, .gitignore, initial README.md, and .harness directory skeleton) before canonical ledger attach; carries no Harness entity state. Signal: mkdirSync in ensureSafeParent.",
+    api: "mkdirSync",
+    scope: "ensureSafeParent",
+  },
+  {
+    id: "environment-io.b172fdbbdccfd324",
+    path: "packages/daemon/src/repo-bootstrap.ts",
+    category: "environment-io",
+    subtype: "workspace-bootstrap-scaffolding",
+    reason:
+      "Initializes local project git repository scaffolding (.git/info/exclude, .gitignore, initial README.md, and .harness directory skeleton) before canonical ledger attach; carries no Harness entity state. Signal: mkdirSync in isolateLedgerFromProject.",
+    api: "mkdirSync",
+    scope: "isolateLedgerFromProject",
+  },
+  {
+    id: "environment-io.236932fbb7b48e53",
+    path: "packages/daemon/src/repo-bootstrap.ts",
+    category: "environment-io",
+    subtype: "workspace-bootstrap-scaffolding",
+    reason:
+      "Initializes local project git repository scaffolding (.git/info/exclude, .gitignore, initial README.md, and .harness directory skeleton) before canonical ledger attach; carries no Harness entity state. Signal: writeFileSync in isolateLedgerFromProject.",
+    api: "writeFileSync",
+    scope: "isolateLedgerFromProject",
+  },
+  {
+    id: "environment-io.cabcf5aa63dbec33",
+    path: "packages/daemon/src/repo-bootstrap.ts",
+    category: "environment-io",
+    subtype: "workspace-bootstrap-scaffolding",
+    reason:
+      "Initializes local project git repository scaffolding (.git/info/exclude, .gitignore, initial README.md, and .harness directory skeleton) before canonical ledger attach; carries no Harness entity state. Signal: writeFileSync in removeHarnessIgnoreRules.",
+    api: "writeFileSync",
+    scope: "removeHarnessIgnoreRules",
+  },
+  {
+    id: "environment-io.fce35847c1d968e8",
+    path: "packages/daemon/src/repo-cell-command-witness.ts",
+    category: "environment-io",
+    subtype: "completion-witness-scratch",
+    reason:
+      "Materializes canonical task-package files into an ephemeral tmpdir() scratch directory for read-only completion gate witness command evaluation and removes it in finally; canonical task state remains in the ledger. Signal: mkdirSync in collectCommandWitness.",
+    api: "mkdirSync",
+    scope: "collectCommandWitness",
+  },
+  {
+    id: "environment-io.8c352b21fa3e0324",
+    path: "packages/daemon/src/repo-cell-command-witness.ts",
+    category: "environment-io",
+    subtype: "completion-witness-scratch",
+    reason:
+      "Materializes canonical task-package files into an ephemeral tmpdir() scratch directory for read-only completion gate witness command evaluation and removes it in finally; canonical task state remains in the ledger. Signal: rmSync in collectCommandWitness.",
+    api: "rmSync",
+    scope: "collectCommandWitness",
+  },
+  {
+    id: "environment-io.acc11724f9341ee2",
+    path: "packages/daemon/src/schedule-builtin-executor.ts",
+    category: "environment-io",
+    subtype: "ledger-backup-partial-cleanup",
+    reason:
+      "Removes an unverified or interrupted local ledger-backup snapshot directory before running sqlite3 VACUUM INTO; authoritative schedule execution receipts live in canonical schedule.events. Signal: rmSync in existingSnapshotIsVerified.",
+    api: "rmSync",
+    scope: "existingSnapshotIsVerified",
+  },
 ]);

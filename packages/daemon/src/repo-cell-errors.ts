@@ -118,7 +118,7 @@ export function publishGeneratedArtifact(input: {
   readonly relativePath: string;
   readonly body: string;
 }): void {
-  /* @gate-identity state-store/legacy.89225019be42dc09 */ mkdirSync(path.dirname(input.outputPath), {
+  /* @gate-identity state-store/fact.distill-candidates */ mkdirSync(path.dirname(input.outputPath), {
     recursive: true,
   });
   if (existsSync(input.outputPath)) {
@@ -129,7 +129,7 @@ export function publishGeneratedArtifact(input: {
       );
     return;
   }
-  /* @gate-identity state-store/legacy.3efabd50038a13f9 */ writeFileSync(input.outputPath, input.body, {
+  /* @gate-identity state-store/fact.distill-candidates */ writeFileSync(input.outputPath, input.body, {
     encoding: "utf8",
     flag: "wx",
   });
