@@ -296,6 +296,81 @@ test("S3d kernel Policy source bindings retain LF/CRLF identities and reject cha
   }
 });
 
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: packages/kernel has no frozen ontology debt in any category.
+test("packages/kernel stays at zero ontology baseline and every kernel candidate is registered", () => {
+  const baseline = loadGateAllowlist("ontology-closure", { report: false }).candidates;
+  assert.deepEqual(
+    baseline.filter((row) => row.owner === "packages/kernel" || row.path?.startsWith("packages/kernel/")),
+    [],
+  );
+  const result = evaluateOntologyClosure({ rootDir: repoRoot, base: "HEAD" });
+  for (const category of ["action", "judgment", "policy"]) {
+    const candidates = result.classified.filter(
+      (row) => row.category === category && row.file.startsWith("packages/kernel/"),
+    );
+    assert.ok(candidates.length > 0, category);
+    assert.deepEqual(
+      candidates.filter((row) => row.status !== "registered"),
+      [],
+      category,
+    );
+  }
+  assert.deepEqual(
+    result.findings.filter((row) => row.file?.startsWith("packages/kernel/")),
+    [],
+  );
+});
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: kernel defaults stay bound to their declaration; a changed value is new debt.
+test("kernel Policy defaults keep LF/CRLF identities and a changed default fails closed", () => {
+  const snapshot = loadOntologyClosureSnapshot(repoRoot);
+  for (const [target, from, to] of [
+    [
+      "packages/kernel/src/schemas/vertical-definition.ts",
+      "VERTICAL_DECODE_ISSUE_LIMIT = 8",
+      "VERTICAL_DECODE_ISSUE_LIMIT = 9",
+    ],
+    ["packages/kernel/src/domain/todo-soft-limit.ts", "DEFAULT_TODO_SOFT_LIMIT = 30", "DEFAULT_TODO_SOFT_LIMIT = 31"],
+    ["packages/kernel/src/domain/task-wip-policy.ts", "DEFAULT_TASK_WIP_LIMIT = 30", "DEFAULT_TASK_WIP_LIMIT = 31"],
+    [
+      "packages/kernel/src/domain/settings-field-declarations.ts",
+      "DEFAULT_GUI_REQUEST_TIMEOUT_MS = 30_000",
+      "DEFAULT_GUI_REQUEST_TIMEOUT_MS = 30_001",
+    ],
+    ["packages/kernel/src/domain/execution.ts", "{ capacity: 32 }", "{ capacity: 33 }"],
+    [
+      "packages/kernel/src/domain/dispatch-lifecycle.ts",
+      "DISPATCH_LIFECYCLE_PAGE_LIMIT = 100",
+      "DISPATCH_LIFECYCLE_PAGE_LIMIT = 101",
+    ],
+    ["packages/kernel/src/domain/query-payload-validation.ts", "Number(limit) > 500", "Number(limit) > 501"],
+    ["packages/kernel/src/composition/receipt-acceptance.ts", "timeout > 60_000", "timeout > 60_001"],
+    ["packages/kernel/src/domain/canonical-event-summary.ts", "SUMMARY_TEXT_LIMIT = 280", "SUMMARY_TEXT_LIMIT = 281"],
+  ]) {
+    const source = readFileSync(path.join(repoRoot, target), "utf8");
+    assert.notEqual(source.replace(from, to), source, `${target}: ${from}`);
+    const original = scanOntologyText(target, source);
+    assert.deepEqual(audit(original, { snapshot }).findings, [], target);
+    assert.deepEqual(
+      scanOntologyText(target, source.replaceAll("\n", "\r\n")).map(({ id }) => id),
+      original.map(({ id }) => id),
+      target,
+    );
+    assert.ok(
+      audit(scanOntologyText(target, source.replace(from, to)), { snapshot }).findings.some(
+        ({ code }) => code === "ONTOLOGY_POLICY_UNDECLARED",
+      ),
+      `${target}: ${from}`,
+    );
+  }
+  const fresh = scanOntologyText("packages/kernel/src/domain/new-policy.ts", "const retryLimit = 3;");
+  assert.ok(audit(fresh, { snapshot }).findings.some(({ code }) => code === "ONTOLOGY_POLICY_UNDECLARED"));
+  assert.deepEqual(
+    audit(fresh, { snapshot, baseline: [debt(fresh[0])], previous: [] }).findings.map(({ code }) => code),
+    ["ONTOLOGY_BASELINE_GROWTH"],
+  );
+});
+
 test("closure positive emits all three errors and prescriptions; negative text is accepted", () => {
   const result = audit(scan("positive"));
   assert.deepEqual([...new Set(result.findings.map((row) => row.code))].sort(), [

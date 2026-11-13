@@ -4,6 +4,7 @@ import type { GateWitnessMappingV1 } from "./completion-contract.ts";
 import { closeoutProfiles } from "./settings-closeout.ts";
 import { DEFAULT_TASK_ROOT_THRESHOLD, DEFAULT_TASK_WIP_LIMIT } from "./task-wip-policy.ts";
 import { DEFAULT_TODO_SOFT_LIMIT } from "./todo-soft-limit.ts";
+import type { OntologyPolicyDeclaration } from "./ontology-source.ts";
 
 export type SettingsFieldOwnership = "repository" | "local";
 export type SettingsFieldValueKind =
@@ -175,6 +176,36 @@ export const DEFAULT_RUNTIME_STALL_TIMEOUT_MS = 5 * 60_000;
 export const DEFAULT_GUI_CONNECT_TIMEOUT_MS = 2_000;
 /** The GUI default answer deadline: 200ms, 2s and 10s all failed live before 30s held (泽宇 2026-09-01/02). */
 export const DEFAULT_GUI_REQUEST_TIMEOUT_MS = 30_000;
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: settings defaults are declared beside the constants their fields use.
+export const settingsDefaultsPolicy = {
+  id: "settings-defaults",
+  ownerRef: "settings",
+  unit: "drills / days / milliseconds",
+  bounds:
+    "restoreDrillRetention defaults to 3 (minimum 1); dispatchArchive.retentionDays to 60 (0 disables age deletion); runtime.providerHandshakeTimeoutMs to 30000 (minimum 1000); gui.connectTimeoutMs to 2000 (minimum 100); gui.requestTimeoutMs to 30000 (minimum 1000). Repository or machine settings override each default.",
+  defaultValue: {
+    restoreDrills: DEFAULT_RESTORE_DRILL_RETENTION,
+    dispatchArchiveDays: DEFAULT_DISPATCH_ARCHIVE_RETENTION_DAYS,
+    providerHandshakeMs: DEFAULT_PROVIDER_HANDSHAKE_TIMEOUT_MS,
+    guiConnectMs: DEFAULT_GUI_CONNECT_TIMEOUT_MS,
+    guiRequestMs: DEFAULT_GUI_REQUEST_TIMEOUT_MS,
+  },
+  version: 1,
+  scope: "Settings field declarations",
+  reason:
+    "The settings fields already read these constants; the declaration names the same values without a second default.",
+  fixtures: [
+    "packages/kernel/test/contracts/settings-action.test.ts",
+    "packages/kernel/test/layout/harness-settings.test.ts",
+  ],
+  sources: [
+    "policy:packages/kernel:packages/kernel/src/domain/settings-field-declarations.ts#DEFAULT_RESTORE_DRILL_RETENTION:f65d4c03fdb23816ffc6f1153afe26bb",
+    "policy:packages/kernel:packages/kernel/src/domain/settings-field-declarations.ts#DEFAULT_DISPATCH_ARCHIVE_RETENTION_DAYS:99044643ea5103c4d70c595b2ab8312e",
+    "policy:packages/kernel:packages/kernel/src/domain/settings-field-declarations.ts#DEFAULT_PROVIDER_HANDSHAKE_TIMEOUT_MS:40d13c1ad89cc55da9a028bd8b3cb724",
+    "policy:packages/kernel:packages/kernel/src/domain/settings-field-declarations.ts#DEFAULT_GUI_CONNECT_TIMEOUT_MS:f10559f5268a3f8d142490901ca1b9d1",
+    "policy:packages/kernel:packages/kernel/src/domain/settings-field-declarations.ts#DEFAULT_GUI_REQUEST_TIMEOUT_MS:d1c750bf67a976cd4dfa6b23d0d3931b",
+  ].map((candidateId) => ({ candidateId, route: "settingsFieldDeclarations" })),
+} as const satisfies OntologyPolicyDeclaration;
 export const worktreeSetupAdapters = ["node-modules"] as const;
 export const worktreeSetupStepPattern = `^(?:${worktreeSetupAdapters.join("|")}|run: \\S.*)$`;
 
