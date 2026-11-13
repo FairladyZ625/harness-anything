@@ -38,8 +38,22 @@ export function findProviderBoundaryViolations(diffText, waivedFingerprints = []
     if (isProviderPackage || EXEMPTED_TEST_PATH.test(file)) continue;
     const sourceLine = line.slice(1);
     // A registered source location is an ontology reference, never a provider implementation.
-    const reference = /^\s*(?:"(?:symbol|candidateId|route|port)":\s*)?"([^"\n]+)"[,]?\s*$/u.exec(sourceLine);
-    if (reference && sourceReferences.has(reference[1])) continue;
+    const reference =
+      /^\s*(?:(?:"(?:symbol|candidateId|route|port)"|symbol|candidateId|route|port):\s*)?"([^"\n]+)"[,]?\s*$/u.exec(
+        sourceLine,
+      );
+    const source = /^\s*\{\s*candidateId:\s*"([^"\n]+)",\s*route:\s*"([^"\n]+)"\s*\},?\s*$/u.exec(sourceLine);
+    const fixtures = /^\s*fixtures:\s*\[("[^"\n]+"(?:,\s*"[^"\n]+")*)\],?\s*$/u.exec(sourceLine);
+    const referenceValues = source
+      ? source.slice(1)
+      : fixtures
+        ? [...fixtures[1].matchAll(/"([^"\n]+)"/gu)].map((match) => match[1])
+        : [];
+    if (
+      (reference && sourceReferences.has(reference[1])) ||
+      (referenceValues.length > 0 && referenceValues.every((value) => sourceReferences.has(value)))
+    )
+      continue;
     if (waivedFingerprints.includes(providerLineFingerprint(file, sourceLine))) continue;
     const reason = providerMarkerReason(sourceLine);
     if (reason) errors.push(`${file}: ${reason}: ${line.slice(1).trim()}`);
@@ -102,7 +116,10 @@ export function checkAuthorizationProviderBoundary(rootDir) {
         ...(row.consumers ?? []),
         ...row.sources.flatMap((source) => [source.candidateId, source.route]),
       ]),
-      ...(kind.policies ?? []).flatMap((policy) => policy.fixtures ?? []),
+      ...(kind.policies ?? []).flatMap((policy) => [
+        ...(policy.fixtures ?? []),
+        ...(policy.sources ?? []).flatMap((source) => [source.candidateId, source.route]),
+      ]),
     ]),
     ...snapshot.actions.flatMap((action) =>
       (action.ontology?.sources ?? []).flatMap((source) => [source.candidateId, source.route]),

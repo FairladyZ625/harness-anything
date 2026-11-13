@@ -11,7 +11,8 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@harness-anything/authorization-gui": "0.0.1"
+    "@harness-anything/authorization-gui": "0.0.1",
+    "@harness-anything/kernel": "0.1.0"
   },
   "peerDependencies": {
     "react": "^19.0.0"

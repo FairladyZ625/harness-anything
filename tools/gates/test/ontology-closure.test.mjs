@@ -136,6 +136,43 @@ test("application, builtin authorization and DSH remain closed in every ontology
   }
 });
 
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: the final provider slice closes every authorization package.
+test("all authorization packages stay at zero ontology migration debt", () => {
+  const baseline = loadGateAllowlist("ontology-closure", { report: false }).candidates;
+  assert.deepEqual(
+    baseline.filter((row) => row.owner.startsWith("packages/authorization-")),
+    [],
+  );
+  const result = evaluateOntologyClosure({ rootDir: repoRoot, base: "HEAD" });
+  for (const owner of ["packages/authorization-keycloak", "packages/authorization-keycloak-gui"]) {
+    assert.deepEqual(
+      baseline.filter((row) => row.owner === owner),
+      [],
+      owner,
+    );
+    const candidates = result.classified.filter((row) => row.file.startsWith(`${owner}/`));
+    assert.ok(
+      candidates.some((row) => row.category === "action"),
+      owner,
+    );
+    assert.deepEqual(
+      candidates.filter((row) => row.status !== "registered"),
+      [],
+      owner,
+    );
+  }
+  const policies = loadOntologyClosureSnapshot(repoRoot).kinds.flatMap((kind) => kind.policies ?? []);
+  for (const owner of ["packages/authorization-keycloak", "packages/authorization-keycloak-gui"])
+    assert.ok(
+      policies.some((policy) => policy.sources.some((source) => source.candidateId.startsWith(`policy:${owner}:`))),
+      owner,
+    );
+  assert.deepEqual(
+    result.findings.filter((row) => row.file?.startsWith("packages/authorization-")),
+    [],
+  );
+});
+
 test("leaf Policy bindings preserve defaults and distinguish exact presentation contracts from new budgets", () => {
   const snapshot = loadOntologyClosureSnapshot(repoRoot);
   for (const [target, from, to] of [

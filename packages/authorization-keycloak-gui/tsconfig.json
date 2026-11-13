@@ -21,6 +21,9 @@
   "references": [
     {
       "path": "../authorization-gui"
+    },
+    {
+      "path": "../kernel"
     }
   ]
 }

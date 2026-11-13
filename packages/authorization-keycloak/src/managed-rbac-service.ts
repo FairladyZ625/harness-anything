@@ -18,7 +18,11 @@ import { connect, createServer, type Server } from "node:net";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { consumeKnownError } from "@harness-anything/kernel";
-import { managedIdentityPolicy } from "@harness-anything/kernel/internal/domain/managed-identity-policy.ts";
+import {
+  managedIdentityPolicy,
+  managedAuthorizationSettingsPolicy,
+  identityHealthProbePolicy,
+} from "@harness-anything/kernel/internal/domain/managed-identity-policy.ts";
 import type { ManagedRbacHost } from "./managed-host.ts";
 import type { ManagedRbacRequest, ManagedRbacListener, CertificateMode } from "@harness-anything/kernel";
 import { KeycloakPolicyAdapter, type KeycloakLegacyRoleMigrationReceipt } from "./keycloak-policy-adapter.ts";
@@ -623,8 +627,8 @@ export class ManagedRbacService {
       realm: "harness",
       enabled: true,
       ...sessionLifetimeRealmSettings(sessionLifetimeBounds.defaultSeconds),
-      registrationAllowed: false,
-      loginWithEmailAllowed: true,
+      registrationAllowed: managedAuthorizationSettingsPolicy.defaultValue.registrationAllowed,
+      loginWithEmailAllowed: managedAuthorizationSettingsPolicy.defaultValue.loginWithEmailAllowed,
       clients: [
         {
           clientId: "harness-center",
@@ -633,7 +637,10 @@ export class ManagedRbacService {
           serviceAccountsEnabled: true,
           authorizationServicesEnabled: true,
           // Grants are independent allow rules on one resource: any applicable grant permits, none denies.
-          authorizationSettings: { policyEnforcementMode: "ENFORCING", decisionStrategy: "AFFIRMATIVE" },
+          authorizationSettings: {
+            policyEnforcementMode: managedAuthorizationSettingsPolicy.defaultValue.policyEnforcementMode,
+            decisionStrategy: managedAuthorizationSettingsPolicy.defaultValue.decisionStrategy,
+          },
           secret: readFileSync(secretFile, "utf8").trim(),
         },
         {
@@ -732,7 +739,7 @@ export class ManagedRbacService {
         undefined,
         sql,
         undefined,
-        { timeoutMs: 30_000 },
+        { timeoutMs: identityHealthProbePolicy.defaultValue.postgresPasswordTimeoutMs },
       );
     } catch (error) {
       const code =
@@ -997,7 +1004,9 @@ export class ManagedRbacService {
   async #waitUntilReady(): Promise<Record<string, unknown>> {
     let result: Record<string, unknown> = { status: "not_checked" },
       transportFailure: unknown = null;
-    const attempts = this.#ports.platform === "win32" ? 720 : 120;
+    const budget = identityHealthProbePolicy.defaultValue;
+    const attempts =
+      this.#ports.platform === "win32" ? budget.readinessAttempts.win32 : budget.readinessAttempts.default;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       const healthAttempt = await healthReadinessAttempt(() => this.health());
       if ("transportFailure" in healthAttempt) {
@@ -1007,7 +1016,7 @@ export class ManagedRbacService {
         transportFailure = null;
         if (result.ready === true) return result;
       }
-      await new Promise<void>((resolve) => setTimeout(resolve, 250));
+      await new Promise<void>((resolve) => setTimeout(resolve, budget.probeIntervalMs));
     }
     if (transportFailure)
       throw Object.assign(
@@ -1018,7 +1027,7 @@ export class ManagedRbacService {
       );
     throw managedRbacError(
       "rbac_health_failed",
-      `Keycloak realm health returned HTTP ${String(result.status)} after ${String(attempts * 250)}ms.`,
+      `Keycloak realm health returned HTTP ${String(result.status)} after ${String(attempts * budget.probeIntervalMs)}ms.`,
     );
   }
 

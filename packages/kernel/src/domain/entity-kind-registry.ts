@@ -83,7 +83,7 @@ import {
 } from "./entity-action-descriptor.ts";
 import { hostStateStores, stateStoresForKind, type StateStoreDeclaration } from "./entity-state-stores.ts";
 import { hostAggregateSchema } from "./host.ts";
-import { guiInteractionPolicy } from "./gui-interaction-policy.ts";
+import { guiInteractionPolicy, identityGuiRejectionPolicy } from "./gui-interaction-policy.ts";
 import { runtimeReleasePolicy, runtimeReleasePolicyJudgment } from "./runtime-release-readiness.ts";
 import { supplyChainReleasePolicy, supplyChainReleasePolicyJudgment } from "./supply-chain-release-readiness.ts";
 import { storageReadPolicy, storageReadJudgment, storageReadAdditionalJudgments } from "./storage-read-policy.ts";
@@ -95,7 +95,19 @@ import { gateMappingPolicy, gateMappingPolicyJudgments } from "./gate-mapping-po
 import { storageReplayPolicy, storageReplayJudgments } from "./storage-replay-policy.ts";
 import { completionGateOverridePolicy, completionGateOverrideJudgment } from "./completion-gate-policy.ts";
 import { writerLifecyclePolicy } from "./writer-lifecycle-policy.ts";
-import { managedIdentityPolicy, builtinAuthorizationContractPolicy } from "./managed-identity-policy.ts";
+import {
+  managedIdentityPolicy,
+  builtinAuthorizationContractPolicy,
+  managedClientScopePolicy,
+  identityLoginMapperPolicy,
+  managedAuthorizationSettingsPolicy,
+  identityAdapterContractPolicy,
+  identityAdminNotFoundPolicy,
+  identitySessionLifetimePolicy,
+  identityDatabaseProcessPolicy,
+  identityHealthProbePolicy,
+  identityFleetPrincipalPolicy,
+} from "./managed-identity-policy.ts";
 import { guiQueryPacing } from "./gui-query-pacing.ts";
 import { taskLeaseGuidancePolicy, returnToPlannedJudgment } from "./task-lease-guidance.ts";
 import sourceContractFacets from "./source-contract-facets.json" with { type: "json" };
@@ -1522,6 +1534,16 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
       builtinAuthorizationContractPolicy,
       dshBrokerPolicy,
       dshPresentationPolicy,
+      managedClientScopePolicy,
+      identityLoginMapperPolicy,
+      managedAuthorizationSettingsPolicy,
+      identityAdapterContractPolicy,
+      identityAdminNotFoundPolicy,
+      identitySessionLifetimePolicy,
+      identityDatabaseProcessPolicy,
+      identityHealthProbePolicy,
+      identityFleetPrincipalPolicy,
+      identityGuiRejectionPolicy,
     ],
     schema: hostAggregateSchema,
     relations: { directions: [], edges: [] },
