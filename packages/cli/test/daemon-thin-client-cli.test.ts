@@ -3,8 +3,9 @@ import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { createServer } from "node:net";
+import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -334,6 +335,12 @@ test("GUI launch acquires the daemon then starts Electron detached without a dev
           },
           startDetached: (command, args, env, outputPath, cwd, windowsHide) => {
             calls.push({ command, args, env, outputPath, cwd, windowsHide });
+            const [host, rawPort] = String(env.HARNESS_GUI_LAUNCH_ADDR ?? "").split(":");
+            const sock = connect({ host, port: Number(rawPort) }, () => {
+              sock.end(
+                `${JSON.stringify({ token: env.HARNESS_GUI_LAUNCH_TOKEN, ok: true, mode: "window", pid: 42 })}\n`,
+              );
+            });
             return { pid: 42, on() {} } as unknown as ReturnType<NonNullable<GuiLaunchDependencies["startDetached"]>>;
           },
         },
@@ -384,6 +391,142 @@ test("GUI launch acquires the daemon then starts Electron detached without a dev
     delete process.env.HARNESS_DAEMON_USER_ROOT;
     rmSync(fixture.root, { recursive: true, force: true });
     rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("GUI launch rejects when Electron exits before opening a visible window and surfaces the log tail", async () => {
+  const fixture = makeGuiFixture();
+  const userRoot = mkdtempSync(path.join(tmpdir(), "harness-gui-exit-"));
+  try {
+    process.env.HARNESS_DAEMON_USER_ROOT = userRoot;
+    const output = await captureGuiOutput(() =>
+      runGuiLaunch(
+        ["gui", "--json"],
+        {
+          guiPackageRoot: fixture.root,
+          resolveElectronRuntime: () => ({ binary: "/electron", remedy: "unused" }),
+          ensureDaemon: async () => ({ ok: true, hint: "daemon is reachable", attempts: 0 }),
+          startDetached: (_command, _args, _env, outputPath) => {
+            if (outputPath) {
+              mkdirSync(path.dirname(outputPath), { recursive: true });
+              writeFileSync(outputPath, "os_crypt_win: Access denied\nFatal GUI init error\n");
+            }
+            const emitter = new EventEmitter() as EventEmitter & { pid?: number };
+            emitter.pid = 7300;
+            setImmediate(() => emitter.emit("exit", 0, null));
+            return emitter as unknown as ReturnType<NonNullable<GuiLaunchDependencies["startDetached"]>>;
+          },
+        },
+        emit,
+      ),
+    );
+    const receipt = JSON.parse(output.stdout) as { ok: boolean; code: string; diagnostic?: { expectation?: string } };
+    assert.equal(output.status, 1);
+    assert.equal(receipt.ok, false);
+    assert.equal(receipt.code, "gui_launch_failed");
+    assert.match(
+      String(receipt.diagnostic?.expectation ?? ""),
+      /exited with code 0 before opening a visible GUI window/u,
+    );
+    assert.match(String(receipt.diagnostic?.expectation ?? ""), /Fatal GUI init error/u);
+  } finally {
+    delete process.env.HARNESS_DAEMON_USER_ROOT;
+    rmSync(fixture.root, { recursive: true, force: true });
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("GUI launch surfaces Session 0 or window-visibility failures reported over the readiness channel", async () => {
+  const fixture = makeGuiFixture();
+  const userRoot = mkdtempSync(path.join(tmpdir(), "harness-gui-vis-fail-"));
+  try {
+    process.env.HARNESS_DAEMON_USER_ROOT = userRoot;
+    const output = await captureGuiOutput(() =>
+      runGuiLaunch(
+        ["gui", "--json"],
+        {
+          guiPackageRoot: fixture.root,
+          resolveElectronRuntime: () => ({ binary: "/electron", remedy: "unused" }),
+          ensureDaemon: async () => ({ ok: true, hint: "daemon is reachable", attempts: 0 }),
+          startDetached: (_command, _args, env) => {
+            const [host, rawPort] = String(env.HARNESS_GUI_LAUNCH_ADDR ?? "").split(":");
+            const sock = connect({ host, port: Number(rawPort) }, () => {
+              sock.end(
+                `${JSON.stringify({
+                  token: env.HARNESS_GUI_LAUNCH_TOKEN,
+                  ok: false,
+                  reason: "non_interactive_windows_session",
+                  detail: "Cannot display a desktop GUI window in non-interactive Windows Session 0.",
+                })}\n`,
+              );
+            });
+            const emitter = new EventEmitter() as EventEmitter & { pid?: number };
+            emitter.pid = 7301;
+            sock.once("close", () => emitter.emit("exit", 1, null));
+            return emitter as unknown as ReturnType<NonNullable<GuiLaunchDependencies["startDetached"]>>;
+          },
+        },
+        emit,
+      ),
+    );
+    const receipt = JSON.parse(output.stdout) as { ok: boolean; code: string; diagnostic?: { expectation?: string } };
+    assert.equal(output.status, 1);
+    assert.equal(receipt.ok, false);
+    assert.equal(receipt.code, "gui_launch_failed");
+    assert.match(String(receipt.diagnostic?.expectation ?? ""), /non-interactive Windows Session 0/u);
+  } finally {
+    delete process.env.HARNESS_DAEMON_USER_ROOT;
+    rmSync(fixture.root, { recursive: true, force: true });
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("GUI launch reports activated existing window pid on second-instance signal and tracks explicit --root", async () => {
+  const fixture = makeGuiFixture();
+  const userRoot = mkdtempSync(path.join(tmpdir(), "harness-gui-second-inst-"));
+  const explicitRepo = mkdtempSync(path.join(tmpdir(), "harness-gui-explicit-"));
+  try {
+    process.env.HARNESS_DAEMON_USER_ROOT = userRoot;
+    let observedExplicit = "";
+    const output = await captureGuiOutput(() =>
+      runGuiLaunch(
+        ["gui", "--json", "--root", explicitRepo],
+        {
+          guiPackageRoot: fixture.root,
+          resolveElectronRuntime: () => ({ binary: "/electron", remedy: "unused" }),
+          ensureDaemon: async () => ({ ok: true, hint: "daemon is reachable", attempts: 0 }),
+          startDetached: (_command, _args, env) => {
+            observedExplicit = String(env.HARNESS_GUI_ROOT_EXPLICIT ?? "");
+            const [host, rawPort] = String(env.HARNESS_GUI_LAUNCH_ADDR ?? "").split(":");
+            const sock = connect({ host, port: Number(rawPort) }, () => {
+              sock.end(
+                `${JSON.stringify({
+                  token: env.HARNESS_GUI_LAUNCH_TOKEN,
+                  ok: true,
+                  mode: "second_instance",
+                  pid: 9876,
+                })}\n`,
+              );
+            });
+            return { pid: 4321, once() {}, removeListener() {}, on() {} } as unknown as ReturnType<
+              NonNullable<GuiLaunchDependencies["startDetached"]>
+            >;
+          },
+        },
+        emit,
+      ),
+    );
+    const receipt = JSON.parse(output.stdout) as { ok: boolean; pid: number; summary: string };
+    assert.equal(output.status, 0);
+    assert.equal(receipt.ok, true);
+    assert.equal(receipt.pid, 9876);
+    assert.match(receipt.summary, /activated existing window \(pid 9876\)/u);
+    assert.equal(observedExplicit, "1");
+  } finally {
+    delete process.env.HARNESS_DAEMON_USER_ROOT;
+    rmSync(fixture.root, { recursive: true, force: true });
+    rmSync(userRoot, { recursive: true, force: true });
+    rmSync(explicitRepo, { recursive: true, force: true });
   }
 });
 

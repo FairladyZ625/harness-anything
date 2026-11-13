@@ -1,3 +1,14 @@
+import {
+  applyGuiAppIdentity,
+  createLaunchSignalReporter,
+  createSecondaryAckWaiter,
+  GUI_ROOT_EXPLICIT_ENV,
+  type GuiLaunchSignalPayload,
+  readLaunchSignalTarget,
+  sendLoopbackSignal,
+  verifyWindowsDesktopSession,
+  verifyWindowsWindowHandleVisible,
+} from "./gui-launch-channel.ts";
 import { guiArtifactCacheRoot, guiDaemonUserRoot, guiGlobalDaemonTarget } from "./gui-daemon-target.ts";
 import { registerProjectDirectoryIpc } from "./project-directory-ipc.ts";
 import { registerProjectWindowIpc } from "./project-window-ipc.ts";
@@ -66,8 +77,19 @@ import electronUpdater from "electron-updater";
 
 const { autoUpdater } = electronUpdater;
 
-process.on("uncaughtException", (err) => console.error("[FATAL] uncaughtException:", err));
-process.on("unhandledRejection", (err) => console.error("[FATAL] unhandledRejection:", err));
+function errorMessageDetail(err: unknown, fallback: string): string {
+  return err instanceof Error ? err.message : typeof err === "string" ? err : fallback;
+}
+
+function handleFatalStartupError(kind: string, err: unknown): void {
+  console.error(`[FATAL] ${kind}:`, err);
+  if (launchReporter !== null && !launchReporter.hasReported()) {
+    void reportStartupFailureAndExit(errorMessageDetail(err, `Fatal GUI ${kind} during startup.`));
+  }
+}
+
+process.on("uncaughtException", (err) => handleFatalStartupError("uncaughtException", err));
+process.on("unhandledRejection", (err) => handleFatalStartupError("unhandledRejection", err));
 
 // The GUI is the person's local viewer, never a dispatched execution. When an automated
 // entry (capture.mjs, e2e probe, gui-e2e lanes) launches the app from inside a task
@@ -81,6 +103,11 @@ delete process.env.HARNESS_EXECUTION_CREDENTIAL;
 // Automated Electron runs render normally but never claim the user's desktop.
 const backgroundTest = app.commandLine.hasSwitch("headless");
 if (backgroundTest && process.platform === "darwin") app.setActivationPolicy("accessory");
+const launchSignalTarget = readLaunchSignalTarget(process.env);
+const launchReporter = launchSignalTarget ? createLaunchSignalReporter(launchSignalTarget) : null;
+const guiLaunchRoot = path.resolve(process.env.HARNESS_GUI_ROOT ?? process.cwd());
+const explicitGuiLaunchRoot = process.env[GUI_ROOT_EXPLICIT_ENV] === "1";
+delete process.env[GUI_ROOT_EXPLICIT_ENV];
 
 // harness-edge:// 协议激活(task_0499bcc75d0f):点击邀请链接唤起本 app,把链接交给加入向导。
 // 冷启动时窗口可能尚未加载完,先暂存,任一窗口 did-finish-load 后送达;注册在 whenReady 之前,
@@ -113,24 +140,83 @@ app.on("open-url", (event, url) => {
   deliverEdgeJoinLink(link);
 });
 // 第二个 `ha gui --root <new>` 进程拿不到单实例锁,但它的启动意图必须送达持锁进程:
-// rootDir 经 requestSingleInstanceLock 的 additionalData 随 second-instance 事件到达。
-// 这里只把根作为「打开哪个项目」的入口参数,不把它变成进程级读上下文(issue #4267)。
-const guiLaunchRoot = path.resolve(process.env.HARNESS_GUI_ROOT ?? process.cwd());
-let pendingRequestedProjectRoot: string | null = null;
-let openRequestedProjectRoot: ((rootDir: string) => void) | null = null;
-function requestProjectRoot(rootDir: string): void {
-  if (openRequestedProjectRoot === null) pendingRequestedProjectRoot = rootDir;
-  else openRequestedProjectRoot(rootDir);
+// 冷启动完成前先排队,就绪后依次激活窗口或打开指定项目,并在请求携带 ackAddr 时回执真实结果。
+type SecondInstanceHandler = (argv: readonly string[], additionalData: unknown) => Promise<void>;
+let handleSecondInstance: SecondInstanceHandler | null = null;
+const queuedSecondInstances: Array<{ readonly argv: readonly string[]; readonly additionalData: unknown }> = [];
+let secondInstanceChain: Promise<void> = Promise.resolve();
+function enqueueSecondInstance(argv: readonly string[], additionalData: unknown): void {
+  if (handleSecondInstance === null) {
+    queuedSecondInstances.push({ argv, additionalData });
+    return;
+  }
+  const handler = handleSecondInstance;
+  secondInstanceChain = secondInstanceChain
+    .then(() => handler(argv, additionalData))
+    .catch((err) => console.error("[gui] second-instance handler failed:", err));
 }
-const singleInstanceLock = app.requestSingleInstanceLock({ rootDir: guiLaunchRoot });
-if (!singleInstanceLock) app.quit();
-else
-  app.on("second-instance", (_event, argv, _workingDirectory, additionalData) => {
-    const link = edgeJoinLinkFromArgv(argv);
-    if (link !== null) deliverEdgeJoinLink(link);
-    const requestedRoot = (additionalData as { readonly rootDir?: unknown } | undefined)?.rootDir;
-    if (typeof requestedRoot === "string" && requestedRoot.length > 0) requestProjectRoot(requestedRoot);
+app.on("second-instance", (_event, argv, _workingDirectory, additionalData) => {
+  enqueueSecondInstance(argv, additionalData);
+});
+
+interface WindowReadiness {
+  readonly promise: Promise<void>;
+  isReady(): boolean;
+}
+const windowReadiness = new WeakMap<BrowserWindow, WindowReadiness>();
+
+function trackMainWindowReadiness(mainWindow: BrowserWindow, loadPromise: Promise<void>): void {
+  let settled = false;
+  let ready = false;
+  let resolveReady: (() => void) | null = null;
+  let rejectReady: ((error: Error) => void) | null = null;
+  const promise = new Promise<void>((resolve, reject) => {
+    resolveReady = resolve;
+    rejectReady = reject;
   });
+  // Keep failure rejections handled even when callers open extra windows outside launch wait.
+  promise.catch(() => undefined);
+  const finishOk = () => {
+    if (settled) return;
+    settled = true;
+    ready = true;
+    resolveReady?.();
+  };
+  const finishErr = (message: string) => {
+    if (settled) return;
+    settled = true;
+    rejectReady?.(new Error(message));
+  };
+  if (backgroundTest) {
+    mainWindow.webContents.once("did-finish-load", finishOk);
+  } else {
+    mainWindow.once("ready-to-show", () => {
+      if (mainWindow.isDestroyed()) {
+        finishErr("GUI window was destroyed before showing.");
+        return;
+      }
+      mainWindow.show();
+      mainWindow.focus();
+      finishOk();
+    });
+  }
+  mainWindow.once("closed", () => finishErr("GUI window closed before finishing startup."));
+  mainWindow.webContents.once("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    if (isMainFrame && errorCode !== -3) {
+      finishErr(`Failed to load GUI (${errorCode}: ${errorDescription}) at ${validatedURL}`);
+    }
+  });
+  mainWindow.webContents.once("render-process-gone", (_event, details) => {
+    if (details.reason !== "clean-exit") {
+      finishErr(`GUI renderer exited unexpectedly (${details.reason}).`);
+    }
+  });
+  void loadPromise.catch((error: unknown) => {
+    const detail = error instanceof Error ? error.message : typeof error === "string" ? error : "Load failed.";
+    finishErr(`Failed to load GUI document: ${detail}`);
+  });
+  windowReadiness.set(mainWindow, { promise, isReady: () => ready });
+}
 
 /** Per-sign-in login webview boundary; created once so its certificate-error handler is, too. */
 const loginWebviewSecurity = createLoginWebviewSecurity();
@@ -173,12 +259,6 @@ export function createMainWindow(initialRepoId?: string): BrowserWindow {
     },
   });
 
-  mainWindow.once("ready-to-show", () => {
-    if (!backgroundTest) {
-      mainWindow.show();
-      mainWindow.focus();
-    }
-  });
   // 原生主题翻转时窗口底色跟随创建时的同一 token。窗口关闭即注销;"updated" 可能
   // 在销毁与注销之间送达,此时跳过,避免对已销毁窗口调用 setBackgroundColor。
   const syncWindowBackground = () => {
@@ -204,12 +284,14 @@ export function createMainWindow(initialRepoId?: string): BrowserWindow {
     }
   });
   installHtmlArtifactWebviewPolicy(mainWindow);
+  let loadPromise: Promise<void>;
   if (rendererUrl) {
     assertDevRendererUrl(rendererUrl);
-    void mainWindow.loadURL(rendererUrl);
+    loadPromise = mainWindow.loadURL(rendererUrl);
   } else {
-    void mainWindow.loadFile(packagedRendererIndexPath());
+    loadPromise = mainWindow.loadFile(packagedRendererIndexPath());
   }
+  trackMainWindowReadiness(mainWindow, loadPromise);
   return mainWindow;
 }
 
@@ -324,12 +406,79 @@ function installHtmlArtifactWebviewPolicy(mainWindow: BrowserWindow): void {
   });
 }
 
+function windowForWebContentsId(webContentsId: number): BrowserWindow | null {
+  return (
+    BrowserWindow.getAllWindows().find((win) => !win.isDestroyed() && win.webContents.id === webContentsId) ?? null
+  );
+}
+
+async function ensureWindowReadyAndVisible(win: BrowserWindow): Promise<void> {
+  const readiness = windowReadiness.get(win);
+  if (readiness && !readiness.isReady()) await readiness.promise;
+  if (win.isDestroyed()) throw new Error("GUI window was closed before becoming ready.");
+  if (backgroundTest) return;
+  if (!win.isVisible() || win.isMinimized()) {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  }
+  if (!win.isVisible()) throw new Error("Electron main window reported hidden after show().");
+  if (win.getNativeWindowHandle().length === 0) throw new Error("Electron main window has no native handle.");
+  if (process.platform === "win32") {
+    const win32Visible = await verifyWindowsWindowHandleVisible(process.pid);
+    if (!win32Visible.ok) throw new Error(win32Visible.detail ?? win32Visible.reason ?? "Window is not visible.");
+  }
+}
+
+let startupAborting = false;
+async function reportStartupFailureAndExit(detail: string, reason = "gui_launch_failed"): Promise<void> {
+  if (startupAborting) return;
+  startupAborting = true;
+  await launchReporter?.report({ ok: false, reason, detail });
+  if (app.isReady()) {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.destroy();
+    }
+  }
+  app.exit(1);
+}
+
 export async function startGuiApp(): Promise<void> {
-  // A losing second instance still reaches whenReady; it must not build windows or services.
-  if (!singleInstanceLock) return;
+  applyGuiAppIdentity(app);
+  const ackWaiter = launchReporter !== null ? await createSecondaryAckWaiter() : null;
+  const gotLock = app.requestSingleInstanceLock({
+    rootDir: guiLaunchRoot,
+    explicitRoot: explicitGuiLaunchRoot,
+    headless: backgroundTest,
+    ...(ackWaiter === null ? {} : { ackAddr: ackWaiter.ackAddr, ackToken: ackWaiter.ackToken }),
+  });
+  if (!gotLock) {
+    if (ackWaiter === null || launchReporter === null) {
+      app.quit();
+      return;
+    }
+    const ack = await ackWaiter.wait();
+    await launchReporter.report(ack);
+    app.exit(ack.ok ? 0 : 1);
+    return;
+  }
+  ackWaiter?.close();
   await app.whenReady();
+  if (process.platform === "win32" && !backgroundTest) {
+    const sessionCheck = await verifyWindowsDesktopSession();
+    if (!sessionCheck.ok) {
+      await reportStartupFailureAndExit(
+        sessionCheck.detail ?? "Cannot display GUI window in non-interactive Windows session.",
+        sessionCheck.reason ?? "non_interactive_windows_session",
+      );
+      return;
+    }
+  }
   const moved = await ensureApplicationsFolder({ app, dialog });
-  if (moved) return;
+  if (moved) {
+    await launchReporter?.report({ ok: true, mode: "relaunched", pid: process.pid });
+    return;
+  }
   // macOS 的协议绑定来自打包的 Info.plist;Windows/Linux 由运行时写注册表/桌面项。
   if (app.isPackaged && process.platform !== "darwin") app.setAsDefaultProtocolClient("harness-edge");
   if (process.platform === "darwin") {
@@ -502,21 +651,67 @@ export async function startGuiApp(): Promise<void> {
   // GUI 内读本机文档(task_89d324b5):节点本地只读查询,主进程收窄见 local-doc-ipc.ts。
   registerLocalDocIpc(registrar, { homeDir: () => homedir() }, trustPolicy);
   registerProjectWindowIpc(registrar, projectWindows, trustPolicy);
-  projectWindows.newWindow(null);
-  // A second `ha gui --root <new>` asks the live process to open that project through the
-  // existing per-window seed path: resolve the registered repo and let openProjectWindow
-  // create/focus its window. Requests inside that window still resolve their own repo root.
-  openRequestedProjectRoot = (rootDir) => {
-    void resolveLocalDaemonTarget({ rootDir, userRoot: guiDaemonUserRoot() }).then(
-      (target) => projectWindows.openProjectWindow(target.repoId),
-      (error) => console.warn("[gui] requested project root could not be opened:", error),
-    );
+  const initialEntry = projectWindows.newWindow(null);
+  const initialWindow = windowForWebContentsId(initialEntry.webContentsId);
+  if (!initialWindow) throw new Error("Initial GUI window could not be created.");
+  await ensureWindowReadyAndVisible(initialWindow);
+  const existingOrNewWindow = (): BrowserWindow | null => {
+    const existing = BrowserWindow.getAllWindows().find((win) => !win.isDestroyed());
+    if (existing) return existing;
+    return windowForWebContentsId(projectWindows.newWindow(null).webContentsId);
   };
-  const openRoot = openRequestedProjectRoot;
-  if (pendingRequestedProjectRoot !== null) {
-    const rootDir = pendingRequestedProjectRoot;
-    pendingRequestedProjectRoot = null;
-    openRoot(rootDir);
+  // A second `ha gui [--root <new>]` asks the live process to focus/open a window and reports
+  // real window visibility back over the secondary instance's loopback ACK channel when present.
+  handleSecondInstance = async (argv, additionalData) => {
+    const link = edgeJoinLinkFromArgv(argv);
+    if (link !== null) deliverEdgeJoinLink(link);
+    const data = (additionalData as Record<string, unknown> | undefined) ?? {};
+    const ackAddr = typeof data.ackAddr === "string" ? data.ackAddr : null;
+    const ackToken = typeof data.ackToken === "string" ? data.ackToken : null;
+    const ackTarget = ackAddr && ackToken ? { addr: ackAddr, token: ackToken } : null;
+    const sendAck = (payload: GuiLaunchSignalPayload) =>
+      ackTarget ? sendLoopbackSignal(ackTarget, payload) : Promise.resolve(true);
+    const requestedRoot = typeof data.rootDir === "string" && data.rootDir.length > 0 ? data.rootDir : null;
+    const explicitRoot = data.explicitRoot === true;
+    const requesterHeadless = data.headless === true;
+    if (!requesterHeadless && backgroundTest) {
+      await sendAck({
+        ok: false,
+        reason:
+          "Existing Harness Anything GUI instance is running in --headless mode and cannot show a desktop window.",
+      });
+      return;
+    }
+    let targetWindow: BrowserWindow | null = null;
+    if (requestedRoot !== null) {
+      const resolved = await resolveRequestedDaemonTarget(requestedRoot);
+      if (resolved.ok) {
+        targetWindow = windowForWebContentsId(projectWindows.openProjectWindow(resolved.target.repoId).webContentsId);
+      } else {
+        console.warn("[gui] requested project root could not be opened:", resolved.reason);
+        if (explicitRoot) {
+          await sendAck({ ok: false, reason: resolved.reason });
+          return;
+        }
+        targetWindow = existingOrNewWindow();
+      }
+    } else if (ackTarget !== null) {
+      targetWindow = existingOrNewWindow();
+    }
+    if (targetWindow === null) {
+      await sendAck({ ok: false, reason: "GUI window could not be created." });
+      return;
+    }
+    const readiness = await checkSecondInstanceWindowReady(targetWindow, ensureWindowReadyAndVisible);
+    if (!readiness.ok) {
+      await sendAck({ ok: false, reason: readiness.reason });
+      return;
+    }
+    await sendAck({ ok: true, mode: "second_instance", pid: process.pid });
+  };
+  while (queuedSecondInstances.length > 0) {
+    const next = queuedSecondInstances.shift();
+    if (next) await handleSecondInstance(next.argv, next.additionalData);
   }
   // Windows/Linux 协议激活在冷启动参数里;窗口已建,直接送达(macOS 冷启动走 open-url 暂存路径)。
   const argvLink = edgeJoinLinkFromArgv(process.argv);
@@ -526,10 +721,52 @@ export async function startGuiApp(): Promise<void> {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) projectWindows.newWindow(null);
   });
+  await launchReporter?.report({
+    ok: true,
+    mode: backgroundTest ? "headless" : "window",
+    pid: process.pid,
+  });
   // 窗口与 IPC 就绪后才跑首启安装;失败只进引导屏,任何一步出错都不会让 App 无窗口退出。
   void prepareDesktopFirstRun().then((failures) => {
     desktopSetupFailures = failures;
   });
+}
+
+async function resolveRequestedDaemonTarget(
+  rootDir: string,
+): Promise<
+  | { readonly ok: true; readonly target: Awaited<ReturnType<typeof resolveLocalDaemonTarget>> }
+  | { readonly ok: false; readonly reason: string }
+> {
+  try {
+    return { ok: true, target: await resolveLocalDaemonTarget({ rootDir, userRoot: guiDaemonUserRoot() }) };
+  } catch (error) {
+    return {
+      ok: false,
+      reason:
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+            ? error
+            : "Project root could not be resolved.",
+    };
+  }
+}
+
+async function checkSecondInstanceWindowReady(
+  targetWindow: BrowserWindow,
+  ensureReady: (window: BrowserWindow) => Promise<void>,
+): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string }> {
+  try {
+    await ensureReady(targetWindow);
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      reason:
+        error instanceof Error ? error.message : typeof error === "string" ? error : "GUI window could not be shown.",
+    };
+  }
 }
 
 function toProjectWindowEntry(mainWindow: BrowserWindow): ProjectWindowRegistryEntry {
@@ -562,7 +799,9 @@ app.on("window-all-closed", () => {
 
 if (app.isPackaged || process.argv.some((arg) => /electron-main\.(?:js|ts)$/u.test(arg))) {
   startGuiApp().catch((err) => {
+    const detail = errorMessageDetail(err, "Unknown GUI startup failure.");
     console.error("[FATAL] startGuiApp failed:", err);
+    void reportStartupFailureAndExit(detail);
   });
 }
 
