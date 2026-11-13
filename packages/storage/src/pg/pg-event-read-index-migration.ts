@@ -1,4 +1,11 @@
 import type { PoolClient } from "pg";
+import type { CanonicalEventV1 } from "@harness-anything/kernel";
+import { canonicalEventSummary } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
+import { normalizeHistoricalEvent } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";
+import {
+  storageReadPolicy,
+  validateStorageReadWindow,
+} from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 import { POSTGRES_EVENT_REF_INDEX_SCHEMA_STATEMENTS } from "../postgres/event-ledger-schema.ts";
 import { POSTGRES_SCOPE_SCHEMA_CONTRACT, postgresScopeRlsStatements } from "../postgres/scope-schema.ts";
@@ -85,6 +92,7 @@ export function eventReadIndexDdl(): readonly string[] {
     "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS runtime_session_present boolean NOT NULL DEFAULT false",
     "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS runtime_session_unsettled boolean NOT NULL DEFAULT false",
     "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS summary_json text",
+    "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS default_summary_json text",
     String.raw`CREATE OR REPLACE FUNCTION ha_fleet_event_summary_from_jsonb(v jsonb) RETURNS text
       LANGUAGE sql IMMUTABLE STRICT AS $function$
         SELECT jsonb_build_object(
@@ -138,6 +146,10 @@ export function eventReadIndexDdl(): readonly string[] {
           SELECT 1 FROM ha_projection_values p WHERE p.tenant_id=NEW.tenant_id AND p.project_id=NEW.project_id
           AND p.policy_epoch=NEW.policy_epoch AND p.model='runtime-session' AND p.owner_id=''
           AND p.entity_id=NEW.runtime_session_id COLLATE "default" AND p.runtime_outcome IS NULL);
+        IF TG_OP='UPDATE' AND OLD.event_json IS DISTINCT FROM NEW.event_json
+           AND NEW.default_summary_json IS NOT DISTINCT FROM OLD.default_summary_json THEN
+          NEW.default_summary_json := NULL;
+        END IF;
         IF NEW.summary_json IS NULL THEN
           NEW.summary_json := ha_fleet_event_summary_from_jsonb(v);
         END IF;
@@ -148,6 +160,8 @@ export function eventReadIndexDdl(): readonly string[] {
       FOR EACH ROW EXECUTE FUNCTION ha_event_read_index_fields()`,
     `CREATE INDEX IF NOT EXISTS ha_events_summary_pending ON ha_events
       (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE summary_json IS NULL`,
+    `CREATE INDEX IF NOT EXISTS ha_events_default_summary_pending ON ha_events
+      (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE default_summary_json IS NULL`,
     `CREATE INDEX IF NOT EXISTS ha_events_read_index_pending_v5 ON ha_events
       (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE read_index_version<5`,
     `CREATE INDEX IF NOT EXISTS ha_events_read_index_pending_v6 ON ha_events
@@ -207,6 +221,8 @@ export function eventReadIndexDdl(): readonly string[] {
     `CREATE INDEX IF NOT EXISTS ha_events_dispatch_outcome ON ha_events (${eventScope},dispatch_id,revision DESC)
       WHERE event_schema='agent-runtime-event/v1' AND event_type='runtime_session_outcome_observed'`,
     `CREATE INDEX IF NOT EXISTS ha_events_task_index ON ha_events (${eventScope},task_index_id,revision DESC) WHERE event_type<>'ci_run_observed'`,
+    `CREATE INDEX IF NOT EXISTS ha_events_canonical_task ON ha_events (${eventScope},canonical_task_id,revision DESC)
+      WHERE event_type<>'ci_run_observed' AND canonical_task_id IS NOT NULL`,
     `CREATE INDEX IF NOT EXISTS ha_events_task_submission ON ha_events (${eventScope},canonical_task_id,task_execution_id,revision DESC)
       WHERE event_schema='task-event/v1' AND event_type='execution_submitted'`,
     `CREATE INDEX IF NOT EXISTS ha_events_task_completion ON ha_events (${eventScope},canonical_task_id,task_execution_id,revision DESC)
@@ -290,4 +306,36 @@ export async function contractPgEventSummaryIndex(
     `DROP INDEX ${options.indexBuild === "isolated" ? "" : "CONCURRENTLY "}IF EXISTS ha_events_summary_pending`,
   );
   return true;
+}
+
+/** Bounded 64-row management backfill page for historical default event summaries. */
+export async function backfillPgDefaultEventSummariesPage(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  repoId: string,
+  pageSize: number = storageReadPolicy.defaultValue.pageSizes.sessions,
+): Promise<{ readonly processed: number; readonly done: boolean }> {
+  if (!validateStorageReadWindow(pageSize, storageReadPolicy.defaultValue.pageSizes.sessions))
+    throw new Error("default event summary backfill page size must be between 1 and 64");
+  const batch = await client.query<{ readonly revision: string; readonly event_json: string }>(
+    `SELECT revision::text AS revision, event_json FROM ha_events
+     WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4
+       AND default_summary_json IS NULL
+     ORDER BY revision ASC LIMIT $5 FOR UPDATE`,
+    [scope.tenantId, scope.projectId, scope.policyEpoch, repoId, pageSize],
+  );
+  if (batch.rows.length === 0) return { processed: 0, done: true };
+  const revisions = batch.rows.map((row) => row.revision),
+    summaries = batch.rows.map((row) =>
+      JSON.stringify(canonicalEventSummary(normalizeHistoricalEvent(JSON.parse(row.event_json) as CanonicalEventV1))),
+    );
+  await client.query(
+    `UPDATE ha_events AS e
+     SET default_summary_json = filled.summary_json
+     FROM unnest($5::bigint[], $6::text[]) AS filled(revision, summary_json)
+     WHERE e.tenant_id=$1 AND e.project_id=$2 AND e.policy_epoch=$3 AND e.repo_id=$4
+       AND e.revision=filled.revision`,
+    [scope.tenantId, scope.projectId, scope.policyEpoch, repoId, revisions, summaries],
+  );
+  return { processed: batch.rows.length, done: false };
 }
