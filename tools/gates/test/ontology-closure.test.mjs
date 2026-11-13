@@ -1480,6 +1480,8 @@ test("daemon runtime Policy owns concrete defaults and consumers have no leaf bu
     },
     health: { cooldownBaseSeconds: 30, cooldownMaxSeconds: 300, freezeAfter: 5, freezeDurationSeconds: 1_800 },
     runtime: {
+      subscriptionProbeTimeoutMs: { status: 5_000, standard: 10_000, extended: 15_000, modelListing: 60_000 },
+      unsettledTurnMaxContinuations: 3,
       modelSlots: {
         globalCapacity: 64,
         perOwnerCapacity: 64,
@@ -1530,6 +1532,13 @@ test("daemon runtime Policy owns concrete defaults and consumers have no leaf bu
   });
 
   const consumers = [
+    [
+      "packages/daemon/src/runtime-inventory.ts",
+      [
+        "daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs",
+        "daemonRuntimePolicy.defaultValue.runtime.unsettledTurnMaxContinuations",
+      ],
+    ],
     ["packages/daemon/src/runtime.ts", ["daemonRuntimePolicy.defaultValue.daemon"]],
     ["packages/daemon/src/runtime-dispatch-evidence.ts", ["daemonRuntimePolicy.defaultValue.evidence"]],
     ["packages/daemon/src/runtime-spawn-deepseek-session.ts", ["daemonRuntimePolicy.defaultValue.evidence"]],
