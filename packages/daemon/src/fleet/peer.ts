@@ -1127,7 +1127,10 @@ function peerSocket(options: Omit<FleetPeerOptions, "repoId">): Promise<TLSSocke
         resolve(socket);
       },
     );
-    socket.once("error", reject);
+    socket.once("error", (error) => {
+      socket.destroy();
+      reject(error);
+    });
   });
 }
 function waitForSocketDrain(socket: TLSSocket, signal?: AbortSignal): Promise<void> {
@@ -1149,6 +1152,7 @@ function waitForSocketDrain(socket: TLSSocket, signal?: AbortSignal): Promise<vo
     const onAbort = (): void =>
       finish(signal?.reason instanceof Error ? signal.reason : new Error("Fleet send cancelled"));
     if (signal?.aborted) return onAbort();
+    if (socket.closed || socket.destroyed) return onClose();
     socket.once("drain", onDrain);
     socket.once("error", onError);
     socket.once("close", onClose);
@@ -1160,7 +1164,7 @@ function peerFor(
   timeoutMs: number,
   options: Partial<Pick<FleetPeerOptions, "commandResourceBudget" | "nodeId">> & { readonly sessionId?: string } = {},
 ) {
-  let closed: Error | null = null;
+  let closed: Error | null = socket.closed || socket.destroyed ? new Error("Fleet connection closed") : null;
   const reader = new FleetUtf8LineDecoder(),
     queue: FleetFrameV1[] = [],
     waiting: Array<{

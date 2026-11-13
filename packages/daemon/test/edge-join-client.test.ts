@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { once } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:https";
+import type { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -826,28 +827,46 @@ test("ssh-reverse IP servername verifies X.509 iPAddress SAN without sending an 
     cert = readFileSync(certFile, "utf8"),
     loginSnis: Array<string | boolean | null> = [],
     fleetSnis: Array<string | boolean | null> = [],
+    fleetSockets = new Set<Socket>(),
     loginServer = createServer({ key, cert }, (_request, response) => {
       response.writeHead(200, { "content-type": "application/json" });
       response.end("{}");
     }),
     fleetServer = createTlsServer({ key, cert }, (socket) => {
       fleetSnis.push(socket.servername ?? null);
-      socket.end();
+      socket.on("error", () => socket.destroy());
+      socket.once("data", () => {
+        socket.end(
+          `${JSON.stringify({
+            schema: "fleet.error/v1",
+            messageId: "err-1",
+            inReplyTo: "hello-1",
+            code: "unauthorized",
+            message: "probe ok",
+            retryable: false,
+            resumeOffset: null,
+          })}\n`,
+        );
+      });
     });
+  fleetServer.on("connection", (raw: Socket) => {
+    fleetSockets.add(raw);
+    raw.on("close", () => fleetSockets.delete(raw));
+  });
   loginServer.on("secureConnection", (socket) => {
     loginSnis.push(socket.servername ?? null);
   });
   loginServer.listen(0, "127.0.0.1");
   fleetServer.listen(0, "127.0.0.1");
   await Promise.all([once(loginServer, "listening"), once(fleetServer, "listening")]);
-  t.after(
-    () =>
-      new Promise<void>((resolve, reject) => {
-        loginServer.close((err1) => {
-          fleetServer.close((err2) => (err1 || err2 ? reject(err1 ?? err2) : resolve()));
-        });
-      }),
-  );
+  t.after(async () => {
+    loginServer.closeAllConnections();
+    for (const raw of fleetSockets) raw.destroy();
+    await Promise.all([
+      new Promise<void>((resolve, reject) => loginServer.close((err) => (err ? reject(err) : resolve()))),
+      new Promise<void>((resolve, reject) => fleetServer.close((err) => (err ? reject(err) : resolve()))),
+    ]);
+  });
   const loginAddr = loginServer.address(),
     fleetAddr = fleetServer.address();
   assert.ok(loginAddr && typeof loginAddr !== "string" && fleetAddr && typeof fleetAddr !== "string");
@@ -884,7 +903,13 @@ test("ssh-reverse IP servername verifies X.509 iPAddress SAN without sending an 
   assert.deepEqual(loginSnis, [false]);
 
   await assert.rejects(
-    fetchWithTlsCa(fetch, cert, `https://127.0.0.1:${loginAddr.port}/realms/harness`, undefined, "10.211.55.99"),
+    fetchWithTlsCa(
+      fetch,
+      cert,
+      `https://127.0.0.1:${loginAddr.port}/realms/harness`,
+      { signal: AbortSignal.timeout(5_000) },
+      "10.211.55.99",
+    ),
     (error: unknown) => {
       const cause = error instanceof Error && "cause" in error ? (error.cause as { code?: string }) : undefined;
       return cause?.code === "ERR_TLS_CERT_ALTNAME_INVALID";
@@ -900,10 +925,11 @@ test("ssh-reverse IP servername verifies X.509 iPAddress SAN without sending an 
         servername: "10.211.55.2",
         nodeId: "edge-1",
         credential: "cred",
+        timeoutMs: 5_000,
       },
       { loginId: "login-1", personId: "person-edge", expiresAt: "2026-12-01T00:00:00.000Z" },
     ),
-    /Fleet connection closed/u,
+    { code: "unauthorized" },
   );
   assert.deepEqual(fleetSnis, [false]);
 
@@ -916,6 +942,7 @@ test("ssh-reverse IP servername verifies X.509 iPAddress SAN without sending an 
         servername: "10.211.55.99",
         nodeId: "edge-1",
         credential: "cred",
+        timeoutMs: 5_000,
       },
       { loginId: "login-1", personId: "person-edge", expiresAt: "2026-12-01T00:00:00.000Z" },
     ),
