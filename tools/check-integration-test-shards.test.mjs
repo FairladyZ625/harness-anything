@@ -559,6 +559,38 @@ test("the submit risk manifest weight covers its measured historical recovery sc
   }
 });
 
+test("baseline git source scan handles >16MiB total test sources without ENOBUFS", () => {
+  const repoRoot = mkdtempSync(path.join(tmpdir(), "shard-git-16mib-"));
+  try {
+    execFileSync("git", ["init", "-q"], { cwd: repoRoot });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repoRoot });
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: repoRoot });
+    const testRoot = path.join(repoRoot, "packages", "sample", "test");
+    writeShardPadding(testRoot);
+    const filler = "// " + "x".repeat(120 * 1024) + "\n";
+    for (let i = 0; i < 150; i += 1) {
+      writeFileSync(
+        path.join(testRoot, `large-${i}.integration.test.mjs`),
+        `// harness-test-tier: integration\n${filler}`,
+        "utf8",
+      );
+    }
+    execFileSync("git", ["add", "."], { cwd: repoRoot });
+    execFileSync("git", ["commit", "-q", "-m", "baseline"], { cwd: repoRoot });
+    const result = checkIntegrationTestShards({
+      repoRoot,
+      weightOverrides: {},
+      baselineRef: "HEAD",
+      deletionAllowlistText: deletionAllowlistText(),
+    });
+    assert.equal(result.ok, true, result.errors.join("\n"));
+    assert.equal(result.previousCount, 150 + integrationShardCount);
+    assert.equal(result.currentCount, 150 + integrationShardCount);
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
 // Every derived shard must hold a file, so a fixture tree needs at least one file per shard
 // beside the files a test is about.
 function writeShardPadding(testRoot) {

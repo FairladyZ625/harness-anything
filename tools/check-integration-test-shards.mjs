@@ -162,6 +162,14 @@ function previousIntegrationTestState(repoRoot, requestedRef) {
 }
 
 function readGitSources(repoRoot, ref, files) {
+  const sources = [];
+  for (let offset = 0; offset < files.length; offset += 32) {
+    sources.push(...readGitSourceBatch(repoRoot, ref, files.slice(offset, offset + 32)));
+  }
+  return sources;
+}
+
+function readGitSourceBatch(repoRoot, ref, files) {
   const output = execFileSync("git", ["cat-file", "--batch"], {
     cwd: repoRoot,
     input: files.map((file) => `${ref}:${file}`).join("\n") + "\n",
