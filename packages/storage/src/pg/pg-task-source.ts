@@ -8,7 +8,12 @@ import { pgAggregateQueries, type PgAggregateQueries } from "./pg-aggregate-quer
 import { pgValueQueries, type PgValueQueries } from "./pg-value-queries.ts";
 import { pgTaskEventQueries, type PgTaskEventQueries } from "./pg-task-event-queries.ts";
 import { pgRelationPortQueries, type PgRelationPortQueries } from "./pg-relation-port-queries.ts";
-import { pgTaskIndexQueries, presentationStatusSql, type PgTaskIndexQueries } from "./pg-task-index-queries.ts";
+import {
+  pgTaskIndexQueries,
+  presentationStatusSql,
+  readScopedTaskIds,
+  type PgTaskIndexQueries,
+} from "./pg-task-index-queries.ts";
 import { readRelationsInTransaction } from "./pg-relation-queries.ts";
 import { checkedPageLimit } from "./pg-query-page.ts";
 import { pgRuntimeDispatchQueries, type PgRuntimeDispatchQueries } from "./pg-runtime-dispatch-queries.ts";
@@ -265,23 +270,8 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
         }
         if (query.scopeRootTaskId !== undefined) {
           await assertPgTaskParentIndexReady(client, options.scope);
-          values.push(query.scopeRootTaskId);
-          const root = `$${values.length}`,
-            visible = `tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
-              AND (cardinality($4::text[])=0 OR readers && $4::text[])`;
-          where.push(`task_id=ANY(ARRAY(
-            WITH RECURSIVE descendants(task_id) AS (
-              SELECT task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=${root}
-              UNION SELECT child.task_id FROM descendants parent CROSS JOIN LATERAL (
-                SELECT task_id FROM ha_task_snapshots WHERE ${visible} AND parent_task_id=parent.task_id OFFSET 0
-              ) child
-            ), ancestors(task_id,parent_id) AS (
-              SELECT task_id,parent_task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=${root}
-              UNION SELECT parent.task_id,parent.parent_task_id FROM ancestors child CROSS JOIN LATERAL (
-                SELECT task_id,parent_task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=child.parent_id OFFSET 0
-              ) parent
-            ) SELECT task_id FROM descendants UNION SELECT task_id FROM ancestors
-          ))`);
+          values.push(await readScopedTaskIds(client, options.scope, readers, query.scopeRootTaskId));
+          where.push(`task_id=ANY($${values.length}::text[])`);
         }
         for (const [key, value] of [
           ["workKind", query.workKind],

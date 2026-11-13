@@ -45,6 +45,33 @@ export const presentationStatusSql = (readersParameter: number) => `CASE
     WHEN task_status='planned' AND EXISTS (SELECT 1 FROM members WHERE status NOT IN ('planned','cancelled')) THEN 'active' END), task_status)
   ELSE task_status END`;
 
+/** Resolve a scope through the narrow parent index before reading task payload rows. */
+export async function readScopedTaskIds(
+  client: PoolClient,
+  scope: { readonly tenantId: string; readonly projectId: string; readonly policyEpoch: number },
+  readers: readonly string[],
+  rootTaskId: string,
+): Promise<string[]> {
+  const visible = `tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+    AND (cardinality($4::text[])=0 OR readers && $4::text[])`;
+  const result = await client.query<{ task_id: string }>(
+    `WITH RECURSIVE descendants(task_id) AS (
+       SELECT task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=$5
+       UNION SELECT child.task_id FROM descendants parent CROSS JOIN LATERAL (
+         SELECT task_id FROM ha_task_snapshots WHERE ${visible} AND parent_task_id=parent.task_id OFFSET 0
+       ) child
+     ), ancestors(task_id,parent_id) AS (
+       SELECT task_id,parent_task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=$5
+       UNION SELECT parent.task_id,parent.parent_task_id FROM ancestors child CROSS JOIN LATERAL (
+         SELECT task_id,parent_task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=child.parent_id OFFSET 0
+       ) parent
+     )
+     SELECT task_id FROM descendants UNION SELECT task_id FROM ancestors`,
+    [scope.tenantId, scope.projectId, scope.policyEpoch, readers, rootTaskId],
+  );
+  return result.rows.map(({ task_id }) => task_id);
+}
+
 export function pgTaskIndexQueries(
   options: PgTaskProjectionSourceOptions,
   source: Pick<PgTaskProjectionSource, "read" | "list">,
@@ -105,25 +132,11 @@ export function pgTaskIndexQueries(
           values: unknown[] = [...parameters],
           where = ["tenant_id=$1", "project_id=$2", "policy_epoch=$3", readerVisibility.slice(5)],
           presentation = query.presentationStatus ? presentationStatusSql(4) : "task_status";
-        let withClause = "";
+        let scopedTaskIds: string[] | undefined;
         if (query.scopeRootTaskId !== undefined) {
-          values.push(query.scopeRootTaskId);
-          const root = `$${values.length}`,
-            visible = `tenant_id=$1 AND project_id=$2 AND policy_epoch=$3${readerVisibility}`;
-          withClause = `WITH RECURSIVE descendants(task_id) AS (
-            SELECT task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=${root}
-            UNION SELECT child.task_id FROM descendants parent CROSS JOIN LATERAL (
-              SELECT task_id FROM ha_task_snapshots WHERE ${visible} AND parent_task_id=parent.task_id OFFSET 0
-            ) child
-          ), ancestors(task_id,parent_id) AS (
-            SELECT task_id,parent_task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=${root}
-            UNION SELECT parent.task_id,parent.parent_task_id FROM ancestors child CROSS JOIN LATERAL (
-              SELECT task_id,parent_task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=child.parent_id OFFSET 0
-            ) parent
-          ), scoped(scope_task_id) AS (
-            SELECT task_id FROM descendants UNION SELECT task_id FROM ancestors
-          )`;
-          where.push("task_id=ANY(ARRAY(SELECT scope_task_id FROM scoped))");
+          scopedTaskIds = await readScopedTaskIds(client, scope, readers, query.scopeRootTaskId);
+          values.push(scopedTaskIds);
+          where.push(`task_id=ANY($${values.length}::text[])`);
         }
         if (query.status !== undefined) {
           values.push(query.status);
@@ -205,7 +218,7 @@ export function pgTaskIndexQueries(
           updated_at: string;
           presentation_status: string | null;
         }>(
-          `${withClause} SELECT task_id,task_title,task_status,task_pinned,parent_task_id,task_work_kind,task_risk_tier,
+          `SELECT task_id,task_title,task_status,task_pinned,parent_task_id,task_work_kind,task_risk_tier,
              task_urgency,task_class,task_superseded_by,task_package_disposition,package_path,updated_at::text,
              ${presentation} AS presentation_status FROM ha_task_snapshots
              WHERE ${where.join(" AND ")} ORDER BY task_id

@@ -156,7 +156,7 @@ export function projectionStub(
             (scopeIds === null || scopeIds.has(row.taskId)) &&
             (query.taskIds === undefined || query.taskIds.includes(row.taskId)) &&
             (query.status === undefined || row.snapshot.task?.status === query.status) &&
-            (query.activePackagesOnly !== true || row.snapshot.task?.packageDisposition === "active") &&
+            (query.activePackagesOnly !== true || (row.snapshot.task?.packageDisposition ?? "active") === "active") &&
             (query.parentTaskId === undefined ||
               (row.snapshot.task?.metadata?.parentTaskId ?? null) === query.parentTaskId),
         );

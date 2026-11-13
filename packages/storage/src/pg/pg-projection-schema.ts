@@ -193,6 +193,14 @@ export function projectionDdl(): readonly string[] {
       END $migration$`,
     ...artifactTimelineDdl(),
     ...eventReadIndexDdl(),
+    // Workspace scope event windows seek the explicit canonical task id.  The generic
+    // task-index expression also covers runtime ownership, but it cannot serve this
+    // predicate for task bootstrap/progress events without scanning unrelated history.
+    // Keep the index on the ledger row and let the existing event readers apply the
+    // reader visibility predicate and revision cut.
+    `CREATE INDEX IF NOT EXISTS ha_events_canonical_task_revision ON ha_events
+      (tenant_id,project_id,policy_epoch,repo_id,canonical_task_id,revision DESC)
+      WHERE event_type <> 'ci_run_observed'`,
     // Retire only the disposable nonunique expression index after its scalar replacement exists.
     // It rejects valid opaque provider bytes and cannot serve runtime RLS's outcome predicate.
     // No table, column, identity key or canonical value is removed.
