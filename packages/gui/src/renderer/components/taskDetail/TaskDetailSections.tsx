@@ -1,10 +1,10 @@
 import { DispatchAdvisories } from "./DispatchAdvisories.tsx";
 import { useMemo } from "react";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowSquareOut } from "@phosphor-icons/react";
 import type { AgentRuntimeEventsResult, AgentRuntimeSessionResult } from "@harness-anything/daemon/protocol";
 import type { RelationFactRow, TaskDispatchProjectionRow } from "../../../api/renderer-dto.ts";
-import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client.ts";
+import { agentRuntimeClient, pollSessionEventsOnce, runtimeQueryKeys } from "../../agent-runtime-client.ts";
 import { harnessClient } from "../../api-client.ts";
 import { readAllTaskDispatches } from "../../task-dispatch-client.ts";
 import { useTaskDocumentQuery } from "../../task-data.ts";
@@ -214,6 +214,7 @@ export function TaskDispatchTab({
   /** G10 实体互链:派工链里的 session/agent/squad/provider ID 必须有路。 */
   readonly onNavigateEntity: (ref: string) => void;
 }) {
+  const queryClient = useQueryClient();
   const dispatches = useQuery({
     queryKey: runtimeQueryKeys.dispatches(task.projectId, task.taskId),
     queryFn: () => readAllTaskDispatches({ repoId: task.projectId, taskId: task.taskId }),
@@ -229,8 +230,8 @@ export function TaskDispatchTab({
   });
   const events = useQueries({
     queries: rows.map((row) => ({
-      queryKey: ["task-detail", task.projectId, row.runtimeSessionId, "events", "lifecycle:0"],
-      queryFn: () => agentRuntimeClient.events(task.projectId, row.runtimeSessionId),
+      queryKey: runtimeQueryKeys.events(task.projectId, row.runtimeSessionId),
+      queryFn: () => pollSessionEventsOnce(queryClient, task.projectId, row.runtimeSessionId),
       staleTime: 4_000,
     })),
   });

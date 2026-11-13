@@ -64,9 +64,11 @@ test("G4 exact-sync rejects unlisted catch substitutions", (t) => {
   assert.match(unrelated.stderr, /unlisted: packages\/example\/src\/unrelated\.ts#unrelated/u);
 });
 
-// task_1992b2c005f6bb7ee214a265bc: runtimeQueryKeys.events is a React Query key builder sharing
-// the ledger-read method name; only real events(...) reads count as history scans.
-test("G4 history-scan detection ignores runtimeQueryKeys builders but flags ledger events reads", (t) => {
+// task_1992b2c005f6bb7ee214a265bc & task_630ea18387cad78967f87914c2: runtimeQueryKeys.events is a
+// React Query key builder, runtimeReads.events(payload) delegates to cursor+limit, and dynamic
+// cursor polling (cached?.cursor ?? 'lifecycle:0') does not reset history; omitted, undefined,
+// void 0, zero-arg .events(), and wrapped/literal 'lifecycle:0' resets count as full history scans.
+test("G4 history-scan detection ignores key builders and cursor-bounded polls but flags resets", (t) => {
   const root = fixture(t);
   writeFileSync(path.join(root, "packages/example/src/clean.ts"), "export const clean = true;\n");
   assert.equal(run("tools/check-fallback-boundaries.mjs", root, "--update").status, 0);
@@ -75,17 +77,32 @@ test("G4 history-scan detection ignores runtimeQueryKeys builders but flags ledg
     "export const runtimeQueryKeys = { events: (repoId, sessionId) => ['runtime-session-events', repoId, sessionId] };\n" +
       "export function timeline(queryClient, repoId, sessionId) {\n" +
       "  return queryClient.getQueryData(runtimeQueryKeys.events(repoId, sessionId));\n" +
+      "}\n" +
+      "export function pollIncremental(repoId, sessionId, cached) {\n" +
+      "  return agentRuntimeClient.events(repoId, sessionId, cached?.cursor ?? 'lifecycle:0');\n" +
+      "}\n" +
+      "export function handleRead(context, payload) {\n" +
+      "  return context.runtimeReads.events(payload);\n" +
       "}\n",
   );
   const accepted = run("tools/check-fallback-boundaries.mjs", root);
   assert.equal(accepted.status, 0, accepted.stderr);
-  writeFileSync(
-    path.join(root, "packages/example/src/ledger-read.ts"),
-    "export function poll(repoId, sessionId) { return agentRuntimeClient.events(repoId, sessionId, 'lifecycle:0'); }\n",
-  );
-  const rejected = run("tools/check-fallback-boundaries.mjs", root);
-  assert.notEqual(rejected.status, 0);
-  assert.match(rejected.stderr, /unlisted: .*ledger-read\.ts#poll/u);
+  for (const [label, call] of [
+    ["omitted-cursor", "agentRuntimeClient.events(repoId, sessionId)"],
+    ["literal-start", "agentRuntimeClient.events(repoId, sessionId, 'lifecycle:0')"],
+    ["parenthesized-literal", "agentRuntimeClient.events(repoId, sessionId, ('lifecycle:0'))"],
+    ["typed-literal", "agentRuntimeClient.events(repoId, sessionId, ('lifecycle:0') as const)"],
+    ["explicit-undefined", "agentRuntimeClient.events(repoId, sessionId, undefined)"],
+    ["parenthesized-undefined", "agentRuntimeClient.events(repoId, sessionId, (undefined))"],
+    ["void-zero", "agentRuntimeClient.events(repoId, sessionId, void 0)"],
+  ]) {
+    const file = `packages/example/src/reset-${label}.ts`;
+    writeFileSync(path.join(root, file), `export function poll(repoId, sessionId) { return ${call}; }\n`);
+    const rejected = run("tools/check-fallback-boundaries.mjs", root);
+    assert.notEqual(rejected.status, 0, `${label} must be rejected`);
+    assert.match(rejected.stderr, new RegExp(`unlisted: .*reset-${label}\\.ts#poll`, "u"));
+    rmSync(path.join(root, file));
+  }
 });
 
 function lint(rule, source, options = {}, filename = "packages/example/src/new.js") {

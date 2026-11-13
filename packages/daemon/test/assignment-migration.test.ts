@@ -32,6 +32,16 @@ function migrationCell() {
     projected: Record<string, unknown>[] = [],
     store = {
       read: () => ({ events }),
+      queryEvents: (query: { readonly type?: string; readonly revisionBound?: number; readonly limit?: number } = {}) =>
+        events
+          .filter(
+            (event) =>
+              (query.type === undefined || event.type === query.type) &&
+              (query.revisionBound === undefined || Number(event.workspaceRevision) < query.revisionBound),
+          )
+          .slice()
+          .sort((a, b) => Number(b.workspaceRevision) - Number(a.workspaceRevision))
+          .slice(0, query.limit ?? events.length),
       readHead: () => ({ revision: 10 }),
       readEvent: (opId: string) => published.get(opId) ?? null,
       append: ({ event }: { readonly event: Record<string, unknown> }) => {

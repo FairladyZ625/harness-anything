@@ -346,6 +346,20 @@ test("SQLite malformed canonical rows fail closed during operator activation val
         revision: legacy.revision(),
         events: legacy.events(),
       }),
+      readBatch: (cursor: string | null, maxItems: number) => {
+        const all = legacy.events();
+        const start = cursor === null ? 0 : Number(cursor);
+        const slice = all.slice(start, start + maxItems);
+        const next = start + slice.length;
+        return {
+          sourceRevision: all.length,
+          events: slice,
+          cursor: slice.length > 0 ? String(next) : cursor,
+          done: next >= all.length,
+          accessedItems: slice.length,
+          prefetchContent: () => new Map(),
+        };
+      },
       readContentBlob: (sha256: string) => legacy.readContentObject(sha256),
     } as unknown as Parameters<typeof createImmutableLegacyGenerationSnapshot>[0]["source"];
     const snapshot = createImmutableLegacyGenerationSnapshot({ repoId, source: snapshotSource, snapshotPath });

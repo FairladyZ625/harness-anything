@@ -417,58 +417,10 @@
     ],
     "fullHistoryScans": [
       {
-        "file": "packages/gui/src/renderer/agent-runtime-client.ts",
-        "function": "pollSessionEventsOnce",
-        "task": "task_88824a470955243fc031e9defc",
-        "reason": "Cursor-bounded incremental read (dec_C0AF8CBBFFECF71F4F34FB76F9/CH3): after the first poll every call passes the cached lifecycle cursor, and the daemon read caps one page at 64 events."
-      },
-      {
-        "file": "packages/daemon/src/repo-cell-api.ts",
-        "function": "\"repo.agentRuntime.events.read\"",
-        "task": "task_403e958e3fefd3496820e8843d",
-        "reason": "Existing request-path historical scan pending a bounded-read deletion task."
-      },
-      {
-        "file": "packages/daemon/src/repo-cell-task-command-docs.ts",
-        "function": "prepareTaskSurfaceWriteAt",
-        "task": "task_403e958e3fefd3496820e8843d",
-        "reason": "Existing request-path historical scan pending a bounded-read deletion task."
-      },
-      {
-        "file": "packages/daemon/src/repo-cell-task-maintenance.ts",
-        "function": "migrateTaskContracts",
-        "task": "task_403e958e3fefd3496820e8843d",
-        "reason": "Existing request-path historical scan pending a bounded-read deletion task."
-      },
-      {
-        "file": "packages/gui/src/renderer/components/taskDetail/TaskDetailSections.tsx",
-        "function": "queryFn",
-        "task": "task_403e958e3fefd3496820e8843d",
-        "reason": "Existing request-path historical scan pending a bounded-read deletion task."
-      },
-      {
-        "file": "packages/storage/src/store/legacy-generation-conversion.ts",
-        "function": "createImmutableLegacyGenerationSnapshot",
-        "task": "task_403e958e3fefd3496820e8843d",
-        "reason": "Existing request-path historical scan pending a bounded-read deletion task."
-      },
-      {
-        "file": "packages/storage/src/store/legacy-generation-conversion.ts",
-        "function": "sqliteSnapshotStore",
-        "task": "task_403e958e3fefd3496820e8843d",
-        "reason": "Existing request-path historical scan pending a bounded-read deletion task."
-      },
-      {
         "file": "packages/storage/src/store/sqlite-task-event-store.ts",
         "function": "read",
-        "task": "task_403e958e3fefd3496820e8843d",
-        "reason": "Existing request-path historical scan pending a bounded-read deletion task."
-      },
-      {
-        "file": "packages/daemon/src/assignment-migration-action.ts",
-        "function": "runAssignmentMigrationAction",
-        "task": "task_45b896d263d3ad5c0c77db8f2e",
-        "reason": "The named offline assignment migration must scan the complete canonical task-event history once to convert legacy task_assigned/task_unassigned facts into relation-event/v1; it is an explicit operator migration boundary, not a live read path."
+        "task": "task_630ea18387cad78967f87914c2",
+        "reason": "CanonicalEventStore.read implementation retained solely for test assertions after task_630ea18387cad78967f87914c2 eliminated all remaining live production full-history callers."
       }
     ],
     "catchSubstitutions": [

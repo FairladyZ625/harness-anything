@@ -22,6 +22,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { adjudicateDocIntent, claimBytes, recycleClaims, rejectDocSyncAction } from "./doc-sync-actions.ts";
+import { someQueryEvent } from "./repo-cell-event-query.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
 import { assertTaskTransitionDocumentReady, readOnDiskBody } from "./transition-document-access.ts";
@@ -476,15 +477,15 @@ export function prepareTaskSurfaceWriteAt(
   if (mutation.type === "lease_released" && mutation.execution === undefined) {
     const reservation = mutation.releasedLease;
     if (!reservation) throw cell.cellCodedError("invalid_command", "A reservation release requires the current lease.");
-    const published = cell.store
-      .read()
-      .events.some(
-        (event) =>
-          isTaskEvent(event) &&
-          event.type === "execution_started" &&
-          event.taskId === taskId &&
-          event.payload.execution.executionId === reservation.executionId,
-      );
+    const published = someQueryEvent(
+      cell.store,
+      { eventType: "execution_started", entity: `task/${taskId}` },
+      (event) =>
+        isTaskEvent(event) &&
+        event.type === "execution_started" &&
+        event.taskId === taskId &&
+        event.payload.execution.executionId === reservation.executionId,
+    );
     if (published)
       throw cell.cellCodedError(
         "projection_pending",

@@ -128,6 +128,74 @@ export function showEvent(cell: EventQueryCell, action: RepoTaskAction, binding:
   );
 }
 
+type EventSliceFilter = {
+  readonly eventType?: CanonicalEventV1["type"];
+  readonly entity?: string;
+  readonly actor?: string;
+};
+
+function forEachQueryEventPage(
+  store: Pick<CanonicalEventStore, "queryEvents">,
+  filter: EventSliceFilter,
+  pageSize: number,
+  onPage: (page: readonly CanonicalEventV1[]) => boolean | void,
+): void {
+  const queryEvents = store.queryEvents;
+  if (!queryEvents) {
+    throw new Error("CanonicalEventStore.queryEvents is required for bounded event queries.");
+  }
+  let revisionBound: number | undefined;
+  for (;;) {
+    const page = queryEvents({
+      ...(filter.eventType === undefined ? {} : { type: filter.eventType }),
+      ...(filter.entity === undefined ? {} : { entity: filter.entity }),
+      ...(filter.actor === undefined ? {} : { actor: filter.actor }),
+      ...(revisionBound === undefined ? {} : { revisionBound }),
+      limit: pageSize,
+    });
+    if (onPage(page) === false || page.length < pageSize) return;
+    const nextBound = page[page.length - 1]!.workspaceRevision;
+    if (revisionBound !== undefined && nextBound >= revisionBound) return;
+    revisionBound = nextBound;
+  }
+}
+
+/**
+ * Scan indexed `queryEvents` pages backwards until `predicate` matches or history ends.
+ */
+export function someQueryEvent(
+  store: Pick<CanonicalEventStore, "queryEvents">,
+  filter: EventSliceFilter,
+  predicate: (event: CanonicalEventV1) => boolean,
+  pageSize = EVENT_LIST_LIMIT_MAX,
+): boolean {
+  let matched = false;
+  forEachQueryEventPage(store, filter, pageSize, (page) => {
+    if (page.some(predicate)) {
+      matched = true;
+      return false;
+    }
+  });
+  return matched;
+}
+
+/**
+ * Collect matching events across bounded `queryEvents` pages in ascending `workspaceRevision` order.
+ */
+export function collectQueryEvents(
+  store: Pick<CanonicalEventStore, "queryEvents">,
+  filters: readonly EventSliceFilter[],
+  pageSize = EVENT_LIST_LIMIT_MAX,
+): CanonicalEventV1[] {
+  const collected: CanonicalEventV1[] = [];
+  for (const filter of filters) {
+    forEachQueryEventPage(store, filter, pageSize, (page) => {
+      collected.push(...page);
+    });
+  }
+  return collected.sort((left, right) => left.workspaceRevision - right.workspaceRevision);
+}
+
 function optionalText(value: unknown): string | undefined {
   return typeof value === "string" && value !== "" ? value : undefined;
 }
