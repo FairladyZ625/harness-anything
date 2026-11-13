@@ -7,10 +7,13 @@ import { createServer } from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { createServer as createTlsServer } from "node:tls";
 import { createEdgeJoinProgressTap, joinFleetEdge, type EdgeJoinClientPorts } from "../src/fleet/edge-join-client.ts";
 import { readFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
 import { createEdgeJoinStore, encodeEdgeJoinLink } from "../src/fleet/edge-join.ts";
+import { reportFleetDeviceLogin } from "../src/fleet/peer.ts";
 import { normalizeFleetGitRemote, readFleetCenterGitMetadata } from "../src/fleet-edge-git-preflight.ts";
+import { fetchWithTlsCa } from "../src/tls-ca-certificate.ts";
 
 test("one invitation creates and syncs an independent workspace for every repository", async (t) => {
   const temp = mkdtempSync(path.join(tmpdir(), "ha-edge-join-client-")),
@@ -789,4 +792,133 @@ test("the progress tap replaces a repository's phase and never mixes two joins",
 
   tap.record({ joinId: "join-b", repository: { repoId: "repo-3", phase: "workspace" } });
   assert.deepEqual(tap.read(), { joinId: "join-b", repositories: [{ repoId: "repo-3", phase: "workspace" }] });
+});
+
+test("ssh-reverse IP servername verifies X.509 iPAddress SAN without sending an RFC 6066 IP SNI", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-edge-ip-sni-")),
+    keyFile = path.join(root, "ip.key"),
+    certFile = path.join(root, "ip.pem");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      keyFile,
+      "-out",
+      certFile,
+      "-subj",
+      "/CN=10.211.55.2",
+      "-days",
+      "1",
+      "-addext",
+      "subjectAltName=IP:10.211.55.2",
+      "-addext",
+      "basicConstraints=critical,CA:TRUE",
+    ],
+    { stdio: "ignore" },
+  );
+  const key = readFileSync(keyFile),
+    cert = readFileSync(certFile, "utf8"),
+    loginSnis: Array<string | boolean | null> = [],
+    fleetSnis: Array<string | boolean | null> = [],
+    loginServer = createServer({ key, cert }, (_request, response) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end("{}");
+    }),
+    fleetServer = createTlsServer({ key, cert }, (socket) => {
+      fleetSnis.push(socket.servername ?? null);
+      socket.end();
+    });
+  loginServer.on("secureConnection", (socket) => {
+    loginSnis.push(socket.servername ?? null);
+  });
+  loginServer.listen(0, "127.0.0.1");
+  fleetServer.listen(0, "127.0.0.1");
+  await Promise.all([once(loginServer, "listening"), once(fleetServer, "listening")]);
+  t.after(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        loginServer.close((err1) => {
+          fleetServer.close((err2) => (err1 || err2 ? reject(err1 ?? err2) : resolve()));
+        });
+      }),
+  );
+  const loginAddr = loginServer.address(),
+    fleetAddr = fleetServer.address();
+  assert.ok(loginAddr && typeof loginAddr !== "string" && fleetAddr && typeof fleetAddr !== "string");
+
+  const invite = createEdgeJoinStore().create({
+      centerOrigin: `https://127.0.0.1:${fleetAddr.port}`,
+      centerServername: "10.211.55.2",
+      repoIds: ["repo-a"],
+      personId: "person-edge",
+      permissionSnapshot: [],
+      spkiSha256: "a".repeat(64),
+      loginUrl: `https://127.0.0.1:${loginAddr.port}`,
+      loginServername: "10.211.55.2",
+      loginRealm: "harness",
+      loginClientId: "edge-client",
+      loginCertificate: cert,
+      createdBy: "person-admin",
+      ttlMs: 60_000,
+    }),
+    joined = await joinFleetEdge(
+      { link: encodeEdgeJoinLink(invite.link) },
+      {
+        probeCenter: async () => undefined,
+        session: async () => undefined,
+        beginLogin: async (authority) => {
+          assert.equal(authority.servername, "10.211.55.2");
+          return { ok: true, pending: true };
+        },
+        register: async () => undefined,
+        sync: async () => ({ ok: true }),
+      },
+    );
+  assert.deepEqual(joined, { ok: true, pending: true, command: "edge-join" });
+  assert.deepEqual(loginSnis, [false]);
+
+  await assert.rejects(
+    fetchWithTlsCa(fetch, cert, `https://127.0.0.1:${loginAddr.port}/realms/harness`, undefined, "10.211.55.99"),
+    (error: unknown) => {
+      const cause = error instanceof Error && "cause" in error ? (error.cause as { code?: string }) : undefined;
+      return cause?.code === "ERR_TLS_CERT_ALTNAME_INVALID";
+    },
+  );
+
+  await assert.rejects(
+    reportFleetDeviceLogin(
+      {
+        hostname: "127.0.0.1",
+        port: fleetAddr.port,
+        ca: cert,
+        servername: "10.211.55.2",
+        nodeId: "edge-1",
+        credential: "cred",
+      },
+      { loginId: "login-1", personId: "person-edge", expiresAt: "2026-12-01T00:00:00.000Z" },
+    ),
+    /Fleet connection closed/u,
+  );
+  assert.deepEqual(fleetSnis, [false]);
+
+  await assert.rejects(
+    reportFleetDeviceLogin(
+      {
+        hostname: "127.0.0.1",
+        port: fleetAddr.port,
+        ca: cert,
+        servername: "10.211.55.99",
+        nodeId: "edge-1",
+        credential: "cred",
+      },
+      { loginId: "login-1", personId: "person-edge", expiresAt: "2026-12-01T00:00:00.000Z" },
+    ),
+    (error: unknown) => (error as { code?: string })?.code === "ERR_TLS_CERT_ALTNAME_INVALID",
+  );
 });

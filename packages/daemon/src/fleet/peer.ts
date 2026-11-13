@@ -1,6 +1,7 @@
 // dec_9284BD6119D453EEECEED62450: authenticated command transport; replication uses its own stream.
 import { uploadFleetChange } from "./upload-client.ts";
 import { encodeFleetFrames, FleetTransferAssembler } from "./command-transfer.ts";
+import { tlsPeerIdentityOptions } from "../tls-ca-certificate.ts";
 import { connect, type TLSSocket } from "node:tls";
 import { createHash, X509Certificate } from "node:crypto";
 import { isIP } from "node:net";
@@ -1118,7 +1119,7 @@ function peerSocket(options: Omit<FleetPeerOptions, "repoId">): Promise<TLSSocke
         host: options.hostname ?? "127.0.0.1",
         port: options.port,
         ca: options.ca,
-        servername: options.servername ?? "localhost",
+        ...tlsPeerIdentityOptions(options.servername ?? "localhost"),
         rejectUnauthorized: true,
       },
       () => {

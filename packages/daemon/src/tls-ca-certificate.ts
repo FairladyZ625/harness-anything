@@ -1,6 +1,6 @@
 import { X509Certificate } from "node:crypto";
 import { isIP } from "node:net";
-import { connect as tlsConnect, getCACertificates } from "node:tls";
+import { checkServerIdentity, connect as tlsConnect, getCACertificates } from "node:tls";
 import { Agent } from "undici";
 
 const pemCertificate = /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/gu;
@@ -52,6 +52,18 @@ export function systemCaCertificates(): readonly string[] {
   return [...new Set([...getCACertificates("bundled"), ...getCACertificates("system")])];
 }
 
+/** RFC 6066 forbids IP literals in TLS SNI; tunnelled IP targets verify X.509 iPAddress SANs directly. */
+export function tlsPeerIdentityOptions(servername?: string): {
+  readonly servername?: string;
+  readonly checkServerIdentity?: typeof checkServerIdentity;
+} {
+  if (!servername) return {};
+  const target = servername.replace(/^\[|\]$/gu, "");
+  return isIP(target) === 0
+    ? { servername: target }
+    : { checkServerIdentity: (_host, cert) => checkServerIdentity(target, cert) };
+}
+
 export async function fetchWithTlsCa(
   fetcher: typeof fetch,
   ca: string | readonly string[],
@@ -63,7 +75,7 @@ export async function fetchWithTlsCa(
   const dispatcher = new Agent({
     connect: {
       ca: typeof ca === "string" ? ca : [...ca],
-      ...(servername ? { servername } : {}),
+      ...tlsPeerIdentityOptions(servername),
     },
   });
   try {
