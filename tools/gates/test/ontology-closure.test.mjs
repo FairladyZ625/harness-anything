@@ -1417,7 +1417,20 @@ test("dec_7E44897ECDCAEF2B92EC66A260/CH1: daemon runtime/terminal/evaluation clo
 
   const result = evaluateOntologyClosure({ rootDir: repoRoot, base: "HEAD" });
   const inScope = result.classified.filter((row) => scopePath.test(row.file));
-  assert.ok(inScope.length >= 360, `expected the daemon runtime slice, got ${inScope.length} rows`);
+  // Shared Policy consolidation removes leaf candidates. Verify discovery by
+  // subsystem rather than imposing a minimum on the debt that CH1 removes.
+  for (const file of [
+    "runtime.ts",
+    "agent-runtime-instance-storage.ts",
+    "terminal-host.ts",
+    "process-port.ts",
+    "skill-eval-runner.ts",
+  ]) {
+    assert.ok(
+      inScope.some((row) => row.file === `packages/daemon/src/${file}`),
+      `missing scanned subsystem: ${file}`,
+    );
+  }
   assert.deepEqual(
     inScope.filter((row) => row.status !== "registered"),
     [],
