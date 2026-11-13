@@ -165,7 +165,10 @@ test("an unparameterized guiTasks read serves one default-bounded page, never th
 
   const result = queryRead(process.cwd(), projection).guiTasks();
 
-  assert.deepEqual(listCalls, [{ limit: 500, decisionRelationsOnly: true, presentationStatus: true }]);
+  assert.equal(listCalls.length, 1);
+  assert.equal(listCalls[0]?.presentationStatus, true);
+  assert.equal(listCalls[0]?.decisionRelationsOnly, true);
+  assert.equal(listCalls[0]?.taskIds?.length, 500);
   assert.equal(result.rows.length, 500);
   assert.deepEqual(result.page, { limit: 500, cursor: null, nextCursor: "task_page_0499" });
 });
@@ -243,11 +246,11 @@ test("agenda reads one narrow lifecycle page per status and no wide-assembly rea
   const result = queryRead(process.cwd(), projection).agenda();
 
   assert.deepEqual(listCalls, [
-    { status: "active", activePackagesOnly: true, limit: 100, pinnedFirst: true, presentationStatus: true },
-    { status: "blocked", activePackagesOnly: true, limit: 100, pinnedFirst: true, presentationStatus: true },
-    { status: "planned", activePackagesOnly: true, limit: 100, pinnedFirst: true, presentationStatus: true },
-    { status: "submitted", activePackagesOnly: true, limit: 100, pinnedFirst: true, presentationStatus: true },
-    { status: "in_review", activePackagesOnly: true, limit: 100, pinnedFirst: true, presentationStatus: true },
+    { taskIds: ["task_event"], presentationStatus: true, decisionRelationsOnly: true },
+    { taskIds: [], presentationStatus: true, decisionRelationsOnly: true },
+    { taskIds: [], presentationStatus: true, decisionRelationsOnly: true },
+    { taskIds: [], presentationStatus: true, decisionRelationsOnly: true },
+    { taskIds: [], presentationStatus: true, decisionRelationsOnly: true },
   ]);
   assert.deepEqual(decisionCalls, []);
   assert.deepEqual(
@@ -270,9 +273,9 @@ test("attentionOnly agenda reads raw lifecycle status and skips the presentation
   // Home consumes only the four waiting buckets: blocked/planned pages and the full work-root
   // scan are not read, and the three remaining pages ask for lifecycle status (index-bounded).
   assert.deepEqual(listCalls, [
-    { status: "active", activePackagesOnly: true, limit: 100, pinnedFirst: true, presentationStatus: false },
-    { status: "submitted", activePackagesOnly: true, limit: 100, pinnedFirst: true, presentationStatus: false },
-    { status: "in_review", activePackagesOnly: true, limit: 100, pinnedFirst: true, presentationStatus: false },
+    { taskIds: ["task_event"], presentationStatus: false, decisionRelationsOnly: true },
+    { taskIds: [], presentationStatus: false, decisionRelationsOnly: true },
+    { taskIds: [], presentationStatus: false, decisionRelationsOnly: true },
   ]);
   assert.deepEqual(decisionCalls, []);
   assert.deepEqual(result.attentionItems, []);

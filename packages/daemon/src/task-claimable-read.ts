@@ -19,6 +19,8 @@ export async function readClaimableTasks(input: {
   readonly binding: RepoCellBinding;
   readonly settings: SettingsV1;
   readonly now: string;
+  /** A bounded task page. Repository callers route this through guiTasks, which selects
+   * scalar index ids before hydrating the requested point set. */
   readonly page: (query: {
     readonly activePackagesOnly: true;
     /** Claimability uses lifecycle status; skip presentation subtree derivation. */

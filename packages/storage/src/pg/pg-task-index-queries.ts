@@ -51,6 +51,7 @@ export function pgTaskIndexQueries(
 ): PgTaskIndexQueries {
   const { scope } = options,
     readers = [...(scope.readers ?? [])],
+    readerVisibility = readers.length === 0 ? "" : " AND (cardinality($4::text[])=0 OR readers && $4::text[])",
     parameters = [scope.tenantId, scope.projectId, scope.policyEpoch, readers];
   const read = <Result>(operation: (client: PoolClient) => Promise<Result>) =>
     withPostgresTransaction(options.pool, operation, scope, { isolationLevel: "repeatable read" });
@@ -58,7 +59,7 @@ export function pgTaskIndexQueries(
     (
       await client.query<{ task_id: string; snapshot: TaskLifecycleSnapshot; package_path: string | null }>(
         `SELECT task_id,snapshot,package_path FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2
-       AND policy_epoch=$3 AND (cardinality($4::text[])=0 OR readers && $4::text[]) AND ${predicate} ORDER BY task_id`,
+       AND policy_epoch=$3${readerVisibility} AND ${predicate} ORDER BY task_id`,
         [...parameters, ...values],
       )
     ).rows;
@@ -87,7 +88,7 @@ export function pgTaskIndexQueries(
         await assertPgTaskParentIndexReady(client, scope);
         const result = await client.query<{ parent_id: string; count: string }>(
           `SELECT parent_task_id AS parent_id,count(*)::text FROM ha_task_snapshots
-         WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND (cardinality($4::text[])=0 OR readers && $4::text[])
+         WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3${readerVisibility}
          AND task_package_disposition='active'
          AND parent_task_id=ANY($5::text[]) GROUP BY parent_task_id`,
           [...parameters, ids],
@@ -103,15 +104,14 @@ export function pgTaskIndexQueries(
             "tenant_id=$1",
             "project_id=$2",
             "policy_epoch=$3",
-            "(cardinality($4::text[])=0 OR readers && $4::text[])",
+            ...(readerVisibility === "" ? [] : [readerVisibility.slice(5)]),
           ],
           presentation = query.presentationStatus ? presentationStatusSql(4) : "task_status";
         let withClause = "";
         if (query.scopeRootTaskId !== undefined) {
           values.push(query.scopeRootTaskId);
           const root = `$${values.length}`,
-            visible =
-              "tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND (cardinality($4::text[])=0 OR readers && $4::text[])";
+            visible = `tenant_id=$1 AND project_id=$2 AND policy_epoch=$3${readerVisibility}`;
           withClause = `WITH RECURSIVE descendants(task_id) AS (
             SELECT task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=${root}
             UNION SELECT child.task_id FROM descendants parent CROSS JOIN LATERAL (

@@ -127,11 +127,40 @@ export function projectionStub(
   return {
     readDispatchLifecycle: lifecycleReadForSync([]),
     listEntities: () => [],
-    readTaskIndex: () => ({
-      ...cut,
-      page: null,
-      warnings: [],
-      rows: (taskRows as ReturnType<typeof protocolTaskRow>[]).flatMap((row) =>
+    readTaskIndex: (query: TaskProjectionListQuery = {}) => {
+      const allRows = taskRows as ReturnType<typeof protocolTaskRow>[],
+        scopeIds = (() => {
+          if (query.scopeRootTaskId === undefined) return null;
+          const ids = new Set([query.scopeRootTaskId]);
+          let changed = true;
+          while (changed) {
+            changed = false;
+            for (const row of allRows) {
+              const parent = row.snapshot.task?.metadata?.parentTaskId;
+              if (parent !== null && parent !== undefined && ids.has(parent) && !ids.has(row.taskId)) {
+                ids.add(row.taskId);
+                changed = true;
+              }
+            }
+          }
+          let parent = allRows.find((row) => row.taskId === query.scopeRootTaskId)?.snapshot.task?.metadata
+            ?.parentTaskId;
+          while (parent) {
+            ids.add(parent);
+            parent = allRows.find((row) => row.taskId === parent)?.snapshot.task?.metadata?.parentTaskId;
+          }
+          return ids;
+        })(),
+        sourceRows = allRows.filter(
+          (row) =>
+            (scopeIds === null || scopeIds.has(row.taskId)) &&
+            (query.taskIds === undefined || query.taskIds.includes(row.taskId)) &&
+            (query.status === undefined || row.snapshot.task?.status === query.status) &&
+            (query.activePackagesOnly !== true || row.snapshot.task?.packageDisposition === "active") &&
+            (query.parentTaskId === undefined ||
+              (row.snapshot.task?.metadata?.parentTaskId ?? null) === query.parentTaskId),
+        );
+      const rows = sourceRows.flatMap((row) =>
         row.snapshot.task
           ? [
               {
@@ -150,8 +179,22 @@ export function projectionStub(
               },
             ]
           : [],
-      ),
-    }),
+      );
+      const limit = query.limit;
+      return {
+        ...cut,
+        page:
+          limit === undefined
+            ? null
+            : {
+                limit,
+                cursor: query.cursor ?? null,
+                nextCursor: rows.length > limit ? (rows[limit - 1]?.taskId ?? null) : null,
+              },
+        warnings: [],
+        rows: limit === undefined ? rows : rows.slice(0, limit),
+      };
+    },
     list: (query: TaskProjectionListQuery = {}) => {
       options.listCalls?.push(query);
       const selected = (
