@@ -211,3 +211,164 @@ test("a package-script technical port proves a root tools/ effect but never a pa
   const local = { ...action, ontology: { technical: true, authority: "local-process" } };
   assert.ok(technicalPortEvidence(graph, packageNode, source, local));
 });
+
+test("tools client entries bind business actions with transport + command proof and cannot hide under package-assets-build", async () => {
+  const { clientEntryEvidence, technicalPortEvidence } = await import("../authorization-source-proof.mjs");
+  const tool = "tools/client-demo.mjs";
+  const pkgCaller = "packages/demo/scripts/client-demo.mjs";
+  const body = [
+    '/// <reference types="node" />',
+    'import { execFileSync } from "node:child_process";',
+    "function runCli(args) { return execFileSync('ha', args, { encoding: 'utf8' }); }",
+    "function sendRpc(payload) { return execFileSync('ha', ['rpc', JSON.stringify(payload)], { encoding: 'utf8' }); }",
+    "function noTransport(args) { return args.join(' '); }",
+    "export function main(taskId, runnerArgs) {",
+    '  const created = runCli(["--json", "task", "create", "title"]);',
+    '  const runtimeArgs = ["runtime", "run", taskId];',
+    "  const dispatched = runCli(runtimeArgs);",
+    '  const installed = sendRpc({ kind: "agent-install", id: "coder" });',
+    '  const dynamic = execFileSync("node", runnerArgs);',
+    '  const decoupled = noTransport(["task", "create"]);',
+    "  return { created, dispatched, installed, dynamic, decoupled };",
+    "}",
+  ].join("\n");
+  const { rootDir } = makeRepo({
+    "packages/demo/package.json": JSON.stringify({ name: "demo", type: "module" }),
+    [tool]: body,
+    [pkgCaller]: body,
+  });
+  symlinkSync(realpathSync(path.join(repoRoot, "node_modules")), path.join(rootDir, "node_modules"), "dir");
+  const graph = buildFlowGraph(rootDir, { sourceFiles: [tool, pkgCaller] });
+  const witnessMap = (target) => {
+    const sources = scanOntologyText(target, body)
+      .filter((row) => row.category === "action")
+      .map((row) => ({ candidateId: row.id }));
+    return [...sourceWitnesses(graph, sources).values()];
+  };
+  const nodes = witnessMap(tool);
+  const pkgNodes = witnessMap(pkgCaller);
+  const byCall = (list, fragment) => list.find((node) => node.getText().includes(fragment));
+  const createNode = byCall(nodes, 'runCli(["--json", "task", "create"');
+  const runtimeNode = byCall(nodes, "runCli(runtimeArgs)");
+  const installNode = byCall(nodes, 'kind: "agent-install"');
+  const dynamicNode = byCall(nodes, 'execFileSync("node", runnerArgs)');
+  const noTransportNode = byCall(nodes, 'noTransport(["task", "create"])');
+  const pkgCreateNode = byCall(pkgNodes, 'runCli(["--json", "task", "create"');
+  assert.ok(createNode && runtimeNode && installNode && dynamicNode && noTransportNode && pkgCreateNode);
+
+  const descriptors = [
+    { id: "task-create", cliPath: ["task", "create"] },
+    { id: "runtime-run", cliPath: ["runtime", "run"] },
+    { id: "agent-install", actionKind: "agent-install" },
+  ];
+  const runCliPort = `${tool}#runCli`;
+  const sendRpcPort = `${tool}#sendRpc`;
+  const noTransportPort = `${tool}#noTransport`;
+  const execFileSyncPort = "node_modules/@types/node/child_process.d.ts#child_process.execFileSync";
+
+  const createAction = { kind: "task-create", executionClass: "repo-write", ontology: {} };
+  const runtimeAction = { kind: "runtime-run", executionClass: "repo-write", ontology: {} };
+  const installAction = { kind: "agent-install", executionClass: "repo-write", ontology: {} };
+  const buildAction = {
+    kind: "package-assets-build",
+    ontology: { owner: "distribution", technical: true, authority: "package-script" },
+    receiptSettlement: "none",
+  };
+
+  assert.ok(
+    clientEntryEvidence(
+      graph,
+      createNode,
+      { role: "client", route: "task-create", port: runCliPort },
+      createAction,
+      descriptors,
+    ),
+  );
+  assert.ok(
+    clientEntryEvidence(
+      graph,
+      runtimeNode,
+      { role: "client", route: "runtime-run", port: runCliPort },
+      runtimeAction,
+      descriptors,
+    ),
+  );
+  assert.ok(
+    clientEntryEvidence(
+      graph,
+      installNode,
+      { role: "client", route: "agent-install", port: sendRpcPort },
+      installAction,
+      descriptors,
+    ),
+  );
+  assert.equal(
+    clientEntryEvidence(
+      graph,
+      createNode,
+      { role: "client", route: "task-start", port: runCliPort },
+      createAction,
+      descriptors,
+    ),
+    null,
+  );
+  assert.equal(
+    clientEntryEvidence(
+      graph,
+      createNode,
+      { role: "client", route: "task-create", port: `${runCliPort}x` },
+      createAction,
+      descriptors,
+    ),
+    null,
+  );
+  assert.equal(
+    clientEntryEvidence(
+      graph,
+      pkgCreateNode,
+      { role: "client", route: "task-create", port: `${pkgCaller}#runCli` },
+      createAction,
+      descriptors,
+    ),
+    null,
+  );
+  assert.equal(
+    clientEntryEvidence(
+      graph,
+      noTransportNode,
+      { role: "client", route: "task-create", port: noTransportPort },
+      createAction,
+      descriptors,
+    ),
+    null,
+  );
+  assert.equal(
+    clientEntryEvidence(
+      graph,
+      createNode,
+      { role: "client", route: "task-create", port: runCliPort },
+      { ...createAction, ontology: { technical: true } },
+      descriptors,
+    ),
+    null,
+  );
+  assert.equal(
+    technicalPortEvidence(
+      graph,
+      createNode,
+      { role: "technical-port", route: "package-assets-build", port: runCliPort },
+      buildAction,
+      descriptors,
+    ),
+    null,
+  );
+  assert.ok(
+    technicalPortEvidence(
+      graph,
+      dynamicNode,
+      { role: "technical-port", route: "package-assets-build", port: execFileSyncPort },
+      buildAction,
+      descriptors,
+    ),
+  );
+});

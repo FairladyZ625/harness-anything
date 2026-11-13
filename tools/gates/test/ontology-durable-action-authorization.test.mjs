@@ -588,39 +588,75 @@ partitionedTest("caller-owned CLI output and cleanup cannot claim a canonical le
   assert.ok(result.sourceRows.every((source) => !source.ok));
 });
 
-// dec_7E44897ECDCAEF2B92EC66A260/CH1 S4: root tools/ sources are owned by package-assets-build only
-// through exact typed ports or intrinsic support; neither an unported tool effect nor a packages/
-// build source naming a port can borrow that route.
-partitionedTest("root tools sources need a typed port under package-assets-build; package scripts keep dist", () => {
-  const build = inputs.constants.actionDeclarations.find((action) => action.kind === "package-assets-build");
-  const audit = (sources) =>
-    auditDurableActionAuthorization(
-      repoRoot,
-      {
-        ...inputs,
-        constants: {
-          ...inputs.constants,
-          actionDeclarations: inputs.constants.actionDeclarations.map((action) =>
-            action === build ? { ...action, ontology: { ...action.ontology, sources } } : action,
-          ),
+// dec_7E44897ECDCAEF2B92EC66A260/CH1 S4: root tools/ technical sources are owned by
+// package-assets-build only through exact typed ports or intrinsic support, while concrete
+// business CLI/RPC client calls in tools/ bind their owning business ActionDeclaration via client
+// ports and cannot hide under package-assets-build or spoof a mismatched route.
+partitionedTest(
+  "root tools sources need a typed port under package-assets-build; client calls bind business actions",
+  () => {
+    const build = inputs.constants.actionDeclarations.find((action) => action.kind === "package-assets-build");
+    const audit = (sources, target = build) =>
+      auditDurableActionAuthorization(
+        repoRoot,
+        {
+          ...inputs,
+          constants: {
+            ...inputs.constants,
+            actionDeclarations: inputs.constants.actionDeclarations.map((action) =>
+              action === target ? { ...action, ontology: { ...action.ontology, sources } } : action,
+            ),
+          },
         },
-      },
-      { only: [build.kind] },
-    ).sourceRows.map(({ ok, violations }) => ({ ok, violations }));
-  const tools = build.ontology.sources.filter((source) => source.candidateId.startsWith("action:tools:"));
-  assert.ok(tools.some((source) => source.role === "technical-port"));
-  assert.ok(tools.some((source) => source.role === "support"));
-  assert.deepEqual(
-    audit(build.ontology.sources).filter((row) => !row.ok),
-    [],
-  );
-  const { port: _port, ...unported } = tools.find((source) => source.role === "technical-port");
-  assert.deepEqual(audit([{ ...unported, role: "effect" }]), [
-    { ok: false, violations: ["root tooling source needs a typed technical port or intrinsic support"] },
-  ]);
-  const packaged = build.ontology.sources.find((source) => source.candidateId.startsWith("action:packages/"));
-  assert.deepEqual(
-    audit([{ ...packaged, role: "technical-port", port: "node_modules/@types/node/fs.d.ts#fs.rmSync" }]),
-    [{ ok: false, violations: ["source has no verified owner/authority chain"] }],
-  );
-});
+        { only: [target.kind] },
+      ).sourceRows.map(({ candidateId, ok, violations }) => ({ candidateId, ok, violations }));
+    const tools = build.ontology.sources.filter((source) => source.candidateId.startsWith("action:tools:"));
+    assert.ok(tools.some((source) => source.role === "technical-port"));
+    assert.ok(tools.some((source) => source.role === "support"));
+    assert.deepEqual(
+      audit(build.ontology.sources).filter((row) => !row.ok),
+      [],
+    );
+    const { port: _port, ...unported } = tools.find((source) => source.role === "technical-port");
+    assert.deepEqual(
+      audit([{ ...unported, role: "effect" }]).map(({ ok, violations }) => ({ ok, violations })),
+      [{ ok: false, violations: ["root tooling source needs a typed technical port or intrinsic support"] }],
+    );
+    const packaged = build.ontology.sources.find((source) => source.candidateId.startsWith("action:packages/"));
+    assert.deepEqual(
+      audit([{ ...packaged, role: "technical-port", port: "node_modules/@types/node/fs.d.ts#fs.rmSync" }]).map(
+        ({ ok, violations }) => ({ ok, violations }),
+      ),
+      [{ ok: false, violations: ["source has no verified owner/authority chain"] }],
+    );
+
+    const clientKinds = ["task-create", "task-start", "runtime-run", "agent-install"];
+    const clientAudit = auditDurableActionAuthorization(repoRoot, inputs, { only: clientKinds });
+    const clientRows = clientAudit.sourceRows.filter((row) => row.candidateId.startsWith("action:tools:"));
+    assert.equal(clientRows.length, 6);
+    assert.deepEqual(
+      clientRows.filter((row) => !row.ok),
+      [],
+    );
+
+    const taskCreate = inputs.constants.actionDeclarations.find((action) => action.kind === "task-create");
+    const dispatchCreateClient = taskCreate.ontology.sources.find(
+      (source) =>
+        source.role === "client" && source.candidateId.includes("tools/dispatch-task.mjs#runDispatch.created:"),
+    );
+    assert.ok(dispatchCreateClient);
+    assert.deepEqual(
+      audit([{ ...dispatchCreateClient, route: "task-start" }], taskCreate).map(({ ok, violations }) => ({
+        ok,
+        violations,
+      })),
+      [{ ok: false, violations: ["tools client source needs a matching business client port and command/kind route"] }],
+    );
+    assert.deepEqual(
+      audit([{ ...dispatchCreateClient, role: "technical-port", route: build.kind }], build).map(
+        ({ ok, violations }) => ({ ok, violations }),
+      ),
+      [{ ok: false, violations: ["root tooling source needs a typed technical port or intrinsic support"] }],
+    );
+  },
+);

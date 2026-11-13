@@ -9186,7 +9186,8 @@
         "role": "client",
         "port": "tools/dispatch-task.mjs#runDispatch.invoke"
       }
-    ]
+    ],
+    "owner": "task"
   },
   "daemon-start": {
     "sources": [
@@ -9218,7 +9219,8 @@
         "owner": "host-local",
         "refTemplate": "daemon-host"
       }
-    }
+    },
+    "owner": "daemon"
   },
   "projection-rebuild": {
     "sources": [
@@ -9250,6 +9252,7 @@
         "owner": "host-local",
         "refTemplate": "daemon-host"
       }
-    }
+    },
+    "owner": "projection"
   }
 }
