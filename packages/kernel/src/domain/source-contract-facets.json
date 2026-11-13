@@ -2550,7 +2550,7 @@
         "explain": "Recognizes AST call forms that read an unbounded event history so fallback paths cannot silently expand to full-history scans.",
         "sources": [
           {
-            "candidateId": "judgment:tools:tools/check-fallback-boundaries.mjs#isFullHistoryCall:0f61ec4aab0a63951d97626bf73e9a52",
+            "candidateId": "judgment:tools:tools/check-fallback-boundaries.mjs#isFullHistoryCall:fcc8e100fe88ccd37f2adbb6bcb9bebc",
             "route": "tools/check-fallback-boundaries.mjs#isFullHistoryCall"
           }
         ]

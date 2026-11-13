@@ -29,47 +29,79 @@ const offlineMaintenanceFullHistoryReaders = new Set([
   "packages/storage/src/store/sqlite-task-event-publication.ts#ledgerWorktreeBaseline",
 ]);
 
+function unwrapExpression(node) {
+  let current = node;
+  while (
+    current &&
+    (ts.isParenthesizedExpression(current) ||
+      ts.isAsExpression(current) ||
+      ts.isTypeAssertionExpression(current) ||
+      ts.isNonNullExpression(current) ||
+      ts.isSatisfiesExpression(current))
+  ) {
+    current = current.expression;
+  }
+  return current;
+}
+
+function isUndefinedExpression(node) {
+  return !node || (ts.isIdentifier(node) && node.text === "undefined") || ts.isVoidExpression(node);
+}
+
 function isStartArgument(node) {
-  return !node || node.kind === ts.SyntaxKind.NullKeyword || (ts.isNumericLiteral(node) && node.text === "0");
+  const value = unwrapExpression(node);
+  return (
+    isUndefinedExpression(value) ||
+    value.kind === ts.SyntaxKind.NullKeyword ||
+    (ts.isNumericLiteral(value) && value.text === "0")
+  );
+}
+
+function hasIdentifierText(node, text) {
+  return Boolean(node && ts.isIdentifier(node) && node.text === text);
 }
 
 // React Query key builders share method names with ledger reads (runtimeQueryKeys.events);
 // calls on that receiver only build cache keys and never touch the ledger.
-function isQueryKeyBuilderCall(node) {
+function isQueryKeyBuilderCall(callee) {
   return (
-    ts.isPropertyAccessExpression(node.expression) &&
-    ts.isIdentifier(node.expression.expression) &&
-    node.expression.expression.text === "runtimeQueryKeys"
+    ts.isPropertyAccessExpression(callee) && hasIdentifierText(unwrapExpression(callee.expression), "runtimeQueryKeys")
   );
 }
 
-function isRuntimeReadsEventsCall(node) {
+function isRuntimeReadsEventsCall(callee) {
   return (
-    ts.isPropertyAccessExpression(node.expression) &&
-    ts.isPropertyAccessExpression(node.expression.expression) &&
-    node.expression.expression.name.text === "runtimeReads"
+    ts.isPropertyAccessExpression(callee) &&
+    ts.isPropertyAccessExpression(unwrapExpression(callee.expression)) &&
+    unwrapExpression(callee.expression).name.text === "runtimeReads"
   );
 }
 
 function isClientEventsResetCall(node) {
+  const afterCursor = unwrapExpression(node.arguments[2]);
   return (
-    node.arguments.length < 3 || (ts.isStringLiteralLike(node.arguments[2]) && node.arguments[2].text === "lifecycle:0")
+    node.arguments.length < 3 ||
+    isUndefinedExpression(afterCursor) ||
+    (ts.isStringLiteralLike(afterCursor) && afterCursor.text === "lifecycle:0")
   );
 }
 
 function isFullHistoryCall(node) {
-  if (isQueryKeyBuilderCall(node)) return false;
-  const name = callName(node.expression);
+  const callee = unwrapExpression(node.expression);
+  if (isQueryKeyBuilderCall(callee)) return false;
+  const name = callName(callee);
   if (name === "readEventsThrough") return true;
   if (name === "readBatch") return isStartArgument(node.arguments[0]);
   if (name === "readPendingEvents")
-    return node.arguments.some((argument) => ts.isNumericLiteral(argument) && argument.text === "0");
+    return node.arguments.some((argument) => {
+      const value = unwrapExpression(argument);
+      return ts.isNumericLiteral(value) && value.text === "0";
+    });
   if (name === "events") {
-    if (isRuntimeReadsEventsCall(node)) return false;
+    if (isRuntimeReadsEventsCall(callee)) return false;
     if (
-      ts.isPropertyAccessExpression(node.expression) &&
-      ts.isIdentifier(node.expression.expression) &&
-      node.expression.expression.text === "agentRuntimeClient"
+      ts.isPropertyAccessExpression(callee) &&
+      hasIdentifierText(unwrapExpression(callee.expression), "agentRuntimeClient")
     ) {
       return isClientEventsResetCall(node);
     }
