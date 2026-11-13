@@ -1,4 +1,5 @@
 import { markDaemonOperationPhase } from "./daemon-operation.ts";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { consumeKnownError, mediaTypeForBinaryPath, RAW_ARTIFACT_MEDIA_TYPE } from "@harness-anything/kernel";
 import type { ArtifactTimelineCursor, ArtifactTimelineKind, TaskProjection } from "@harness-anything/kernel";
 import type { CursorPage } from "./task-index-query.ts";
@@ -21,8 +22,8 @@ export interface ArtifactsGuiReadContext {
 }
 
 const artifactKinds: readonly ArtifactGuiKind[] = ["html", "md", "raw"];
-const defaultArtifactLimit = 100,
-  maximumArtifactLimit = 500;
+const defaultArtifactLimit = storageReadPolicy.defaultValue.artifacts.defaultLimit,
+  maximumArtifactLimit = storageReadPolicy.defaultValue.pageSizes.standard;
 
 const invalidCursor = (): Error =>
   Object.assign(new Error("Artifact list cursor is invalid; restart the query."), { code: "invalid_command" });
@@ -64,7 +65,7 @@ export function readArtifactsGui(
       : "html",
     requested = typeof payload.limit === "number" ? payload.limit : defaultArtifactLimit,
     limit = Number.isSafeInteger(requested)
-      ? Math.min(Math.max(requested, 1), maximumArtifactLimit)
+      ? Math.min(Math.max(requested, storageReadPolicy.defaultValue.minimumRows), maximumArtifactLimit)
       : defaultArtifactLimit,
     cursor = typeof payload.cursor === "string" ? payload.cursor : undefined,
     read = context.projection.readArtifactTimelinePage({

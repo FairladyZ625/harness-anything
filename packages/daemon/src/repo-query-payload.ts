@@ -1,4 +1,5 @@
 import { isDomainStatus, relationStates, timestamp, type TaskProjectionListQuery } from "@harness-anything/kernel";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 
 type CodedError = (code: string, message: string) => Error;
 
@@ -20,7 +21,12 @@ export function queryPayloadFacets(
     (method !== "repo.tasks.list" || !Number.isSafeInteger(changedAfterRevision) || changedAfterRevision < 0)
   )
     throw codedError("invalid_command", "Task changedAfterRevision must be a non-negative integer.");
-  if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1 || limit > 500))
+  if (
+    limit !== undefined &&
+    (!Number.isSafeInteger(limit) ||
+      limit < storageReadPolicy.defaultValue.minimumRows ||
+      limit > storageReadPolicy.defaultValue.pageSizes.standard)
+  )
     throw codedError("invalid_command", "Query limit must be an integer between 1 and 500.");
   if (
     [updatedAfter, updatedBefore].some((value) => value !== undefined && !timestamp(value)) ||

@@ -321,7 +321,7 @@ export async function openRepoWriterCell(
         }
         // Opening a reader generation is also a structural probe: a watermark can be current
         // while a persisted snapshot row is corrupt.
-        projection.readTaskIndex({ limit: 1 });
+        projection.readTaskIndex({ limit: writerLifecyclePolicy.defaultValue.activeProbeLimit });
         state = "attached";
         lastError = null;
         causeClass = null;

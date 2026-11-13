@@ -1,4 +1,5 @@
 import { labelWorkerMemory } from "./daemon-diagnostics-memory.ts";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import {
   prepareStorageWorkerContext,
   requiresStorageWorkerContext,
@@ -23,7 +24,7 @@ import {
 
 // Process-wide budgets, shared across repositories. A reader owns at most one open repository.
 export const REPO_READ_WORKERS = 4;
-export const REPO_READ_QUEUE_LIMIT = 64;
+export const REPO_READ_QUEUE_LIMIT = storageReadPolicy.defaultValue.pageSizes.sessions;
 export type RepoReadWorkerFactory = (
   url: URL,
   options: {

@@ -2,8 +2,9 @@ import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain
 import { taskPresentationReads } from "./task-presentation-read.ts";
 import { type TaskProjection, type TaskIndexProjectionRow, type TaskV2 } from "@harness-anything/kernel";
 import type { CanonicalEventSummary } from "@harness-anything/kernel";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 
-const WORKSPACE_EVENT_LIMIT = 120;
+const WORKSPACE_EVENT_LIMIT = storageReadPolicy.defaultValue.listDefaults.workspaceEventLimit;
 
 export interface WorkspaceScopeStatusCounts {
   readonly done: number;

@@ -16,6 +16,7 @@ import {
   type DaemonRepoMode,
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
 import { readSessionGroupDispatches, readTaskDispatchSession } from "./dispatch-read.ts";
 import { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
@@ -50,7 +51,7 @@ export type {
 
 /** Cold attach replays content-heavy historical events. Committing projection cuts in batches of
  * this size lets the supervisor observe advancing watermarks during reconstruction, before ready. */
-const coldAttachCatchUpLimit = 32;
+const coldAttachCatchUpLimit = storageReadPolicy.defaultValue.recovery.coldAttachCatchUpLimit;
 
 /**
 /** Read judgments bound to one projection cut: the closeout verdict follows the effective gate set. */
@@ -190,7 +191,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
       else projection.catchUp?.();
       // Opening a reader generation is also a structural probe: a watermark can
       // be current while a persisted snapshot row is corrupt.
-      projection.readTaskIndex({ limit: 1 });
+      projection.readTaskIndex({ limit: storageReadPolicy.defaultValue.pageSizes.one });
     } catch (error) {
       consumeKnownError(error);
       if (error instanceof ProjectionIdentityMismatchError) {
@@ -199,7 +200,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
         // it). Attach performs that rebuild so the repository opens healed instead of stranded on
         // a repair command the latched cell could never reach.
         projection.rebuild();
-        projection.readTaskIndex({ limit: 1 });
+        projection.readTaskIndex({ limit: storageReadPolicy.defaultValue.pageSizes.one });
       } else {
         recovery = {
           ...recovery,
