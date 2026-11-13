@@ -8,7 +8,7 @@ import { pgAggregateQueries, type PgAggregateQueries } from "./pg-aggregate-quer
 import { pgValueQueries, type PgValueQueries } from "./pg-value-queries.ts";
 import { pgTaskEventQueries, type PgTaskEventQueries } from "./pg-task-event-queries.ts";
 import { pgRelationPortQueries, type PgRelationPortQueries } from "./pg-relation-port-queries.ts";
-import { pgTaskIndexQueries, type PgTaskIndexQueries } from "./pg-task-index-queries.ts";
+import { pgTaskIndexQueries, presentationStatusSql, type PgTaskIndexQueries } from "./pg-task-index-queries.ts";
 import { readRelationsInTransaction } from "./pg-relation-queries.ts";
 import { checkedPageLimit } from "./pg-query-page.ts";
 import { pgRuntimeDispatchQueries, type PgRuntimeDispatchQueries } from "./pg-runtime-dispatch-queries.ts";
@@ -60,21 +60,6 @@ export interface PgProjectionCut {
   readonly watermark: number;
   readonly sourceRevision: number;
 }
-
-// Keep recursive child lookups parameterized: flattening the lateral subquery permits
-// a hash join that scans unrelated tasks even when only two descendants are needed.
-const presentationStatusSql = (readersParameter: number) => `CASE
-  WHEN ha_task_snapshots.snapshot #>> '{task,status}' IN ('done','cancelled') THEN ha_task_snapshots.snapshot #>> '{task,status}'
-  WHEN ha_task_snapshots.snapshot #>> '{task,taskClass}' = 'work' OR (ha_task_snapshots.parent_task_id IS NULL AND EXISTS (
-    SELECT 1 FROM ha_task_snapshots child WHERE child.tenant_id=ha_task_snapshots.tenant_id AND child.project_id=ha_task_snapshots.project_id AND child.policy_epoch=ha_task_snapshots.policy_epoch AND (cardinality($${readersParameter}::text[])=0 OR child.readers && $${readersParameter}::text[]) AND child.parent_task_id=ha_task_snapshots.task_id
-  )) THEN COALESCE((WITH RECURSIVE members(task_id,status) AS (
-    SELECT child.task_id, child.snapshot #>> '{task,status}' FROM ha_task_snapshots child WHERE child.tenant_id=ha_task_snapshots.tenant_id AND child.project_id=ha_task_snapshots.project_id AND child.policy_epoch=ha_task_snapshots.policy_epoch AND (cardinality($${readersParameter}::text[])=0 OR child.readers && $${readersParameter}::text[]) AND child.parent_task_id=ha_task_snapshots.task_id AND child.task_id<>ha_task_snapshots.task_id
-    UNION SELECT child.task_id, child.status FROM members parent CROSS JOIN LATERAL (
-      SELECT child.task_id, child.snapshot #>> '{task,status}' AS status FROM ha_task_snapshots child
-      WHERE child.tenant_id=ha_task_snapshots.tenant_id AND child.project_id=ha_task_snapshots.project_id AND child.policy_epoch=ha_task_snapshots.policy_epoch AND (cardinality($${readersParameter}::text[])=0 OR child.readers && $${readersParameter}::text[]) AND child.parent_task_id=parent.task_id AND child.task_id<>ha_task_snapshots.task_id OFFSET 0
-    ) child
-  ) SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM members WHERE status NOT IN ('done','cancelled')) THEN CASE WHEN EXISTS (SELECT 1 FROM members) THEN CASE WHEN EXISTS (SELECT 1 FROM members WHERE status='done') THEN 'done' ELSE 'cancelled' END END WHEN ha_task_snapshots.snapshot #>> '{task,status}'='planned' AND EXISTS (SELECT 1 FROM members WHERE status NOT IN ('planned','cancelled')) THEN 'active' END), ha_task_snapshots.snapshot #>> '{task,status}')
-  ELSE ha_task_snapshots.snapshot #>> '{task,status}' END`;
 
 function presentSnapshot(snapshot: TaskLifecycleSnapshot, status: string): TaskLifecycleSnapshot {
   if (!snapshot.task || snapshot.task.status === status) return snapshot;
