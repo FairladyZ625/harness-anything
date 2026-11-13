@@ -190,7 +190,7 @@ test(
     );
     assert.equal(inspectedCreated.outcome, "applied", JSON.stringify(inspectedCreated));
     const createdEvidence = JSON.parse(String(inspectedCreated.evidence)) as {
-      readonly expectedVersion: number;
+      readonly workspaceRevision: number;
       readonly agent: { readonly mcpPolicy?: string };
     };
     assert.equal(createdEvidence.agent.mcpPolicy, "inherit");
@@ -202,7 +202,7 @@ test(
         policyWorker.id,
         "--clear-mcp-policy",
         "--expected-version",
-        String(createdEvidence.expectedVersion),
+        String(createdEvidence.workspaceRevision),
       ],
       edge.edgeRoot,
     );
