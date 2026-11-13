@@ -308,3 +308,96 @@ export const decisionAdmissionJudgments = [
     ],
   },
 ] as const satisfies readonly OntologyJudgmentDeclaration[];
+// Source identities and values for daemon policy declarations registered by EntityKindContract.
+export const daemonDecisionPolicySources = [
+  [
+    "policy:packages/daemon:packages/daemon/src/decision-annotations.ts#decisionAnnotationRetention:fc63aaac2b0ab1e270e0db91b8080d8a",
+    "packages/daemon/src/decision-annotations.ts#decisionAnnotationRetention",
+    "export const decisionAnnotationRetention = 1_000;",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/decision-incident-action.ts#incidentContinuationBudget:d91f0cd851ece75c3b3a94f13c010d47",
+    "packages/daemon/src/decision-incident-action.ts#incidentContinuationBudget",
+    "export const incidentContinuationBudget = 3;",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/decision-incident-action.ts#incidentDecisionFields.continuationBudget:3b882d7120449a613e93685f2bc962e2",
+    "packages/daemon/src/decision-incident-action.ts#incidentDecisionFields.continuationBudget",
+    "continuationBudget: {",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/decision-incident-receipt.ts#incidentContinuationUsed:1d6d403b35476b012a350ce0e8fa4b5d",
+    "packages/daemon/src/decision-incident-receipt.ts#incidentContinuationUsed",
+    'if (action?.status !== "applied" || action.budget === null) continue;',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/decision-point-executor.ts#openDecisionPointExecutor.settle:b5196a9ee61052d30bb020764a496e15",
+    "packages/daemon/src/decision-point-executor.ts#openDecisionPointExecutor.settle",
+    "if (",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/decision-point-executor.ts#openDecisionPointExecutor.settle.evidence.budget.limit:1a5ccdf3ce7f4804b072dbfe52eb5893",
+    "packages/daemon/src/decision-point-executor.ts#openDecisionPointExecutor.settle.evidence.budget.limit",
+    "budget: incident?.fields?.continuationBudget ?? { used: 0, limit: 0 },",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/decision-point-settings-read.ts#readDecisionPointSettings.projected.event.payload.attempt:83f5f87ceea4347798158daedb9cfe74",
+    "packages/daemon/src/decision-point-settings-read.ts#readDecisionPointSettings.projected.event.payload.attempt",
+    'attempt: { reason: "Stopped after the environment rejected access", classification: "worker_stop" },',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/decision-provider.ts#requestTimeoutMs:00e6a022524341218524d075cf39d3e8",
+    "packages/daemon/src/decision-provider.ts#requestTimeoutMs",
+    "const requestTimeoutMs = 30_000;",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/decision-provider.ts#decisionRetryMaxRetries:c9d26f9fda7dbdba2863e86b973b5fa6",
+    "packages/daemon/src/decision-provider.ts#decisionRetryMaxRetries",
+    "const decisionRetryMaxRetries = 3;",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/decision-provider.ts#decisionRetryBaseDelayMs:eb34f8c731de24524b05aee0c6b076c9",
+    "packages/daemon/src/decision-provider.ts#decisionRetryBaseDelayMs",
+    "const decisionRetryBaseDelayMs = 250;",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/decision-provider.ts#decisionRetryMaxDelayMs:4673561631fd8291f27f96ccec09b635",
+    "packages/daemon/src/decision-provider.ts#decisionRetryMaxDelayMs",
+    "const decisionRetryMaxDelayMs = 4_000;",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/decision-provider.ts#invokeDecisionWithRetry:15b494ae6a0035b6d92d23efc09eb103",
+    "packages/daemon/src/decision-provider.ts#invokeDecisionWithRetry",
+    "if (retryable && retries > 0)",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/decision-provider.ts#openRouterDecision.retries.strategy:2315e6fc43651a7c8ade74b00b45e2ae",
+    "packages/daemon/src/decision-provider.ts#openRouterDecision.retries.strategy",
+    'retries: { strategy: "none" },',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/decision-provider.ts#openRouterClient.retryConfig.strategy:2315e6fc43651a7c8ade74b00b45e2ae",
+    "packages/daemon/src/decision-provider.ts#openRouterClient.retryConfig.strategy",
+    'return new OpenRouter({ apiKey, retryConfig: { strategy: "none" }, timeoutMs: requestTimeoutMs });',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/decision-provider.ts#openRouterClient.retryConfig:4395eb8e944d6edf1beaf9808469e49e",
+    "packages/daemon/src/decision-provider.ts#openRouterClient.retryConfig",
+    'return new OpenRouter({ apiKey, retryConfig: { strategy: "none" }, timeoutMs: requestTimeoutMs });',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/decision-surface-actions.ts#prepareDecisionAmend:6dc792252bdb1c9f7bc757b66d2c747e",
+    "packages/daemon/src/decision-surface-actions.ts#prepareDecisionAmend",
+    'if (action.standingPolicy === true) decisionClass = "standing_policy";',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/entity-action-catalog-receipts.ts#decisionFilters:99ea0340819d1cd08f6d45c54776a94e",
+    "packages/daemon/src/entity-action-catalog-receipts.ts#decisionFilters",
+    "if (",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/entity-action-catalog-receipts.ts#decisionFilters:78f06c4227ba785282a4e80f837cbc12",
+    "packages/daemon/src/entity-action-catalog-receipts.ts#decisionFilters",
+    '...(typeof action.limit === "number" ? { limit: action.limit } : {}),',
+  ],
+] as const;

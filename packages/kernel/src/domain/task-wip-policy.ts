@@ -232,3 +232,246 @@ export const taskExecutionWipPolicy = {
     "policy:packages/kernel:packages/kernel/src/domain/task-wip-policy.ts#admitTaskExecutionWip:453898490fcb824f7f8237a9aad9e2b1",
   ].map((candidateId) => ({ candidateId, route: "admitTaskExecutionWip" })),
 } as const satisfies OntologyPolicyDeclaration;
+// Source identities and values for daemon policy declarations registered by EntityKindContract.
+export const daemonTaskPolicySources = [
+  [
+    "policy:packages/daemon:packages/daemon/src/task-action-catalog-runtime.ts#runTaskActionCatalogRuntime:b69d13b514af328daf564ac55d1c6015",
+    "packages/daemon/src/task-action-catalog-runtime.ts#runTaskActionCatalogRuntime",
+    'if (contract && typeof action.executionId === "string" && action.executionId !== activeLease.executionId)',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-action-catalog-runtime.ts#runTaskActionCatalogRuntime:844a029d42e6171a54a17caccabb180f",
+    "packages/daemon/src/task-action-catalog-runtime.ts#runTaskActionCatalogRuntime",
+    "if (",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-action-catalog-runtime.ts#runTaskActionCatalogRuntime:8ea6f2158720434d2acc3b6ec2c98d98",
+    "packages/daemon/src/task-action-catalog-runtime.ts#runTaskActionCatalogRuntime",
+    'if (action.kind === "task-submit" && submitLeaseUnmet && contract)',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-action-explanation-read.ts#readTaskActionExplanation.personService.authorize.policyRef:e4a2c2e1cc3a90fa0deb08fc7cd49d9d",
+    "packages/daemon/src/task-action-explanation-read.ts#readTaskActionExplanation.personService.authorize.policyRef",
+    'policyRef: "authorization-provider@1",',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-action-explanation-read.ts#readTaskActionExplanation.subjects.snapshot.lease:604b0c933f01414f14bbc867d23eb635",
+    "packages/daemon/src/task-action-explanation-read.ts#readTaskActionExplanation.subjects.snapshot.lease",
+    'snapshot = { ...row.snapshot, lease: lease?.phase === "released" ? null : lease },',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-action-explanation-read.ts#missingExplanationDecision.policyRef:e4a2c2e1cc3a90fa0deb08fc7cd49d9d",
+    "packages/daemon/src/task-action-explanation-read.ts#missingExplanationDecision.policyRef",
+    'policyRef: "authorization-provider@1",',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-claimable-read.ts#readClaimableTasks.page.limit:566e0d0917d2d5e10ead25ab3a9e3260",
+    "packages/daemon/src/task-claimable-read.ts#readClaimableTasks.page.limit",
+    "const page = await input.page({ activePackagesOnly: true, limit: 500, ...(cursor ? { cursor } : {}) });",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-completion-read.ts#factRetirementAssessment.taskRelationReads.limit:566e0d0917d2d5e10ead25ab3a9e3260",
+    "packages/daemon/src/task-completion-read.ts#factRetirementAssessment.taskRelationReads.limit",
+    'projection.readRelationQuery({ source: taskRef, state: "active", limit: 500 }),',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-completion-read.ts#factRetirementAssessment.taskRelationReads.limit:566e0d0917d2d5e10ead25ab3a9e3260:2",
+    "packages/daemon/src/task-completion-read.ts#factRetirementAssessment.taskRelationReads.limit",
+    'projection.readRelationQuery({ target: taskRef, state: "active", limit: 500 }),',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-completion-read.ts#factRetirementAssessment.narrowReads.limit:566e0d0917d2d5e10ead25ab3a9e3260",
+    "packages/daemon/src/task-completion-read.ts#factRetirementAssessment.narrowReads.limit",
+    'projection.readRelationQuery({ source, state: "active", limit: 500 }),',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-completion-read.ts#factRetirementAssessment.livenessReads.limit:566e0d0917d2d5e10ead25ab3a9e3260",
+    "packages/daemon/src/task-completion-read.ts#factRetirementAssessment.livenessReads.limit",
+    'projection.readRelationQuery({ target, relationType: "supersedes-fact", state: "active", limit: 500 }),',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-delivery-stage.ts#taskDeliveryStage:eacd53e4de81103e4d4a95f2a16af6cb",
+    "packages/daemon/src/task-delivery-stage.ts#taskDeliveryStage",
+    "if (",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-dispatch-admission.ts#taskDispatchLeaseQualifies:8bc607039aaf7be1fd1fffd79ba7ffd5",
+    "packages/daemon/src/task-dispatch-admission.ts#taskDispatchLeaseQualifies",
+    'if (lease === null || lease.phase === "released" || lease.phase === "orphaned") return canHandoff;',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-dispatch-recovery.ts#admitTaskDispatch:f2597b61eb8caf0b98371ee69cd21467",
+    "packages/daemon/src/task-dispatch-recovery.ts#admitTaskDispatch",
+    'lifecycle?.policy.capacityDisposition === "busy"',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-merged-closeout.ts#mergedCloseoutCandidates:239b73d6a9f16dc234611e5bb23b87c6",
+    "packages/daemon/src/task-merged-closeout.ts#mergedCloseoutCandidates",
+    "if (",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-query-read.ts#makeTaskQueryReadModel.agenda.cut.limit:0dd585c292e12f6bf0b47a1d330750d6",
+    "packages/daemon/src/task-query-read.ts#makeTaskQueryReadModel.agenda.cut.limit",
+    "...(reads.length === 0 ? [projection.readRelationQuery({ limit: 1 })] : reads),",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-query-read.ts#projectedRuntimeHeaders.page.limit:566e0d0917d2d5e10ead25ab3a9e3260",
+    "packages/daemon/src/task-query-read.ts#projectedRuntimeHeaders.page.limit",
+    "limit: 500,",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-query-read.ts#unsubmittedDeliveryAttentionRows:f7063f5a94745e5c7a036f2b015da0c4",
+    "packages/daemon/src/task-query-read.ts#unsubmittedDeliveryAttentionRows",
+    "if (",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-return-dispatch.ts#dispatchContinuation.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
+    "packages/daemon/src/task-return-dispatch.ts#dispatchContinuation.attempt",
+    "for (let attempt = 0; ; attempt += 1) {",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-return-dispatch.ts#dispatchContinuation.mode:ec84e5d1b7726ce72ce7f0113e3f99f0",
+    "packages/daemon/src/task-return-dispatch.ts#dispatchContinuation.mode",
+    'mode = attempt > 0 || hasIdentityOverride ? "fresh" : previous?.resume !== undefined ? "resume" : "fresh",',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-review-dispatch.ts#dispatchDecisionReview.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
+    "packages/daemon/src/task-review-dispatch.ts#dispatchDecisionReview.attempt",
+    "let attempt = 0,",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-review-dispatch.ts#reviewAttemptKey:903de205b0c3881de568df07a3e028df",
+    "packages/daemon/src/task-review-dispatch.ts#reviewAttemptKey",
+    "return attempt === 0 ? base : `${base}:attempt${String(attempt)}`;",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-review-dispatch.ts#reviewDispatchPrompt:3d5f4ab6838400a97d45ac29bf69661f",
+    "packages/daemon/src/task-review-dispatch.ts#reviewDispatchPrompt",
+    ': execution.submission?.riskTierAssessment?.effectiveTier === "high"',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-review-dispatch.ts#reviewDispatchPrompt:c504f0a00ee4082c41de61c21fe1442c",
+    "packages/daemon/src/task-review-dispatch.ts#reviewDispatchPrompt",
+    '...(execution.submission?.riskTierAssessment?.effectiveTier === "medium"',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-review-dispatch.ts#reviewDispatchAttempt.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
+    "packages/daemon/src/task-review-dispatch.ts#reviewDispatchAttempt.attempt",
+    "let attempt = 0,",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-risk-tier.ts#assessTaskRiskTier.timeoutMs:56d92d560ecf5a3d099f43ff3d944a05",
+    "packages/daemon/src/task-risk-tier.ts#assessTaskRiskTier.timeoutMs",
+    "{ timeoutMs: 30_000 },",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-risk-tier.ts#parseScriptResult:e8a26bd283318bd82de0eceded942e78",
+    "packages/daemon/src/task-risk-tier.ts#parseScriptResult",
+    "if (",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-wip-settings.ts#TASK_WIP_LIMIT_ENV:16ffd4614d6fa6ada495e4d22273380d",
+    "packages/daemon/src/task-wip-settings.ts#TASK_WIP_LIMIT_ENV",
+    'export const TASK_WIP_LIMIT_ENV = "HARNESS_TASK_WIP_LIMIT";',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-wip-settings.ts#TASK_WIP_LIMIT_SETTING:ca330956d3d92d07a920b97f0da879bb",
+    "packages/daemon/src/task-wip-settings.ts#TASK_WIP_LIMIT_SETTING",
+    'export const TASK_WIP_LIMIT_SETTING = "settings.tasks.wipLimit";',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-wip-settings.ts#TASK_ROOT_THRESHOLD_ENV:e5fa06bb160922f2ebb87e290f707a20",
+    "packages/daemon/src/task-wip-settings.ts#TASK_ROOT_THRESHOLD_ENV",
+    'export const TASK_ROOT_THRESHOLD_ENV = "HARNESS_TASK_ROOT_THRESHOLD";',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-wip-settings.ts#TASK_ROOT_THRESHOLD_SETTING:a2f17901d8c0aacdaf78ede58d60cc42",
+    "packages/daemon/src/task-wip-settings.ts#TASK_ROOT_THRESHOLD_SETTING",
+    'export const TASK_ROOT_THRESHOLD_SETTING = "settings.tasks.rootThreshold";',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-witness-runner.ts#runCompletionSources:b2f92acbcdf6380e9663d32b2b651924",
+    "packages/daemon/src/task-witness-runner.ts#runCompletionSources",
+    'if (claim.receipt.outcome !== "no_changes")',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-witness-runner.ts#runCompletionSources:dbe1ef073d3d43df94994cc5a79467ef",
+    "packages/daemon/src/task-witness-runner.ts#runCompletionSources",
+    'if (claim.receipt.outcome !== "applied" || !claim.execution) {',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-worktree-candidates.ts#taskWorktreeCandidateInventory.rows:cc006e6b730d177d3e6345641bec0b4f",
+    "packages/daemon/src/task-worktree-candidates.ts#taskWorktreeCandidateInventory.rows",
+    'if (row.path.endsWith("/.gitkeep") || !resolveDocRoute(documentPath(row.path)).allowed) return [];',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-worktree-candidates.ts#taskWorktreeCandidateInventory.rows.limit:0dd585c292e12f6bf0b47a1d330750d6",
+    "packages/daemon/src/task-worktree-candidates.ts#taskWorktreeCandidateInventory.rows.limit",
+    "history.store.queryEvents({ revisionBound: current.workspaceRevision + 1, limit: 1 })[0],",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-worktree.ts#checkoutTaskWorktree.git.timeoutMs:56d92d560ecf5a3d099f43ff3d944a05",
+    "packages/daemon/src/task-worktree.ts#checkoutTaskWorktree.git.timeoutMs",
+    "{ timeoutMs: 30_000 },",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-worktree.ts#ensurePinnedCommit.hasCommit.timeoutMs:56d92d560ecf5a3d099f43ff3d944a05",
+    "packages/daemon/src/task-worktree.ts#ensurePinnedCommit.hasCommit.timeoutMs",
+    "{ timeoutMs: 30_000 },",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-worktree.ts#ensurePinnedCommit.timeoutMs:56d92d560ecf5a3d099f43ff3d944a05",
+    "packages/daemon/src/task-worktree.ts#ensurePinnedCommit.timeoutMs",
+    "{ timeoutMs: 30_000 },",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-worktree.ts#reviewGit.timeoutMs:56d92d560ecf5a3d099f43ff3d944a05",
+    "packages/daemon/src/task-worktree.ts#reviewGit.timeoutMs",
+    "{ timeoutMs: 30_000 },",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-worktree.ts#verifyReviewCheckout.head.timeoutMs:56d92d560ecf5a3d099f43ff3d944a05",
+    "packages/daemon/src/task-worktree.ts#verifyReviewCheckout.head.timeoutMs",
+    "{ timeoutMs: 30_000 },",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/task-worktree.ts#verifyHandoffWorktree.git.timeoutMs:56d92d560ecf5a3d099f43ff3d944a05",
+    "packages/daemon/src/task-worktree.ts#verifyHandoffWorktree.git.timeoutMs",
+    "{ timeoutMs: 30_000 },",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/work-briefs-read.ts#SENTENCE_PART_LIMIT:6004892579075d641e89f338dfbb4a10",
+    "packages/daemon/src/work-briefs-read.ts#SENTENCE_PART_LIMIT",
+    "SENTENCE_PART_LIMIT = 2,",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/work-briefs-read.ts#OPEN_TASK_LIMIT:dfde5a19a31503a81f6669566b2fedac",
+    "packages/daemon/src/work-briefs-read.ts#OPEN_TASK_LIMIT",
+    "OPEN_TASK_LIMIT = 50,",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/work-briefs-read.ts#DELIVERED_TASK_LIMIT:363e7e393b64beafdfca36b5d4fd905d",
+    "packages/daemon/src/work-briefs-read.ts#DELIVERED_TASK_LIMIT",
+    "DELIVERED_TASK_LIMIT = 10,",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/work-read.ts#WORK_RECEIPT_CANDIDATE_LIMIT:cf0a7ed8b22335b75ba7a32d6618d5e7",
+    "packages/daemon/src/work-read.ts#WORK_RECEIPT_CANDIDATE_LIMIT",
+    "const WORK_RECEIPT_CANDIDATE_LIMIT = 3,",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/work-read.ts#workShowFromProjection.scope.limit:566e0d0917d2d5e10ead25ab3a9e3260",
+    "packages/daemon/src/work-read.ts#workShowFromProjection.scope.limit",
+    "const scope = workspaceStructureFromProjection(projection, { rootTaskId: input.taskId, limit: 500 }),",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/work-topology-read.ts#TASK_INDEX_PAGE_LIMIT:ae9c739e12cfbdbd828ba77247fae0fe",
+    "packages/daemon/src/work-topology-read.ts#TASK_INDEX_PAGE_LIMIT",
+    "const TASK_INDEX_PAGE_LIMIT = 500;",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/work-topology-read.ts#workTopologyFromProjection.rootRead.limit:0dd585c292e12f6bf0b47a1d330750d6",
+    "packages/daemon/src/work-topology-read.ts#workTopologyFromProjection.rootRead.limit",
+    "rootRead = projection.readTaskIndex({ taskIds: [input.workRootTaskId], limit: 1 });",
+  ],
+] as const;

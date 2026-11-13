@@ -448,3 +448,11 @@ export const relationEndpointPolicy = {
     "policy:packages/kernel:packages/kernel/src/domain/relation-event.ts#reduceRelationEntity:1e4d3986e0f07bc9ded9beec9628ca06",
   ].map((candidateId) => ({ candidateId, route: "relation endpoint" })),
 } as const satisfies OntologyPolicyDeclaration;
+// Source identities and values for daemon policy declarations registered by EntityKindContract.
+export const daemonRelationPolicySources = [
+  [
+    "policy:packages/daemon:packages/daemon/src/entity-action-relation.ts#readRelationCycleWitnessAtCut.readOutgoing.cut.limit:281836eca24c2eb78d50f8542399ca4d",
+    "packages/daemon/src/entity-action-relation.ts#readRelationCycleWitnessAtCut.readOutgoing.cut.limit",
+    "limit: 100,",
+  ],
+] as const;

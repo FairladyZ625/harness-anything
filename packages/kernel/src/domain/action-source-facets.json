@@ -146,6 +146,16 @@
         "candidateId": "action:packages/cli:packages/cli/src/cli-agent-rollback.ts#evidencePayload:a6ec68cd91a443604a304280d0928f47",
         "route": "agent-install",
         "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-declaration-migration.ts#migrateAgentDeclarations:73681f4ddda1c539eea9587cd4ae75be",
+        "route": "agent-install",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-declaration-migration.ts#migrateAgentDeclarations:593eb60762474a945055f37ea5d09ada",
+        "route": "agent-install",
+        "role": "effect"
       }
     ]
   },
@@ -843,6 +853,16 @@
         "candidateId": "action:packages/kernel:packages/kernel/src/ports/runtime-execution-credential.ts#executionCredentialRejected:f6adfe894c0a4c63cbd374f09013d440",
         "route": "runtime-run",
         "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-credential-port.ts#credentialPort.resolve:dad487fa8bdf43390f167bccedd544d4",
+        "route": "runtime-run",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-runtime-session.ts#commitRuntimeSessionBundle.appended:aca15e02146445d36e47128025d8565d",
+        "route": "runtime-run",
+        "role": "effect"
       }
     ]
   },
@@ -863,6 +883,11 @@
         "candidateId": "action:packages/cli:packages/cli/src/cli/runtime-credential-input.ts#runtimeCredentialInput:28bda09c4ae031da8b10246a505e4f5a",
         "route": "runtime-instance-hosting-credential-set",
         "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-credential-port.ts#credentialPort.store:cfb22cbb198a835c1210c43e9026964e",
+        "route": "runtime-instance-hosting-credential-set",
+        "role": "effect"
       }
     ],
     "concurrency": {
@@ -1380,6 +1405,11 @@
         "candidateId": "action:packages/kernel:packages/kernel/src/schemas/vertical-definition.ts#outdatedVerticalDeclaration:a9fdcb6734340958b6e5ec1bb16b2ec0",
         "route": "vertical-kind-upsert",
         "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/vertical-declaration-action.ts#runVerticalDeclarationAction.appended:5ca10d09f5449f58673022183be08681",
+        "route": "vertical-kind-upsert",
+        "role": "effect"
       }
     ]
   },
@@ -1410,6 +1440,11 @@
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/assignment-migration.ts#migrateTaskAssignments:8cf5888fc146d89e61d1b9bb9978d46b",
         "route": "assignment-migrate",
         "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/assignment-migration-action.ts#runAssignmentMigrationAction:ef6ed4cd9cf801668581af3a2b5b8950",
+        "route": "assignment-migrate",
+        "role": "effect"
       }
     ]
   },
@@ -1533,6 +1568,11 @@
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/relation-event.ts#relationAdmissionError:c7276d09bcd9207af88027c3719f181d",
         "route": "relation-relate",
         "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-relation.ts#executeRelationAction:5f11e18294d5c688445b459ccef26f23",
+        "route": "relation-relate",
+        "role": "effect"
       }
     ]
   },
@@ -1548,6 +1588,16 @@
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/schedule-action-contract.ts#rejectCriterion:5e760bf72f2e4e84a5d8c4f6eddc5d65",
         "route": "schedule-create",
         "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-action-runtime.ts#publishScheduleDraft.appended:45d7f1624d843b4db4ce2ba40a15919d",
+        "route": "schedule-create",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-builtin-executor.ts#seedBuiltinSchedules.receipt:52787dd9c5b171232452da55438693f0",
+        "route": "schedule-create",
+        "role": "effect"
       }
     ]
   },
@@ -1568,6 +1618,16 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-squad-child.ts#reacquireSquadTaskLease:55b6ea8d15ae07239a82ee995fa9bf04",
         "route": "squad-run",
         "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/squad-coordinator.ts#makeSquadCoordinator.spawnWorker.receipt:385454731026677437936a45d8d3bfaf",
+        "route": "squad-run",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/squad-coordinator.ts#makeSquadCoordinator.spawnLeader.receipt:5723e77c6978dbd3e09effd67320f392",
+        "route": "squad-run",
+        "role": "effect"
       }
     ]
   },
@@ -1578,6 +1638,11 @@
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/task-action-state-transition.ts#stateTransition:91ca8ff68c6c1c8082f07ccc43684d9b",
         "route": "task-transition",
         "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-action-catalog-runtime.ts#runTaskActionCatalogRuntime:3141039e8e0edac7120fa68967ce7466",
+        "route": "task-transition",
+        "role": "effect"
       }
     ]
   },
@@ -1586,6 +1651,16 @@
     "sources": [
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/local/local-layout-file-system.ts#localLedgerBackupFileSystem.remove:7dc766d5b1c412a2c5c94b5b2a7fcefa",
+        "route": "ledger-backup",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-builtin-executor.ts#<module>:74bbf4d4372d5c6828f6a19fabe5115f",
+        "route": "ledger-backup",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-builtin-executor.ts#existingSnapshotIsVerified:06e7696e2f030ee6ddd23e6c99b1360d",
         "route": "ledger-backup",
         "role": "effect"
       }
@@ -6234,6 +6309,568 @@
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-declaration-resolution.ts#agentDeclarationInvalidError:ff44b193b0ba230478d5f2df19619604",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-declaration-resolution.ts#assertBundledAgentLifecycleOpen:aa04334c562b1a19ca24f4189decded8",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-declaration-resolution.ts#readAgentDeclaration:8ce8bf18e9afcc35734ade2b2cda8bed",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-entities.ts#declarationRevision:5d6e09ee99e442c00c88198f4bd18fad",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-entities.ts#prepareAgentEntityRetire:c27e9b3962c2b3f6945d7b985aef1eaa",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-entities.ts#assertAgentDispatchable:a0bc23bc2fb03ba6b03a7fe0c5e0b46c",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-entities.ts#prepareAgentEntityDelete:c27e9b3962c2b3f6945d7b985aef1eaa",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-entities.ts#prepareAgentEntityDelete:ca7b22aadaf8f22370c92a29f7b0c4f6",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-entities.ts#entityError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-credential-port.ts#credentialUnavailable:3d9e481d8f50480b9838cb1de4954daa",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-installation-discovery.ts#discoverRuntimeInstallations.discovered.installationId:c874f7dce72a1902e24c10726990a55a",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-stream.ts#makeAgentRuntimeStreamHub.attach.detach:8c65dc4fcecb6dcb7792613016cd97a5",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-stream.ts#makeAgentRuntimeStreamHub.bindWitness:fe8e6d2d729525323daa7bbbf39a53f3",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-skills.ts#skillError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-version-read.ts#entityError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/artifact-entity-action.ts#executeArtifactEntityImport:a0569fc92d1f76ee6fac88caeb10b0ce",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/artifact-entity-action.ts#executeArtifactEntityMutation:55d8f4f7107a6638d96a8b22f6ee42c8",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/artifact-entity-action.ts#executeArtifactEntityMutation:3421d9dc09d227e909bb791758ab63b0",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/artifact-entity-action.ts#executeArtifactEntityMutation.appended:5ca10d09f5449f58673022183be08681",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/artifact-entity-action.ts#runArtifactEntityImport.appended:dd2788d58fd712c7496baa637039ac3d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/artifact-entity-action.ts#sourceObject.sha256:98350a69023f5557ad3864aab246cd81",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/artifact-entity-action.ts#foldArtifactEntityEvent:2a699220fb8e42f8e6a9f733600717b0",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/decision-annotations.ts#openDecisionAnnotationStore.reserve:a6124a8d797c870f5131cac9abc3e825",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/decision-annotations.ts#openDecisionAnnotationStore.reserve:0fc405fd4daff7c0324fda4fb1317b59",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/decision-annotations.ts#openDecisionAnnotationStore.reserve:fffa5702bb7fa367a1730507f14c0d38",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/decision-annotations.ts#openDecisionAnnotationStore.succeed:a6124a8d797c870f5131cac9abc3e825",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/decision-annotations.ts#openDecisionAnnotationStore.succeed:01487360e2024dabe9b9761bae9e8dfe",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/decision-annotations.ts#openDecisionAnnotationStore.fail:a6124a8d797c870f5131cac9abc3e825",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/decision-annotations.ts#openDecisionAnnotationStore.fail:5fa44f0655969f0d059b6bcbf4d9413b",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/decision-annotations.ts#openDecisionAnnotationStore.settleAction:a6124a8d797c870f5131cac9abc3e825",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/decision-annotations.ts#openDecisionAnnotationStore.settleAction:f7abf238a392ae2d130ad2e1fbfb994e",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/decision-annotations.ts#openDecisionAnnotationStore.export:6e580c93b55d8d99f6d32f6a1063bd37",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/decision-annotations.ts#openDecisionAnnotationStore.remove:a6124a8d797c870f5131cac9abc3e825",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/decision-annotations.ts#openDecisionAnnotationStore.remove:d1bf17a0822b8c8f0a7a984ccbb3cad4",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/decision-point-executor.ts#openDecisionPointExecutor.settle.inputDigest:e90d44a8cd1f1fc39fd30303747b6ea2",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/decision-point-executor.ts#openDecisionPointExecutor.settle.key:97436c042e77c0194103eca7deb6f10f",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/decision-point-executor.ts#openDecisionPointExecutor.settle.key:fb35b33605368b54558239e167da085b",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/decision-provider.ts#openDecisionProviderService.command:b62e8f0640bcc28a9ad46d540b02b130",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/decision-provider.ts#openDecisionProviderService.enqueue"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/decision-provider.ts#openDecisionProviderService.command:0a527407745556565571ad1df2f520ed",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/decision-provider.ts#openDecisionProviderService.enqueue"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/decision-provider.ts#openDecisionProviderService.execute:994b65748dd9045637279e8af28b3020",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/decision-provider.ts#openDecisionProviderService.execute"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/decision-provider.ts#openDecisionProviderService.execute:994b65748dd9045637279e8af28b3020:2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/decision-provider.ts#openDecisionProviderService.execute"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/decision-provider.ts#providerError:aa94d91442a58c04667e9d8d423772af",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/decision-review-awaits.ts#runRelation.opId:f3220783d57d4b8cee48a2565021b256",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/distill-actions.ts#prepareDistillCandidate.candidateId:422ea38c3785ec237ecee6f48faac090",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/distill-actions.ts#distillSubject.contentSha256:b46bd6134bb1a6e160a70fe1b0801eba",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.runCompiled:3b1bdf80285f54671a38f4aa9448f454",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run:f47ce2f25bf225a6d17659c6febb0754",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run:b9a8c648637d40233464c7c470ec9cc9",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.repinAll.bundles.memberOpId:9b2b428560348c799a5f73e79ca031b4",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.runEntityWrite.appended:5ca10d09f5449f58673022183be08681",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.compileAction.eventId:a29f1d8dc5945125c2c24bf5941ea324",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-catalog-executor.ts#resolveActionCriterion:08a06fa1f7e195c18289260d0cb24fd6",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-catalog-executor.ts#executableAction:640630fcf885f9920926519a0012de0f",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-catalog-receipts.ts#previewReceipt.opId:a29f1d8dc5945125c2c24bf5941ea324",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-relation.ts#derivedRelationOperationId:d6e1a7e93d14804ffeb33a2fa9ae904c",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-runtime-session.ts#rejectRuntimeSessionAction:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-write-helpers.ts#reject:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/entity-pin-action.ts#runEntityPinAction.compiled.eventId:a29f1d8dc5945125c2c24bf5941ea324",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fact-archive-document.ts#archiveAllFacts.bundles.memberOpId:64725725ff1c16481a0bdc3af5cca7da",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fact-observed-commit.ts#withObservedCommit.head:48e1258a2a1e57bda20fcf90ec9930c2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/process-port.ts#makeGitReadinessSource.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fact-observed-commit.ts#withObservedCommit.canonical:117d3cc6999a8e99a289a1a9188e0a83",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/process-port.ts#makeGitReadinessSource.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/person-action-runtime.ts#makePersonActionRuntime:b3d5b63fac11be75b398bc1e07fdb28b",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/person-action-runtime.ts#invalidPersonCommand:914517609d68bfa9d2ce5f4b20d47878",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/reckoning-agenda-read.ts#deriveScheduleItems.clearSinceIfInactive:7b3d955ea4b0a05b704de9c4a3b48346",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/reckoning-agenda-read.ts#deriveScheduleItems:90dd72f076281ff90353396a09bb24df",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/reckoning-agenda-read.ts#deriveScheduleItems:d278feefa5a26968f1e3f086234e74e8",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/reckoning-agenda-read.ts#deriveScheduleItems:3a9bfee3943aeccd1af104ce63c60e4b",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/reckoning-agenda-read.ts#deriveScheduleItems:3a9bfee3943aeccd1af104ce63c60e4b:2",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/reckoning-agenda-read.ts#deriveScheduleItems:3a9bfee3943aeccd1af104ce63c60e4b:3",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-action-runtime.ts#packetContract.invalid:914517609d68bfa9d2ce5f4b20d47878",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-backup-worker.ts#finishLedgerBackup.deadline:f4f67a0092ae65b768463d9ff4bc7057",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "/Users/lizeyu/Projects/coding-agent-harness/harness-anything/node_modules/@types/node/worker_threads.d.ts#worker_threads.Worker.terminate"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-backup-worker.ts#finishLedgerBackup.deadline:7d8dcb1c41db312950562cd3055ceac1",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "/Users/lizeyu/Projects/coding-agent-harness/harness-anything/node_modules/@types/node/timers.d.ts#timers.global.setTimeout"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-backup-worker.ts#finishLedgerBackup:f4f67a0092ae65b768463d9ff4bc7057",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "/Users/lizeyu/Projects/coding-agent-harness/harness-anything/node_modules/@types/node/worker_threads.d.ts#worker_threads.Worker.terminate"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-occurrence-workspace.ts#continuePublishedBranch:45750a0d7f3e8bd45964673145c5c487",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-occurrence-workspace.ts#gitOrNull.result:95d3e0d902f8e68a7e063970bcc3313a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/process-port.ts#makeGitReadinessSource.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-runs-read.ts#reportTextOf:faec7fcf33e9df802b4f2865557eefd1",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-runs-read.ts#missedOccurrenceId.digest:3d43f689ced51a83af4c786209124ef4",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-runs-read.ts#scheduleRunsError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-scheduler.ts#makeScheduleScheduler.evaluationPlan:0d19b0217b0da03feea1f288564f2b0d",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-scheduler.ts#makeScheduleScheduler.evaluationPlan:ed080b522a34a328fc946f6b121ed736",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-scheduler.ts#makeScheduleScheduler.evaluationPlan:0303329a2ee9481f1be470f222d05cec",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-scheduler.ts#listSchedules.receipt:b628f8d4601960bb0bfe6a39c8054b0e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/schedule-scheduler.ts#ScheduleTarget.execute"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-scheduler.ts#listSchedules:094535da5e213a9a7c3ce50f23cd9d1a",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-scheduler.ts#applyMissed:0303329a2ee9481f1be470f222d05cec",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/settings-action-runtime.ts#assertCatalogSelection:2fdc5b56e759d7dbf449c671bef82fb3",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/squad-action-runtime.ts#squadRequiredText:00c73171fdcba9142c95bd178df30343",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/squad-coordinator.ts#makeSquadCoordinator.spawnLeader:2df491b90179a6ed04b5ff6508223930",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/squad-runtime-ingress.ts#requireSquadBusinessAction:9395e909720270012925fc50a6cc9e4a",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/squad-runtime-ingress.ts#requireSquadParentExecution:550bf19cf555d77cbcb1cb53e78b322e",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/squad-runtime-ingress.ts#requireSquadRunSubjectCurrent:ddc5f109222d333bf6e69ed5705f5d33",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-action-explanation-read.ts#explainAuthenticationRequired:39b0fd5569ad6c02644258162ffbba5b",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-action-explanation-read.ts#invalidCommand:b3045874813b9fd4fd7564f0557af352",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-dispatch-recovery.ts#runtimeDispatchIdentity.hash:d9a671bf9d5368da010bc2e24e5c23ba",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-query-read.ts#projectExecutionEvidence.outputs.evidenceId:a7d9cc699b50fdbda858cdfb5a071bb0",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-query-read.ts#projectExecutionEvidence.outputs.evidenceId:79aca20e9f4ef50ef2da1ba9bf211f4b",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-review-dispatch.ts#reviewDispatchIds.hash:d9a671bf9d5368da010bc2e24e5c23ba",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-wip-settings.ts#taskWipLimitError:724434f5a0d3fddd4006e7d08b3c5ea1",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-wip-settings.ts#taskRootThresholdError:8ba312f018f153d265fdf06be7131aee",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-witness-action.ts#runTaskWitnessAction.compiled.eventId:a29f1d8dc5945125c2c24bf5941ea324",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-worktree-candidates.ts#taskWorktreeRoot.top:bee44f4a5e17a386ebe1ff65e6d6d61f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/process-port.ts#makeGitReadinessSource.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-worktree.ts#worktreeBaseUnavailableError:e84935a1d04c392c1b3c942eed7fd7dc",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-worktree.ts#inWorktreeTurn:52d602d236068768570bf57b13bc6cc0",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-worktree.ts#writeTaskWorktreeExecutionBinding:6aef7ff6ced70bd28106d5c132cad17b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-worktree.ts#writeTaskWorktreeExecutionBinding:29be47d1c7f7ca8fa45b89107a12c0c2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-worktree.ts#applyTaskWorktreeLifecycle.receipt:d132352a9aa80621aa573b0a6935dc15",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/todo-action.ts#runTodoAction.todoId:30f871a3d2c3777b96f4272e0843449f",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/todo-action.ts#runTodoAction:d4eea77d5206e85226e9c9a4024a0c17",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/vertical-declaration-action.ts#requireCanonicalVerticalDeclaration:fa8e57422e33867b5ba4b6312233c017",
+        "route": "daemon:bin",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/vertical-declaration-action.ts#candidate:1b1f18f2b8932b5456facde382e75b53",
+        "route": "daemon:bin",
+        "role": "support"
       }
     ],
     "technical": true
@@ -6455,6 +7092,11 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-api.ts#createRepoCellApi.cancelRuntime:a18308d7308b5ea641dc16ec8a995fa1",
         "route": "runtime-cancel",
         "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-return-dispatch.ts#cancelSubmittingWorker:7e5c4e3cbedb7ebe77094b9412b7f1fc",
+        "route": "runtime-cancel",
+        "role": "effect"
       }
     ],
     "concurrency": {
@@ -6502,6 +7144,16 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-packets.ts#packetDigest:98350a69023f5557ad3864aab246cd81",
         "route": "task-review-execution",
         "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-review-dispatch.ts#spawnCutReviewDispatch:1f4d89e086b95c09c127f22afe418a32",
+        "route": "task-review-execution",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-review-dispatch.ts#spawnCutReviewDispatch.fallbackError:449bb086dc4bfc1f760437e9c2b3be11",
+        "route": "task-review-execution",
+        "role": "effect"
       }
     ]
   },
@@ -6517,6 +7169,11 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-settings-state.ts#makeRepoCellSettingsState.initialize.digest:411148ad2d2fb4f023b190dd56d5f02d",
         "route": "settings-update",
         "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/settings-action-runtime.ts#publishSettingsDraft.appended:27280392f0c307d2d9bd09af88c49ab7",
+        "route": "settings-update",
+        "role": "effect"
       }
     ]
   },
@@ -6572,6 +7229,256 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-task-progress.ts#appendProgress.compiled.eventId:a29f1d8dc5945125c2c24bf5941ea324",
         "route": "task-progress-append",
         "role": "support"
+      }
+    ]
+  },
+  "runtime-instance-hosting-credential-unset": {
+    "owner": "runtime",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-credential-port.ts#credentialPort.remove:d20529fffbc72fe71dc7ea2886d7a2b3",
+        "route": "runtime-instance-hosting-credential-unset",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-credential-port.ts#credentialPort.remove:f9cc3cc96c3830652306e6e448a2b24e",
+        "route": "runtime-instance-hosting-credential-unset",
+        "role": "effect"
+      }
+    ]
+  },
+  "decision-reckon": {
+    "owner": "decision",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/decision-point-executor.ts#openDecisionPointExecutor.settle.apply:79a44954c303732a0c96fdbd6afe2c74",
+        "route": "decision-reckon",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/decision-provider.ts#openDecisionProviderService.port.decide.selected:5fa4ed17baab86c55356f4c68b797088",
+        "route": "decision-reckon",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/decision-provider.ts#openDecisionProviderService.port.decide:4cdc46ea19cbbf1d6faa213bf1c159be",
+        "route": "decision-reckon",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/decision-provider.ts#openRouterDecision:1a5937b41f5548472b6fd964893385b9",
+        "route": "decision-reckon",
+        "role": "effect"
+      }
+    ]
+  },
+  "provider-delete": {
+    "owner": "provider",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/decision-provider.ts#removeUnusedCredential:73f922d30e1da1a76b9b773eb21131be",
+        "route": "provider-delete",
+        "role": "effect"
+      }
+    ]
+  },
+  "entity-pin": {
+    "owner": "entity",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.repinAll:f62e63de0d5257051d2b5b71ac126b0d",
+        "route": "entity-pin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/entity-pin-action.ts#runEntityPinAction.appended:45d7f1624d843b4db4ce2ba40a15919d",
+        "route": "entity-pin",
+        "role": "effect"
+      }
+    ]
+  },
+  "relation-unrelate": {
+    "owner": "relation",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/entity-action-relation.ts#executeRelationAction:fed58a5b10375bfd6f6c955229608358",
+        "route": "relation-unrelate",
+        "role": "effect"
+      }
+    ]
+  },
+  "fact-archive": {
+    "owner": "fact",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fact-archive-document.ts#archiveAllFacts:f62e63de0d5257051d2b5b71ac126b0d",
+        "route": "fact-archive",
+        "role": "effect"
+      }
+    ]
+  },
+  "people-delegate": {
+    "owner": "people",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/person-action-runtime.ts#makePersonActionRuntime:ef6ed4cd9cf801668581af3a2b5b8950",
+        "route": "people-delegate",
+        "role": "effect"
+      }
+    ]
+  },
+  "schedule-run-now": {
+    "owner": "schedule",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-action-runtime.ts#makeScheduleActionRuntime.runInternal:961bd5b35dd236f65566e15d02590043",
+        "route": "schedule-run-now",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-action-runtime.ts#dispatchClaimedSchedule:7b96c809171dcf0515a6d19233e9494c",
+        "route": "schedule-run-now",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-scheduler.ts#makeScheduleScheduler.tick:03f7df144e0da4b8d8de43d116dd75a0",
+        "route": "schedule-run-now",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-scheduler.ts#makeScheduleScheduler.targetFor.execute:fedd751c9cee14e8e02fbafe0cb48ac1",
+        "route": "schedule-run-now",
+        "role": "support"
+      }
+    ]
+  },
+  "schedule-dispatch-link": {
+    "owner": "schedule",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-action-runtime.ts#settleScheduledRuntime:779d3e75837bcb7e247b063079c97d14",
+        "route": "schedule-dispatch-link",
+        "role": "effect"
+      }
+    ]
+  },
+  "schedule-settle": {
+    "owner": "schedule",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-action-runtime.ts#settleScheduledRuntime.receipt:8e4e1b9e6fd99e7638e92e7c9796f069",
+        "route": "schedule-settle",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-scheduler.ts#makeScheduleScheduler.evaluationPlan.settlement:dfb510408a18ad51e9c3865cb18937e1",
+        "route": "schedule-settle",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-scheduler.ts#makeScheduleScheduler.evaluationPlan:ffe70538a3553bc85fcabd7c14f44192",
+        "route": "schedule-settle",
+        "role": "effect"
+      }
+    ]
+  },
+  "schedule-missed": {
+    "owner": "schedule",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-scheduler.ts#recordMissed.result:e4d623a723713d722646910528be9e15",
+        "route": "schedule-missed",
+        "role": "effect"
+      }
+    ]
+  },
+  "squad-cancel": {
+    "owner": "squad",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/squad-control-result.ts#executeSquadControl.raw:8acd83d45f05f06cde226d790c9ec408",
+        "route": "squad-cancel",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/squad-coordinator-publication.ts#makeSquadPublicationController.publishState:ea198c0ae8e28c5df56304a635c8ee6b",
+        "route": "squad-cancel",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/squad-coordinator.ts#makeSquadCoordinator.cancel:2ac935defb5ab0afd13c0dd8ed3dc4fd",
+        "route": "squad-cancel",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/squad-coordinator.ts#makeSquadCoordinator.continueLeader:38b1bb3e40bdc47cc1a7037af6cda8e2",
+        "route": "squad-cancel",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/squad-run-state.ts#cancelRejectedSquadChildren:f2d2fea1c2a61b39b32d718b5ad786f1",
+        "route": "squad-cancel",
+        "role": "effect"
+      }
+    ]
+  },
+  "task-rework": {
+    "owner": "task",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-return-dispatch.ts#dispatchContinuation.completed.result:7c65f9b0dd2c40a382f3d15bca88fece",
+        "route": "task-rework",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-return-dispatch.ts#dispatchContinuation.completed:abfbdcdd8aa3a1d9ad11a4116d269c2a",
+        "route": "task-rework",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-return-dispatch.ts#dispatchContinuation.spawned:6786c20b62d1c30475cf5886e9fa8637",
+        "route": "task-rework",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-return-dispatch.ts#dispatchContinuation.spawned:14b744047a6be1bc07655bd7438166ad",
+        "route": "task-rework",
+        "role": "effect"
+      }
+    ]
+  },
+  "task-dispatch-review": {
+    "owner": "task",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-review-dispatch.ts#dispatchDecisionReview.spawned:924e97bd48641448595ff43500f7824d",
+        "route": "task-dispatch-review",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-review-dispatch.ts#dispatchTaskReview.spawned:6786c20b62d1c30475cf5886e9fa8637",
+        "route": "task-dispatch-review",
+        "role": "effect"
+      }
+    ]
+  },
+  "task-witness-run": {
+    "owner": "task",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-witness-action.ts#runTaskWitnessAction.appended:45d7f1624d843b4db4ce2ba40a15919d",
+        "route": "task-witness-run",
+        "role": "effect"
+      }
+    ]
+  },
+  "todo-add": {
+    "owner": "todo",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/todo-action.ts#runTodoAction:3026cfab2e7274a19f0149669c0d0919",
+        "route": "todo-add",
+        "role": "effect"
       }
     ]
   }

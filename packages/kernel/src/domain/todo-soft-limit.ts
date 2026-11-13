@@ -38,3 +38,11 @@ export const todoSoftLimitPolicy = {
     "policy:packages/kernel:packages/kernel/src/domain/todo-soft-limit.ts#todoSoftLimitAdvisory:994691b3d0d36b8f62066039eea2268a",
   ].map((candidateId) => ({ candidateId, route: "todoSoftLimitAdvisory" })),
 } as const satisfies OntologyPolicyDeclaration;
+// Source identities and values for daemon policy declarations registered by EntityKindContract.
+export const daemonTodoPolicySources = [
+  [
+    "policy:packages/daemon:packages/daemon/src/todo-read.ts#todoRelations.page.limit:281836eca24c2eb78d50f8542399ca4d",
+    "packages/daemon/src/todo-read.ts#todoRelations.page.limit",
+    'const page = projection.readRelationQuery({ ...query, state: "active", limit: 100, ...(cursor ? { cursor } : {}) });',
+  ],
+] as const;

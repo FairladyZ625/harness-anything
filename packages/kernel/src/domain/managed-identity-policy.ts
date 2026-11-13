@@ -595,3 +595,61 @@ export const identityFleetPrincipalPolicy = {
     },
   ],
 } as const satisfies OntologyPolicyDeclaration;
+// Source identities and values for daemon policy declarations registered by EntityKindContract.
+export const daemonRuntimeInstancePolicySources = [
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-runtime-contract.ts#agentRuntimeModelResolution.tier:591f860a7311dfba12b25e2822ac2887",
+    "packages/daemon/src/agent-runtime-contract.ts#agentRuntimeModelResolution.tier",
+    "if (models.includes(requested)) return { model: requested, tier: 3 };",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-runtime-contract.ts#agentRuntimeModelResolution.tier:591f860a7311dfba12b25e2822ac2887:2",
+    "packages/daemon/src/agent-runtime-contract.ts#agentRuntimeModelResolution.tier",
+    "if (models.includes(intent)) return { model: intent, tier: 3 };",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-runtime-contract.ts#agentRuntimeModelResolution.tier:b8db69a7e03d2d7a150ced68992f731b",
+    "packages/daemon/src/agent-runtime-contract.ts#agentRuntimeModelResolution.tier",
+    "if (caseInsensitiveRequest !== undefined) return { model: caseInsensitiveRequest, tier: 2 };",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-runtime-contract.ts#agentRuntimeModelResolution.tier:b8db69a7e03d2d7a150ced68992f731b:2",
+    "packages/daemon/src/agent-runtime-contract.ts#agentRuntimeModelResolution.tier",
+    "if (caseInsensitive !== undefined) return { model: caseInsensitive, tier: 2 };",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-runtime-credential-port.ts#credentialLookupTimeoutMs:68a2e149fda5327b1cec5d5282dd05fd",
+    "packages/daemon/src/agent-runtime-credential-port.ts#credentialLookupTimeoutMs",
+    "const credentialLookupTimeoutMs = 10_000;",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-runtime-installation-discovery.ts#discoverRuntimeInstallations.discovered.version.timeoutMs:08b0a8a64d90c6ee0feb0e9b7d52b2ae",
+    "packages/daemon/src/agent-runtime-installation-discovery.ts#discoverRuntimeInstallations.discovered.version.timeoutMs",
+    "timeoutMs: 5_000,",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-runtime-installation-discovery.ts#discoverRuntimeModelCatalog.discovered.output.timeoutMs:056c7dce56e510cebb035d21bd434840",
+    "packages/daemon/src/agent-runtime-installation-discovery.ts#discoverRuntimeModelCatalog.discovered.output.timeoutMs",
+    "timeoutMs: 8_000,",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-runtime-launch-config.ts#providerSubscriptionReadiness.result.timeoutMs:56d92d560ecf5a3d099f43ff3d944a05",
+    "packages/daemon/src/agent-runtime-launch-config.ts#providerSubscriptionReadiness.result.timeoutMs",
+    "timeoutMs: 30_000,",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-runtime-launch-config.ts#secureRuntimeBaseUrl:147f04ebad7283553bd2171f476cd0d3",
+    "packages/daemon/src/agent-runtime-launch-config.ts#secureRuntimeBaseUrl",
+    "if (",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-runtime-web-search.ts#readCodexManagedPolicyTexts.timeoutMs:a883cef9fc71b79b83aa77c3644939a5",
+    "packages/daemon/src/agent-runtime-web-search.ts#readCodexManagedPolicyTexts.timeoutMs",
+    "{ timeoutMs: 2_000 },",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/agent-runtime-web-search.ts#runtimeWebSearchPolicyConflict.texts:8995ece3ef79ebae08951a75593418a0",
+    "packages/daemon/src/agent-runtime-web-search.ts#runtimeWebSearchPolicyConflict.texts",
+    'const texts = typeof policyTexts === "function" ? await policyTexts() : policyTexts;',
+  ],
+] as const;
