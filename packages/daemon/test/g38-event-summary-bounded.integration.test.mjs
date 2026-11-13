@@ -22,8 +22,10 @@ import {
   taskLifecycleWritePlan,
 } from "@harness-anything/kernel";
 import { serializeCanonicalEventUnchecked } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
+import { canonicalEventSummary } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
 import { compileEntityDocumentRematerialization } from "@harness-anything/kernel/internal/domain/entity-document-event.ts";
 import { compileFactWrite } from "@harness-anything/kernel/internal/domain/fact-event.ts";
+import { normalizeHistoricalEvent } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { createPGliteStorageBackend } from "../../storage/src/pglite/storage-backend.ts";
 import { createPgStorageBackend } from "../../storage/src/pg/backend.ts";
@@ -575,8 +577,11 @@ if (!isMainThread) {
               loneSurrogateEvent.workspaceRevision,
             ],
           );
+          // A previous writer that updates an existing event body keeps the derived default
+          // summary converged in the same trigger transaction; bounded backfill has nothing left
+          // to process for this row.
           const seedBackfill = await backfillPgDefaultEventSummariesPage(client, scope, repoId);
-          assert.deepEqual(seedBackfill, { processed: 1, done: false });
+          assert.deepEqual(seedBackfill, { processed: 0, done: true });
         },
         scope,
       );
@@ -802,7 +807,8 @@ if (!isMainThread) {
       assert.equal(remainingPending.rows[0].count, 0);
       assertParity();
 
-      // 3. Updating event_json directly invalidates default_summary_json so stale summaries are never served.
+      // 3. Updating event_json directly refreshes default_summary_json in the same trigger
+      // transaction, so the ready serving path never needs to reread the canonical body.
       const updatedEvent = {
         ...loneSurrogateEvent,
         payload: { ...loneSurrogateEvent.payload, statement: "Updated fact statement" },
@@ -832,7 +838,10 @@ if (!isMainThread) {
           ),
         scope,
       );
-      assert.equal(invalidated.rows[0].default_summary_json, null);
+      assert.deepEqual(
+        JSON.parse(invalidated.rows[0].default_summary_json),
+        canonicalEventSummary(normalizeHistoricalEvent(updatedEvent)),
+      );
       pgReader.withSession((pgQueries) => {
         const refreshed = pgQueries
           .readEventSummaries(0, 200)
