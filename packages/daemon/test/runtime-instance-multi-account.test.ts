@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -85,6 +85,278 @@ test("subscription credential sources default to operator and isolate instance c
     assert.equal(readFileSync(operatorCredential, "utf8"), "test-operator-credential");
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("switching an enforced operator account to instance credentials detaches shared state and clears account observations", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-account-transition-")),
+    operatorHome = path.join(userRoot, "operator-home"),
+    sharedGemini = path.join(operatorHome, ".gemini"),
+    operatorCredential = path.join(sharedGemini, "antigravity-oauth-token"),
+    bin = path.join(userRoot, "bin"),
+    agyPath = path.join(bin, process.platform === "win32" ? "agy.cmd" : "agy"),
+    agy = { ...agyInstallation, executablePath: agyPath };
+  mkdirSync(sharedGemini, { recursive: true, mode: 0o700 });
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(operatorCredential, "operator-account", { mode: 0o600 });
+  writeProviderExecutable(
+    path.join(bin, "agy"),
+    `const args = process.argv.slice(2); if (args[0] === "models") console.log("gemini-4-hydrogen-low\\tmodel"); else if (args[0] === "-p") console.log(JSON.stringify({ command: { data: { groups: [{ buckets: [{ remaining_fraction: 1, reset_time: "2026-11-15T12:00:00.000Z" }] }] } } }));`,
+  );
+  try {
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      platform: "darwin",
+      env: { PATH: bin, HOME: operatorHome },
+      discover: () => [agy],
+    });
+    store.create({
+      schemaVersion: 2,
+      instanceId: "agy-transition",
+      name: "AGY transition",
+      kindId: "agy",
+      installationId: agy.installationId,
+      providerId: "google",
+      models: ["gemini-4-hydrogen-low"],
+      defaultModel: "gemini-4-hydrogen-low",
+      enabled: true,
+      isolationState: "enforced",
+      credentialSource: "operator",
+      auth: { mode: "subscription" },
+      agy: {},
+    });
+    const sharedLink = path.join(
+      userRoot,
+      "runtime-instances",
+      "agy-transition",
+      "home",
+      ".gemini",
+      "antigravity-oauth-token",
+    );
+    assert.equal(lstatSync(sharedLink).isSymbolicLink(), true);
+    assert.equal((await store.authStatus("agy-transition")).status, "ready");
+    assert.equal(store.list().find(({ instanceId }) => instanceId === "agy-transition")?.availableModels?.length, 1);
+    store.runtimeProviderHealth.recordFailure({
+      instanceId: "agy-transition",
+      reason: "fixture",
+      occurredAt: "2026-11-14T00:00:00.000Z",
+      resetAt: "2026-11-15T12:00:00.000Z",
+    });
+
+    store.command({
+      kind: "runtime-instance-update",
+      instanceId: "agy-transition",
+      credentialSource: "instance",
+    });
+    assert.equal(existsSync(sharedLink), false);
+    assert.equal(readFileSync(operatorCredential, "utf8"), "operator-account");
+    const transitioned = store.list().find(({ instanceId }) => instanceId === "agy-transition")!;
+    assert.equal(transitioned.availableModels, undefined);
+    assert.equal(transitioned.credentialSource, "instance");
+    assert.equal(store.runtimeProviderHealth.get("agy-transition").failureStreak, 0);
+    assert.equal(store.listPublic()[0]?.authReadiness.code, "runtime_auth_not_checked");
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("account login for a direct provider uses the instance-bound installation", () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-bound-account-installation-")),
+    first = {
+      ...agyInstallation,
+      kindId: "codex" as const,
+      installationId: "codex-first",
+      executablePath: "/opt/codex-first",
+    },
+    second = { ...first, installationId: "codex-second", executablePath: "/opt/codex-second" };
+  try {
+    const store = openRuntimeInstanceStore({ userRoot, platform: "darwin", discover: () => [first, second] });
+    store.create({
+      schemaVersion: 2,
+      instanceId: "codex-bound",
+      name: "Codex bound",
+      kindId: "codex",
+      installationId: second.installationId,
+      providerId: "openai",
+      models: ["gpt-5.6-sol"],
+      defaultModel: "gpt-5.6-sol",
+      enabled: true,
+      isolationState: "operator-environment",
+      credentialSource: "operator",
+      auth: { mode: "subscription" },
+      codex: {},
+    });
+    assert.equal(store.prepareAuthCommand("codex-bound", "login").executablePath, second.executablePath);
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("ACP credential-command account login fails closed when its CLI witness is ambiguous", () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-acp-account-ambiguity-")),
+    acp = {
+      ...agyInstallation,
+      kindId: "agy-acp" as const,
+      installationId: "agy-acp-installation",
+      executablePath: "/opt/agy-acp",
+    },
+    agyOne = { ...agyInstallation, installationId: "agy-one", executablePath: "/opt/agy-one" },
+    agyTwo = { ...agyInstallation, installationId: "agy-two", executablePath: "/opt/agy-two" };
+  try {
+    const store = openRuntimeInstanceStore({ userRoot, platform: "darwin", discover: () => [acp, agyOne, agyTwo] });
+    store.create({
+      schemaVersion: 2,
+      instanceId: "agy-acp-ambiguous",
+      name: "AGY ACP ambiguous",
+      kindId: "agy-acp",
+      installationId: acp.installationId,
+      providerId: "google",
+      models: ["gemini-4-hydrogen-low"],
+      defaultModel: "gemini-4-hydrogen-low",
+      enabled: true,
+      isolationState: "enforced",
+      credentialSource: "instance",
+      auth: { mode: "subscription" },
+      "agy-acp": {},
+    });
+    assert.throws(
+      () => store.prepareAuthCommand("agy-acp-ambiguous", "login"),
+      (error: unknown) => codedAs(error, "runtime_installation_ambiguous"),
+    );
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("a delayed AGY quota result cannot update health after the account cut changes", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-stale-quota-")),
+    bin = path.join(userRoot, "bin"),
+    quotaStarted = path.join(userRoot, "quota-started"),
+    quotaRelease = path.join(userRoot, "quota-release"),
+    agyPath = path.join(bin, process.platform === "win32" ? "agy.cmd" : "agy"),
+    agy = { ...agyInstallation, executablePath: agyPath };
+  mkdirSync(bin, { recursive: true });
+  writeProviderExecutable(
+    path.join(bin, "agy"),
+    `const fs = require("node:fs"); const args = process.argv.slice(2); if (args[0] === "models") console.log("gemini-4-hydrogen-low\\tmodel"); else if (args[0] === "-p") { fs.writeFileSync(${JSON.stringify(quotaStarted)}, "started"); while (!fs.existsSync(${JSON.stringify(quotaRelease)})) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10); } console.log(JSON.stringify({ command: { data: { groups: [{ buckets: [{ remaining_fraction: 0, reset_time: "2026-11-15T12:00:00.000Z" }] }] } } })); }`,
+  );
+  try {
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      platform: "darwin",
+      env: { PATH: bin, HOME: path.join(userRoot, "operator-home") },
+      discover: () => [agy],
+    });
+    store.create({
+      schemaVersion: 2,
+      instanceId: "agy-stale-quota",
+      name: "AGY stale quota",
+      kindId: "agy",
+      installationId: agy.installationId,
+      providerId: "google",
+      models: ["gemini-4-hydrogen-low"],
+      defaultModel: "gemini-4-hydrogen-low",
+      enabled: true,
+      isolationState: "enforced",
+      credentialSource: "instance",
+      auth: { mode: "subscription" },
+      agy: {},
+    });
+    const probing = store.authStatus("agy-stale-quota");
+    for (let attempt = 0; attempt < 100 && !existsSync(quotaStarted); attempt++)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(existsSync(quotaStarted), true);
+    store.command({ kind: "runtime-instance-update", instanceId: "agy-stale-quota", credentialSource: "operator" });
+    writeFileSync(quotaRelease, "release");
+    await assert.rejects(probing, (error: unknown) => codedAs(error, "runtime_instance_probe_stale"));
+    const health = store.runtimeProviderHealth.get("agy-stale-quota");
+    assert.equal(health.failureStreak, 0);
+    assert.equal(store.listPublic()[0]?.authReadiness.code, "runtime_auth_not_checked");
+  } finally {
+    writeFileSync(quotaRelease, "release");
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("cold reads reject duplicate legacy operator subscriptions while valid disabled and instance rows remain readable", () => {
+  const duplicateRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-legacy-operator-duplicate-")),
+    validRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-legacy-operator-valid-"));
+  const legacy = (instanceId: string, overrides: Record<string, unknown> = {}) => ({
+    schemaVersion: 1,
+    instanceId,
+    name: instanceId,
+    kindId: "codex",
+    installationId: "codex-legacy",
+    providerId: "openai",
+    model: "gpt-5.6-sol",
+    auth: { mode: "subscription" },
+    ...overrides,
+  });
+  try {
+    writeFileSync(
+      path.join(duplicateRoot, "runtime-instances.json"),
+      JSON.stringify({ schema: "runtime-instances/v1", instances: [legacy("legacy-one"), legacy("legacy-two")] }),
+    );
+    const duplicate = openRuntimeInstanceStore({
+      userRoot: duplicateRoot,
+      discover: () => [{ ...agyInstallation, kindId: "codex", installationId: "codex-legacy" }],
+    });
+    assert.throws(
+      () => duplicate.list(),
+      (error: unknown) => codedAs(error, "runtime_operator_instance_exists"),
+    );
+
+    writeFileSync(
+      path.join(validRoot, "runtime-instances.json"),
+      JSON.stringify({
+        schema: "runtime-instances/v1",
+        instances: [
+          {
+            schemaVersion: 2,
+            instanceId: "legacy-disabled",
+            name: "legacy-disabled",
+            kindId: "agy",
+            installationId: agyInstallation.installationId,
+            installationIdentity: "path-entry/v1",
+            providerId: "google",
+            models: ["gemini-4-hydrogen-low"],
+            defaultModel: "gemini-4-hydrogen-low",
+            enabled: false,
+            credentialSource: "operator",
+            permissionMode: "bypass",
+            isolationState: "operator-environment",
+            auth: { mode: "subscription" },
+            agy: {},
+          },
+          {
+            schemaVersion: 2,
+            instanceId: "legacy-instance",
+            name: "legacy-instance",
+            kindId: "agy",
+            installationId: agyInstallation.installationId,
+            installationIdentity: "path-entry/v1",
+            providerId: "google",
+            models: ["gemini-4-hydrogen-low"],
+            defaultModel: "gemini-4-hydrogen-low",
+            enabled: true,
+            credentialSource: "instance",
+            permissionMode: "bypass",
+            isolationState: "enforced",
+            auth: { mode: "subscription" },
+            agy: {},
+          },
+        ],
+      }),
+    );
+    const valid = openRuntimeInstanceStore({
+      userRoot: validRoot,
+      platform: "darwin",
+      discover: () => [agyInstallation],
+    });
+    assert.equal(valid.list().length, 2);
+  } finally {
+    rmSync(duplicateRoot, { recursive: true, force: true });
+    rmSync(validRoot, { recursive: true, force: true });
   }
 });
 

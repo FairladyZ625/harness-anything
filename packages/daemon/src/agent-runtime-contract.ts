@@ -476,7 +476,6 @@ function validInstance(value: unknown): value is AgentRuntimeInstanceDto {
         "installationId",
         "providerId",
         "models",
-        "availableModels",
         "defaultModel",
         "enabled",
         "credentialSource",

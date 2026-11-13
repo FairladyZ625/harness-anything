@@ -145,6 +145,15 @@ type RuntimeSubscriptionProbeResult = {
   readonly availableModels?: readonly string[];
 };
 
+type RuntimeAccountCut = {
+  readonly instanceId: string;
+  readonly installationId: string;
+  readonly credentialSource: RuntimeInstanceConfig["credentialSource"];
+  readonly authMode: RuntimeInstanceConfig["auth"]["mode"];
+  readonly credentialRef?: string;
+  readonly revision: number;
+};
+
 export function openRuntimeInstanceStore(input: {
   readonly userRoot: string;
   readonly discover: () => readonly RuntimeInstallationWitness[];
@@ -185,7 +194,8 @@ export function openRuntimeInstanceStore(input: {
     target = path.join(input.userRoot, "runtime-instances.json"),
     installationsTarget = path.join(input.userRoot, "runtime-installations.json"),
     instancesRoot = path.join(input.userRoot, "runtime-instances"),
-    readiness = new Map<string, RuntimeAuthReadiness>();
+    readiness = new Map<string, RuntimeAuthReadiness>(),
+    accountRevisions = new Map<string, number>();
   let cachedInstances: readonly RuntimeInstanceConfig[] | null = null,
     recordedInstallationsCache: readonly RecordedRuntimeInstallation[] | null = null,
     recordedInstallationsRead = false;
@@ -218,23 +228,79 @@ export function openRuntimeInstanceStore(input: {
     config: RuntimeInstanceConfig,
     instances: readonly RuntimeInstanceConfig[],
   ): void {
+    assertOperatorInstanceUniqueness(
+      instances.some(({ instanceId }) => instanceId === config.instanceId) ? instances : [...instances, config],
+    );
+  }
+  function assertOperatorInstanceUniqueness(instances: readonly RuntimeInstanceConfig[]): void {
+    const owners = new Map<string, string>();
+    for (const config of instances) {
+      if (!config.enabled || config.auth.mode !== "subscription" || config.credentialSource !== "operator") continue;
+      const existing = owners.get(config.installationId);
+      if (existing !== undefined && existing !== config.instanceId)
+        throw runtimeInstanceError(
+          "runtime_operator_instance_exists",
+          `Installation ${config.installationId} already has enabled operator-credential subscription instances: ${existing}, ${config.instanceId}.`,
+        );
+      owners.set(config.installationId, config.instanceId);
+    }
+  }
+  function accountRevision(instanceId: string): number {
+    return accountRevisions.get(instanceId) ?? 0;
+  }
+  function bumpAccountRevision(instanceId: string): void {
+    accountRevisions.set(instanceId, accountRevision(instanceId) + 1);
+  }
+  function accountCut(config: RuntimeInstanceConfig): RuntimeAccountCut {
+    return {
+      instanceId: config.instanceId,
+      installationId: config.installationId,
+      credentialSource: config.credentialSource,
+      authMode: config.auth.mode,
+      ...(config.auth.mode === "api-key" ? { credentialRef: config.auth.credentialRef } : {}),
+      revision: accountRevision(config.instanceId),
+    };
+  }
+  function assertCurrentAccountCut(cut: RuntimeAccountCut): RuntimeInstanceConfig {
+    const current = readOne(cut.instanceId);
     if (
-      config.enabled &&
-      config.auth.mode === "subscription" &&
-      config.credentialSource === "operator" &&
-      instances.some(
-        (entry) =>
-          entry.instanceId !== config.instanceId &&
-          entry.enabled &&
-          entry.auth.mode === "subscription" &&
-          entry.credentialSource === "operator" &&
-          entry.installationId === config.installationId,
-      )
+      !current ||
+      accountRevision(cut.instanceId) !== cut.revision ||
+      current.installationId !== cut.installationId ||
+      current.credentialSource !== cut.credentialSource ||
+      current.auth.mode !== cut.authMode ||
+      (cut.authMode === "api-key" &&
+        current.auth.mode === "api-key" &&
+        current.auth.credentialRef !== cut.credentialRef)
     )
       throw runtimeInstanceError(
-        "runtime_operator_instance_exists",
-        `Installation ${config.installationId} already has an enabled operator-credential subscription instance.`,
+        "runtime_instance_probe_stale",
+        `Runtime instance ${cut.instanceId} changed while its account operation was running.`,
       );
+    return current;
+  }
+  function accountIdentityChanged(before: RuntimeInstanceConfig, after: RuntimeInstanceConfig): boolean {
+    return (
+      before.installationId !== after.installationId ||
+      before.credentialSource !== after.credentialSource ||
+      before.auth.mode !== after.auth.mode ||
+      (before.auth.mode === "api-key" &&
+        after.auth.mode === "api-key" &&
+        before.auth.credentialRef !== after.auth.credentialRef)
+    );
+  }
+  function clearAccountState(config: RuntimeInstanceConfig): void {
+    readiness.delete(config.instanceId);
+    providerHealth.clear(config.instanceId);
+  }
+  function detachInstanceCredential(config: RuntimeInstanceConfig): void {
+    const authFile = providerAuthFile(config.kindId);
+    if (!authFile) return;
+    const home = path.join(instancesRoot, config.instanceId, "home"),
+      destination = path.join(providerConfigDirectory(home, config.kindId), authFile);
+    /* Removing only the instance-local path cannot mutate the operator source, including when
+     * the path is a symlink created by ensureSharedAuthFile. */
+    /* @gate-identity state-store/runtime-instance.store */ rmSync(destination, { force: true });
   }
   function isAgyAccountConfig(config: RuntimeInstanceConfig): boolean {
     return config.kindId === "agy" || runtimeKindForId(config.kindId).executable.credentialCommand === "agy";
@@ -243,17 +309,34 @@ export function openRuntimeInstanceStore(input: {
     config: RuntimeInstanceConfig,
     witnessed: readonly RuntimeInstallationWitness[],
   ): { readonly kindId: RuntimeInstanceKind; readonly installation: RuntimeInstallationWitness } {
-    const credentialCommand = runtimeKindForId(config.kindId).executable.credentialCommand,
-      kindId = credentialCommand
-        ? runtimeKindIds.find((candidate) => runtimeKindForId(candidate).executable.command === credentialCommand)
-        : config.kindId,
-      installation = kindId ? witnessed.find((entry) => entry.kindId === kindId) : undefined;
-    if (!kindId || !installation)
+    const credentialCommand = runtimeKindForId(config.kindId).executable.credentialCommand;
+    if (!credentialCommand) {
+      const installation = witnessed.find(
+        (entry) => entry.installationId === config.installationId && entry.kindId === config.kindId,
+      );
+      if (installation) return { kindId: config.kindId, installation };
+      throw runtimeInstanceError(
+        "runtime_installation_not_found",
+        `The bound ${config.kindId} installation ${config.installationId} is not currently witnessed for account operations.`,
+      );
+    }
+    const candidates = runtimeKindIds.flatMap((kindId) =>
+      runtimeKindForId(kindId).executable.command === credentialCommand
+        ? witnessed.filter((entry) => entry.kindId === kindId).map((installation) => ({ kindId, installation }))
+        : [],
+    );
+    const exact = candidates.find(({ installation }) => installation.installationId === config.installationId);
+    if (exact) return exact;
+    if (candidates.length === 1) return candidates[0]!;
+    if (candidates.length === 0)
       throw runtimeInstanceError(
         "runtime_credential_command_not_found",
-        `A witnessed credential command is required for ${config.kindId} account operations.`,
+        `A witnessed ${credentialCommand} credential command is required for ${config.kindId} account operations.`,
       );
-    return { kindId, installation };
+    throw runtimeInstanceError(
+      "runtime_installation_ambiguous",
+      `Multiple witnessed ${credentialCommand} credential installations are available for ${config.kindId}; bind one explicitly to the account instance.`,
+    );
   }
   async function currentAccountProbeTarget(
     config: RuntimeInstanceConfig,
@@ -267,21 +350,16 @@ export function openRuntimeInstanceStore(input: {
       return accountProbeTarget(config, await refreshInstallations());
     }
   }
-  function persistAvailableModels(config: RuntimeInstanceConfig, models: readonly string[]): RuntimeInstanceConfig {
-    const current = readOne(config.instanceId);
-    if (!current)
-      throw runtimeInstanceError(
-        "runtime_instance_not_found",
-        `Runtime instance ${config.instanceId} was removed while its model probe was running.`,
-      );
-    if (
-      current.installationId !== config.installationId ||
-      current.credentialSource !== config.credentialSource ||
-      current.auth.mode !== "subscription"
-    )
+  function persistAvailableModels(
+    config: RuntimeInstanceConfig,
+    models: readonly string[],
+    cut: RuntimeAccountCut,
+  ): RuntimeInstanceConfig {
+    const current = assertCurrentAccountCut(cut);
+    if (current.auth.mode !== "subscription")
       throw runtimeInstanceError(
         "runtime_instance_probe_stale",
-        `Runtime instance ${config.instanceId} changed while its model probe was running.`,
+        `Runtime instance ${config.instanceId} changed to a non-subscription account while its model probe was running.`,
       );
     const availableModels = normalizeModels(models);
     if (
@@ -295,6 +373,7 @@ export function openRuntimeInstanceStore(input: {
   }
   function commitCreate(config: RuntimeInstanceConfig): RuntimeInstanceConfig {
     if (config.isolationState === "enforced") ensureStateRoot(config);
+    if (!accountRevisions.has(config.instanceId)) accountRevisions.set(config.instanceId, 0);
     persist([...read(), config]);
     return config;
   }
@@ -377,7 +456,8 @@ export function openRuntimeInstanceStore(input: {
       config = instances.find((entry) => entry.instanceId === id);
     if (!config) throw runtimeInstanceError("runtime_instance_not_found", `Runtime instance ${id} does not exist.`);
     persist(instances.filter((entry) => entry.instanceId !== id));
-    readiness.delete(id);
+    bumpAccountRevision(id);
+    clearAccountState(config);
     /* @gate-identity state-store/runtime-instance.store */ rmSync(path.join(instancesRoot, id), {
       recursive: true,
       force: true,
@@ -422,6 +502,7 @@ export function openRuntimeInstanceStore(input: {
     const env = authEnvironment(config);
     if (config.auth.mode === "subscription") {
       const probeStartedAt = nowIso(),
+        cut = accountCut(config),
         probeTarget =
           !input.subscriptionReady && isAgyAccountConfig(config)
             ? await currentAccountProbeTarget(config, witnessed)
@@ -454,13 +535,17 @@ export function openRuntimeInstanceStore(input: {
             witnessed,
             true,
           );
-          if (result.readiness.status !== "ready") return result.readiness;
-          if (result.availableModels?.length) persistAvailableModels(config, result.availableModels);
+          if (result.readiness.status !== "ready") {
+            assertCurrentAccountCut(cut);
+            return result.readiness;
+          }
+          if (result.availableModels?.length) persistAvailableModels(config, result.availableModels, cut);
           if (probeTarget && !input.subscriptionReady) {
             const resetAt = await accountProbe.probeAgyQuota({
               executablePath: probeTarget.installation.executablePath,
               env,
             });
+            assertCurrentAccountCut(cut);
             if (resetAt)
               providerHealth.recordFailure({
                 instanceId: config.instanceId,
@@ -1109,15 +1194,23 @@ export function openRuntimeInstanceStore(input: {
         },
         platform,
       );
+      const accountChanged = accountIdentityChanged(current, updated);
       ensureOperatorInstanceSlot(
         updated,
         read().filter((entry) => entry.instanceId !== current.instanceId),
       );
       const finish = () => {
-        if (updated.isolationState === "enforced") ensureStateRoot(updated);
-        persist(read().map((entry) => (entry.instanceId === current.instanceId ? updated : entry)));
-        if (hasInstallation || hasBaseUrl || hasCredential) readiness.delete(updated.instanceId);
-        const instance = publicConfig(updated, readiness.get(updated.instanceId));
+        let next = updated;
+        if (accountChanged) {
+          detachInstanceCredential(current);
+          clearAccountState(current);
+          bumpAccountRevision(current.instanceId);
+          next = runtimeInstanceConfig({ ...updated, availableModels: undefined }, platform);
+        }
+        if (next.isolationState === "enforced") ensureStateRoot(next);
+        persist(read().map((entry) => (entry.instanceId === current.instanceId ? next : entry)));
+        if (hasInstallation || hasBaseUrl || hasCredential) readiness.delete(next.instanceId);
+        const instance = publicConfig(next, readiness.get(next.instanceId));
         return {
           ...base,
           instance,
@@ -1326,6 +1419,9 @@ export function openRuntimeInstanceStore(input: {
         : normalized,
       installationMigrated = migrated.some((entry, index) => entry !== normalized[index]),
       instances = migrated.sort((a, b) => a.instanceId.localeCompare(b.instanceId));
+    assertOperatorInstanceUniqueness(instances);
+    for (const config of instances)
+      if (!accountRevisions.has(config.instanceId)) accountRevisions.set(config.instanceId, 0);
     if (value.instances.some(needsRuntimeInstanceNormalization) || installationMigrated) persist(instances);
     cachedInstances = instances;
     return [...instances];
