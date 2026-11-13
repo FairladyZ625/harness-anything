@@ -1718,15 +1718,6 @@
         "expiresAt": "2026-11-26T00:00:00Z"
       },
       {
-        "probe": "claimable-tasks",
-        "backend": "pglite",
-        "dimension": "relations",
-        "metric": "sqlRowsRead",
-        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 736 at 200 -> 6136 at 2000 (cold/warm maximum).",
-        "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
         "probe": "cli-decision-validate",
         "backend": "pglite",
         "dimension": "relations",
