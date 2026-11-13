@@ -308,19 +308,27 @@ test("agenda labels each task row with its nearest work root and --work keeps on
       ...stub,
       read: (taskId: string) => ({ ...readyCut, packagePath: null, snapshot: byId.get(taskId)?.snapshot ?? {} }),
       listEntities: () => [],
-      readTaskIndex: () => ({
+      readTaskIndex: (query: TaskProjectionListQuery = {}) => ({
         ...readyCut,
-        rows: rows.map(({ taskId, snapshot: { task } }) => ({
-          taskId,
-          title: task.title,
-          status: task.status,
-          taskClass: task.taskClass,
-          parentTaskId: task.metadata.parentTaskId,
-          pinned: false,
-          packageDisposition: "active",
-          packagePath: null,
-          updatedAt: "2026-08-30T00:00:00.000Z",
-        })),
+        rows: rows
+          .filter(
+            ({ taskId, snapshot: { task } }) =>
+              (query.taskIds === undefined || query.taskIds.includes(taskId)) &&
+              (query.scopeRootTaskId === undefined ||
+                taskId === query.scopeRootTaskId ||
+                task.metadata.parentTaskId === query.scopeRootTaskId),
+          )
+          .map(({ taskId, snapshot: { task } }) => ({
+            taskId,
+            title: task.title,
+            status: task.status,
+            taskClass: task.taskClass,
+            parentTaskId: task.metadata.parentTaskId,
+            pinned: false,
+            packageDisposition: "active",
+            packagePath: null,
+            updatedAt: "2026-08-30T00:00:00.000Z",
+          })),
         warnings: [],
       }),
     } as unknown as TaskProjection,
