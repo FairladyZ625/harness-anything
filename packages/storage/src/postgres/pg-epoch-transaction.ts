@@ -80,6 +80,7 @@ export function pgEpochTransactions(pool: Pool) {
               "writer_epoch_stale",
               `writer epoch ${request.epoch} for ${request.repoId} is stale`,
             );
+          await client.query("SET LOCAL idle_in_transaction_session_timeout = 0");
           held = client;
           retained = true;
           return null;
