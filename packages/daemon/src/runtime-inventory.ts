@@ -1165,6 +1165,10 @@ export function isRuntimeKindId(value: unknown): value is RuntimeKindId {
   return typeof value === "string" && runtimeKindIds.some((kindId) => kindId === value);
 }
 
+export function isRuntimeMcpPolicy(value: unknown): value is RuntimeMcpPolicy {
+  return typeof value === "string" && (runtimeMcpPolicies as readonly string[]).includes(value);
+}
+
 type CodexPermissionMode = keyof typeof codexFreshPermissionArgs;
 
 const codexSandboxModes: Readonly<Record<string, CodexPermissionMode>> = {

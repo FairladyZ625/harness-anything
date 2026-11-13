@@ -29,7 +29,7 @@ import { runtimeBindingForDispatch, type RuntimeBinding, type RuntimeSpawnerInpu
 import type { RuntimeMcpPolicy, RuntimePermissionMode } from "./runtime-permissions.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import type { RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
-import { isRuntimeKindId } from "./runtime-inventory.ts";
+import { isRuntimeKindId, isRuntimeMcpPolicy } from "./runtime-inventory.ts";
 import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
 import {
   dispatchLifecyclePendingError,
@@ -514,9 +514,7 @@ function adoptableMetadata(header: DispatchStreamHeader): {
     !isRuntimeKindId(header.kindId) ||
     (header.permissionMode !== null &&
       !["bypass", "workspace-write", "read-only"].includes(String(header.permissionMode))) ||
-    (header.mcpPolicy !== undefined &&
-      header.mcpPolicy !== null &&
-      !["disabled", "inherit"].includes(String(header.mcpPolicy))) ||
+    (header.mcpPolicy !== undefined && header.mcpPolicy !== null && !isRuntimeMcpPolicy(header.mcpPolicy)) ||
     !isBinding(header.binding) ||
     typeof header.cwd !== "string" ||
     typeof header.prompt !== "string" ||

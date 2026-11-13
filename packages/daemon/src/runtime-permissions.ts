@@ -4,8 +4,8 @@
 // for a new exec, but its resume parser requires config overrides (or bypass).
 import type { RuntimeIsolationState } from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import {
+  isRuntimeMcpPolicy,
   runtimeKindForId,
-  runtimeMcpPolicies,
   type RuntimeKindId,
   type RuntimeMcpPolicy,
 } from "./runtime-inventory.ts";
@@ -21,7 +21,7 @@ export function runtimeSupportsMcpPolicy(kindId: string): boolean {
 
 export function runtimeMcpPolicy(value: unknown, kindId?: string): RuntimeMcpPolicy | undefined {
   if (value === undefined) return undefined;
-  if (typeof value !== "string" || !(runtimeMcpPolicies as readonly string[]).includes(value))
+  if (!isRuntimeMcpPolicy(value))
     throw permissionError("invalid_runtime_mcp_policy", "Host MCP policy must be disabled or inherit.");
   if (kindId !== undefined && !runtimeSupportsMcpPolicy(kindId))
     throw permissionError(

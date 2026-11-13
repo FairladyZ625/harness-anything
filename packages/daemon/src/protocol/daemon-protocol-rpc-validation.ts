@@ -23,6 +23,7 @@ import { type DaemonRpcCall, type DaemonRpcMethod, type DaemonRpcWireParams } fr
 import { allDaemonProtocolMethods } from "./daemon-protocol-commands.ts";
 import { decisionStateWords } from "./daemon-protocol-vocabulary.ts";
 import { DaemonProtocolContractError, isJsonObject, rejectSecretKeys, type JsonObject } from "./json-rpc-types.ts";
+import { isRuntimeMcpPolicy } from "../runtime-inventory.ts";
 
 export { DaemonProtocolContractError, validateSessionEnvironment };
 
@@ -455,7 +456,7 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
       (value.effort !== undefined && !nonEmpty(value.effort)) ||
       (value.fast !== undefined && typeof value.fast !== "boolean") ||
       (value.permissionMode !== undefined && !nonEmpty(value.permissionMode)) ||
-      (value.mcpPolicy !== undefined && !["disabled", "inherit"].includes(String(value.mcpPolicy))) ||
+      (value.mcpPolicy !== undefined && !isRuntimeMcpPolicy(value.mcpPolicy)) ||
       (value.prompt !== undefined && !nonEmpty(value.prompt)) ||
       (value.prompt === undefined && value.dispatchId === undefined && !nonEmpty(value.taskId)) ||
       (value.onExitCommand !== undefined && !nonEmpty(value.onExitCommand)) ||

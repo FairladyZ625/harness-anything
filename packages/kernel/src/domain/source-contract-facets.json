@@ -3727,7 +3727,7 @@
         "explain": "Closed JSON-RPC request envelope validator for `repo.gui.action` command dispatch requests before handing inputs to kernel/application command handlers.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateGuiActionPayload:e7bc09787acc0b250203cf7aec6b92b5",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateGuiActionPayload:d2282338a5a342bce07412211a71022f",
             "route": "packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateGuiActionPayload"
           }
         ]

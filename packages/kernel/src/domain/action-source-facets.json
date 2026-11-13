@@ -1568,6 +1568,11 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-squad-child.ts#reacquireSquadTaskLease:55b6ea8d15ae07239a82ee995fa9bf04",
         "route": "squad-run",
         "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/squad-coordinator.ts#makeSquadCoordinator.spawnWorker.receipt:95c90577f2b2203f704299f02cbcc8be",
+        "route": "squad-run",
+        "role": "support"
       }
     ]
   },

@@ -5,7 +5,12 @@ import { validateDaemonQueryPayload } from "@harness-anything/daemon/protocol";
 import { validateTaskDispatchesPayload } from "@harness-anything/daemon/protocol/validation";
 import { relationStates } from "@harness-anything/kernel/browser";
 import { containsSecretLikeKey } from "../api/entity-payload-hygiene.ts";
-import { isRuntimeKindId, runtimeKindForId, runtimeKindIds } from "@harness-anything/daemon/protocol";
+import {
+  isRuntimeKindId,
+  isRuntimeMcpPolicy,
+  runtimeKindForId,
+  runtimeKindIds,
+} from "@harness-anything/daemon/protocol";
 export const HARNESS_PRELOAD_API = "harness";
 export type PreloadApiMethod =
   | (typeof daemonGuiInvokeFacets)[number]["guiBridgeMethod"]
@@ -276,7 +281,7 @@ function runtimeInstanceCreateProblem(value: unknown): string | undefined {
     return 'field "permissionMode" must be bypass, workspace-write, or read-only.';
   if (!declaration.permissions.available && value.permissionMode !== undefined)
     return `field "permissionMode" must be omitted for ${value.kindId}.`;
-  if (value.mcpPolicy !== undefined && !["disabled", "inherit"].includes(String(value.mcpPolicy)))
+  if (value.mcpPolicy !== undefined && !isRuntimeMcpPolicy(value.mcpPolicy))
     return 'field "mcpPolicy" must be disabled or inherit.';
   if (declaration.capabilities.mcp !== "supported" && value.mcpPolicy !== undefined)
     return `field "mcpPolicy" must be omitted for ${value.kindId}.`;

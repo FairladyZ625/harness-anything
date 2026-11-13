@@ -6,6 +6,7 @@ import { taskDispatchRowsSettled } from "./dispatch-read.ts";
 import { daemonProtocolCommands } from "./protocol/daemon-protocol-commands.ts";
 import type { DaemonTaskDispatchesResult } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
+import { isRuntimeMcpPolicy } from "./runtime-inventory.ts";
 
 export const runtimeBatchDefaultConcurrency = 2,
   runtimeBatchMaxConcurrency = 32;
@@ -136,7 +137,7 @@ export function parseRuntimeBatchEntry(value: unknown, index: number): RuntimeBa
     throw new Error(`Batch dispatch ${index} field fast must be a boolean.`);
   if (permissionMode && !["bypass", "workspace-write", "read-only"].includes(permissionMode))
     throw new Error(`Batch dispatch ${index} permission-mode must be bypass, workspace-write, or read-only.`);
-  if (mcpPolicy && !["disabled", "inherit"].includes(mcpPolicy))
+  if (mcpPolicy && !isRuntimeMcpPolicy(mcpPolicy))
     throw new Error(`Batch dispatch ${index} mcp-policy must be disabled or inherit.`);
   return {
     instance,
