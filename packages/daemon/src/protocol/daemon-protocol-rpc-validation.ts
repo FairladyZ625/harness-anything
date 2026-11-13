@@ -21,9 +21,8 @@ import { validateCatalogActionPayload, validateSessionEnvironment } from "./daem
 import { validateDaemonQueryPayload } from "./daemon-protocol-validate-relation-query.ts";
 import { type DaemonRpcCall, type DaemonRpcMethod, type DaemonRpcWireParams } from "./daemon-protocol.contract.ts";
 import { allDaemonProtocolMethods } from "./daemon-protocol-commands.ts";
-import { decisionStateWords } from "./daemon-protocol-vocabulary.ts";
+import { decisionStateWords, isRuntimeMcpPolicy } from "./daemon-protocol-vocabulary.ts";
 import { DaemonProtocolContractError, isJsonObject, rejectSecretKeys, type JsonObject } from "./json-rpc-types.ts";
-import { isRuntimeMcpPolicy } from "../runtime-inventory.ts";
 
 export { DaemonProtocolContractError, validateSessionEnvironment };
 

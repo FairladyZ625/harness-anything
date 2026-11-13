@@ -460,3 +460,10 @@ export function parseScheduleDuration(value: string): number | null {
   const milliseconds = Number(match[1]) * scheduleUnitMs[match[2] as ScheduleDurationUnit];
   return Number.isSafeInteger(milliseconds) && milliseconds >= SCHEDULE_MIN_EVERY_MS ? milliseconds : null;
 }
+
+export const runtimeMcpPolicies = ["disabled", "inherit"] as const;
+export type RuntimeMcpPolicy = (typeof runtimeMcpPolicies)[number];
+
+export function isRuntimeMcpPolicy(value: unknown): value is RuntimeMcpPolicy {
+  return typeof value === "string" && (runtimeMcpPolicies as readonly string[]).includes(value);
+}

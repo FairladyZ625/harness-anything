@@ -3,6 +3,11 @@
 import type { RuntimeInstallation, RuntimeKind, RuntimeKindId } from "@harness-anything/kernel";
 
 import {
+  isRuntimeMcpPolicy,
+  runtimeMcpPolicies,
+  type RuntimeMcpPolicy,
+} from "./protocol/daemon-protocol-vocabulary.ts";
+import {
   type RuntimeAuthMode,
   type RuntimeAcpAuthMethod,
   type RuntimeCapabilitySupport,
@@ -12,10 +17,13 @@ import {
 } from "./runtime-inventory-types.ts";
 
 export {
+  isRuntimeMcpPolicy,
+  runtimeMcpPolicies,
   type RuntimeAuthMode,
   type RuntimeAcpAuthMethod,
   type RuntimeCapabilitySupport,
   type RuntimeEndpointAvailability,
+  type RuntimeMcpPolicy,
   type RuntimeProviderDeclaration,
   type RuntimeWebSearchMode,
 };
@@ -23,8 +31,6 @@ export {
 /** Native search tiers HA exposes. Codex's config schema also has `indexed`, which this
  *  product does not offer: issue #4369 names disabled/cached/live. */
 export const runtimeWebSearchModes = ["disabled", "cached", "live"] as const satisfies readonly RuntimeWebSearchMode[];
-export const runtimeMcpPolicies = ["disabled", "inherit"] as const;
-export type RuntimeMcpPolicy = (typeof runtimeMcpPolicies)[number];
 
 // Only daemon-mediated task commands: `ha task artifact add --run`, for example,
 // executes a local subprocess before daemon authorization. Never approve `ha *`.
@@ -1163,10 +1169,6 @@ export const runtimeProtocolFamilies: readonly RuntimeProtocolFamily[] = runtime
 );
 export function isRuntimeKindId(value: unknown): value is RuntimeKindId {
   return typeof value === "string" && runtimeKindIds.some((kindId) => kindId === value);
-}
-
-export function isRuntimeMcpPolicy(value: unknown): value is RuntimeMcpPolicy {
-  return typeof value === "string" && (runtimeMcpPolicies as readonly string[]).includes(value);
 }
 
 type CodexPermissionMode = keyof typeof codexFreshPermissionArgs;
