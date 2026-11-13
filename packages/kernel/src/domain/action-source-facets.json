@@ -6673,19 +6673,19 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/schedule-backup-worker.ts#finishLedgerBackup.deadline:f4f67a0092ae65b768463d9ff4bc7057",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "/Users/lizeyu/Projects/coding-agent-harness/harness-anything/node_modules/@types/node/worker_threads.d.ts#worker_threads.Worker.terminate"
+        "port": "node_modules/@types/node/worker_threads.d.ts#worker_threads.Worker.terminate"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/schedule-backup-worker.ts#finishLedgerBackup.deadline:7d8dcb1c41db312950562cd3055ceac1",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "/Users/lizeyu/Projects/coding-agent-harness/harness-anything/node_modules/@types/node/timers.d.ts#timers.global.setTimeout"
+        "port": "node_modules/@types/node/timers.d.ts#timers.global.setTimeout"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/schedule-backup-worker.ts#finishLedgerBackup:f4f67a0092ae65b768463d9ff4bc7057",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "/Users/lizeyu/Projects/coding-agent-harness/harness-anything/node_modules/@types/node/worker_threads.d.ts#worker_threads.Worker.terminate"
+        "port": "node_modules/@types/node/worker_threads.d.ts#worker_threads.Worker.terminate"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/schedule-occurrence-workspace.ts#continuePublishedBranch:45750a0d7f3e8bd45964673145c5c487",
