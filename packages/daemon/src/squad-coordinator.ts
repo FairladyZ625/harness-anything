@@ -82,6 +82,22 @@ export interface SquadScheduleSettlement {
   readonly dispatchId: string;
   readonly runtimeSessionId: string;
 }
+/** Authorized runtime-spawner port injected into the squad coordinator. */
+interface SquadRuntimeSpawnerPort {
+  spawn(
+    payload: JsonObject,
+    binding: RuntimeBinding,
+    onPrepared?: (dispatchId: string, runtimeSessionId: string) => void,
+  ): Promise<JsonObject>;
+  /** The trusted-schedule channel a schedule-occurrence run's leader turns dispatch through. */
+  spawnScheduled(
+    payload: JsonObject,
+    scheduled: TrustedScheduleRuntime,
+    binding: RuntimeBinding,
+    onPrepared?: (dispatchId: string, runtimeSessionId: string) => void,
+  ): Promise<JsonObject>;
+  cancel(payload: JsonObject, binding: RuntimeBinding): Promise<JsonObject>;
+}
 export function makeSquadCoordinator(input: {
   readonly rootDir: string;
   readonly now: () => string;
@@ -151,21 +167,7 @@ export function makeSquadCoordinator(input: {
     },
     binding: RuntimeBinding,
   ) => Promise<void>;
-  readonly runtimeSpawner: () => {
-    readonly spawn: (
-      payload: JsonObject,
-      binding: RuntimeBinding,
-      onPrepared?: (dispatchId: string, runtimeSessionId: string) => void,
-    ) => Promise<JsonObject>;
-    /** The trusted-schedule channel a schedule-occurrence run's leader turns dispatch through. */
-    readonly spawnScheduled: (
-      payload: JsonObject,
-      scheduled: TrustedScheduleRuntime,
-      binding: RuntimeBinding,
-      onPrepared?: (dispatchId: string, runtimeSessionId: string) => void,
-    ) => Promise<JsonObject>;
-    readonly cancel: (payload: JsonObject, binding: RuntimeBinding) => Promise<JsonObject>;
-  };
+  readonly runtimeSpawner: () => SquadRuntimeSpawnerPort;
 }) {
   const readDispatchLifecycle =
     input.readDispatchLifecycle ?? ((query) => input.query((projection) => projection.readDispatchLifecycle(query)));
