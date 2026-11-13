@@ -81,6 +81,36 @@ pgliteIntegrationSuite("fleet summary upgrade", () => {
       rmSync(dataDir, { recursive: true, force: true });
     }
   });
+
+  test("PGlite opening drains default summaries before admitting workspace reads", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "ha-default-summary-upgrade-")),
+      repoId = "default-summary-upgrade",
+      scope = { tenantId: "t", projectId: "p", policyEpoch: 0, readers: [] },
+      storage = { backend: "pglite" as const, dataDir: root, scope };
+    let backend = await createPGliteStorageBackend({ repoId, storage });
+    try {
+      await backend.eventStore.append(bundle(eventAt(1)), 0, { repoId, holderId: "seed", epoch: 1 });
+      await backend.pool.query(
+        "UPDATE ha_events SET default_summary_json=NULL WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4",
+        [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
+      );
+      await backend.close();
+      backend = await createPGliteStorageBackend({ repoId, storage });
+      assert.equal(
+        (
+          await backend.pool.query(
+            "SELECT count(*)::int AS count FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4 AND default_summary_json IS NULL",
+            [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
+          )
+        ).rows[0].count,
+        0,
+      );
+      assert.equal((await backend.projection.readEventSummaries(0, 100)).events.length, 1);
+    } finally {
+      await backend.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 pgliteIntegrationSuite("fleet summary lifecycle", () => {

@@ -1,4 +1,4 @@
-import type { PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
 import type { PersistedCanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync-types.ts";
 import { canonicalEventSummary } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
 import { normalizeHistoricalEvent } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";
@@ -7,6 +7,7 @@ import {
   validateStorageReadWindow,
 } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
+import { withPostgresTransaction } from "../postgres/transaction.ts";
 import { POSTGRES_EVENT_REF_INDEX_SCHEMA_STATEMENTS } from "../postgres/event-ledger-schema.ts";
 import { POSTGRES_SCOPE_SCHEMA_CONTRACT, postgresScopeRlsStatements } from "../postgres/scope-schema.ts";
 
@@ -277,6 +278,40 @@ export async function assertPgEventReadIndexReady(
   );
   if (pending.rows.length)
     throw Object.assign(new Error("Event read-index backfill is pending"), { code: "projection_pending" });
+}
+
+/** Default event summaries are the serving representation for local/workspace pages. */
+export async function pgDefaultEventSummaryGate(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  repoId: string,
+): Promise<void> {
+  const pending = await client.query(
+    `SELECT 1 FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4
+      AND default_summary_json IS NULL LIMIT 1`,
+    [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
+  );
+  if (pending.rows.length) {
+    const error = new Error("Default event summaries are not backfilled");
+    Object.defineProperty(error, "code", { value: "projection_pending" });
+    throw error;
+  }
+}
+
+/** Drain historical default summaries in independently committed 64-row transactions. */
+export async function backfillPgDefaultEventSummaries(
+  pool: Pool,
+  scope: PgProjectionScope,
+  repoId: string,
+): Promise<void> {
+  for (;;) {
+    const page = await withPostgresTransaction(
+      pool,
+      (client) => backfillPgDefaultEventSummariesPage(client, scope, repoId),
+      scope,
+    );
+    if (page.done) return;
+  }
 }
 
 /** Schema-owner contract step, outside serving PostgreSQL transactions. A scoped page only

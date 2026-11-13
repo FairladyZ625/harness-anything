@@ -27,7 +27,10 @@ import { compileFactWrite } from "@harness-anything/kernel/internal/domain/fact-
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { createPGliteStorageBackend } from "../../storage/src/pglite/storage-backend.ts";
 import { createPgStorageBackend } from "../../storage/src/pg/backend.ts";
-import { backfillPgDefaultEventSummariesPage } from "../../storage/src/pg/pg-event-read-index-migration.ts";
+import {
+  backfillPgDefaultEventSummaries,
+  backfillPgDefaultEventSummariesPage,
+} from "../../storage/src/pg/pg-event-read-index-migration.ts";
 import { createPgTaskQueryReader } from "../../storage/src/pg/pg-task-query-reader.ts";
 import { rebuildPgProjection } from "../../storage/src/pg/pg-task-event-materialize.ts";
 import { withPostgresTransaction } from "../../storage/src/postgres/transaction.ts";
@@ -731,8 +734,8 @@ if (!isMainThread) {
       // 1. Live + cold-rebuild populated state matches SQLite.
       assertParity();
 
-      // 2. Simulate pre-upgrade rows (default_summary_json = NULL):
-      // COALESCE fallback preserves parity before backfill, then 64-row paged backfill converges to zero pending rows.
+      // 2. Simulate pre-upgrade rows (default_summary_json = NULL). Default/workspace reads
+      // fail closed until the production management entry drains the bounded pages.
       await withPostgresTransaction(
         pgFixture.pool,
         async (client) => {
@@ -743,8 +746,26 @@ if (!isMainThread) {
         },
         scope,
       );
+      pgReader.withSession((pgQueries) => {
+        assert.throws(() => pgQueries.readEventSummaries(0, 200), { code: "projection_pending" });
+        assert.throws(() => pgQueries.readEventSummaries(0, 200, { taskIds: ["task_alpha"] }), {
+          code: "projection_pending",
+        });
+      });
+
+      await backfillPgDefaultEventSummaries(pgFixture.pool, scope, repoId);
       assertParity();
 
+      await withPostgresTransaction(
+        pgFixture.pool,
+        async (client) => {
+          await client.query(
+            "UPDATE ha_events SET default_summary_json = NULL WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4",
+            [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
+          );
+        },
+        scope,
+      );
       const page1 = await withPostgresTransaction(
         pgFixture.pool,
         (client) => backfillPgDefaultEventSummariesPage(client, scope, repoId),
@@ -808,6 +829,10 @@ if (!isMainThread) {
         scope,
       );
       assert.equal(invalidated.rows[0].default_summary_json, null);
+      pgReader.withSession((pgQueries) => {
+        assert.throws(() => pgQueries.readEventSummaries(0, 200), { code: "projection_pending" });
+      });
+      await backfillPgDefaultEventSummaries(pgFixture.pool, scope, repoId);
       pgReader.withSession((pgQueries) => {
         const refreshed = pgQueries
           .readEventSummaries(0, 200)
@@ -922,7 +947,7 @@ if (!isMainThread) {
       const tailTraceSmall = await tracePgliteProbe("event-bytes", 200, "event-tail");
       const tailTraceLarge = await tracePgliteProbe("event-bytes", 2000, "event-tail");
       const tailEventSelects = tailTraceLarge.warmStatements.filter((stmt) =>
-        stmt.sql.includes("COALESCE(default_summary_json, event_json)"),
+        stmt.sql.includes("SELECT default_summary_json AS summary_json"),
       );
       assert.equal(tailEventSelects.length, 1, "history event-tail must read ha_events summaries once per call");
       assert.equal(tailTraceLarge.counts.sqlResultBytes, tailTraceSmall.counts.sqlResultBytes);

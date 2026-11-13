@@ -2,7 +2,7 @@ import {
   storageReadPolicy,
   validateStorageReadWindow,
 } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
-import { assertPgEventReadIndexReady } from "./pg-event-read-index-migration.ts";
+import { assertPgEventReadIndexReady, pgDefaultEventSummaryGate } from "./pg-event-read-index-migration.ts";
 import { assertPgProjectionSchemaVersion } from "./pg-projection-schema.ts";
 import type { AgentRuntimeEventV1, CanonicalEventV1 } from "@harness-anything/kernel";
 import { normalizeHistoricalEvent } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";
@@ -245,10 +245,11 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
           const taskIds = [...new Set(fields.taskIds)].filter((taskId) => taskId.length > 0);
           if (taskIds.length === 0) return { ...cut, events: [], hasMore: false };
           await assertPgEventReadIndexReady(client, claims, repoId);
+          await pgDefaultEventSummaryGate(client, claims, repoId);
           const selected: CanonicalEventSummary[] = [];
           for (const taskId of taskIds) {
             const result = await client.query<{ summary_json: string }>(
-              `SELECT COALESCE(default_summary_json, event_json) AS summary_json
+              `SELECT default_summary_json AS summary_json
                FROM ha_events
                WHERE tenant_id = $1 AND project_id = $2 AND repo_id = $3 AND policy_epoch = $4
                  AND event_type <> 'ci_run_observed'
@@ -332,8 +333,9 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
           };
         }
         await assertPgEventReadIndexReady(client, claims, repoId);
+        await pgDefaultEventSummaryGate(client, claims, repoId);
         const result = await client.query<{ summary_json: string }>(
-          `SELECT COALESCE(default_summary_json, event_json) AS summary_json
+          `SELECT default_summary_json AS summary_json
            FROM ha_events
            WHERE tenant_id = $1 AND project_id = $2 AND repo_id = $3 AND policy_epoch = $4
              AND event_type <> 'ci_run_observed'

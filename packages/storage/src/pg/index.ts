@@ -20,6 +20,11 @@ export type {
   PgProjectionScope,
 } from "./pg-task-event-materialize.ts";
 export { backfillPgArtifactDocuments } from "./pg-artifact-timeline.ts";
+export {
+  backfillPgDefaultEventSummaries,
+  backfillPgDefaultEventSummariesPage,
+  pgDefaultEventSummaryGate,
+} from "./pg-event-read-index-migration.ts";
 export { createPgTaskProjectionSource } from "./pg-task-source.ts";
 export type { PgProjectionCut, PgTaskProjectionSource, PgTaskProjectionSourceOptions } from "./pg-task-source.ts";
 export { createPgTaskQueryReader } from "./pg-task-query-reader.ts";

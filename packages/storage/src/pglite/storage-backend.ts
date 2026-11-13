@@ -4,7 +4,7 @@ import { POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS, POSTGRES_EVENT_LEDGER_TABLES }
 import type { PostgresAppendHooks } from "../postgres/pg-event-store.ts";
 import { backfillPgDecisionSearchPage } from "../pg/pg-decision-search.ts";
 import { backfillPgRelationFreshnessPage } from "../pg/pg-relation-freshness.ts";
-import { contractPgEventSummaryIndex } from "../pg/pg-event-read-index-migration.ts";
+import { backfillPgDefaultEventSummaries, contractPgEventSummaryIndex } from "../pg/pg-event-read-index-migration.ts";
 import { ensurePgProjectionSchema } from "../pg/pg-projection-schema.ts";
 import { backfillPgArtifactDocuments } from "../pg/pg-artifact-timeline.ts";
 import { maintainPgRelationCycleAuditPage } from "../pg/pg-relation-cycle-audit.ts";
@@ -117,6 +117,7 @@ async function initializeSchema(
     );
     if (processed === 0) break;
   }
+  await backfillPgDefaultEventSummaries(pool, scope, repoId);
   // PGlite has exclusive schema ownership. Serving PostgreSQL contracts on its schema-owner
   // connection, using CONCURRENTLY outside transactions after every scope's page job commits.
   await withPostgresTransaction(pool, (client) => contractPgEventSummaryIndex(client, { indexBuild: "isolated" }));

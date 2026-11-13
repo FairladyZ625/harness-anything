@@ -10,6 +10,7 @@ import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixt
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import { createPgTaskQueryReader } from "../../src/pg/pg-task-query-reader.ts";
 import { createPgTaskProjectionSource } from "../../src/pg/pg-task-source.ts";
+import { backfillPgDefaultEventSummaries } from "../../src/pg/pg-event-read-index-migration.ts";
 import { ensurePgProjectionSchema } from "../../src/pg/pg-projection-schema.ts";
 import { rebuildPgProjection } from "../../src/pg/pg-task-event-materialize.ts";
 import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
@@ -85,6 +86,7 @@ test("PG query edge inputs retain the SQLite contract", async (t) => {
           );
         }
       });
+      await backfillPgDefaultEventSummaries(pool, scope, repoId);
     };
 
     await t.test("historical task, schedule, settings and vertical outputs retain accepted fields", async (t) => {
