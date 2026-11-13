@@ -11,8 +11,18 @@ export const runtimeInstanceSchema = Object.freeze({
     name: { type: "string" as const, minLength: 1, description: "Operator-facing instance name." },
     kindId: { type: "string" as const, enum: runtimeKindIds, description: "Built-in runtime adapter kind." },
     enabled: { type: "boolean" as const, description: "Whether this instance is enabled." },
+    credentialSource: {
+      type: "string" as const,
+      enum: ["operator", "instance"] as const,
+      description: "Whether a subscription instance inherits operator credentials or owns an isolated login.",
+    },
+    availableModels: {
+      type: "array" as const,
+      items: { type: "string" as const },
+      description: "Models observed in this runtime instance's own credential environment.",
+    },
   },
-  required: ["instanceId", "name", "kindId", "enabled"],
+  required: ["instanceId", "name", "kindId", "enabled", "credentialSource"],
   additionalProperties: true,
 });
 

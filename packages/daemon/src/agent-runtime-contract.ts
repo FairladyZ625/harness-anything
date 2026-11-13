@@ -34,8 +34,10 @@ interface AgentRuntimeInstanceCommonDto {
   readonly installationId: string;
   readonly providerId: string;
   readonly models: readonly string[];
+  readonly availableModels?: readonly string[];
   readonly defaultModel: string;
   readonly enabled: boolean;
+  readonly credentialSource: "operator" | "instance";
   readonly permissionMode: "bypass" | "workspace-write" | "read-only" | null;
   readonly mcpPolicy?: "disabled" | "inherit" | null;
   readonly authMode: "subscription" | "api-key";
@@ -474,8 +476,10 @@ function validInstance(value: unknown): value is AgentRuntimeInstanceDto {
         "installationId",
         "providerId",
         "models",
+        "availableModels",
         "defaultModel",
         "enabled",
+        "credentialSource",
         "permissionMode",
         "configuration",
         "authMode",
@@ -489,9 +493,14 @@ function validInstance(value: unknown): value is AgentRuntimeInstanceDto {
     Array.isArray(value.models) &&
     value.models.length > 0 &&
     value.models.every((item) => typeof item === "string" && item.length > 0) &&
+    (value.availableModels === undefined ||
+      (Array.isArray(value.availableModels) &&
+        value.availableModels.length > 0 &&
+        value.availableModels.every((item) => typeof item === "string" && item.length > 0))) &&
     typeof value.defaultModel === "string" &&
     value.models.includes(value.defaultModel) &&
     typeof value.enabled === "boolean" &&
+    ["operator", "instance"].includes(String(value.credentialSource)) &&
     (value.permissionMode === null ||
       ["bypass", "workspace-write", "read-only"].includes(String(value.permissionMode))) &&
     (value.mcpPolicy === undefined || value.mcpPolicy === null || isRuntimeMcpPolicy(value.mcpPolicy)) &&

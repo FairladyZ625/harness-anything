@@ -14,6 +14,8 @@ export type RuntimeInstanceAuth =
   | { readonly mode: "subscription" }
   | { readonly mode: "api-key"; readonly credentialRef: string };
 
+export type RuntimeCredentialSource = "operator" | "instance";
+
 export type HostingCredentialRefs = Readonly<{ readonly github?: string; readonly gitlab?: string }>;
 
 export interface RuntimeInstanceCommon {
@@ -24,8 +26,11 @@ export interface RuntimeInstanceCommon {
   readonly installationIdentity?: "path-entry/v1";
   readonly providerId: string;
   readonly models: readonly string[];
+  /** Account catalog observed in this instance's own environment; absent until probed. */
+  readonly availableModels?: readonly string[];
   readonly defaultModel: string;
   readonly enabled: boolean;
+  readonly credentialSource: RuntimeCredentialSource;
   readonly permissionMode?: RuntimePermissionMode;
   readonly mcpPolicy?: RuntimeMcpPolicy;
   readonly isolationState: RuntimeIsolationState;

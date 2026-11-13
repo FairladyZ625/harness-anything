@@ -33,6 +33,7 @@ import {
   isRuntimeKindId,
   runtimeKindForId,
   runtimeKindIds,
+  supportsRuntimeSubscriptionMultiAccountIsolation,
   type RuntimeProviderDeclaration,
 } from "./runtime-inventory.ts";
 
@@ -56,7 +57,10 @@ export type FlatRuntimeInstanceConfig = Omit<RuntimeInstanceCommon, "schemaVersi
   readonly baseUrl?: string;
 };
 
-export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
+export function runtimeInstanceConfig(
+  value: unknown,
+  platform: NodeJS.Platform = process.platform,
+): RuntimeInstanceConfig {
   if (!isRuntimeInstanceRecord(value))
     throw runtimeInstanceError("invalid_runtime_instance", "Runtime instance must be an object.");
   const legacy = value.schemaVersion === 1,
@@ -85,8 +89,10 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
           "installationIdentity",
           "providerId",
           "models",
+          "availableModels",
           "defaultModel",
           "enabled",
+          "credentialSource",
           "permissionMode",
           "mcpPolicy",
           "isolationState",
@@ -143,13 +149,35 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
       `Default model ${defaultModel} is not in the instance model set. Supported models: ${models.join(", ")}.`,
     );
   const kindId = String(value.kindId) as RuntimeInstanceKind,
+    credentialSource =
+      value.credentialSource === undefined || value.credentialSource === "operator"
+        ? ("operator" as const)
+        : value.credentialSource === "instance"
+          ? ("instance" as const)
+          : null;
+  if (!credentialSource)
+    throw runtimeInstanceError("invalid_runtime_credential_source", "credentialSource must be operator or instance.");
+  if (credentialSource === "instance" && auth.mode !== "subscription")
+    throw runtimeInstanceError(
+      "invalid_runtime_credential_source",
+      "Instance credentials are available only for subscription runtime instances.",
+    );
+  if (credentialSource === "instance" && !supportsRuntimeSubscriptionMultiAccountIsolation(kindId, platform))
+    throw runtimeInstanceError(
+      "runtime_instance_isolation_unsupported",
+      `Independent subscription credentials are not supported for ${kindId} on ${platform}.`,
+    );
+  if (credentialSource === "instance" && value.isolationState !== undefined && value.isolationState !== "enforced")
+    throw runtimeInstanceError("invalid_runtime_isolation", "Instance credentials require enforced isolation.");
+  const availableModels = value.availableModels === undefined ? undefined : normalizeModels(value.availableModels),
+    instanceIsolation = credentialSource === "instance" ? "enforced" : value.isolationState,
     permissionMode = runtimePermissionMode(value.permissionMode, kindId),
     mcpPolicy = runtimeMcpPolicy(value.mcpPolicy, kindId),
     apiKeyIsolation = "apiKeyIsolation" in declaration.auth ? declaration.auth.apiKeyIsolation : undefined,
     subscriptionIsolation =
       "subscriptionIsolation" in declaration.auth ? declaration.auth.subscriptionIsolation : undefined,
     isolationState = runtimeIsolationState(
-      value.isolationState ?? (auth.mode === "api-key" ? apiKeyIsolation : subscriptionIsolation),
+      instanceIsolation ?? (auth.mode === "api-key" ? apiKeyIsolation : subscriptionIsolation),
       kindId,
     );
   if (auth.mode === "api-key" && apiKeyIsolation && isolationState !== apiKeyIsolation)
@@ -173,8 +201,10 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
     ...(value.installationIdentity === "path-entry/v1" ? { installationIdentity: "path-entry/v1" as const } : {}),
     providerId: identifier(value.providerId, "providerId"),
     models,
+    ...(availableModels === undefined ? {} : { availableModels }),
     defaultModel,
     enabled,
+    credentialSource,
     ...(permissionMode ? { permissionMode } : {}),
     ...(mcpPolicy ? { mcpPolicy } : {}),
     isolationState,
@@ -420,6 +450,7 @@ export function needsRuntimeInstanceNormalization(value: unknown): boolean {
       (typeof value.kindId === "string" && value[value.kindId] === undefined) ||
       value.reasoningEffort !== undefined ||
       value.baseUrl !== undefined ||
+      value.credentialSource === undefined ||
       value.permissionMode === undefined ||
       value.isolationState === undefined)
   );

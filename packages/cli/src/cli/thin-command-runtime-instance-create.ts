@@ -89,6 +89,7 @@ export function parseRuntimeInstanceCreate(
       ...(flags.one.get("--permission-mode") ? { permissionMode: flags.one.get("--permission-mode") } : {}),
       ...(flags.one.get("--mcp-policy") ? { mcpPolicy: flags.one.get("--mcp-policy") } : {}),
       ...(flags.one.get("--isolation") ? { isolationState: flags.one.get("--isolation") } : {}),
+      ...(flags.one.get("--credential-source") ? { credentialSource: flags.one.get("--credential-source") } : {}),
       ...kindConfig,
       authMode,
       ...(credentialRef ? { credentialRef } : {}),

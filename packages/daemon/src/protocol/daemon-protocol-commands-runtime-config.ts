@@ -573,6 +573,13 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         { pathKind: "non-path", enum: ["enforced", "operator-environment"] },
       ),
       cliInput(
+        "--credential-source",
+        "single",
+        false,
+        { code: "invalid_runtime_credential_source" },
+        { pathKind: "non-path", enum: ["operator", "instance"] },
+      ),
+      cliInput(
         "--effort",
         "single",
         false,
@@ -819,6 +826,13 @@ export const runtimeConfigProtocolCommands = Object.freeze([
           code: "invalid_runtime_isolation",
         },
         { pathKind: "non-path", enum: ["enforced", "operator-environment"] },
+      ),
+      cliInput(
+        "--credential-source",
+        "single",
+        false,
+        { code: "invalid_runtime_credential_source" },
+        { pathKind: "non-path", enum: ["operator", "instance"] },
       ),
       cliInput("--enable", "boolean", false, {
         code: "invalid_field",

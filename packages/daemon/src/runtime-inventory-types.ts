@@ -20,6 +20,8 @@ export interface RuntimeProviderDeclaration {
   readonly executable: {
     /** Bare command name resolved through PATH on every platform. */
     readonly command: string;
+    /** Native CLI used for account operations when the runtime executable is an ACP adapter. */
+    readonly credentialCommand?: string;
     /** Additional executable entry paths, probed after PATH only on the declared platform. */
     readonly bundledEntries?: Readonly<Partial<Record<NodeJS.Platform, readonly string[]>>>;
     readonly configDirectory: string;
@@ -85,7 +87,7 @@ export interface RuntimeProviderDeclaration {
     /** The provider's own sign-in argv per action, for kinds whose CLI exposes a
      * top-level `login`/`logout` rather than `auth login`. Absent keeps the
      * `auth <action>` default. */
-    readonly commands?: Readonly<Record<"login" | "logout", readonly string[]>>;
+    readonly commands?: Readonly<Partial<Record<"login" | "logout", readonly string[]>>>;
     /** ACP agents delegate authentication to the host: the client sends the key in
      * `authenticate`'s `_meta.api_key`. API-key instances carry the resolved secret on
      * the launch manifest; subscription instances read this TOML key inside the

@@ -30,6 +30,7 @@ export function parseRuntimeInstanceUpdate(
     !flags.one.has("--mcp-policy") &&
     !flags.booleans.has("--clear-mcp-policy") &&
     !flags.one.has("--isolation") &&
+    !flags.one.has("--credential-source") &&
     !flags.booleans.has("--fast") &&
     !enable &&
     !disable
@@ -37,7 +38,7 @@ export function parseRuntimeInstanceUpdate(
     return rejected(
       "invalid_field",
       "Runtime instance update requires --name, --installation, --model, --default-model, " +
-        "--base-url, --effort, --web-search, --permission-mode, --mcp-policy, --clear-mcp-policy, --isolation, --fast, --enable, --disable, --api-key-stdin, or --api-key-file.",
+        "--base-url, --effort, --web-search, --permission-mode, --mcp-policy, --clear-mcp-policy, --isolation, --credential-source, --fast, --enable, --disable, --api-key-stdin, or --api-key-file.",
       json,
     );
   return accepted(
@@ -63,6 +64,7 @@ export function parseRuntimeInstanceUpdate(
           ? { mcpPolicy: "" }
           : {}),
       ...(flags.one.get("--isolation") ? { isolationState: flags.one.get("--isolation") } : {}),
+      ...(flags.one.get("--credential-source") ? { credentialSource: flags.one.get("--credential-source") } : {}),
       ...(flags.booleans.has("--fast") ? { fast: true } : {}),
       ...(enable || disable ? { enabled: enable } : {}),
     },

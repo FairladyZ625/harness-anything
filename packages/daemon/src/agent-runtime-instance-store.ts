@@ -181,14 +181,18 @@ export function openRuntimeInstanceStore(input: {
   ): RuntimeInstanceConfig {
     const witnessed = input.discover(),
       installationId = resolveRuntimeInstallation(candidate.kindId, candidate.installationId, witnessed),
-      config = runtimeInstanceConfig({
-        ...candidate,
-        installationId,
-        installationIdentity: "path-entry/v1",
-      } as RuntimeInstanceConfig),
+      config = runtimeInstanceConfig(
+        {
+          ...candidate,
+          installationId,
+          installationIdentity: "path-entry/v1",
+        } as RuntimeInstanceConfig,
+        platform,
+      ),
       instances = read();
     if (instances.some(({ instanceId }) => instanceId === config.instanceId))
       throw runtimeInstanceError("runtime_instance_exists", `Runtime instance ${config.instanceId} already exists.`);
+    assertOperatorInstanceUnique(config, instances);
     const installation = witnessed.find(({ installationId: witnessedId }) => witnessedId === config.installationId);
     if (!installation || installation.kindId !== config.kindId)
       throw runtimeInstanceError(
@@ -196,6 +200,28 @@ export function openRuntimeInstanceStore(input: {
         `Runtime installation ${config.installationId} is not currently witnessed for ${config.kindId}.`,
       );
     return config;
+  }
+  function assertOperatorInstanceUnique(
+    config: RuntimeInstanceConfig,
+    instances: readonly RuntimeInstanceConfig[],
+  ): void {
+    if (
+      config.enabled &&
+      config.auth.mode === "subscription" &&
+      config.credentialSource === "operator" &&
+      instances.some(
+        (entry) =>
+          entry.instanceId !== config.instanceId &&
+          entry.enabled &&
+          entry.auth.mode === "subscription" &&
+          entry.credentialSource === "operator" &&
+          entry.installationId === config.installationId,
+      )
+    )
+      throw runtimeInstanceError(
+        "runtime_operator_instance_exists",
+        `Installation ${config.installationId} already has an enabled operator-credential subscription instance.`,
+      );
   }
   function commitCreate(config: RuntimeInstanceConfig): RuntimeInstanceConfig {
     if (config.isolationState === "enforced") ensureStateRoot(config);
@@ -726,6 +752,7 @@ export function openRuntimeInstanceStore(input: {
           models,
           defaultModel,
           enabled: true,
+          ...(action.credentialSource !== undefined ? { credentialSource: action.credentialSource } : {}),
           ...(action.permissionMode !== undefined ? { permissionMode: action.permissionMode } : {}),
           ...(action.mcpPolicy !== undefined ? { mcpPolicy: action.mcpPolicy } : {}),
           ...(action.isolationState !== undefined ? { isolationState: action.isolationState } : {}),
@@ -855,6 +882,7 @@ export function openRuntimeInstanceStore(input: {
         hasPermission = action.permissionMode !== undefined,
         hasMcpPolicy = action.mcpPolicy !== undefined,
         hasIsolation = action.isolationState !== undefined,
+        hasCredentialSource = action.credentialSource !== undefined,
         hasFast = action.fast !== undefined,
         hasWebSearch = action.webSearch !== undefined,
         hasBaseUrl = action.baseUrl !== undefined,
@@ -871,6 +899,7 @@ export function openRuntimeInstanceStore(input: {
         !hasPermission &&
         !hasMcpPolicy &&
         !hasIsolation &&
+        !hasCredentialSource &&
         !hasFast &&
         !hasWebSearch &&
         !hasBaseUrl &&
@@ -933,27 +962,41 @@ export function openRuntimeInstanceStore(input: {
           "invalid_runtime_model",
           `Default model ${defaultModel} is not in the instance model set. Supported models: ${models.join(", ")}.`,
         );
-      const updated = runtimeInstanceConfig({
-        ...current,
-        name: hasName ? action.name : current.name,
-        installationId,
-        ...(hasInstallation ? { installationIdentity: "path-entry/v1" } : {}),
-        models,
-        defaultModel,
-        enabled,
-        ...(hasPermission ? { permissionMode: action.permissionMode } : {}),
-        ...(hasMcpPolicy
-          ? {
-              mcpPolicy:
-                String(action.mcpPolicy).trim() === ""
-                  ? undefined
-                  : runtimeMcpPolicy(String(action.mcpPolicy).trim(), current.kindId),
-            }
-          : {}),
-        ...(hasIsolation ? { isolationState: action.isolationState } : {}),
-        ...kindConfig,
-        ...(hasCredential ? { auth: { mode: "api-key", credentialRef: action.credentialRef } } : {}),
-      });
+      const credentialSource = hasCredentialSource ? action.credentialSource : current.credentialSource,
+        isolationState = hasIsolation
+          ? action.isolationState
+          : hasCredentialSource && credentialSource === "instance"
+            ? "enforced"
+            : current.isolationState;
+      const updated = runtimeInstanceConfig(
+        {
+          ...current,
+          name: hasName ? action.name : current.name,
+          installationId,
+          ...(hasInstallation ? { installationIdentity: "path-entry/v1" } : {}),
+          models,
+          defaultModel,
+          enabled,
+          credentialSource,
+          ...(hasPermission ? { permissionMode: action.permissionMode } : {}),
+          ...(hasMcpPolicy
+            ? {
+                mcpPolicy:
+                  String(action.mcpPolicy).trim() === ""
+                    ? undefined
+                    : runtimeMcpPolicy(String(action.mcpPolicy).trim(), current.kindId),
+              }
+            : {}),
+          isolationState,
+          ...kindConfig,
+          ...(hasCredential ? { auth: { mode: "api-key", credentialRef: action.credentialRef } } : {}),
+        },
+        platform,
+      );
+      assertOperatorInstanceUnique(
+        updated,
+        read().filter((entry) => entry.instanceId !== current.instanceId),
+      );
       const finish = () => {
         if (updated.isolationState === "enforced") ensureStateRoot(updated);
         persist(read().map((entry) => (entry.instanceId === current.instanceId ? updated : entry)));
@@ -1159,7 +1202,7 @@ export function openRuntimeInstanceStore(input: {
       Object.keys(value).some((key) => !["schema", "instances"].includes(key))
     )
       throw runtimeInstanceError("invalid_runtime_instance_store", "Runtime instance metadata is invalid.");
-    const normalized = value.instances.map((entry) => runtimeInstanceConfig(entry)),
+    const normalized = value.instances.map((entry) => runtimeInstanceConfig(entry, platform)),
       requiresInstallationMigration = normalized.some((config) => config.installationIdentity !== "path-entry/v1"),
       migrated = requiresInstallationMigration
         ? migrateLegacyInstallationIdentities(normalized, witnessed ?? input.discover())
@@ -1219,7 +1262,7 @@ export function openRuntimeInstanceStore(input: {
       if (config.auth.mode === "subscription" || !existsSync(configPath))
         writeCodexConfig(configPath, config, undefined, undefined, platform);
     }
-    if (config.auth.mode === "subscription") {
+    if (config.auth.mode === "subscription" && config.credentialSource === "operator") {
       const authFile = providerAuthFile(config.kindId),
         shared = sharedProviderDirectory(input.env ?? process.env, config.kindId, platform);
       if (authFile && shared) ensureSharedAuthFile(path.join(shared, authFile), path.join(provider, authFile));
