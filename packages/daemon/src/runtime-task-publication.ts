@@ -11,6 +11,7 @@ import type { HostingProvider } from "./hosting-provider.ts";
 import { pushTaskWorkerBranch } from "./runtime-worker-push.ts";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 
 type PullRequestInput = {
   readonly hosting: HostingProvider;
@@ -82,7 +83,7 @@ export async function publishTaskPullRequest(
         ? `${hosting.host === "github.com" ? "https://api.github.com" : `https://${hosting.host}/api/v3`}/repos/${hosting.repository}`
         : `${hosting.apiBaseUrl}/projects/${encodeURIComponent(hosting.projectPath)}`,
     // One budget covers the complete upsert, including duplicate-create reconciliation.
-    signal = AbortSignal.timeout(30_000),
+    signal = AbortSignal.timeout(daemonRuntimePolicy.defaultValue.runtime.taskPublicationTimeoutMs),
     headers = { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" };
   const request = async (url: string, method = "GET", body?: Record<string, unknown>) => {
     const response = await fetch(url, {

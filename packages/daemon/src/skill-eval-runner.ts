@@ -1,4 +1,5 @@
 import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { createHash } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
@@ -18,9 +19,11 @@ import {
   type SkillEvalOutcome,
 } from "@harness-anything/kernel";
 
-const MAX_CASES = 20;
-const MAX_CASE_ID = 64;
-const MAX_INPUT_LENGTH = 20_000;
+const {
+  maxCases: MAX_CASES,
+  maxCaseIdLength: MAX_CASE_ID,
+  maxInputLength: MAX_INPUT_LENGTH,
+} = daemonRuntimePolicy.defaultValue.skillEvaluation;
 
 export type SkillEvalRole = "operator" | "admin" | "reviewer" | "drafter";
 
@@ -281,7 +284,7 @@ export class SkillEvalRunner {
       throw skillEvalRunnerError("INVALID_TRANSITION", "only draft skills may be evaluated");
     const binding = this.#options.binding;
     if (!binding) throw skillEvalRunnerError("EVAL_RUNTIME_UNAVAILABLE", "no admitted evaluation runtime is available");
-    const threshold = input.threshold ?? 1;
+    const threshold = input.threshold ?? daemonRuntimePolicy.defaultValue.skillEvaluation.defaultThreshold;
     if (!(threshold > 0 && threshold <= 1))
       throw skillEvalRunnerError("VALIDATION_ERROR", "evaluation threshold must be in (0, 1]");
     const cases = [...(await this.#store.listCases(skillId))];

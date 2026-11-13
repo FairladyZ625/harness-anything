@@ -185,18 +185,49 @@ export const cliContractPolicy = {
 export const daemonRuntimePolicy = {
   id: "daemon-runtime",
   ownerRef: "host",
-  unit: "concurrency / bytes / milliseconds",
+  unit: "concurrency / bytes / milliseconds / seconds / characters / cases / pass ratio",
   bounds:
-    "Runtime batches default to two and cap at 32; provider diagnostics cap at 65536 bytes; resume admission and exit notification each wait at most 30000ms; ACP cancellation waits 2000ms before SIGTERM; login-shell snapshots wait at most 4000ms.",
+    "Runtime batches default to two and cap at 32; provider diagnostics cap at 65536 bytes; resume admission and exit notification each wait at most 30000ms; process-table probes wait 10000ms; ACP cancellation waits 2000ms before SIGTERM. Health fallback cooldowns are 30/300 seconds with freezing after five failures for 1800 seconds. Runtime model slots cap at 64 globally and per owner; worktree-head probes wait 5000ms, GitHub credential probes 10000ms, handoff Git calls 30000ms, task publication 30000ms, worker pushes 60000ms and Windows process-group probes 15000ms. Continuation summaries cap at 8192 characters. Terminal snapshots wait 4000ms, buffers retain 1048576/262144/262144 bytes, exit drain waits 5000ms, and activity persists every 10000ms. Skill evaluations default to a full-pass threshold, allow 20 cases with 64-character ids and 20000-character inputs, and admit two model runs.",
   defaultValue: {
     batch: { defaultConcurrency: 2, maximumConcurrency: 32 },
     process: {
       providerErrorLimit: 64 * 1024,
       resumeAdmissionTimeoutMs: 30_000,
       exitNotificationTimeoutMs: 30_000,
+      processTableTimeoutMs: 10_000,
     },
     acp: { cancelGraceMs: 2_000 },
-    terminal: { loginShellSnapshotTimeoutMs: 4_000 },
+    health: {
+      cooldownBaseSeconds: 30,
+      cooldownMaxSeconds: 300,
+      freezeAfter: 5,
+      freezeDurationSeconds: 1_800,
+    },
+    runtime: {
+      modelSlots: { globalCapacity: 64, perOwnerCapacity: 64 },
+      currentWorktreeHeadTimeoutMs: 5_000,
+      githubCredentialProbeTimeoutMs: 10_000,
+      handoffGitTimeoutMs: 30_000,
+      taskPublicationTimeoutMs: 30_000,
+      workerPushTimeoutMs: 60_000,
+      windowsProcessGroupTimeoutMs: 15_000,
+      continuationConclusionLimit: 8_192,
+    },
+    terminal: {
+      loginShellSnapshotTimeoutMs: 4_000,
+      scrollbackLimit: 1024 * 1024,
+      replayLimit: 256 * 1024,
+      subscriberLimit: 256 * 1024,
+      ptyExitDrainMs: 5_000,
+      activityPersistIntervalMs: 10_000,
+    },
+    skillEvaluation: {
+      defaultThreshold: 1,
+      maxCases: 20,
+      maxCaseIdLength: 64,
+      maxInputLength: 20_000,
+      modelSlots: 2,
+    },
   },
   version: 1,
   scope: "daemon runtime, terminal, process-port and skill-evaluation subsystems",
@@ -232,6 +263,61 @@ export const daemonRuntimePolicy = {
     {
       candidateId:
         "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.terminal.loginShellSnapshotTimeoutMs:29a5fa63f10f805cd8161f6d18d680e5",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.process.processTableTimeoutMs:8605b920276aa7094300c0de38d0df26",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.runtime.modelSlots.globalCapacity:364f2690112a4e8422a55a585cd8ea63",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.runtime.modelSlots.perOwnerCapacity:d226771b4061115c649e7eb837e12eec",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.runtime.currentWorktreeHeadTimeoutMs:bd7a3d804fa3439b5eb5e52df87eaecb",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.runtime.githubCredentialProbeTimeoutMs:5ef2d5ea5badd8718f929fed3593349d",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.runtime.handoffGitTimeoutMs:b9000c06635a7b3f06c7b79cd0efa0aa",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.runtime.taskPublicationTimeoutMs:f103e2ab70181b74d2082d3da83eedc9",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.runtime.workerPushTimeoutMs:d84a6604d26fc589bb22167731d37a2e",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.runtime.windowsProcessGroupTimeoutMs:f7c4de0e894a34bae53a0de11bdb3d4d",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.runtime.continuationConclusionLimit:0fac8d885c80aa4024af9490c1eccaa5",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.skillEvaluation.defaultThreshold:3af873bef5b24bf44fa2a15c5de4c990",
       route: "daemonRuntimePolicy",
     },
     {

@@ -8,13 +8,14 @@ import { cmdShellInvocation } from "@harness-anything/storage";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { repositoryBaseRefAsync } from "./schedule-occurrence-workspace.ts";
 import { assertNoIgnoredLedgerDelivery } from "./ignored-ledger-delivery.ts";
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 
 const execFileAsync = promisify(execFile),
   detailLimit = 512,
   // One formatted line per commit; a rebased worker branch carries every recreated commit again.
   workerHistoryLimit = 1 << 20,
   // Bound remote transfers even when publication continues outside the repository write queue.
-  workerPushTimeoutMs = 60_000;
+  workerPushTimeoutMs = daemonRuntimePolicy.defaultValue.runtime.workerPushTimeoutMs;
 
 export type WorkerPushResult =
   | { readonly attempted: false; readonly reason: "not-a-worker-worktree" | "not-task-branch" | "detached" }

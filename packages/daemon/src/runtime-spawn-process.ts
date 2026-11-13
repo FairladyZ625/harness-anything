@@ -242,7 +242,7 @@ async function readPosixProcessRows(): Promise<readonly PosixProcessRow[]> {
     undefined,
     undefined,
     undefined,
-    { timeoutMs: 10_000 },
+    { timeoutMs: daemonRuntimePolicy.defaultValue.process.processTableTimeoutMs },
   );
   return output.split(/\r?\n/u).flatMap((line) => {
     const match = /^\s*(\d+)\s+(\d+)\s+(\d+)/u.exec(line);

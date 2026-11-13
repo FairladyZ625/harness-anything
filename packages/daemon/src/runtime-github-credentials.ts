@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { runProcessExitAsync } from "./process-port.ts";
 import { registerSecretValue } from "./secret-scrub.ts";
 
@@ -32,7 +33,7 @@ export const githubCredentialUnavailableNotice =
 const githubHost = "github.com",
   credentialHelperKey = `credential.https://${githubHost}.helper`,
   credentialHelperCommand = "!gh auth git-credential",
-  tokenProbeTimeoutMs = 10_000;
+  tokenProbeTimeoutMs = daemonRuntimePolicy.defaultValue.runtime.githubCredentialProbeTimeoutMs;
 
 /** The receipt notice for a launch that had no operator login; undefined when the token was applied. */
 export type GithubCredentialNotice = string | undefined;

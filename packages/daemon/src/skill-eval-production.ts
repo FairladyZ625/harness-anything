@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import {
   SkillEvalRunner,
@@ -119,7 +120,9 @@ export function openSkillEvalCatalogStore(userRoot: string): SkillEvalStore {
 }
 
 /** A bounded in-process slot queue is the daemon's default ModelSlotQueue adapter. */
-export function openSkillEvalModelSlotQueue(limit = 2): SkillEvalSlotQueue {
+export function openSkillEvalModelSlotQueue(
+  limit = daemonRuntimePolicy.defaultValue.skillEvaluation.modelSlots,
+): SkillEvalSlotQueue {
   let active = 0;
   const waiters: (() => void)[] = [];
   return {

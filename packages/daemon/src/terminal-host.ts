@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import * as pty from "node-pty";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import {
   writeTerminalAttach,
@@ -30,11 +31,8 @@ import {
 import { resolveContainedPath } from "./contained-path.ts";
 import { terminalEnvironment } from "./terminal-environment.ts";
 
-const scrollbackLimit = 1024 * 1024,
-  replayLimit = 256 * 1024,
-  subscriberLimit = 256 * 1024,
-  ptyExitDrainMs = 5_000,
-  activityPersistIntervalMs = 10_000;
+const { scrollbackLimit, replayLimit, subscriberLimit, ptyExitDrainMs, activityPersistIntervalMs } =
+  daemonRuntimePolicy.defaultValue.terminal;
 type Frame = JsonObject & {
   readonly schema: "terminal-attach-event/v1";
   readonly sessionId: string;

@@ -1454,9 +1454,39 @@ test("daemon runtime Policy owns concrete defaults and consumers have no leaf bu
   const snapshot = loadOntologyClosureSnapshot(repoRoot);
   assert.deepEqual(daemonRuntimePolicy.defaultValue, {
     batch: { defaultConcurrency: 2, maximumConcurrency: 32 },
-    process: { providerErrorLimit: 64 * 1024, resumeAdmissionTimeoutMs: 30_000, exitNotificationTimeoutMs: 30_000 },
+    process: {
+      providerErrorLimit: 64 * 1024,
+      resumeAdmissionTimeoutMs: 30_000,
+      exitNotificationTimeoutMs: 30_000,
+      processTableTimeoutMs: 10_000,
+    },
     acp: { cancelGraceMs: 2_000 },
-    terminal: { loginShellSnapshotTimeoutMs: 4_000 },
+    health: { cooldownBaseSeconds: 30, cooldownMaxSeconds: 300, freezeAfter: 5, freezeDurationSeconds: 1_800 },
+    runtime: {
+      modelSlots: { globalCapacity: 64, perOwnerCapacity: 64 },
+      currentWorktreeHeadTimeoutMs: 5_000,
+      githubCredentialProbeTimeoutMs: 10_000,
+      handoffGitTimeoutMs: 30_000,
+      taskPublicationTimeoutMs: 30_000,
+      workerPushTimeoutMs: 60_000,
+      windowsProcessGroupTimeoutMs: 15_000,
+      continuationConclusionLimit: 8_192,
+    },
+    terminal: {
+      loginShellSnapshotTimeoutMs: 4_000,
+      scrollbackLimit: 1024 * 1024,
+      replayLimit: 256 * 1024,
+      subscriberLimit: 256 * 1024,
+      ptyExitDrainMs: 5_000,
+      activityPersistIntervalMs: 10_000,
+    },
+    skillEvaluation: {
+      defaultThreshold: 1,
+      maxCases: 20,
+      maxCaseIdLength: 64,
+      maxInputLength: 20_000,
+      modelSlots: 2,
+    },
   });
 
   const consumers = [
@@ -1470,10 +1500,20 @@ test("daemon runtime Policy owns concrete defaults and consumers have no leaf bu
     ["packages/daemon/src/runtime-spawn-process.ts", ["daemonRuntimePolicy.defaultValue.process"]],
     ["packages/daemon/src/runtime-spawner.ts", ["daemonRuntimePolicy.defaultValue.process"]],
     ["packages/daemon/src/runtime-worker-acp.ts", ["daemonRuntimePolicy.defaultValue.acp.cancelGraceMs"]],
+    ["packages/daemon/src/runtime-provider-health.ts", ["daemonRuntimePolicy.defaultValue.health"]],
+    ["packages/daemon/src/runtime-continuation-context.ts", ["daemonRuntimePolicy.defaultValue.runtime"]],
+    ["packages/daemon/src/runtime-github-credentials.ts", ["daemonRuntimePolicy.defaultValue.runtime"]],
+    ["packages/daemon/src/runtime-handoff-native.ts", ["daemonRuntimePolicy.defaultValue.runtime"]],
+    ["packages/daemon/src/runtime-task-publication.ts", ["daemonRuntimePolicy.defaultValue.runtime"]],
+    ["packages/daemon/src/runtime-worker-push.ts", ["daemonRuntimePolicy.defaultValue.runtime"]],
+    ["packages/daemon/src/runtime/windows-process-group-port.ts", ["daemonRuntimePolicy.defaultValue.runtime"]],
     [
       "packages/daemon/src/terminal-environment.ts",
       ["daemonRuntimePolicy.defaultValue.terminal.loginShellSnapshotTimeoutMs"],
     ],
+    ["packages/daemon/src/terminal-host.ts", ["daemonRuntimePolicy.defaultValue.terminal"]],
+    ["packages/daemon/src/skill-eval-runner.ts", ["daemonRuntimePolicy.defaultValue.skillEvaluation"]],
+    ["packages/daemon/src/skill-eval-production.ts", ["daemonRuntimePolicy.defaultValue.skillEvaluation"]],
   ];
   for (const [target, references] of consumers) {
     const source = readFileSync(path.join(repoRoot, target), "utf8");
