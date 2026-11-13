@@ -104,6 +104,9 @@ export interface RuntimeProviderDeclaration {
   /** ACP-only declaration overrides. The bridge still discovers capabilities from the
    * session; these fields only describe provider-specific selector spellings and policy. */
   readonly acp?: {
+    /** Whether ACP result inputTokens already includes cache reads and writes. False means the
+     * provider reports cache-exclusive input and the bridge normalizes it at the result boundary. */
+    readonly inputTokensIncludeCache?: boolean;
     readonly effortSelector?: {
       /** Override one provider spelling; plural aliases are accepted for declarations that
        * expose more than one equivalent selector id/category. */

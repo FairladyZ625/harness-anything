@@ -772,6 +772,7 @@ export const runtimeKinds = [
       endpoints: { baseUrl: "none" },
     },
     acp: {
+      inputTokensIncludeCache: false,
       effortSelector: { ids: ["reasoning_effort", "effort"], categories: ["thought_level"] },
     },
     unsettledTurnContinuation: runtimeUnsettledTurnContinuation,

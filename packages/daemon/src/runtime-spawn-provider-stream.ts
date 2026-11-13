@@ -141,7 +141,6 @@ export async function consumeProviderLine(
   // provenance controls whether we append a duplicate record, not whether the frame is
   // meaningful progress for the idle watchdog.
   active.recordProviderProgress?.();
-  observeRuntimeMetrics(active, value);
   let parsed: ProviderFrame;
   try {
     parsed = context.parseProviderFrame(active.kindId, scrubProviderValue(value) as Record<string, unknown>);
@@ -150,6 +149,9 @@ export async function consumeProviderLine(
     context.markProtocolError(active);
     return;
   }
+  // A parser-mapped usage record is the canonical interpretation of this frame. Do not also
+  // account its raw wire usage before applying that mapping; ACP result usage is present in both.
+  observeRuntimeMetrics(active, value, parsed.usage === undefined);
   // ACP session frames carry the provider's advertised model catalog; merge it
   // into the installation catalog cache so refresh surfaces it like a CLI probe.
   if (parsed.observedModels?.length && active.installation)
@@ -214,7 +216,7 @@ function observeStrayWrites(
     });
 }
 
-function observeRuntimeMetrics(active: ActiveRuntime, value: unknown): void {
+function observeRuntimeMetrics(active: ActiveRuntime, value: unknown, includeUsage: boolean): void {
   if (!value || typeof value !== "object" || Array.isArray(value)) return;
   const frame = value as Record<string, unknown>,
     nestedMessage =
@@ -222,7 +224,7 @@ function observeRuntimeMetrics(active: ActiveRuntime, value: unknown): void {
         ? (frame.message as Record<string, unknown>)
         : null,
     usageValue = frame.usage ?? nestedMessage?.usage;
-  if (providerRecord(usageValue)) observeRuntimeUsage(active, usageValue);
+  if (includeUsage && providerRecord(usageValue)) observeRuntimeUsage(active, usageValue);
   const type = String(frame.type ?? frame.event ?? "").toLowerCase();
   if (type === "result" && providerRecord(frame.projection))
     active.rawUsage = { ...active.rawUsage, projection: frame.projection };

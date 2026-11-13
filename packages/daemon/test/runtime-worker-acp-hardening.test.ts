@@ -270,6 +270,242 @@ test("acp worker does not send an effort RPC when the selector is already curren
   }
 });
 
+test("acp worker negotiates effort against the options returned by model selection", async () => {
+  const initialOptions = [
+      {
+        id: "model",
+        category: "model",
+        currentValue: "model-a",
+        options: [{ value: "model-a" }, { value: "model-b" }],
+      },
+      { id: "reasoning_effort", category: "thought_level", currentValue: "high", options: [{ value: "high" }] },
+    ],
+    changedOptions = [
+      {
+        id: "model",
+        category: "model",
+        currentValue: "model-b",
+        options: [{ value: "model-a" }, { value: "model-b" }],
+      },
+      {
+        id: "reasoning_effort",
+        category: "thought_level",
+        currentValue: "low",
+        options: [{ value: "low" }, { value: "max" }],
+      },
+    ],
+    { parent, capture, executablePath } = groupedFixture(
+      { modelConfigOptions: { "model-b": changedOptions } },
+      { configOptions: initialOptions },
+    );
+  try {
+    const { records, append } = collect(),
+      child = launch(executablePath, ["acp"], { HOME: parent, PATH: process.env.PATH }),
+      session = runAcpProviderSession(
+        child,
+        {
+          kindId: "codex-acp",
+          cwd: "/tmp",
+          env: { HOME: parent },
+          prompt: "work",
+          acpApiKey: "test-manifest-key",
+          model: "model-b",
+          effort: "max",
+        },
+        append,
+      );
+    await session.done;
+    assert.equal(await closed(child), 0);
+    assert.deepEqual(
+      capturedEntries(capture)
+        .filter((entry) => entry.configOption !== undefined)
+        .map((entry) => entry.configOption),
+      [
+        { configId: "model", value: "model-b" },
+        { configId: "reasoning_effort", value: "max" },
+      ],
+    );
+    assert.equal(
+      (
+        records.find((record) => (record.event as Record<string, unknown> | undefined)?.type === "acp.effort")
+          ?.event as Record<string, unknown>
+      ).applied,
+      "max",
+    );
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("acp worker follows the model response when its effort selector disappears", async () => {
+  const initialOptions = [
+      {
+        id: "model",
+        category: "model",
+        currentValue: "model-a",
+        options: [{ value: "model-a" }, { value: "model-b" }],
+      },
+      { id: "reasoning_effort", category: "thought_level", currentValue: "high", options: [{ value: "high" }] },
+    ],
+    changedOptions = [
+      {
+        id: "model",
+        category: "model",
+        currentValue: "model-b",
+        options: [{ value: "model-a" }, { value: "model-b" }],
+      },
+    ],
+    { parent, capture, executablePath } = groupedFixture(
+      { modelConfigOptions: { "model-b": changedOptions } },
+      { configOptions: initialOptions },
+    );
+  try {
+    const { records, append } = collect(),
+      child = launch(executablePath, ["acp"], { HOME: parent, PATH: process.env.PATH }),
+      session = runAcpProviderSession(
+        child,
+        {
+          kindId: "codex-acp",
+          cwd: "/tmp",
+          env: { HOME: parent },
+          prompt: "work",
+          acpApiKey: "test-manifest-key",
+          model: "model-b",
+          effort: "high",
+        },
+        append,
+      );
+    await session.done;
+    assert.equal(await closed(child), 0);
+    assert.deepEqual(
+      capturedEntries(capture)
+        .filter((entry) => entry.configOption !== undefined)
+        .map((entry) => entry.configOption),
+      [{ configId: "model", value: "model-b" }],
+    );
+    assert.equal(
+      records.some((record) => (record.event as Record<string, unknown> | undefined)?.type === "acp.effort"),
+      false,
+    );
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("acp worker observes an effort selector first advertised after model selection", async () => {
+  const initialOptions = [
+      {
+        id: "model",
+        category: "model",
+        currentValue: "model-a",
+        options: [{ value: "model-a" }, { value: "model-b" }],
+      },
+    ],
+    changedOptions = [
+      {
+        id: "model",
+        category: "model",
+        currentValue: "model-b",
+        options: [{ value: "model-a" }, { value: "model-b" }],
+      },
+      {
+        id: "reasoning_effort",
+        category: "thought_level",
+        currentValue: "low",
+        options: [{ value: "low" }, { value: "high" }],
+      },
+    ],
+    { parent, capture, executablePath } = groupedFixture(
+      { modelConfigOptions: { "model-b": changedOptions } },
+      { configOptions: initialOptions },
+    );
+  try {
+    const { append } = collect(),
+      child = launch(executablePath, ["acp"], { HOME: parent, PATH: process.env.PATH }),
+      session = runAcpProviderSession(
+        child,
+        {
+          kindId: "codex-acp",
+          cwd: "/tmp",
+          env: { HOME: parent },
+          prompt: "work",
+          acpApiKey: "test-manifest-key",
+          model: "model-b",
+          effort: "high",
+        },
+        append,
+      );
+    await session.done;
+    assert.equal(await closed(child), 0);
+    assert.deepEqual(
+      capturedEntries(capture)
+        .filter((entry) => entry.configOption !== undefined)
+        .map((entry) => entry.configOption),
+      [
+        { configId: "model", value: "model-b" },
+        { configId: "reasoning_effort", value: "high" },
+      ],
+    );
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("acp worker rejects an effort value removed by the selected model", async () => {
+  const initialOptions = [
+      {
+        id: "model",
+        category: "model",
+        currentValue: "model-a",
+        options: [{ value: "model-a" }, { value: "model-b" }],
+      },
+      { id: "reasoning_effort", category: "thought_level", currentValue: "high", options: [{ value: "high" }] },
+    ],
+    changedOptions = [
+      {
+        id: "model",
+        category: "model",
+        currentValue: "model-b",
+        options: [{ value: "model-a" }, { value: "model-b" }],
+      },
+      { id: "reasoning_effort", category: "thought_level", currentValue: "low", options: [{ value: "low" }] },
+    ],
+    { parent, capture, executablePath } = groupedFixture(
+      { modelConfigOptions: { "model-b": changedOptions } },
+      { configOptions: initialOptions },
+    );
+  try {
+    const { records, append } = collect(),
+      child = launch(executablePath, ["acp"], { HOME: parent, PATH: process.env.PATH }),
+      session = runAcpProviderSession(
+        child,
+        {
+          kindId: "codex-acp",
+          cwd: "/tmp",
+          env: { HOME: parent },
+          prompt: "work",
+          acpApiKey: "test-manifest-key",
+          model: "model-b",
+          effort: "high",
+        },
+        append,
+      );
+    await session.done;
+    await closed(child);
+    const error = records.find((record) => (record.event as Record<string, unknown> | undefined)?.type === "acp.error")
+      ?.event as Record<string, unknown> | undefined;
+    assert.match(String(error?.message), /does not offer effort high; offered: low/u);
+    assert.deepEqual(
+      capturedEntries(capture)
+        .filter((entry) => entry.configOption !== undefined)
+        .map((entry) => entry.configOption),
+      [{ configId: "model", value: "model-b" }],
+    );
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("acp worker applies catalog effort value mappings to the advertised selector", async () => {
   const { parent, capture, executablePath } = groupedFixture(
     {},
@@ -353,6 +589,73 @@ test("acp worker continues a declared task turn after command work ends without 
     assert.deepEqual(
       capturedEntries(capture).filter((entry) => entry.prompt !== undefined),
       [],
+    );
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("acp worker ignores settlement and ruling mentions in completed command output", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-acp-worker-")),
+    capture = path.join(parent, "capture.jsonl"),
+    executablePath = writeAcpProviderStub(path.join(parent, "codex-stub"), capture, {
+      unsettledTurn: true,
+      unsettledOutputMentions: true,
+    });
+  writeFileSync(capture, "");
+  try {
+    const { records, append } = collect(),
+      child = launch(executablePath, ["acp"], { HOME: parent, PATH: process.env.PATH }),
+      session = runAcpProviderSession(
+        child,
+        {
+          kindId: "codex-acp",
+          cwd: "/tmp",
+          env: { HOME: parent },
+          prompt: "do work",
+          acpApiKey: "test-manifest-key",
+          unsettledTurnContinuation: { maxContinuations: 1 },
+        },
+        append,
+      );
+    await session.done;
+    assert.equal(await closed(child), 0, JSON.stringify(records));
+    assert.ok(
+      records.some((record) => (record.event as Record<string, unknown> | undefined)?.type === "acp.continuation"),
+    );
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("acp worker treats a completed write to a ruling artifact as settlement evidence", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-acp-worker-")),
+    capture = path.join(parent, "capture.jsonl"),
+    executablePath = writeAcpProviderStub(path.join(parent, "codex-stub"), capture, {
+      unsettledTurn: true,
+      rulingWrite: true,
+    });
+  writeFileSync(capture, "");
+  try {
+    const { records, append } = collect(),
+      child = launch(executablePath, ["acp"], { HOME: parent, PATH: process.env.PATH }),
+      session = runAcpProviderSession(
+        child,
+        {
+          kindId: "codex-acp",
+          cwd: "/tmp",
+          env: { HOME: parent },
+          prompt: "do work",
+          acpApiKey: "test-manifest-key",
+          unsettledTurnContinuation: { maxContinuations: 2 },
+        },
+        append,
+      );
+    await session.done;
+    assert.equal(await closed(child), 0);
+    assert.equal(
+      records.some((record) => (record.event as Record<string, unknown> | undefined)?.type === "acp.continuation"),
+      false,
     );
   } finally {
     rmSync(parent, { recursive: true, force: true });
@@ -496,6 +799,40 @@ test("acp worker stops after the declared continuation limit", async () => {
     assert.deepEqual(
       frames.filter((frame) => frame.type === "acp.continuation").map((frame) => frame.continuation),
       [1, 2],
+    );
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("acp result usage normalizes cache-exclusive input while retaining provider provenance", async () => {
+  const { parent, capture, executablePath } = groupedFixture(
+    { usage: { inputTokens: 80, outputTokens: 20, totalTokens: 100, cachedReadTokens: 3, cachedWriteTokens: 2 } },
+    { configOptions: [] },
+  );
+  try {
+    const { records, append } = collect(),
+      child = launch(executablePath, ["acp"], { HOME: parent, PATH: process.env.PATH }),
+      session = runAcpProviderSession(
+        child,
+        { kindId: "codex-acp", cwd: "/tmp", env: { HOME: parent }, prompt: "work", acpApiKey: "test-manifest-key" },
+        append,
+      );
+    await session.done;
+    assert.equal(await closed(child), 0);
+    assert.deepEqual(
+      (
+        records.find((record) => (record.event as Record<string, unknown> | undefined)?.type === "acp.result")
+          ?.event as Record<string, unknown>
+      ).usage,
+      {
+        input: 85,
+        providerInputTokens: 80,
+        output: 20,
+        total: 100,
+        cacheReadTokens: 3,
+        cacheWriteTokens: 2,
+      },
     );
   } finally {
     rmSync(parent, { recursive: true, force: true });

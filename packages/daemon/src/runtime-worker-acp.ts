@@ -304,9 +304,9 @@ export function runAcpProviderSession(
           })) as Record<string, unknown>);
       sessionId = typeof session.sessionId === "string" ? session.sessionId : manifest.providerSessionId!;
       replayingHistory = false;
-      const modes = acpModes(session),
-        models = acpModels(session),
-        effort = acpEffort(session, runtimeKindForId(manifest.kindId));
+      const modes = acpModes(session);
+      let latestSession = session;
+      const models = acpModels(latestSession);
       event({
         type: "acp.session",
         modes: modes.available,
@@ -318,7 +318,10 @@ export function runAcpProviderSession(
         applied = requested ? pickAcpMode(requested, modes.available) : null;
       if (applied && applied !== modes.current)
         try {
-          await request("session/set_mode", { sessionId, modeId: applied });
+          latestSession = sessionAfterConfigChange(
+            latestSession,
+            await request("session/set_mode", { sessionId, modeId: applied }),
+          );
         } catch (error) {
           consumeKnownError(error);
         }
@@ -332,18 +335,19 @@ export function runAcpProviderSession(
           throw new Error(
             `ACP session does not offer model ${manifest.model}; offered: ${models.available.join(", ")}`,
           );
-        const appliedModel =
-          models.current === manifest.model
-            ? models.current
-            : acpModels(
-                (await request("session/set_config_option", {
-                  sessionId,
-                  configId: models.configId,
-                  value: manifest.model,
-                })) as Record<string, unknown>,
-              ).current;
+        let appliedModel = models.current;
+        if (models.current !== manifest.model) {
+          const changed = await request("session/set_config_option", {
+            sessionId,
+            configId: models.configId,
+            value: manifest.model,
+          });
+          latestSession = sessionAfterConfigChange(latestSession, changed);
+          appliedModel = acpModels(latestSession).current;
+        }
         event({ type: "acp.model", requested: manifest.model, applied: appliedModel });
       }
+      const effort = acpEffort(latestSession, runtimeKindForId(manifest.kindId));
       if (manifest.effort !== undefined && effort.configId === null && effort.required)
         throw new Error(`ACP session does not offer the required effort selector for ${manifest.effort}`);
       if (manifest.effort !== undefined && effort.configId !== null) {
@@ -402,7 +406,7 @@ export function runAcpProviderSession(
           type: "acp.result",
           stopReason,
           ...(finalText ? { finalText } : {}),
-          ...(isRecord(result.usage) ? { usage: acpResultUsage(result.usage) } : {}),
+          ...(isRecord(result.usage) ? { usage: acpResultUsage(result.usage, runtimeKindForId(manifest.kindId)) } : {}),
         });
         const next = steerQueue.shift();
         if (next === undefined) {
@@ -533,10 +537,10 @@ function acpModels(session: Record<string, unknown>): AcpModels {
       ),
     ],
     current:
-      typeof models.currentModelId === "string"
-        ? models.currentModelId
-        : isRecord(modelOption) && typeof modelOption.currentValue === "string"
-          ? modelOption.currentValue
+      isRecord(modelOption) && typeof modelOption.currentValue === "string"
+        ? modelOption.currentValue
+        : typeof models.currentModelId === "string"
+          ? models.currentModelId
           : null,
   };
 }
@@ -568,6 +572,11 @@ function acpEffort(session: Record<string, unknown>, declaration: ReturnType<typ
   };
 }
 
+function sessionAfterConfigChange(current: Record<string, unknown>, response: unknown): Record<string, unknown> {
+  if (!isRecord(response) || !Array.isArray(response.configOptions)) return current;
+  return { ...current, configOptions: response.configOptions };
+}
+
 // A select configOption lists its values flat ({value, name}) or grouped
 // ({group, name, options: [{value, name}]}) — ACP SessionConfigSelectOptions.
 function selectOptionValues(options: unknown): readonly unknown[] {
@@ -592,9 +601,20 @@ function acpUsage(update: Record<string, unknown>): Record<string, unknown> {
   return usage;
 }
 
-function acpResultUsage(usage: Record<string, unknown>): Record<string, unknown> {
+function acpResultUsage(
+  usage: Record<string, unknown>,
+  declaration: ReturnType<typeof runtimeKindForId>,
+): Record<string, unknown> {
   const result: Record<string, unknown> = {};
-  if (typeof usage.inputTokens === "number") result.input = usage.inputTokens;
+  const cachedReadTokens = typeof usage.cachedReadTokens === "number" ? usage.cachedReadTokens : 0,
+    cachedWriteTokens = typeof usage.cachedWriteTokens === "number" ? usage.cachedWriteTokens : 0;
+  if (typeof usage.inputTokens === "number") {
+    result.input =
+      declaration.acp?.inputTokensIncludeCache === false
+        ? usage.inputTokens + cachedReadTokens + cachedWriteTokens
+        : usage.inputTokens;
+    if (declaration.acp?.inputTokensIncludeCache === false) result.providerInputTokens = usage.inputTokens;
+  }
   if (typeof usage.outputTokens === "number") result.output = usage.outputTokens;
   if (typeof usage.totalTokens === "number") result.total = usage.totalTokens;
   if (typeof usage.cachedReadTokens === "number") result.cacheReadTokens = usage.cachedReadTokens;
@@ -617,28 +637,31 @@ function acpToolEvidence(update: Record<string, unknown>): {
   readonly settle: boolean;
   readonly ruling: boolean;
 } {
-  const serialized = JSON.stringify(update),
-    input = isRecord(update.input) ? update.input : null,
+  const input = isRecord(update.input) ? update.input : null,
     rawInput = isRecord(update.rawInput) ? update.rawInput : null,
     standard = isRecord(update.standard) ? update.standard : null,
     standardInput = isRecord(standard?.input) ? standard.input : null,
-    commandText = [
-      update.title,
-      update.name,
-      update.toolName,
-      input?.command,
-      rawInput?.command,
-      standardInput?.command,
-    ]
+    commandText = [input?.command, rawInput?.command, standardInput?.command]
       .filter((value): value is string => typeof value === "string")
       .join(" "),
     command =
       update.kind === "command" ||
       update.kind === "execute" ||
       /(?:\b(?:bash|sh|zsh|shell|terminal|powershell)\b|(?:^|\s)ha\s+(?:task|doc|fact)\b)/iu.test(commandText),
-    settle = settleCommand.test(serialized),
-    ruling = rulingArtifactPath.test(serialized);
+    settle = command && settleCommand.test(commandText),
+    writeTool = ["write", "edit", "delete", "move"].includes(String(update.kind)),
+    destinations = writeTool ? acpToolDestinations(input, rawInput, standardInput) : [],
+    ruling = destinations.some((destination) => rulingArtifactPath.test(destination));
   return { command, settle, ruling };
+}
+
+function acpToolDestinations(...inputs: readonly (Record<string, unknown> | null)[]): string[] {
+  const destinationFields = ["path", "filePath", "file_path", "destination", "to", "newPath"];
+  return inputs.flatMap((input) =>
+    input === null
+      ? []
+      : destinationFields.flatMap((field) => (typeof input[field] === "string" ? [input[field] as string] : [])),
+  );
 }
 
 function recordAcpToolEvidence(
@@ -660,7 +683,7 @@ function recordAcpToolEvidence(
   return {
     commandCompleted: merged.command && status === "completed",
     settle: evidence.settle || previous?.settle === true,
-    ruling: evidence.ruling || previous?.ruling === true,
+    ruling: merged.ruling && status === "completed",
   };
 }
 
