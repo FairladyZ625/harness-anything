@@ -729,6 +729,7 @@ export async function openRepoWriterCell(
           rootDir,
           action,
           entityStore: createEntityStore(store),
+          projection,
           runtimeInstances: input.runtimeInstances?.(),
           replay: existing?.schema === "entity-event/v1" && existing.payload.entityKind === contract.target.kind,
         });

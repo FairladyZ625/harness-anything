@@ -5,7 +5,12 @@ import { validateDaemonQueryPayload } from "@harness-anything/daemon/protocol";
 import { validateTaskDispatchesPayload } from "@harness-anything/daemon/protocol/validation";
 import { relationStates } from "@harness-anything/kernel/browser";
 import { containsSecretLikeKey } from "../api/entity-payload-hygiene.ts";
-import { isRuntimeKindId, runtimeKindForId, runtimeKindIds } from "@harness-anything/daemon/protocol";
+import {
+  isRuntimeKindId,
+  isRuntimeMcpPolicy,
+  runtimeKindForId,
+  runtimeKindIds,
+} from "@harness-anything/daemon/protocol";
 export const HARNESS_PRELOAD_API = "harness";
 export type PreloadApiMethod =
   | (typeof daemonGuiInvokeFacets)[number]["guiBridgeMethod"]
@@ -40,6 +45,7 @@ const runtimeInstanceCreateFields = [
   "models",
   "defaultModel",
   "permissionMode",
+  "mcpPolicy",
   "isolationState",
   ...runtimeKindIds,
   "authMode",
@@ -275,6 +281,10 @@ function runtimeInstanceCreateProblem(value: unknown): string | undefined {
     return 'field "permissionMode" must be bypass, workspace-write, or read-only.';
   if (!declaration.permissions.available && value.permissionMode !== undefined)
     return `field "permissionMode" must be omitted for ${value.kindId}.`;
+  if (value.mcpPolicy !== undefined && !isRuntimeMcpPolicy(value.mcpPolicy))
+    return 'field "mcpPolicy" must be disabled or inherit.';
+  if (declaration.capabilities.mcp !== "supported" && value.mcpPolicy !== undefined)
+    return `field "mcpPolicy" must be omitted for ${value.kindId}.`;
   if (
     value.isolationState !== undefined &&
     !["enforced", "operator-environment"].includes(String(value.isolationState))
@@ -342,6 +352,7 @@ function validRuntimeInstanceUpdate(value: unknown): boolean {
     (value.apiKey === undefined || (typeof value.apiKey === "string" && value.apiKey.trim().length > 0)) &&
     (value.permissionMode === undefined ||
       ["bypass", "workspace-write", "read-only"].includes(String(value.permissionMode))) &&
+    (value.mcpPolicy === undefined || ["", "disabled", "inherit"].includes(String(value.mcpPolicy))) &&
     (value.isolationState === undefined ||
       ["enforced", "operator-environment"].includes(String(value.isolationState))) &&
     [value.name, value.installationId, value.defaultModel].every(

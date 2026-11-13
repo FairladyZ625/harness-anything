@@ -1006,6 +1006,7 @@ test(
           "claude-fable-5",
           "--effort",
           "high",
+          "--strict-mcp-config",
         ],
         spawned = await spawnCli(
           [
@@ -1035,6 +1036,7 @@ test(
       assert.deepEqual(await recordedArgs(codexArgsPath), [
         "exec",
         "--json",
+        "--ignore-user-config",
         "--sandbox",
         "danger-full-access",
         "--model",

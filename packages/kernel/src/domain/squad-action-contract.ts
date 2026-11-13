@@ -251,6 +251,7 @@ const declarations: readonly SquadActionDeclaration[] = Object.freeze([
       field("effort"),
       field("model"),
       field("permissionMode"),
+      field("mcpPolicy"),
       field("cwd", "json-object"),
       field("idempotencyKey"),
     ]),

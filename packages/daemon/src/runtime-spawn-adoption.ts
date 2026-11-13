@@ -26,10 +26,10 @@ import {
   restoreDurableOutputRecords,
 } from "./runtime-spawn-provider-stream.ts";
 import { runtimeBindingForDispatch, type RuntimeBinding, type RuntimeSpawnerInput } from "./runtime-spawn-types.ts";
-import type { RuntimePermissionMode } from "./runtime-permissions.ts";
+import type { RuntimeMcpPolicy, RuntimePermissionMode } from "./runtime-permissions.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import type { RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
-import { isRuntimeKindId } from "./runtime-inventory.ts";
+import { isRuntimeKindId, isRuntimeMcpPolicy } from "./runtime-inventory.ts";
 import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
 import {
   dispatchLifecyclePendingError,
@@ -313,6 +313,7 @@ async function restoreRuntime(
     kindId: metadata.kindId,
     resolvedProviderDirectory: stream.header.resolvedProviderDirectory ?? null,
     permissionMode: metadata.permissionMode,
+    mcpPolicy: metadata.mcpPolicy,
     agent: stream.header.agentId
       ? { id: stream.header.agentId, name: stream.header.agentName ?? stream.header.agentId }
       : null,
@@ -500,6 +501,7 @@ function adoptableMetadata(header: DispatchStreamHeader): {
   readonly dispatchOpId: string;
   readonly kindId: RuntimeInstanceKind;
   readonly permissionMode: RuntimePermissionMode | null;
+  readonly mcpPolicy: RuntimeMcpPolicy | null;
   readonly binding: RuntimeBinding;
   readonly cwd: string;
   readonly prompt: string;
@@ -512,6 +514,7 @@ function adoptableMetadata(header: DispatchStreamHeader): {
     !isRuntimeKindId(header.kindId) ||
     (header.permissionMode !== null &&
       !["bypass", "workspace-write", "read-only"].includes(String(header.permissionMode))) ||
+    (header.mcpPolicy !== undefined && header.mcpPolicy !== null && !isRuntimeMcpPolicy(header.mcpPolicy)) ||
     !isBinding(header.binding) ||
     typeof header.cwd !== "string" ||
     typeof header.prompt !== "string" ||
@@ -524,6 +527,7 @@ function adoptableMetadata(header: DispatchStreamHeader): {
     dispatchOpId: header.dispatchOpId,
     kindId: header.kindId,
     permissionMode: header.permissionMode as RuntimePermissionMode | null,
+    mcpPolicy: (header.mcpPolicy ?? null) as RuntimeMcpPolicy | null,
     binding: runtimeBindingForDispatch(header.binding),
     cwd: header.cwd,
     prompt: header.prompt,

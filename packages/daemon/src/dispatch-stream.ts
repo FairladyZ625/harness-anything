@@ -21,7 +21,7 @@ import {
   type AgentRuntimeEventV1,
   type WriteSource,
 } from "@harness-anything/kernel";
-import type { RuntimePermissionMode } from "./runtime-permissions.ts";
+import type { RuntimeMcpPolicy, RuntimePermissionMode } from "./runtime-permissions.ts";
 import type { RuntimeMetrics } from "./runtime-metrics.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import type { RuntimeResumeHeader } from "./runtime-resume-contract.ts";
@@ -104,6 +104,7 @@ export interface DispatchStreamHeader extends RuntimeResumeHeader {
   readonly dispatchOpId?: string;
   readonly kindId?: string;
   readonly permissionMode?: RuntimePermissionMode | null;
+  readonly mcpPolicy?: RuntimeMcpPolicy | null;
   readonly binding?: { readonly actor: ActorIdentity; readonly source: WriteSource };
   /** Execution host, independent of the request's write provenance. */
   readonly executionOwner?: "local" | { readonly nodeId: string };

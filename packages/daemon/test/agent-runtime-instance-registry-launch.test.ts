@@ -640,6 +640,7 @@ test("subscription launch fails closed without provider-native readiness and nev
       "bypassPermissions",
       "--model",
       "claude-fable-5",
+      "--strict-mcp-config",
     ]);
     assert.deepEqual(launch.env, expectedIsolatedEnvironment(stateRoot, "claude", { PATH: "/runtime/tools" }));
     assert.deepEqual(readinessEnvironment, launch.env);

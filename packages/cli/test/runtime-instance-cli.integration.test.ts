@@ -91,7 +91,19 @@ test("real CLI performs machine runtime instance CRUD through an isolated reside
     });
     assert.equal((listed.instances as Array<Record<string, unknown>>).length, 1);
     assert.equal((shown.instance as Record<string, unknown>).permissionMode, "bypass");
+    assert.equal((shown.instance as Record<string, unknown>).mcpPolicy, "disabled");
     assert.match(renderCliReceipt(shown).text, /permissionMode: bypass/u);
+    assert.match(renderCliReceipt(shown).text, /mcpPolicy: disabled/u);
+    run(root, env, ["runtime", "instance", "update", "cli-isolated", "--mcp-policy", "inherit"]);
+    assert.equal(
+      (run(root, env, ["runtime", "instance", "show", "cli-isolated"]).instance as Record<string, unknown>).mcpPolicy,
+      "inherit",
+    );
+    run(root, env, ["runtime", "instance", "update", "cli-isolated", "--mcp-policy", "disabled"]);
+    assert.equal(
+      (run(root, env, ["runtime", "instance", "show", "cli-isolated"]).instance as Record<string, unknown>).mcpPolicy,
+      "disabled",
+    );
     for (const permissionMode of ["bypass", "read-only", "workspace-write"]) {
       run(root, env, ["runtime", "instance", "update", "cli-isolated", "--permission-mode", permissionMode]);
       const updatedShow = run(root, env, ["runtime", "instance", "show", "cli-isolated"]),

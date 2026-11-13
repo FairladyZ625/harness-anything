@@ -62,11 +62,14 @@ export function createAgentActionCatalog(
             { field: "packageSource", type: "string", required: false },
             { field: "declaration", type: "json-object", required: false },
             { field: "declarationSource", type: "string", required: false },
+            { field: "agentId", type: "string", required: false },
+            { field: "mcpPolicy", type: "string", required: false, enum: ["disabled", "inherit"] },
+            { field: "clearMcpPolicy", type: "boolean", required: false },
             { field: "dryRun", type: "boolean", required: false },
             { field: "expectedVersion", type: "number", required: false },
             { field: "idempotencyKey", type: "string", required: false },
           ],
-          [["packageSource", "declaration"]],
+          [["packageSource", "declaration", "agentId"]],
         ),
         criteria: Object.freeze([
           {

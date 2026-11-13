@@ -660,6 +660,12 @@ it("opts a new handoff session into its managed task worktree", () => {
   expect(payload.handoffEnabled).toBe(true);
   expect(payload).not.toHaveProperty("cwd");
 });
+it("forwards explicit mcpPolicy overrides in dispatch spawn input", () => {
+  const payload = buildDispatchSpawnInput({ ...baseRequest, subject: agentSubject, mcpPolicy: "inherit" }, [
+    codexInstance,
+  ]);
+  expect(payload.mcpPolicy).toBe("inherit");
+});
 it("uses the same handoff action for GUI export, claim and revoke", async () => {
   const handoffAgentRuntime = vi.fn(async () => ({
     schema: "command-receipt/v2",

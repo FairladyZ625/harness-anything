@@ -67,7 +67,8 @@ export function DispatchDialog({
   const [cwdScope, setCwdScope] = useState<"repo-root" | "repo-relative">("repo-root"),
     [cwdPath, setCwdPath] = useState("");
   const [model, setModel] = useState(""),
-    [effort, setEffort] = useState("");
+    [effort, setEffort] = useState(""),
+    [mcpPolicy, setMcpPolicy] = useState<"" | "disabled" | "inherit">("");
   const [preview, setPreview] = useState<AgentDispatchPreview | null>(null),
     [previewing, setPreviewing] = useState(false),
     [previewFailed, setPreviewFailed] = useState(false);
@@ -84,6 +85,7 @@ export function DispatchDialog({
     setCwdPath("");
     setModel("");
     setEffort("");
+    setMcpPolicy("");
     setPreview(null);
     setPreviewing(false);
     setPreviewFailed(false);
@@ -118,6 +120,9 @@ export function DispatchDialog({
     taskId: task!.taskId,
     ...(model ? { model } : {}),
     ...(effort && planeAllowsEffort(instance!.kindId) ? { effort } : {}),
+    ...(mcpPolicy && instance && runtimeKindForId(instance.kindId).capabilities.mcp === "supported"
+      ? { mcpPolicy }
+      : {}),
     dispatchKey: `gui-dispatch-${crypto.randomUUID()}`,
   });
   const submit = () => {
@@ -384,6 +389,22 @@ export function DispatchDialog({
                     }
                     className="control"
                   />
+                </label>
+              )}
+              {runtimeKindForId(instance.kindId).capabilities.mcp === "supported" && (
+                <label className="grid gap-1 ui-micro text-text-muted">
+                  {t("agentRuntime.mcpPolicy")}
+                  <select
+                    data-testid="dispatch-mcp-policy"
+                    aria-label={t("agentRuntime.mcpPolicy")}
+                    value={mcpPolicy}
+                    onChange={(event) => setMcpPolicy(event.target.value as "" | "disabled" | "inherit")}
+                    className="control"
+                  >
+                    <option value="">{t("agentRuntime.mcpPolicyDefault")}</option>
+                    <option value="disabled">{t("agentRuntime.mcpPolicyDisabled")}</option>
+                    <option value="inherit">{t("agentRuntime.mcpPolicyInherit")}</option>
+                  </select>
                 </label>
               )}
             </div>

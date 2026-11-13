@@ -74,7 +74,13 @@ import {
   launchEnvironment,
   providerSubscriptionReadiness,
 } from "./agent-runtime-launch-config.ts";
-import { runtimePermissionMode, type RuntimeIsolationState } from "./runtime-permissions.ts";
+import {
+  resolveRuntimeMcpPolicy,
+  runtimeMcpPolicy,
+  runtimePermissionMode,
+  runtimeSupportsMcpPolicy,
+  type RuntimeIsolationState,
+} from "./runtime-permissions.ts";
 import { applyGithubLaunchCredential } from "./runtime-github-credentials.ts";
 import {
   runtimeAuthArgs,
@@ -406,7 +412,12 @@ export function openRuntimeInstanceStore(input: {
     const model = selectRuntimeModel(config, request.model),
       effort = selectRuntimeEffort(config, request.effort),
       fast = selectRuntimeFast(config, request.fast),
-      permissionMode = runtimePermissionMode(request.permissionMode ?? config.permissionMode, config.kindId);
+      permissionMode = runtimePermissionMode(request.permissionMode ?? config.permissionMode, config.kindId),
+      mcpPolicy = resolveRuntimeMcpPolicy({
+        kindId: config.kindId,
+        dispatchMcpPolicy: request.mcpPolicy,
+        instanceMcpPolicy: config.mcpPolicy,
+      });
     let witnessed = input.discover(),
       installation = findInstallation(config, witnessed);
     if (!installation || !installationEntryMatches(installation)) {
@@ -476,8 +487,9 @@ export function openRuntimeInstanceStore(input: {
         platform,
         request.commandInterceptions,
         nativeInterceptionFiles?.args,
+        mcpPolicy,
       ),
-      definition = definitionSnapshot(config, model, effort, fast),
+      definition = definitionSnapshot(config, model, effort, fast, mcpPolicy),
       // ACP agents take the model through the session handshake (a configOptions selector),
       // so it rides the launch manifest; argv-driven kinds already carry it in `args`.
       acpLaunch =
@@ -525,6 +537,7 @@ export function openRuntimeInstanceStore(input: {
         authMode: config.auth.mode,
         ...(request.providerSessionId ? { providerSessionId: request.providerSessionId } : {}),
         ...(permissionMode ? { permissionMode } : {}),
+        ...(runtimeSupportsMcpPolicy(config.kindId) ? { mcpPolicy } : {}),
         ...(githubCredentialNotice ? { githubCredentialNotice } : {}),
         ...acpLaunch,
       });
@@ -550,6 +563,7 @@ export function openRuntimeInstanceStore(input: {
         authMode: config.auth.mode,
         ...(request.providerSessionId ? { providerSessionId: request.providerSessionId } : {}),
         ...(permissionMode ? { permissionMode } : {}),
+        ...(runtimeSupportsMcpPolicy(config.kindId) ? { mcpPolicy } : {}),
         ...(githubCredentialNotice ? { githubCredentialNotice } : {}),
         ...acpLaunch,
       });
@@ -593,6 +607,7 @@ export function openRuntimeInstanceStore(input: {
       authMode: config.auth.mode,
       ...(request.providerSessionId ? { providerSessionId: request.providerSessionId } : {}),
       ...(permissionMode ? { permissionMode } : {}),
+      ...(runtimeSupportsMcpPolicy(config.kindId) ? { mcpPolicy } : {}),
       ...(githubCredentialNotice ? { githubCredentialNotice } : {}),
       // ACP agents authenticate through the client handshake, so the key rides the
       // launch manifest rather than the provider's environment.
@@ -712,6 +727,7 @@ export function openRuntimeInstanceStore(input: {
           defaultModel,
           enabled: true,
           ...(action.permissionMode !== undefined ? { permissionMode: action.permissionMode } : {}),
+          ...(action.mcpPolicy !== undefined ? { mcpPolicy: action.mcpPolicy } : {}),
           ...(action.isolationState !== undefined ? { isolationState: action.isolationState } : {}),
           ...kindConfig,
           auth,
@@ -750,7 +766,7 @@ export function openRuntimeInstanceStore(input: {
         installations = recorded ?? (live ?? []).map(withoutHostPaths);
       const listed = (instances: readonly RuntimeInstanceSummary[]) => {
         const summary = [
-          "ID\tNAME\tKIND\tMODEL\tENABLED\tAUTH MODE\tLOGIN STATUS\tPERMISSION MODE",
+          "ID\tNAME\tKIND\tMODEL\tENABLED\tAUTH MODE\tLOGIN STATUS\tPERMISSION MODE\tMCP POLICY",
           ...instances.map((instance) =>
             [
               "",
@@ -769,6 +785,8 @@ export function openRuntimeInstanceStore(input: {
               authReadinessLabel(instance.authReadiness),
               "\t",
               `${instance.permissionMode}`,
+              "\t",
+              `${instance.mcpPolicy ?? "unsupported"}`,
               "",
             ].join(""),
           ),
@@ -835,6 +853,7 @@ export function openRuntimeInstanceStore(input: {
         hasDefault = action.defaultModel !== undefined,
         hasEnabled = action.enabled !== undefined,
         hasPermission = action.permissionMode !== undefined,
+        hasMcpPolicy = action.mcpPolicy !== undefined,
         hasIsolation = action.isolationState !== undefined,
         hasFast = action.fast !== undefined,
         hasWebSearch = action.webSearch !== undefined,
@@ -850,6 +869,7 @@ export function openRuntimeInstanceStore(input: {
         !hasDefault &&
         !hasEnabled &&
         !hasPermission &&
+        !hasMcpPolicy &&
         !hasIsolation &&
         !hasFast &&
         !hasWebSearch &&
@@ -861,8 +881,13 @@ export function openRuntimeInstanceStore(input: {
           "invalid_runtime_instance_update",
           [
             "Runtime instance update requires --name, --installation, --model, ",
-            "--default-model, --web-search, --base-url, --effort, --permission-mode, --isolation, --fast, --enable, --disable, or a new API key.",
+            "--default-model, --web-search, --base-url, --effort, --permission-mode, --mcp-policy, --isolation, --fast, --enable, --disable, or a new API key.",
           ].join(""),
+        );
+      if (hasMcpPolicy && !runtimeSupportsMcpPolicy(current.kindId))
+        throw runtimeInstanceError(
+          "invalid_runtime_mcp_policy",
+          `${runtimeKindForId(current.kindId).displayName} does not support host MCP policy configuration.`,
         );
       if (hasBaseUrl && current.kindId === "agy")
         throw runtimeInstanceError(
@@ -917,6 +942,14 @@ export function openRuntimeInstanceStore(input: {
         defaultModel,
         enabled,
         ...(hasPermission ? { permissionMode: action.permissionMode } : {}),
+        ...(hasMcpPolicy
+          ? {
+              mcpPolicy:
+                String(action.mcpPolicy).trim() === ""
+                  ? undefined
+                  : runtimeMcpPolicy(String(action.mcpPolicy).trim(), current.kindId),
+            }
+          : {}),
         ...(hasIsolation ? { isolationState: action.isolationState } : {}),
         ...kindConfig,
         ...(hasCredential ? { auth: { mode: "api-key", credentialRef: action.credentialRef } } : {}),
@@ -951,7 +984,7 @@ export function openRuntimeInstanceStore(input: {
             ...base,
             instance,
             evidence: JSON.stringify(instance),
-            summary: `runtime-instance-show: ${instanceId}\nmodels: ${instance.models.join(", ")}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}`,
+            summary: `runtime-instance-show: ${instanceId}\nmodels: ${instance.models.join(", ")}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}\nmcpPolicy: ${instance.mcpPolicy ?? "unsupported"}`,
           };
         });
       const instance = publicConfig(config, readiness.get(config.instanceId));
@@ -959,7 +992,7 @@ export function openRuntimeInstanceStore(input: {
         ...base,
         instance,
         evidence: JSON.stringify(instance),
-        summary: `runtime-instance-show: ${instanceId}\nmodels: ${instance.models.join(", ")}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}`,
+        summary: `runtime-instance-show: ${instanceId}\nmodels: ${instance.models.join(", ")}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}\nmcpPolicy: ${instance.mcpPolicy ?? "unsupported"}`,
       };
     }
     if (kind === "runtime-instance-delete") {

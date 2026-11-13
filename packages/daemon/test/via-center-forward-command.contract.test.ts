@@ -157,7 +157,8 @@ function candidate(command: Command, input: CliInput): string {
           : "tasks/task-one/artifacts/body.md";
   if (input.name === "--mission-file") return "body.md";
   if (input.name === "--source" && command.id === "task-artifact-add") return "artifact.bin";
-  if (input.name === "--source" && command.id === "agent-install") return "agent.json";
+  if (input.name === "--source" && (command.id === "agent-install" || command.id === "agent-create"))
+    return "agent.json";
   if (input.name === "--source" && command.id === "squad-install") return "squad.json";
   if (input.name === "--source" && command.id === "fact-record") return "test:probe";
   if (input.name === "--kind" && command.id === "vertical-kind-upsert") return kindDeclaration.id;
@@ -515,7 +516,8 @@ function assertDirectActionFields(
   ]);
   for (const [field, value] of Object.entries(jsonWire(inputAction) as Record<string, unknown>)) {
     if (edgeOnly.has(field)) continue;
-    if (descriptor.id === "agent-install" || descriptor.id === "squad-install") continue;
+    if (descriptor.id === "agent-install" || descriptor.id === "agent-create" || descriptor.id === "squad-install")
+      continue;
     assert.deepEqual(outputAction[field], value, `${descriptor.id} lost CLI field ${field}`);
   }
 }

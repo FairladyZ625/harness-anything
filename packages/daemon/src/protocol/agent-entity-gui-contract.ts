@@ -44,10 +44,15 @@ function entityReadEnvelopeErrors(value: unknown, schema: string, fields: readon
     errors.push(`${schema} carries a forbidden credential-shaped key.`);
   return errors;
 }
-function entityReadRowErrors(value: unknown, fields: readonly string[], prefix: string): readonly string[] {
+function entityReadRowErrors(
+  value: unknown,
+  fields: readonly string[],
+  prefix: string,
+  optionalFields: readonly string[] = [],
+): readonly string[] {
   if (!isEntityRecord(value)) return [`${prefix} must be a JSON object.`];
   const errors: string[] = [];
-  for (const field of Object.keys(value).filter((field) => !fields.includes(field)))
+  for (const field of Object.keys(value).filter((field) => !fields.includes(field) && !optionalFields.includes(field)))
     errors.push(`${prefix} field "${field}" is unknown; remove it.`);
   for (const field of fields.filter((field) => !Object.hasOwn(value, field)))
     errors.push(`${prefix} is missing required field "${field}".`);
@@ -57,6 +62,12 @@ function entityReadRowErrors(value: unknown, fields: readonly string[], prefix: 
 }
 const agentGuiRoles = Object.freeze(["worker", "commander", "reviewer"]),
   agentGuiHostAccess = Object.freeze(["isolated", "operator", "bypass"]),
+  agentGuiMcpPolicies = Object.freeze(["disabled", "inherit"]),
+  agentOptionalWireFields = Object.freeze(["mcpPolicy"]),
+  agentMcpPolicyError = (row: Record<string, unknown>, prefix: string): readonly string[] =>
+    Object.hasOwn(row, "mcpPolicy") && row.mcpPolicy !== null && !agentGuiMcpPolicies.includes(String(row.mcpPolicy))
+      ? [`${prefix} mcpPolicy must be null, disabled, or inherit.`]
+      : [],
   agentHostAccessErrors = (row: Record<string, unknown>, prefix: string): readonly string[] =>
     [
       !agentGuiHostAccess.includes(String(row.hostAccess))
@@ -103,12 +114,13 @@ function catalogErrors(
   field: "agents" | "squads",
   rowFields: readonly string[],
   rowChecks: (row: Record<string, unknown>) => readonly string[],
+  optionalRowFields: readonly string[] = [],
 ): readonly string[] {
   const errors = [...entityReadEnvelopeErrors(value, schema, ["schema", "ok", field])];
   if (!isEntityRecord(value) || !Array.isArray(value[field]))
     return [...errors, `${schema} field "${field}" must be an array.`];
   value[field].forEach((row, index) =>
-    errors.push(...catalogRowErrors(row, rowFields, rowChecks, `${field}[${index}]`)),
+    errors.push(...catalogRowErrors(row, rowFields, rowChecks, `${field}[${index}]`, optionalRowFields)),
   );
   return errors;
 }
@@ -117,6 +129,7 @@ function catalogRowErrors(
   rowFields: readonly string[],
   rowChecks: (row: Record<string, unknown>) => readonly string[],
   prefix: string,
+  optionalRowFields: readonly string[] = [],
 ): readonly string[] {
   if (isEntityRecord(row) && Object.hasOwn(row, "state")) {
     const errors = [...entityReadRowErrors(row, degradedCatalogRowFields, prefix)];
@@ -131,7 +144,10 @@ function catalogRowErrors(
       errors.push(`${prefix} degraded rows need an exact non-empty error {code, hint}.`);
     return errors;
   }
-  return [...entityReadRowErrors(row, rowFields, prefix), ...(isEntityRecord(row) ? rowChecks(row) : [])];
+  return [
+    ...entityReadRowErrors(row, rowFields, prefix, optionalRowFields),
+    ...(isEntityRecord(row) ? rowChecks(row) : []),
+  ];
 }
 function detailErrors(
   value: unknown,
@@ -139,13 +155,14 @@ function detailErrors(
   field: "agent" | "squad",
   detailFields: readonly string[],
   rowChecks: (row: Record<string, unknown>) => readonly string[],
+  optionalRowFields: readonly string[] = [],
 ): readonly string[] {
   const errors = [...entityReadEnvelopeErrors(value, schema, ["schema", "ok", field])];
   if (!isEntityRecord(value) || !isEntityRecord(value[field]))
     return [...errors, `${schema} field "${field}" must be an object.`];
   return [
     ...errors,
-    ...entityReadRowErrors(value[field], detailFields, field),
+    ...entityReadRowErrors(value[field], detailFields, field, optionalRowFields),
     ...rowChecks(value[field] as Record<string, unknown>),
   ];
 }
@@ -193,6 +210,7 @@ const agentCatalogRowChecks = (row: Record<string, unknown>): readonly string[] 
       ? "agent catalog row runtimes must be an array of unique {type, model?, effort?} targets."
       : [],
     ...agentHostAccessErrors(row, "agent catalog row"),
+    ...agentMcpPolicyError(row, "agent catalog row"),
     ...agentRetirementErrors(row, "agent catalog row"),
   ].flat();
 const agentDetailChecks = (row: Record<string, unknown>): readonly string[] =>
@@ -218,6 +236,7 @@ const agentDetailChecks = (row: Record<string, unknown>): readonly string[] =>
       ? ["agent detail preset must be null or a non-empty preset id."]
       : [],
     ...agentHostAccessErrors(row, "agent detail"),
+    ...agentMcpPolicyError(row, "agent detail"),
     ...positiveRevision(row),
     ...agentRetirementErrors(row, "agent detail"),
   ].flat();
@@ -235,7 +254,14 @@ const squadDetailChecks = (row: Record<string, unknown>): readonly string[] =>
     ...positiveRevision(row),
   ].flat();
 export function validateAgentEntityCatalog(value: unknown): readonly string[] {
-  return catalogErrors(value, "agent-entity-catalog/v1", "agents", agentCatalogRowFields, agentCatalogRowChecks);
+  return catalogErrors(
+    value,
+    "agent-entity-catalog/v1",
+    "agents",
+    agentCatalogRowFields,
+    agentCatalogRowChecks,
+    agentOptionalWireFields,
+  );
 }
 export function validateAgentSkillCatalog(value: unknown): readonly string[] {
   const errors = [...entityReadEnvelopeErrors(value, "agent-skill-catalog/v1", ["schema", "ok", "skills"])];
@@ -255,7 +281,14 @@ export function validateSquadEntityCatalog(value: unknown): readonly string[] {
   return catalogErrors(value, "squad-entity-catalog/v1", "squads", squadCatalogRowFields, catalogRowChecks);
 }
 export function validateAgentEntityDetail(value: unknown): readonly string[] {
-  return detailErrors(value, "agent-entity-detail/v1", "agent", agentDetailFields, agentDetailChecks);
+  return detailErrors(
+    value,
+    "agent-entity-detail/v1",
+    "agent",
+    agentDetailFields,
+    agentDetailChecks,
+    agentOptionalWireFields,
+  );
 }
 export function validateSquadEntityDetail(value: unknown): readonly string[] {
   return detailErrors(value, "squad-entity-detail/v1", "squad", squadDetailFields, squadDetailChecks);
@@ -358,7 +391,10 @@ function agentDiffFieldErrors(value: unknown, prefix: string): readonly string[]
     return errors;
   }
   errors.push(...entityReadRowErrors(value, ["field", "kind", "from", "to"], prefix));
-  if (!["name", "role", "preset", "instance", "permissionMode"].includes(field) || value.kind !== "changed")
+  if (
+    !["name", "role", "preset", "instance", "permissionMode", "mcpPolicy"].includes(field) ||
+    value.kind !== "changed"
+  )
     errors.push(`${prefix} names an undeclared scalar field or a non-changed kind.`);
   return errors;
 }

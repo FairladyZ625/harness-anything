@@ -7,7 +7,7 @@ import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain
 import { validDispatchLifecycleSummary } from "./protocol/daemon-protocol-validate-relation-query.ts";
 import type { DispatchLifecycleSummary } from "@harness-anything/kernel";
 import type { RuntimeCapabilitySupport } from "./runtime-inventory-types.ts";
-import { runtimeWebSearchModes } from "./runtime-inventory.ts";
+import { isRuntimeMcpPolicy, runtimeWebSearchModes } from "./runtime-inventory.ts";
 import {
   type ActorIdentity,
   type AgentDefinitionSnapshot,
@@ -37,6 +37,7 @@ interface AgentRuntimeInstanceCommonDto {
   readonly defaultModel: string;
   readonly enabled: boolean;
   readonly permissionMode: "bypass" | "workspace-write" | "read-only" | null;
+  readonly mcpPolicy?: "disabled" | "inherit" | null;
   readonly authMode: "subscription" | "api-key";
   readonly authState: OperationalStatus.RuntimeAuthState;
   readonly authReadiness: {
@@ -482,7 +483,7 @@ function validInstance(value: unknown): value is AgentRuntimeInstanceDto {
         "authReadiness",
         "isolationState",
       ],
-      ["hostingCredentialState"],
+      ["hostingCredentialState", "mcpPolicy"],
     ) &&
     value.schemaVersion === 2 &&
     Array.isArray(value.models) &&
@@ -493,6 +494,7 @@ function validInstance(value: unknown): value is AgentRuntimeInstanceDto {
     typeof value.enabled === "boolean" &&
     (value.permissionMode === null ||
       ["bypass", "workspace-write", "read-only"].includes(String(value.permissionMode))) &&
+    (value.mcpPolicy === undefined || value.mcpPolicy === null || isRuntimeMcpPolicy(value.mcpPolicy)) &&
     [value.instanceId, value.name, value.installationId, value.providerId].every(
       (item) => typeof item === "string" && item.length > 0,
     ) &&
@@ -695,7 +697,7 @@ export function isAgentDefinitionSnapshot(value: unknown): value is AgentDefinit
         "baseUrl",
         "authMode",
       ],
-      ["fast", "webSearch"],
+      ["fast", "webSearch", "mcpPolicy"],
     ) &&
     value.schema === "agent-definition-snapshot/v1" &&
     value.configVersion === 1 &&
@@ -707,6 +709,7 @@ export function isAgentDefinitionSnapshot(value: unknown): value is AgentDefinit
     (value.reasoningEffort === null || typeof value.reasoningEffort === "string") &&
     (value.fast === undefined || typeof value.fast === "boolean") &&
     (value.webSearch === undefined || (runtimeWebSearchModes as readonly string[]).includes(String(value.webSearch))) &&
+    (value.mcpPolicy === undefined || isRuntimeMcpPolicy(value.mcpPolicy)) &&
     (value.baseUrl === null || typeof value.baseUrl === "string") &&
     ["subscription", "api-key"].includes(String(value.authMode))
   );

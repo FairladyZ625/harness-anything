@@ -106,7 +106,12 @@ export function renderCliReceipt(
       ...(runtimeSelectionReason(receipt) === null ? [] : [runtimeSelectionReason(receipt)!]),
     ],
     searchLine = runtimeWebSearchLine(receipt),
-    extras = [...(searchLine === null ? [] : [searchLine]), ...warnings.map((warning) => `warning: ${warning}`)];
+    mcpLine = runtimeMcpPolicyLine(receipt),
+    extras = [
+      ...(searchLine === null ? [] : [searchLine]),
+      ...(mcpLine === null ? [] : [mcpLine]),
+      ...warnings.map((warning) => `warning: ${warning}`),
+    ];
   return extras.length ? { ...rendered, text: `${rendered.text}\n${extras.join("\n")}` } : rendered;
 }
 
@@ -117,6 +122,14 @@ function runtimeWebSearchLine(receipt: Record<string, unknown>): string | null {
     configuration = instance !== null && isRecord(instance.configuration) ? instance.configuration : null,
     value = receipt.webSearch ?? configuration?.webSearch;
   return typeof value === "string" && ["disabled", "cached", "live"].includes(value) ? `web search: ${value}` : null;
+}
+
+/** The effective host MCP inheritance policy, in one line. Reads either a dispatch receipt
+ *  (top-level) or an instance receipt (`instance.mcpPolicy`). */
+function runtimeMcpPolicyLine(receipt: Record<string, unknown>): string | null {
+  const instance = isRecord(receipt.instance) ? receipt.instance : null,
+    value = receipt.mcpPolicy ?? instance?.mcpPolicy;
+  return typeof value === "string" && ["disabled", "inherit"].includes(value) ? `mcp policy: ${value}` : null;
 }
 
 /** The dispatch receipt's instance-choice sentence, when the action selected a runtime instance. */

@@ -6,6 +6,7 @@ import { taskDispatchRowsSettled } from "./dispatch-read.ts";
 import { daemonProtocolCommands } from "./protocol/daemon-protocol-commands.ts";
 import type { DaemonTaskDispatchesResult } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
+import { isRuntimeMcpPolicy } from "./runtime-inventory.ts";
 
 export const runtimeBatchDefaultConcurrency = 2,
   runtimeBatchMaxConcurrency = 32;
@@ -46,6 +47,7 @@ export interface RuntimeBatchEntry {
   readonly effort?: string;
   readonly fast?: boolean;
   readonly permissionMode?: string;
+  readonly mcpPolicy?: string;
   readonly prompt?: string;
   readonly mission?: string;
   readonly cwd?: string;
@@ -121,6 +123,7 @@ export function parseRuntimeBatchEntry(value: unknown, index: number): RuntimeBa
     effort = text("effort"),
     fast = record.fast,
     permissionMode = text("permission-mode"),
+    mcpPolicy = text("mcp-policy"),
     cwd = text("cwd"),
     task = text("task");
   if (!instance) throw new Error(`Batch dispatch ${index} requires instance.`);
@@ -134,6 +137,8 @@ export function parseRuntimeBatchEntry(value: unknown, index: number): RuntimeBa
     throw new Error(`Batch dispatch ${index} field fast must be a boolean.`);
   if (permissionMode && !["bypass", "workspace-write", "read-only"].includes(permissionMode))
     throw new Error(`Batch dispatch ${index} permission-mode must be bypass, workspace-write, or read-only.`);
+  if (mcpPolicy && !isRuntimeMcpPolicy(mcpPolicy))
+    throw new Error(`Batch dispatch ${index} mcp-policy must be disabled or inherit.`);
   return {
     instance,
     ...(agent ? { agent } : {}),
@@ -142,6 +147,7 @@ export function parseRuntimeBatchEntry(value: unknown, index: number): RuntimeBa
     ...(effort ? { effort } : {}),
     ...(fast === undefined ? {} : { fast }),
     ...(permissionMode ? { permissionMode } : {}),
+    ...(mcpPolicy ? { mcpPolicy } : {}),
     ...(prompt ? { prompt } : {}),
     ...(mission ? { mission } : {}),
     ...(cwd ? { cwd } : {}),
@@ -162,6 +168,7 @@ export function runtimeBatchSpawnPayload(
     ...(entry.effort ? { effort: entry.effort } : {}),
     ...(entry.fast === undefined ? {} : { fast: entry.fast }),
     ...(entry.permissionMode ? { permissionMode: entry.permissionMode } : {}),
+    ...(entry.mcpPolicy ? { mcpPolicy: entry.mcpPolicy } : {}),
     ...(entry.prompt ? { prompt: entry.prompt } : entry.mission ? { missionName: entry.mission } : {}),
     cwd: entry.cwd && entry.cwd !== "." ? { scope: "repo-relative", path: entry.cwd } : { scope: "repo-root" },
     taskId: entry.task ?? null,

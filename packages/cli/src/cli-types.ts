@@ -10,6 +10,7 @@ export type RuntimeBatchEntry = {
   readonly effort?: string;
   readonly fast?: boolean;
   readonly permissionMode?: string;
+  readonly mcpPolicy?: string;
   readonly prompt?: string;
   readonly mission?: string;
   readonly cwd?: string | RuntimeCwd;
@@ -44,6 +45,7 @@ export type SquadRunAction = {
   readonly effort?: string;
   readonly model?: string;
   readonly permissionMode?: string;
+  readonly mcpPolicy?: string;
   readonly cwd: Readonly<Record<string, string>>;
   readonly taskId: string;
   readonly detach?: boolean;

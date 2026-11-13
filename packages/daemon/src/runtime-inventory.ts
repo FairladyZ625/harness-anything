@@ -3,6 +3,11 @@
 import type { RuntimeInstallation, RuntimeKind, RuntimeKindId } from "@harness-anything/kernel";
 
 import {
+  isRuntimeMcpPolicy,
+  runtimeMcpPolicies,
+  type RuntimeMcpPolicy,
+} from "./protocol/daemon-protocol-vocabulary.ts";
+import {
   type RuntimeAuthMode,
   type RuntimeAcpAuthMethod,
   type RuntimeCapabilitySupport,
@@ -12,10 +17,13 @@ import {
 } from "./runtime-inventory-types.ts";
 
 export {
+  isRuntimeMcpPolicy,
+  runtimeMcpPolicies,
   type RuntimeAuthMode,
   type RuntimeAcpAuthMethod,
   type RuntimeCapabilitySupport,
   type RuntimeEndpointAvailability,
+  type RuntimeMcpPolicy,
   type RuntimeProviderDeclaration,
   type RuntimeWebSearchMode,
 };
@@ -251,6 +259,7 @@ export const runtimeKinds = [
         "$model",
         "$effort-flag",
         "$api-auth",
+        "$mcp-policy",
         "$resume",
       ],
       permissionArgs: {
@@ -391,6 +400,7 @@ export const runtimeKinds = [
         "exec",
         "$resume-command",
         "--json",
+        "$mcp-policy",
         "$permission",
         "$callback-relay-socket",
         "--model",
@@ -462,7 +472,7 @@ export const runtimeKinds = [
       independentSandbox: "supported",
       approvalEvent: "unverified",
       effort: "supported",
-      mcp: "unverified",
+      mcp: "supported",
       cwdRestriction: "unverified",
       gracefulCancel: "unverified",
     },

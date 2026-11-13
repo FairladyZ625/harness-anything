@@ -83,6 +83,7 @@ export interface SessionIdentityResolver {
   readonly resolve: (input: SessionIdentityResolverInput) => SessionIdentity;
 }
 export type RuntimeWebSearchMode = "disabled" | "cached" | "live";
+export type RuntimeMcpPolicy = "disabled" | "inherit";
 export interface AgentDefinitionSnapshot {
   readonly schema: "agent-definition-snapshot/v1";
   readonly configVersion: 1;
@@ -95,6 +96,8 @@ export interface AgentDefinitionSnapshot {
   readonly fast?: boolean;
   /** Effective Codex hosted-search tier; absent on kinds that do not declare one. */
   readonly webSearch?: RuntimeWebSearchMode;
+  /** Effective host MCP inheritance policy resolved for the launch. */
+  readonly mcpPolicy?: RuntimeMcpPolicy;
   readonly baseUrl: string | null;
   readonly authMode: "subscription" | "api-key";
 }
@@ -1090,7 +1093,7 @@ function validDefinitionSnapshot(value: unknown, allowUnknownFields: boolean): v
       "baseUrl",
       "authMode",
     ],
-    allowed = [...required, "fast", "webSearch"];
+    allowed = [...required, "fast", "webSearch", "mcpPolicy"];
   return (
     isRecord(value) &&
     required.every((field) => Object.hasOwn(value, field)) &&
@@ -1102,6 +1105,7 @@ function validDefinitionSnapshot(value: unknown, allowUnknownFields: boolean): v
     (value.reasoningEffort === null || isNonEmptyString(value.reasoningEffort)) &&
     (value.fast === undefined || typeof value.fast === "boolean") &&
     (value.webSearch === undefined || ["disabled", "cached", "live"].includes(String(value.webSearch))) &&
+    (value.mcpPolicy === undefined || ["disabled", "inherit"].includes(String(value.mcpPolicy))) &&
     (value.baseUrl === null || isNonEmptyString(value.baseUrl)) &&
     ["subscription", "api-key"].includes(String(value.authMode))
   );

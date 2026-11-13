@@ -111,4 +111,21 @@ describe("Agent host access is visible and selectable in the declaration editor"
     const agent = detail("operator", "default");
     expect(agentDeclarationFrom(agent.id, agentDraftFrom(agent as never))).not.toHaveProperty("hostAccess");
   });
+
+  it("exposes and saves mcpPolicy on the agent declaration without leaking empty strings", async () => {
+    const onSave = vi.fn();
+    const container = await mountCard(detail("operator", "default"), onSave);
+    const select = container.querySelector<HTMLSelectElement>('[data-testid="agent-mcp-policy"]')!;
+    expect(select).toBeTruthy();
+    expect(select.value).toBe("");
+    expect(agentDeclarationFrom("terra", agentDraftFrom(detail("operator", "default") as never))).not.toHaveProperty(
+      "mcpPolicy",
+    );
+    expect(
+      agentDeclarationFrom("terra", {
+        ...agentDraftFrom(detail("operator", "default") as never),
+        mcpPolicy: "inherit",
+      }),
+    ).toMatchObject({ mcpPolicy: "inherit" });
+  });
 });

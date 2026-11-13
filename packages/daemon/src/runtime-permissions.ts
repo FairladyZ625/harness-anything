@@ -3,12 +3,51 @@
 // Claude Code 2.1.234 `--permission-mode`; Codex CLI 0.147.0 uses `--sandbox`
 // for a new exec, but its resume parser requires config overrides (or bypass).
 import type { RuntimeIsolationState } from "@harness-anything/kernel/internal/domain/operational-status.ts";
-import { runtimeKindForId, type RuntimeKindId } from "./runtime-inventory.ts";
+import {
+  isRuntimeMcpPolicy,
+  runtimeKindForId,
+  type RuntimeKindId,
+  type RuntimeMcpPolicy,
+} from "./runtime-inventory.ts";
 
 export type RuntimePermissionMode = "bypass" | "workspace-write" | "read-only";
-export type { RuntimeIsolationState };
+export type { RuntimeIsolationState, RuntimeMcpPolicy };
 
 export type RuntimePermissionKind = RuntimeKindId;
+
+export function runtimeSupportsMcpPolicy(kindId: string): boolean {
+  return runtimeKindForId(kindId).capabilities.mcp === "supported";
+}
+
+export function runtimeMcpPolicy(value: unknown, kindId?: string): RuntimeMcpPolicy | undefined {
+  if (value === undefined) return undefined;
+  if (!isRuntimeMcpPolicy(value))
+    throw permissionError("invalid_runtime_mcp_policy", "Host MCP policy must be disabled or inherit.");
+  if (kindId !== undefined && !runtimeSupportsMcpPolicy(kindId))
+    throw permissionError(
+      "invalid_runtime_mcp_policy",
+      `${runtimeKindForId(kindId).displayName} does not support host MCP policy configuration.`,
+    );
+  return value as RuntimeMcpPolicy;
+}
+
+export function resolveRuntimeMcpPolicy(input: {
+  readonly kindId: string;
+  readonly dispatchMcpPolicy?: unknown;
+  readonly agentMcpPolicy?: unknown;
+  readonly instanceMcpPolicy?: unknown;
+}): RuntimeMcpPolicy {
+  const dispatch = runtimeMcpPolicy(input.dispatchMcpPolicy),
+    agent = runtimeMcpPolicy(input.agentMcpPolicy),
+    instance = runtimeMcpPolicy(input.instanceMcpPolicy),
+    effective = dispatch ?? agent ?? instance ?? "disabled";
+  if (effective === "inherit" && !runtimeSupportsMcpPolicy(input.kindId))
+    throw permissionError(
+      "runtime_mcp_policy_unsupported",
+      `${runtimeKindForId(input.kindId).displayName} does not support host MCP inheritance (mcpPolicy=inherit).`,
+    );
+  return effective;
+}
 
 export function runtimePermissionMode(
   value: unknown,

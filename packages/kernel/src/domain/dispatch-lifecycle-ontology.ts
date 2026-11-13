@@ -117,6 +117,43 @@ export const dispatchLifecyclePolicies = [
       "policy:packages/kernel:packages/kernel/src/handoff-packet.ts#failureList:36c6074f0b2268c178b00030c123d468",
     ].map((candidateId) => ({ candidateId, route: "runtime attempt record" })),
   },
+  {
+    id: "runtime-mcp-policy",
+    ownerRef: "runtime-session/run",
+    unit: "MCP inheritance policy (disabled | inherit)",
+    bounds:
+      "Effective host MCP inheritance resolves Dispatch > Agent > Runtime Instance > 'disabled'. Only codex and claude declare capabilities.mcp='supported'; other kinds reject 'inherit' fail-closed. Codex emits --ignore-user-config only when disabled under operator-environment; Claude emits --strict-mcp-config whenever disabled.",
+    defaultValue: "disabled",
+    version: 1,
+    scope: "runtime instance configuration, agent declaration, dispatch spawn, adoption, and GUI/CLI controls",
+    reason:
+      "Unattended dispatches must not silently inherit ambient host MCP servers unless explicitly permitted via supported precedence.",
+    fixtures: ["packages/daemon/test/runtime-mcp-policy.test.ts", "packages/cli/test/runtime-mcp-policy-cli.test.ts"],
+    sources: [
+      "policy:packages/daemon:packages/daemon/src/agent-runtime-instance-store.ts#openRuntimeInstanceStore.command.updated.mcpPolicy:598f48448e2dd4d68d8417b65484b600",
+      "policy:packages/daemon:packages/daemon/src/agent-runtime-launch-config.ts#launchArgs.args:87389b96d515f84ff8b3fe4b924c2b90",
+      "policy:packages/daemon:packages/daemon/src/agent-runtime-launch-config.ts#launchArgs.args:45c61b510d71675c56eb9c6c79a01a85",
+      "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-gui-actions.ts#daemonGuiActionMethods.mcpPolicy:7f9318b109c62120f4b0ba2305c64206",
+      "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-gui-actions.ts#runtimeInstanceMethods.params.payload.mcpPolicy:7f9318b109c62120f4b0ba2305c64206",
+      "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-gui-actions.ts#runtimeInstanceMethods.params.payload.mcpPolicy:90dba27cca667387b692c8f2bbf7339c",
+      "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateGuiActionPayload:ce14784aeccf7a41b80880f5f8458a99",
+      "policy:packages/daemon:packages/daemon/src/runtime-permissions.ts#resolveRuntimeMcpPolicy:530fe8a3cae5a7d85322a8c675c04852",
+      "policy:packages/daemon:packages/daemon/src/runtime-spawn-adoption.ts#adoptableMetadata:07f97fbfbfd0d7354baaca0be82565a6",
+      "policy:packages/gui:packages/gui/src/preload/allowlist.ts#runtimeInstanceCreateProblem:2e92c6e8fa016915e95b3a2e519d3715",
+      "policy:packages/gui:packages/gui/src/renderer/components/DispatchDialog.tsx#DispatchDialog.buildRequest:bbebe9445fddc6365fce4307fc002c27",
+      "policy:packages/gui:packages/gui/src/renderer/runtime-instance-form.ts#buildRuntimeInstanceCreatePayload:a4343e019d20c83b1905f13990b1b745",
+      "policy:packages/gui:packages/gui/src/renderer/runtime-instance-form.ts#buildRuntimeInstanceUpdatePayload:489491eb4b0023f476c9f1700080f5c6",
+      "policy:packages/kernel:packages/kernel/src/domain/agent-squad-schema.ts#AGENT_DECLARATION_V1_SCHEMA.properties.mcpPolicy:011e7e580252423f8491d6ec2ca84711",
+      "policy:packages/cli:packages/cli/src/cli/thin-command-runtime-instance-update.ts#parseRuntimeInstanceUpdate.mcpPolicy:6cba98852757dce509c2360980bc0e57",
+      "policy:packages/daemon:packages/daemon/src/agent-entities.ts#prepareAgentEntityInstall:9560851e132f2e2ed17f43aa1f8c34ab",
+      "policy:packages/daemon:packages/daemon/src/agent-entities.ts#applyAgentMcpPolicyOverride.mcpPolicy:9f63e1d5398000d9accec24d1e3afb6a",
+      "policy:packages/daemon:packages/daemon/src/agent-entities.ts#applyAgentMcpPolicyOverride:4ddfd7824080ae52a917240d0b76ddd4",
+      "policy:packages/daemon:packages/daemon/src/agent-entities.ts#readAgentEntityDeclarationSource:824793f378927ed1c22a0bb84435f92c",
+      "policy:packages/daemon:packages/daemon/src/agent-entities.ts#readAgentEntityDeclarationSource.withOverride:a22abc29ccefa629214a55ebf98a84c8",
+      "policy:packages/daemon:packages/daemon/src/protocol/agent-entity-gui-contract.ts#agentMcpPolicyError:bd365f101f6f79b1c33bdd657352fb50",
+      "policy:packages/daemon:packages/daemon/src/gui-s3-control.ts#validateRuntimeSpawnReceipt.errors.mcpPolicy:4d74ef4f44eaba9c914694bf5b0f17c9",
+    ].map((candidateId) => ({ candidateId, route: "runtime mcp policy" })),
+  },
 ] as const satisfies readonly OntologyPolicyDeclaration[];
 
 /** The receipt is the sole source of current display/agenda/consent conclusions. */

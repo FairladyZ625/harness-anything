@@ -478,6 +478,7 @@ test("runtime instance command receipts expose readiness metadata without creden
       defaultModel: "gpt-5.6-sol",
       enabled: true,
       permissionMode: "bypass",
+      mcpPolicy: "disabled",
       // dec_5DBF5F2B38719E4B52003D178D: capability queries expose the same native-hook declaration.
       capabilities: runtimeKinds.find(({ kindId }) => kindId === "codex")!.capabilities,
       configuration: {
@@ -511,12 +512,12 @@ test("runtime instance command receipts expose readiness metadata without creden
     ]);
     assert.equal(
       listed.summary,
-      `ID\tNAME\tKIND\tMODEL\tENABLED\tAUTH MODE\tLOGIN STATUS\tPERMISSION MODE\ncodex-safe\tCodex Safe\tcodex\tgpt-5.6-sol\tenabled\tapi-key\tnot-checked\tbypass\n\nINSTALLATION\tKIND\tVERSION\tOBSERVED AT\n${observed.installationId}\tcodex\t${observed.version}\t${observed.observedAt}`,
+      `ID\tNAME\tKIND\tMODEL\tENABLED\tAUTH MODE\tLOGIN STATUS\tPERMISSION MODE\tMCP POLICY\ncodex-safe\tCodex Safe\tcodex\tgpt-5.6-sol\tenabled\tapi-key\tnot-checked\tbypass\tdisabled\n\nINSTALLATION\tKIND\tVERSION\tOBSERVED AT\n${observed.installationId}\tcodex\t${observed.version}\t${observed.observedAt}`,
     );
     assert.deepEqual(shown.instance, created.instance);
     assert.equal(
       shown.summary,
-      "runtime-instance-show: codex-safe\nmodels: gpt-5.6-sol\nauth: not-checked\npermissionMode: bypass",
+      "runtime-instance-show: codex-safe\nmodels: gpt-5.6-sol\nauth: not-checked\npermissionMode: bypass\nmcpPolicy: disabled",
     );
     for (const receipt of [created, listed, shown]) {
       assert.doesNotMatch(

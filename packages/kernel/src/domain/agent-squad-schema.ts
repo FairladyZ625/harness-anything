@@ -17,6 +17,8 @@ export interface AgentSkillDeclarationV1 {
 }
 export type AgentRole = "worker" | "commander" | "reviewer";
 export type AgentPermissionMode = "bypass" | "workspace-write" | "read-only";
+const agentMcpPolicies = ["disabled", "inherit"] as const;
+export type AgentMcpPolicy = (typeof agentMcpPolicies)[number];
 /** Which host tools and services the dispatch prompt lets this Agent use; distinct from a runtime
  *  instance's `isolation`, which governs only the provider state directory.
  *  `operator` is the only definition of the undeclared default; every surface resolves through it. */
@@ -48,6 +50,7 @@ export interface AgentDeclarationV1 {
    *  never fails a dispatch when a more preferred instance is unavailable on this node. */
   readonly preferredInstances?: readonly string[];
   readonly permissionMode?: AgentPermissionMode;
+  readonly mcpPolicy?: AgentMcpPolicy;
   readonly hostAccess?: AgentHostAccess;
   readonly role?: AgentRole;
   readonly skills?: readonly AgentSkillDeclarationV1[];
@@ -130,6 +133,12 @@ export const AGENT_DECLARATION_V1_SCHEMA = Object.freeze({
       enum: ["bypass", "workspace-write", "read-only"],
       description: "Default unattended permission mode.",
       "x-error": "must be bypass, workspace-write, or read-only.",
+    },
+    mcpPolicy: {
+      type: "string",
+      enum: agentMcpPolicies,
+      description: "Host MCP server inheritance policy for unattended dispatches.",
+      "x-error": "must be disabled or inherit.",
     },
     hostAccess: {
       type: "string",

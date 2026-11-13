@@ -125,6 +125,13 @@ export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
       { pathKind: "non-path", enum: ["minimal", "low", "medium", "high", "xhigh", "max"] },
     ),
     cliInput("--fast", "boolean", false, { code: "invalid_runtime_fast" }),
+    cliInput(
+      "--mcp-policy",
+      "single",
+      false,
+      { code: "invalid_runtime_mcp_policy" },
+      { pathKind: "non-path", enum: ["disabled", "inherit"] },
+    ),
     cliInput("--detach", "boolean", false, { code: "invalid_field" }, { conflictsWith: ["--no-stream"] }),
     cliInput("--on-exit", "single", false, { code: "invalid_field" }, { pathKind: "non-path", requires: ["--detach"] }),
     cliInput("--no-stream", "boolean", false, { code: "invalid_field" }, { conflictsWith: ["--detach"] }),
@@ -218,6 +225,15 @@ export const runtimeFleetProtocolCommands = Object.freeze([
           code: "invalid_runtime_permission",
         },
         { pathKind: "non-path", enum: ["bypass", "workspace-write", "read-only"] },
+      ),
+      cliInput(
+        "--mcp-policy",
+        "single",
+        false,
+        {
+          code: "invalid_runtime_mcp_policy",
+        },
+        { pathKind: "non-path", enum: ["disabled", "inherit"] },
       ),
       cliInput(
         "--prompt",

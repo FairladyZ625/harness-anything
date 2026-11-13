@@ -123,7 +123,13 @@ export type {
   AgentRuntimeTokenUsageWorkRow,
 } from "../agent-runtime-token-usage.ts";
 export type { TerminalControlReceipt, TerminalSessionRow } from "../gui-s3-control.ts";
-export { isRuntimeKindId, runtimeEffortField, runtimeKindForId, runtimeKindIds } from "../runtime-inventory.ts";
+export {
+  isRuntimeKindId,
+  isRuntimeMcpPolicy,
+  runtimeEffortField,
+  runtimeKindForId,
+  runtimeKindIds,
+} from "../runtime-inventory.ts";
 export type { RuntimeAuthMode, RuntimeEndpointAvailability, RuntimeKindId } from "../runtime-inventory.ts";
 export { runtimeIsolationState, runtimePermissionMode } from "../runtime-permissions.ts";
 export { isAvailableSquadRunDetail, isAvailableSquadRunSummary } from "../squad-run-contract.ts";

@@ -31,6 +31,7 @@ export type CreateInstanceFormState = {
   readonly wireApi: string;
   readonly requiresOpenAiAuth: boolean;
   readonly permissionMode?: "bypass" | "workspace-write" | "read-only";
+  readonly mcpPolicy?: "disabled" | "inherit";
   readonly isolation: "enforced" | "operator-environment";
   readonly webSearch?: RuntimeWebSearchMode;
 };
@@ -40,6 +41,7 @@ export type RuntimeInstanceEditFormState = {
   readonly providerId: string;
   readonly wireApi: string;
   readonly permissionMode: CreateInstanceFormState["permissionMode"];
+  readonly mcpPolicy?: CreateInstanceFormState["mcpPolicy"];
   readonly isolation: CreateInstanceFormState["isolation"];
   readonly webSearch?: RuntimeWebSearchMode;
   readonly name: string;
@@ -111,6 +113,7 @@ export function buildRuntimeInstanceCreatePayload(
     ...auth,
     kindId: form.kindId,
     ...(declaration.permissions.available ? { permissionMode: form.permissionMode } : {}),
+    ...(declaration.capabilities.mcp === "supported" && form.mcpPolicy ? { mcpPolicy: form.mcpPolicy } : {}),
     ...(planeAllowsIsolation(form.kindId) ? { isolationState: form.isolation } : {}),
     [form.kindId]: configuration,
   };
@@ -129,6 +132,10 @@ export function runtimeInstanceEditForm(instance: RuntimeInstanceSummary): Runti
       instance.permissionMode ?? undefined,
       runtimeKindForId(instance.kindId).kindId,
     ),
+    mcpPolicy:
+      runtimeKindForId(instance.kindId).capabilities.mcp === "supported"
+        ? (instance.mcpPolicy ?? "disabled")
+        : undefined,
     isolation: instance.isolationState,
     webSearch: runtimeKindForId(instance.kindId).configuration.webSearch
       ? ((instance.configuration.webSearch as RuntimeWebSearchMode | undefined) ??
@@ -213,6 +220,9 @@ export function buildRuntimeInstanceUpdatePayload(
     defaultModel,
     ...(form.replaceApiKey ? { apiKey: form.apiKey.trim() } : {}),
     ...(runtimeKindForId(form.kindId).permissions.available ? { permissionMode: form.permissionMode } : {}),
+    ...(runtimeKindForId(form.kindId).capabilities.mcp === "supported" && form.mcpPolicy
+      ? { mcpPolicy: form.mcpPolicy }
+      : {}),
     ...(planeAllowsIsolation(form.kindId) ? { isolationState: form.isolation } : {}),
     ...(form.webSearch !== undefined && runtimeKindForId(form.kindId).configuration.webSearch
       ? { webSearch: form.webSearch }
@@ -260,6 +270,7 @@ export function applyRuntimeKind(
     reasoningEffort: planeAllowsEffort(kindId) ? form.reasoningEffort : "",
     fast: "fast" in runtimeKindForId(kindId).configuration.fields ? form.fast : false,
     permissionMode: defaults.permissionMode,
+    mcpPolicy: declaration.capabilities.mcp === "supported" ? "disabled" : undefined,
     isolation,
   };
 }

@@ -87,6 +87,7 @@ export function parseRuntimeInstanceCreate(
       models: flags.many.get("--model") ?? [],
       ...(flags.one.get("--default-model") ? { defaultModel: flags.one.get("--default-model") } : {}),
       ...(flags.one.get("--permission-mode") ? { permissionMode: flags.one.get("--permission-mode") } : {}),
+      ...(flags.one.get("--mcp-policy") ? { mcpPolicy: flags.one.get("--mcp-policy") } : {}),
       ...(flags.one.get("--isolation") ? { isolationState: flags.one.get("--isolation") } : {}),
       ...kindConfig,
       authMode,

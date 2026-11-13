@@ -256,6 +256,7 @@ test("permission defaults open and tightens through the instance record or a sin
       "--model",
       "claude-fable-5",
       "--bare",
+      "--strict-mcp-config",
     ]);
     store.command({ kind: "runtime-instance-update", instanceId: "codex-open", permissionMode: "workspace-write" });
     const tightened = await store.prepareLaunch("codex-open", { cwd: "/workspace/repo", prompt: "Tightened" });
@@ -367,6 +368,7 @@ test("permission defaults open and tightens through the instance record or a sin
       "--model",
       "claude-fable-5",
       "--bare",
+      "--strict-mcp-config",
     ]);
     for (const providerSessionId of [undefined, "session-bypass-relay"]) {
       const bypassRelay = await store.prepareLaunch("codex-open", {

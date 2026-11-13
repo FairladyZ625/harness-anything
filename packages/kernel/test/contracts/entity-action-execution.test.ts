@@ -259,7 +259,7 @@ test("Agent catalog exposes reads while install owns its write contracts", () =>
   );
   assert.ok(action?.execution?.compile);
   assert.equal(action.execution.implementation, "compiled-event");
-  assert.deepEqual(action.input.exactlyOneOf, [["packageSource", "declaration"]]);
+  assert.deepEqual(action.input.exactlyOneOf, [["packageSource", "declaration", "agentId"]]);
   assert.equal(action.concurrency.expectedVersion.conflict, "revision_conflict");
   assert.equal(action.concurrency.idempotency.retry, "canonical-event-replay");
   assert.equal(action.concurrency.leasePolicy.authority, "not-applicable");

@@ -429,6 +429,72 @@ describe("runtime entry split (W6 IA)", () => {
     expect(byTestId("dispatch-preview-mission").textContent).toBe(previewFixture.mission);
   });
 
+  it("renders the mcpPolicy selector in Step ④ for MCP-supported kinds and submits the chosen override", async () => {
+    const onSubmit = vi.fn();
+    await mountView(
+      createElement(DispatchDialog, {
+        open: true,
+        subject: { kind: "agent", agent: { agentId: "terra", agentName: "terra", runtimes: [{ type: "codex" }] } },
+        instances: [providerInstance],
+        tasks: [{ taskId: "task-bound", title: "Bound task title", heldLease: false }],
+        prompts: [],
+        busy: false,
+        notice: null,
+        onCancel: () => undefined,
+        onSubmit,
+        onPreview: async () => null,
+      }),
+    );
+
+    await click("dispatch-task-task-bound");
+    await input("dispatch-mission", "Verify host MCP policy dispatch override.");
+    const stepFourButton = [...document.querySelectorAll("button")].find((candidate) =>
+      candidate.textContent?.includes("④"),
+    );
+    expect(stepFourButton).toBeInstanceOf(HTMLButtonElement);
+    await act(async () => {
+      (stepFourButton as HTMLButtonElement).click();
+    });
+    await flushEffects();
+
+    expect(document.querySelector('[data-testid="dispatch-mcp-policy"]')).toBeInstanceOf(HTMLSelectElement);
+    await select("dispatch-mcp-policy", "inherit");
+    await click("dispatch-submit");
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0]![0]).toMatchObject({ mcpPolicy: "inherit" });
+  });
+
+  it("omits the mcpPolicy selector in Step ④ for non-MCP runtime kinds", async () => {
+    await mountView(
+      createElement(DispatchDialog, {
+        open: true,
+        subject: {
+          kind: "agent",
+          agent: { agentId: "agy-worker", agentName: "agy-worker", runtimes: [{ type: "agy" }] },
+        },
+        instances: [
+          { ...providerInstance, instanceId: "agy-inst", kindId: "agy", isolationState: "enforced" } as never,
+        ],
+        tasks: [{ taskId: "task-bound", title: "Bound task title", heldLease: false }],
+        prompts: [],
+        busy: false,
+        notice: null,
+        onCancel: () => undefined,
+        onSubmit: () => undefined,
+        onPreview: async () => null,
+      }),
+    );
+    const agyStepFour = [...document.querySelectorAll("button")].find((candidate) =>
+      candidate.textContent?.includes("④"),
+    );
+    expect(agyStepFour).toBeInstanceOf(HTMLButtonElement);
+    await act(async () => {
+      (agyStepFour as HTMLButtonElement).click();
+    });
+    await flushEffects();
+    expect(document.querySelector('[data-testid="dispatch-mcp-policy"]')).toBeNull();
+  });
+
   // R6(F5):agent 保存的落定判据是回执(outcome applied + canonicalVisible),
   // 保存后只失效列表查询,由挂载面的正常 refetch 带新目录——不再强制
   // staleTime:0 同步回读整份 agents 列表。
@@ -1503,6 +1569,7 @@ describe("runtime entry split (W6 IA)", () => {
     expect(onUpdate).toHaveBeenCalledWith({
       instanceId: "provider-edit",
       permissionMode: "bypass",
+      mcpPolicy: "disabled",
       isolationState: "enforced",
       webSearch: "disabled",
       name: "Provider Renamed",

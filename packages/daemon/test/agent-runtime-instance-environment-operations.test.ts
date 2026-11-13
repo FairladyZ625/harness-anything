@@ -78,8 +78,16 @@ test("Claude effort defaults and per-launch overrides reach the Claude Code CLI"
       "--effort",
       "medium",
       "--bare",
+      "--strict-mcp-config",
     ]);
-    assert.deepEqual(overridden.args.slice(-5), ["--effort", "xhigh", "--bare", "--resume", "session-1"]);
+    assert.deepEqual(overridden.args.slice(-6), [
+      "--effort",
+      "xhigh",
+      "--bare",
+      "--strict-mcp-config",
+      "--resume",
+      "session-1",
+    ]);
     assert.equal(minimal.args[minimal.args.indexOf("--effort") + 1], "low");
     assert.equal(configured.definition.reasoningEffort, "medium");
     assert.equal(overridden.definition.reasoningEffort, "xhigh");

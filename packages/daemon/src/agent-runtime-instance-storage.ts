@@ -11,7 +11,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
-import type { AgentDefinitionSnapshot } from "@harness-anything/kernel";
+import type { AgentDefinitionSnapshot, RuntimeMcpPolicy } from "@harness-anything/kernel";
+import { resolveRuntimeMcpPolicy, runtimeSupportsMcpPolicy } from "./runtime-permissions.ts";
 import { consumeKnownError } from "@harness-anything/kernel";
 import { writeFileDurably } from "../../storage/src/durable-file.ts";
 import { identifier, runtimeInstanceError, unavailable } from "./agent-runtime-instance-values.ts";
@@ -186,6 +187,7 @@ export function publicConfig(
     defaultModel: config.defaultModel,
     enabled: config.enabled,
     permissionMode: config.permissionMode ?? null,
+    mcpPolicy: runtimeSupportsMcpPolicy(config.kindId) ? (config.mcpPolicy ?? "disabled") : null,
     authMode: config.auth.mode,
     authState:
       config.auth.mode === "api-key"
@@ -223,8 +225,16 @@ export function definitionSnapshot(
   model: string,
   effort: string | null,
   fast: boolean,
+  mcpPolicy?: RuntimeMcpPolicy,
 ): AgentDefinitionSnapshot {
-  const webSearch = runtimeWebSearchForConfig(config);
+  const webSearch = runtimeWebSearchForConfig(config),
+    effectiveMcpPolicy = runtimeSupportsMcpPolicy(config.kindId)
+      ? resolveRuntimeMcpPolicy({
+          kindId: config.kindId,
+          dispatchMcpPolicy: mcpPolicy,
+          instanceMcpPolicy: config.mcpPolicy,
+        })
+      : undefined;
   return {
     schema: "agent-definition-snapshot/v1",
     configVersion: 1,
@@ -236,6 +246,7 @@ export function definitionSnapshot(
     reasoningEffort: effort,
     fast,
     ...(webSearch === null ? {} : { webSearch }),
+    ...(effectiveMcpPolicy === undefined ? {} : { mcpPolicy: effectiveMcpPolicy }),
     baseUrl: runtimeBaseUrl(config) ?? null,
     authMode: config.auth.mode,
   };

@@ -3,7 +3,12 @@ import { commandInterceptionHook, type CommandInterceptions } from "./runtime-co
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { commandInterceptionIssues, consumeKnownError } from "@harness-anything/kernel";
-import { type RuntimeIsolationState, type RuntimePermissionMode } from "./runtime-permissions.ts";
+import {
+  resolveRuntimeMcpPolicy,
+  type RuntimeIsolationState,
+  type RuntimeMcpPolicy,
+  type RuntimePermissionMode,
+} from "./runtime-permissions.ts";
 import type {
   RuntimeInstanceKind,
   RuntimeInstanceConfig,
@@ -110,11 +115,17 @@ export function launchArgs(
   platform: NodeJS.Platform = process.platform,
   commandInterceptions: CommandInterceptions = [],
   commandInterceptionArgs: readonly string[] = [],
+  mcpPolicy: RuntimeMcpPolicy | undefined = undefined,
 ): string[] {
   // Never trust a literal caller: a persisted tier is re-validated here as well as on the
   // write path, so a hand-edited instance file cannot enable hosted search on a provider
   // that does not honor it.
   assertRuntimeWebSearchSupported(config);
+  const effectiveMcpPolicy = resolveRuntimeMcpPolicy({
+    kindId: config.kindId,
+    dispatchMcpPolicy: mcpPolicy,
+    instanceMcpPolicy: config.mcpPolicy,
+  });
   if (
     config.kindId === "claude" &&
     permissionMode === "workspace-write" &&
@@ -232,6 +243,14 @@ export function launchArgs(
     if (token === "$api-auth")
       return config.auth.mode === "api-key" && !hook && !approvedCommands.length ? (launch.apiKeyArgs ?? []) : [];
     if (token === "$fast") return fast ? (launch.fastArgs ?? []) : [];
+    if (token === "$mcp-policy") {
+      if (config.kindId === "codex")
+        return effectiveMcpPolicy === "disabled" && config.isolationState === "operator-environment"
+          ? ["--ignore-user-config"]
+          : [];
+      if (config.kindId === "claude") return effectiveMcpPolicy === "disabled" ? ["--strict-mcp-config"] : [];
+      return [];
+    }
     if (token === "$web-search") {
       const mode = runtimeWebSearchForConfig(config);
       // Always emit the effective tier, including `disabled`: an inherited Codex config

@@ -52,6 +52,7 @@ const emptyForm = (kindId: RuntimeKindId): CreateInstanceFormState => ({
   wireApi: "",
   requiresOpenAiAuth: false,
   permissionMode: runtimePermissionMode(undefined, kindId),
+  mcpPolicy: runtimeKindForId(kindId).capabilities.mcp === "supported" ? "disabled" : undefined,
   isolation: runtimeIsolationState(undefined, kindId),
 });
 

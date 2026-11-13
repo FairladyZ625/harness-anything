@@ -376,7 +376,12 @@ export async function runFleetEdgeTask(
     ) {
       const decoded = readAgentEntityDeclarationSource(action);
       if ("issues" in decoded) throw new FleetEdgeTaskError(decoded.issues[0]!.code, decoded.issues[0]!.message);
-      const { packageSource: _packageSource, ...resolved } = action;
+      const {
+        packageSource: _packageSource,
+        mcpPolicy: _mcpPolicy,
+        clearMcpPolicy: _clearMcpPolicy,
+        ...resolved
+      } = action;
       action = { ...resolved, declaration: decoded.declaration, declarationSource: decoded.source };
     }
     // The unresolved-conflict gate (design §4): while this task's package has a
