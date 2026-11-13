@@ -1228,6 +1228,36 @@ export const daemonRuntimePolicy = {
         "policy:packages/daemon:packages/daemon/src/terminal-host.ts#resolveTerminalCwd:701e772aacb1529ca0cef3a5e777bea7",
       route: "daemonRuntimePolicy",
     },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime/cloud-dispatch-relay.ts#CloudDispatchRelay:31e8f65a655076e96c9a1a7d7c56cd95",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime/cloud-dispatch-relay.ts#CloudDispatchRelay.register:589a6b0893e2ed75e19b79cefa0f4dc8",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.runtime.cloudDispatchRelay.upstreamTimeoutMs:ccf49b12e68e7d3997fddeb68a0014b3",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.runtime.cloudDispatchRelay.requestTimeoutMs:b50565ff863a1ca696e08c9456c241c8",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.runtime.cloudDispatchRelay.headersTimeoutMs:f844ca94f06b0e9b5bf1e73f4b97ba77",
+      route: "daemonRuntimePolicy",
+    },
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonRuntimePolicy.defaultValue.runtime.cloudDispatchRelay.defaultMaxUpstreamConcurrency:e964ec8dd7f6ef69a28c98bbd27d8c05",
+      route: "daemonRuntimePolicy",
+    },
   ],
 } as const satisfies OntologyPolicyDeclaration;
 
