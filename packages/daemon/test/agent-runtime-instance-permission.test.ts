@@ -228,6 +228,7 @@ test("permission defaults open and tightens through the instance record or a sin
       claude: {},
       auth: { mode: "api-key", credentialRef: "credential:v1:claude-open" },
     });
+    assert.equal(store.read("codex-open")?.isolationState, "enforced");
     const codexDefault = await store.prepareLaunch("codex-open", { cwd: "/workspace/repo", prompt: "Default" }),
       claudeDefault = await store.prepareLaunch("claude-open", { cwd: "/workspace/repo", prompt: "Default" });
     assert.deepEqual(codexDefault.args, [
@@ -517,6 +518,7 @@ test("codex isolation edits persist and read back through the same projection th
     store.create({
       schemaVersion: 2,
       instanceId: "codex-isolated",
+      isolationState: "enforced",
       name: "Codex Isolated",
       kindId: "codex",
       installationId: observed.installationId,

@@ -8,6 +8,8 @@ import { successfulAgentRuntimeResult } from "@harness-anything/daemon/protocol"
 import { AgentCard, agentDeclarationFrom, agentDraftFrom } from "../src/renderer/components/runtime/AgentCard.tsx";
 import { NewRuntimeDialog } from "../src/renderer/components/runtime/NewRuntimeDialog.tsx";
 import { TextInput } from "../src/renderer/components/primitives/TextInput.tsx";
+import { RuntimeAccessFields } from "../src/renderer/components/runtime/RuntimeAccessFields.tsx";
+import { runtimeInstanceEditForm } from "../src/renderer/runtime-instance-form.ts";
 import { RuntimeCard } from "../src/renderer/components/runtime/RuntimeCard.tsx";
 import { IdentityRail, ProviderRail } from "../src/renderer/components/runtime/RuntimeRail.tsx";
 import { SessionDetailView } from "../src/renderer/components/runtime/SessionsPanel.tsx";
@@ -871,32 +873,39 @@ describe("agent runtime renderer", () => {
       "disabled-instance",
     ]);
   });
-  it("edits only the permission and isolation fields supported by each runtime kind", () => {
-    const codex = runtimeCard(instance),
-      claude = runtimeCard(claudeInstance);
-    const agy = renderToStaticMarkup(
-      createElement(RuntimeCard, {
-        instance: agyInstance,
+  it("new Codex subscription providers expose permission, operator environment and native search defaults", () => {
+    const html = renderToStaticMarkup(
+      createElement(NewRuntimeDialog, {
+        open: true,
+        initialKind: "codex",
         installations: [installation],
-        agents: [],
-        liveSessions: 0,
         busy: false,
-        onSelectAgent: noop,
-        onAuth: noop,
-        onValidate: noop,
-        onSetEnabled: noop,
-        onUpdate: noop,
-        onDelete: noop,
-        onSelfTest: async () => null,
+        onCancel: noop,
+        onCreate: noop,
       }),
     );
-    expect(codex).toContain('data-testid="runtime-instance-permission-mode"');
-    expect(codex).toContain('data-testid="runtime-instance-isolation"');
-    expect(claude).toContain('data-testid="runtime-instance-permission-mode"');
-    expect(claude).toContain('data-testid="runtime-instance-isolation"');
-    expect(agy).toContain('data-testid="runtime-instance-permissions"');
-    expect(agy).toMatch(/data-testid="runtime-instance-permission-mode"[^>]*disabled=""/u);
-    expect(agy).toContain("This provider owns its own access policy; harness adds no permission mode.");
+    expect(html).toContain('data-testid="new-runtime-permission-mode"');
+    expect(html).toContain('data-testid="new-runtime-isolation"');
+    expect(html).toContain('value="operator-environment" selected=""');
+    expect(html).toContain('data-testid="new-runtime-web-search"');
+    expect(html).toContain('value="disabled" selected=""');
+  });
+  it("offers supported access fields through the shared provider editor controls", () => {
+    const controls = (instance: Parameters<typeof runtimeInstanceEditForm>[0]) =>
+      renderToStaticMarkup(
+        createElement(RuntimeAccessFields, {
+          value: runtimeInstanceEditForm(instance),
+          onChange: noop,
+          testIdPrefix: "edit",
+        }),
+      );
+    expect(controls(instance)).toContain('data-testid="edit-permission-mode"');
+    expect(controls(instance)).toContain('data-testid="edit-isolation"');
+    expect(controls(instance)).toContain('data-testid="edit-web-search"');
+    expect(controls(claudeInstance)).toContain('data-testid="edit-isolation"');
+    expect(controls(claudeInstance)).not.toContain('data-testid="edit-web-search"');
+    expect(controls(agyInstance)).not.toContain("<select");
+    expect(runtimeCard(instance)).not.toContain('data-testid="runtime-instance-permissions"');
   });
   it("rejects a malformed session-groups projection instead of rendering it", async () => {
     const readUseCaseProjection = vi.fn(async () => sessionGroupsEnvelope({ ok: true, groups: "not-an-array" })),

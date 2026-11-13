@@ -1502,6 +1502,9 @@ describe("runtime entry split (W6 IA)", () => {
 
     expect(onUpdate).toHaveBeenCalledWith({
       instanceId: "provider-edit",
+      permissionMode: "bypass",
+      isolationState: "enforced",
+      webSearch: "disabled",
       name: "Provider Renamed",
       installationId: "codex-install-b",
       models: ["model-b"],

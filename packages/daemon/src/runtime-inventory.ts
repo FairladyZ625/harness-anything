@@ -361,7 +361,7 @@ export const runtimeKinds = [
       // config.toml; absent means the provider's built-in endpoint.
       endpoints: { baseUrl: "optional" },
     },
-    isolation: { defaultState: "enforced", states: ["enforced", "operator-environment"] },
+    isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
     permissions: { available: true, defaultMode: "bypass" },
     launch: {
       input: "stdin",

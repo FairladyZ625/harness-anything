@@ -84,3 +84,21 @@ export const planeAuthMode = (kindId: string, requested: RuntimeAuthMode): Runti
   return modes.includes(requested) ? requested : (modes[0] ?? "subscription");
 };
 export const planeModelHint = (kindId: string): string => runtimeProviderPlane(kindId).modelFamily;
+
+/** Only configurations the instance write boundary can admit offer opt-in search. Custom
+ * gateways still perform their existing real verification when the command is saved. */
+export function runtimeWebSearchRestriction(input: {
+  readonly kindId: string;
+  readonly authMode: RuntimeAuthMode;
+  readonly providerId: string;
+  readonly baseUrl: string;
+  readonly wireApi: string;
+}): "webSearchSubscriptionGateway" | "webSearchEndpointRequired" | "webSearchResponsesRequired" | undefined {
+  const declaration = runtimeKindForId(input.kindId).configuration.webSearch;
+  if (!declaration) return undefined;
+  if (input.baseUrl.trim()) {
+    if (input.authMode !== "api-key") return "webSearchSubscriptionGateway";
+    if (input.wireApi && input.wireApi !== "responses") return "webSearchResponsesRequired";
+  } else if (!declaration.providers.includes(input.providerId.trim())) return "webSearchEndpointRequired";
+  return undefined;
+}

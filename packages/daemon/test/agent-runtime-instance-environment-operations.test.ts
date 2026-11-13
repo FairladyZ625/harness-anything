@@ -239,7 +239,7 @@ test("persisted schema v2 records normalize permission and isolation fields once
         defaultModel: "gpt-5.6-sol",
         enabled: true,
         permissionMode: "bypass",
-        isolationState: "enforced",
+        isolationState: "operator-environment",
         kindId: "codex",
         auth: { mode: "subscription" },
         codex: undefined,
@@ -272,7 +272,7 @@ test("persisted schema v2 records normalize permission and isolation fields once
       [
         { permissionMode: "bypass", isolationState: "operator-environment" },
         { permissionMode: "bypass", isolationState: "operator-environment" },
-        { permissionMode: "bypass", isolationState: "enforced" },
+        { permissionMode: "bypass", isolationState: "operator-environment" },
       ],
     );
     const storeAgain = openRuntimeInstanceStore({ userRoot, discover: () => [observed, claude, agy] }),
@@ -417,13 +417,17 @@ test("subscription auth commands use the witnessed executable and instance-only 
       },
     });
     store.create({
-      schemaVersion: 1,
+      schemaVersion: 2,
       instanceId: "codex-sub",
       name: "Codex Subscription",
       kindId: "codex",
       installationId: observed.installationId,
       providerId: "openai",
-      model: "gpt-5.6-sol",
+      models: ["gpt-5.6-sol"],
+      defaultModel: "gpt-5.6-sol",
+      enabled: true,
+      isolationState: "enforced",
+      codex: {},
       auth: { mode: "subscription" },
     });
     const stateRoot = path.join(userRoot, "runtime-instances", "codex-sub"),

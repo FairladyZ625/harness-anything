@@ -649,7 +649,7 @@ test("a portable Agent dispatches in a repository whose skills live in repositor
   }
 });
 
-test("artifact task dispatch confines writes to its package despite bypass declarations and cwd overrides", async () => {
+test("artifact task cwd stays in its package while permissions follow request, agent and provider", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-dispatch-package-"));
   let cell: Cell | undefined;
   let prepared:
@@ -712,7 +712,7 @@ test("artifact task dispatch confines writes to its package despite bypass decla
       binding,
     );
     assert.equal(installed.outcome, "applied", JSON.stringify(installed));
-    for (const [index, override] of [undefined, "bypass", "read-only"].entries()) {
+    for (const [index, override] of [undefined, "bypass", "workspace-write", "read-only"].entries()) {
       const taskId = `task_package_${index}`;
       const packagePath = await createTask(cell, root, {
         taskId,
@@ -732,12 +732,12 @@ test("artifact task dispatch confines writes to its package despite bypass decla
       );
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
       assert.equal(prepared?.cwd, path.join(root, "harness", packagePath));
-      assert.equal(prepared?.permissionMode, override === "read-only" ? "read-only" : "workspace-write");
+      assert.equal(prepared?.permissionMode, override ?? "bypass");
       if (process.platform === "win32") assert.equal(prepared?.callbackRelayPath, undefined);
       else assert.match(prepared?.callbackRelayPath ?? "", /^\/tmp\/harness-anything-\d+\/r-[a-f0-9]{24}\.sock$/u);
       assert.ok(prepared?.prompt.includes(`Worker repository root: ${prepared.cwd}`));
     }
-    assert.equal(launches, 3);
+    assert.equal(launches, 4);
     const taskId = "task_package_code_control";
     await createTask(cell, root, { taskId, title: "Implement a code change" });
     const workerRoot = path.join(root, "worker-control");
@@ -770,10 +770,10 @@ test("artifact task dispatch confines writes to its package despite bypass decla
       binding,
     );
     assert.equal(claudeReceipt.outcome, "applied", JSON.stringify(claudeReceipt));
-    assert.equal(prepared?.permissionMode, "workspace-write");
-    assert.match(prepared!.prompt, /# Workspace-write CLI access/u);
-    assert.match(prepared!.prompt, /native Bash sandbox/u);
-    assert.match(prepared!.prompt, /Approved CLI entries: `ha`\./u);
+    assert.equal(prepared?.permissionMode, undefined);
+    assert.doesNotMatch(prepared!.prompt, /# Workspace-write CLI access/u);
+    assert.doesNotMatch(prepared!.prompt, /native Bash sandbox/u);
+    assert.doesNotMatch(prepared!.prompt, /Approved CLI entries: `ha`\./u);
     assert.doesNotMatch(prepared!.prompt, /gh pr create/u);
     assert.match(prepared!.prompt, /ha task push <task-id>/u);
     assert.match(prepared!.prompt, /daemon 在推送后创建或更新 PR/u);
@@ -794,20 +794,36 @@ test("artifact task dispatch confines writes to its package despite bypass decla
       title: "Investigate with ZCode",
       presetId: "code-impact-analysis",
     });
+    const zcodeReceipt = await cell.spawnRuntime(
+      {
+        runtimeInstanceId: definition.instanceId,
+        taskId: "task_package_zcode",
+        dispatchKey: "package-zcode",
+        permissionMode: "bypass",
+      },
+      binding,
+    );
+    assert.equal(zcodeReceipt.outcome, "applied", JSON.stringify(zcodeReceipt));
+    assert.equal(prepared?.permissionMode, "bypass");
+    await createTask(cell, root, {
+      taskId: "task_package_zcode_restricted",
+      title: "Restricted ZCode",
+      presetId: "code-impact-analysis",
+    });
     await assert.rejects(
       cell.spawnRuntime(
         {
           runtimeInstanceId: definition.instanceId,
-          taskId: "task_package_zcode",
-          dispatchKey: "package-zcode",
-          permissionMode: "bypass",
+          taskId: "task_package_zcode_restricted",
+          dispatchKey: "package-zcode-restricted",
+          permissionMode: "workspace-write",
         },
         binding,
       ),
       (error: unknown) =>
         error instanceof Error && "code" in error && error.code === "zcode_unattended_permission_mode_unsupported",
     );
-    assert.equal(launches, 6, "the unsupported provider must never start with bypass permissions");
+    assert.equal(launches, 8, "ZCode rejects unattended restricted modes before launch");
   } finally {
     await cell?.close();
     rmSync(root, { recursive: true, force: true });

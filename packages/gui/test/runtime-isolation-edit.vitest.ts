@@ -50,7 +50,7 @@ const mounted: { root: Root; container: HTMLElement }[] = [];
 
 async function renderCard(
   instance: RuntimeInstanceSummary,
-  onUpdate: (input: RuntimeInstanceUpdateInput) => void,
+  onUpdate: (input: RuntimeInstanceUpdateInput) => Promise<unknown>,
 ): Promise<HTMLElement> {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -63,6 +63,10 @@ async function renderCard(
         agents: [],
         liveSessions: 0,
         busy: false,
+        onSelectRuntime: () => undefined,
+        projectAllowed: true,
+        projectSettingsBusy: false,
+        onSetProjectAllowed: () => undefined,
         onSelectAgent: () => undefined,
         onAuth: () => undefined,
         onValidate: () => undefined,
@@ -74,6 +78,7 @@ async function renderCard(
     );
   });
   mounted.push({ root, container });
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="runtime-provider-edit"]')!.click());
   return container;
 }
 
@@ -93,40 +98,92 @@ async function pickSelect(container: HTMLElement, testId: string, value: string)
 
 async function submitPermissions(container: HTMLElement): Promise<void> {
   const button = container.querySelector<HTMLButtonElement>(
-    'form[data-testid="runtime-instance-permissions"] button[type="submit"]',
+    'form[data-testid="runtime-provider-editor"] button[type="submit"]',
   );
   if (!button) throw new Error("missing permissions submit button");
   await act(async () => button.click());
 }
 
 describe("RuntimeCard isolation editing follows the declared capability states", () => {
+  it("saves permission and search edits in the same form and locks API-key isolation", async () => {
+    const onUpdate = vi.fn(async () => ({ ok: false }));
+    const container = await renderCard({ ...runtimeInstance("codex", "enforced"), authMode: "api-key" }, onUpdate);
+    expect(container.querySelector<HTMLSelectElement>('[data-testid="runtime-provider-isolation"]')?.disabled).toBe(
+      true,
+    );
+    expect(container.textContent).toContain("API key requires dedicated environment");
+    await pickSelect(container, "runtime-provider-permission-mode", "workspace-write");
+    await pickSelect(container, "runtime-provider-web-search", "cached");
+    await submitPermissions(container);
+    expect(onUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ permissionMode: "workspace-write", isolationState: "enforced", webSearch: "cached" }),
+    );
+    expect(container.querySelector('[data-testid="runtime-instance-permissions"]')).toBeNull();
+  });
+
+  it.each([
+    {
+      authMode: "subscription" as const,
+      providerId: "openai",
+      configuration: { baseUrl: "https://gateway.example/v1" },
+      blocked: true,
+    },
+    {
+      authMode: "api-key" as const,
+      providerId: "openai",
+      configuration: { baseUrl: "https://gateway.example/v1", wire_api: "chat" },
+      blocked: true,
+    },
+    { authMode: "subscription" as const, providerId: "custom", configuration: {}, blocked: true },
+    {
+      authMode: "api-key" as const,
+      providerId: "custom",
+      configuration: { baseUrl: "https://gateway.example/v1", wire_api: "responses" },
+      blocked: false,
+    },
+  ])(
+    "offers only search tiers the write boundary can admit: $authMode $providerId $configuration",
+    async ({ blocked, ...context }) => {
+      const container = await renderCard(
+        { ...runtimeInstance("codex", "enforced"), ...context },
+        vi.fn(async () => ({ ok: false })),
+      );
+      const select = container.querySelector<HTMLSelectElement>('[data-testid="runtime-provider-web-search"]')!;
+      expect(select.querySelector<HTMLOptionElement>('[value="disabled"]')?.disabled).toBe(false);
+      expect(select.querySelector<HTMLOptionElement>('[value="cached"]')?.disabled).toBe(blocked);
+      expect(select.querySelector<HTMLOptionElement>('[value="live"]')?.disabled).toBe(blocked);
+    },
+  );
+
   it("shows a codex instance's current isolation state and submits edits with the update payload", async () => {
-    const onUpdate = vi.fn();
+    const onUpdate = vi.fn(async () => ({ ok: false }));
     const container = await renderCard(runtimeInstance("codex", "enforced"), onUpdate);
-    const isolation = container.querySelector<HTMLSelectElement>('[data-testid="runtime-instance-isolation"]');
+    const isolation = container.querySelector<HTMLSelectElement>('[data-testid="runtime-provider-isolation"]');
     expect(isolation).not.toBeNull();
     expect(isolation?.value).toBe("enforced");
-    await pickSelect(container, "runtime-instance-isolation", "operator-environment");
+    await pickSelect(container, "runtime-provider-isolation", "operator-environment");
     await submitPermissions(container);
-    expect(onUpdate).toHaveBeenCalledWith({
-      instanceId: "codex-edit",
-      permissionMode: "bypass",
-      isolationState: "operator-environment",
-    });
+    expect(onUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        instanceId: "codex-edit",
+        permissionMode: "bypass",
+        isolationState: "operator-environment",
+      }),
+    );
   });
 
   it("round-trips: an instance read back at the submitted state renders that state", async () => {
-    const container = await renderCard(runtimeInstance("codex", "operator-environment"), () => undefined);
-    expect(container.querySelector<HTMLSelectElement>('[data-testid="runtime-instance-isolation"]')?.value).toBe(
+    const container = await renderCard(runtimeInstance("codex", "operator-environment"), async () => ({ ok: false }));
+    expect(container.querySelector<HTMLSelectElement>('[data-testid="runtime-provider-isolation"]')?.value).toBe(
       "operator-environment",
     );
   });
 
   it("offers no isolation choice for a kind that declares a single state", async () => {
-    const onUpdate = vi.fn();
+    const onUpdate = vi.fn(async () => ({ ok: false }));
     const container = await renderCard(runtimeInstance("agy", "operator-environment"), onUpdate);
-    expect(container.querySelector('[data-testid="runtime-instance-isolation"]')).toBeNull();
+    expect(container.querySelector('[data-testid="runtime-provider-isolation"]')).toBeNull();
     await submitPermissions(container);
-    expect(onUpdate).not.toHaveBeenCalled();
+    expect(onUpdate.mock.calls[0]?.[0]).not.toHaveProperty("isolationState");
   });
 });

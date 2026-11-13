@@ -812,5 +812,15 @@
   "agentRuntime.versionUnavailable": "This version could not be read.",
   "agentRuntime.versionNoFieldDiff": "This version matches the current declaration field by field.",
   "agentRuntime.versionIsCurrent": "This version is the current declaration; nothing to roll back.",
-  "agentRuntime.versionRollback": "Roll back to this version"
+  "agentRuntime.versionRollback": "Roll back to this version",
+  "agentRuntime.apiKeyIsolation": "Isolation · API key requires dedicated environment",
+  "agentRuntime.webSearch": "Native web search",
+  "agentRuntime.webSearch_disabled": "Disabled",
+  "agentRuntime.webSearch_cached": "Cached",
+  "agentRuntime.webSearch_live": "Live",
+  "agentRuntime.webSearchAvailability": "Search requirements",
+  "agentRuntime.webSearchSubscriptionGateway": "Custom gateway search requires an API key instance.",
+  "agentRuntime.webSearchEndpointRequired": "Set a custom base URL or use the openai provider.",
+  "agentRuntime.webSearchResponsesRequired": "Custom gateway search requires wire_api=responses.",
+  "agentRuntime.webSearchGatewayVerification": "Saving enables search only after the gateway performs a verified web search."
 }

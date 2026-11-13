@@ -7,10 +7,13 @@ import {
   planeAuthMode,
   planeRequiresBaseUrl,
   runtimeProviderPlane,
+  runtimeWebSearchRestriction,
   type RuntimeAuthMode,
   type RuntimeKindId,
 } from "./runtime-provider-planes.ts";
-import { runtimeEffortField, runtimeKindForId } from "@harness-anything/daemon/protocol";
+import { runtimeEffortField, runtimeKindForId, runtimePermissionMode } from "@harness-anything/daemon/protocol";
+
+type RuntimeWebSearchMode = NonNullable<RuntimeInstanceUpdateInput["webSearch"]>;
 
 export type CreateInstanceFormState = {
   readonly instanceId: string;
@@ -29,8 +32,16 @@ export type CreateInstanceFormState = {
   readonly requiresOpenAiAuth: boolean;
   readonly permissionMode?: "bypass" | "workspace-write" | "read-only";
   readonly isolation: "enforced" | "operator-environment";
+  readonly webSearch?: RuntimeWebSearchMode;
 };
 export type RuntimeInstanceEditFormState = {
+  readonly kindId: string;
+  readonly authMode: RuntimeAuthMode;
+  readonly providerId: string;
+  readonly wireApi: string;
+  readonly permissionMode: CreateInstanceFormState["permissionMode"];
+  readonly isolation: CreateInstanceFormState["isolation"];
+  readonly webSearch?: RuntimeWebSearchMode;
   readonly name: string;
   readonly installationId: string;
   readonly models: readonly string[];
@@ -90,6 +101,7 @@ export function buildRuntimeInstanceCreatePayload(
     configuration = {
       ...(form.reasoningEffort.trim() && effortField in fields ? { [effortField]: form.reasoningEffort.trim() } : {}),
       ...(form.fast && "fast" in fields ? { fast: true } : {}),
+      ...(form.webSearch !== undefined && "webSearch" in fields ? { webSearch: form.webSearch } : {}),
       ...(baseUrl && "baseUrl" in fields ? { baseUrl } : {}),
       ...(form.wireApi && "wireApi" in fields ? { wireApi: form.wireApi } : {}),
       ...(form.requiresOpenAiAuth && "requiresOpenAiAuth" in fields ? { requiresOpenAiAuth: true } : {}),
@@ -109,13 +121,26 @@ export function runtimeInstanceEditForm(instance: RuntimeInstanceSummary): Runti
     fastEditable = "fast" in runtimeKindForId(instance.kindId).configuration.fields,
     effortField = runtimeEffortField(instance.kindId);
   return {
+    kindId: instance.kindId,
+    authMode: instance.authMode,
+    providerId: instance.providerId,
+    wireApi: typeof instance.configuration.wire_api === "string" ? instance.configuration.wire_api : "",
+    permissionMode: runtimePermissionMode(
+      instance.permissionMode ?? undefined,
+      runtimeKindForId(instance.kindId).kindId,
+    ),
+    isolation: instance.isolationState,
+    webSearch: runtimeKindForId(instance.kindId).configuration.webSearch
+      ? ((instance.configuration.webSearch as RuntimeWebSearchMode | undefined) ??
+        runtimeKindForId(instance.kindId).configuration.webSearch!.defaultMode)
+      : undefined,
     name: instance.name,
     installationId: instance.installationId,
     models: [...instance.models],
     defaultModel: instance.defaultModel,
     customModel: "",
     baseUrlEditable: editable,
-    baseUrl: editable ? runtimeInstanceBaseUrl(instance) : "",
+    baseUrl: runtimeInstanceBaseUrl(instance),
     fast: fastEditable && instance.configuration.fast === true,
     initialFast: fastEditable && instance.configuration.fast === true,
     fastEditable,
@@ -166,7 +191,8 @@ export function runtimeInstanceEditReady(form: RuntimeInstanceEditFormState): bo
     form.installationId.trim() !== "" &&
     models.length > 0 &&
     models.includes(form.defaultModel) &&
-    (!form.replaceApiKey || (form.apiKeyEditable && form.apiKey.trim() !== ""))
+    (!form.replaceApiKey || (form.apiKeyEditable && form.apiKey.trim() !== "")) &&
+    runtimeAccessFormReady(form)
   );
 }
 export function buildRuntimeInstanceUpdatePayload(
@@ -186,6 +212,11 @@ export function buildRuntimeInstanceUpdatePayload(
     models,
     defaultModel,
     ...(form.replaceApiKey ? { apiKey: form.apiKey.trim() } : {}),
+    ...(runtimeKindForId(form.kindId).permissions.available ? { permissionMode: form.permissionMode } : {}),
+    ...(planeAllowsIsolation(form.kindId) ? { isolationState: form.isolation } : {}),
+    ...(form.webSearch !== undefined && runtimeKindForId(form.kindId).configuration.webSearch
+      ? { webSearch: form.webSearch }
+      : {}),
     // Base URL rides the same update write path the other fields use; the empty field is
     // meaningful (back to the official endpoint), so it is sent whenever the plane has one.
     // A plane without an API mode has no base URL at all and the field is omitted there.
@@ -224,6 +255,7 @@ export function applyRuntimeKind(
     apiKey: "",
     wireApi: "",
     requiresOpenAiAuth: false,
+    webSearch: declaration.configuration.webSearch?.defaultMode,
     baseUrl: planeAllowsBaseUrl(kindId, authMode) ? form.baseUrl : "",
     reasoningEffort: planeAllowsEffort(kindId) ? form.reasoningEffort : "",
     fast: "fast" in runtimeKindForId(kindId).configuration.fields ? form.fast : false,
@@ -249,6 +281,7 @@ export function applyRuntimeAuthMode(
     authMode,
     apiKey: "",
     baseUrl: planeAllowsBaseUrl(form.kindId, authMode) ? form.baseUrl : "",
+    webSearch: runtimeWebSearchRestriction({ ...form, authMode }) ? "disabled" : form.webSearch,
     isolation,
   };
 }
@@ -268,7 +301,8 @@ export function runtimeInstanceFormReady(
     (form.authMode !== "api-key" ||
       !runtimeProviderPlane(form.kindId).apiKeyIsolation ||
       form.isolation === runtimeProviderPlane(form.kindId).apiKeyIsolation) &&
-    (!planeRequiresBaseUrl(form.kindId, form.authMode) || form.baseUrl.trim() !== "")
+    (!planeRequiresBaseUrl(form.kindId, form.authMode) || form.baseUrl.trim() !== "") &&
+    runtimeAccessFormReady(form)
   );
 }
 export function runtimeInstanceIdAvailable(instanceId: string, existingInstanceIds: readonly string[]): boolean {
@@ -281,4 +315,23 @@ export function visibleRuntimeInstances(
   showDisabled: boolean,
 ): readonly RuntimeInstanceSummary[] {
   return showDisabled ? instances : instances.filter((instance) => instance.enabled);
+}
+
+function runtimeAccessFormReady(form: {
+  readonly kindId: string;
+  readonly authMode: RuntimeAuthMode;
+  readonly providerId: string;
+  readonly baseUrl: string;
+  readonly wireApi: string;
+  readonly isolation: CreateInstanceFormState["isolation"];
+  readonly webSearch?: RuntimeWebSearchMode;
+}): boolean {
+  const plane = runtimeProviderPlane(form.kindId);
+  return (
+    (form.authMode !== "api-key" || !plane.apiKeyIsolation || form.isolation === plane.apiKeyIsolation) &&
+    (form.authMode !== "subscription" ||
+      !plane.subscriptionIsolation ||
+      form.isolation === plane.subscriptionIsolation) &&
+    (!form.webSearch || form.webSearch === "disabled" || !runtimeWebSearchRestriction(form))
+  );
 }

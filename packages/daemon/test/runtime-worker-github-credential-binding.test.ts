@@ -106,6 +106,7 @@ test("hosting credentials stay daemon-side and only configured provider reaches 
     store.create({
       schemaVersion: 2,
       instanceId: "codex-github-worker",
+      isolationState: "enforced",
       name: "Codex GitHub Worker",
       kindId: "codex",
       installationId: installation.installationId,

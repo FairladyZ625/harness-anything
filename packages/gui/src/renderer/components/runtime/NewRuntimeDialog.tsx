@@ -18,7 +18,6 @@ import {
   planeAllowsApiKey,
   planeAllowsBaseUrl,
   planeAllowsEffort,
-  planeAllowsPermissions,
   planeUsesApiOverride,
   runtimeProviderPlane,
   RUNTIME_KIND_IDS,
@@ -32,6 +31,7 @@ import { CfgRow, Hint, KindDot } from "./parts.tsx";
 import { Modal } from "../primitives/Modal.tsx";
 import { TextInput } from "../primitives/TextInput.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
+import { RuntimeAccessFields } from "./RuntimeAccessFields.tsx";
 import { RuntimeModelEditor } from "./RuntimeModelEditor.tsx";
 
 const kindLabel = (kindId: RuntimeKindId): string => runtimeKindForId(kindId).displayName;
@@ -45,6 +45,7 @@ const emptyForm = (kindId: RuntimeKindId): CreateInstanceFormState => ({
   model: "",
   reasoningEffort: "",
   fast: false,
+  webSearch: runtimeKindForId(kindId).configuration.webSearch?.defaultMode,
   baseUrl: "",
   authMode: "subscription",
   apiKey: "",
@@ -371,63 +372,7 @@ export function NewRuntimeDialog({
             </select>
           </Labelled>
         )}
-        <Labelled
-          label={t("agentRuntime.permissionMode")}
-          hint={
-            planeAllowsPermissions(form.kindId)
-              ? undefined
-              : t("agentRuntime.capabilityUnsupported", {
-                  provider: form.kindId,
-                  capability: t("agentRuntime.permissionMode"),
-                })
-          }
-        >
-          <select
-            aria-label={t("agentRuntime.permissionMode")}
-            value={form.permissionMode}
-            disabled={!planeAllowsPermissions(form.kindId)}
-            onChange={(event) =>
-              patch({ permissionMode: event.target.value as CreateInstanceFormState["permissionMode"] })
-            }
-            className="control"
-          >
-            <option value="bypass">{t("agentRuntime.permissionBypass")}</option>
-            <option value="workspace-write">{t("agentRuntime.permissionWorkspaceWrite")}</option>
-            <option value="read-only">{t("agentRuntime.permissionReadOnly")}</option>
-          </select>
-        </Labelled>
-        <Labelled
-          label={t("agentRuntime.isolation")}
-          hint={
-            planeAllowsPermissions(form.kindId)
-              ? undefined
-              : t("agentRuntime.capabilityUnsupported", {
-                  provider: form.kindId,
-                  capability: t("agentRuntime.isolation"),
-                })
-          }
-        >
-          <select
-            aria-label={t("agentRuntime.isolation")}
-            value={form.isolation}
-            disabled={!planeAllowsPermissions(form.kindId)}
-            onChange={(event) => patch({ isolation: event.target.value as CreateInstanceFormState["isolation"] })}
-            className="control"
-          >
-            <option
-              value="operator-environment"
-              disabled={form.authMode === "api-key" && plane.apiKeyIsolation === "enforced"}
-            >
-              {t("agentRuntime.operatorEnvironment")}
-            </option>
-            <option
-              value="enforced"
-              disabled={form.authMode === "subscription" && plane.subscriptionIsolation === "operator-environment"}
-            >
-              {t("agentRuntime.instanceStateRoot")}
-            </option>
-          </select>
-        </Labelled>
+        <RuntimeAccessFields value={form} onChange={patch} testIdPrefix="new-runtime" busy={busy} />
       </div>
       {"httpHeaders" in runtimeKindForId(form.kindId).configuration.fields && apiOn && (
         <label className="mt-2 flex items-center gap-1.5 font-mono ui-micro uppercase text-text-faint">

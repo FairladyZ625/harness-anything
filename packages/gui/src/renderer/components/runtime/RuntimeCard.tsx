@@ -2,8 +2,6 @@ import { Toggle } from "../primitives/Toggle.tsx";
 import { Button } from "../primitives/Button.tsx";
 import { useEffect, useState } from "react";
 import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
-import { runtimeIsolationState, runtimePermissionMode } from "@harness-anything/daemon/protocol";
-import { runtimeKindForId } from "@harness-anything/daemon/protocol";
 import { agentRuntimeKindMatches } from "@harness-anything/daemon/protocol";
 import type { AgentEntityAvailableRow } from "../../agent-entity-client.ts";
 import type { RuntimeInstallationRow, RuntimeInstanceUpdateInput } from "../../runtime-instance-client.ts";
@@ -21,34 +19,17 @@ import {
   toggleRuntimeModel,
   type RuntimeInstanceEditFormState,
 } from "../../runtime-instance-form.ts";
-import {
-  planeAllowsBaseUrl,
-  planeAllowsIsolation,
-  planeAllowsPermissions,
-  planeUsesApiOverride,
-  runtimeProviderPlane,
-} from "../../runtime-provider-planes.ts";
+import { planeAllowsBaseUrl, planeUsesApiOverride, runtimeProviderPlane } from "../../runtime-provider-planes.ts";
 import { t } from "../../i18n/index.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { ActionError } from "./ActionError.tsx";
-import {
-  Avatar,
-  CapDot,
-  Card,
-  CardBody,
-  CardHead,
-  CardTitle,
-  ChipZone,
-  CfgRow,
-  Hint,
-  KindDot,
-  Right,
-} from "./parts.tsx";
+import { Avatar, CapDot, Card, CardBody, CardHead, CardTitle, ChipZone, Hint, KindDot, Right } from "./parts.tsx";
 import { Chip } from "../primitives/Chip.tsx";
 import { Field, FieldGrid, KV, KVRow } from "../primitives/Fields.tsx";
 import { TextInput } from "../primitives/TextInput.tsx";
 import { Empty } from "../primitives/Empty.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
+import { RuntimeAccessFields } from "./RuntimeAccessFields.tsx";
 import { RuntimeModelEditor } from "./RuntimeModelEditor.tsx";
 import { ArrowDown, ArrowUp } from "@phosphor-icons/react";
 
@@ -354,23 +335,6 @@ export function RuntimeCard({
         </CardBody>
       </Card>
 
-      <Card testId="runtime-card-isolation">
-        <CardHead>
-          <CardTitle>{t("agentRuntime.isolationTitle")}</CardTitle>
-          <Hint>
-            {t(
-              planeAllowsPermissions(instance.kindId)
-                ? "agentRuntime.isolationHint"
-                : "agentRuntime.capabilityUnsupported",
-              { provider: instance.kindId, capability: t("agentRuntime.isolationTitle") },
-            )}
-          </Hint>
-        </CardHead>
-        <CardBody>
-          <PermissionsEditor instance={instance} busy={busy} onUpdate={onUpdate} />
-        </CardBody>
-      </Card>
-
       <Card>
         <CardHead>
           <CardTitle>{t("agentRuntime.compatibleAgents")}</CardTitle>
@@ -573,6 +537,7 @@ function ProviderEditor({
             )}
           </span>
         </label>
+        <RuntimeAccessFields value={draft} onChange={patch} testIdPrefix="runtime-provider" busy={busy} />
         <label className="grid gap-0.5">
           <span className="font-mono ui-micro uppercase tracking-[0.08em] text-text-faint">
             {t("agentRuntime.model")}
@@ -633,75 +598,6 @@ function ProviderEditor({
           {t("agentRuntime.saveProvider")}
         </Button>
       </div>
-    </form>
-  );
-}
-
-function PermissionsEditor({
-  instance,
-  busy,
-  onUpdate,
-}: {
-  readonly instance: RuntimeInstanceSummary;
-  readonly busy: boolean;
-  readonly onUpdate: (input: RuntimeInstanceUpdateInput) => void;
-}) {
-  const [permissionMode, setPermissionMode] = useState(() =>
-    runtimePermissionMode(instance.permissionMode ?? undefined, runtimeKindForId(instance.kindId).kindId),
-  );
-  const [isolationState, setIsolationState] = useState(() =>
-    runtimeIsolationState(instance.isolationState, runtimeKindForId(instance.kindId).kindId),
-  );
-  const supported = planeAllowsPermissions(instance.kindId),
-    // The isolation choice exists wherever the runtime declaration offers more than one
-    // state; single-state kinds (agy) have nothing to edit.
-    isolationEditable = planeAllowsIsolation(instance.kindId);
-  return (
-    <form
-      data-testid="runtime-instance-permissions"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (!supported || !permissionMode) return;
-        onUpdate({
-          instanceId: instance.instanceId,
-          permissionMode,
-          ...(isolationEditable ? { isolationState } : {}),
-        });
-      }}
-    >
-      <CfgRow label={t("agentRuntime.permissionMode")}>
-        <select
-          data-testid="runtime-instance-permission-mode"
-          aria-label={t("agentRuntime.permissionMode")}
-          value={permissionMode}
-          disabled={!supported}
-          onChange={(event) => setPermissionMode(event.target.value as typeof permissionMode)}
-          className="control"
-        >
-          <option value="bypass">{t("agentRuntime.permissionBypass")}</option>
-          <option value="workspace-write">{t("agentRuntime.permissionWorkspaceWrite")}</option>
-          <option value="read-only">{t("agentRuntime.permissionReadOnly")}</option>
-        </select>
-      </CfgRow>
-      {isolationEditable && (
-        <CfgRow label={t("agentRuntime.isolation")}>
-          <select
-            data-testid="runtime-instance-isolation"
-            aria-label={t("agentRuntime.isolation")}
-            value={isolationState}
-            disabled={!supported}
-            onChange={(event) => setIsolationState(event.target.value as typeof isolationState)}
-            className="control"
-          >
-            <option value="operator-environment">{t("agentRuntime.operatorEnvironment")}</option>
-            <option value="enforced">{t("agentRuntime.instanceStateRoot")}</option>
-          </select>
-        </CfgRow>
-      )}
-      {!supported && <Hint>{t("agentRuntime.permissionsUnsupported")}</Hint>}
-      <Button type="submit" size="sm" disabled={busy || !supported}>
-        {t("agentRuntime.savePermissions")}
-      </Button>
     </form>
   );
 }

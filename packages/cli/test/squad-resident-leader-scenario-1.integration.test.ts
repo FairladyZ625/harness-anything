@@ -76,6 +76,8 @@ test("each terminal worker batch calls back into one leader turn and a failed wo
     "openai",
     "--model",
     "runtime-test-model",
+    "--isolation",
+    "enforced",
     "--auth",
     "subscription",
   ]);

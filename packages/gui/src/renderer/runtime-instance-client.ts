@@ -34,6 +34,7 @@ export type RuntimeInstanceUpdateInput = {
   readonly permissionMode?: "bypass" | "workspace-write" | "read-only";
   readonly isolationState?: DomainStatus.RuntimeIsolationState;
   readonly fast?: boolean;
+  readonly webSearch?: "disabled" | "cached" | "live";
   readonly clearFreeze?: boolean;
 };
 type RuntimeInstanceCreateCommon = {

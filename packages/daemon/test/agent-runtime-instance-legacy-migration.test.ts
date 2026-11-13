@@ -33,7 +33,7 @@ test("legacy runtime instance records migrate once to schema v2 on read", async 
       defaultModel: "gpt-5.6-sol",
       enabled: true,
       permissionMode: "bypass",
-      isolationState: "enforced",
+      isolationState: "operator-environment",
       auth: { mode: "subscription" },
       kindId: "codex",
       codex: {},
