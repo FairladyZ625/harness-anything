@@ -10,6 +10,7 @@ import {
   canonicalDocumentClaims,
   canonicalDocumentMode,
   canonicalDocumentRetirements,
+  contentClaims,
 } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 import { canonicalEventEntityRefs } from "@harness-anything/kernel";
 import {
@@ -37,6 +38,8 @@ export async function openPgMigrationEndpoint(input: {
   readonly scope: PostgresEventStoreScope;
   readonly backend?: "postgres" | "pglite";
   readonly identity?: string;
+  /** Mint in the healthy phase; the caller owns cleanup after synchronous replication recovers. */
+  readonly preparedGrant?: Awaited<ReturnType<typeof createMigrationGrant>>;
 }): Promise<MigrationEndpoint> {
   if (
     input.backend !== "pglite" &&
@@ -96,13 +99,16 @@ export async function openPgMigrationEndpoint(input: {
       }))
       .sort(compareTupleOrder);
     if (scopes.length === 0) return [];
-    const grant = backend === "postgres" ? await createMigrationGrant(pool, runId, scopes) : null,
+    if (input.preparedGrant)
+      assertMigrationValue(input.preparedGrant.runId, runId, "prepared PostgreSQL read grant belongs to another run");
+    const grant =
+        input.preparedGrant ?? (backend === "postgres" ? await createMigrationGrant(pool, runId, scopes) : null),
       reader = grant?.pool ?? pool,
       tuples: MigrationTuple[] = [];
     try {
       for (const tupleScope of scopes) {
         const tupleKey = [tupleScope.tenantId, tupleScope.projectId, repoId];
-        const data = await withPostgresTransaction(
+        const { completeHead, ...data } = await withPostgresTransaction(
           reader,
           async (client) => {
             const confirmed = await resolveConfirmedRepoCut(client, tupleScope, repoId);
@@ -151,8 +157,17 @@ export async function openPgMigrationEndpoint(input: {
                   readers: string[];
                   policy_epoch: string;
                 }>(
-                  "SELECT * FROM ha_content_blobs WHERE tenant_id=$1 AND project_id=$2 ORDER BY sha256",
-                  tupleKey.slice(0, 2),
+                  "SELECT * FROM ha_content_blobs WHERE tenant_id=$1 AND project_id=$2 AND sha256=ANY($3::text[]) ORDER BY sha256",
+                  [
+                    ...tupleKey.slice(0, 2),
+                    [
+                      ...new Set(
+                        events.flatMap((row) =>
+                          contentClaims(parseCanonicalEvent(row.eventJson)).map((claim) => claim.sha256),
+                        ),
+                      ),
+                    ],
+                  ],
                 )
               ).rows.map((row) => ({
                 sha256: row.sha256,
@@ -211,6 +226,7 @@ export async function openPgMigrationEndpoint(input: {
                 });
             }
             return {
+              completeHead: Number(persisted.revision) === confirmed.confirmedRevision,
               scope: tupleScope,
               documentHeads: [...documentHeads.values()].sort((a, b) =>
                 a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
@@ -229,6 +245,12 @@ export async function openPgMigrationEndpoint(input: {
           tupleScope,
           { isolationLevel: "repeatable read" },
         );
+        // The current projection is comparable only at the complete head. A confirmed prefix
+        // has its own canonical replay witness; reading the latest projection would leak the tail.
+        if (!completeHead) {
+          tuples.push({ ...data, projection: await auditMigrationProjection(repoId, data) });
+          continue;
+        }
         await auditPgProjectionRows(pool, reader, data);
         const projection = createPgTaskProjectionSource({
           pool: reader,
@@ -244,7 +266,7 @@ export async function openPgMigrationEndpoint(input: {
       }
       return tuples;
     } finally {
-      await grant?.close();
+      if (!input.preparedGrant) await grant?.close();
     }
   };
   return {

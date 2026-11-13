@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { unloggedTableSource } from "./gates/test/fixtures/state-residency-unlogged.mjs";
 import { checkBypassWriteBoundary as runBoundaryCheck, scanBypassWriteCalls } from "./check-bypass-write-boundary.mjs";
 import { stateResidencyBaseline } from "./gate-allowlists/state-residency-baseline.mjs";
 import { auditCacheDriverImports, cacheDriverAdapterCandidates } from "./gates/cache-driver-import-boundary.mjs";
@@ -57,14 +58,11 @@ test("classifies PostgreSQL DDL separately from SQLite helper tables", () => {
 
 test("classifies UNLOGGED PostgreSQL tables and enforces their aggregate ownership", () => {
   const relativePath = "packages/storage/src/postgres/demo-schema.ts",
-    root = fixture("`CREATE UNLOGGED TABLE IF NOT EXISTS ha_demo (id text)`;", relativePath);
+    root = fixture(unloggedTableSource, relativePath);
   try {
     const unowned = checkBypassWriteBoundary(root, { contracts: [], baseline: [] });
     assert.ok(unowned.violations.some(({ table }) => table === "ha_demo"));
-    writeFileSync(
-      path.join(root, relativePath),
-      "/* @gate-identity state-store/demo.pg */ `CREATE UNLOGGED TABLE IF NOT EXISTS ha_demo (id text)`;",
-    );
+    writeFileSync(path.join(root, relativePath), `/* @gate-identity state-store/demo.pg */ ${unloggedTableSource}`);
     const result = checkBypassWriteBoundary(root, {
       contracts: [
         {

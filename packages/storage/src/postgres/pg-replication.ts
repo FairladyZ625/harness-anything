@@ -96,8 +96,8 @@ export async function pgReplicationPage(
     keys = [scope.tenantId, scope.projectId, repoId],
     anchor = (
       await client.query<{ revision: string }>(
-        "SELECT revision FROM ha_replication_positions WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND sequence=$4",
-        [...keys, after.sequence],
+        "SELECT revision FROM ha_replication_positions WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND sequence=$4 AND sequence<=$5",
+        [...keys, after.sequence, head.sequence],
       )
     ).rows[0];
   if (

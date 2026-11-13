@@ -4,6 +4,7 @@ import test, { before, after } from "node:test";
 import { Pool } from "pg";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
+import { canonicalLedgerCut } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
 import { serializePersistedCanonicalEvent } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { readFileSync } from "node:fs";
@@ -18,9 +19,11 @@ import {
 import { pgReplicationHead, pgReplicationPage, pgOutcomes } from "../../src/postgres/pg-replication.ts";
 import { prepareSqlBaseBackup } from "../../src/postgres/pg-basebackup.ts";
 import { BASE_BACKUP_ARCHIVE_ROOT } from "../../src/fleet-basebackup-layout.ts";
-import { bundle, eventAt } from "../store/task-event-store.fixtures.ts";
+import { bundle, docBundle, eventAt } from "../store/task-event-store.fixtures.ts";
 import { openPgMigrationEndpoint } from "../../src/migration/postgres-endpoint.ts";
 import { executePostgresRead } from "../../src/postgres/pg-event-store.ts";
+import { createMigrationGrant } from "../../src/migration/postgres-grant.ts";
+import { createPgStorageBackend } from "../../src/pg/backend.ts";
 import { pgRuntimeFixture } from "./pg-runtime.fixture.ts";
 
 function attemptAt(revision: number) {
@@ -205,6 +208,7 @@ test(
         scope,
         onSyncRepInterrupted: (notice) => notices.push(notice),
       });
+    let migrationGrant: Awaited<ReturnType<typeof createMigrationGrant>> | undefined;
     try {
       const owner = (
         await fixture.adminPool.query(
@@ -220,6 +224,13 @@ test(
         (client) => pgReplicationHead(client, scope, repoId),
         scope,
       );
+      migrationGrant = await createMigrationGrant(fixture.adminPool, "case-d", [scope]);
+      const migration = await openPgMigrationEndpoint({
+        pool: fixture.adminPool,
+        repoId,
+        scope,
+        preparedGrant: migrationGrant,
+      });
       await strict(fixture, true);
       const writing = store.append(pending, 1, fence);
       const rejected = assert.rejects(writing, { code: "publication_indeterminate" });
@@ -334,7 +345,16 @@ test(
         seed.outcomes.map((row) => row.opId),
         [base.event.opId],
       );
-      console.log("FENCED_SURFACES", JSON.stringify({ observations, replication, metadata, seed }));
+      const exported = await migration.export("case-d");
+      assert.deepEqual(
+        exported[0]!.outcomes.map((row) => row.opId),
+        [base.event.opId],
+      );
+      assert.deepEqual(
+        exported[0]!.events.map((row) => row.opId),
+        [base.event.opId],
+      );
+      console.log("FENCED_SURFACES", JSON.stringify({ observations, replication, metadata, seed, exported }));
       await strict(fixture, false);
       await fixture.adminPool.query("TRUNCATE ha_repo_sync_watermarks");
       assert.equal((await store.readHead())?.revision, 2);
@@ -353,6 +373,7 @@ test(
       assert.equal((await store.readHead())?.revision, 2);
     } finally {
       await strict(fixture, false);
+      await migrationGrant?.close();
       await fixture.pool.end();
       await fixture.close();
     }
@@ -372,38 +393,82 @@ async function strict(fixture: Awaited<ReturnType<typeof pgRuntimeFixture>>, ena
   }
 }
 
-// Diagnostic for the scope ruling: this proves a remaining export blocker, not export acceptance.
-test("migration export currently writes WAL before reaching its confirmed read cut", { timeout: 60_000 }, async () => {
-  const monitor = new Pool({ connectionString: fixture.managementConnectionString }),
-    scope = { tenantId: "export-gap", projectId: "export-gap", readers: [], policyEpoch: 1 },
-    repoId = "export-gap",
-    fence = { repoId, holderId: "writer", epoch: 1 };
-  try {
-    const store = makePostgresTaskEventStore({ pool: fixture.pool, scope, repoId });
-    await store.append(attemptAt(1), 0, fence);
-    const endpoint = await openPgMigrationEndpoint({ pool: fixture.adminPool, repoId, scope });
-    await strict(fixture, true);
-    const exporting = endpoint.export("export-gap"),
-      rejected = assert.rejects(exporting, { code: "sync_rep_wait_canceled" });
-    for (;;) {
-      const row = (
-        await monitor.query(
-          "SELECT pid,query,wait_event,usename FROM pg_stat_activity WHERE usename='postgres' AND wait_event='SyncRep'",
-        )
-      ).rows[0];
-      if (row) {
-        console.log("MIGRATION_EXPORT_PRE_READ_WAL_BLOCKER", JSON.stringify(row));
-        await monitor.query("SELECT pg_cancel_backend($1)", [row.pid]);
-        break;
-      }
+test(
+  "prepared migration reads export only the confirmed prefix without a synchronous WAL commit",
+  { timeout: 60_000 },
+  async () => {
+    const scope = { tenantId: "export-gap", projectId: "export-gap", readers: [], policyEpoch: 1 },
+      repoId = "export-gap",
+      fence = { repoId, holderId: "writer", epoch: 1 };
+    let grant: Awaited<ReturnType<typeof createMigrationGrant>> | undefined;
+    const backend = createPgStorageBackend({ pool: fixture.pool, scope, repoId });
+    try {
+      const base = attemptAt(1);
+      await backend.eventStore.append(base, 0, fence);
+      const baseHead = await backend.eventStore.readHead();
+      const baseDocument = docBundle(
+        { currentCut: () => canonicalLedgerCut(repoId, baseHead) } as Parameters<typeof docBundle>[0],
+        "confirmed document",
+        2,
+        `op_inj_${randomUUID()}`,
+        "docs/confirmed.md",
+      );
+      await backend.eventStore.append(baseDocument, 1, fence);
+      const documentHead = await backend.eventStore.readHead();
+      const pending = docBundle(
+        { currentCut: () => canonicalLedgerCut(repoId, documentHead) } as Parameters<typeof docBundle>[0],
+        "unconfirmed document",
+        3,
+        `op_inj_${randomUUID()}`,
+        "docs/pending.md",
+      );
+      console.log(
+        "ATTEMPT_KEY",
+        JSON.stringify({
+          opId: pending.event.opId,
+          eventId: pending.event.eventId,
+          payloadMarker: "unconfirmed document",
+          intentDigest: `sha256:${sha256Text(JSON.stringify([serializePersistedCanonicalEvent(pending.event)]))}`,
+        }),
+      );
+      grant = await createMigrationGrant(fixture.adminPool, "export-gap", [scope]);
+      const endpoint = await openPgMigrationEndpoint({ pool: fixture.adminPool, repoId, scope, preparedGrant: grant });
+      await assert.rejects(endpoint.export("wrong-run"), { code: "storage_migration_mismatch" });
+      await strict(fixture, true);
+      // A complete head still receives the full same-dialect and logical projection audits.
+      const complete = await endpoint.export("export-gap");
+      assert.equal(complete[0]!.cut.revision, 2);
+      const writing = backend.eventStore.append(pending, 2, fence),
+        rejected = assert.rejects(writing, { code: "publication_indeterminate" });
+      await fixture.adminPool.query("SELECT pg_cancel_backend($1)", [await blocked(fixture)]);
+      await rejected;
+      const tuples = await endpoint.export("export-gap"),
+        tuple = tuples[0]!;
+      assert.equal(tuples.length, 1);
+      assert.deepEqual(
+        tuple.events.map((row) => row.opId),
+        [base.event.opId, baseDocument.event.opId],
+      );
+      assert.deepEqual(tuple.outcomes.map((row) => row.opId).sort(), [base.event.opId, baseDocument.event.opId].sort());
+      assert.deepEqual(
+        tuple.blobs.map((row) => row.sha256),
+        [baseDocument.blobs[0]!.sha256],
+      );
+      assert.equal(tuple.cut.revision, 2);
+      assert.equal(JSON.stringify(tuple).includes(pending.event.opId), false);
+      assert.equal(JSON.stringify(tuple).includes(pending.blobs[0]!.sha256), false);
+      assert.equal(
+        (await fixture.adminPool.query("SELECT 1 FROM pg_namespace WHERE nspname LIKE 'ha_replay_%'")).rowCount,
+        0,
+      );
+      console.log("MIGRATION_CONFIRMED_EXPORT", JSON.stringify({ complete, tuples }));
+    } finally {
+      await strict(fixture, false);
+      await backend.projection.close();
+      await grant?.close();
     }
-    await rejected;
-  } finally {
-    await monitor.query("ALTER SYSTEM RESET synchronous_standby_names");
-    await monitor.query("SELECT pg_reload_conf()");
-    await monitor.end();
-  }
-});
+  },
+);
 
 async function blocked(fixture: Awaited<ReturnType<typeof pgRuntimeFixture>>): Promise<number> {
   for (;;) {

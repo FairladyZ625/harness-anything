@@ -88,6 +88,7 @@ export async function createMigrationGrant(
   return {
     pool,
     role,
+    runId,
     async close() {
       await pool.end();
       await withPostgresTransaction(admin, (client) => removeGrant(client, role));
