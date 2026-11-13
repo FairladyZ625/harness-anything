@@ -220,7 +220,6 @@ export async function resolveConfirmedRepoCut(
       max_seq: string;
       readers: string[];
       policy_epoch: string;
-      has_null_outcomes: boolean;
       wm_history: string | null;
       wm_rev: string | null;
       wm_seq: string | null;
@@ -230,8 +229,6 @@ export async function resolveConfirmedRepoCut(
        SELECT h.revision,h.replication_history,h.readers,h.policy_epoch,
          COALESCE((SELECT MAX(p.sequence) FROM ha_replication_positions p
            WHERE p.tenant_id=h.tenant_id AND p.project_id=h.project_id AND p.repo_id=h.repo_id),0) AS max_seq,
-         EXISTS(SELECT 1 FROM ha_command_outcomes o WHERE o.tenant_id=h.tenant_id
-           AND o.project_id=h.project_id AND o.repo_id=h.repo_id AND o.replication_sequence IS NULL) AS has_null_outcomes,
          w.replication_history AS wm_history,w.confirmed_revision AS wm_rev,w.confirmed_sequence AS wm_seq
        FROM ha_repo_heads h LEFT JOIN ha_repo_sync_watermarks w USING(tenant_id,project_id,repo_id)
        WHERE h.tenant_id=$1 AND h.project_id=$2 AND h.repo_id=$3
@@ -244,8 +241,7 @@ export async function resolveConfirmedRepoCut(
   const hot =
     row.wm_history === row.replication_history &&
     Number(row.wm_rev) >= Number(row.revision) &&
-    Number(row.wm_seq) >= Number(row.max_seq) &&
-    !row.has_null_outcomes;
+    Number(row.wm_seq) >= Number(row.max_seq);
   // PostgreSQL checks function EXECUTE even for an unselected CASE branch. An absent head
   // or an already proven watermark must not require the cold-recovery privilege at all.
   const confirmed =
@@ -263,7 +259,18 @@ export async function resolveConfirmedRepoCut(
     };
     if (!hot && row.can_write) {
       const ownerScope = { ...scope, readers: row.readers, policyEpoch: Number(row.policy_epoch) };
-      if (row.has_null_outcomes)
+      // NULL discovery is expansion/cold-recovery maintenance, not a hot-read invariant:
+      // every supported writer advances the head/history or replication tail (including
+      // v_prev rejections). Outcome reads and replay independently reject unknown sequences.
+      // Even with the partial NULL index, PostgreSQL can choose a history-sized heap scan.
+      const { has_null_outcomes } = (
+        await client.query<{ has_null_outcomes: boolean }>(
+          `SELECT EXISTS(SELECT 1 FROM ha_command_outcomes WHERE tenant_id=$1 AND project_id=$2
+           AND repo_id=$3 AND replication_sequence IS NULL) AS has_null_outcomes`,
+          [scope.tenantId, scope.projectId, repoId],
+        )
+      ).rows[0]!;
+      if (has_null_outcomes)
         afterPostgresCommit(client, async () => {
           await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ");
           await setPostgresClaims(client, ownerScope);

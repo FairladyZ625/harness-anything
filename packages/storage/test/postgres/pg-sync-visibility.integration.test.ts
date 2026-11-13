@@ -15,6 +15,7 @@ import {
   backfillConfirmedLegacyOutcomes,
   isSyncRepWaitInterruptedNotice,
   afterPostgresCommit,
+  resolveConfirmedRepoCut,
 } from "../../src/postgres/transaction.ts";
 import { pgReplicationHead, pgReplicationPage, pgOutcomes } from "../../src/postgres/pg-replication.ts";
 import { prepareSqlBaseBackup } from "../../src/postgres/pg-basebackup.ts";
@@ -25,6 +26,9 @@ import { executePostgresRead } from "../../src/postgres/pg-event-store.ts";
 import { createMigrationGrant } from "../../src/migration/postgres-grant.ts";
 import { createPgStorageBackend } from "../../src/pg/backend.ts";
 import { pgRuntimeFixture } from "./pg-runtime.fixture.ts";
+import { tracedPgReads, explainNodes } from "./pg-explain.fixture.ts";
+import { pgliteIntegrationSuite } from "../pglite/pglite-runtime.fixture.ts";
+import { createPGliteStorageBackend } from "../../src/pglite/storage-backend.ts";
 
 function attemptAt(revision: number) {
   const id = randomUUID(),
@@ -56,6 +60,87 @@ after(async () => {
   await strict(fixture, false);
   await fixture.pool.end();
   await fixture.close();
+});
+
+async function assertBoundedCutLookup(pool: Pool, adminPool: Pool, engine: string): Promise<void> {
+  const scope = { tenantId: "cut-cost", projectId: "cut-cost", readers: [], policyEpoch: 1 },
+    repoId = "cut-cost";
+  await adminPool.query("INSERT INTO ha_repo_heads(tenant_id,project_id,repo_id,policy_epoch) VALUES($1,$2,$3,$4)", [
+    scope.tenantId,
+    scope.projectId,
+    repoId,
+    scope.policyEpoch,
+  ]);
+  for (const size of [200, 2000]) {
+    await adminPool.query(
+      `INSERT INTO ha_command_outcomes(tenant_id,project_id,repo_id,op_id,status,intent_digest,intent_summary,
+        recorded_at,member_op_ids,policy_epoch,replication_sequence,rejection_code)
+       SELECT tenant_id,project_id,repo_id,'op_'||n,'rejected','fixture','fixture',clock_timestamp(),'{}',
+        policy_epoch,n,'rejected' FROM ha_repo_heads CROSS JOIN generate_series(1,43+$4::integer/100)n
+       WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 ON CONFLICT DO NOTHING`,
+      [scope.tenantId, scope.projectId, repoId, size],
+    );
+    await adminPool.query(
+      `INSERT INTO ha_replication_positions(tenant_id,project_id,repo_id,history,sequence,revision,
+        head_digest,writer_holder_id,writer_epoch,policy_epoch)
+       SELECT tenant_id,project_id,repo_id,replication_history,n,0,'fixture','writer',1,policy_epoch
+       FROM ha_repo_heads CROSS JOIN generate_series(1,$4::integer)n
+       WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 ON CONFLICT DO NOTHING`,
+      [scope.tenantId, scope.projectId, repoId, size],
+    );
+    await withPostgresTransaction(pool, (client) => resolveConfirmedRepoCut(client, scope, repoId), scope, {
+      isolationLevel: "repeatable read",
+    });
+    await adminPool.query("ANALYZE ha_command_outcomes, ha_replication_positions");
+    const plans: unknown[] = [],
+      tracedPool = tracedPgReads(
+        pool,
+        plans,
+        (sql) =>
+          sql.includes("ha_replication_positions") || sql.includes("SELECT EXISTS(SELECT 1 FROM ha_command_outcomes"),
+      ),
+      cut = await withPostgresTransaction(
+        tracedPool,
+        (client) => resolveConfirmedRepoCut(client, scope, repoId),
+        scope,
+        {
+          isolationLevel: "repeatable read",
+        },
+      ),
+      scans = explainNodes(plans).filter(
+        (node) =>
+          node["Relation Name"] === "ha_replication_positions" || node["Relation Name"] === "ha_command_outcomes",
+      ),
+      rowsRead = scans.reduce(
+        (sum, node) =>
+          sum +
+          (Number(node["Actual Rows"]) +
+            Number(node["Rows Removed by Filter"] ?? 0) +
+            Number(node["Rows Removed by Index Recheck"] ?? 0)) *
+            Number(node["Actual Loops"]),
+        0,
+      );
+    assert.equal(cut?.confirmedSequence, size);
+    assert.ok(scans.length > 0, "observe the production replication-tail lookup");
+    console.log("CONFIRMED_CUT_COST", JSON.stringify({ engine, node: process.version, size, rowsRead, cut }));
+    assert.ok(rowsRead <= 1, `confirmed-cut lookup scanned ${rowsRead} history rows at ${size}`);
+  }
+}
+
+test("hot confirmed-cut lookup stays bounded as replication and outcome history grow", async () => {
+  await assertBoundedCutLookup(fixture.pool, fixture.adminPool, "postgres");
+});
+
+pgliteIntegrationSuite("confirmed-cut PGlite costs", () => {
+  test("hot confirmed-cut lookup stays bounded on PGlite", async () => {
+    const scope = { tenantId: "cut-cost", projectId: "cut-cost", readers: [], policyEpoch: 1 },
+      backend = await createPGliteStorageBackend({ repoId: "cut-cost", storage: { backend: "pglite", scope } });
+    try {
+      await assertBoundedCutLookup(backend.pool, backend.pool, "pglite");
+    } finally {
+      await backend.close();
+    }
+  });
 });
 
 test("SyncRep notice classification does not depend on translated message text", () => {
@@ -175,12 +260,8 @@ test("legacy outcome without replication proof stays invisible", { timeout: 60_0
         { code: "publication_indeterminate" },
       );
     await strict(fixture, false);
-    await withPostgresTransaction(
-      fixture.pool,
-      (client) => backfillConfirmedLegacyOutcomes(client, scope, repoId),
-      scope,
-      { isolationLevel: "repeatable read" },
-    );
+    await fixture.adminPool.query("DELETE FROM ha_repo_sync_watermarks WHERE tenant_id='sync' AND repo_id='sync'");
+    await executePostgresRead(fixture.pool, scope, "head", { repoId });
     assert.equal(
       (await fixture.adminPool.query("SELECT replication_sequence FROM ha_command_outcomes WHERE op_id='op_legacy'"))
         .rows[0]!.replication_sequence,
