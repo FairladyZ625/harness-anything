@@ -68,13 +68,18 @@ async function mount(element: ReturnType<typeof createElement>) {
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   await act(async () => root!.render(createElement(QueryClientProvider, { client: client! }, element)));
 }
-function ProvidersHarness() {
+function ProvidersHarness({
+  onOpenAuthTerminal,
+}: {
+  onOpenAuthTerminal?: (instanceId: string, sessionId: string) => void;
+}) {
   const [ref, setRef] = useState<string | null>(null);
   return createElement(ProvidersView, {
     repoId: "demo",
     focusedEntityRef: ref,
     onSelectEntity: setRef,
     onBack: () => setRef(null),
+    onOpenAuthTerminal,
   });
 }
 function mockReadSurfaces() {
@@ -157,7 +162,8 @@ describe("multi-account provider workflow", () => {
         instance = { ...instance!, models: input.models!, defaultModel: input.defaultModel!, tier: input.tier };
         return receipt;
       });
-      await mount(createElement(ProvidersHarness));
+      const onOpenAuthTerminal = vi.fn();
+      await mount(createElement(ProvidersHarness, { onOpenAuthTerminal }));
       await click("runtime-new-runtimes");
       await click("provider-type-llm");
       await click("new-runtime-kind-agy");
@@ -168,6 +174,7 @@ describe("multi-account provider workflow", () => {
       expect(field<HTMLSelectElement>("new-runtime-isolation").disabled).toBe(true);
       await click("new-runtime-create");
       await settled(() => expect(auth).toHaveBeenCalledWith("demo", "agy-pro", "login"));
+      expect(onOpenAuthTerminal).toHaveBeenCalledWith("agy-pro", "login-test");
       expect(create.mock.calls[0]).toEqual([
         {
           instanceId: "agy-pro",

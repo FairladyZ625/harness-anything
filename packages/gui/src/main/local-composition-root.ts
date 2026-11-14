@@ -211,7 +211,6 @@ const INSTANCE_KEY_TIMEOUT_MS = guiInteractionPolicy.defaultValue.deadlines.inst
 const REPO_WRITE_TIMEOUT_MS = guiInteractionPolicy.defaultValue.deadlines.repoWrite;
 const INSTANCE_OP_TIMEOUT_MS = guiInteractionPolicy.defaultValue.deadlines.instanceOperation;
 const INSTANCE_SHOW_TIMEOUT_MS = guiInteractionPolicy.defaultValue.deadlines.instanceShow;
-const SESSION_AUTH_TIMEOUT_MS = guiInteractionPolicy.defaultValue.deadlines.sessionAuth;
 
 function requestTimeoutMs(route: ShippedGuiRoute, payload: JsonObject, timeouts: GuiRequestTimeouts): number {
   if (
@@ -227,12 +226,12 @@ function requestTimeoutMs(route: ShippedGuiRoute, payload: JsonObject, timeouts:
     route.guiBridgeMethod === "updateRuntimeInstance" ||
     route.guiBridgeMethod === "deleteRuntimeInstance" ||
     route.guiBridgeMethod === "listRuntimeInstances" ||
+    route.guiBridgeMethod === "signInRuntimeInstance" ||
+    route.guiBridgeMethod === "signOutRuntimeInstance" ||
     (route.guiBridgeMethod === "showRuntimeInstance" && payload.probe === true)
   )
     return INSTANCE_OP_TIMEOUT_MS;
   if (route.guiBridgeMethod === "showRuntimeInstance") return INSTANCE_SHOW_TIMEOUT_MS;
-  if (["signInRuntimeInstance", "signOutRuntimeInstance"].includes(route.guiBridgeMethod))
-    return SESSION_AUTH_TIMEOUT_MS;
   // Reads share the daemon with the single-writer queue; sustained ledger writes hold the
   // workspace for seconds at a time, so any deadline that undercuts a normal write window
   // turns ordinary contention into a visible GUI error (200ms, 2s and 10s all did, live;
