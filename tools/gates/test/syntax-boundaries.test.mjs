@@ -8,6 +8,7 @@ import test from "node:test";
 import { Linter } from "eslint";
 import noPollSpin from "../eslint-rules/no-poll-spin.js";
 import noSwallowedFailure from "../eslint-rules/no-swallowed-failure.js";
+import { buildManifestGatePlan, parseManifestGateArgs } from "../../run-manifest-gates.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 
@@ -300,6 +301,43 @@ test("G3 integration lane rejects wall-clock deadlines and scheduled product sta
 });
 
 // A synchronous bridge is an awaited sub-250 ms promise sleep, not a product timer or a UI debounce.
+test("G3 all test tiers reject measured elapsed upper bounds without judging fixture data", () => {
+  const kinds = (source, filename = "tools/analysis.test.mjs") =>
+    lint(noPollSpin, source, { tests: true }, filename).map((message) => /#([a-z-]+)$/u.exec(message.message)?.[1]);
+  for (const source of [
+    "assert.ok(result.durationMs < 1500);",
+    "assert.ok(result.analysisDurationMs <= 1500);",
+    "const result = { durationMs: measure() }; assert.ok(result.durationMs < 1500);",
+    "assert.ok(1500 > result['durationMs']);",
+    "assert.ok(elapsedMs <= 500);",
+    "const budget = 500; assert.ok(result.latencyMs < budget);",
+    "const budget = 2 * 1000; assert.ok(result.durationMs < budget);",
+    "const t0 = performance.now(); assert.ok(performance.now() - t0 < 500);",
+    "const t0 = Date.now(); const elapsed = Date.now() - t0; assert.ok(elapsed < 500);",
+    "function fixture() { const elapsedMs = 0; } function check(elapsedMs) { assert.ok(elapsedMs < 500); }",
+  ]) {
+    assert.deepEqual(kinds(source), ["clock-speed"], source);
+    assert.deepEqual(kinds(source, "packages/example/test/analysis.integration.test.mjs"), ["clock-speed"], source);
+  }
+  for (const source of [
+    "assert.ok(result.moduleCount < 1500);",
+    "assert.ok(result.durationMs >= 0);",
+    "const elapsedMs = 1200; assert.ok(elapsedMs < 1500);",
+    "const input = { durationMs: 1200 }; assert.ok(input.durationMs < 1500); validate(input);",
+    "const budget = 1200; const input = { durationMs: budget }; assert.ok(input.durationMs < 1500);",
+    "validate(JSON.parse('{\"durationMs\":1200}'));",
+    "test('x', { timeout: 20_000 }, async () => { await child.exited; });",
+    "await new Promise((_resolve, reject) => setTimeout(() => reject(new Error('hung')), 20_000));",
+  ]) {
+    assert.deepEqual(kinds(source), [], source);
+    assert.deepEqual(kinds(source, "packages/example/test/analysis.integration.test.mjs"), [], source);
+  }
+  // Pure timing-policy and rule fixture strings are not evaluated code and need no file exemption.
+  assert.deepEqual(kinds("const fixture = 'assert.ok(result.durationMs < 1500)';"), []);
+  assert.deepEqual(kinds("const start = performance.now(); while (performance.now() - start < 10) { work(); }"), []);
+  assert.deepEqual(lint(noPollSpin, "if (result.durationMs < 1500) record();"), []);
+});
+
 test("G3 production lane reports awaited short sleeps but not product timers", () => {
   const production = { integration: false },
     kinds = (source) =>
@@ -361,6 +399,39 @@ test("G3 integration exact-sync: a new now()+N deadline loop fails and its waitF
   );
   const accepted = run("tools/check-poll-spin-boundary.mjs", root);
   assert.equal(accepted.status, 0, accepted.stderr);
+});
+
+test("G3 exact-sync scans fast/contract tests in both roots and all supported extensions", (t) => {
+  const root = fixture(t);
+  writeFileSync(path.join(root, "packages/example/src/clean.ts"), "export const clean = true;\n");
+  assert.equal(run("tools/check-poll-spin-boundary.mjs", root, "--update").status, 0);
+  for (const file of [
+    ...["ts", "tsx", "mjs", "js"].map((ext) => `packages/example/test/analysis.test.${ext}`),
+    ...["ts", "mjs", "js"].map((ext) => `tools/analysis.test.${ext}`),
+  ]) {
+    mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+    writeFileSync(path.join(root, file), "assert.ok(result.durationMs < 1500);\n");
+  }
+  const rejected = run("tools/check-poll-spin-boundary.mjs", root);
+  assert.notEqual(rejected.status, 0);
+  assert.equal((rejected.stderr.match(/unlisted: .*#<module>#clock-speed/gu) ?? []).length, 7, rejected.stderr);
+  for (const directory of ["packages/example/test", "tools"]) {
+    for (const ext of directory === "tools" ? ["ts", "mjs", "js"] : ["ts", "tsx", "mjs", "js"])
+      writeFileSync(path.join(root, directory, `analysis.test.${ext}`), "assert.ok(result.moduleCount < 1500);\n");
+  }
+  const accepted = run("tools/check-poll-spin-boundary.mjs", root);
+  assert.equal(accepted.status, 0, accepted.stderr);
+});
+
+test("G3 changed-path selection includes fast and contract test consumers", () => {
+  const manifest = JSON.parse(readFileSync(path.join(repoRoot, "tools/gate-manifest.json"), "utf8"));
+  for (const file of ["tools/analyze-module-closure.test.mjs", "packages/example/test/contract.test.tsx"]) {
+    const options = { ...parseManifestGateArgs(["--changed", "origin/main"]), changedPaths: [file] };
+    assert.ok(
+      buildManifestGatePlan(manifest, options).some(({ id }) => id === "check-poll-spin-boundary"),
+      file,
+    );
+  }
 });
 
 test("G4 catch-and-substitute rejects another producer unless baselined", () => {

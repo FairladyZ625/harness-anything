@@ -10,6 +10,8 @@ import {
   rmSync,
   statSync,
   symlinkSync,
+  watch,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -24,6 +26,7 @@ import {
 import { discoverRuntimeModelCatalog } from "../src/agent-runtime-installation-discovery.ts";
 import { codedAs, observed } from "./agent-runtime-instance-environment.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
 
 test("a blocked credential backend keeps the daemon runtime-instance caller responsive", async (context) => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-credential-block-"));
@@ -214,35 +217,44 @@ test("model catalog discovery reads each account environment without a shared ca
   }
 });
 
-test("runtime installation probes are asynchronous and parallel across providers", async (context) => {
+test("runtime installation probes are asynchronous and parallel across providers", { timeout: 20_000 }, async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-async-discovery-")),
-    bin = path.join(root, "bin");
+    bin = path.join(root, "bin"),
+    release = path.join(root, "release");
   try {
     mkdirSync(bin);
     for (const kindId of ["codex", "claude", "agy"] as const)
       writeProviderExecutable(
         path.join(bin, kindId),
-        `const args = process.argv.slice(2); setTimeout(() => { if (args[0] === "--version") console.log("${kindId}-async"); else if ("${kindId}" === "codex") console.log(JSON.stringify({ models: [{ slug: "gpt-async" }] })); else if ("${kindId}" === "agy") console.log("gemini-async\\tGemini Async"); else console.log("aliases 'fable'"); }, 100);\n`,
+        `const fs = require('node:fs');
+const answer = () => console.log('${kindId}-async');
+const watcher = fs.watch(${JSON.stringify(root)}, () => {
+  if (fs.existsSync(${JSON.stringify(release)})) { watcher.close(); answer(); }
+});
+fs.writeFileSync(${JSON.stringify(path.join(root, `${kindId}.started`))}, 'started');
+if (fs.existsSync(${JSON.stringify(release)})) { watcher.close(); answer(); }
+`,
       );
-    let heartbeats = 0;
-    const heartbeat = setInterval(() => {
-        heartbeats += 1;
-      }, 5),
-      startedAt = Date.now();
-    try {
-      const rows = await discoverRuntimeInstallations({ env: { PATH: bin } });
-      assert.deepEqual(
-        rows.map(({ kindId }) => kindId),
-        ["agy", "claude", "codex"],
-      );
-    } finally {
-      clearInterval(heartbeat);
-    }
-    const durationMs = Date.now() - startedAt;
-    context.diagnostic(`runtime-discovery-duration-ms=${durationMs};heartbeats=${heartbeats}`);
-    assert.ok(heartbeats >= 10, `expected event-loop progress during discovery, observed ${heartbeats} heartbeats`);
-    assert.ok(durationMs < 1_600, `expected parallel provider probes, discovery took ${durationMs}ms`);
+    const discovery = discoverRuntimeInstallations({ env: { PATH: bin } });
+    const started = await waitForArrival(
+      () => {
+        const kinds = ["codex", "claude", "agy"].filter((kind) => existsSync(path.join(root, `${kind}.started`)));
+        return kinds.length >= 2 ? kinds : null;
+      },
+      (arrive) => {
+        const watcher = watch(root, arrive);
+        return () => watcher.close();
+      },
+    );
+    assert.equal(started.length, 2, "two probes must start before either is released");
+    writeFileSync(release, "release both probes");
+    const rows = await discovery;
+    assert.deepEqual(
+      rows.map(({ kindId }) => kindId),
+      ["agy", "claude", "codex"],
+    );
   } finally {
+    writeFileSync(release, "cleanup");
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -886,10 +898,14 @@ test("explicit launch resolves a case-insensitive declaration to the instance ca
 test("explicit launch rejects an unavailable model with an actionable instance hint", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-model-reject-"));
   try {
+    let credentialReads = 0;
     const store = openRuntimeInstanceStore({
       userRoot,
       discover: () => [observed],
-      resolveCredential: () => "instance-secret",
+      resolveCredential: () => {
+        credentialReads++;
+        return "instance-secret";
+      },
     });
     store.create({
       schemaVersion: 2,
@@ -903,7 +919,6 @@ test("explicit launch rejects an unavailable model with an actionable instance h
       enabled: true,
       auth: { mode: "api-key", credentialRef: "credential:v1:ds-bailian-empty-family" },
     });
-    const started = performance.now();
     await assert.rejects(
       store.prepareLaunch("ds-bailian-empty-family", {
         cwd: "/workspace/repo",
@@ -916,10 +931,7 @@ test("explicit launch rejects an unavailable model with an actionable instance h
         error.message.includes("Use --model <supported-model>") &&
         error.message.includes("--instance <instance-id>"),
     );
-    assert.ok(
-      performance.now() - started < 1_000,
-      "model rejection should happen before installation or credential work",
-    );
+    assert.equal(credentialReads, 0, "model rejection must happen before credential work");
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }

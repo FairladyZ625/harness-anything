@@ -1005,7 +1005,8 @@ test("acp worker session fails when the provider exits 0 in the middle of the pr
   }
 });
 
-test("the manifest handshake timeout governs the deadline: a silent provider fails at the configured value, not the default", async () => {
+test("the manifest handshake timeout governs the deadline: a silent provider fails at the configured value, not the default", async (context) => {
+  const timers = context.mock.method(globalThis, "setTimeout");
   const parent = mkdtempSync(path.join(tmpdir(), "ha-acp-worker-"));
   try {
     // A provider that consumes the handshake and never answers it.
@@ -1015,7 +1016,6 @@ test("the manifest handshake timeout governs the deadline: a silent provider fai
     );
     const { records, append } = collect(),
       child = launch(executablePath, ["acp"], { HOME: parent, PATH: process.env.PATH }),
-      startedAt = Date.now(),
       session = runAcpProviderSession(
         child,
         {
@@ -1028,14 +1028,15 @@ test("the manifest handshake timeout governs the deadline: a silent provider fai
         append,
       );
     await session.done;
-    const elapsed = Date.now() - startedAt,
-      error = records
-        .filter((record) => record.kind === "provider_event")
-        .map((record) => record.event as Record<string, unknown>)
-        .find((frame) => frame.type === "acp.error");
-    // The configured 400ms deadline fires; the 30s default never had a chance to matter.
-    assert.ok(elapsed < 10_000, `the handshake failed at the configured deadline, not after ${elapsed}ms`);
+    const error = records
+      .filter((record) => record.kind === "provider_event")
+      .map((record) => record.event as Record<string, unknown>)
+      .find((frame) => frame.type === "acp.error");
     assert.match(String(error?.message), /ACP initialize timed out/u);
+    assert.ok(
+      timers.mock.calls.some((call) => call.arguments[1] === 400),
+      "schedule the manifest handshake deadline",
+    );
     assert.equal(await closed(child), null);
   } finally {
     rmSync(parent, { recursive: true, force: true });

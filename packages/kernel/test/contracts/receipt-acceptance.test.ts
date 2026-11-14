@@ -211,20 +211,25 @@ test("wait timeout preserves durable acceptance and lists unsatisfied facets", (
 });
 
 test("wait returns when the follower settles instead of polling out the deadline", async () => {
-  const startedAt = performance.now(),
-    receipt = await waitForReceiptAcceptance(
-      () => ({ outcome: "applied", opId: "command", ...accepted }),
+  let reads = 0,
+    settlements = 0;
+  const receipt = await waitForReceiptAcceptance(
+      () => {
+        reads++;
+        return { outcome: "applied", opId: "command", ...accepted };
+      },
       ["git_verified"],
       5000,
       undefined,
-      async () => {},
+      async () => {
+        settlements++;
+      },
     ),
     wait = (receipt as { wait?: { state: string; unsatisfied: readonly string[] } }).wait;
   assert.equal(wait?.state, "timed_out");
   assert.deepEqual(wait?.unsatisfied, ["git_verified"]);
-  // A settled-but-unsatisfied follower ends the wait at once; a fixed 25 ms poll would
-  // rebuild the receipt until the full 5000 ms deadline elapsed.
-  assert.ok(performance.now() - startedAt < 2000);
+  assert.equal(settlements, 1, "settle the follower once rather than polling it");
+  assert.equal(reads, 2, "read the receipt before and after that settlement");
 });
 
 test("wait honors the deadline when the follower settlement never resolves", async () => {

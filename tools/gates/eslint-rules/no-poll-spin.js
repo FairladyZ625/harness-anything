@@ -45,6 +45,55 @@ const comparisons = new Set(["<", "<=", ">", ">="]);
 const pollHelperModule = /(?:^|\/)wait-for-condition(?:\.[cm]?[jt]s)?$/u;
 const pollHelperName = /^eventually/u;
 const deadlineOption = /^(?:timeoutMs|timeout|intervalMs)$/u;
+const elapsedName = /(?:duration|elapsed|latency)Ms$/iu;
+
+// Resolve only local initializers, using ESLint's lexical scopes so an unrelated fixture's
+// `elapsedMs = 0` cannot hide a measurement in another test. No whole-program/data-flow pass.
+function initializer(node, sourceCode) {
+  if (node?.type !== "Identifier") return undefined;
+  for (let scope = sourceCode.getScope(node); scope; scope = scope.upper) {
+    const variable = scope.set.get(node.name);
+    if (variable) return variable.defs[0]?.node?.init;
+  }
+  return undefined;
+}
+
+function numericLimit(node, sourceCode, seen = new Set()) {
+  if (!node || seen.has(node)) return false;
+  seen.add(node);
+  if (node.type === "UnaryExpression" && ["+", "-"].includes(node.operator))
+    return numericLimit(node.argument, sourceCode, seen);
+  if (node.type === "BinaryExpression" && ["+", "-", "*", "/", "%", "**"].includes(node.operator))
+    return numericLimit(node.left, sourceCode, new Set(seen)) && numericLimit(node.right, sourceCode, seen);
+  return node.type === "Literal"
+    ? typeof node.value === "number"
+    : numericLimit(initializer(node, sourceCode), sourceCode, seen);
+}
+
+function measuredElapsed(node, sourceCode, seen = new Set()) {
+  if (!node || seen.has(node)) return false;
+  seen.add(node);
+  if (node.type === "BinaryExpression" && node.operator === "-") return containsNow(node, sourceCode.visitorKeys);
+  if (node.type === "Identifier") {
+    const init = initializer(node, sourceCode);
+    // Literal timing fixtures are data for a timing-policy test, not elapsed wall time.
+    if (init?.type === "Literal") return false;
+    return elapsedName.test(node.name) || measuredElapsed(init, sourceCode, seen);
+  }
+  if (node.type === "MemberExpression") {
+    const name = node.computed ? node.property.value : node.property.name;
+    const object = node.object.type === "ObjectExpression" ? node.object : initializer(node.object, sourceCode);
+    if (object?.type === "ObjectExpression") {
+      const value = object.properties.find(
+        (property) => property.type === "Property" && (property.key.name ?? property.key.value) === name,
+      )?.value;
+      if (value && numericLimit(value, sourceCode)) return false;
+      if (value && measuredElapsed(value, sourceCode, seen)) return true;
+    }
+    return typeof name === "string" && elapsedName.test(name);
+  }
+  return false;
+}
 
 // A bounded retry/backoff loop is not a wall-clock deadline: `for (let attempt = 0; attempt < N;
 // attempt++)` attempts a fixed number of times and its failure is a real error, not "the clock ran
@@ -201,6 +250,7 @@ export default {
           baseline: { type: "array", items: { type: "string" } },
           root: { type: "string" },
           integration: { type: "boolean" },
+          tests: { type: "boolean" },
         },
         additionalProperties: false,
       },
@@ -214,7 +264,9 @@ export default {
     const constants = new Map();
     const baseline = new Set(context.options[0]?.baseline ?? []);
     const cwd = context.options[0]?.root ?? context.getCwd?.() ?? process.cwd();
-    const integration = context.options[0]?.integration === true;
+    const tests = context.options[0]?.tests === true || context.options[0]?.integration === true;
+    const integration =
+      context.options[0]?.integration === true || (tests && /\.integration\.test\./u.test(context.filename));
     const pollHelpers = new Set();
     const report = (node, kind, symbol = enclosingFunction(node)) => {
       const key = `${normalized(context.filename, cwd)}#${symbol}#${kind}`;
@@ -243,6 +295,7 @@ export default {
           constants.set(node.id.name, node.init.value);
       },
       CallExpression(node) {
+        if (tests && !integration) return;
         const name = callName(node.callee);
         if (integration && name === "test" && contentionWatchdogFile.test(normalized(context.filename, cwd))) {
           const options = node.arguments.find((argument) => argument.type === "ObjectExpression");
@@ -275,6 +328,28 @@ export default {
           report(node, "poll-helper");
       },
       BinaryExpression(node) {
+        if (!tests) return;
+        // A deliberate busy stage in a timing/trace fixture injects elapsed work; its loop bound
+        // does not assert that product work finishes quickly. Integration clock-loop still applies.
+        const workloadLoop =
+          ["WhileStatement", "DoWhileStatement", "ForStatement"].includes(node.parent.type) &&
+          node.parent.test === node;
+        // All test tiers share the speed-assertion boundary. A lower bound describes an injected
+        // stall, not a requirement that real work finish quickly. Reverse operands are equivalent.
+        const [elapsed, limit] = ["<", "<="].includes(node.operator)
+          ? [node.left, node.right]
+          : [">", ">="].includes(node.operator)
+            ? [node.right, node.left]
+            : [];
+        if (
+          tests &&
+          !workloadLoop &&
+          numericLimit(limit, context.sourceCode) &&
+          measuredElapsed(elapsed, context.sourceCode)
+        ) {
+          report(node, "clock-speed");
+          return;
+        }
         if (!integration) return;
         const contentAssertion =
           comparisons.has(node.operator) &&
@@ -288,9 +363,11 @@ export default {
           report(node, "clock-deadline");
       },
       WhileStatement(node) {
+        if (tests && !integration) return;
         if (containsNow(node.test, context.sourceCode.visitorKeys)) report(node, "clock-loop");
       },
       DoWhileStatement(node) {
+        if (tests && !integration) return;
         if (containsNow(node.test, context.sourceCode.visitorKeys)) report(node, "clock-loop");
       },
     };

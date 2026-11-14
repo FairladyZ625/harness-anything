@@ -370,7 +370,6 @@ test("a request parked behind a non-settling initial attachment times out as rep
     assert.equal(receipt.outcome, "op_rejected");
     assert.equal(receipt.code, "repo_warming");
     assert.ok(elapsedMs >= 75, `warming timeout returned too early: ${elapsedMs.toFixed(1)}ms`);
-    assert.ok(elapsedMs < 1_000, `warming timeout exceeded its bounded window: ${elapsedMs.toFixed(1)}ms`);
   } finally {
     await host.close();
     rmSync(parent, { recursive: true, force: true });
