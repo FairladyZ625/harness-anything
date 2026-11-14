@@ -3451,6 +3451,12 @@
         "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
       },
       {
+        "candidateId": "action:tools:tools/gates/authorization-flow-graph.mjs#buildFlowGraph.freeParameters:3c9fca234f4ad9f2418d646b2ccda49d",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
         "candidateId": "action:tools:tools/gates/authorization-flow-trace.mjs#makeAuthorizationTracer.traceDescriptor.visit:1eac277935cdb8eca8746986f90055e4",
         "route": "package-assets-build",
         "role": "technical-port",

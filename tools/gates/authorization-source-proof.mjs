@@ -1765,9 +1765,8 @@ export function sourceFrameKey(graph, fn, env) {
   // Only lexical ancestors can supply a function's captured parameters. An evaluator may carry
   // extra caller bindings while resolving a nested callable; those cannot change this frame.
   const lexicalBindings = (node, env) => {
-    const scopes = new Set();
-    for (let scope = node; scope; scope = scope.parent) scopes.add(scope);
-    return [...env].filter(([parameter]) => scopes.has(parameter.parent)).map(([, bound]) => bound);
+    const parameters = graph.freeParameters(node);
+    return [...env].filter(([parameter]) => parameters.has(parameter)).map(([, bound]) => bound);
   };
   const callerShape = (bound) => {
     if (bound.rest) return bound.rest.map(callerShape).join(",");
@@ -1779,7 +1778,9 @@ export function sourceFrameKey(graph, fn, env) {
       captured =
         binding?.kind === "var" && binding.trail.length === 0 && binding.declaration.parent.flags & ts.NodeFlags.Const
           ? (binding.declaration.initializer ?? node)
-          : node;
+          : binding?.kind === "fn"
+            ? binding.node
+            : node;
     return lexicalBindings(captured, bound.env).map(argumentSite).join("|");
   };
   // One lexical caller frame distinguishes a reused expression bound to different callbacks.

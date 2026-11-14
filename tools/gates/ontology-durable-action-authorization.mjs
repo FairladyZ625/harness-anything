@@ -301,6 +301,9 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       canonicalCut: !nonCanonical.has(kind),
     };
     const owner = tracer.traceDescriptor(traceInput);
+    // A descriptor result contains evidence strings, not frames. Release the completed
+    // policy pool before the full source walk and again before the next descriptor.
+    graph.resetFramePool();
     const ownerEvidence =
       authority === "local-transport" ? owner.local : authority === "own-session" ? owner.session : owner.authorized;
     // Host-only sources require the independent scoped proof below. Verified migration
@@ -321,6 +324,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       owner.violations.length === 0
         ? sourceTracer.traceDescriptor({ ...traceInput, sources: targets })
         : owner;
+    graph.resetFramePool();
     for (const source of trace.sources.values()) sourceResults.set(source.id, source);
     const evidence =
         authority === "local-transport" ? trace.local : authority === "own-session" ? trace.session : trace.authorized,

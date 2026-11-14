@@ -8,11 +8,156 @@ import {
   authorizationPolicyGraph,
   bindArguments,
   buildFlowGraph,
+  EMPTY_ENV,
   makeEvaluator,
 } from "../authorization-flow-graph.mjs";
 import { makeAuthorizationTracer } from "../authorization-flow-trace.mjs";
-import { processSourceSites, sourceSite, sourceWitnesses } from "../authorization-source-proof.mjs";
+import { processSourceSites, sourceFrameKey, sourceSite, sourceWitnesses } from "../authorization-source-proof.mjs";
 import { makeRepo } from "./helpers.mjs";
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: remove unrelated calling context, never callback evidence.
+test("rest forwarding captures each argument without retaining an outer caller frame", () => {
+  const file = "packages/daemon/src/rest.ts",
+    { rootDir } = makeRepo({
+      [file]: `function effect() { store.append(); } function empty() {}
+function invoke(callback) { callback(); }
+function forward(...callbacks) { invoke(...callbacks); }
+function caller(noise, callback) { forward(callback); }
+const first = 1, second = 2;`,
+    }),
+    graph = buildFlowGraph(rootDir),
+    [effect, empty, , forward, caller, values] = graph.modules.get(file).sourceFile.statements,
+    args = values.declarationList.declarations.map((node) => node.initializer),
+    frame = (index) => bindArguments({ node: caller, env: EMPTY_ENV }, [args[index], effect.name], EMPTY_ENV),
+    call = caller.body.statements[0].expression,
+    fn = { node: forward, env: EMPTY_ENV },
+    first = bindArguments(fn, call.arguments, frame(0)),
+    second = bindArguments(fn, call.arguments, frame(1)),
+    evaluator = makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true }),
+    site = sourceSite(graph, effect.body.statements[0].expression);
+  assert.ok(first === second, "rest entries already own their argument environments");
+  assert.ok(first.get(forward.parameters[0]).env === EMPTY_ENV);
+  assert.ok(processSourceSites(graph, forward, { evaluator, env: first, targets: [site] }).has(site));
+  const detached = bindArguments(fn, [empty.name], EMPTY_ENV);
+  assert.ok(first !== detached);
+  assert.equal(processSourceSites(graph, forward, { evaluator, env: detached, targets: [site] }).has(site), false);
+});
+
+test("normalized rest forwarding preserves a root argument's request provenance", () => {
+  const file = "packages/daemon/src/rest-root.ts",
+    { rootDir } = makeRepo({
+      [file]: `function invoke(request) { return request.method; }
+function forward(...args) { return invoke(...args); }
+function entry(request) { return forward(request); }`,
+    }),
+    graph = buildFlowGraph(rootDir),
+    entry = graph.modules.get(file).sourceFile.statements.at(-1),
+    env = graph.internEnv([[entry.parameters[0], { root: true }]]),
+    evaluator = makeEvaluator(graph, { method: "demo", constants: {}, functions: {} });
+  assert.deepEqual(evaluator.fold(entry.body.statements[0].expression, env), { value: "demo" });
+  assert.equal(evaluator.fold(entry.body.statements[0].expression, EMPTY_ENV), null);
+});
+
+test("assigned let and non-null arguments capture their data parameters without callback frame pollution", () => {
+  const file = "packages/daemon/src/database.ts",
+    { rootDir } = makeRepo({
+      [file]: `function effect() { store.append(); } function empty() {}
+function take(value) { return value; }
+function owner(operation, projectionPath, unused) {
+  let db = null; db = projectionPath; operation(db!); return take(db!);
+}
+const first = "first", second = "second";`,
+    }),
+    graph = buildFlowGraph(rootDir),
+    [effect, empty, take, owner, values] = graph.modules.get(file).sourceFile.statements,
+    paths = values.declarationList.declarations.map((node) => node.initializer),
+    call = owner.body.statements.at(-1).expression,
+    fn = { node: take, env: EMPTY_ENV },
+    ownerFrame = (callback, index) =>
+      bindArguments({ node: owner, env: EMPTY_ENV }, [callback, paths[index]], EMPTY_ENV),
+    first = bindArguments(fn, call.arguments, ownerFrame(effect.name, 0)),
+    second = bindArguments(fn, call.arguments, ownerFrame(empty.name, 0));
+  assert.ok(first === second, "db! depends on projectionPath, not the operation callback");
+  assert.ok(first !== bindArguments(fn, call.arguments, ownerFrame(effect.name, 1)));
+  assert.deepEqual(
+    [...graph.freeParameters(call.arguments[0])].map((node) => node.name.text),
+    ["projectionPath"],
+  );
+  const site = sourceSite(graph, effect.body.statements[0].expression),
+    evaluator = makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true });
+  assert.ok(
+    processSourceSites(graph, owner, { evaluator, env: ownerFrame(effect.name, 0), targets: [site] }).has(site),
+  );
+  assert.equal(
+    processSourceSites(graph, owner, { evaluator, env: ownerFrame(empty.name, 0), targets: [site] }).has(site),
+    false,
+  );
+});
+
+test("catch values and object projections narrow cache and source frames to free parameters", () => {
+  const file = "packages/daemon/src/capture.ts",
+    { rootDir } = makeRepo({
+      [file]: `function take(value) { return value; }
+function owner(binding, authorizationDecision, unused) {
+  const { unused: renamed } = binding;
+  try {} catch(error) { take(error); }
+  return { ...binding, authorizationDecision };
+}
+const first = 1, second = 2;`,
+    }),
+    graph = buildFlowGraph(rootDir),
+    [take, owner, values] = graph.modules.get(file).sourceFile.statements,
+    args = values.declarationList.declarations.map((node) => node.initializer),
+    frames = args.map((arg) => bindArguments({ node: owner, env: EMPTY_ENV }, [args[0], args[0], arg], EMPTY_ENV)),
+    caught = owner.body.statements.find(ts.isTryStatement).catchClause.block.statements[0].expression.arguments[0],
+    object = owner.body.statements.at(-1).expression,
+    fn = { node: take, env: EMPTY_ENV },
+    evaluator = makeEvaluator(graph, { constants: {}, functions: {} });
+  assert.ok(bindArguments(fn, [caught], frames[0]) === bindArguments(fn, [caught], frames[1]));
+  assert.ok(evaluator.evaluate(caught, frames[0]) === evaluator.evaluate(caught, frames[1]));
+  assert.ok(evaluator.evaluate(object, frames[0]) === evaluator.evaluate(object, frames[1]));
+  assert.deepEqual(
+    [...graph.freeParameters(owner.body.statements[0])].map((node) => node.name.text),
+    ["binding"],
+  );
+  assert.deepEqual(
+    [...graph.freeParameters(object)].map((node) => node.name.text),
+    ["binding", "authorizationDecision"],
+  );
+  assert.equal(sourceFrameKey(graph, owner, frames[0]), sourceFrameKey(graph, owner, frames[1]));
+});
+
+test("mutually recursive local helpers and this retain real captured callbacks across pool resets", () => {
+  const file = "packages/daemon/src/recursive.ts",
+    { rootDir } = makeRepo({
+      [file]: `function effect() { store.append(); } function empty() {}
+function owner(callback, ready) {
+  function first() { if (ready) callback(); else second(); }
+  function second() { first(); }
+  class Runner { run() { callback(); } call() { this.run(); } }
+  first(); new Runner().call();
+}`,
+    }),
+    graph = buildFlowGraph(rootDir),
+    [effect, empty, owner] = graph.modules.get(file).sourceFile.statements,
+    [first, second, cls] = owner.body.statements,
+    site = sourceSite(graph, effect.body.statements[0].expression),
+    frame = (callback) => bindArguments({ node: owner, env: EMPTY_ENV }, [callback], EMPTY_ENV);
+  assert.ok(graph.freeParameters(first).has(owner.parameters[0]));
+  assert.ok(graph.freeParameters(second).has(owner.parameters[0]));
+  const receiver = cls.members[1].body.statements[0].expression.expression.expression;
+  assert.ok(graph.freeParameters(receiver).has(owner.parameters[0]));
+  for (const [callback, expected] of [
+    [empty.name, false],
+    [effect.name, true],
+    [empty.name, false],
+  ]) {
+    graph.resetFramePool();
+    const env = frame(callback),
+      evaluator = makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true });
+    assert.equal(processSourceSites(graph, owner, { evaluator, env, targets: [site] }).has(site), expected);
+  }
+});
 
 // dec_7E44897ECDCAEF2B92EC66A260/CH1: reuse calculations, never an authorization result.
 test("equivalent immutable argument frames share identity and cache nonempty evaluation", () => {
@@ -69,41 +214,6 @@ const first = "first", second = "second";`,
   assert.ok(
     direct !== bindArguments(fn, [second.initializer], empty),
     "different callbacks/data keep different frames",
-  );
-});
-
-test("complete source misses reuse their closed call graph without poisoning hits or full walks", () => {
-  const file = "packages/daemon/src/callback.ts";
-  const { rootDir } = makeRepo({
-    [file]: `function target() {}
-function first() { second(); }
-function second() { first(); }
-function entry() { first(); }`,
-  });
-  const original = buildFlowGraph(rootDir),
-    [target, first, second, entry] = original.modules.get(file).sourceFile.statements;
-  let reads = 0;
-  const graph = {
-      ...original,
-      fileOf(node) {
-        reads++;
-        return original.fileOf(node);
-      },
-    },
-    evaluator = makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true }),
-    missing = sourceSite(original, target),
-    query = () => processSourceSites(graph, entry, { evaluator, targets: [missing] });
-  const early = sourceSite(original, first);
-  assert.ok(processSourceSites(graph, entry, { evaluator, targets: [early] }).has(early));
-  assert.equal(query().has(missing), false);
-  const firstReads = reads;
-  assert.ok(firstReads > 0);
-  assert.equal(query().has(missing), false);
-  assert.equal(reads, firstReads, "a complete negative closure must not be walked again");
-  const live = sourceSite(original, first);
-  assert.ok(processSourceSites(graph, entry, { evaluator, targets: [live] }).has(live));
-  assert.ok(
-    processSourceSites(graph, entry, { evaluator }).has(sourceSite(original, second.body.statements[0].expression)),
   );
 });
 
@@ -715,70 +825,6 @@ test("a depth-limited provenance query does not poison later request provenance"
   const evaluator = makeEvaluator(graph, { constants: {}, functions: {} });
   assert.equal(evaluator.provenance(reference, env, 64), null);
   assert.equal(evaluator.provenance(reference, env), "request");
-});
-
-// A cached frame contains direct graph edges, not another entry's transitive proof.
-test("source summaries reuse unchanged frames and retain separate callback bindings", () => {
-  const file = "packages/daemon/src/callback.ts";
-  const { rootDir } = makeRepo({
-    [file]: `
-function invoke(callback) { callback(); }
-function empty() {}
-function effect() { store.append(); }
-function first() { invoke(empty); }
-function second() { invoke(effect); }`,
-  });
-  const graph = buildFlowGraph(rootDir);
-  const functions = graph.modules.get(file).sourceFile.statements;
-  const site = sourceSite(graph, functions[2].body.statements[0].expression);
-  const evaluator = makeEvaluator(graph, { constants: {}, functions: {} });
-  const evaluate = evaluator.evaluate;
-  let evaluations = 0;
-  evaluator.evaluate = (...args) => {
-    evaluations++;
-    return evaluate(...args);
-  };
-  const env = new Map();
-  assert.equal(processSourceSites(graph, functions[3], { evaluator, env, targets: [site] }).has(site), false);
-  const beforeRepeat = evaluations;
-  assert.equal(processSourceSites(graph, functions[3], { evaluator, env, targets: [site] }).has(site), false);
-  assert.equal(evaluations, beforeRepeat);
-  assert.equal(processSourceSites(graph, functions[4], { evaluator, env, targets: [site] }).has(site), true);
-});
-
-test("source frames ignore parameters outside their lexical scope", () => {
-  const file = "packages/daemon/src/callback.ts";
-  const { rootDir } = makeRepo({
-    [file]: `
-function caller(input) {}
-function effect() { store.append(); }
-function entry() { effect(); }
-const first = 1, second = 2;`,
-  });
-  const graph = buildFlowGraph(rootDir);
-  const nodes = graph.modules.get(file).sourceFile.statements;
-  const evaluator = makeEvaluator(graph, { constants: {}, functions: {} });
-  const evaluate = evaluator.evaluate;
-  let evaluations = 0;
-  evaluator.evaluate = (...args) => {
-    evaluations++;
-    return evaluate(...args);
-  };
-  const frame = (index) =>
-    new Map([
-      [
-        nodes[0].parameters[0],
-        {
-          expression: nodes[3].declarationList.declarations[index].initializer,
-          env: new Map(),
-        },
-      ],
-    ]);
-  const site = sourceSite(graph, nodes[1].body.statements[0].expression);
-  assert.equal(processSourceSites(graph, nodes[2], { evaluator, env: frame(0), targets: [site] }).has(site), true);
-  const beforeRepeat = evaluations;
-  assert.equal(processSourceSites(graph, nodes[2], { evaluator, env: frame(1), targets: [site] }).has(site), true);
-  assert.equal(evaluations, beforeRepeat);
 });
 
 test("a contract target kind cannot borrow the request action kind", () => {

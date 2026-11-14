@@ -15,7 +15,7 @@ export const EMPTY_ENV = new Map();
 // Weak ownership lets detached Programs die after an audit; no module-level table owns ASTs.
 const environmentInterners = new WeakMap();
 
-function makeEnvironmentInterner(lookup) {
+function makeEnvironmentInterner(lookup, freeParameters) {
   const ids = new WeakMap(),
     frames = new Map(),
     canonical = new WeakSet();
@@ -36,29 +36,24 @@ function makeEnvironmentInterner(lookup) {
       if (!original) break;
       bound = original;
     }
+    // Expanded rest entries remain argument records even when normalization resolves a
+    // parameter alias to a root or another bound value rather than an AST expression.
+    if (bound.rest)
+      return { rest: bound.rest.map((entry) => ({ ...argumentBinding(entry), flowArgument: true })), env: EMPTY_ENV };
     if (!bound.expression || bound.env.size === 0) return bound;
     const expression = unwrap(bound.expression),
       binding = ts.isIdentifier(expression) ? lookup(expression.text, expression) : null,
-      primitive =
-        ts.isStringLiteralLike(expression) ||
-        ts.isNumericLiteral(expression) ||
-        [ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword, ts.SyntaxKind.NullKeyword].includes(expression.kind),
-      // Closed values never capture a caller. Const aliases and functions capture at
-      // their declaration, so an unrelated inner binder cannot multiply that value.
       env =
-        primitive || binding?.kind === "import" || binding?.moduleScoped
-          ? EMPTY_ENV
-          : binding?.kind === "fn"
-            ? lexicalEnvironment(binding.node.parent, bound.env)
-            : binding?.kind === "var" && binding.declaration.parent.flags & ts.NodeFlags.Const
-              ? lexicalEnvironment(binding.declaration, bound.env)
-              : bound.env;
+        binding?.kind === "fn"
+          ? lexicalEnvironment(binding.node, bound.env)
+          : isFunctionNode(expression)
+            ? lexicalEnvironment(expression, bound.env)
+            : relevantEnvironment(bound.expression, bound.env);
     return env === bound.env ? bound : { ...bound, env };
   }
   function boundKey(bound) {
     if (bound.root) return "root";
-    if (bound.rest)
-      return `rest:[${bound.rest.map((entry) => boundKey(argumentBinding(entry))).join(",")}]@${id(internEnv(bound.env))}`;
+    if (bound.rest) return `rest:[${bound.rest.map(boundKey).join(",")}]`;
     return `${id(bound.expression)}@${id(internEnv(bound.env))}`;
   }
   function internEnv(entries = EMPTY_ENV) {
@@ -75,6 +70,14 @@ function makeEnvironmentInterner(lookup) {
     }
     return frames.get(key);
   }
+  function relevantEnvironment(node, env) {
+    if (env.size === 0) return EMPTY_ENV;
+    const parameters = freeParameters(node),
+      entries = [...env].filter(([parameter]) => parameters.has(parameter));
+    return entries.length === 0 ? EMPTY_ENV : internEnv(entries.length === env.size ? env : entries);
+  }
+  internEnv.relevantEnvironment = relevantEnvironment;
+  internEnv.resetFramePool = () => frames.clear();
   return internEnv;
 }
 
@@ -195,12 +198,16 @@ function makeFileOf(relativeFiles) {
  * name (the same checkout unless a test traces a mutated copy of the sources).
  */
 export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = [], lexicalFiles = [] } = {}) {
-  const internEnv = makeEnvironmentInterner(lookup);
+  const internEnv = makeEnvironmentInterner(lookup, freeParameters);
   const modules = new Map(),
     members = new Map(),
     typedEntries = new Map(),
     scopes = new WeakMap(),
-    anchorSources = new Map();
+    anchorSources = new Map(),
+    assignedValues = new Map(),
+    parameterQueries = new WeakMap(),
+    pendingFreeParameters = [],
+    activeParameters = new Set();
   let files = [...new Set([...sourceRoots.flatMap((root) => walkTypeScriptFiles(rootDir, root)), ...sourceFiles])];
   const workspacePaths = workspaceSourcePaths(rootDir, anchorRoot),
     // The checker answers one question only: which implementations a typed member call can reach.
@@ -260,9 +267,34 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
     modules.set(file, { file, sourceFile, imports });
     if (programSources.has(sourceFile)) indexMembers(sourceFile, file);
   }
+  // Index writes once per Program. A local's initializer alone does not describe `let db`
+  // or values assigned by a nested callback; retain all their actual parameter dependencies.
+  for (const { sourceFile } of modules.values())
+    (function visit(node) {
+      if (ts.isTypeNode(node)) return;
+      if (
+        ts.isBinaryExpression(node) &&
+        node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+        node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+      )
+        (function target(expression) {
+          if (ts.isIdentifier(expression)) {
+            if (ts.isPropertyAccessExpression(expression.parent) && expression.parent.name === expression) return;
+            const binding = lookup(expression.text, expression);
+            if (binding?.kind === "var" && !binding.moduleScoped) {
+              const values = assignedValues.get(binding.declaration) ?? [];
+              values.push(node.right);
+              assignedValues.set(binding.declaration, values);
+            }
+          } else ts.forEachChild(expression, target);
+        })(node.left);
+      ts.forEachChild(node, visit);
+    })(sourceFile);
   return {
     rootDir,
     internEnv,
+    freeParameters,
+    resetFramePool: internEnv.resetFramePool,
     modules,
     members,
     typedEntries,
@@ -283,6 +315,91 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
     typeName: (node) =>
       programSources.has(node.getSourceFile()) ? checker.getTypeAtLocation(node).getSymbol()?.name : undefined,
   };
+
+  // This is lexical dependency analysis, independent of any descriptor's authority facts.
+  // Only value references matter. Local aliases/functions/classes include their transitive
+  // dependencies. Cycles reach a least fixed point instead of capturing unrelated parameters.
+  function addFreeParameter(query, parameter) {
+    if (!query.scopes.has(parameter.parent) || query.parameters.has(parameter)) return;
+    query.parameters.add(parameter);
+    if (!query.pending) {
+      query.pending = true;
+      pendingFreeParameters.push(query);
+    }
+  }
+
+  function freeParameters(node) {
+    const cached = parameterQueries.get(node);
+    if (cached) return cached.parameters;
+    const scopes = enclosingScopes(node),
+      parameters = new Set(),
+      query = { scopes, parameters, dependents: null, pending: false };
+    // Publish the empty set before following dependencies so recursion adds an edge,
+    // not an approximation. Parameter sets only grow; the worklist drains at the outer call.
+    parameterQueries.set(node, query);
+    function includeDependency(value, own = null) {
+      const values = freeParameters(value),
+        source = parameterQueries.get(value);
+      source.dependents ??= new Map();
+      const omissions = source.dependents.get(query) ?? new Set();
+      omissions.add(own);
+      source.dependents.set(query, omissions);
+      for (const parameter of values) if (parameter.parent !== own) addFreeParameter(query, parameter);
+    }
+    // A function's body depends on its own arguments, but its value captures only
+    // parameters outside its declaration. This also applies to const arrow aliases.
+    function includeValue(value) {
+      const expression = unwrap(value),
+        own = isFunctionNode(expression) ? expression : null;
+      includeDependency(value, own);
+    }
+    activeParameters.add(node);
+    (function visit(current) {
+      if (ts.isTypeNode(current)) return;
+      if (ts.isIdentifier(current)) {
+        const parent = current.parent;
+        if (
+          parent &&
+          ((ts.isPropertyAccessExpression(parent) && parent.name === current) ||
+            (ts.isBindingElement(parent) && parent.propertyName === current) ||
+            (ts.isDeclarationName(current) && !ts.isShorthandPropertyAssignment(parent)))
+        )
+          return;
+        const binding = lookup(current.text, current);
+        if (binding?.kind === "param") addFreeParameter(query, binding.parameter);
+        else if (binding?.kind === "var" && !binding.moduleScoped) {
+          if (binding.declaration.initializer) includeValue(binding.declaration.initializer);
+          for (const value of assignedValues.get(binding.declaration) ?? []) includeValue(value);
+        } else if (["fn", "class"].includes(binding?.kind) && !ts.isSourceFile(binding.node.parent))
+          includeValue(binding.node);
+      } else if (current.kind === ts.SyntaxKind.ThisKeyword) {
+        for (let scope = current.parent; scope && !ts.isSourceFile(scope); scope = scope.parent)
+          if (ts.isClassLike(scope)) {
+            includeDependency(scope);
+            break;
+          }
+      }
+      ts.forEachChild(current, visit);
+    })(node);
+    activeParameters.delete(node);
+    if (activeParameters.size === 0) {
+      // Each queued change adds a previously absent parameter. The finite lexical
+      // parameter domains make this worklist terminate even for mutually recursive locals.
+      for (let index = 0; index < pendingFreeParameters.length; index++) {
+        const source = pendingFreeParameters[index];
+        source.pending = false;
+        for (const [dependent, omissions] of source.dependents ?? [])
+          for (const parameter of source.parameters)
+            for (const own of omissions)
+              if (parameter.parent !== own) {
+                addFreeParameter(dependent, parameter);
+                break;
+              }
+      }
+      pendingFreeParameters.length = 0;
+    }
+    return parameters;
+  }
 
   /**
    * The anchor file as the program resolved it. The program's file names follow the paths its
@@ -561,17 +678,23 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
 
 const lexicalAncestors = new WeakMap();
 
-/** A closure captures lexical ancestors, never unrelated or prior invocation parameters. */
-function lexicalEnvironment(node, env = EMPTY_ENV) {
-  if (env.size === 0) return EMPTY_ENV;
+function enclosingScopes(node) {
   let scopes = lexicalAncestors.get(node);
   if (!scopes) {
     scopes = new Set();
-    for (let scope = node; scope; scope = scope.parent) scopes.add(scope);
+    for (let scope = node; scope; scope = scope.parent) if (ts.isFunctionLike(scope)) scopes.add(scope);
     lexicalAncestors.set(node, scopes);
   }
-  const captured = [...env].filter(([parameter]) => scopes.has(parameter.parent));
-  return internEnvironment(node, captured.length === env.size ? env : captured);
+  return scopes;
+}
+
+/** A closure captures only referenced ancestors, never its own prior invocation parameters. */
+function lexicalEnvironment(node, env = EMPTY_ENV) {
+  if (env.size === 0) return EMPTY_ENV;
+  const interner = environmentInterners.get(node.getSourceFile()),
+    relevant = interner.relevantEnvironment(node, env),
+    captured = ts.isFunctionLike(node) ? [...relevant].filter(([parameter]) => parameter.parent !== node) : relevant;
+  return interner(captured);
 }
 
 /**
@@ -581,25 +704,30 @@ function lexicalEnvironment(node, env = EMPTY_ENV) {
  */
 export function bindArguments(fn, args, callerEnv, env = fn.env) {
   callerEnv = internEnvironment(fn.node, callerEnv);
-  const captured = lexicalEnvironment(fn.node.parent, env),
+  const captured = lexicalEnvironment(fn.node, env),
     next = new Map(captured),
     entries = args.map((argument) =>
       argument?.flowArgument ? argument : { flowArgument: true, expression: argument, env: callerEnv },
     );
   fn.node.parameters.forEach((parameter, index) => {
     if (parameter.dotDotDotToken) {
-      next.set(parameter, { rest: entries.slice(index), env: callerEnv });
+      next.set(parameter, { rest: entries.slice(index), env: EMPTY_ENV });
       return;
     }
-    const argument = entries[index],
-      expression = argument?.expression ?? parameter.initializer;
+    const argument = entries[index];
+    if (argument?.root || argument?.rest) {
+      next.set(parameter, argument);
+      return;
+    }
+    const expression = argument?.expression ?? parameter.initializer;
     if (expression)
       next.set(parameter, {
         expression,
         env: argument ? argument.env : captured,
       });
   });
-  return internEnvironment(fn.node, next);
+  const interner = environmentInterners.get(fn.node.getSourceFile());
+  return interner(interner.relevantEnvironment(fn.node, next));
 }
 
 export function makeEvaluator(graph, facts) {
@@ -639,7 +767,7 @@ export function makeEvaluator(graph, facts) {
         {
           fn: true,
           node: binding.node,
-          env: ts.isSourceFile(binding.node.parent) ? moduleEnv : lexicalEnvironment(binding.node.parent, env),
+          env: ts.isSourceFile(binding.node.parent) ? moduleEnv : lexicalEnvironment(binding.node, env),
         },
       ];
     if (binding.kind === "class") return [{ classNode: binding.node, env }];
@@ -790,7 +918,7 @@ export function makeEvaluator(graph, facts) {
         : [{ broken: `${graph.fileOf(node)}: ${node.text} is not defined` }];
     }
     if (ts.isArrowFunction(node) || ts.isFunctionExpression(node))
-      return [{ fn: true, node, env: lexicalEnvironment(node.parent, env) }];
+      return [{ fn: true, node, env: lexicalEnvironment(node, env) }];
     if (ts.isObjectLiteralExpression(node)) return [{ object: node, env: lexicalEnvironment(node, env) }];
     if (node.kind === ts.SyntaxKind.ThisKeyword) {
       for (let scope = node.parent; scope; scope = scope.parent)
