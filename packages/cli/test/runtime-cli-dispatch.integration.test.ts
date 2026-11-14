@@ -258,7 +258,7 @@ test(
 );
 
 test("Runtime report is archived after the worker submits its execution", { timeout: 300_000 }, async (context) => {
-  const fixture = createRuntimeFixture(context, true);
+  const fixture = createRuntimeFixture(context);
   installIdentities(fixture.parent, fixture.root, fixture.env, true);
   const { root, env } = fixture;
   const taskId = "task-runtime-archive",
@@ -468,7 +468,7 @@ test(
   "CLI discovers instances, runs direct prompts, resumes and streams with status retrieval",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context, true);
+    const fixture = createRuntimeFixture(context);
     const { root, env, version } = fixture;
     const { artifactRoot } = seedTask(root, env, "direct");
     const inventory = run(root, env, ["runtime", "instance", "list"]),

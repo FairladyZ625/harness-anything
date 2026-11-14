@@ -15,6 +15,22 @@ import { localUserDaemonEndpoint } from "../src/daemon/client.ts";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { waitForValue } from "../../../tools/fixtures/wait-for-condition.ts";
 
+type RuntimeFixture = {
+  parent: string;
+  root: string;
+  userRoot: string;
+  daemonId: string;
+  env: NodeJS.ProcessEnv;
+  version: string;
+};
+let fileFixture: RuntimeFixture | undefined;
+// File-owned setup is closed before the policy realm; all task scenarios have distinct task IDs.
+after(() => {
+  if (!fileFixture) return;
+  runMaybe(fileFixture.root, fileFixture.env, ["daemon", "stop"]);
+  rmSync(fileFixture.parent, { recursive: true, force: true });
+});
+
 const realm = await spawnKeycloak();
 after(() => realm.close());
 await realm.control({ op: "account", personId: "owner" });
@@ -147,7 +163,8 @@ function runSetup(root: string, env: NodeJS.ProcessEnv, commands: readonly (read
   for (const receipt of receipts) assert.equal(receipt.ok, true, JSON.stringify(receipt));
 }
 
-export function createRuntimeFixture(context: TestContext, batchSetup = false) {
+export function createRuntimeFixture(context: TestContext, batchSetup = false): RuntimeFixture {
+  if (batchSetup && fileFixture) return { ...fileFixture, env: { ...fileFixture.env } };
   const parent = mkdtempSync(path.join(process.platform === "win32" ? tmpdir() : "/tmp", "ha-runtime-cli-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -193,10 +210,11 @@ export function createRuntimeFixture(context: TestContext, batchSetup = false) {
     HARNESS_DAEMON_ENDPOINT: localUserDaemonEndpoint(userRoot, daemonId),
     HARNESS_ACTOR: "agent:runtime-cli-test",
   };
-  context.after(() => {
-    runMaybe(root, env, ["daemon", "stop"]);
-    rmSync(parent, { recursive: true, force: true });
-  });
+  if (!batchSetup)
+    context.after(() => {
+      runMaybe(root, env, ["daemon", "stop"]);
+      rmSync(parent, { recursive: true, force: true });
+    });
   realm.bind(userRoot);
   signInAt(userRoot, "owner");
   const commands = [
@@ -242,7 +260,9 @@ export function createRuntimeFixture(context: TestContext, batchSetup = false) {
     assert.equal(run(root, env, commands[0]!).ok, true);
     for (const args of commands.slice(1)) run(root, env, args);
   }
-  return { parent, root, userRoot, daemonId, env, version };
+  const fixture = { parent, root, userRoot, daemonId, env, version };
+  if (batchSetup) fileFixture = { ...fixture, env: { ...env } };
+  return fixture;
 }
 
 export function seedTask(root: string, env: NodeJS.ProcessEnv, scenario: string) {
