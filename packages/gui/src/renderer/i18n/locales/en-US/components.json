@@ -403,5 +403,11 @@
   "components.taskJourney.rawRecords": "Raw records · {count}",
   "components.taskJourney.readError": "Dispatch read failed: {message}",
   "components.taskJourney.blocked": "Blocked",
-  "components.taskJourney.roundCount": "{count} rounds"
+  "components.taskJourney.roundCount": "{count} rounds",
+  "components.taskJourney.reviewRejected": "Review rejected",
+  "components.taskJourney.waitingConsent": "Awaiting consent",
+  "components.taskJourney.executionCut": "Execution submission",
+  "components.taskJourney.gate": "Completion gate",
+  "components.taskJourney.lineage": "Work lineage",
+  "components.taskJourney.projectionUnknown": "Awaiting projection"
 }

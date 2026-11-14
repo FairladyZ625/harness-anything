@@ -100,11 +100,12 @@ afterEach(async () => {
     client.clear();
   }
   document.body.replaceChildren();
+  vi.useRealTimers();
 });
 
 describe("task journey (dec_653AB9E451B58125CA2B5C0289 CH2)", () => {
   it("orders two lanes, preserves both rounds and makes the rejection → R2 loop explicit", () => {
-    const graph = buildTaskJourney({ task: task(), dispatches: [...rows].reverse(), nowMs: Date.parse(at(16)) });
+    const graph = buildTaskJourney({ nowMs: Date.parse(at(16)), task: task(), dispatches: [...rows].reverse() });
     const workers = graph.nodes.filter((node) => node.lane === "worker");
     expect(workers.map((node) => node.round)).toEqual([1, 2]);
     expect(workers[0]).toMatchObject({ runtimeSessionId: "s1", durationMs: 3_600_000, recordRefs: ["execution/e1"] });
@@ -116,17 +117,19 @@ describe("task journey (dec_653AB9E451B58125CA2B5C0289 CH2)", () => {
   });
 
   it("groups execution events once, never guesses record references, and supports an active execution without events", () => {
-    const graph = buildTaskJourney({ task: task(), dispatches: [] });
+    const graph = buildTaskJourney({ nowMs: Date.parse(at(16)), task: task(), dispatches: [] });
     expect(graph.nodes.filter((node) => node.lane === "worker").map((node) => node.recordRefs)).toEqual([
       ["execution/e1"],
       ["execution/e2"],
     ]);
     const active = buildTaskJourney({
+      nowMs: Date.parse(at(16)),
       task: task({ events: [], activeExecutionId: "active", blockers: [] }),
       dispatches: [],
     });
     expect(active.nodes.find((node) => node.lane === "worker")?.recordRefs).toEqual(["execution/active"]);
     const plain = buildTaskJourney({
+      nowMs: Date.parse(at(16)),
       task: task({ events: [{ ...event("start", 9), ref: "execution/fake" }], blockers: [] }),
       dispatches: [],
     });
@@ -135,9 +138,11 @@ describe("task journey (dec_653AB9E451B58125CA2B5C0289 CH2)", () => {
 
   it("keeps reviewer dispatches on the control lane and appends waiting gates and terminal state from the cut", () => {
     const graph = buildTaskJourney({
+      nowMs: Date.parse(at(16)),
       task: task({
         blockers: [],
         coordinationStatus: "submitted",
+        closeoutBlocker: "review_pending",
         gates: [{ name: "CI", ok: false, status: "failed" }],
       }),
       dispatches: [...rows, dispatch("review", 14, { role: "reviewer" })],
@@ -146,6 +151,7 @@ describe("task journey (dec_653AB9E451B58125CA2B5C0289 CH2)", () => {
     expect(graph.nodes.find((node) => node.runtimeSessionId === "sreview")?.lane).toBe("control");
     expect(graph.nodes.filter((node) => node.kind === "gate")).toHaveLength(2);
     const done = buildTaskJourney({
+      nowMs: Date.parse(at(16)),
       task: task({ canonicalStatus: "done", coordinationStatus: "done", blockers: [] }),
       dispatches: [],
     });
@@ -158,7 +164,7 @@ describe("task journey (dec_653AB9E451B58125CA2B5C0289 CH2)", () => {
       onNavigateEntity = vi.fn();
     const container = await render(
       <TaskJourneyGraph
-        journey={buildTaskJourney({ task: task(), dispatches: rows })}
+        journey={buildTaskJourney({ nowMs: Date.parse(at(16)), task: task(), dispatches: rows })}
         onOpenSession={onOpenSession}
         onOpenRecord={onOpenRecord}
         onNavigateEntity={onNavigateEntity}
@@ -207,5 +213,129 @@ describe("task journey (dec_653AB9E451B58125CA2B5C0289 CH2)", () => {
       expect(container.querySelector('[role="alert"]')?.textContent).toContain("dispatch offline"),
     );
     expect(container.querySelectorAll('[data-journey-kind="gate"]')).toHaveLength(2);
+  });
+});
+
+// review-dispatch_cdc6e2d05b9e7c861d65a1ba F1–F3: read the actual cut and observation clock.
+describe("task journey review regressions", () => {
+  it.each(["review_pending", "review_rejected", "consent", "projection_unknown", "execution", "lineage"] as const)(
+    "uses the authoritative %s closeout blocker",
+    (closeoutBlocker) => {
+      const graph = buildTaskJourney({
+        nowMs: Date.parse(at(16)),
+        task: task({
+          events: [],
+          blockers: [],
+          canonicalStatus: "in_review",
+          coordinationStatus: "in_review",
+          closeoutBlocker,
+        }),
+        dispatches: [],
+      });
+      expect(graph.nodes.at(-1)).toMatchObject({ kind: "gate", closeoutBlocker });
+      expect(graph.nodes.filter((node) => node.id === "waiting-review")).toEqual([]);
+    },
+  );
+
+  it("does not invent a review gate for an exempt submitted cut, and retains the named failed gate", () => {
+    const exempt = task({
+      events: [],
+      blockers: [],
+      canonicalStatus: "submitted",
+      coordinationStatus: "submitted",
+      closeoutBlocker: undefined,
+    });
+    expect(
+      buildTaskJourney({ nowMs: Date.parse(at(16)), task: exempt, dispatches: [] }).nodes.filter(
+        (node) => node.kind === "gate",
+      ),
+    ).toEqual([]);
+    const gated = buildTaskJourney({
+      nowMs: Date.parse(at(16)),
+      task: { ...exempt, closeoutBlocker: "gate", gates: [{ name: "CI", ok: false, status: "failed" }] },
+      dispatches: [],
+    });
+    expect(gated.nodes.filter((node) => node.kind === "gate")).toHaveLength(1);
+    expect(gated.nodes.at(-1)).toMatchObject({ id: "gate:CI", summary: "CI", activity: "failed" });
+  });
+
+  it("selects consent in the default inspector after approval, without claiming review is pending", async () => {
+    const container = await render(
+      <TaskJourneyGraph
+        journey={buildTaskJourney({
+          nowMs: Date.parse(at(16)),
+          task: task({
+            events: [event("approved", 13, "review/r1")],
+            blockers: [],
+            canonicalStatus: "in_review",
+            coordinationStatus: "in_review",
+            closeoutBlocker: "consent",
+          }),
+          dispatches: [],
+        })}
+      />,
+    );
+    const inspector = container.querySelector('[data-testid="task-journey-inspector"]')!;
+    expect(inspector.textContent).toContain("待同意");
+    expect(inspector.textContent).not.toContain("待裁决");
+    expect(inspector.textContent).not.toContain("等待评审");
+  });
+
+  it.each([false, true])("shows abandoned fallback execution as terminal, submitted=%s", (submitted) => {
+    const graph = buildTaskJourney({
+      nowMs: Date.parse(at(16)),
+      task: task({
+        events: [
+          event("start", 9, "execution/old"),
+          ...(submitted ? [event("submit", 10, "execution/old")] : []),
+          event("abandoned", 11, "execution/old"),
+        ],
+        blockers: [],
+      }),
+      dispatches: [],
+    });
+    expect(graph.nodes.filter((node) => node.lane === "worker")).toMatchObject([
+      { activity: "cancelled", recordRefs: ["execution/old"] },
+    ]);
+  });
+
+  it("refreshes running duration from observation time even when task and dispatch objects are unchanged", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
+    vi.setSystemTime(at(16));
+    const live = dispatch("live", 15, { startedAt: "2026-11-14T15:59:50.000Z", endedAt: null, status: "running" });
+    const cached = { dispatches: [live] };
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const key = runtimeQueryKeys.dispatches("repo", "task");
+    client.setQueryData(key, cached);
+    getTaskDispatches.mockResolvedValue({
+      ok: true,
+      status: "ready",
+      taskIds: ["task"],
+      unavailableTaskIds: [],
+      dispatches: cached.dispatches,
+      outcome: "succeeded",
+      exitCode: 0,
+      page: { cursor: null, nextCursor: null, limit: 16 },
+      watermark: 1,
+      sourceRevision: 1,
+    });
+    const staleTask = task({
+      events: [],
+      blockers: [],
+      canonicalStatus: "active",
+      coordinationStatus: "active",
+      lastKnownAt: at(8),
+    });
+    const container = await render(<TaskTimelineRegion task={staleTask} />, client);
+    const inspector = () => container.querySelector('[data-testid="task-journey-inspector"]')!.textContent;
+    expect(inspector()).toContain("10s");
+    expect(getTaskDispatches).not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_001);
+    });
+    expect(inspector()).toContain("14s");
+    expect(getTaskDispatches).toHaveBeenCalledTimes(1);
+    expect(client.getQueryData(key)).toBe(cached);
+    expect(staleTask.lastKnownAt).toBe(at(8));
   });
 });

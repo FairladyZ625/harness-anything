@@ -396,12 +396,18 @@
   "components.taskJourney.creation": "立项",
   "components.taskJourney.execution": "执行",
   "components.taskJourney.review": "评审",
-  "components.taskJourney.waitingReview": "待裁决",
+  "components.taskJourney.waitingReview": "等待评审",
   "components.taskJourney.inspector": "节点详情",
   "components.taskJourney.openSession": "打开会话",
   "components.taskJourney.openRecord": "打开记录",
   "components.taskJourney.rawRecords": "原始记录 · {count}",
   "components.taskJourney.readError": "派工读取失败：{message}",
   "components.taskJourney.blocked": "阻塞",
-  "components.taskJourney.roundCount": "{count} 轮"
+  "components.taskJourney.roundCount": "{count} 轮",
+  "components.taskJourney.reviewRejected": "评审退回",
+  "components.taskJourney.waitingConsent": "待同意",
+  "components.taskJourney.executionCut": "执行提交",
+  "components.taskJourney.gate": "完成门禁",
+  "components.taskJourney.lineage": "工作血缘",
+  "components.taskJourney.projectionUnknown": "待读面"
 }

@@ -164,10 +164,17 @@ export function TaskTimelineRegion({
     queryKey: runtimeQueryKeys.dispatches(task.projectId, task.taskId),
     queryFn: () => readAllTaskDispatches({ repoId: task.projectId, taskId: task.taskId }),
     staleTime: 4_000,
+    refetchInterval: (query) =>
+      (query.state.data?.dispatches ?? []).some((row) => row.status === "running") ? 4_000 : false,
   });
   const journey = useMemo(
-    () => buildTaskJourney({ task, dispatches: dispatches.data?.dispatches ?? [] }),
-    [task, dispatches.data],
+    () =>
+      buildTaskJourney({
+        task,
+        dispatches: dispatches.data?.dispatches ?? [],
+        nowMs: dispatches.dataUpdatedAt || Date.now(),
+      }),
+    [task, dispatches.data, dispatches.dataUpdatedAt],
   );
   return (
     <Region

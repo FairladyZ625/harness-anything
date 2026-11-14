@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { t } from "../../i18n/index.tsx";
+import { t, type MessageKey } from "../../i18n/index.tsx";
 import { formatDuration, formatTime } from "../../model/time.ts";
 import { WORK_STEP_LABEL_KEY } from "../../model/workspace-narrative.ts";
 import type { TaskJourney, TaskJourneyNode } from "../../model/task-journey.ts";
@@ -9,6 +9,15 @@ import { EntityRefLink } from "../EntityRefLink.tsx";
 import { Button } from "../primitives/Button.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
 
+const CLOSEOUT_LABEL_KEY: Readonly<Record<NonNullable<TaskJourneyNode["closeoutBlocker"]>, MessageKey>> = {
+  review_pending: "components.taskJourney.waitingReview",
+  review_rejected: "components.taskJourney.reviewRejected",
+  consent: "components.taskJourney.waitingConsent",
+  execution: "components.taskJourney.executionCut",
+  gate: "components.taskJourney.gate",
+  lineage: "components.taskJourney.lineage",
+  projection_unknown: "components.taskJourney.projectionUnknown",
+};
 const LABEL_WIDTH = 112;
 const yOf = (node: TaskJourneyNode) => (node.lane === "control" ? 14 : 94);
 function labelOf(node: TaskJourneyNode): string {
@@ -17,7 +26,8 @@ function labelOf(node: TaskJourneyNode): string {
     return `${node.eventKind === "rejected" || node.eventKind === "returned" ? "↩ " : ""}${t(WORK_STEP_LABEL_KEY[node.eventKind])}`;
   if (node.kind === "creation") return t("components.taskJourney.creation");
   if (node.kind === "terminal") return t(ACTIVITY_KEY[node.activity]);
-  if (node.kind === "gate") return `◇ ${node.summary ?? t("components.taskJourney.waitingReview")}`;
+  if (node.kind === "gate")
+    return `◇ ${node.closeoutBlocker !== undefined ? t(CLOSEOUT_LABEL_KEY[node.closeoutBlocker]) : (node.summary ?? t("components.taskJourney.gate"))}`;
   return node.role ?? t("components.taskJourney.review");
 }
 

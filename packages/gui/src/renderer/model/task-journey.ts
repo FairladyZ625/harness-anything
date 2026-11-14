@@ -17,6 +17,7 @@ export interface TaskJourneyNode {
   readonly runtimeSessionId?: string;
   readonly recordRefs: readonly string[];
   readonly entityRef?: string;
+  readonly closeoutBlocker?: NonNullable<TaskRow["closeoutBlocker"]>;
 }
 export interface TaskJourney {
   readonly nodes: readonly TaskJourneyNode[];
@@ -25,16 +26,16 @@ export interface TaskJourney {
 
 /** Single-cut display only. Paging and canonical state judgments stay at their existing owners.
  * Keyed execution joins + one timeline sort: O((E+D) log(E+D) + B+G), no per-node reads.
- * nowMs is explicit so the model is deterministic (running durations use the observed cut otherwise).
+ * nowMs is the caller's observation clock, never the task modification timestamp.
  */
 export function buildTaskJourney({
   task,
   dispatches,
-  nowMs = Date.parse(task.lastKnownAt),
+  nowMs,
 }: {
   readonly task: TaskRow;
   readonly dispatches: readonly TaskDispatchProjectionRow[];
-  readonly nowMs?: number;
+  readonly nowMs: number;
 }): TaskJourney {
   const events = task.events ?? [];
   const eventsByExecution = new Map<string, EventEntry[]>();
@@ -86,9 +87,11 @@ export function buildTaskJourney({
             ? "done"
             : history.some((entry) => entry.kind === "returned")
               ? "failed"
-              : history.some((entry) => entry.kind === "submit")
-                ? "awaiting"
-                : "idle",
+              : history.some((entry) => entry.kind === "abandoned")
+                ? "cancelled"
+                : history.some((entry) => entry.kind === "submit")
+                  ? "awaiting"
+                  : "idle",
       recordRefs: event.recordRef === undefined ? [] : [event.recordRef],
     });
   }
@@ -173,7 +176,16 @@ export function buildTaskJourney({
           summary: [gate.name, gate.detail].filter(Boolean).join(" · "),
           recordRefs: [],
         });
-    ordered.push({ id: "waiting-review", lane: "control", kind: "gate", activity: "awaiting", recordRefs: [] });
+    const blocker = task.closeoutBlocker;
+    if (blocker !== undefined && !(blocker === "gate" && (task.gates ?? []).some((gate) => gate.ok !== true)))
+      ordered.push({
+        id: `closeout:${blocker}`,
+        lane: "control",
+        kind: "gate",
+        closeoutBlocker: blocker,
+        activity: blocker === "review_rejected" ? "failed" : "awaiting",
+        recordRefs: [],
+      });
   }
   if (task.canonicalStatus === "done" || task.canonicalStatus === "cancelled")
     ordered.push({
