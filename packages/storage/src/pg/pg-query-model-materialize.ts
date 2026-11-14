@@ -261,7 +261,9 @@ export async function materializePgQueryModels(
         ? ""
         : new TextDecoder("utf-8", { fatal: true, ignoreBOM: policyId === OPAQUE_TEXTUAL_POLICY_ID }).decode(bytes),
     };
-    await drop("document-history", claim.path);
+    // Lifecycle settlement moves descriptors between active/history atomically. A
+    // document edit cannot restore its owner; terminal edits settle below instead.
+    if (!isDocEvent(event)) await drop("document-history", claim.path);
     await put("document", claim.path, document as DocumentState);
     const artifact = artifactTimelineEntry(scope, claim.path, document, event.occurredAt);
     if (artifact !== null) {
@@ -494,12 +496,26 @@ async function settlePgTerminalMaterialization(
       const owner = materializationOwnerForPath(path);
       if (owner) changed.add(owner);
     }
-    const packages = [...new Set(event.payload.changes.map(({ path }) => path.split("/").slice(0, 2).join("/")))];
-    const rows = await client.query<{ task_id: string }>(
-      "SELECT task_id FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND package_path=ANY($4::text[])",
-      [scope.tenantId, scope.projectId, scope.policyEpoch, packages],
-    );
-    for (const { task_id } of rows.rows) changed.add(`task/${task_id}`);
+    const packages = [
+      ...new Set(
+        event.payload.changes
+          .filter(({ path }) => path.startsWith("tasks/"))
+          .map(({ path }) => path.split("/").slice(0, 2).join("/")),
+      ),
+    ];
+    if (packages.length) {
+      const rows = await client.query<{ task_id: string }>(
+        `SELECT task_id FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+         AND package_path=ANY($4::text[]) AND
+         (task_status='cancelled' OR task_package_disposition='archived')`,
+        [scope.tenantId, scope.projectId, scope.policyEpoch, packages],
+      );
+      for (const { task_id } of rows.rows) changed.add(`task/${task_id}`);
+    }
+    // Content-only events do not change lifecycle or relations. Existing holds are
+    // already current; only terminal owners need their new claims moved to history.
+    await settlePgMaterializationCandidates(client, scope, [...changed], event.workspaceRevision, false);
+    return;
   }
   if (isFactEvent(event) && event.payload.supersedes) changed.add(event.payload.supersedes.factRef);
   const candidates = await refreshPgMaterializationHolds(client, scope, [...changed], event.workspaceRevision);
@@ -543,23 +559,25 @@ async function settlePgMaterializationCandidates(
   scope: PgProjectionScope,
   candidates: readonly string[],
   revision: number,
+  restoreNonterminal = true,
 ) {
   for (const ref of candidates) {
     const state = await pgMaterializationEntityState(client, scope, ref);
     if (!state) continue;
+    const terminal =
+      state.kind === "fact"
+        ? ["archived", "superseded_fact"].includes(state.state)
+        : state.kind === "decision"
+          ? (terminalDecisionMaterializationStates as readonly string[]).includes(state.state)
+          : ["archived", "cancelled"].includes(state.state);
+    if (!terminal && !restoreNonterminal) continue;
     const held =
-        (
-          await client.query(
-            "SELECT 1 FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model='materialization-hold' AND owner_id=$4 LIMIT 1",
-            [scope.tenantId, scope.projectId, scope.policyEpoch, ref],
-          )
-        ).rows.length > 0,
-      terminal =
-        state.kind === "fact"
-          ? ["archived", "superseded_fact"].includes(state.state)
-          : state.kind === "decision"
-            ? (terminalDecisionMaterializationStates as readonly string[]).includes(state.state)
-            : ["archived", "cancelled"].includes(state.state);
+      (
+        await client.query(
+          "SELECT 1 FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model='materialization-hold' AND owner_id=$4 LIMIT 1",
+          [scope.tenantId, scope.projectId, scope.policyEpoch, ref],
+        )
+      ).rows.length > 0;
     const active = !terminal || held,
       model = active ? "document-history" : "document";
     let prefix = state.kind === "decision" ? `decisions/decision-${ref.slice(9)}/` : `facts/${ref.slice(5)}.md`;
