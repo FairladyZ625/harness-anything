@@ -675,8 +675,19 @@ export function clientEntryRequiredRoutes(graph, node, source, action, descripto
 
 /** A root tools/ script or non-main GUI surface calling an authorized CLI/daemon action must bind its typed client port and action route. */
 export function clientEntryEvidence(graph, node, source, action, descriptors = []) {
-  if (!source.port || source.role !== "client" || action.ontology?.technical || action.ontology?.authority) return null;
+  const localProcessHostAction =
+    action.ontology?.authority === "local-process" &&
+    action.executionClass === "admin" &&
+    action.residency?.scope === "host-local";
+  if (
+    !source.port ||
+    source.role !== "client" ||
+    action.ontology?.technical ||
+    (action.ontology?.authority && !localProcessHostAction)
+  )
+    return null;
   if (guiClientSource(graph, node)) {
+    if (action.ontology?.authority) return null;
     const declaration = graph.callDeclaration(node);
     if (!declaration || declaredPortKey(graph, node) !== source.port) return null;
     const resolved = resolvedGuiClientBindings(graph, node, descriptors);
@@ -719,6 +730,11 @@ export function clientEntryEvidence(graph, node, source, action, descriptors = [
     (action.executionClass === "repo-read" ? descriptor.commandClass : (descriptor.actionKind ?? descriptor.id)) ===
     targetKind;
   if (!resolved.descriptors.every(matchesAction)) return null;
+  if (
+    localProcessHostAction &&
+    !resolved.descriptors.every((descriptor) => descriptor.hostAuthority === "local-process")
+  )
+    return null;
   if (resolved.descriptors.length === 1) {
     const descriptor = resolved.descriptors[0];
     if (descriptor.id !== source.route && (descriptor.actionKind ?? descriptor.id) !== source.route) return null;
@@ -770,6 +786,833 @@ export function processOwnedOutput(graph, node) {
     stream.expression.getText() === "process" &&
     !graph.lookup("process", stream) &&
     /\/node_modules\/@types\/node\//u.test(graph.callDeclaration(node)?.getSourceFile().fileName ?? "")
+  );
+}
+
+export function processOutputEvidence(graph, node, action) {
+  return (
+    action.ontology?.authority === "local-process" &&
+    action.residency.scope === "host-local" &&
+    processOwnedOutput(graph, node)
+  );
+}
+
+function property(node, name) {
+  return (
+    ts.isObjectLiteralExpression(node) &&
+    node.properties.find(
+      (entry) =>
+        (ts.isPropertyAssignment(entry) || ts.isShorthandPropertyAssignment(entry)) &&
+        entry.name &&
+        (ts.isIdentifier(entry.name) || ts.isStringLiteralLike(entry.name)) &&
+        entry.name.text === name,
+    )
+  );
+}
+
+function functionAncestor(node) {
+  for (let current = node.parent; current; current = current.parent) if (isFunctionNode(current)) return current;
+  return null;
+}
+
+function hostApiFactory(graph, entry) {
+  const fn = functionAncestor(entry),
+    member = fn?.parent,
+    object = member?.parent;
+  if (
+    !fn ||
+    !ts.isPropertyAssignment(member) ||
+    !ts.isObjectLiteralExpression(object) ||
+    !["createDaemonHostControlApi", "createDaemonHostRuntimeApi"].some((name) => {
+      let current = object.parent;
+      while (current && !isFunctionNode(current)) current = current.parent;
+      return current?.name?.getText() === name;
+    })
+  )
+    return null;
+  const contract = graph.interfaceMembers("packages/daemon/src/daemon-host-types.ts", "DaemonHost"),
+    name =
+      member.name && (ts.isIdentifier(member.name) || ts.isStringLiteralLike(member.name)) ? member.name.text : null,
+    declaration = name && contract.get(name),
+    hosted = graph.modules.get("packages/daemon/src/daemon-host-open.ts")?.sourceFile;
+  if (!name || !declaration || !hosted || !graph.implementsMember(member, name, new Set([declaration]))) return null;
+  let registered = false;
+  (function visit(node) {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      ["createDaemonHostControlApi", "createDaemonHostRuntimeApi"].includes(node.expression.text)
+    )
+      registered = true;
+    ts.forEachChild(node, visit);
+  })(hosted);
+  return registered ? { fn, name, object } : null;
+}
+
+function statementOf(fn, node) {
+  let current = node;
+  while (current.parent && current.parent !== fn.body) {
+    if (isFunctionNode(current.parent)) return null;
+    current = current.parent;
+  }
+  return current.parent === fn.body ? current : null;
+}
+
+function controlFlowUnsafe(fn, node) {
+  for (let current = node; current && current !== fn.body; current = current.parent) {
+    if (
+      ts.isIfStatement(current) ||
+      ts.isConditionalExpression(current) ||
+      ts.isSwitchStatement(current) ||
+      ts.isTryStatement(current) ||
+      ts.isIterationStatement(current, true) ||
+      (ts.isBinaryExpression(current) &&
+        [
+          ts.SyntaxKind.AmpersandAmpersandToken,
+          ts.SyntaxKind.BarBarToken,
+          ts.SyntaxKind.QuestionQuestionToken,
+        ].includes(current.operatorToken.kind)) ||
+      Boolean(current.flags & ts.NodeFlags.OptionalChain)
+    )
+      return true;
+  }
+  return false;
+}
+
+function callsInStatement(statement) {
+  const calls = [];
+  (function walk(node) {
+    if (isFunctionNode(node)) return;
+    if (ts.isCallExpression(node)) {
+      calls.push(node);
+      return;
+    }
+    ts.forEachChild(node, walk);
+  })(statement);
+  return calls;
+}
+
+function terminatesBeforeEffect(statement) {
+  return ts.isReturnStatement(statement) || ts.isThrowStatement(statement);
+}
+
+function callNamed(call, name) {
+  const expression = unwrap(call.expression);
+  return (
+    (ts.isPropertyAccessExpression(expression) && expression.name.text === name) ||
+    (ts.isIdentifier(expression) && expression.text === name)
+  );
+}
+
+/** A guard only dominates an effect when both are on the function's unconditional statement path. */
+function dominatingCall(fn, source, name, predicate = () => true) {
+  if (!fn?.body || !ts.isBlock(fn.body)) return null;
+  const statement = statementOf(fn, source),
+    index = statement && fn.body.statements.indexOf(statement);
+  if (!statement || index < 0) return null;
+  for (const previous of fn.body.statements.slice(0, index)) {
+    if (terminatesBeforeEffect(previous)) continue;
+    const match = callsInStatement(previous).find(
+      (call) => callNamed(call, name) && predicate(call) && !controlFlowUnsafe(fn, call),
+    );
+    if (match) return match;
+  }
+  return null;
+}
+
+/** Reachability follows evaluated callback bindings; nested uncalled functions are not visited. */
+function reachableCall(graph, fn, name) {
+  if (!fn) return false;
+  const targets = [];
+  (function visit(node) {
+    if (isFunctionNode(node)) return;
+    if (ts.isCallExpression(node) && callNamed(node, name)) targets.push(sourceSite(graph, node));
+    ts.forEachChild(node, visit);
+  })(fn.body);
+  return targets.some((target) => processSourceSites(graph, fn, { targets: [target] }).has(target));
+}
+
+function resolvedMemberCall(graph, call, file, owner, name) {
+  const declaration = graph.callDeclaration(call),
+    member = declaration?.name ? declaration : declaration?.parent;
+  return Boolean(
+    member &&
+      member.name?.getText() === name &&
+      graph.fileOf(member) === file &&
+      member.parent?.name?.getText() === owner,
+  );
+}
+
+/** References are symbol-bound; only immutable local aliases may preserve an entry value. */
+function referenceBinding(graph, expression, seen = new Set()) {
+  const node = unwrap(expression);
+  if (!node || !ts.isIdentifier(node) || seen.has(node)) return null;
+  seen.add(node);
+  const binding = graph.lookup(node.text, node);
+  if (!binding || binding.trail?.length) return null;
+  if (binding.kind === "param") return binding.parameter;
+  if (binding.kind !== "var" || !(binding.declaration.parent.flags & ts.NodeFlags.Const)) return null;
+  const initial = unwrap(binding.declaration.initializer);
+  return initial && ts.isIdentifier(initial) ? referenceBinding(graph, initial, seen) : binding.declaration;
+}
+
+function memberBase(expression, fields) {
+  let node = unwrap(expression);
+  for (const field of [...fields].reverse()) {
+    if (!node || !ts.isPropertyAccessExpression(node) || node.name.text !== field || node.questionDotToken) return null;
+    node = unwrap(node.expression);
+  }
+  return node;
+}
+
+const sameReference = (graph, expression, binding) =>
+  Boolean(binding && referenceBinding(graph, expression) === binding);
+const callReceiver = (call, name) =>
+  call && ts.isCallExpression(call) && !call.questionDotToken && memberBase(call.expression, [name]);
+
+function contextCall(graph, call, fn, name) {
+  return sameReference(graph, callReceiver(call, name), functionAncestor(fn)?.parameters[0]);
+}
+
+function localBefore(fn, declaration, source) {
+  if (!declaration || !source || !fn?.body || !ts.isBlock(fn.body)) return false;
+  const statement = declaration && statementOf(fn, declaration),
+    target = statementOf(fn, source);
+  return Boolean(
+    statement &&
+      target &&
+      functionAncestor(declaration) === fn &&
+      fn.body.statements.indexOf(statement) < fn.body.statements.indexOf(target) &&
+      !controlFlowUnsafe(fn, declaration),
+  );
+}
+
+function scopedCell(graph, receiver, fn, source) {
+  const cell = referenceBinding(graph, receiver),
+    call = cell && unwrap(cell.initializer),
+    context = functionAncestor(fn)?.parameters[0];
+  return localBefore(fn, cell, source) &&
+    contextCall(graph, call, fn, "requiredCell") &&
+    call.arguments.length === 4 &&
+    ["cells", "warming", "unavailable"].every((field, index) =>
+      sameReference(graph, memberBase(call.arguments[index], [field]), context),
+    ) &&
+    sameReference(graph, call.arguments[3], fn.parameters[0])
+    ? cell
+    : null;
+}
+
+function cellRoot(graph, expression, cell) {
+  const status = memberBase(expression, ["rootDir"]);
+  return Boolean(
+    status &&
+      ts.isCallExpression(status) &&
+      status.arguments.length === 0 &&
+      sameReference(graph, callReceiver(status, "status"), cell),
+  );
+}
+
+function scopedBinding(graph, expression, fn, cell, writer) {
+  const call = unwrap(expression);
+  return (
+    contextCall(graph, call, fn, "binding") &&
+    cellRoot(graph, call.arguments[0], cell) &&
+    sameReference(graph, call.arguments[1], fn.parameters[2]) &&
+    (writer
+      ? call.arguments.length === 4 && sameReference(graph, call.arguments[3], fn.parameters[0])
+      : call.arguments.length === 2)
+  );
+}
+
+function scopedHostGuard(graph, call, fn) {
+  return (
+    contextCall(graph, call, fn, "requireHostMode") &&
+    call.arguments.length === 3 &&
+    resolvedMemberCall(
+      graph,
+      call,
+      "packages/daemon/src/daemon-host-context.ts",
+      "DaemonHostApiContext",
+      "requireHostMode",
+    ) &&
+    sameReference(graph, call.arguments[0], fn.parameters[0]) &&
+    runtimeHostModeArgument(graph, call.arguments[1]) &&
+    sameReference(graph, call.arguments[2], fn.parameters[2])
+  );
+}
+
+/** A guard and a later use cannot share the same binding after that binding is overwritten. */
+function stableScope(graph, fn, locals) {
+  const roots = [...fn.parameters, ...locals];
+  let changed = false;
+  function visit(node) {
+    if (changed) return;
+    const write =
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+        ? node.left
+        : (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
+            [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(node.operator)
+          ? node.operand
+          : null;
+    if (write) {
+      let root = unwrap(write);
+      while (ts.isPropertyAccessExpression(root) || ts.isElementAccessExpression(root)) root = unwrap(root.expression);
+      changed = roots.includes(referenceBinding(graph, root));
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(fn.body);
+  return !changed;
+}
+
+function scopedWitnessIssuer(graph, fn) {
+  if (!fn || !isFunctionNode(fn) || !ts.isBlock(fn.body)) return false;
+  const statement = fn.body.statements.at(-1),
+    token = statement && ts.isReturnStatement(statement) && unwrap(statement.expression),
+    cell = scopedCell(graph, memberBase(callReceiver(token, "issueWitnessToken"), ["runtime"]), fn, token),
+    identity = token && ts.isCallExpression(token) && unwrap(token.arguments[1]),
+    principal = identity && ts.isObjectLiteralExpression(identity) && property(identity, "principalId"),
+    source = identity && ts.isObjectLiteralExpression(identity) && property(identity, "source"),
+    binding =
+      source && ts.isPropertyAssignment(source) && referenceBinding(graph, memberBase(source.initializer, ["source"]));
+  return Boolean(
+    cell &&
+      binding &&
+      returnExpressions(fn).length === 1 &&
+      identity.properties.length === 2 &&
+      principal &&
+      ts.isPropertyAssignment(principal) &&
+      resolvedMemberCall(
+        graph,
+        token,
+        "packages/daemon/src/agent-runtime-stream.ts",
+        "AgentRuntimeStreamHub",
+        "issueWitnessToken",
+      ) &&
+      sameReference(graph, token.arguments[0], fn.parameters[1]) &&
+      sameReference(graph, memberBase(principal.initializer, ["actor", "principal", "personId"]), binding) &&
+      localBefore(fn, binding, token) &&
+      scopedBinding(graph, binding.initializer, fn, cell, false) &&
+      dominatingCall(fn, token, "requireHostMode", (call) => scopedHostGuard(graph, call, fn)) &&
+      stableScope(graph, fn, [cell, binding]),
+  );
+}
+
+/** Host entry evidence binds admission and the actual effect to one repository/authentication scope. */
+export function hostServiceEntryEvidence(graph, node, source, action, route) {
+  if (!route?.ok || route.kind !== action.kind || route.id !== source.route || source.role !== "effect") return null;
+  if (action.kind === "rbac-bootstrap") return hostRbacServiceEvidence(graph, node);
+  if (action.kind !== "runtime-run") return null;
+  const forwarded = runtimeForwardingServiceEvidence(graph, node);
+  if (forwarded) return forwarded;
+  const entry = hostApiFactory(graph, node);
+  if (!entry) return null;
+  const fn = entry.fn;
+  if (entry.name === "runtimeIngress") {
+    const ingress = dominatingCall(fn, node, "runtimeIngress", (call) =>
+        portMemberCall(graph, call, "packages/daemon/src/repo-cell-types.ts", "RepoCell", "runtimeIngress"),
+      ),
+      cell = scopedCell(graph, callReceiver(ingress, "runtimeIngress"), fn, ingress),
+      receipt = referenceBinding(graph, memberBase(node.arguments[1], ["event"])),
+      executor = callReceiver(node, "settle");
+    return cell &&
+      receipt &&
+      unwrap(receipt.initializer) === ingress &&
+      localBefore(fn, receipt, node) &&
+      sameReference(graph, ingress.arguments[0], fn.parameters[1]) &&
+      scopedBinding(graph, ingress.arguments[1], fn, cell, true) &&
+      dominatingCall(fn, ingress, "requireHostMode", (call) => scopedHostGuard(graph, call, fn)) &&
+      contextCall(graph, executor, fn, "decisionPointExecutorFor") &&
+      sameReference(graph, executor.arguments[0], fn.parameters[0]) &&
+      cellRoot(graph, executor.arguments[1], cell) &&
+      sameReference(graph, node.arguments[0], cell) &&
+      stableScope(graph, fn, [cell, receipt])
+      ? [
+          "runtimeIngress: host admission, RepoCell ingress binding and settlement share the entry repository/authentication",
+        ]
+      : null;
+  }
+  if (entry.name === "publishRuntimeWitness") {
+    const issuer = property(entry.object, "issueRuntimeWitness"),
+      issuerFn = issuer && ts.isPropertyAssignment(issuer) && unwrap(issuer.initializer),
+      cell = scopedCell(graph, memberBase(callReceiver(node, "publish"), ["runtime"]), fn, node),
+      witness = referenceBinding(graph, memberBase(node.arguments[0], ["runtimeSessionId"])),
+      bind = witness && unwrap(witness.initializer);
+    return cell &&
+      localBefore(fn, witness, node) &&
+      sameReference(graph, memberBase(callReceiver(bind, "bindWitness"), ["runtime"]), cell) &&
+      sameReference(graph, bind.arguments[0], fn.parameters[1]) &&
+      sameReference(graph, node.arguments[1], fn.parameters[2]) &&
+      portMemberCall(graph, node, "packages/daemon/src/agent-runtime-stream.ts", "AgentRuntimeStreamHub", "publish") &&
+      dominatingCall(
+        fn,
+        node,
+        "bindWitness",
+        (call) =>
+          call === bind &&
+          portMemberCall(
+            graph,
+            call,
+            "packages/daemon/src/agent-runtime-stream.ts",
+            "AgentRuntimeStreamHub",
+            "bindWitness",
+          ),
+      ) &&
+      scopedWitnessIssuer(graph, issuerFn) &&
+      stableScope(graph, fn, [cell, witness])
+      ? ["publishRuntimeWitness: a scoped issuer and the same repository's bound token own the published session"]
+      : null;
+  }
+  return null;
+}
+
+function runtimeHostModeArgument(graph, argument) {
+  const node = unwrap(argument),
+    descriptorCall = ts.isCallExpression(node) && unwrap(node.expression),
+    descriptorBinding =
+      descriptorCall && ts.isIdentifier(descriptorCall) ? graph.lookup(descriptorCall.text, descriptorCall) : null,
+    binding = ts.isIdentifier(node) && graph.lookup(node.text, node);
+  if (
+    ts.isCallExpression(node) &&
+    ts.isIdentifier(descriptorCall) &&
+    descriptorBinding?.exported === "commandDescriptorForAction" &&
+    descriptorBinding.from.includes("daemon-protocol") &&
+    node.arguments.length === 1 &&
+    ts.isStringLiteralLike(unwrap(node.arguments[0])) &&
+    unwrap(node.arguments[0]).text === "runtime-run"
+  )
+    return true;
+  return (
+    ts.isIdentifier(node) &&
+    binding?.kind === "import" &&
+    binding.exported === "ledgerWriteCommandTopology" &&
+    binding.from.includes("preset-command-contract")
+  );
+}
+
+function effectiveObjectProperty(graph, expression, name) {
+  const evaluator = makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true }),
+    values = evaluator.evaluate(expression, new Map());
+  if (values.length !== 1 || !values[0].object) return null;
+  const object = values[0].object;
+  // Only plain properties have statically visible object-spread and overwrite semantics. A
+  // computed key, shorthand, method, or accessor can define/replace the effective value.
+  if (
+    object.properties.some(
+      (property) =>
+        !ts.isPropertyAssignment(property) ||
+        !property.name ||
+        !(ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name)),
+    )
+  )
+    return null;
+  const matches = object.properties.filter((property) => property.name.text === name);
+  if (matches.length !== 1) return null;
+  const value = unwrap(matches[0].initializer);
+  return ts.isStringLiteralLike(value) ? value.text : null;
+}
+
+function functionNamed(graph, file, name) {
+  const source = graph.modules.get(file)?.sourceFile;
+  let found = null;
+  if (!source) return null;
+  (function visit(node) {
+    if (found) return;
+    if (isFunctionNode(node) && node.name?.getText() === name) found = node;
+    else ts.forEachChild(node, visit);
+  })(source);
+  return found;
+}
+
+function returnedPropertyFunction(fn, name) {
+  let result = null;
+  (function visit(node) {
+    if (result || isFunctionNode(node)) return;
+    if (ts.isReturnStatement(node) && ts.isObjectLiteralExpression(unwrap(node.expression))) {
+      const value = property(unwrap(node.expression), name);
+      if (value && ts.isPropertyAssignment(value)) {
+        const initializer = unwrap(value.initializer);
+        if (isFunctionNode(initializer)) result = initializer;
+      }
+      return;
+    }
+    ts.forEachChild(node, visit);
+  })(fn?.body);
+  return result;
+}
+
+/**
+ * Bind a callback use to the factory value that produced its receiver. The migration view uses a
+ * Proxy, so the proof follows the actual `get(..., "append") -> returned callback` shape instead
+ * of accepting a same-named call in an unrelated nested function.
+ */
+function boundPropertyCall(graph, fn, bindingName, propertyName, factory, entry) {
+  let declaration = null,
+    proxy = null;
+  (function findBinding(node) {
+    if (declaration && proxy) return;
+    if (isFunctionNode(node)) return;
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === bindingName &&
+      ts.isCallExpression(unwrap(node.initializer)) &&
+      graph.callDeclaration(unwrap(node.initializer)) === factory
+    )
+      declaration = node;
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === "store" &&
+      ts.isNewExpression(unwrap(node.initializer)) &&
+      unwrap(node.initializer).expression.getText() === "Proxy"
+    )
+      proxy = node;
+    ts.forEachChild(node, findBinding);
+  })(fn?.body);
+  if (!declaration || !proxy) return false;
+  const proxyCall = unwrap(proxy.initializer),
+    handler = proxyCall.arguments[1] && unwrap(proxyCall.arguments[1]);
+  if (
+    !ts.isNewExpression(proxyCall) ||
+    !ts.isObjectLiteralExpression(handler) ||
+    graph.lookup("Proxy", proxyCall.expression)
+  )
+    return false;
+  const getter = handler.properties.find(
+    (entry) =>
+      (ts.isMethodDeclaration(entry) || ts.isPropertyAssignment(entry)) && entry.name && entry.name.getText() === "get",
+  );
+  const getterFn = getter && ts.isPropertyAssignment(getter) ? unwrap(getter.initializer) : getter;
+  if (!getterFn || !isFunctionNode(getterFn)) return false;
+  // Only the real Proxy property parameter can select the append callback. Earlier
+  // selectors must be disjoint literal keys, so none can swallow this property first.
+  const selector = (statement) => {
+    if (!ts.isIfStatement(statement) || statement.elseStatement) return null;
+    const condition = unwrap(statement.expression);
+    return ts.isBinaryExpression(condition) &&
+      condition.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken &&
+      sameReference(graph, condition.left, getterFn.parameters[1]) &&
+      ts.isStringLiteralLike(unwrap(condition.right))
+      ? unwrap(condition.right).text
+      : null;
+  };
+  const statements = getterFn.body?.statements,
+    index = statements?.findIndex((statement) => selector(statement) === "append"),
+    branch = index >= 0 && statements[index].thenStatement,
+    appendCallback = branch && ts.isReturnStatement(branch) && unwrap(branch.expression),
+    accept = returnedPropertyFunction(fn, "accept"),
+    append = accept && unwrap(accept.body);
+  if (
+    !(index >= 0) ||
+    statements.slice(0, index).some((statement) => selector(statement) === null) ||
+    !appendCallback ||
+    !isFunctionNode(appendCallback) ||
+    !sameReference(graph, callReceiver(append, "append"), proxy) ||
+    !reachesSource(graph, entry, append)
+  )
+    return false;
+  let found = false;
+  (function visit(node) {
+    if (found || isFunctionNode(node)) return;
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(unwrap(node.expression)) &&
+      unwrap(node.expression).name.text === propertyName &&
+      ts.isIdentifier(unwrap(node.expression).expression) &&
+      unwrap(node.expression).expression.text === bindingName &&
+      graph.lookup(bindingName, unwrap(node.expression).expression)?.declaration === declaration &&
+      reachesSource(graph, appendCallback, node)
+    )
+      found = true;
+    else ts.forEachChild(node, visit);
+  })(appendCallback.body);
+  return found;
+}
+
+/** The runtime callback is registered with the real forwarding port and calls its typed owner. */
+function runtimeForwardingServiceEvidence(graph, node) {
+  const fn = functionAncestor(node),
+    member = fn?.parent,
+    object = member?.parent,
+    call = object?.parent,
+    service = graph.callDeclaration(node),
+    forward = call && ts.isCallExpression(call) ? graph.callDeclaration(call) : null;
+  return fn &&
+    ts.isPropertyAssignment(member) &&
+    member.name.getText() === "runRuntime" &&
+    ts.isObjectLiteralExpression(object) &&
+    ts.isCallExpression(call) &&
+    forward?.name?.getText() === "forward" &&
+    graph.fileOf(forward) === "packages/daemon/src/fleet/forwarding-port.ts" &&
+    reachableCall(graph, forward, "runRuntime") &&
+    service &&
+    graph.fileOf(service) === "packages/daemon/src/fleet-edge-runtime.ts" &&
+    service.parent?.name?.getText() === "run"
+    ? ["runtime-run: invoked forwarding callback delegates to the typed Fleet edge runtime owner"]
+    : null;
+}
+
+function typedHostMemberShape(graph, node, name) {
+  let member = node.parent;
+  while (member && !(ts.isPropertyAssignment(member) && member.name.getText() === name)) member = member.parent;
+  const fn = member && unwrap(member.initializer),
+    object = member?.parent,
+    host = object?.parent,
+    declaration = graph.interfaceMembers("packages/daemon/src/daemon-host-types.ts", "DaemonHost").get(name);
+  let owner = host?.parent;
+  while (owner && !isFunctionNode(owner)) owner = owner.parent;
+  if (
+    !fn ||
+    !isFunctionNode(fn) ||
+    !ts.isObjectLiteralExpression(object) ||
+    !ts.isVariableDeclaration(host) ||
+    host.type?.getText() !== "DaemonHost" ||
+    owner?.name?.getText() !== "openDaemonHost" ||
+    !declaration ||
+    !graph.implementsMember(member, name, new Set([declaration]))
+  )
+    return null;
+  return { fn, member, object, host, declaration };
+}
+
+function typedHostMember(graph, node, name) {
+  const shape = typedHostMemberShape(graph, node, name);
+  if (!shape) return null;
+  const { fn } = shape;
+  const first = ts.isBlock(fn.body) && fn.body.statements[0],
+    call = first && ts.isExpressionStatement(first) && unwrap(first.expression),
+    guard = call && ts.isCallExpression(call) && graph.callDeclaration(call),
+    auth = call && ts.isCallExpression(call) && unwrap(call.arguments[0]);
+  return guard?.name?.getText() === "localOnly" &&
+    graph.fileOf(guard) === "packages/daemon/src/daemon-host-status.ts" &&
+    auth &&
+    ts.isIdentifier(auth) &&
+    graph.lookup(auth.text, auth)?.parameter === fn.parameters[1]
+    ? fn
+    : null;
+}
+
+function forwardingServiceShape(graph, node) {
+  const fn = functionAncestor(node),
+    member = fn?.parent,
+    object = member?.parent,
+    call = object?.parent,
+    forward = call && ts.isCallExpression(call) ? graph.callDeclaration(call) : null;
+  return Boolean(
+    fn &&
+      ts.isPropertyAssignment(member) &&
+      ts.isObjectLiteralExpression(object) &&
+      ts.isCallExpression(call) &&
+      forward?.name?.getText() === "forward" &&
+      graph.fileOf(forward) === "packages/daemon/src/fleet/forwarding-port.ts",
+  );
+}
+
+/** Host callbacks must use the host proof; a generic descriptor trace cannot replace it. */
+export function hostServiceEntryRequired(graph, node, action) {
+  if (action.kind === "rbac-bootstrap") return Boolean(typedHostMemberShape(graph, node, "manageRbac"));
+  if (action.kind !== "runtime-run") return false;
+  return Boolean(hostApiFactory(graph, node) || forwardingServiceShape(graph, node));
+}
+
+function portMemberCall(graph, node, file, contract, name) {
+  // Mutated/partial graphs intentionally omit some type-only anchors. Missing authority
+  // declarations are inconclusive evidence, so reject the proof instead of throwing.
+  if (!graph.modules.has(file)) return false;
+  const member = graph.interfaceMembers(file, contract).get(name),
+    declaration = graph.callDeclaration(node),
+    resolved = declaration?.name ? declaration : declaration?.parent,
+    signatures = ts.isPropertyAccessExpression(unwrap(node.expression))
+      ? graph.memberSignature(node.expression)
+      : new Set();
+  return Boolean(
+    member &&
+      ((signatures && signatures.has(member)) ||
+        (resolved && (member === resolved || graph.implementsMember(resolved, name, new Set([member]))))),
+  );
+}
+
+function invokesCallbackSource(graph, call, node) {
+  const evaluator = makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true }),
+    callees = evaluator.evaluate(call.expression, new Map());
+  return (
+    callees.length > 0 &&
+    callees.every(
+      (callee) =>
+        callee.fn &&
+        reachesSource(graph, callee.node, node, {
+          evaluator,
+          env: bindArguments(callee, call.arguments, new Map()),
+        }),
+    )
+  );
+}
+
+/** RBAC's local facade delegates login state and managed lifecycle to their existing typed ports. */
+function hostRbacServiceEvidence(graph, node) {
+  const entry = typedHostMember(graph, node, "manageRbac"),
+    callback = functionAncestor(node);
+  if (!entry || !callback) return null;
+  function invokedBody(fn) {
+    if (!fn) return false;
+    let parent = fn.parent;
+    while (parent && ts.isParenthesizedExpression(parent)) parent = parent.parent;
+    return (
+      parent && ts.isCallExpression(parent) && unwrap(parent.expression) === fn && functionAncestor(parent) === entry
+    );
+  }
+  const sessionFile = "packages/kernel/src/ports/identity-session-port.ts";
+  if (portMemberCall(graph, node, sessionFile, "IdentitySessionPort", "complete") && invokedBody(callback))
+    return ["rbac-bootstrap: local DaemonHost entry delegates login completion to IdentitySessionPort"];
+  if (
+    !portMemberCall(
+      graph,
+      node,
+      "packages/kernel/src/ports/identity-management-port.ts",
+      "IdentityManagementPort",
+      "run",
+    )
+  )
+    return null;
+  const call = callback.parent;
+  if (!call || !ts.isCallExpression(call) || !call.arguments.includes(callback) || !invokedBody(functionAncestor(call)))
+    return null;
+  if (
+    portMemberCall(graph, call, sessionFile, "IdentitySessionPort", "configureAuthority") &&
+    invokesCallbackSource(graph, call, node)
+  )
+    return ["rbac-bootstrap: managed lifecycle callback is owned by IdentitySessionPort.configureAuthority"];
+  const callee = unwrap(call.expression);
+  if (!ts.isPropertyAccessExpression(callee) || callee.name.text !== "then") return null;
+  const guard = unwrap(callee.expression),
+    declaration = ts.isCallExpression(guard) && graph.callDeclaration(guard);
+  return declaration &&
+    declaration.name?.getText() === "requireAuthorizedHostAction" &&
+    graph.fileOf(declaration) === "packages/daemon/src/host-action-authorization.ts" &&
+    effectiveObjectProperty(graph, guard.arguments[0], "kind") === "rbac-bootstrap"
+    ? ["rbac-bootstrap: managed lifecycle callback runs after the host action's enforced authorization promise"]
+    : null;
+}
+
+/** Callback-chain evidence only; delegatedServiceEntryEvidence also requires the actual route verdict. */
+export function migrationServiceEntryEvidence(graph, node, source, action) {
+  if (action.kind !== "migrate-import" || source.role !== "effect") return null;
+  const fn = functionAncestor(node),
+    file = fn && graph.fileOf(fn);
+  if (!fn || !file) return null;
+  const importFile = "packages/daemon/src/migration-import.ts",
+    run = functionNamed(graph, importFile, "runMigrationImport");
+  if (!run) return null;
+  if (fn.name?.getText() === "stageAuthored" && file === "packages/daemon/src/migration-import-oracle-rebuild.ts") {
+    const factory = functionNamed(graph, file, "createMigrationPlanningWorkspace"),
+      view = functionNamed(graph, importFile, "stagedImportView"),
+      callback = returnedPropertyFunction(factory, "stage");
+    return factory &&
+      view &&
+      reachableCall(graph, run, "stagedImportView") &&
+      reachableCall(graph, view, "createMigrationPlanningWorkspace") &&
+      callback &&
+      reachesSource(graph, callback, node) &&
+      boundPropertyCall(graph, view, "workspace", "stage", factory, run)
+      ? [
+          "migrate-import: staged authored document I/O is reached through the registered planning workspace stage callback",
+        ]
+      : null;
+  }
+  if (fn.name?.getText() === "matchesRestatedFact" && file === importFile) {
+    const addFact = functionNamed(graph, importFile, "addFact");
+    return addFact && reachesSource(graph, run, addFact) && reachesSource(graph, addFact, node)
+      ? [
+          "migrate-import: the registered migration entry reaches the restatement claim through its actual callback arguments",
+        ]
+      : null;
+  }
+  return null;
+}
+
+/** A read source is covered by the scheduler callback that calls a typed RepoCell read. */
+export function repoReadServiceEvidence(graph, node, source, action, descriptors) {
+  if (
+    action.executionClass !== "repo-read" ||
+    action.kind !== "repository-read" ||
+    source.route !== action.kind ||
+    source.role !== "effect" ||
+    !ts.isCallExpression(node)
+  )
+    return null;
+  const declaration = graph.callDeclaration(node),
+    actionArg = unwrap(node.arguments[0]),
+    readKind = ts.isObjectLiteralExpression(actionArg) ? property(actionArg, "kind") : null,
+    readId =
+      readKind && ts.isPropertyAssignment(readKind) && ts.isStringLiteralLike(unwrap(readKind.initializer))
+        ? unwrap(readKind.initializer).text
+        : null,
+    descriptor = descriptors.find((row) => row.id === readId && row.commandClass === "repo-read"),
+    member = declaration?.parent,
+    owner = member?.parent;
+  if (
+    !readId ||
+    !descriptor ||
+    !ts.isPropertySignature(member) ||
+    member.name.getText() !== "run" ||
+    !ts.isInterfaceDeclaration(owner) ||
+    owner.name.text !== "RepoCell" ||
+    graph.fileOf(declaration) !== "packages/daemon/src/repo-cell-types.ts"
+  )
+    return null;
+  const callback = functionAncestor(node),
+    binding = callback?.parent,
+    object = binding?.parent,
+    call = object?.parent,
+    service = call && ts.isCallExpression(call) ? graph.callDeclaration(call) : null;
+  const scheduler = functionNamed(graph, "packages/daemon/src/schedule-scheduler.ts", "evaluationPlan"),
+    reachesRead = Boolean(scheduler && reachesSource(graph, scheduler, node));
+  if (
+    !callback ||
+    !ts.isPropertyAssignment(binding) ||
+    binding.name.getText() !== "localBinding" ||
+    !ts.isObjectLiteralExpression(object) ||
+    !ts.isCallExpression(call) ||
+    !ts.isIdentifier(unwrap(call.expression)) ||
+    unwrap(call.expression).text !== "makeScheduleScheduler" ||
+    service?.name?.getText() !== "makeScheduleScheduler" ||
+    graph.fileOf(service) !== "packages/daemon/src/schedule-scheduler.ts" ||
+    !reachesRead
+  )
+    return null;
+  return [
+    `schedule-show: RepoCell.run receives a registered repo-read action inside the scheduler's invoked localBinding callback`,
+  ];
+}
+
+/** A called typed service owns the nested work; the descriptor trace still owns denial and route checks. */
+export function delegatedServiceEntryEvidence(graph, node, source, action, descriptor, route, trace) {
+  if (
+    !route?.ok ||
+    route.id !== source.route ||
+    route.kind !== action.kind ||
+    (descriptor?.actionKind ?? descriptor?.id) !== action.kind ||
+    source.role !== "effect"
+  )
+    return null;
+  const migration = migrationServiceEntryEvidence(graph, node, source, action);
+  if (!migration && !(trace?.seen && trace.ok)) return null;
+  const declaration = graph.callDeclaration(node),
+    file = declaration && graph.fileOf(declaration),
+    typedPort = Boolean(
+      declaration &&
+        ts.isMethodSignature(declaration) &&
+        ts.isInterfaceDeclaration(declaration.parent) &&
+        file.startsWith("packages/kernel/src/ports/"),
+    );
+  if (!declaration || (!(isFunctionNode(declaration) && declaration.body) && !typedPort && !migration)) return null;
+  return (
+    migration ?? [
+      `${route.id}: verified descriptor denial plus reachable typed service entry ${file}#${declaration.name?.getText() ?? "call"}`,
+    ]
   );
 }
 
@@ -876,39 +1719,84 @@ export function moduleEntry(graph, file) {
 }
 
 export function buildOutputWithinPackage(graph, node) {
-  const resolved = staticPath(graph, node.arguments[0]);
-  const destination = resolved instanceof URL ? fileURLToPath(resolved) : resolved;
-  const prefix = path.join(graph.rootDir, graph.fileOf(node).split("/").slice(0, 2).join("/"), "dist") + path.sep;
   const callee = unwrap(node.expression);
   const binding = ts.isIdentifier(callee) ? graph.lookup(callee.text, callee) : null;
+  const writesDirectory = binding?.from === "node:fs" && binding.exported === "cpSync",
+    argument = node.arguments[writesDirectory ? 1 : 0],
+    resolved = staticPath(graph, argument),
+    destination = resolved instanceof URL ? fileURLToPath(resolved) : resolved,
+    prefix = path.join(graph.rootDir, graph.fileOf(node).split("/").slice(0, 2).join("/"), "dist") + path.sep;
   return (
     binding?.from === "node:fs" &&
-    ["rmSync", "writeFileSync"].includes(binding.exported) &&
+    ["rmSync", "writeFileSync", "cpSync"].includes(binding.exported) &&
     typeof destination === "string" &&
     (destination + path.sep).startsWith(prefix)
   );
 }
 
+function reachesSource(graph, entry, node, options = {}) {
+  const target = sourceSite(graph, node);
+  return processSourceSites(graph, entry, { ...options, targets: [target] }).has(target);
+}
+
+const processSitesCache = new WeakMap();
+const processBoundSitesCache = new WeakMap();
+
 /** Process ownership needs real call reachability, without interpreting RPC branch predicates. */
-export function processSourceSites(
-  graph,
-  entry,
-  { evaluator = makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true }), env = new Map() } = {},
-) {
+export function processSourceSites(graph, entry, options = {}) {
+  // The graph and default bindings are immutable within an audit. Explicit callback bindings
+  // remain separate: the same function can reach different sources under different arguments.
+  const { evaluator = makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true }), env = new Map() } =
+    options;
+  const targetList = options.targets ? [...options.targets] : null;
+  const targetKey = targetList ? `targets:${targetList.join("\u0000")}` : "all";
+  const reusable = true;
+  const bindingShape = (frame) =>
+    [...frame.values()]
+      .map((bound) => (bound.expression ? sourceSite(graph, bound.expression) : bound.root ? "<root>" : "<unknown>"))
+      .join("|");
+  const key = bindingShape(env);
+  let cache = processSitesCache.get(graph);
+  if (reusable && !options.evaluator && !options.env && cache?.has(entry)) {
+    const cached = cache.get(entry);
+    if (cached instanceof Map && cached.has(targetKey)) return cached.get(targetKey);
+    if (targetKey === "all" && !(cached instanceof Map)) return cached;
+  }
+  let boundCache;
+  if (reusable && (options.evaluator || options.env)) {
+    let entries = processBoundSitesCache.get(graph);
+    if (!entries) processBoundSitesCache.set(graph, (entries = new WeakMap()));
+    let evaluators = entries.get(entry);
+    if (!evaluators) entries.set(entry, (evaluators = new WeakMap()));
+    let frames = evaluators.get(evaluator);
+    if (!frames) evaluators.set(evaluator, (frames = new Map()));
+    boundCache = frames;
+    if (frames.has(`${targetKey}\u0000${key}`)) return frames.get(`${targetKey}\u0000${key}`);
+  }
   const seen = new Map(),
-    active = [],
-    sites = new Set();
-  const bindingShape = (env) =>
-    [...env.values()].map((bound) => (bound.expression ? sourceSite(graph, bound.expression) : "")).join("|");
+    sites = new Set(),
+    targetLookup = targetList && Object.fromEntries(targetList.map((target) => [target, true])),
+    witnessedTargets = {};
+  // A source-less traversal is a complete reachability query; only a targeted query
+  // may stop after witnessing every requested site.
+  let remainingCount = targetList ? targetList.length : Number.POSITIVE_INFINITY;
   function walk(fn, env) {
     const key = bindingShape(env),
       frames = seen.get(fn) ?? new Set();
-    if (!fn.body || active.includes(fn) || frames.has(key)) return;
-    active.push(fn);
+    if (!fn.body || frames.has(key) || remainingCount === 0) return;
     frames.add(key);
     seen.set(fn, frames);
+    // A function endpoint is witnessed only when the evaluated call actually enters it.
+    // This proves callback binding without folding the callback's data-dependent result.
+    const entrySite = isFunctionNode(fn) && sourceSite(graph, fn);
+    if (entrySite && targetLookup?.[entrySite] && !witnessedTargets[entrySite]) {
+      sites.add(entrySite);
+      witnessedTargets[entrySite] = true;
+      remainingCount -= 1;
+      if (remainingCount === 0) return;
+    }
     function visit(node) {
-      if (isFunctionNode(node)) return;
+      if (remainingCount === 0 || isFunctionNode(node)) return;
       if (ts.isIfStatement(node) || ts.isConditionalExpression(node)) {
         const condition = ts.isIfStatement(node) ? node.expression : node.condition;
         visit(condition);
@@ -928,12 +1816,22 @@ export function processSourceSites(
           for (const value of evaluator.evaluate(argument, env).filter((value) => value.fn))
             walk(value.node, value.env);
       if (ts.isCallExpression(node)) {
-        sites.add(sourceSite(graph, node));
+        const site = sourceSite(graph, node);
+        sites.add(site);
+        if (targetLookup?.[site] && !witnessedTargets[site]) {
+          witnessedTargets[site] = true;
+          remainingCount -= 1;
+        }
+        // Membership queries can stop only after every requested source is witnessed. A missing
+        // source still explores the complete reachable graph, including every callback binding.
+        if (remainingCount === 0) return;
         const values = evaluator.evaluate(node.expression, env);
         const declared = graph.callDeclaration(node);
         for (const value of values.filter((value) => value.fn))
           walk(value.node, bindArguments(value, node.arguments, env));
-        if (isFunctionNode(declared) && declared.body && !values.some((value) => value.node === declared))
+        // A typeof callback signature can name another function's body. Prefer the
+        // supplied function value; only an unresolved callable needs declaration fallback.
+        if (isFunctionNode(declared) && declared.body && !values.some((value) => value.fn))
           walk(declared, bindArguments({ node: declared, env: new Map() }, node.arguments, env));
         if (values.some((value) => value.external !== undefined))
           for (const arg of node.arguments)
@@ -942,8 +1840,16 @@ export function processSourceSites(
       ts.forEachChild(node, visit);
     }
     visit(fn.body);
-    active.pop();
   }
   walk(entry, env);
+  if (reusable) {
+    if (boundCache) boundCache.set(`${targetKey}\u0000${key}`, sites);
+    else {
+      if (!cache) processSitesCache.set(graph, (cache = new WeakMap()));
+      const entries = cache.get(entry);
+      if (entries instanceof Map) entries.set(targetKey, sites);
+      else cache.set(entry, new Map([[targetKey, sites]]));
+    }
+  }
   return sites;
 }

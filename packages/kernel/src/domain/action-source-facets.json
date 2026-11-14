@@ -1402,6 +1402,36 @@
         "role": "support"
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.scheduleScheduler.localBinding.receipt:053357f862e586963fdcff86efcf4395",
+        "route": "repository-read",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/dispatch-causal-context.ts#assembleTaskCausalContext:59d5e5f9b69664141a44132f633b3065",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/dispatch-causal-context.ts#assembleTaskCausalContext:a89de4135620073d78de3d1835a2b6df",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/dispatch-read.ts#readTaskDispatches:cc442eb8ecbac9e94adb0b733c4cda62",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/projection-readiness.ts#projectionNotReady:0bd8c79509a60240ad607055aa5bbd38",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/projection-readiness.ts#taskNotFoundCodedError:6b5d0ca44e40b032781680764f8ae3e2",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
         "candidateId": "action:packages/storage:packages/storage/src/pg/pg-entity-declarations.ts#readPgEntityDeclarations:de2bbb3092485a535a102ca69e41f132",
         "route": "repository-read",
         "role": "support"
@@ -1478,6 +1508,41 @@
         "route": "runtime-run",
         "role": "client",
         "port": "tools/dispatch-task.mjs#runDispatch.invoke"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-control-api.ts#createDaemonHostControlApi.publishRuntimeWitness:5d4b654eeb40831ab2116e6b60b4aacc",
+        "route": "runtime-run",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.forwardRuntime.runRuntime.result:2b8047b354430909dfe3b369f1ef375a",
+        "route": "runtime-run",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-runtime-api.ts#createDaemonHostRuntimeApi.runtimeIngress:e4658bef15e769118f6f44bbdb3feb35",
+        "route": "runtime-run",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.autoDispatchLoop.spawn:baa939e4830d07f8128e45acf641aed9",
+        "route": "runtime-run",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.autoDispatchLoop.spawn:baa939e4830d07f8128e45acf641aed9:2",
+        "route": "runtime-run",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.autoDispatchLoop.spawn:9cf84fd4baefb3fac6cfe2ebab47b6c0",
+        "route": "runtime-run",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/node-auto-dispatch.ts#openNodeAutoDispatchLoop.scan:1397e1f18ee7ccdedfeee7755f3dbf23",
+        "route": "runtime-run",
+        "role": "effect"
       }
     ]
   },
@@ -1850,6 +1915,26 @@
         "route": "edge-join",
         "role": "client",
         "port": "packages/gui/src/renderer/components/EdgeJoinWizard.tsx#EdgeJoinWizard.submit"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.host.manageRbac:85833909ab835513f6a37d3d00ce0f77",
+        "route": "rbac-bootstrap",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.host.manageRbac:85833909ab835513f6a37d3d00ce0f77:2",
+        "route": "rbac-bootstrap",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.host.manageRbac:85833909ab835513f6a37d3d00ce0f77:3",
+        "route": "rbac-bootstrap",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.host.manageRbac:97ac26b82a689aef98ce00ee87bc497b",
+        "route": "rbac-bootstrap",
+        "role": "effect"
       }
     ],
     "concurrency": {
@@ -2033,6 +2118,21 @@
         "route": "daemon-repo-register",
         "role": "client",
         "port": "packages/gui/src/preload/electron-preload.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-repository-api.ts#createDaemonHostRepositoryApi.bootstrap:cf228188a338f7ce0ad48cf199b2b579",
+        "route": "daemon-repo-register",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-repository-api.ts#createDaemonHostRepositoryApi.bootstrap:d244610549744cdf5c1d7fe7f48d4800",
+        "route": "daemon-repo-register",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-repository-api.ts#createDaemonHostRepositoryApi.bootstrap:f23a5e6c59bb01c7f3d73a46facbfaeb",
+        "route": "daemon-repo-register",
+        "role": "support"
       }
     ],
     "concurrency": {
@@ -2324,6 +2424,11 @@
         "route": "node-unregister",
         "role": "client",
         "port": "packages/gui/src/preload/access-admin-preload.ts#accessAdminPreloadApi.invoke"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.host.manageRbac:1950b6d7d109682e53f67218cfc6d731",
+        "route": "node-unregister",
+        "role": "effect"
       }
     ],
     "concurrency": {
@@ -2927,6 +3032,10 @@
       },
       "npm:gui:build": {
         "file": "packages/gui/scripts/write-build-id.mjs",
+        "script": "build"
+      },
+      "npm:daemon:build": {
+        "file": "packages/daemon/scripts/copy-assets.mjs",
         "script": "build"
       }
     },
@@ -5396,6 +5505,21 @@
       {
         "candidateId": "action:packages/gui:packages/gui/scripts/write-build-id.mjs#<module>:cb7dde155c5cf050a5a93e874afab44b",
         "route": "npm:gui:build",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/scripts/copy-assets.mjs#<module>:62ff03cf55eeff95d63ce904becdf527",
+        "route": "npm:daemon:build",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/scripts/copy-assets.mjs#<module>:a29a2c80ef1eab5a485a50be07f1e322",
+        "route": "npm:daemon:build",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/scripts/copy-assets.mjs#<module>:d90187701129d769982751ed0ad8946a",
+        "route": "npm:daemon:build",
         "role": "effect"
       }
     ],
@@ -11309,6 +11433,537 @@
         "port": "packages/storage/src/pg/pg-relation-cycle-winners.ts#PgRelationCycleWinners.publish"
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/scripts/smoke-package.mjs#<module>:527d5bfa3caa8049753b6fe1e15aca08",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/scripts/smoke-package.mjs#<module>:5ec25d72b8debc67b2259ff79bce2f0d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/scripts/smoke-package.mjs#run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/scripts/smoke-package.mjs#<module>:65c3d1581ce199a33378e830555e04d5",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/scripts/smoke-package.mjs#run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/scripts/smoke-package.mjs#<module>:a10871453e91b1fc08af4718f95ec81d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/scripts/smoke-package.mjs#<module>:a4e67a8ee42637d1670e725ef4efcf4c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/scripts/smoke-package.mjs#run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/scripts/smoke-package.mjs#<module>:b2906f592a15833c496c03dfbd03ddef",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/scripts/smoke-package.mjs#child:3ffb792d6bd8de22a3f60b6c688a6e0f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/scripts/smoke-package.mjs#deferred:abc3899fce418faf0ee545d76d502191",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/scripts/smoke-package.mjs#run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/scripts/smoke-package.mjs#run:4fd607b69452272fd390e7fd46ce1499",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/scripts/smoke-package.mjs#run:7593775e7a406b845959c7eac15be560",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/scripts/smoke-package.mjs#status:451a714507faec24b8e22191906ade95",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/scripts/smoke-package.mjs#run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/scripts/smoke-package.mjs#tarballs:bd3d289064b8fe952748f0d7a528dc06",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/scripts/smoke-package.mjs#run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/scripts/smoke-package.mjs#tarballs:e642b193e9c5488ca473225523508a31",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/scripts/smoke-package.mjs#run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/scripts/smoke-package.mjs#worker:b7e8b7935a2662dd98c2bb1e0d8db476",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/conn-log.ts#defaultConnFailureReporter:a5fa9432dd4097197c6fa34dad8bfb36",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/conn-log.ts#openDaemonConnLog.connectionClosed:182025b244de74ad54395eba1762b133",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/conn-log.ts#openDaemonConnLog.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/conn-log.ts#openDaemonConnLog.connectionClosed:1a1573de822281f6e91505b9143e94c7",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/conn-log.ts#openDaemonConnLog.connectionClosed:2f865bab076a4629c7109a1eaa3fd289",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/conn-log.ts#openDaemonConnLog.connectionClosed:8d6ff1e3d096b28f74bf1baed927c909",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/conn-log.ts#openDaemonConnLog.connectionOpened:9de55f3e0a65dc98793384904bf7b3ea",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/conn-log.ts#openDaemonConnLog.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/conn-log.ts#openDaemonConnLog.pruneOldDays:34fe808f2f05bd2222c065d88a720084",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.rm"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/conn-log.ts#openDaemonConnLog.request:2d20da925a6a220e21d846e72cf1e359",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/conn-log.ts#openDaemonConnLog.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/conn-log.ts#openDaemonConnLog.writeLine:1dfad8844c83d6cbc09ee2d5efa727ba",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.FileHandle.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-diagnostics-worker.ts#captureStack.finish:3d4b5ffec6816bc93b066851310ebe0b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/worker_threads.d.ts#worker_threads.Worker.terminate"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-diagnostics-worker.ts#recordCompletion:27ef2e46d0969d5f9f9a03cd415f850b",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-diagnostics-worker.ts#recordCompletion:3fa098cbb0839c5c935412d0bfa639c8",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-diagnostics.ts#openDaemonDiagnostics:f1a0ab23df3bcf5df3d3037d57a31710",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-diagnostics.ts#openDaemonDiagnostics:f4f67a0092ae65b768463d9ff4bc7057",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/worker_threads.d.ts#worker_threads.Worker.terminate"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.settleWarming:24dc288d94caa07fbc77073060b46a4d",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.settleWarming:2bfd3eae254e5c829be66827daca292f",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-recovery.ts#attemptHostRecovery:4ffc45136aa58806e0c3d30546b04528",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-recovery.ts#attemptHostRecovery:4ffc45136aa58806e0c3d30546b04528:2",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-recovery.ts#attemptHostRecovery:c9d275707ed3a62b7dc02668ac54027b",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-registry.ts#closeCell:a97f8452401a0d9cd653d2dd58b0d66a",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-registry.ts#openRegistered.clearOpening:c847dce6805c4fa1982b4922b357f7d7",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-registry.ts#performOpenRegistered.settleDecision:831d5c1a999a3013d31057b6d74191aa",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/decision-point-executor.ts#openDecisionPointExecutor.settle"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-registry.ts#performOpenRegistered:0c8a8cb50d1ec560f7206e75632532c4",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-registry.ts#pruneMissingRoot:0c8a8cb50d1ec560f7206e75632532c4",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-registry.ts#refreshRegistry:4ffc45136aa58806e0c3d30546b04528",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-registry.ts#refreshRegistry:4ffc45136aa58806e0c3d30546b04528:2",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-registry.ts#refreshRegistry:c9d275707ed3a62b7dc02668ac54027b",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-registry.ts#refreshRegistry:c9d275707ed3a62b7dc02668ac54027b:2",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-repository-api.ts#createDaemonHostRepositoryApi.admin:14673dbf259d7e89231b6b7697af82f4",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-writer-epoch.ts#openDaemonWriterEpochs.retireWriterEpoch:2de65850aa71cd0e3e01ab259d4bacad",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-operation-table.ts#createDaemonOperationTable.begin:92bbb022687ef0e16a8cb9444b3ca05a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-operation.ts#<module>:00c8e22229d10e2500a05830dce52232",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/daemon-operation.ts#DaemonOperationObserver.begin.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-operation.ts#<module>:facae390167e5c273fa1250e75a42f8f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#WeakMap.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-operation.ts#OperationTrackerImpl.openPhase:48a154906d9dae80733c53e7074f60c7",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/daemon-operation.ts#DaemonOperationObserver.begin.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-operation.ts#OperationTrackerImpl.openPhase:e8c6ba5d347340f3dd26d251fdbdfa48",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/daemon-operation.ts#DaemonOperationObserver.begin.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-operation.ts#OperationTrackerImpl.phaseSpan:833f176e6c9dde5e08a8b0b21fd295ff",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/daemon-operation.ts#DaemonOperationObserver.begin.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-operation.ts#OperationTrackerImpl.update:f8f4c0123fe6df6a3cf8d1a84b3af161",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/daemon-operation.ts#DaemonOperationObserver.begin.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-operation.ts#beginDaemonOperation.run:b9daa15089e970fb71277be42a3e2beb",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/async_hooks.d.ts#async_hooks.AsyncLocalStorage.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-operation.ts#observeDaemonOperation:04ecdbb560aa02365d3afabdac742339",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/async_hooks.d.ts#async_hooks.AsyncLocalStorage.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-operation.ts#observeDaemonRequest:27b9d6ca65361ba1fca85366ef80261d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/async_hooks.d.ts#async_hooks.AsyncLocalStorage.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-operation.ts#updateDaemonOperation:89ed6e62ee1025f55b849c3d594e8184",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/daemon-operation.ts#DaemonOperationHandle.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-operation.ts#withDaemonObservation:fdd0b9844469ed94ebfce0c3f06d12a9",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/async_hooks.d.ts#async_hooks.AsyncLocalStorage.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-singleton.ts#acquireDaemonAutostartFlight:40cd7c19cc5ce15809235b9b48edbbf2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-singleton.ts#acquireDaemonAutostartFlight:a1c95bf56a2431f05bb4b2972458d122",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-singleton.ts#acquireDaemonSingleton:40cd7c19cc5ce15809235b9b48edbbf2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-singleton.ts#acquireDaemonSingleton:a1c95bf56a2431f05bb4b2972458d122",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-singleton.ts#releaseIfHeld:40cd7c19cc5ce15809235b9b48edbbf2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-trace-buckets.ts#pruneNodeBuckets:e5b40a5c17418958b94117cd6e152ae8",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-trace-buckets.ts#pruneSecondBuckets:8c73a07956b21222f52a79b0cb6f7aed",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/dispatch-stream-archive.ts#pruneDispatchStreamArchive:b8382f84ae26e86a3116422afaf0b62a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/dispatch-stream-lines.ts#visitDispatchStreamLines.chunk:e6c041e2e84aa6f1478bcd1f87712b70",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/string_decoder.d.ts#string_decoder.StringDecoder.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/dispatch-stream.ts#appendJsonl:4629461e74f0d71a6e02455b156074f1",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/dispatch-stream.ts#DispatchStreamAppender.append"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/dispatch-stream.ts#openDispatchStream:006fcbc69a35b6efbfd9e12f1165999c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/dispatch-stream.ts#openDispatchStream:ca908b30dd50f7fe17963c15403e8d2c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/dispatch-stream.ts#openStreamAppender.append:37e1085494f0e2875613ab33647cf962",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/dispatch-stream.ts#removeDispatchStream:006fcbc69a35b6efbfd9e12f1165999c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/dispatch-stream.ts#removeDispatchStream:763c6f22d8c6bc5f68cc774d5324fb5b",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/dispatch-stream.ts#removeDispatchStream:8b3ce3a02ef8a2753a3ce9a03cea5bd9",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/dispatch-stream.ts#requiredDispatchStreamForRead:a78cba6c226f909baaedba71ca2e7939",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/gui-catalog.ts#catalogRereadReceipt.operationId:3e500c47330ee1e309b8f2144a8bccff",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/gui-catalog.ts#openGuiCatalog.snapshot.catalogDigest:c21253f6b7530d1d8ce83f8961c060d4",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/gui-catalog.ts#requiredCatalogText:d4351839cd8c7c84ef93a823f9325f2c",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/lifecycle-log.ts#defaultLifecycleFailureReporter:4218a5423ae52658fda84d402a224c89",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/lifecycle-log.ts#openDaemonLifecycleLog.record:1c4c34cd96a6d19cde5d0501b29d1834",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.appendFileSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/lifecycle-log.ts#rotateLifecycleLog:744755c98df229b4db4b21ef502b4268",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/lifecycle-log.ts#rotateLifecycleLog:d29d00da7a9a82762d82e11c766837c7",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/observe-jsonl-tail.ts#tailError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/observe-tail.ts#observeError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/probe-log-sink.ts#createProbeLogSink.writeLine:cdc7b47767d3574fa617c213b800bc4d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.FileHandle.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/probe-log-sink.ts#defaultProbeLogFailureReporter:3752be657e3d348d9e7685a83c197b22",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/probe-log-sink.ts#pruneOldDays:7643d8e1508884688f321b6cf391e046",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.rm"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/probe-log-sink.ts#writeProbeFile:caf5e116a41c2369f830367dd0ee1f74",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.writeFile"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/request-log.ts#defaultFailureReporter:c192cb84bc4705bc32733a44d3c59519",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/request-log.ts#openDaemonRequestLog.closeSink:fea011c0e0bed958aeec6ac4b9b38fd1",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/request-log.ts#openDaemonRequestLog.pruneAgedFiles:113cde8401684308e54e6f4fe3f2e09a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.rm"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/request-log.ts#openDaemonRequestLog.writeRequestLogLine:0674730c99bfa0b01611b0aef38f270b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.FileHandle.write"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/secret-scrub.ts#registerSecretValue:1ae32f8e330fa9159600cb467d8fb56b",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/secret-scrub.ts#registerSecretValue:223af365b6db2623669dbe45831355e3",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-repository-api.ts#createDaemonHostRepositoryApi.run.receipt:6b17197ce5078972aff305cc85a26187",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/repo-cell-types.ts#RepoCell.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-repository-api.ts#createDaemonHostRepositoryApi.run.receipt:6b17197ce5078972aff305cc85a26187:2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/repo-cell-types.ts#RepoCell.run"
+      },
+      {
         "candidateId": "action:packages/storage:packages/storage/src/postgres/transaction.ts#withPostgresCommitGuard:e051e62a920214db3a175fb7b370c2c0",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -11922,6 +12577,46 @@
         "route": "daemon-start",
         "role": "client",
         "port": "tools/smoke-cli-package.mjs#run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/bin.ts#<module>:71f8c6de3db9cb84c44ee4fa879019b1",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/bin.ts#main:6cdbbf0ed8331c641b97209248d6d8f3",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/bin.ts#main:bc516d54284b5c97aee57079bf7491bd",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/bin.ts#main:cf6bf2bda1cc15d94caad48c4c316050",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/bin.ts#runResidentDaemon.startResident.onSupersededExit:95d7dc50495e9d103e70fa16c7682ad3",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/bin.ts#runResidentDaemon.startResident.onSupersededFailure:48523a6edb44f06257baa679476531f3",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/bin.ts#runResidentDaemon:6f1193fb6a426a2650ae13dd3d71c779",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/bin.ts#startAfterResidentExit.child:8eb052a84f28e1da6f9e4215e3236d3a",
+        "route": "daemon:bin",
+        "role": "effect"
       }
     ],
     "execution": {
@@ -13712,6 +14407,11 @@
         "route": "terminal.spawn",
         "role": "client",
         "port": "packages/gui/src/renderer/views/TerminalView.tsx#TerminalView.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-runtime-api.ts#createDaemonHostRuntimeApi.terminalAction:ccda8e2e2bbe716e447b22d3cafe72fb",
+        "route": "terminal.spawn",
+        "role": "effect"
       }
     ],
     "execution": {
@@ -13823,6 +14523,11 @@
         "route": "terminal.terminate",
         "role": "client",
         "port": "packages/gui/src/renderer/views/TerminalView.tsx#TerminalView.terminate"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-runtime-api.ts#createDaemonHostRuntimeApi.terminalAction:8685a403ae680159fecaf3eb6590197c",
+        "route": "terminal.terminate",
+        "role": "effect"
       }
     ],
     "execution": {
@@ -13963,6 +14668,286 @@
         "route": "vertical.kind.retire",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      }
+    ]
+  },
+  "migrate-import": {
+    "owner": "migration",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-backfill.ts#prepareEntityBackfills:5dda57937e072c4fe7b8963e352e0c6d",
+        "route": "migrate-import",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-backfill.ts#prepareEntityBackfills:5dda57937e072c4fe7b8963e352e0c6d:2",
+        "route": "migrate-import",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-backfill.ts#prepareEntityBackfills:5dda57937e072c4fe7b8963e352e0c6d:3",
+        "route": "migrate-import",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-backfill.ts#prepareEntityBackfills:ad0deab2d3df733fc2a4df64c3175fa7",
+        "route": "migrate-import",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-backfill.ts#prepareEntityBackfills:e0d0dabe1c4ea53832ef977b654bffb9",
+        "route": "migrate-import",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-backfill.ts#prepareEntityBackfills:feaf228c7243d59ca90a91f48a3f9176",
+        "route": "migrate-import",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-dispositions.ts#scheduleArchivedEntity:60b66d3daba07dcaf52af13213508dfa",
+        "route": "migrate-import",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-entities.ts#addDecision.build.documentClaim:0e7e3115d52451b30805f8c446759b95",
+        "route": "migrate-import",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-legacy.ts#authoredNode.sha256:b46bd6134bb1a6e160a70fe1b0801eba",
+        "route": "migrate-import",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-oracle-rebuild.ts#createMigrationPlanningWorkspace.close:261cebc1e21b04320c714f73b90a2613",
+        "route": "migrate-import",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-oracle-rebuild.ts#createMigrationPlanningWorkspace:d76c6782e1fa06539620c15bc31170ca",
+        "route": "migrate-import",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-oracle-rebuild.ts#inspectMigrationSourceEvents:822c868439e35cb32b61d3696351ba1d",
+        "route": "migrate-import",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-oracle-rebuild.ts#rebuildEventOracle:518cd50c995fbd3b7439ee72129b9edf",
+        "route": "migrate-import",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-oracle-rebuild.ts#removeAuthored:d3f80696c35ed76fe4e5cca8c63ae2be",
+        "route": "migrate-import",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-oracle-rebuild.ts#stageAuthored:f68abf5f098fbd135b616c70ef93c661",
+        "route": "migrate-import",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-projection-restatement.ts#addOracleDecision.build.documentClaim:0e7e3115d52451b30805f8c446759b95",
+        "route": "migrate-import",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-projection-restatement.ts#addOracleFact.build.documentClaim:8bd5aef4dcb92ff92520d3cea0629910",
+        "route": "migrate-import",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-relations.ts#dropMap:49134eb258440a7056f4e038bc56d53e",
+        "route": "migrate-import",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-relations.ts#dropMap:5ab41f94a58c98de2855c64d8cd63b7b",
+        "route": "migrate-import",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-relations.ts#dropMap:773418e722b4ef133c4a89a1fb8650fe",
+        "route": "migrate-import",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-relations.ts#dropMap:cef9f57fb479780a68cbf9e6a3479dfb",
+        "route": "migrate-import",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-run.ts#runSingleMigrationImport.backfillMapPrepared.documentClaim:cb0d84bd9853eec33bd225c268814c75",
+        "route": "migrate-import",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-run.ts#runSingleMigrationImport.mapPrepared.documentClaim:2c85533cea6ee5833ae7fe689a06bbc3",
+        "route": "migrate-import",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-run.ts#runSingleMigrationImport:f538ef87b9d83fa7a04e2fd609a1d05f",
+        "route": "migrate-import",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-tasks.ts#addOracleTask.documentClaim:6478aad45e65fc707758ef3d1e98951d",
+        "route": "migrate-import",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-tasks.ts#addRepoDocuments.build.documentClaim:0cfefda688d4605da26b58e118d8d3ca",
+        "route": "migrate-import",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-tasks.ts#addTask.build.documentClaim:a1518468500484678cd41d5fac7c91ea",
+        "route": "migrate-import",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-tasks.ts#addTaskPackage.build.documentClaim:21d3f71019bd6711054f26cc2f3d48a7",
+        "route": "migrate-import",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import-tasks.ts#addTaskPackage.build.documentClaim:6027fdd323dd4b3fb3f31ce7bb74d5cb",
+        "route": "migrate-import",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import.ts#addFact.build.documentClaim:8bd5aef4dcb92ff92520d3cea0629910",
+        "route": "migrate-import",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import.ts#matchesRestatedFact.expected.documentClaim:87c6fe90a713fc3ebb2c99fc3b53de3c",
+        "route": "migrate-import",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import.ts#runMigrationImport:f62e63de0d5257051d2b5b71ac126b0d",
+        "route": "migrate-import",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/migration-import.ts#stagedImportView.accept:3500e6e63ece3a47d56648275bf0d97f",
+        "route": "migrate-import",
+        "role": "effect"
+      }
+    ]
+  },
+  "daemon-node-auto-claim": {
+    "owner": "daemon",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.autoDispatchLoop.spawn:f9fd5e9ad310e7a439a9de00d8cd251e",
+        "route": "daemon-node-auto-claim",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.writeNodeReviewDispatchFailure:94d4ca6e115b9d41fd0bd72c6c06d677",
+        "route": "daemon-node-auto-claim",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/node-auto-claim.ts#openNodeAutoClaimLoop.scan.run:756fa4bd1d9cee0b08d2a1f6de0235db",
+        "route": "daemon-node-auto-claim",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/node-auto-claim.ts#openNodeAutoClaimLoop.scan.run:7a6dc2a62973741394e20bf9e47052f5",
+        "route": "daemon-node-auto-claim",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/node-auto-claim.ts#openNodeAutoClaimLoop.scan.run:e2963ba4434bf23831f5816d05bfa0dc",
+        "route": "daemon-node-auto-claim",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/node-auto-claim.ts#openNodeAutoClaimLoop.scan.run:fe7f0e0c029bdf9a55322e9d3446354d",
+        "route": "daemon-node-auto-claim",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/node-auto-claim.ts#openNodeAutoClaimLoop.scan:4d94fa89858e5052dacb7413f5e597cb",
+        "route": "daemon-node-auto-claim",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/node-auto-claim.ts#openNodeAutoClaimLoop.scan:e0659dbcacc87fe64062d09d02d162ae",
+        "route": "daemon-node-auto-claim",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/node-auto-claim.ts#openNodeAutoClaimLoop.scan:e2963ba4434bf23831f5816d05bfa0dc",
+        "route": "daemon-node-auto-claim",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/node-auto-dispatch.ts#openNodeAutoDispatchLoop.scan:d887354279a7c20e58e7dbff5685d551",
+        "route": "daemon-node-auto-claim",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/node-auto-dispatch.ts#openNodeAutoDispatchLoop.scan:fe7f0e0c029bdf9a55322e9d3446354d",
+        "route": "daemon-node-auto-claim",
+        "role": "support"
+      }
+    ]
+  },
+  "daemon-fleet-edge-sync": {
+    "owner": "daemon",
+    "sources": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.migrateEdgeWorkspace:6165b2468d982b70e27f83f039463193",
+        "route": "daemon-fleet-edge-sync",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.startReplicaSyncs.task.onVersionWarning:11458228b23fb455b6f2f31c1eb4653a",
+        "route": "daemon-fleet-edge-sync",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.startReplicaSyncs:11458228b23fb455b6f2f31c1eb4653a",
+        "route": "daemon-fleet-edge-sync",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.startReplicaSyncs:11458228b23fb455b6f2f31c1eb4653a:2",
+        "route": "daemon-fleet-edge-sync",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.startReplicaSyncs:18e370cd3f0915a4fab57640ee3a8b15",
+        "route": "daemon-fleet-edge-sync",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.startReplicaSyncs:18e370cd3f0915a4fab57640ee3a8b15:2",
+        "route": "daemon-fleet-edge-sync",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.startReplicaSyncs:6165b2468d982b70e27f83f039463193",
+        "route": "daemon-fleet-edge-sync",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.startReplicaSyncs:dde5ba80e4baaa78ca6d81d8999633c3",
+        "route": "daemon-fleet-edge-sync",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/edge-replica-doctor.ts#edgeReplicaDoctor:670825534fcc8700014b543f2b41d01b",
+        "route": "daemon-fleet-edge-sync",
+        "role": "support"
       }
     ]
   }

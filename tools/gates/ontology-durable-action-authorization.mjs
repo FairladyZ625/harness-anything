@@ -25,6 +25,11 @@ import {
   clientEntryEvidence,
   clientEntryRequiredRoutes,
   processOwnedOutput,
+  repoReadServiceEvidence,
+  delegatedServiceEntryEvidence,
+  hostServiceEntryEvidence,
+  hostServiceEntryRequired,
+  migrationServiceEntryEvidence,
   processEntry,
   moduleEntry,
   processSourceSites,
@@ -70,9 +75,19 @@ export async function loadAuthorizationInputs(rootDir) {
   const descriptors = [...contract.daemonProtocolCommands, ...contract.daemonGuiActionMethods].map((row) => ({
     ...row,
   }));
+  // Native process effects share an entry declared by their local authority action. They are
+  // source bindings, not protocol descriptors; business/client routes still require an exact
+  // descriptor below. Keep this set derived from the same declarations so an arbitrary native
+  // route cannot bypass the descriptor ownership check.
+  const nativeEntryRoutes = new Set(
+    actionDeclarations.flatMap((action) =>
+      action.ontology?.authority ? Object.keys(action.ontology.entries ?? {}) : [],
+    ),
+  );
   for (const action of actionDeclarations) {
     if (action.ontology?.authority || action.executionClass === "repo-read") continue;
     for (const source of action.ontology?.sources ?? []) {
+      if (source.role === "effect" && nativeEntryRoutes.has(source.route)) continue;
       const descriptor = descriptors.find((row) => row.id === source.route);
       if (!descriptor || (descriptor.actionKind ?? descriptor.id) !== action.kind)
         throw new Error(
@@ -130,15 +145,25 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
   const today = options.today ?? new Date().toISOString().slice(0, 10);
   const sourceRoot = options.sourceRoot ?? rootDir,
     durable = inputs.descriptors.filter((descriptor) => descriptor.commandClass !== "repo-read"),
+    declaredActions = inputs.constants.actionDeclarations ?? [],
     actions = (inputs.constants.actionDeclarations ?? []).filter(
       (action) => action.ontology?.sources?.length && (!options.only || options.only.includes(action.kind)),
     ),
-    sourceActions = actions.filter((action, index) => {
-      const owner = durable.findIndex((descriptor) => (descriptor.actionKind ?? descriptor.id) === action.kind);
-      return (
-        !options.shard || (owner < 0 ? durable.length + index : owner) % options.shard.count === options.shard.index
-      );
-    }),
+    // Partition each source beside its actual owning route, before building its graph.
+    sourceActions = options.shard
+      ? actions
+          .map((action, index) => ({
+            ...action,
+            ontology: {
+              ...action.ontology,
+              sources: action.ontology.sources.filter((source) => {
+                const owner = durable.findIndex((descriptor) => descriptor.id === source.route);
+                return (owner < 0 ? durable.length + index : owner) % options.shard.count === options.shard.index;
+              }),
+            },
+          }))
+          .filter((action) => action.ontology.sources.length)
+      : actions,
     declaredSources = [
       ...new Set([
         ...sourceActions.flatMap((action) => action.ontology.sources),
@@ -166,6 +191,14 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
               ...(entry.builder ? [entry.builder] : []),
             ]),
           ),
+          ...declaredActions
+            .filter((action) => action.ontology?.authority)
+            .flatMap((action) =>
+              Object.values(action.ontology.entries ?? {}).flatMap((entry) => [
+                entry.file,
+                ...(entry.builder ? [entry.builder] : []),
+              ]),
+            ),
         ]),
       ],
     }),
@@ -183,6 +216,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
         .map((source) => ({
           id: source.candidateId,
           route: source.route,
+          role: source.role,
           site: sourceSite(graph, witnesses.get(source.candidateId)),
         })),
     sourceResults = new Map(),
@@ -215,6 +249,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
   const rows = selected.map(({ descriptor, index }) => {
     const rewrite = descriptor.kindRewrite,
       kind = rewrite?.authorizedKind ?? descriptor.actionKind ?? descriptor.id,
+      action = actions.find((action) => action.kind === kind),
       authority = descriptor.hostAuthority ?? (rewrite ? "kind-rewrite" : "authorization-port"),
       declarationViolations = rewrite ? kindRewriteViolations(rewrite, today) : [];
     if (authority === "local-process")
@@ -238,10 +273,14 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       localTransport: authority === "local-transport",
       ownSession: authority === "own-session",
       canonicalCut: !nonCanonical.has(kind),
-      sources: sourceTargets(
-        actions.find((action) => action.kind === kind),
-        descriptor.id,
-      ),
+      // Host-only sources cannot use this trace, and a verified migration callback already
+      // has independent evidence. Both still pass through the final route/source checks below.
+      sources: sourceTargets(action, descriptor.id).filter((source) => {
+        const node = witnesses.get(source.id);
+        return !(
+          hostServiceEntryRequired(graph, node, action) || migrationServiceEntryEvidence(graph, node, source, action)
+        );
+      }),
     });
     for (const source of trace.sources.values()) sourceResults.set(source.id, source);
     const evidence =
@@ -259,15 +298,23 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
     };
   });
   const nativeSites = new Map();
-  for (const action of sourceActions.filter((action) => action.ontology.authority)) {
+  for (const action of declaredActions.filter((action) => action.ontology?.authority)) {
     const { authority, entries = {} } = action.ontology;
-    const targets = sourceTargets(action);
     for (const [route, entry] of Object.entries(entries)) {
       const root = processEntry(graph, entry, authority);
       if (!root || action.residency.scope === "canonical" || action.receiptSettlement !== "none") continue;
-      if (!nativeSites.has(entry.file)) nativeSites.set(entry.file, processSourceSites(graph, root));
-      const sites = nativeSites.get(entry.file);
-      for (const source of targets.filter((source) => source.route === route))
+      const routeTargets = sourceActions.flatMap((candidate) =>
+        sourceTargets(candidate).filter((source) => source.route === route && source.role === "effect"),
+      );
+      if (routeTargets.length === 0) continue;
+      const cacheKey = `${entry.file}\u0000${route}`;
+      if (!nativeSites.has(cacheKey))
+        nativeSites.set(
+          cacheKey,
+          processSourceSites(graph, root, { targets: routeTargets.map((source) => source.site) }),
+        );
+      const sites = nativeSites.get(cacheKey);
+      for (const source of routeTargets)
         sourceResults.set(source.id, {
           id: source.id,
           seen: sites.has(source.site),
@@ -282,14 +329,17 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
     if (!parent || action.catalogId !== "script-execution/run") continue;
     const manifest = JSON.parse(fs.readFileSync(path.join(sourceRoot, scriptManifest), "utf8"));
     const sites = new Set();
+    const scriptTargets = sourceTargets(action).filter(
+      (source) => action.ontology.sources.find((binding) => binding.candidateId === source.id)?.role === "script",
+    );
     for (const script of manifest.scripts ?? []) {
       const file = path.posix.normalize(path.posix.join(path.posix.dirname(scriptManifest), script.command));
       const root = moduleEntry(graph, file);
-      if (root) for (const site of processSourceSites(graph, root)) sites.add(site);
+      if (root)
+        for (const site of processSourceSites(graph, root, { targets: scriptTargets.map((source) => source.site) }))
+          sites.add(site);
     }
-    for (const source of sourceTargets(action).filter(
-      (source) => action.ontology.sources.find((binding) => binding.candidateId === source.id)?.role === "script",
-    ))
+    for (const source of scriptTargets)
       sourceResults.set(source.id, {
         id: source.id,
         seen: sites.has(source.site),
@@ -318,6 +368,13 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
             }) ?? null);
       const serverVerified = unverifiedClientRoute === null;
       const client = rawClient && serverVerified ? rawClient : null;
+      const descriptor = inputs.descriptors.find((row) => row.id === source.route),
+        route = rows.find((row) => row.id === source.route),
+        repoRead = node && repoReadServiceEvidence(graph, node, source, action, inputs.descriptors),
+        delegated = node && delegatedServiceEntryEvidence(graph, node, source, action, descriptor, route, trace),
+        hostEntry = node && hostServiceEntryEvidence(graph, node, source, action, route),
+        hostRequired = node && hostServiceEntryRequired(graph, node, action),
+        traceProof = !hostRequired && trace?.seen && trace.ok;
       const output =
         node &&
         action.ontology.authority === "local-process" &&
@@ -328,22 +385,33 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       const within =
         action.ontology.authority !== "package-script" ||
         (node && (tooling ? Boolean(proof || port) : buildOutputWithinPackage(graph, node)));
-      const ok = Boolean(node && within && (proof || port || client || output || (trace?.seen && trace.ok)));
+      const authorityProof = hostRequired
+        ? hostEntry
+        : proof || port || client || output || repoRead || delegated || traceProof;
+      const ok = Boolean(node && within && authorityProof);
       return {
         id: source.candidateId,
         kind: action.kind,
         route: source.route,
         clientRoutes,
         isRead: action.executionClass === "repo-read",
-        authority: port
-          ? "technical-port"
-          : client
-            ? "client-entry"
-            : source.role === "support"
-              ? "intrinsic-support"
-              : output
-                ? "process-stdio"
-                : (action.ontology.authority ?? "authorization-port"),
+        authority: hostRequired
+          ? "host-service-entry"
+          : port
+            ? "technical-port"
+            : client
+              ? "client-entry"
+              : source.role === "support"
+                ? "intrinsic-support"
+                : output
+                  ? "process-stdio"
+                  : repoRead
+                    ? "repo-read-service"
+                    : hostEntry
+                      ? "host-service-entry"
+                      : delegated
+                        ? "delegated-service-entry"
+                        : (action.ontology.authority ?? "authorization-port"),
         ok,
         evidence:
           port ??
@@ -352,7 +420,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
             ? ["typed process-local intrinsic; no external effect"]
             : output
               ? ["Node process-owned stdout/stderr; caller-process residency"]
-              : (trace?.evidence ?? [])),
+              : (repoRead ?? hostEntry ?? delegated ?? trace?.evidence ?? [])),
         violations: ok
           ? []
           : [

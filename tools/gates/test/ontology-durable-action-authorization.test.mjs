@@ -31,10 +31,10 @@ const inputs = await loadAuthorizationInputs(repoRoot);
 
 const partitionValue = process.env.HARNESS_TEST_PARTITION;
 let partitionTestOrdinal = 0;
-// Greedy balance from measured durations; each partition sums to 209–221s versus 350/497s with
-// ordinal modulo two. New tests must update this map after measuring their duration.
+// Explicit partitions spread the mutation cases across four workers. New cases must
+// update this map; their measured durations are recorded by the test runner.
 const authorizationTestPartitionAssignments = [
-  4, 2, 4, 3, 1, 2, 4, 1, 2, 2, 3, 4, 1, 3, 1, 4, 3, 2, 3, 3, 4, 1, 1, 2, 3, 4, 1, 2, 1,
+  4, 2, 4, 3, 1, 2, 4, 1, 2, 2, 3, 4, 1, 3, 1, 4, 3, 2, 3, 3, 4, 1, 1, 2, 3, 4, 1, 2, 1, 3, 1, 4, 2, 1, 4,
 ];
 function partitionedTest(name, testFn) {
   const ordinal = partitionTestOrdinal++;
@@ -53,6 +53,8 @@ function sourceCopy(t) {
     if (tracedPackages.includes(entry)) {
       cpSync(path.join(repoRoot, "packages", entry, "src"), path.join(target, "src"), { recursive: true });
       cpSync(path.join(repoRoot, "packages", entry, "package.json"), path.join(target, "package.json"));
+      if (entry === "daemon")
+        cpSync(path.join(repoRoot, "packages/daemon/scripts"), path.join(target, "scripts"), { recursive: true });
     } else {
       symlinkSync(path.join(repoRoot, "packages", entry), target, "dir");
     }
@@ -492,14 +494,42 @@ partitionedTest("a worktree root anchors on its own kernel sources instead of th
 });
 
 test("effect sources name their owner descriptor or a declared native entry", () => {
+  const nativeEntryRoutes = new Set(
+    inputs.constants.actionDeclarations.flatMap((action) =>
+      action.ontology?.authority ? Object.keys(action.ontology.entries ?? {}) : [],
+    ),
+  );
   for (const action of inputs.constants.actionDeclarations) {
     if (action.ontology?.authority) continue;
     for (const source of action.ontology?.sources ?? []) {
       if (source.role === "support" || action.executionClass === "repo-read") continue;
+      if (source.role === "effect" && nativeEntryRoutes.has(source.route)) continue;
       const descriptor = inputs.descriptors.find((row) => row.id === source.route);
       assert.equal(descriptor?.actionKind ?? descriptor?.id, action.kind);
     }
   }
+});
+
+test("an undeclared native effect route cannot bypass descriptor ownership", async (t) => {
+  const { writeRepoFile } = await import("./helpers.mjs");
+  const root = mkdtempSync(path.join(tmpdir(), "native-route-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeRepoFile(
+    root,
+    "packages/kernel/src/index.ts",
+    `export const actionDeclarations = [{kind:'task-delete', executionClass:'repo-write', ontology:{sources:[{candidateId:'action:native',route:'daemon:bin',role:'effect'}]}}];`,
+  );
+  writeRepoFile(
+    root,
+    "packages/daemon/src/protocol/daemon-protocol.contract.ts",
+    `export const daemonProtocolCommands = []; export const daemonGuiActionMethods = [];`,
+  );
+  writeRepoFile(
+    root,
+    "packages/daemon/src/protocol/daemon-protocol-commands.ts",
+    `export const daemonProtocolMethods = [];`,
+  );
+  await assert.rejects(loadAuthorizationInputs(root), /does not resolve to its owning authorization descriptor/u);
 });
 
 test("a source cannot borrow another action's authorization route", async (t) => {
@@ -981,3 +1011,181 @@ partitionedTest(
     }
   },
 );
+
+function selectedSourceWitnesses(witnesses) {
+  const constants = {
+    ...inputs.constants,
+    actionDeclarations: inputs.constants.actionDeclarations.map((action) => ({
+      ...action,
+      ontology: {
+        ...action.ontology,
+        sources: (action.ontology?.sources ?? []).filter((source) =>
+          witnesses.some((id) => source.candidateId.endsWith(`:${id}`)),
+        ),
+      },
+    })),
+  };
+  const only = constants.actionDeclarations.flatMap((action) =>
+    action.ontology.sources.length ? [action.kind, ...action.ontology.sources.map((source) => source.route)] : [],
+  );
+  return { selectedInputs: { ...inputs, constants }, only };
+}
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: registration must retain the real business authority.
+partitionedTest("host migration and observation sources retain verified business and local authority", (t) => {
+  const witnesses = [
+    "053357f862e586963fdcff86efcf4395",
+    "1950b6d7d109682e53f67218cfc6d731",
+    "f68abf5f098fbd135b616c70ef93c661",
+    "87c6fe90a713fc3ebb2c99fc3b53de3c",
+    "5d4b654eeb40831ab2116e6b60b4aacc",
+    "2b8047b354430909dfe3b369f1ef375a",
+    "e4658bef15e769118f6f44bbdb3feb35",
+    "bc516d54284b5c97aee57079bf7491bd",
+    "85833909ab835513f6a37d3d00ce0f77",
+    "85833909ab835513f6a37d3d00ce0f77:2",
+    "85833909ab835513f6a37d3d00ce0f77:3",
+    "97ac26b82a689aef98ce00ee87bc497b",
+  ];
+  const { selectedInputs, only } = selectedSourceWitnesses(witnesses);
+  const result = auditDurableActionAuthorization(repoRoot, selectedInputs, { only });
+  assert.equal(result.sourceRows.length, witnesses.length);
+  for (const source of result.sourceRows.filter((row) => !row.ok)) t.diagnostic(JSON.stringify(source));
+  for (const id of witnesses) {
+    const source = result.sourceRows.find((row) => row.id.endsWith(`:${id}`));
+    assert.ok(source, id);
+    assert.ok(source.ok, `${source.id}: ${source.violations.join("; ")}; ${source.evidence.join("; ")}`);
+  }
+});
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: edge-join rewrites rbac-bootstrap, but cannot own bootstrap sources.
+partitionedTest(
+  "a shared action source is sharded with its actual route rather than another descriptor of that action",
+  () => {
+    const { selectedInputs, only } = selectedSourceWitnesses(["97ac26b82a689aef98ce00ee87bc497b"]),
+      durable = selectedInputs.descriptors.filter((descriptor) => descriptor.commandClass !== "repo-read"),
+      count = 4,
+      routeIndex = durable.findIndex((descriptor) => descriptor.id === "rbac-bootstrap"),
+      otherIndex = durable.findIndex((descriptor) => descriptor.id === "edge-join");
+    assert.notEqual(routeIndex % count, otherIndex % count);
+    const owner = auditDurableActionAuthorization(repoRoot, selectedInputs, {
+      only,
+      shard: { index: routeIndex % count, count },
+    });
+    assert.equal(owner.sourceRows.length, 1);
+    assert.ok(owner.sourceRows[0].ok, JSON.stringify(owner.sourceRows[0]));
+    const other = auditDurableActionAuthorization(repoRoot, selectedInputs, {
+      only,
+      shard: { index: otherIndex % count, count },
+    });
+    assert.deepEqual(other.sourceRows, []);
+  },
+);
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: omitted generic tracking cannot replace host authority.
+partitionedTest("host source validation remains mandatory after generic tracking is omitted", (t) => {
+  const { selectedInputs, only } = selectedSourceWitnesses(["e4658bef15e769118f6f44bbdb3feb35"]);
+  const inspect = (root) => {
+    const result = auditDurableActionAuthorization(root, selectedInputs, { only });
+    assert.equal(result.rows.find((row) => row.id === "runtime-run").ok, true);
+    assert.equal(result.sourceRows.length, 1);
+    assert.equal(result.sourceRows[0].authority, "host-service-entry");
+    return result.sourceRows[0];
+  };
+  assert.equal(inspect(repoRoot).ok, true);
+  const dir = sourceCopy(t);
+  const restore = edit(
+    dir,
+    "packages/daemon/src/daemon-host-runtime-api.ts",
+    'runtimeIngress: async (repoId, action, auth) => {\n      context.requireHostMode(repoId, commandDescriptorForAction("runtime-run"), auth);',
+    'runtimeIngress: async (repoId, action, auth) => {\n      if (false) context.requireHostMode(repoId, commandDescriptorForAction("runtime-run"), auth);',
+  );
+  assert.equal(inspect(dir).ok, false);
+  restore();
+  assert.equal(inspect(dir).ok, true);
+});
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: callback shape never supplies the route's authorization.
+partitionedTest("an independently proven migration callback still requires its owning route authorization", (t) => {
+  const { selectedInputs, only } = selectedSourceWitnesses(["f68abf5f098fbd135b616c70ef93c661"]);
+  const inspect = (root) => {
+    const result = auditDurableActionAuthorization(root, selectedInputs, { only });
+    assert.equal(result.rows.length, 1);
+    assert.equal(result.sourceRows.length, 1);
+    return result;
+  };
+  assert.equal(inspect(repoRoot).sourceRows[0].ok, true);
+  const dir = sourceCopy(t);
+  const restore = edit(
+    dir,
+    queuedRoute,
+    "queuedDecision = await authorizeAtCurrentCut()!;",
+    "queuedDecision = undefined!;",
+  );
+  const rejected = inspect(dir);
+  assert.equal(rejected.rows[0].ok, false);
+  assert.equal(rejected.sourceRows[0].ok, false);
+  assert.ok(rejected.findings.some((finding) => finding.includes(rejected.sourceRows[0].id)));
+  restore();
+  assert.equal(inspect(dir).sourceRows[0].ok, true);
+});
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: a green descriptor cannot repair a mismatched host scope.
+partitionedTest("host sources fail when admission checks another repository or authentication context", (t) => {
+  const { selectedInputs, only } = selectedSourceWitnesses([
+    "e4658bef15e769118f6f44bbdb3feb35",
+    "5d4b654eeb40831ab2116e6b60b4aacc",
+  ]);
+  const inspect = (root) => {
+    const result = auditDurableActionAuthorization(root, selectedInputs, { only });
+    assert.equal(result.rows.find((row) => row.id === "runtime-run").ok, true);
+    assert.equal(result.sourceRows.length, 2);
+    return result.sourceRows;
+  };
+  assert.ok(inspect(repoRoot).every((row) => row.ok));
+  const dir = sourceCopy(t);
+  for (const [file, topology] of [
+    ["daemon-host-runtime-api.ts", 'commandDescriptorForAction("runtime-run")'],
+    ["daemon-host-control-api.ts", "ledgerWriteCommandTopology"],
+  ]) {
+    for (const replacement of [
+      `"another-repository", ${topology}, auth`,
+      `repoId, ${topology}, { ...auth, nodePrincipal: undefined }`,
+    ]) {
+      const member =
+          file === "daemon-host-runtime-api.ts"
+            ? "runtimeIngress: async (repoId, action, auth)"
+            : "issueRuntimeWitness: async (repoId, runtimeSessionId, auth)",
+        prefix = `${member} => {\n      `;
+      const restore = edit(
+        dir,
+        `packages/daemon/src/${file}`,
+        prefix + `context.requireHostMode(repoId, ${topology}, auth);`,
+        prefix + `context.requireHostMode(${replacement});`,
+      );
+      assert.equal(inspect(dir).filter((row) => !row.ok).length, 1);
+      restore();
+    }
+  }
+  assert.ok(inspect(dir).every((row) => row.ok));
+});
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: entry callback arguments must actually reach the source.
+partitionedTest("migration sources fail when both entry paths replace addFact with an unused callback", (t) => {
+  const { selectedInputs, only } = selectedSourceWitnesses(["87c6fe90a713fc3ebb2c99fc3b53de3c"]);
+  const inspect = (root) => {
+    const result = auditDurableActionAuthorization(root, selectedInputs, { only });
+    assert.equal(result.rows.find((row) => row.id === "migrate-import").ok, true);
+    assert.equal(result.sourceRows.length, 1);
+    return result.sourceRows[0];
+  };
+  assert.equal(inspect(repoRoot).ok, true);
+  const dir = sourceCopy(t),
+    file = "packages/daemon/src/migration-import.ts";
+  const first = edit(dir, file, "}, addFact);", "}, () => undefined);");
+  const second = edit(dir, file, "        addFact,\n      );", "        () => undefined,\n      );");
+  assert.equal(inspect(dir).ok, false);
+  second();
+  first();
+  assert.equal(inspect(dir).ok, true);
+});
