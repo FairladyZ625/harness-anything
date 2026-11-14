@@ -19,14 +19,16 @@ const maxProvenanceDepth = 64;
  * from this one, and the anchor lookup then reports the interface as missing. The workspaces this
  * checkout declares are therefore resolved to this checkout's own sources.
  */
-function workspaceSourcePaths(sourceRoot) {
-  const manifestPath = path.join(sourceRoot, "package.json");
+function workspaceSourcePaths(sourceRoot, anchorRoot = sourceRoot) {
+  const manifestRoot = fs.existsSync(path.join(sourceRoot, "package.json")) ? sourceRoot : anchorRoot;
+  const manifestPath = path.join(manifestRoot, "package.json");
   if (!fs.existsSync(manifestPath)) return {};
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")),
     patterns = Array.isArray(manifest.workspaces) ? manifest.workspaces : manifest.workspaces?.packages;
   if (!Array.isArray(patterns) || patterns.length === 0) return {};
   const paths = {};
-  for (const entry of readWorkspacePackages(sourceRoot))
+  for (const entry of readWorkspacePackages(manifestRoot)) {
+    if (!fs.existsSync(path.join(sourceRoot, entry.directory))) continue;
     for (const [subpath, target] of Object.entries(entry.manifest.exports ?? {})) {
       const value = typeof target === "string" ? target : (target?.types ?? target?.default);
       if (typeof value !== "string" || !value.endsWith(".ts")) continue;
@@ -34,6 +36,7 @@ function workspaceSourcePaths(sourceRoot) {
         path.posix.join(entry.directory, value.replace(/^\.\//u, "")),
       ];
     }
+  }
   return paths;
 }
 
@@ -108,18 +111,25 @@ function declareStatements(statements, bindings) {
   }
 }
 
+function makeFileOf(relativeFiles) {
+  return (node) => {
+    const source = node.getSourceFile();
+    return relativeFiles.get(source) ?? source.fileName;
+  };
+}
+
 /**
  * `rootDir` holds the traced sources; `anchorRoot` holds the kernel authority files the anchors
  * name (the same checkout unless a test traces a mutated copy of the sources).
  */
-export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = [] } = {}) {
+export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = [], lexicalFiles = [] } = {}) {
   const modules = new Map(),
     members = new Map(),
     typedEntries = new Map(),
     scopes = new WeakMap(),
     anchorSources = new Map();
   let files = [...new Set([...sourceRoots.flatMap((root) => walkTypeScriptFiles(rootDir, root)), ...sourceFiles])];
-  const workspacePaths = workspaceSourcePaths(rootDir),
+  const workspacePaths = workspaceSourcePaths(rootDir, anchorRoot),
     // The checker answers one question only: which implementations a typed member call can reach.
     program = ts.createProgram({
       rootNames: files.map((file) => path.join(rootDir, file)),
@@ -137,7 +147,9 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
       },
     }),
     checker = program.getTypeChecker(),
-    relativeFiles = new WeakMap();
+    programSources = new WeakSet(program.getSourceFiles()),
+    relativeFiles = new WeakMap(),
+    fileOf = makeFileOf(relativeFiles);
   files = [
     ...new Set([
       ...files,
@@ -150,6 +162,7 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
             !file.includes("/node_modules/") &&
             !file.endsWith(".d.ts"),
         ),
+      ...lexicalFiles,
     ]),
   ];
   for (const file of files) {
@@ -168,7 +181,7 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
             imports.set(element.name.text, { from, exported: element.propertyName?.text ?? element.name.text });
     }
     modules.set(file, { file, sourceFile, imports });
-    indexMembers(sourceFile, file);
+    if (programSources.has(sourceFile)) indexMembers(sourceFile, file);
   }
   return {
     rootDir,
@@ -184,8 +197,10 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
     interfaceMembers,
     carriesTransport,
     takesInterface,
-    callDeclaration: (node) => checker.getResolvedSignature(node)?.declaration,
-    typeName: (node) => checker.getTypeAtLocation(node).getSymbol()?.name,
+    callDeclaration: (node) =>
+      programSources.has(node.getSourceFile()) ? checker.getResolvedSignature(node)?.declaration : undefined,
+    typeName: (node) =>
+      programSources.has(node.getSourceFile()) ? checker.getTypeAtLocation(node).getSymbol()?.name : undefined,
   };
 
   /**
@@ -198,7 +213,10 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
     const cached = anchorSources.get(file);
     if (cached) return cached;
     const candidate = path.join(anchorRoot, file),
-      source = program.getSourceFile(candidate) ?? program.getSourceFile(fs.realpathSync(candidate));
+      source =
+        program.getSourceFile(path.join(rootDir, file)) ??
+        program.getSourceFile(candidate) ??
+        program.getSourceFile(fs.realpathSync(candidate));
     if (!source) throw new Error(`${file}: source is not part of the traced program`);
     anchorSources.set(file, source);
     return source;
@@ -249,13 +267,9 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
     );
   }
 
-  function fileOf(node) {
-    const source = node.getSourceFile();
-    return relativeFiles.get(source) ?? source.fileName;
-  }
-
   /** The declarations a property call names: interface signatures or the concrete member itself. */
   function memberSignature(access) {
+    if (!programSources.has(access.getSourceFile())) return null;
     const symbol = checker.getSymbolAtLocation(access.name),
       declarations = symbol?.declarations ?? [];
     const result = new Set();

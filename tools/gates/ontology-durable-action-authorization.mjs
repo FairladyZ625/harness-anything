@@ -23,12 +23,15 @@ import {
   intrinsicSupport,
   technicalPortEvidence,
   clientEntryEvidence,
+  clientEntryRequiredRoutes,
   processOwnedOutput,
   processEntry,
   moduleEntry,
   processSourceSites,
   buildOutputWithinPackage,
   rootToolingSource,
+  guiClientSource,
+  guiCallbackCallerFiles,
 } from "./authorization-source-proof.mjs";
 import { EVIDENCE_INDEX } from "./evidence-index.mjs";
 import { exitCodeFor, lineNumber, parseCommonArgs, parseTypeScript } from "./ontology-gate-lib.mjs";
@@ -126,16 +129,38 @@ export function kindRewriteViolations(rewrite, today, index = EVIDENCE_INDEX) {
 export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
   const today = options.today ?? new Date().toISOString().slice(0, 10);
   const sourceRoot = options.sourceRoot ?? rootDir,
+    durable = inputs.descriptors.filter((descriptor) => descriptor.commandClass !== "repo-read"),
     actions = (inputs.constants.actionDeclarations ?? []).filter(
       (action) => action.ontology?.sources?.length && (!options.only || options.only.includes(action.kind)),
     ),
-    declaredSources = actions.flatMap((action) => action.ontology.sources),
+    sourceActions = actions.filter((action, index) => {
+      const owner = durable.findIndex((descriptor) => (descriptor.actionKind ?? descriptor.id) === action.kind);
+      return (
+        !options.shard || (owner < 0 ? durable.length + index : owner) % options.shard.count === options.shard.index
+      );
+    }),
+    declaredSources = [
+      ...new Set([
+        ...sourceActions.flatMap((action) => action.ontology.sources),
+        ...actions.flatMap((action) =>
+          action.ontology.sources.filter(
+            (s) => s.role !== "support" && s.role !== "technical-port" && s.role !== "client",
+          ),
+        ),
+      ]),
+    ],
+    declaredSourceFiles = declaredSources.map(sourceFileOf),
+    guiCallerFiles = guiCallbackCallerFiles(
+      sourceRoot,
+      declaredSourceFiles.filter((f) => /^packages\/gui\/src\/(?:renderer|preload|browser)\//u.test(f)),
+    ),
     graph = buildFlowGraph(sourceRoot, {
       anchorRoot: rootDir,
+      lexicalFiles: guiCallerFiles,
       sourceFiles: [
         ...new Set([
-          ...declaredSources.map(sourceFileOf),
-          ...actions.flatMap((action) =>
+          ...declaredSourceFiles,
+          ...sourceActions.flatMap((action) =>
             Object.values(action.ontology.entries ?? {}).flatMap((entry) => [
               entry.file,
               ...(entry.builder ? [entry.builder] : []),
@@ -177,7 +202,6 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
         .filter((declaration) => ["host-local", "runtime-local"].includes(declaration.residency?.scope))
         .map((declaration) => declaration.kind),
     ),
-    durable = inputs.descriptors.filter((descriptor) => descriptor.commandClass !== "repo-read"),
     readMethods = new Set(
       inputs.descriptors.filter((descriptor) => descriptor.commandClass === "repo-read").map((entry) => entry.method),
     ),
@@ -188,10 +212,6 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
           (!options.only || options.only.includes(descriptor.id)) &&
           (!options.shard || index % options.shard.count === options.shard.index),
       );
-  const sourceActions = actions.filter((action, index) => {
-    const owner = durable.findIndex((descriptor) => (descriptor.actionKind ?? descriptor.id) === action.kind);
-    return !options.shard || (owner < 0 ? durable.length + index : owner) % options.shard.count === options.shard.index;
-  });
   const rows = selected.map(({ descriptor, index }) => {
     const rewrite = descriptor.kindRewrite,
       kind = rewrite?.authorizedKind ?? descriptor.actionKind ?? descriptor.id,
@@ -283,7 +303,21 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       const proof = source.role === "support" && node && intrinsicSupport(graph, node);
       const trace = sourceResults.get(source.candidateId);
       const port = node && technicalPortEvidence(graph, node, source, action, inputs.descriptors);
-      const client = node && clientEntryEvidence(graph, node, source, action, inputs.descriptors);
+      const rawClient = node && clientEntryEvidence(graph, node, source, action, inputs.descriptors);
+      const clientRoutes = rawClient ? clientEntryRequiredRoutes(graph, node, source, action, inputs.descriptors) : [];
+      const matchingServerRows = rows.filter((row) => row.id === source.route || row.kind === action.kind);
+      const unverifiedClientRoute =
+        action.executionClass === "repo-read"
+          ? null
+          : (clientRoutes.find((r) => {
+              if (!durable.some((d) => d.id === r && (r !== source.route || (d.actionKind ?? d.id) === action.kind)))
+                return true;
+              const rRow = rows.find((row) => row.id === r);
+              if (rRow) return !rRow.ok;
+              return r === source.route && matchingServerRows.length > 0 && !matchingServerRows.every((row) => row.ok);
+            }) ?? null);
+      const serverVerified = unverifiedClientRoute === null;
+      const client = rawClient && serverVerified ? rawClient : null;
       const output =
         node &&
         action.ontology.authority === "local-process" &&
@@ -298,6 +332,9 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       return {
         id: source.candidateId,
         kind: action.kind,
+        route: source.route,
+        clientRoutes,
+        isRead: action.executionClass === "repo-read",
         authority: port
           ? "technical-port"
           : client
@@ -323,9 +360,13 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
                 ? tooling
                   ? "root tooling source needs a typed technical port or intrinsic support"
                   : "build output escapes package dist"
-                : source.role === "client"
-                  ? "root tooling client source needs a typed client port whose command/action argument matches its declared route"
-                  : "source has no verified owner/authority chain",
+                : rawClient && !serverVerified
+                  ? `client source route ${unverifiedClientRoute ?? source.route} targets an unverified server authorization descriptor`
+                  : source.role === "client"
+                    ? node && guiClientSource(graph, node)
+                      ? "GUI client source needs a typed client port whose RPC/IPC route matches its declared action"
+                      : "root tooling client source needs a typed client port whose command/action argument matches its declared route"
+                    : "source has no verified owner/authority chain",
             ],
       };
     }),
@@ -376,7 +417,24 @@ async function shardedAudit(rootDir) {
     ),
     rows = shards.flatMap((shard) => shard.rows).sort((left, right) => left.index - right.index),
     receipt = shards[0].receipt,
-    sourceRows = shards.flatMap((shard) => shard.sourceRows);
+    sourceRows = shards
+      .flatMap((shard) => shard.sourceRows)
+      .map((sourceRow) => {
+        if (!sourceRow.ok || sourceRow.authority !== "client-entry" || sourceRow.isRead) return sourceRow;
+        const required = sourceRow.clientRoutes?.length ? sourceRow.clientRoutes : [sourceRow.route];
+        const badRoute = required.find((r) => {
+          const rRow = rows.find((row) => row.id === r);
+          return !rRow || !rRow.ok;
+        });
+        return badRoute
+          ? {
+              ...sourceRow,
+              ok: false,
+              evidence: [],
+              violations: [`client source route ${badRoute} targets an unverified server authorization descriptor`],
+            }
+          : sourceRow;
+      });
   return {
     rows,
     sourceRows,

@@ -15,7 +15,8 @@ export function lineNumber(sourceFile, offset) {
 
 export function parseTypeScript(rootDir, relativePath) {
   const body = readText(rootDir, relativePath);
-  return ts.createSourceFile(relativePath, body, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const kind = relativePath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  return ts.createSourceFile(relativePath, body, ts.ScriptTarget.Latest, true, kind);
 }
 
 export function unwrapExpression(node) {
