@@ -280,7 +280,14 @@ test(
       JSON.stringify(manualResponse),
     );
     const manual = manualResponse.result as Record<string, unknown>;
-    assert.ok(["pending", "already_dispatched"].includes(String(manual.outcome)), JSON.stringify(manual));
+    assert.ok(
+      manual.outcome === "pending" ||
+        (manual.outcome === "applied" &&
+          (manual.dispatches as { readonly taskId: string; readonly outcome: string }[] | undefined)?.some(
+            (step) => step.taskId === taskId && step.outcome === "already_dispatched",
+          )),
+      JSON.stringify(manual),
+    );
     assert.equal(
       (manual.authorizationDecision as Record<string, unknown> | undefined)?.outcome,
       "allowed",
