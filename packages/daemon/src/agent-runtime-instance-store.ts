@@ -470,9 +470,10 @@ export function openRuntimeInstanceStore(input: {
       config = snapshot?.config ?? readOne(instanceId, witnessed);
     if (!config)
       throw runtimeInstanceError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
-    const installation = witnessed.find(
-      (entry) => entry.installationId === config.installationId && entry.kindId === config.kindId,
-    );
+    const cut = accountCut(config),
+      installation = witnessed.find(
+        (entry) => entry.installationId === config.installationId && entry.kindId === config.kindId,
+      );
     if (!installation)
       return observed(
         rememberAuthReadiness(
@@ -497,13 +498,13 @@ export function openRuntimeInstanceStore(input: {
         rememberAuthReadiness(config.instanceId, unavailable(modelSearchRefusal.code, modelSearchRefusal.hint)),
       );
     const policyRefusal = await runtimeWebSearchPolicyConflict(config, managedPolicyTexts);
+    currentAccountForCut(cut);
     if (policyRefusal)
       return observed(rememberAuthReadiness(config.instanceId, unavailable(policyRefusal.code, policyRefusal.hint)));
     if (config.isolationState === "enforced") ensureStateRoot(config);
     const env = authEnvironment(config);
     if (config.auth.mode === "subscription") {
       const probeStartedAt = nowIso(),
-        cut = accountCut(config),
         probeTarget =
           !input.subscriptionReady && isAgyAccountConfig(config)
             ? await currentAccountProbeTarget(config, witnessed)
@@ -564,20 +565,16 @@ export function openRuntimeInstanceStore(input: {
       const current = currentAccountForCut(cut);
       return observed(rememberAuthReadiness(current.instanceId, result.readiness), result);
     }
+    let state: RuntimeAuthReadiness;
     try {
       const secret = await resolveCredential(config.auth.credentialRef);
-      return observed(
-        rememberAuthReadiness(
-          config.instanceId,
-          secret ? available() : unavailable("runtime_credential_unavailable", credentialUnavailableHint),
-        ),
-      );
+      state = secret ? available() : unavailable("runtime_credential_unavailable", credentialUnavailableHint);
     } catch (error) {
       consumeKnownError(error);
-      return observed(
-        rememberAuthReadiness(config.instanceId, unavailable("runtime_credential_unavailable", credentialHint(error))),
-      );
+      state = unavailable("runtime_credential_unavailable", credentialHint(error));
     }
+    const current = currentAccountForCut(cut);
+    return observed(rememberAuthReadiness(current.instanceId, state));
   }
   async function refreshAccount(
     instanceId: string,
@@ -1144,9 +1141,10 @@ export function openRuntimeInstanceStore(input: {
       if (probe)
         return Promise.all(
           configs.map(async (config) => {
-            const result = await refreshAccount(config.instanceId, { witnessed: live ?? [], config });
+            const cut = accountCut(config),
+              result = await refreshAccount(config.instanceId, { witnessed: live ?? [], config });
             return {
-              instance: publicConfig(readOne(config.instanceId) ?? config, result.readiness),
+              instance: publicConfig(currentAccountForCut(cut), result.readiness),
               modelCatalogReadiness: result.modelCatalogReadiness,
             };
           }),
@@ -1346,9 +1344,10 @@ export function openRuntimeInstanceStore(input: {
         config = readOne(instanceId, witnessed);
       if (!config)
         throw runtimeInstanceError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
-      if (action.probe === true)
+      if (action.probe === true) {
+        const cut = accountCut(config);
         return refreshAccount(instanceId, { witnessed: witnessed!, config }).then((result) => {
-          const instance = publicConfig(readOne(instanceId) ?? config, result.readiness);
+          const instance = publicConfig(currentAccountForCut(cut), result.readiness);
           return {
             ...base,
             instance,
@@ -1357,6 +1356,7 @@ export function openRuntimeInstanceStore(input: {
             summary: `modelCatalog: ${result.modelCatalogReadiness.code ?? "ready"}${result.modelCatalogReadiness.hint ? ` · ${result.modelCatalogReadiness.hint}` : ""}\nruntime-instance-show: ${instanceId}\nmodels: ${instance.models.join(", ")}\navailableModels: ${instance.availableModels?.join(", ") ?? "(not probed)"}\ncredentialSource: ${instance.credentialSource}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}\nmcpPolicy: ${instance.mcpPolicy ?? "unsupported"}`,
           };
         });
+      }
       const instance = publicConfig(config, readiness.get(config.instanceId));
       return {
         ...base,

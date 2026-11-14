@@ -2,6 +2,7 @@ import { runtimeInstanceUsesCredential } from "./runtime-hosting-credentials.ts"
 import type { CredentialPort } from "./agent-runtime-credential-port.ts";
 import { runtimeInstanceError } from "./agent-runtime-instance-values.ts";
 import type { openRuntimeInstanceStore } from "./agent-runtime-instance-store.ts";
+import type { PreparedRuntimeLaunch } from "./agent-runtime-instance-types.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 
 /** The target daemon owns the FIFO and vault; secret requests never enter a durable action queue. */
@@ -19,6 +20,9 @@ export function runtimeInstanceCredentialService(
     return result;
   }
   function command(action: Readonly<Record<string, unknown>>): Promise<Record<string, unknown>> {
+    // Account observations own a cut, not a vault transaction. In particular, an ACP
+    // handshake must not hold up another instance's credential/configuration work.
+    if (action.kind === "runtime-instance-list" || action.kind === "runtime-instance-show") return execute(action);
     return enqueue(() => execute(action));
   }
   type Cleanup =
@@ -107,8 +111,15 @@ export function runtimeInstanceCredentialService(
           }),
     };
   }
-  // A launch resolving the old reference finishes before a replacement retires it.
-  const prepareLaunch = (...args: Parameters<typeof store.prepareLaunch>) =>
-    enqueue(() => store.prepareLaunch(...args));
+  const prepareLaunch = async (...args: Parameters<typeof store.prepareLaunch>) => {
+    // Decide on the current auth mode at the FIFO boundary, including a queued rebind.
+    // Return subscription work without starting it; only API-key resolution holds the
+    // retirement order. The store revalidates the observation's cut before admission.
+    const prepared = await enqueue<PreparedRuntimeLaunch | (() => Promise<PreparedRuntimeLaunch>)>(() => {
+      if (store.read(args[0])?.auth.mode === "subscription") return () => store.prepareLaunch(...args);
+      return store.prepareLaunch(...args);
+    });
+    return typeof prepared === "function" ? prepared() : prepared;
+  };
   return { command, prepareLaunch };
 }
