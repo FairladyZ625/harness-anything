@@ -281,11 +281,8 @@ test("observe.tail opens a 5000-line JSONL source at the latest page and pages b
     writeFileSync(logPath, `${fixture}\n`);
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "observe-reverse" });
 
-    const started = performance.now(),
-      latest = await cell.observeTail({ kind: "repo-log", direction: "history" }, { userRoot, daemonId }),
-      elapsedMs = performance.now() - started;
+    const latest = await cell.observeTail({ kind: "repo-log", direction: "history" }, { userRoot, daemonId });
     assertAvailable(latest, "local", "repo-log");
-    assert.ok(elapsedMs < 1_000, `5000-line first page took ${elapsedMs.toFixed(1)}ms`);
     assert.deepEqual(
       latest.items.map((item) => item.seq),
       Array.from({ length: 64 }, (_, index) => 4_937 + index),
@@ -303,7 +300,6 @@ test("observe.tail opens a 5000-line JSONL source at the latest page and pages b
     assert.equal(seen.length, 5_000);
     assert.equal(seen[0].seq, 1);
     assert.equal(seen.at(-1).seq, 5_000);
-    console.info(`observe.tail 5000-line first page: ${elapsedMs.toFixed(1)}ms`);
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -653,13 +649,9 @@ test("observe.tail respects scan budget on large JSONL files and pages backward 
     writeFileSync(logPath, `${lines.join("\n")}\n`);
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "observe-budget" });
 
-    const started = performance.now();
     const firstPage = await cell.observeTail({ kind: "repo-log", direction: "history" }, { userRoot, daemonId });
-    const elapsedMs = performance.now() - started;
 
     assertAvailable(firstPage, "local", "repo-log");
-    // Must return within reasonable time, avoiding event loop starvation
-    assert.ok(elapsedMs < 500, `First page on 1.6MB file took ${elapsedMs.toFixed(1)}ms`);
     assert.equal(firstPage.items.length, 64);
     assert.equal(firstPage.done, false);
     assert.ok(firstPage.historyCursor !== null);

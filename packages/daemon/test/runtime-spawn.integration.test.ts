@@ -670,7 +670,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       (resolvedCase.runtimeSelection as { readonly reason: string }).reason,
       /Agent case-model declares model deepseek-v4\.1-flash, which resolves to Deepseek-V4\.1-Flash on instance codex-agent-model/u,
     );
-    const unavailableStarted = performance.now();
+    const launchedBeforeRejection = launched;
     await assert.rejects(
       cell.spawnRuntime(
         {
@@ -691,7 +691,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
         return true;
       },
     );
-    assert.ok(performance.now() - unavailableStarted < 1_000, "an incompatible explicit instance should fail quickly");
+    assert.equal(launched, launchedBeforeRejection, "an incompatible model must not launch a provider");
     const launchBeforeReadOnly = launched;
     await cell.spawnRuntime(
       {

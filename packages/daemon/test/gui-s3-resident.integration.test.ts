@@ -42,18 +42,12 @@ test(
     mkdirSync(path.dirname(endpoint), { recursive: true, mode: 0o700 });
     await new Promise<void>((resolve) => server.listen(endpoint, resolve));
     try {
-      const started = Date.now();
       await assert.rejects(
         () => requestDaemonJsonRpcAt(endpoint, "repo.task.run", {}, 2_000, 250),
         (error: unknown) => {
           assert.equal((error as { readonly code?: string }).code, "daemon_response_timeout");
           return /did not answer repo\.task\.run within 0\.25s/u.test(String(error));
         },
-      );
-      assert.equal(
-        Date.now() - started < 2_000,
-        true,
-        "the deadline must fire without waiting for the connect timeout",
       );
       assert.deepEqual(
         await requestDaemonJsonRpcAt(

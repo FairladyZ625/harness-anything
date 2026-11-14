@@ -5,6 +5,9 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
+import { syncBuiltinESMExports } from "node:module";
+import workerThreads from "node:worker_threads";
+import type { ServerResponse } from "node:http";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
@@ -563,67 +566,111 @@ test("a snapshot can become a reference and reference entities support fenced up
   }
 });
 
-test("URL source resolution does not block a concurrent repository write", { timeout: 30_000 }, async () => {
+test("URL source resolution does not block a concurrent repository write", { timeout: 30_000 }, async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-url-artifact-import-")),
     repoId = workspaceId("url-artifact-import");
-  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-  const server = createServer(() => {});
-  try {
-    initRepo(rootDir);
-    cell = await openRepoCell({
-      repoId,
-      rootDir: canonicalRoot(rootDir),
-      ownerId: "url-artifact-import-center",
-      now: () => "2026-09-11T02:00:00.000Z",
-    });
-    const created = await cell.run(
-      {
-        kind: "vertical-kind-upsert",
-        kindId: "remote-note",
-        expectedVersion: 0,
-        declaration: {
-          id: "remote-note",
-          entityType: "artifact",
-          idPrefix: "RN",
-          display: { singular: "Remote Note", plural: "Remote Notes" },
-          descriptorSchemaRef: "schema://artifact-descriptor",
-          store: { pathTemplate: "entities/remote-notes/{id}.json" },
-          locatorKinds: ["url"],
-        },
-      },
-      binding,
-    );
-    assert.equal(created.outcome, "applied", JSON.stringify(created));
-    const kindRef = (JSON.parse(String(created.evidence)) as { kindRef: string }).kindRef;
-    // Upsert compiled the new kind and registered its <kind>/<action> scopes; re-expand the
-    // repository grant the way syncBasePolicy/materializeGrants does in production.
-    grantArtifactKindScopes(repoId, kindRef);
-    await new Promise<void>((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(0, "127.0.0.1", () => resolve());
-    });
-    const address = server.address();
-    assert.ok(address && typeof address === "object");
-    const url = `http://127.0.0.1:${String(address.port)}/hanging.md`;
-    const importing = cell.run(
-      { mode: "snapshot", kind: "entity-import", entityKind: kindRef, locator: url, expectedVersion: 0 },
-      binding,
-    );
-    const started = Date.now();
-    const write = await cell.run(
-      { kind: "task-create", taskId: "url-import-concurrent-write", title: "Concurrent write" },
-      binding,
-    );
-    assert.equal(write.outcome, "applied", JSON.stringify(write));
-    assert.ok(Date.now() - started < 2_000);
-    const imported = await importing;
-    assert.equal(imported.outcome, "op_rejected", JSON.stringify(imported));
-    assert.equal(imported.code, "source_resolution_timeout", JSON.stringify(imported));
-  } finally {
-    await cell?.close();
+  const state: {
+    cell?: Awaited<ReturnType<typeof openRepoCell>>;
+    pendingImport?: Promise<unknown>;
+    response?: ServerResponse;
+  } = {};
+  const requested = Promise.withResolvers<ServerResponse>(),
+    server = createServer((_request, response) => requested.resolve(response));
+  const Worker = workerThreads.Worker;
+  t.after(async () => {
+    if (state.response && !state.response.writableEnded) state.response.end("cleanup");
+    server.closeAllConnections();
+    await state.pendingImport;
+    await state.cell?.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     rmSync(rootDir, { recursive: true, force: true });
-  }
+  });
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const url = `http://127.0.0.1:${address.port}/controlled.md`;
+  // The writer runs in its own isolate. Control only this response's abort boundary there;
+  // the adjacent real-HTTP timeout test retains coverage of resolver deadline behavior.
+  const preload = `data:text/javascript,${encodeURIComponent(`
+    const fetch = globalThis.fetch;
+    globalThis.fetch = (input, options) => fetch(input,
+      String(input) === ${JSON.stringify(url)} ? { ...options, signal: undefined } : options);
+  `)}`;
+  t.mock.method(
+    workerThreads,
+    "Worker",
+    class extends Worker {
+      constructor(filename: string | URL, options: workerThreads.WorkerOptions = {}) {
+        super(
+          filename,
+          String(filename).includes("repo-writer-worker")
+            ? {
+                ...options,
+                execArgv: [...(options.execArgv ?? process.execArgv), `--import=${preload}`],
+              }
+            : options,
+        );
+      }
+    },
+  );
+  syncBuiltinESMExports();
+  initRepo(rootDir);
+  const cell = await openRepoCell({
+    repoId,
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "url-artifact-import-center",
+    now: () => "2026-09-11T02:00:00.000Z",
+  });
+  state.cell = cell;
+  const created = await cell.run(
+    {
+      kind: "vertical-kind-upsert",
+      kindId: "remote-note",
+      expectedVersion: 0,
+      declaration: {
+        id: "remote-note",
+        entityType: "artifact",
+        idPrefix: "RN",
+        display: { singular: "Remote Note", plural: "Remote Notes" },
+        descriptorSchemaRef: "schema://artifact-descriptor",
+        store: { pathTemplate: "entities/remote-notes/{id}.json" },
+        locatorKinds: ["url"],
+      },
+    },
+    binding,
+  );
+  assert.equal(created.outcome, "applied", JSON.stringify(created));
+  const kindRef = (JSON.parse(String(created.evidence)) as { kindRef: string }).kindRef;
+  // Upsert compiled the new kind and registered its <kind>/<action> scopes; re-expand the
+  // repository grant the way syncBasePolicy/materializeGrants does in production.
+  grantArtifactKindScopes(repoId, kindRef);
+  const importing = cell.run(
+    { mode: "snapshot", kind: "entity-import", entityKind: kindRef, locator: url, expectedVersion: 0 },
+    binding,
+  );
+  state.pendingImport = importing;
+  const response = await requested.promise;
+  state.response = response;
+  let importCompleted = false;
+  void importing.then(() => {
+    importCompleted = true;
+  });
+  const write = await cell.run(
+    { kind: "task-create", taskId: "url-import-concurrent-write", title: "Concurrent write" },
+    binding,
+  );
+  assert.equal(write.outcome, "applied", JSON.stringify(write));
+  assert.equal(importCompleted, false, "the write must complete while source resolution is still blocked");
+  response.end("# Controlled remote note\n");
+  const imported = await importing;
+  assert.equal(imported.outcome, "applied", JSON.stringify(imported));
 });
 
 test("URL source resolution times out when response body never completes", async () => {
@@ -680,7 +727,6 @@ test("URL source resolution times out when response body never completes", async
     assert.equal(imported.outcome, "op_rejected", JSON.stringify(imported));
     assert.equal(imported.code, "source_resolution_timeout", JSON.stringify(imported));
     assert.ok(Date.now() - started >= 9_000);
-    assert.ok(Date.now() - started < 12_000);
   } finally {
     await cell?.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -752,22 +798,19 @@ test("URL source resolution completes while seven writers keep the repository qu
           return written;
         })(),
       );
-    const started = Date.now(),
-      imported = await cell.run(
-        {
-          mode: "snapshot",
-          kind: "entity-import",
-          entityKind: kindRef,
-          locator: `http://127.0.0.1:${String(address.port)}/note.md`,
-          expectedVersion: 0,
-        },
-        binding,
-      ),
-      elapsed = Date.now() - started;
+    const imported = await cell.run(
+      {
+        mode: "snapshot",
+        kind: "entity-import",
+        entityKind: kindRef,
+        locator: `http://127.0.0.1:${String(address.port)}/note.md`,
+        expectedVersion: 0,
+      },
+      binding,
+    );
     writing = false;
     const written = (await Promise.all(writers)).reduce((sum, count) => sum + count, 0);
     assert.equal(imported.outcome, "applied", JSON.stringify(imported));
-    assert.ok(elapsed < 5_000, `URL import took ${String(elapsed)} ms under load`);
     assert.ok(written > 0, "the writers kept the queue busy");
   } finally {
     writing = false;

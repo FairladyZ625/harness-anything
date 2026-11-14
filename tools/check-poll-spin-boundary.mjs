@@ -2,12 +2,14 @@
  * check-poll-spin-boundary — the one ratchet gate for polling and wall-clock waits.
  *
  * Lanes. One ESLint rule (tools/gates/eslint-rules/no-poll-spin.js), one baseline file and one
- * exact-sync check cover two lanes:
+ * exact-sync check cover production and test lanes:
  *   - production: packages/*\/src and tools/gates (dec_EF5F3820E81FB8A5266F1F3342 CH3);
  *   - integration tests: every `*.integration.test.{ts,tsx,mjs,js}` under packages/ and tools/
  *     (dec_25B3C380F6FB9D4D4A1E27921E CH1). A test joins the lane by its file name, the same name
  *     the integration tier and its CI shards select; helpers it imports are covered through the
  *     `poll-helper` kind at the call site.
+ *   - all tests: `packages/**\/*.test.{ts,tsx,mjs,js}` and `tools/**\/*.test.{ts,mjs,js}`
+ *     reject elapsed-wall-clock upper bounds (clock-speed), including fast/contract tests.
  *
  * Integration kinds (AST, reported as file#enclosing-symbol#kind):
  *   clock-deadline   a comparison against Date.now()/performance.now(), or `deadline - now()`;
@@ -16,6 +18,7 @@
  *                    assign, abort, resolve with a value) instead of only completing a delay;
  *   short-watchdog   a fail-only timer whose delay resolves below 20 s: a speed assertion;
  *   poll-helper      a call to tools/fixtures/wait-for-condition.ts or an imported eventually*.
+ *   clock-speed      an elapsed clock difference or durationMs/elapsedMs/latencyMs upper bound.
  *
  * Correctness wait vs hang guard. A correctness wait decides when the test may look again by the
  * wall clock: a deadline, a timer that schedules what the product should do, or a bounded poller.
@@ -52,16 +55,13 @@ const root = path.resolve(rootArg ?? process.cwd());
 // root and test exact-sync against their own allowlist, so they are not ratcheted.
 const allowlistCeiling = 0;
 const enforceCeiling = rootArg === undefined && !update;
-// Production sources (dec_EF5F3820E81FB8A5266F1F3342 CH3) and integration tests
+// Production sources (dec_EF5F3820E81FB8A5266F1F3342 CH3) and all test tiers
 // (dec_25B3C380F6FB9D4D4A1E27921E CH1) share one rule, one baseline and one exact-sync ratchet; the
-// integration flag adds the wall-clock-as-correctness kinds only to test files.
-const integrationPatterns = [
-  "packages/**/*.integration.test.{ts,tsx,mjs,js}",
-  "tools/**/*.integration.test.{ts,mjs,js}",
-];
+// test lane adds speed assertions to every tier, and the integration-only wait kinds by filename.
+const testPatterns = ["packages/**/*.test.{ts,tsx,mjs,js}", "tools/**/*.test.{ts,mjs,js}"];
 const lanes = [
-  { patterns: ["packages/*/src/**/*.{ts,tsx,js,mjs}", "tools/gates/**/*.{js,mjs}"], integration: false },
-  { patterns: integrationPatterns, integration: true },
+  { patterns: ["packages/*/src/**/*.{ts,tsx,js,mjs}", "tools/gates/**/*.{js,mjs}"], tests: false },
+  { patterns: testPatterns, tests: true },
 ];
 const keys = new Set();
 for (const lane of lanes) {
@@ -70,11 +70,12 @@ for (const lane of lanes) {
     overrideConfigFile: true,
     errorOnUnmatchedPattern: false,
     overrideConfig: [
+      ...(!lane.tests ? [{ ignores: testPatterns }] : []),
       {
         files: ["**/*.{js,mjs,ts,tsx}"],
         languageOptions: { parser: tsParser, parserOptions: { ecmaVersion: 2024, sourceType: "module" } },
         plugins: { ha: { rules: { "no-poll-spin": noPollSpin } } },
-        rules: { "ha/no-poll-spin": ["error", { baseline: [], root, integration: lane.integration }] },
+        rules: { "ha/no-poll-spin": ["error", { baseline: [], root, tests: lane.tests }] },
       },
     ],
   });
@@ -88,12 +89,13 @@ for (const lane of lanes) {
 }
 if (update) {
   const exceptions = [...keys].sort().map((key) =>
-    /\.integration\.test\./u.test(key)
+    /\.test\./u.test(key)
       ? {
           key,
-          event: "baseline-2026-11-08: integration test judges correctness by the wall clock",
+          event: "baseline-2026-11-08: test judges correctness by the wall clock",
           ref: "dec_25B3C380F6FB9D4D4A1E27921E",
-          reason: "Existing wall-clock wait at the CH1 baseline; convert to waitForArrival and delete this entry.",
+          reason:
+            "Existing wall-clock judgment at the CH1 baseline; use events or structural assertions and delete this entry.",
         }
       : {
           key,

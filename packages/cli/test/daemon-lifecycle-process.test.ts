@@ -152,7 +152,6 @@ test("platform stop after migration acceptance preserves the complete import and
     const acceptedOpId = await waitForImportAcceptance(fixture.root);
     const pid = readDaemonPid(fixture.userRoot, "default");
     assert.ok(pid, "a resident daemon pid file must exist before stop");
-    const stopAt = Date.now();
     if (process.platform === "win32")
       assert.equal(
         run(fixture.root, fixture.userRoot, ["daemon", "stop"]).ok,
@@ -161,8 +160,6 @@ test("platform stop after migration acceptance preserves the complete import and
       );
     else process.kill(pid, "SIGTERM");
     await waitForProcessExit(pid, 20_000);
-    const exitMs = Date.now() - stopAt;
-    assert.ok(exitMs < 20_000, `daemon must exit in bounded time, took ${exitMs}ms`);
     const migrationResult = await closeOf(migration);
     assert.equal(migrationResult.code, 0, migrationOutput);
     const receipt = JSON.parse(migrationOutput) as { status: string; opId: string };
