@@ -359,7 +359,16 @@ test("daemon PG storage factories expose canonical lifecycle ports without local
       try {
         const event = createdAt("task-object-follower", store!.readHead()!.revision + 1);
         follower.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+        const logical = "context/object-only-follower.md",
+          body = "# Object-only follower\n";
+        follower.append(docBundle(follower, body, follower.readHead()!.revision + 1, "object-only-document", logical));
         await follower.settlePendingMaterialization!("object-only Git follower");
+        assert.equal(
+          execFileSync("git", ["-C", rootDir, "show", `${branch}:harness/${logical}`], { encoding: "utf8" }),
+          body,
+          "Git still follows canonical documents while the authored worktree is disabled",
+        );
+        assert.equal(existsSync(join(rootDir, "harness", logical)), false);
         assert.match(follower.currentCommit()!.sha, /^[0-9a-f]{40}$/u);
         assert.equal(follower.followerStatus().git.status, "verified");
         assert.equal(follower.followerStatus().worktree.status, "pending");

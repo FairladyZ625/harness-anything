@@ -106,15 +106,16 @@ export function makePgCanonicalEventStore(
       return { status: "visible", commitSha: null, settlements: [], conflicts: [] };
     }
     const layout = resolveHarnessLayout(rootInput),
-      documents = materializeTree
-        ? reader.withSession((q) =>
-            readNodeMaterializationDocuments(
-              q,
-              options.storage.nodeTaskMaterializationPolicy ?? "include_done",
-              request?.paths,
-            ),
-          )
-        : [],
+      documents =
+        materializeTree || options.storage.gitFollower
+          ? reader.withSession((q) =>
+              readNodeMaterializationDocuments(
+                q,
+                options.storage.nodeTaskMaterializationPolicy ?? "include_done",
+                request?.paths,
+              ),
+            )
+          : [],
       entries = new Map(documents.map((doc) => [doc.path, { sha256: doc.blobSha256 }])),
       restored =
         request?.paths && !request.preview

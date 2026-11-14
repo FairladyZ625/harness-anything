@@ -192,8 +192,11 @@ function startWorker(
       await withPostgresTransaction(
         pool,
         async (client) => {
-          const cut = await readCutInTransaction(client, input.scope, input.scope.readers ?? [], input.repoId);
-          await initializePgTerminalMaterialization(client, input.scope, cut.watermark);
+          const metadata = await client.query<{ watermark: string }>(
+            "SELECT watermark FROM ha_projection_meta WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND projection_name='task/v1'",
+            [input.scope.tenantId, input.scope.projectId, input.scope.policyEpoch],
+          );
+          await initializePgTerminalMaterialization(client, input.scope, Number(metadata.rows[0]?.watermark ?? 0));
         },
         input.scope,
       );
