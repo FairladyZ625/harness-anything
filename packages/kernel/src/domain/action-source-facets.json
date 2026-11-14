@@ -12084,6 +12084,12 @@
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-edge-mirror.ts#materializeFleetMirrorView.requirePreviousPaths:c3638a733b6e762e85a75716a06ffd60",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
       }
     ],
     "technical": true

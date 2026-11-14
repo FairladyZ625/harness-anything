@@ -53,14 +53,14 @@ export function applyCanonicalTree(input: {
     if (selected && !selected.has(logical)) continue;
     const target = path.join(root, ...logical.split("/"));
     // Local files can change after materialization; compare them with the last successful write,
-    // not the newer center blob. An unowned local file has no baseline and must also be preserved.
+    // not the newer center blob. Explicit selections also preserve an unowned local file.
     if (existsSync(target)) {
       const local = sha256Bytes(readFileSync(target));
       if (local === blob.sha256) {
         entries[logical] = blob.sha256;
         continue;
       }
-      if (local !== previous.entries[logical]) {
+      if ((hasMaterializationBaseline || input.selectedPaths !== undefined) && local !== previous.entries[logical]) {
         dirtyPaths.push(logical);
         continue;
       }

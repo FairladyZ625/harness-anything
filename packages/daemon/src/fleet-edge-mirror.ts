@@ -262,9 +262,10 @@ export function scanFleetMirrorWorktree(
       marker.revision !== undefined &&
       marker.entries !== undefined &&
       (marker.generation === undefined || marker.generation === view.ledgerGeneration),
+    hasMarkerWithoutBaseline = markerExists && !hasMaterializationBaseline,
     materializedEntries: ReadonlySet<string> = hasMaterializationBaseline
       ? new Set(Object.keys(marker.entries ?? {}))
-      : new Set(selection ?? []),
+      : new Set(hasMarkerWithoutBaseline ? view.entries.keys() : (selection ?? [])),
     wanted = selection ? new Set(selection) : null,
     changes: FleetMirrorDirtyFile[] = [],
     cleanPaths: string[] = [],
@@ -310,7 +311,7 @@ export function scanFleetMirrorWorktree(
     // `.DS_Store`, a NUL-bearing `.txt`) that the center never counted as doc-sync business. A path a
     // route owns keeps its block: the owning command is the one that must answer for it, and the
     // center reports it as blocked too.
-    if (unchanged) {
+    if (unchanged || (hasMarkerWithoutBaseline && base)) {
       cleanPaths.push(logical);
       continue;
     }

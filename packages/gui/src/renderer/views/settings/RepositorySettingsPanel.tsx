@@ -322,11 +322,14 @@ export function RepositorySettingsPanel({
               ))}
             <Button
               testId="settings-materialization-retry"
-              disabled={settingsMutation.isPending}
+              disabled={
+                settingsMutation.isPending || settingsMutation.variables?.taskMaterializationPolicy === undefined
+              }
               onClick={() => {
-                if (settingsMutation.variables)
+                const taskMaterializationPolicy = settingsMutation.variables?.taskMaterializationPolicy;
+                if (taskMaterializationPolicy !== undefined)
                   settingsMutation.mutate({
-                    ...settingsMutation.variables,
+                    taskMaterializationPolicy,
                     expectedVersion: settingsQuery.data?.revision,
                   });
               }}

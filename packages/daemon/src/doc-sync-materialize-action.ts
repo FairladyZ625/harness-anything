@@ -11,7 +11,7 @@ import type { DocSettlementReceipt, Input } from "./doc-sync-command-actions.ts"
  * `all` runs the previewed whole-closure pass. Every confirmed run reports each settled path and,
  * where the overwritten local bytes were kept, the conflict copy beside it.
  */
-type MaterializeInput = Pick<Input, "action" | "rootDir" | "workspaceCoordinate"> & {
+type MaterializeInput = Pick<Input, "action" | "binding" | "rootDir" | "workspaceCoordinate"> & {
   readonly projection: Pick<Input["projection"], "read" | "readDocuments">;
   readonly store: Pick<CanonicalEventStore, "materialize" | "currentCut"> & {
     readonly readHead: () => { readonly revision: number } | null;

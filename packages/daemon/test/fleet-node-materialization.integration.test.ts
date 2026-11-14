@@ -247,3 +247,61 @@ test(
     assert.equal(readFileSync(done, "utf8"), original + "\nKeep my bytes\n");
   },
 );
+
+test(
+  "a replica advancing during materialization authorization requires a fresh decision",
+  { timeout: 180_000 },
+  async (t) => {
+    const { f, edge } = await fixture(t);
+    let enter!: () => void,
+      release!: () => void,
+      hold = false;
+    const entered = new Promise<void>((resolve) => (enter = resolve)),
+      released = new Promise<void>((resolve) => (release = resolve)),
+      answer = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      if (
+        hold &&
+        (String(url).endsWith("/authz/resource-server/policy/evaluate") ||
+          String(url).endsWith("/protocol/openid-connect/token")) &&
+        String(init?.body).includes("doc-materialize")
+      ) {
+        enter();
+        await released;
+      }
+      return answer(url, init);
+    }) as typeof fetch;
+    t.after(() => {
+      globalThis.fetch = answer;
+      release();
+    });
+    const e = await edge("node-one"),
+      done = e.file("task_done_mirror");
+    await e.command({ kind: "settings-update", taskMaterializationPolicy: "none" });
+    assert.equal(existsSync(done), false);
+    hold = true;
+    const restoring = e.command({ kind: "doc-materialize", taskId: "task_done_mirror", paths: [] });
+    try {
+      const reached = await Promise.race([
+        entered.then(() => null),
+        restoring.then((receipt) => ({ settled: receipt })),
+      ]);
+      assert.equal(reached, null, JSON.stringify(reached));
+      const advanced = await f.command("node-one", { kind: "settings-update", reviewReturnBudget: 3 });
+      assert.equal(advanced.outcome, "applied", JSON.stringify(advanced));
+      await f.host.settleMaterialization("lease-repo", "fixture authorization cut advance");
+      await catchUpReplica({ ...f.peer("node-one"), viewRoot: e.viewRoot, diskQuotaBytes: 64 * 1024 * 1024 });
+    } finally {
+      hold = false;
+      release();
+    }
+    const refused = await restoring;
+    assert.equal(refused.code, "revision_conflict", JSON.stringify(refused));
+    assert.equal(existsSync(done), false);
+    assert.equal(
+      (await e.command({ kind: "doc-materialize", taskId: "task_done_mirror", paths: [] })).outcome,
+      "applied",
+    );
+    assert.ok(existsSync(done));
+  },
+);

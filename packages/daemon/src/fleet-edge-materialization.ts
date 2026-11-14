@@ -93,6 +93,7 @@ export async function materializeFleetEdgeDocuments(input: {
     let visible = true;
     const receipt = runDocMaterialize({
       ...selected,
+      binding,
       projection,
       store: {
         materialize: (request) => {

@@ -127,8 +127,8 @@ test("daemon host migration and observation slice has zero frozen ontology debt"
   const classified = result.classified.filter((row) => scope.test(row.file));
   assert.equal(new Set(classified.map((row) => row.file)).size, 49);
   assert.equal(classified.filter((row) => row.category === "action").length, 181);
-  assert.equal(classified.filter((row) => row.category === "policy").length, 52);
-  assertRegistered(classified); // 50 retired policy rows plus two policies already registered on main.
+  assert.equal(classified.filter((row) => row.category === "policy").length, 53);
+  assertRegistered(classified); // Includes the node-local replica settlement branch.
   assertEmpty(result.findings.filter((row) => scope.test(row.file)));
   for (const [symbol, owner] of [
     ["runMigrationImport", "migrate-import"],

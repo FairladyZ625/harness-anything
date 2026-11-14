@@ -266,7 +266,7 @@ export const nodeTaskMaterializationPolicy = {
     "policy:packages/daemon:packages/daemon/src/repo-cell.ts#initializeRepoCell.readMaterializationDocuments:9a714b70cf67f888ae307125343c97fa",
     "policy:packages/daemon:packages/daemon/src/settings-action-runtime.ts#makeSettingsActionRuntime:8e1d8434a580108b635c966467bd1b7a",
     "policy:packages/daemon:packages/daemon/src/write-receipt-settlement.ts#settleWriteReceipt.materialized.reconcileNodePolicy:c5013c8bee363a83b667529a7565ec7e",
-    "policy:packages/daemon:packages/daemon/src/write-receipt-settlement.ts#settleWriteReceipt:c7f1eceaf2bbadd19ebc65b967407425",
+    "policy:packages/daemon:packages/daemon/src/write-receipt-settlement.ts#settleWriteReceipt:c1050a89beabf37ca312e1e554782a72",
     "policy:packages/daemon:packages/daemon/src/doc-sync-candidate-scanner.ts#scanDocCandidates.scanOne:27054bed81347e56f9081d7397c65e4a",
     "policy:packages/daemon:packages/daemon/src/doc-sync-reads.ts#readAction.materializationState:71a3d721091e8253a10a63913edca6d1",
     "policy:packages/daemon:packages/daemon/src/entity-action-catalog-executor.ts#withNodeMaterializationState:daf168a4166c963e3e6de1d64c76c6fb",
@@ -275,6 +275,9 @@ export const nodeTaskMaterializationPolicy = {
     "policy:packages/storage:packages/storage/src/storage-backend.ts#readNodeMaterializationDocuments:556bd90fc717033e0511b5a53b769ad9",
     "policy:packages/storage:packages/storage/src/store/sqlite-task-event-materialize.ts#closureFiles:547f324ddeef9152f3d4a35de9164673",
     "policy:packages/storage:packages/storage/src/store/sqlite-task-event-store.ts#makeSqliteTaskEventStore.publishFollower:818c0747c770edcbf5f44a7344ea6150",
+    "policy:packages/daemon:packages/daemon/src/daemon-host-repository-api.ts#createDaemonHostRepositoryApi.run:6b868d6ffe36f6a63f59a615fd91134b",
+    "policy:packages/daemon:packages/daemon/src/fleet-edge-materialization.ts#reconcileFleetNodeMaterialization.result.request.reconcileNodePolicy:c5013c8bee363a83b667529a7565ec7e",
+    "policy:packages/daemon:packages/daemon/src/fleet-edge-mirror.ts#materializeFleetMirrorView:c14ca311a5add40e1dcb3097f2178730",
   ].map((candidateId) => ({ candidateId, route: "nodeTaskMaterializationPolicy" })),
 } as const satisfies OntologyPolicyDeclaration;
 

@@ -871,26 +871,21 @@ export function createDaemonHostRepositoryApi(
             evaluatedAtCut: `repository:${repoId}:current`,
           });
         const resolvedAction = await resolveVerticalKindCommandAction(cell, action as RepoTaskAction);
-        let receipt =
-          cell.status().mode === "remote-edge" && resolvedAction.kind === "doc-materialize"
-            ? await materializeFleetEdgeDocuments({
-                rootDir: cell.status().rootDir,
-                repoId,
-                binding: serverBinding,
-                action: resolvedAction,
-                now: context.now(),
-              })
-            : edgeRead
-              ? ((await runFleetEdgeRepositoryRead(
-                  {
-                    rootDir: cell.status().rootDir,
-                    repoId,
-                    action: resolvedAction as never,
-                  },
-                  async () =>
-                    (await cell.run(resolvedAction, serverBinding, auth.connectionSignal)) as Record<string, unknown>,
-                )) as Awaited<ReturnType<typeof cell.run>>)
-              : await cell.run(resolvedAction, serverBinding, auth.connectionSignal);
+        if (cell.status().mode === "remote-edge" && resolvedAction.kind === "doc-materialize")
+          return await materializeFleetEdgeDocuments({
+            rootDir: cell.status().rootDir,
+            repoId,
+            binding: serverBinding,
+            action: resolvedAction,
+            now: context.now(),
+          });
+        let receipt = edgeRead
+          ? ((await runFleetEdgeRepositoryRead(
+              { rootDir: cell.status().rootDir, repoId, action: resolvedAction as never },
+              async () =>
+                (await cell.run(resolvedAction, serverBinding, auth.connectionSignal)) as Record<string, unknown>,
+            )) as Awaited<ReturnType<typeof cell.run>>)
+          : await cell.run(resolvedAction, serverBinding, auth.connectionSignal);
         if (
           cell.status().mode === "remote-edge" &&
           resolvedAction.kind === "settings-update" &&
