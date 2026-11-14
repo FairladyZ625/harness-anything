@@ -1,4 +1,5 @@
 import { commandInterceptionNeedsFiles } from "./runtime-command-interception-files.ts";
+import { isNonEmptyString } from "@harness-anything/kernel/internal/domain/contract-validation.ts";
 import { commandInterceptionHook, type CommandInterceptions } from "./runtime-command-interceptions.ts";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -74,18 +75,22 @@ export function isolatedEnvironment(
 
 const codexShellEnvironmentKey = "shell_environment_policy";
 
-function codexAcpSessionConfig(raw: string | undefined): string {
-  if (raw === undefined || raw.trim() === "")
-    return JSON.stringify({ [codexShellEnvironmentKey]: codexToolEnvironmentConfig });
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw runtimeInstanceError("invalid_runtime_launch", "CODEX_CONFIG must be a JSON object.");
+function codexAcpSessionConfig(raw: string | undefined, isolated: boolean): string {
+  let parsed: unknown = {};
+  if (raw !== undefined && raw.trim() !== "") {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw runtimeInstanceError("invalid_runtime_launch", "CODEX_CONFIG must be a JSON object.");
+    }
   }
   if (!isRuntimeInstanceRecord(parsed))
     throw runtimeInstanceError("invalid_runtime_launch", "CODEX_CONFIG must be a JSON object.");
-  return JSON.stringify({ ...parsed, [codexShellEnvironmentKey]: codexToolEnvironmentConfig });
+  return JSON.stringify({
+    ...parsed,
+    ...(isolated ? { cli_auth_credentials_store: "file" } : {}),
+    [codexShellEnvironmentKey]: codexToolEnvironmentConfig,
+  });
 }
 
 export function launchEnvironment(
@@ -99,7 +104,9 @@ export function launchEnvironment(
     ...baseEnv,
     ...(permissionMode ? declaration.launch.permissionEnvironment?.[permissionMode] : undefined),
     ...(config.kindId === "claude" && commandInterceptions.length ? { CLAUDE_CODE_SIMPLE: undefined } : {}),
-    ...(config.kindId === "codex-acp" ? { CODEX_CONFIG: codexAcpSessionConfig(baseEnv.CODEX_CONFIG) } : {}),
+    ...(config.kindId === "codex-acp"
+      ? { CODEX_CONFIG: codexAcpSessionConfig(baseEnv.CODEX_CONFIG, config.isolationState === "enforced") }
+      : {}),
   };
 }
 
@@ -301,6 +308,29 @@ export async function providerSubscriptionReadiness(
       if (!home)
         return unavailable("runtime_auth_probe_failed", "Provider authentication probe could not determine readiness.");
       const directory = providerConfigDirectory(home, input.installation.kindId);
+      if (probe.kind === "json-credential-map") {
+        const authFile = declaration.executable.authFile;
+        if (!authFile) return unavailable("runtime_auth_probe_failed", "No credential file is declared.");
+        const dataHome = input.env[probe.directoryEnvironment],
+          file = path.join(dataHome ? path.join(dataHome, probe.directoryName) : directory, authFile),
+          content = input.env[probe.contentEnvironment];
+        if (!content && !existsSync(file)) return unavailable("runtime_subscription_required", hint);
+        const credentials: unknown = JSON.parse(content || readFileSync(file, "utf8"));
+        if (!isPlainRecord(credentials))
+          return unavailable("runtime_auth_probe_failed", "The credential map could not be read.");
+        // Validate the native provider-map format at its file-reading boundary.
+        const present = Object.values(credentials).some(
+          (value) =>
+            isPlainRecord(value) &&
+            ((value.type === "api" && isNonEmptyString(value.key)) ||
+              (value.type === "wellknown" && isNonEmptyString(value.key) && isNonEmptyString(value.token)) ||
+              (value.type === "oauth" &&
+                typeof value.expires === "number" &&
+                value.expires >= 0 &&
+                (isNonEmptyString(value.refresh) || (isNonEmptyString(value.access) && value.expires > Date.now())))),
+        );
+        return present ? available("metadata") : unavailable("runtime_subscription_required", hint);
+      }
       if (probe.kind === "file-key") {
         const authFile = declaration.executable.authFile,
           key = "acpCredentialKey" in declaration.auth ? declaration.auth.acpCredentialKey : undefined;

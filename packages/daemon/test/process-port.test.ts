@@ -34,3 +34,34 @@ test("output past the 1 MiB default buffer needs an explicit maxBuffer", async (
   });
   assert.equal(stdout.length, 2 << 20);
 });
+
+test("interactive stdin is kept open for the protocol exchange and its failure terminates the child", async () => {
+  const result = await runProcessTextAsync(
+    process.execPath,
+    ["-e", "process.stdin.on('data',x=>process.stdout.write(x))"],
+    undefined,
+    undefined,
+    async (child) => {
+      child.stdin!.write("request");
+      await new Promise<void>((resolve) => child.stdout!.once("data", () => resolve()));
+    },
+    undefined,
+    { timeoutMs: 1000 },
+  );
+  assert.equal(result, "request");
+  const failure = new Error("interaction failed");
+  await assert.rejects(
+    runProcessTextAsync(
+      process.execPath,
+      ["-e", "setInterval(()=>{},1000)"],
+      undefined,
+      undefined,
+      async () => {
+        throw failure;
+      },
+      undefined,
+      { timeoutMs: 1000 },
+    ),
+    (error) => error === failure,
+  );
+});

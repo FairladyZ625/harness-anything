@@ -71,10 +71,17 @@ export interface RuntimeProviderDeclaration {
      * provider's own login-state document and requires its status field to equal
      * `readyStatus` while its expiry field is still in the future: an exit-0 command
      * cannot tell "signed out" from "signed in" (mcode's `provider list` says
-     * `managed login` in an empty HOME too). */
+     * `managed login` in an empty HOME too). A json-credential-map observes native
+     * provider credentials as metadata; ACP refusals outrank that observation. */
     readonly subscriptionProbe:
       | readonly string[]
       | { readonly kind: "file-key" }
+      | {
+          readonly kind: "json-credential-map";
+          readonly contentEnvironment: string;
+          readonly directoryEnvironment: string;
+          readonly directoryName: string;
+        }
       | {
           readonly kind: "json-auth-state";
           /** Path relative to the provider's config directory. */
@@ -84,6 +91,10 @@ export interface RuntimeProviderDeclaration {
           readonly expiresAtField: string;
         };
     readonly subscriptionProbeTimeoutMs: number;
+    /** Authenticated account catalog only; installation help/bundled catalogs are not entitlements. */
+    readonly accountModelProbe?:
+      | { readonly kind: "command"; readonly args: readonly string[] }
+      | { readonly kind: "claude-sdk" | "codex-app-server" | "acp" };
     /** The provider's own sign-in argv per action, for kinds whose CLI exposes a
      * top-level `login`/`logout` rather than `auth login`. Absent keeps the
      * `auth <action>` default. */

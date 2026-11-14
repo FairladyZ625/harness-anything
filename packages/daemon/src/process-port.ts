@@ -107,12 +107,15 @@ interface ProcessTextOutcome {
   readonly stderr: string;
 }
 
+/** A bounded command may need a protocol exchange before its stdin can close. */
+export type ProcessInput = string | ((child: ChildProcess) => Promise<void>);
+
 function launchProcessText(
   command: string,
   args: readonly string[],
   cwd: string | undefined,
   env: NodeJS.ProcessEnv | undefined,
-  input: string | undefined,
+  input: ProcessInput | undefined,
   signal: AbortSignal | undefined,
   options: {
     readonly timeoutMs?: number;
@@ -122,6 +125,7 @@ function launchProcessText(
   },
 ): Promise<ProcessTextOutcome> {
   return new Promise((resolve) => {
+    let interactionError: Error | null = null;
     // execFile's own AbortSignal handling fires the callback as soon as the signal aborts,
     // while SIGTERM is still in flight — settling then would release the caller (and any
     // queue slot it holds) before the child has actually exited. Settle only once the child
@@ -148,6 +152,7 @@ function launchProcessText(
         windowsHide: true,
       },
       (error, stdout, stderr) => {
+        error = interactionError ?? error;
         const settle = () =>
           resolve({
             error: error
@@ -179,7 +184,21 @@ function launchProcessText(
             terminateRuntimePid(child.pid, options.timeoutSignal);
           }, options.timeoutMs);
     timeout?.unref();
-    child.stdin?.end(input);
+    if (typeof input === "function")
+      void Promise.resolve()
+        .then(() => input(child))
+        .then(
+          () => child.stdin?.end(),
+          (error: unknown) => {
+            interactionError = error instanceof Error ? error : new Error(String(error));
+            if (child.pid !== undefined && child.exitCode === null && child.signalCode === null) {
+              // An opening callback can fail before the child has established its group.
+              child.kill("SIGTERM");
+              if (options.timeoutMs !== undefined) terminateRuntimePid(child.pid);
+            }
+          },
+        );
+    else child.stdin?.end(input);
   });
 }
 
@@ -188,7 +207,7 @@ export function runProcessTextAsync(
   args: readonly string[],
   cwd?: string,
   env?: NodeJS.ProcessEnv,
-  input?: string,
+  input?: ProcessInput,
   signal?: AbortSignal,
   options: {
     readonly timeoutMs?: number;

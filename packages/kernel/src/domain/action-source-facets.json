@@ -9778,6 +9778,12 @@
         "port": "packages/daemon/src/process-port.ts#launchProcessText.child.settle"
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-account-model-catalog.ts#probeSessionModelCatalog.input:f5f64c7d060c5b47d23dce3daf463c4e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/stream.d.ts#stream.Stream.Writable.write"
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/runtime-callback-relay.ts#createRuntimeCallbackRelay.server.closeBoth:6b02bc08b50fb843e2840b9d3cc34d7b",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -9928,6 +9934,12 @@
         "port": "packages/daemon/src/runtime-instance-credentials.ts#runtimeInstanceCredentialService.execute"
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-instance-credentials.ts#runtimeInstanceCredentialService.command:b62e8f0640bcc28a9ad46d540b02b130:2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-instance-credentials.ts#runtimeInstanceCredentialService.execute"
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/runtime-instance-credentials.ts#runtimeInstanceCredentialService.command:0a527407745556565571ad1df2f520ed",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -9940,7 +9952,7 @@
         "port": "packages/daemon/src/agent-runtime-credential-port.ts#CredentialPort.remove"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-instance-credentials.ts#runtimeInstanceCredentialService.prepareLaunch:9f8a977e77af649095c239100247190a",
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-instance-credentials.ts#runtimeInstanceCredentialService.prepareLaunch.prepared:22732c5682fc60d0af9721d0f5d2a678",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/runtime-instance-credentials.ts#runtimeInstanceCredentialService.enqueue"

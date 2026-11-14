@@ -757,7 +757,16 @@ test("minimax-code readiness follows auth-state status and expiry, and its login
     mcode: RuntimeInstallationWitness = {
       installationId: "minimax-installation-test",
       kindId: "minimax-code",
-      executablePath: "/opt/runtime-test/mcode",
+      executablePath: writeProviderExecutable(
+        path.join(userRoot, "mcode"),
+        `
+        require("node:readline").createInterface({input:process.stdin}).on("line",line=>{
+          const m=JSON.parse(line);
+          if(!["initialize","session/new"].includes(m.method)) process.exit(93);
+          console.log(JSON.stringify({id:m.id,result:m.method==="initialize"?{authMethods:[]}:{sessionId:"credential-session"}}));
+        });
+      `,
+      ),
       version: "0.4.6",
       observedAt: "2026-10-29T00:00:00.000Z",
     },
