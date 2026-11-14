@@ -384,6 +384,58 @@ describe("provider authentication terminal bridge (dec_DA1602487428A58E8B446ECE3
     await settled(() => expect(probe).toHaveBeenCalledWith(instanceId, repoId));
     expect(document.querySelector('[data-testid="terminal-view"]')).toBeNull();
   });
+  it.each([false, true])(
+    "retains a running login across an early Provider return (exit overlaps probe: %s)",
+    async (overlap) => {
+      const { probe, list, attach, rows, listeners } = await mount();
+      const stale = (await list()).instances[0]!;
+      let finishEarly!: () => void;
+      probe.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishEarly = () => resolve(stale);
+          }),
+      );
+      await click("runtime-account-login");
+      await settled(() => expect(attach).toHaveBeenCalledWith(repoId, sessionId, 0, expect.any(Function)));
+      await back();
+      await settled(() => expect(probe).toHaveBeenCalledTimes(1));
+      if (!overlap) {
+        await act(async () => finishEarly());
+        await settled(() => expect(client!.isMutating()).toBe(0));
+        expect(document.querySelector("[data-auth-status]")?.textContent).toContain("unauthenticated");
+      }
+      // Use the real history bar to resume the still-running login, rather than starting another one.
+      await act(async () =>
+        document.querySelectorAll<HTMLButtonElement>('[data-testid="nav-history-bar"] button')[1]!.click(),
+      );
+      await settled(() => expect(listeners.has(sessionId)).toBe(true));
+      rows[1] = { ...rows[1], status: "exited", attachable: false, exitCode: 0 };
+      await act(async () =>
+        listeners.get(sessionId)!({
+          schema: "terminal-attach-event/v1",
+          sessionId,
+          seq: 1,
+          kind: "exit",
+          utf8: "",
+          droppedThrough: null,
+          occurredAt: at,
+        }),
+      );
+      if (overlap) {
+        expect(probe).toHaveBeenCalledTimes(1);
+        await act(async () => finishEarly());
+      }
+      await settled(() => expect(probe).toHaveBeenCalledTimes(2));
+      await settled(() => expect(client!.isMutating()).toBe(0));
+      await back();
+      await settled(() => expect(document.querySelector("[data-auth-status]")?.textContent).toContain("authenticated"));
+      await click("runtime-provider-edit");
+      expect(document.querySelector('[data-testid="runtime-provider-models"]')?.textContent).toContain(
+        "fresh-account-model",
+      );
+    },
+  );
   it("attaches an already exited login and still refreshes the account", async () => {
     const { probe, attach, rows } = await mount();
     rows[1] = { ...rows[1], status: "exited", attachable: false, exitCode: 0 };

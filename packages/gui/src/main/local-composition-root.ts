@@ -1,4 +1,5 @@
 import { guiInteractionPolicy } from "@harness-anything/kernel/internal/domain/gui-interaction-policy.ts";
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { daemonProtocolError, isDaemonGuiActionMethod, isDaemonGuiReadMethod } from "@harness-anything/daemon/client";
 import type { DaemonTaskSnapshotListResult, DaemonStreamPayloadMap } from "@harness-anything/daemon/protocol";
 import {
@@ -211,6 +212,10 @@ const INSTANCE_KEY_TIMEOUT_MS = guiInteractionPolicy.defaultValue.deadlines.inst
 const REPO_WRITE_TIMEOUT_MS = guiInteractionPolicy.defaultValue.deadlines.repoWrite;
 const INSTANCE_OP_TIMEOUT_MS = guiInteractionPolicy.defaultValue.deadlines.instanceOperation;
 const INSTANCE_SHOW_TIMEOUT_MS = guiInteractionPolicy.defaultValue.deadlines.instanceShow;
+// Account refresh can run model listing and quota sequentially, each with the provider's
+// model-listing budget, in addition to installation discovery and receipt publication.
+const INSTANCE_PROBE_TIMEOUT_MS =
+  INSTANCE_OP_TIMEOUT_MS + 2 * daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.modelListing;
 
 function requestTimeoutMs(route: ShippedGuiRoute, payload: JsonObject, timeouts: GuiRequestTimeouts): number {
   if (
@@ -221,14 +226,14 @@ function requestTimeoutMs(route: ShippedGuiRoute, payload: JsonObject, timeouts:
   )
     return INSTANCE_KEY_TIMEOUT_MS;
   if (route.commandClass === "repo-write") return REPO_WRITE_TIMEOUT_MS;
+  if (route.guiBridgeMethod === "showRuntimeInstance" && payload.probe === true) return INSTANCE_PROBE_TIMEOUT_MS;
   if (
     route.guiBridgeMethod === "createRuntimeInstance" ||
     route.guiBridgeMethod === "updateRuntimeInstance" ||
     route.guiBridgeMethod === "deleteRuntimeInstance" ||
     route.guiBridgeMethod === "listRuntimeInstances" ||
     route.guiBridgeMethod === "signInRuntimeInstance" ||
-    route.guiBridgeMethod === "signOutRuntimeInstance" ||
-    (route.guiBridgeMethod === "showRuntimeInstance" && payload.probe === true)
+    route.guiBridgeMethod === "signOutRuntimeInstance"
   )
     return INSTANCE_OP_TIMEOUT_MS;
   if (route.guiBridgeMethod === "showRuntimeInstance") return INSTANCE_SHOW_TIMEOUT_MS;

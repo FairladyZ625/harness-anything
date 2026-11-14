@@ -25,14 +25,22 @@ afterEach(() => {
   else process.env.HARNESS_DAEMON_ENDPOINT = previous.endpoint;
 });
 
-it.each(["signInRuntimeInstance", "signOutRuntimeInstance"])(
-  "%s uses the 20s instance-operation budget, including a 2.5s installation refresh",
-  async (method) => {
+it.each([
+  { method: "signInRuntimeInstance", rpcMethod: "repo.runtimeInstance.auth.login", elapsed: 2_500, deadline: 20_000 },
+  { method: "signOutRuntimeInstance", rpcMethod: "repo.runtimeInstance.auth.logout", elapsed: 2_500, deadline: 20_000 },
+  { method: "showRuntimeInstance", rpcMethod: "daemon.runtimeInstance.show", elapsed: 122_500, deadline: 140_000 },
+])(
+  "$method permits its bounded process work and retains a finite deadline",
+  async ({ method, rpcMethod, elapsed, deadline }) => {
     const userRoot = mkdtempSync(path.join(tmpdir(), "gui-auth-deadline-"));
     const daemonId = "auth-deadline",
       endpoint = localUserDaemonEndpoint(userRoot, daemonId);
-    const rpcMethod = `repo.runtimeInstance.auth.${method === "signInRuntimeInstance" ? "login" : "logout"}`;
-    let arrived!: () => void, reply!: () => void;
+    const payload = {
+      repoId: "fixture-auth-repo",
+      instanceId: "fixture-auth-instance",
+      ...(method === "showRuntimeInstance" ? { probe: true } : {}),
+    };
+    let arrived!: () => void, reply!: (error?: boolean) => void;
     let requests = 0;
     let received = new Promise<void>((resolve) => {
       arrived = resolve;
@@ -51,8 +59,18 @@ it.each(["signInRuntimeInstance", "signOutRuntimeInstance"])(
         else {
           requests += 1;
           expect(request.method).toBe(rpcMethod);
-          reply = () =>
-            respond({ schema: "terminal-control-receipt/v1", ok: true, outcome: "applied", sessionId: "term_auth_1" });
+          reply = (error = false) => {
+            if (error)
+              socket.write(
+                `${JSON.stringify({ jsonrpc: "2.0", id: request.id, error: { code: -32001, message: "fixture probe failed" } })}\n`,
+              );
+            else
+              respond(
+                method === "showRuntimeInstance"
+                  ? { ok: true, instance: { instanceId: "fixture-auth-instance" } }
+                  : { schema: "terminal-control-receipt/v1", ok: true, outcome: "applied", sessionId: "term_auth_1" },
+              );
+          };
           arrived();
         }
       });
@@ -74,32 +92,49 @@ it.each(["signInRuntimeInstance", "signOutRuntimeInstance"])(
       delete process.env.HARNESS_DAEMON_ENDPOINT;
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
       const bridge = createLocalGuiServiceBridge();
-      const pending = bridge.invoke(method, { repoId: "fixture-auth-repo", instanceId: "fixture-auth-instance" });
+      const pending = bridge.invoke(method, payload);
       await Promise.race([
         received,
         Promise.resolve(pending).then((receipt) => {
           throw new Error(JSON.stringify(receipt));
         }),
       ]);
-      vi.advanceTimersByTime(2_500);
+      vi.advanceTimersByTime(elapsed);
       reply();
-      expect(await pending).toMatchObject({ ok: true, outcome: "applied", sessionId: "term_auth_1" });
+      expect(await pending).toMatchObject(
+        method === "showRuntimeInstance"
+          ? { ok: true, instance: { instanceId: "fixture-auth-instance" } }
+          : { ok: true, outcome: "applied", sessionId: "term_auth_1" },
+      );
       received = new Promise<void>((resolve) => {
         arrived = resolve;
       });
-      const timedOut = bridge.invoke(method, { repoId: "fixture-auth-repo", instanceId: "fixture-auth-instance" });
+      const timedOut = bridge.invoke(method, payload);
       await Promise.race([
         received,
         Promise.resolve(timedOut).then((receipt) => {
           throw new Error(JSON.stringify(receipt));
         }),
       ]);
-      vi.advanceTimersByTime(20_001);
+      vi.advanceTimersByTime(deadline + 1);
       expect(await timedOut).toMatchObject({
         ok: false,
-        error: { code: "daemon_response_timeout", hint: expect.stringContaining("within 20s") },
+        error: { code: "daemon_response_timeout", hint: expect.stringContaining(`within ${deadline / 1_000}s`) },
       });
-      expect(requests).toBe(2);
+      if (method === "showRuntimeInstance") {
+        received = new Promise<void>((resolve) => {
+          arrived = resolve;
+        });
+        const failed = bridge.invoke(method, payload);
+        await received;
+        vi.advanceTimersByTime(25_000);
+        reply(true);
+        expect(await failed).toMatchObject({
+          ok: false,
+          error: { code: "json_rpc_-32001", hint: expect.stringContaining("fixture probe failed") },
+        });
+      }
+      expect(requests).toBe(method === "showRuntimeInstance" ? 3 : 2);
     } finally {
       vi.useRealTimers();
       for (const socket of sockets) socket.destroy();
