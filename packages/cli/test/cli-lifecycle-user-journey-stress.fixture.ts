@@ -5,6 +5,8 @@ import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-any
 import assert from "node:assert/strict";
 
 import { execFileSync, spawn } from "node:child_process";
+import { once } from "node:events";
+import { createInterface } from "node:readline";
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 
@@ -194,7 +196,59 @@ async function runChain(
   return { taskId, status: finalEvidence.task?.status ?? "missing", elapsedMs: Date.now() - startedAt };
 }
 
+// Only repeated preparation uses a warm CLI main. Scenario commands still spawn independent
+// CLI processes, including the concurrent eight-client and daemon-restart assertions.
+const setupClients = new Map<Fixture, (args: readonly string[], timeoutMs: number) => Promise<RunResult>>();
 async function startClient(fixture: Fixture): Promise<void> {
+  const child = spawn(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `
+    import { createInterface } from "node:readline";
+    import { main } from ${JSON.stringify(new URL("../src/index.ts", import.meta.url).href)};
+    for await (const line of createInterface({ input: process.stdin })) {
+      let stdout = "";
+      const write = process.stdout.write;
+      process.stdout.write = (chunk) => { stdout += chunk; return true; };
+      try {
+        const status = await main(["--root", ${JSON.stringify(fixture.root)}, "--json", ...JSON.parse(line)]);
+        process.stdout.write = write;
+        console.log(JSON.stringify({ status, stdout: stdout.trim(), stderr: "" }));
+      } finally { process.stdout.write = write; }
+    }
+  `,
+    ],
+    { cwd: fixture.root, env: actorEnvironment(fixture, 0, null), stdio: ["pipe", "pipe", "pipe"] },
+  );
+  const exited = once(child, "exit");
+  let stderr = "";
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+  const responses = createInterface({ input: child.stdout })[Symbol.asyncIterator]();
+  setupClients.set(fixture, async (args, timeoutMs) => {
+    const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
+    try {
+      child.stdin.write(`${JSON.stringify(args)}\n`);
+      const response = await responses.next();
+      assert.equal(response.done, false, `CLI setup exited before ${args.join(" ")}: ${stderr}`);
+      return { ...(JSON.parse(response.value!) as RunResult), stderr };
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+  try {
+    await prepareClient(fixture);
+  } finally {
+    setupClients.delete(fixture);
+    child.stdin.end();
+    await exited;
+  }
+}
+
+async function prepareClient(fixture: Fixture): Promise<void> {
   const started = await runResult(fixture, ["daemon", "start", "--service"], actorEnvironment(fixture, 0, null));
   if (started.status === 0) {
     await rememberDaemonPid(fixture, parseCliReceipt(started, "daemon start"));
@@ -570,6 +624,8 @@ function runResult(
   input?: string,
   timeoutMs = 120_000,
 ): Promise<RunResult> {
+  const prepared = setupClients.get(fixture);
+  if (prepared) return prepared(args, timeoutMs);
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [cli, "--root", fixture.root, "--json", ...args], {
       cwd: fixture.root,
