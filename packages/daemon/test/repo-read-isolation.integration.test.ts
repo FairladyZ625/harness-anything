@@ -13,7 +13,7 @@ import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts"
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { initIngressRepo, rpc } from "./fixtures/runtime-ingress.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
-import { registerBootstrappedDaemonRepo, settleSettingsEvent } from "./repo-settings.fixture.ts";
+import { registerBootstrappedDaemonRepo, openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 
 async function waitStarted(barrier: Int32Array, count: number): Promise<void> {
   for (let observed = Atomics.load(barrier, 1); observed < count; observed = Atomics.load(barrier, 1))
@@ -162,9 +162,9 @@ test("closing a real reader releases SQLite handles before reusing its isolate a
   const root = mkdtempSync(path.join(tmpdir(), "ha-reader-release-")),
     repoId = "reader-release",
     handles = new Int32Array(new SharedArrayBuffer(8)),
-    workers: Worker[] = [];
+    workers: Worker[] = [],
+    timings: number[] = [];
   initIngressRepo(root, process.getuid?.() ?? 0);
-  await settleSettingsEvent({ repoId, rootDir: root });
   const input = { repoId: repoId as never, rootDir: root as never, ownerId: "release-test" },
     factory: import("../src/repo-read-pool.ts").RepoReadWorkerFactory = (_url, options) => {
       const worker = new Worker(new URL("./fixtures/read-handle-worker.ts", import.meta.url), {
@@ -174,13 +174,17 @@ test("closing a real reader releases SQLite handles before reusing its isolate a
       workers.push(worker);
       return worker;
     };
+  // The reader consumes a completed projection; seeding only the canonical event
+  // store does not build it. Attach and drain the real writer before opening readers.
+  await (await openBootstrappedRepoCell(input)).close();
   try {
     for (let attempt = 0; attempt < 2; attempt++) {
       const client = openRepoReadClient(input, factory);
       try {
+        const started = performance.now();
         assert.ok(await client.request("readEventWitness", [1]));
-        // This operation also opens the lazy canonical-event reader.
-        await client.request("observeTail", [{ afterRevision: 0 }]);
+        timings.push(performance.now() - started);
+        await client.request("observeTail", [{ kind: "events", direction: "history" }]);
         assert.ok(Atomics.load(handles, 0) > Atomics.load(handles, 1), "the real read must open a connection");
       } finally {
         await client.close();
@@ -191,6 +195,7 @@ test("closing a real reader releases SQLite handles before reusing its isolate a
     }
     rmSync(root, { recursive: true, force: true });
     t.diagnostic(`native reader handles opened=${Atomics.load(handles, 0)} closed=${Atomics.load(handles, 1)}`);
+    t.diagnostic(`reader first-query ms: cold=${timings[0]!.toFixed(1)} warm=${timings[1]!.toFixed(1)}`);
   } finally {
     await Promise.all(workers.map((worker) => worker.terminate()));
     rmSync(root, { recursive: true, force: true });
