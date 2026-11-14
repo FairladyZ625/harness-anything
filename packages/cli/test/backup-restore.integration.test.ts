@@ -240,11 +240,13 @@ test("center bootstrap chain: backup, offline restore, remote-center register, r
     return row?.state === "attached" && row?.mode === "remote-center";
   });
   const rebuild = applied(center, ["--root", center.root, "daemon", "projection", "rebuild"]);
-  const proof = rebuild.proof as Record<string, unknown>;
-  assert.equal(proof.committedRevision, proof.appliedCut, JSON.stringify(rebuild));
+  assert.equal(rebuild.status, "settled_no_write");
+  assert.equal(rebuild.proof, undefined, "rebuilding a local projection never claims new canonical acceptance");
+  const rebuiltCut = JSON.parse(String(rebuild.evidence)) as { watermark: number; sourceRevision: number };
+  assert.equal(rebuiltCut.watermark, rebuiltCut.sourceRevision, JSON.stringify(rebuild));
   // The center daemon legitimately advances the restored cut with its own system events; the
   // rebuild must never fall behind the cut the backup carried in.
-  assert.ok(Number(proof.committedRevision) >= acceptedRevision, JSON.stringify(rebuild));
+  assert.ok(rebuiltCut.watermark >= acceptedRevision, JSON.stringify(rebuild));
 
   // Entities read back through the center daemon from the restored canonical ledger.
   const shown = receiptOf(center, ["--root", center.root, "task", "show", taskId]);

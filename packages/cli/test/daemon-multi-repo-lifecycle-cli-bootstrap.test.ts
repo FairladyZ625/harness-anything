@@ -103,9 +103,10 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
       defaultConfig,
       /scaffolds:\n    task: governance\/task-scaffold\.json\n    repository: governance\/repository-scaffold\.json/u,
     );
-    assert.doesNotMatch(defaultConfig, /^  locale:/mu);
+    assert.doesNotMatch(defaultConfig, /^  (?:locale|nodeTaskMaterializationPolicy):/mu);
     assert.deepEqual(JSON.parse(readFileSync(path.join(fixture.repo, ".harness/settings.local.json"), "utf8")), {
       schema: "settings-local/v1",
+      nodeTaskMaterializationPolicy: "include_done",
       locale: "en-US",
       gui: { connectTimeoutMs: 2000, requestTimeoutMs: 30000 },
     });
