@@ -33,6 +33,7 @@ export type CreateInstanceFormState = {
   readonly permissionMode?: "bypass" | "workspace-write" | "read-only";
   readonly mcpPolicy?: "disabled" | "inherit";
   readonly isolation: "enforced" | "operator-environment";
+  readonly credentialSource?: "operator" | "instance";
   readonly webSearch?: RuntimeWebSearchMode;
 };
 export type RuntimeInstanceEditFormState = {
@@ -43,6 +44,7 @@ export type RuntimeInstanceEditFormState = {
   readonly permissionMode: CreateInstanceFormState["permissionMode"];
   readonly mcpPolicy?: CreateInstanceFormState["mcpPolicy"];
   readonly isolation: CreateInstanceFormState["isolation"];
+  readonly credentialSource?: CreateInstanceFormState["credentialSource"];
   readonly webSearch?: RuntimeWebSearchMode;
   readonly name: string;
   readonly installationId: string;
@@ -115,6 +117,7 @@ export function buildRuntimeInstanceCreatePayload(
     ...(declaration.permissions.available ? { permissionMode: form.permissionMode } : {}),
     ...(declaration.capabilities.mcp === "supported" && form.mcpPolicy ? { mcpPolicy: form.mcpPolicy } : {}),
     ...(planeAllowsIsolation(form.kindId) ? { isolationState: form.isolation } : {}),
+    ...(form.credentialSource !== undefined ? { credentialSource: form.credentialSource } : {}),
     [form.kindId]: configuration,
   };
 }
@@ -137,6 +140,7 @@ export function runtimeInstanceEditForm(instance: RuntimeInstanceSummary): Runti
         ? (instance.mcpPolicy ?? "disabled")
         : undefined,
     isolation: instance.isolationState,
+    credentialSource: instance.credentialSource,
     webSearch: runtimeKindForId(instance.kindId).configuration.webSearch
       ? ((instance.configuration.webSearch as RuntimeWebSearchMode | undefined) ??
         runtimeKindForId(instance.kindId).configuration.webSearch!.defaultMode)
@@ -224,6 +228,7 @@ export function buildRuntimeInstanceUpdatePayload(
       ? { mcpPolicy: form.mcpPolicy }
       : {}),
     ...(planeAllowsIsolation(form.kindId) ? { isolationState: form.isolation } : {}),
+    ...(form.credentialSource !== undefined ? { credentialSource: form.credentialSource } : {}),
     ...(form.webSearch !== undefined && runtimeKindForId(form.kindId).configuration.webSearch
       ? { webSearch: form.webSearch }
       : {}),

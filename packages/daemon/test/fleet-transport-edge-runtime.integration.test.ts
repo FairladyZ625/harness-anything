@@ -274,6 +274,10 @@ test(
         version: "1.0.0",
         observedAt: "2026-08-23T00:00:00.000Z",
       },
+      alternateInstallation: RuntimeInstallationWitness = {
+        ...runtimeInstallation,
+        installationId: "aaa-edge-codex-installation",
+      },
       unique = `edge-worker-${Date.now()}`,
       before = await fixture.host.read(fixture.subject.repoId, "repo.tasks.list", {}, fixture.auth),
       launchedInstances: string[] = [];
@@ -281,7 +285,7 @@ test(
     const edgeHost = await openDaemonHost({
       daemonId: "fleet-runtime-edge",
       userRoot: edgeUserRoot,
-      runtimeDiscover: () => [runtimeInstallation],
+      runtimeDiscover: () => [runtimeInstallation, alternateInstallation],
       runtimeLaunch: (prepared) => {
         launchedEnv = prepared.env;
         const launchIndex = launchedInstances.push(prepared.definition.instanceId) - 1,
@@ -359,7 +363,10 @@ test(
           instanceId,
           name,
           kindId: runtimeDefinition.kindId,
-          installationId: runtimeDefinition.installationId,
+          installationId:
+            instanceId === runtimeDefinition.instanceId
+              ? runtimeDefinition.installationId
+              : alternateInstallation.installationId,
           providerId: runtimeDefinition.providerId,
           models: [runtimeDefinition.model],
           codex: { reasoningEffort: runtimeDefinition.reasoningEffort },

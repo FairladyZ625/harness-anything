@@ -44,20 +44,24 @@ test(
       createConvenienceLinks: false,
     });
     const installations = (["claude", "codex"] as const).map((kindId) => {
-      const executablePath = writeProviderStub(
-        path.join(parent, `${kindId}-stub.mjs`),
-        kindId,
-        undefined,
-        kindId === "claude" ? 1_000 : 40,
-      );
-      return {
-        installationId: `installation-${kindId}`,
-        kindId,
-        executablePath,
-        version: kindId === "claude" ? "2.1.305 (Claude Code)" : "1.0.0",
-        observedAt: "2026-08-19T00:00:00.000Z",
-      } as const;
-    });
+        const executablePath = writeProviderStub(
+          path.join(parent, `${kindId}-stub.mjs`),
+          kindId,
+          undefined,
+          kindId === "claude" ? 1_000 : 40,
+        );
+        return {
+          installationId: `installation-${kindId}`,
+          kindId,
+          executablePath,
+          version: kindId === "claude" ? "2.1.305 (Claude Code)" : "1.0.0",
+          observedAt: "2026-08-19T00:00:00.000Z",
+        } as const;
+      }),
+      codexReadOnlyInstallation = {
+        ...installations.find((installation) => installation.kindId === "codex")!,
+        installationId: "installation-codex-read-only",
+      };
     const auth = {
         transportKind: "unix-socket",
         unixSocketOwnerBoundary: {
@@ -68,7 +72,7 @@ test(
       host = await openDaemonHost({
         daemonId: "runtime-provider-events",
         userRoot,
-        runtimeDiscover: () => installations,
+        runtimeDiscover: () => [...installations, codexReadOnlyInstallation],
       });
     await host.attachmentsSettled();
     try {
@@ -92,7 +96,7 @@ test(
           instanceId: "codex-read-only",
           name: "codex read only",
           kindId: "codex",
-          installationId: "installation-codex",
+          installationId: codexReadOnlyInstallation.installationId,
           providerId: "openai",
           models: ["codex-model"],
           permissionMode: "read-only",
@@ -776,7 +780,10 @@ test("agy consumes only its closed stream-json event protocol", { timeout: 300_0
     userRoot,
     createConvenienceLinks: false,
   });
-  const agyStub = writeProviderExecutable(path.join(parent, "agy-stub"), "process.exit(0)\n");
+  const agyStub = writeProviderExecutable(
+    path.join(parent, "agy-stub"),
+    'if (process.argv.includes("models")) console.log("gemini-3.1-pro-low\\tfixture");\nelse process.exit(0);\n',
+  );
   installation = { ...installation, executablePath: agyStub };
   let unknown = false;
   const auth = {

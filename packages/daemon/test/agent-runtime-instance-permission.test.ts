@@ -27,9 +27,13 @@ test("Claude workspace-write permits the mission's CLI entries across isolation,
       executablePath: "/opt/runtime-test/claude",
       version: "2.1.305 (Claude Code)",
     },
+    claudeSubscriptionInstallations = (["enforced", "operator-environment"] as const).map((isolationState) => ({
+      ...claude,
+      installationId: `${claude.installationId}-${isolationState}`,
+    })),
     store = openRuntimeInstanceStore({
       userRoot,
-      discover: () => [claude],
+      discover: () => [claude, ...claudeSubscriptionInstallations],
       resolveCredential: () => "test-key",
       subscriptionReady: () => ({ status: "ready", code: null, hint: null }),
       platform: "darwin",
@@ -44,12 +48,18 @@ test("Claude workspace-write permits the mission's CLI entries across isolation,
   for (const isolationState of ["enforced", "operator-environment"] as const)
     for (const mode of ["subscription", "api-key"] as const) {
       const instanceId = `claude-${isolationState}-${mode}`;
+      const installationId =
+        mode === "subscription"
+          ? claudeSubscriptionInstallations.find((installation) =>
+              installation.installationId.endsWith(isolationState),
+            )!.installationId
+          : claude.installationId;
       store.create({
         schemaVersion: 2,
         instanceId,
         name: instanceId,
         kindId: "claude",
-        installationId: claude.installationId,
+        installationId,
         providerId: "anthropic",
         models: ["claude-fable-5"],
         defaultModel: "claude-fable-5",
@@ -574,7 +584,7 @@ test("codex isolation edits persist and read back through the same projection th
   }
 });
 
-test("a kind declaring a single isolation state rejects edits to any other value", () => {
+test("agy accepts each isolation state declared by its provider contract", () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-agy-isolation-")),
     agy = {
       installationId: "agy-isolation",
@@ -598,15 +608,18 @@ test("a kind declaring a single isolation state rejects edits to any other value
       models: ["gemini-3.1-pro-low"],
       authMode: "subscription",
     });
-    assert.throws(
-      () =>
-        store.command({
-          kind: "runtime-instance-update",
-          instanceId: "agy-isolated",
-          isolationState: "enforced",
-        }),
-      (error: unknown) => codedAs(error, "invalid_runtime_isolation"),
-    );
+    store.command({
+      kind: "runtime-instance-update",
+      instanceId: "agy-isolated",
+      isolationState: "enforced",
+    });
+    assert.equal(store.read("agy-isolated")?.isolationState, "enforced");
+    store.command({
+      kind: "runtime-instance-update",
+      instanceId: "agy-isolated",
+      isolationState: "operator-environment",
+    });
+    assert.equal(store.read("agy-isolated")?.isolationState, "operator-environment");
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }

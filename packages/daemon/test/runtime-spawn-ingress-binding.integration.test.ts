@@ -75,7 +75,10 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", { time
       kindId: "claude" as const,
       // The shared witness is Codex-shaped; Claude's launch contract declares its own floor.
       version: "2.1.305 (Claude Code)",
-    };
+    },
+    codexOperatorInstallation = { ...ingressInstallation, installationId: "installation-codex-operator-route" },
+    codexReadOnlyInstallation = { ...ingressInstallation, installationId: "installation-codex-read-only-route" },
+    codexBypassInstallation = { ...ingressInstallation, installationId: "installation-codex-bypass-route" };
   let launchedEnv: NodeJS.ProcessEnv | null = null,
     launchedPrompt = "",
     launchedPersistence: { readonly callbackRelay?: { readonly endpoint: string; readonly path: string } } | null =
@@ -84,7 +87,13 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", { time
   const host = await openDaemonHost({
     daemonId: "runtime-spawn-ingress",
     userRoot,
-    runtimeDiscover: () => [ingressInstallation, claudeInstallation],
+    runtimeDiscover: () => [
+      ingressInstallation,
+      claudeInstallation,
+      codexOperatorInstallation,
+      codexReadOnlyInstallation,
+      codexBypassInstallation,
+    ],
     runtimeLaunch: (prepared, persistence) => {
       launchedEnv = prepared.env;
       launchedPrompt = prepared.prompt;
@@ -344,7 +353,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", { time
           {
             id: "codex-operator-route",
             kindId: "codex" as const,
-            installationId: ingressInstallation.installationId,
+            installationId: codexOperatorInstallation.installationId,
             permissionMode: "workspace-write" as const,
             isolationState: "operator-environment" as const,
             provider: "openai",
@@ -353,7 +362,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", { time
           {
             id: "codex-read-only-route",
             kindId: "codex" as const,
-            installationId: ingressInstallation.installationId,
+            installationId: codexReadOnlyInstallation.installationId,
             permissionMode: "read-only" as const,
             isolationState: "enforced" as const,
             provider: "openai",
@@ -362,7 +371,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", { time
           {
             id: "codex-bypass-route",
             kindId: "codex" as const,
-            installationId: ingressInstallation.installationId,
+            installationId: codexBypassInstallation.installationId,
             permissionMode: "bypass" as const,
             isolationState: "enforced" as const,
             provider: "openai",

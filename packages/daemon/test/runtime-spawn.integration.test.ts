@@ -288,6 +288,9 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       version: "1.0.0",
       observedAt: "2026-08-20T00:00:00.000Z",
     },
+    runtimeInstallationB = { ...runtimeInstallation, installationId: "installation-codex-agent-model-b" },
+    runtimeInstallationNotReady = { ...runtimeInstallation, installationId: "installation-codex-not-ready" },
+    runtimeInstallationUnchecked = { ...runtimeInstallation, installationId: "installation-codex-unchecked-not-ready" },
     claudeInstallation = {
       ...runtimeInstallation,
       installationId: "installation-claude-agent-model",
@@ -309,7 +312,14 @@ test("runtime spawn resolves command model, Agent model, then instance default w
     },
     instances = openRuntimeInstanceStore({
       userRoot,
-      discover: () => [runtimeInstallation, claudeInstallation, agyInstallation],
+      discover: () => [
+        runtimeInstallation,
+        runtimeInstallationB,
+        runtimeInstallationNotReady,
+        runtimeInstallationUnchecked,
+        claudeInstallation,
+        agyInstallation,
+      ],
       subscriptionReady: ({ env }) => {
         const instanceId = path.basename(path.dirname(path.dirname(env.CODEX_HOME ?? "")));
         probed.push(instanceId);
@@ -337,7 +347,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
     instanceId: "codex-agent-model-b",
     name: "Codex Agent Model B",
     kindId: "codex",
-    installationId: runtimeInstallation.installationId,
+    installationId: runtimeInstallationB.installationId,
     providerId: "openai",
     models: [...models],
     defaultModel: "instance-default",
@@ -351,7 +361,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
     instanceId: "codex-not-ready",
     name: "Codex Not Ready",
     kindId: "codex",
-    installationId: runtimeInstallation.installationId,
+    installationId: runtimeInstallationNotReady.installationId,
     providerId: "openai",
     models: ["not-ready-only"],
     defaultModel: "not-ready-only",
@@ -365,7 +375,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
     instanceId: "codex-unchecked-not-ready",
     name: "Codex Unchecked Not Ready",
     kindId: "codex",
-    installationId: runtimeInstallation.installationId,
+    installationId: runtimeInstallationUnchecked.installationId,
     providerId: "openai",
     models: ["unchecked-not-ready-only"],
     defaultModel: "unchecked-not-ready-only",

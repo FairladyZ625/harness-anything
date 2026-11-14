@@ -47,6 +47,7 @@ const runtimeInstanceCreateFields = [
   "permissionMode",
   "mcpPolicy",
   "isolationState",
+  "credentialSource",
   ...runtimeKindIds,
   "authMode",
   "apiKey",
@@ -295,6 +296,8 @@ function runtimeInstanceCreateProblem(value: unknown): string | undefined {
     !declaration.isolation.states.some((state) => state === value.isolationState)
   )
     return `field "isolationState" is not supported for ${value.kindId}.`;
+  if (value.credentialSource !== undefined && !["operator", "instance"].includes(String(value.credentialSource)))
+    return 'field "credentialSource" must be operator or instance.';
   if (value.kindId === "codex" && value.authMode === "api-key" && value.isolationState === "operator-environment")
     return 'field "isolationState" must be enforced for codex API-key auth.';
   if (value.authMode === "api-key" && (typeof value.apiKey !== "string" || value.apiKey.trim().length === 0))
@@ -355,6 +358,7 @@ function validRuntimeInstanceUpdate(value: unknown): boolean {
     (value.mcpPolicy === undefined || ["", "disabled", "inherit"].includes(String(value.mcpPolicy))) &&
     (value.isolationState === undefined ||
       ["enforced", "operator-environment"].includes(String(value.isolationState))) &&
+    (value.credentialSource === undefined || ["operator", "instance"].includes(String(value.credentialSource))) &&
     [value.name, value.installationId, value.defaultModel].every(
       (field) => field === undefined || (typeof field === "string" && field.length > 0),
     ) &&
