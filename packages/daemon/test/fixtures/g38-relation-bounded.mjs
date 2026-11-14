@@ -329,7 +329,7 @@ async function tracePgProbe(dimension, size, probeIds, backend = "pglite") {
 }
 
 // Removal authority: dec_193D3BD6C59FCA1ECE4C820415 and dec_9806C22E9717DD821A205AABAA.
-// Original 200/2000 probes and margins; the two integration files share only this fixture.
+// Original 200/2000 probes and margins; all dimensions share this file's database lifecycle.
 export const P4_RELATION_READ_CASES = {
   "runtime-sessions": ["cli-decision-validate", "cli-decision-verify", "cli-graph"],
   dispatches: ["cli-decision-validate", "cli-decision-verify", "cli-graph"],

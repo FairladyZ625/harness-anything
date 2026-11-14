@@ -1001,19 +1001,14 @@
     ],
     "overBudgetFiles": [
       {
+        "value": "packages/cli/test/daemon-multi-repo-lifecycle-cli.test.ts",
+        "ref": "task_2f953ccf18522e7a9535dd8dc3",
+        "reason": "Over the unchanged 180s file budget (296.2s; complete ten-shard run43608963618, source32fc07ee, 2026-11-14). All650 files have unique hosted duration samples; original cases/assertions/scales remain. Align existing exception slots only to measured over-budget files; count3 to2, no threshold increase."
+      },
+      {
         "value": "packages/daemon/test/daemon-package.integration.test.mjs",
         "ref": "task_2f953ccf18522e7a9535dd8dc3",
-        "reason": "Over the unchanged 180s file budget (225.4s; complete ten-shard run 43601609361 [node-test-duration], 2026-11-14). The existing three exceptions track the three largest complete-corpus observations; all cases/assertions remain, and the fourth measured over-budget file is deliberately not exempted."
-      },
-      {
-        "value": "packages/daemon/test/task-completion-review.integration.test.ts",
-        "ref": "task_2f953ccf18522e7a9535dd8dc3",
-        "reason": "Over the unchanged 180s file budget (186.3s; complete ten-shard run 43601609361 [node-test-duration], 2026-11-14). The existing three exceptions track the three largest complete-corpus observations; all cases/assertions remain, and the fourth measured over-budget file is deliberately not exempted."
-      },
-      {
-        "value": "packages/cli/test/cli-lifecycle-user-journey-stress-scenario-1.integration.test.ts",
-        "ref": "task_2f953ccf18522e7a9535dd8dc3",
-        "reason": "Over the unchanged 180s file budget (185.4s; complete ten-shard run 43601609361 [node-test-duration], 2026-11-14). The existing three exceptions track the three largest complete-corpus observations; all cases/assertions remain, and the fourth measured over-budget file is deliberately not exempted."
+        "reason": "Over the unchanged 180s file budget (229.2s; complete ten-shard run43608963618, source32fc07ee, 2026-11-14). All650 files have unique hosted duration samples; original cases/assertions/scales remain. Align existing exception slots only to measured over-budget files; count3 to2, no threshold increase."
       }
     ]
   }
