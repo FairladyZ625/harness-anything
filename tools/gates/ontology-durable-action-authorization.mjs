@@ -56,11 +56,13 @@ const sessionAnchors = [
 export async function loadAuthorizationInputs(rootDir) {
   const load = (file) => import(pathToFileURL(path.join(rootDir, file)).href);
   const actionDeclarationRelPath = "packages/kernel/src/domain/action-declaration.ts";
-  const [contract, commands, kernel, domainDeclarations] = await Promise.all([
+  const entityKindRelPath = "packages/kernel/src/domain/entity-kind-registry.ts";
+  const [contract, commands, kernel, domainDeclarations, entityKinds] = await Promise.all([
     load("packages/daemon/src/protocol/daemon-protocol.contract.ts"),
     load("packages/daemon/src/protocol/daemon-protocol-commands.ts"),
     load("packages/kernel/src/index.ts"),
     fs.existsSync(path.join(rootDir, actionDeclarationRelPath)) ? load(actionDeclarationRelPath) : null,
+    fs.existsSync(path.join(rootDir, entityKindRelPath)) ? load(entityKindRelPath) : null,
   ]);
   const constants = {},
     functions = {};
@@ -72,6 +74,7 @@ export async function loadAuthorizationInputs(rootDir) {
     domainDeclarations?.artifactActionIngressKinds ?? kernel.artifactActionIngressKinds ?? [],
   );
   constants.actionDeclarations = actionDeclarations;
+  constants.entityKindContracts = entityKinds?.entityKindContracts ?? [];
   const descriptors = [...contract.daemonProtocolCommands, ...contract.daemonGuiActionMethods].map((row) => ({
     ...row,
   }));
@@ -202,7 +205,10 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
         ]),
       ],
     }),
-    witnesses = sourceWitnesses(graph, declaredSources),
+    witnesses = sourceWitnesses(graph, [
+      ...declaredSources,
+      ...declaredActions.flatMap((action) => action.ontology?.sources ?? []),
+    ]),
     sourceTargets = (action, route) =>
       (action?.ontology?.sources ?? [])
         .filter(
@@ -236,10 +242,19 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       entries: transportEntries(graph),
       constants: inputs.constants,
       functions: inputs.functions,
+      serviceCall: (node, kind, canonical) =>
+        declaredActions.some((action) =>
+          (action.ontology?.sources ?? []).some(
+            (source) =>
+              witnesses.get(source.candidateId) === node &&
+              (canonical
+                ? action.kind === kind && (source.role === "effect" || source.role === undefined)
+                : Boolean(technicalPortEvidence(graph, node, source, action, inputs.descriptors))),
+          ),
+        ),
     },
     tracer = makeAuthorizationTracer(authorizationPolicyGraph(graph), anchors),
-    // A typed policy boundary is not an unguarded call: its implementation may obtain
-    // and enforce its own canonical decision. Source ownership must retain those guards.
+    // Source ownership retains internal service guards as well as its actual callback frames.
     sourceTracer = makeAuthorizationTracer(graph, anchors),
     // ActionDeclaration residency: a host- or runtime-local action is not decided at a canonical cut.
     nonCanonical = new Set(

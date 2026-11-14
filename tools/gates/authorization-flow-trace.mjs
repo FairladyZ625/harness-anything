@@ -205,6 +205,16 @@ export function makeAuthorizationTracer(graph, anchors) {
       authorityGraph.interfaceMembers(anchors.currentCut.file, anchors.currentCut.name).get(anchors.currentCut.member),
     cutMembers = new Map(cutMember ? [[anchors.currentCut.member, new Set([cutMember])]] : []),
     cutCalls = new Map();
+  // The service's command belongs to its declared lifecycle action, which may differ
+  // from the outer queue's action. Derive that relationship from the shared contracts.
+  const lifecycleKinds = new Map();
+  for (const contract of anchors.constants?.entityKindContracts ?? [])
+    for (const { execution } of contract.actionCatalog?.actions ?? []) {
+      const command = execution?.lifecycle?.commandType,
+        ingress = execution?.ingress;
+      if (!command || !anchors.constants.actionDeclarations?.some((action) => action.kind === ingress)) continue;
+      lifecycleKinds.set(command, new Set([...(lifecycleKinds.get(command) ?? []), ingress]));
+    }
 
   function declaredIn(tainted, identifier) {
     const binding = graph.lookup(identifier.text, identifier);
@@ -419,6 +429,7 @@ export function makeAuthorizationTracer(graph, anchors) {
       },
       memo = new Map(),
       guardCalls = new Map(),
+      deferredFrames = [],
       stack = [];
 
     const newState = () => ({
@@ -1013,7 +1024,8 @@ export function makeAuthorizationTracer(graph, anchors) {
 
     // Resolve a field through immutable aliases, arguments and returned objects. Unknown
     // branches must agree; two opaque values are never equal merely because both are unknown.
-    const serviceQueries = new WeakMap();
+    const serviceQueries = new WeakMap(),
+      missingServiceField = { node: null, fields: [] };
     function serviceValue(expression, env, fields = [], depth = 0) {
       const node = unwrap(expression);
       if (!node || depth > maxWalkDepth) return null;
@@ -1073,11 +1085,11 @@ export function makeAuthorizationTracer(graph, anchors) {
           if (ts.isSpreadAssignment(property)) {
             if (lacksKey(property.expression, key)) continue;
             const found = next(property.expression, env, fields);
-            if (found) return found;
+            if (found !== missingServiceField) return found;
           } else if (property.name && sourceGraph.memberKey(property.name) === key)
             return next(ts.isPropertyAssignment(property) ? property.initializer : property.name, env, rest);
         }
-        return null;
+        return missingServiceField;
       }
       if (ts.isCallExpression(node)) {
         if (
@@ -1094,10 +1106,15 @@ export function makeAuthorizationTracer(graph, anchors) {
           for (const result of serviceReturns(value.node, inner)) {
             const answer = next(result.expression, inner, fields);
             if (!answer) return null;
+            if (answer === missingServiceField) {
+              answers.push(answer);
+              continue;
+            }
             const guarded = result.guards.some((condition) => serviceDenial(condition, inner, answer));
             answers.push({ ...answer, guarded: answer.guarded || guarded });
           }
         }
+        if (answers.length && answers.every((answer) => answer === missingServiceField)) return missingServiceField;
         return answers.length && answers.every((answer) => sameServiceValue(answer, answers[0]))
           ? { ...answers[0], guarded: answers.every((answer) => answer.guarded) }
           : null;
@@ -1106,7 +1123,13 @@ export function makeAuthorizationTracer(graph, anchors) {
     }
 
     const sameServiceValue = (left, right) =>
-      Boolean(left && right && left.node === right.node && left.fields.join(".") === right.fields.join("."));
+      Boolean(
+        left?.node &&
+          right?.node &&
+          left.node === right.node &&
+          left.fields.join(".") === right.fields.join(".") &&
+          sourceFrameKey(sourceGraph, left.node, left.env) === sourceFrameKey(sourceGraph, right.node, right.env),
+      );
 
     // Only a throwing denial exit dominates an enforcer's returned decision. A name,
     // annotation or unused guard is not proof. Fold command discriminants at the actual call.
@@ -1166,8 +1189,8 @@ export function makeAuthorizationTracer(graph, anchors) {
       const left = serviceValue(node.left, env),
         right = serviceValue(node.right, env);
       if (
-        !left ||
-        !right ||
+        !left?.node ||
+        !right?.node ||
         left.fields.length ||
         right.fields.length ||
         !ts.isStringLiteralLike(left.node) ||
@@ -1199,7 +1222,7 @@ export function makeAuthorizationTracer(graph, anchors) {
         fn = value.node;
       let progress = -1,
         failure = "no command/proof service invocation";
-      const describe = (value) => (value ? `${where(value.node)}:${value.fields.join(".")}` : "unresolved");
+      const describe = (value) => (value?.node ? `${where(value.node)}:${value.fields.join(".")}` : "unresolved");
       const reject = (node, stage, reason) => {
         if (stage > progress) {
           progress = stage;
@@ -1229,7 +1252,7 @@ export function makeAuthorizationTracer(graph, anchors) {
           actor = serviceValue(command, env, ["actor"]),
           proofActor = serviceValue(proof, env, ["actorBinding"]),
           boundActor = serviceValue(proof, env, ["actor", "principal"]);
-        if (!decision) return reject(node, 0, "service proof has no resolved decision");
+        if (!decision?.node) return reject(node, 0, "service proof has no resolved decision");
         let inlineGuard = false;
         for (let child = node; child.parent && child !== fn.body; child = child.parent) {
           if (!ts.isBlock(child.parent)) continue;
@@ -1249,27 +1272,34 @@ export function makeAuthorizationTracer(graph, anchors) {
           return reject(node, 1, "service proof decision has no throwing allowed-decision enforcer");
         if (!ts.isCallExpression(decision.node) || ownFunction(decision.node) !== fn || decision.node.pos >= node.pos)
           return reject(node, 2, "decision is not independently produced before this service call in the callback");
-        if (decision.guarded && !sameServiceValue(actor, proofActor))
+        const subject = decisionSubject(decision.node, decision.env),
+          input = decision.node.arguments[0],
+          authorizedActor = serviceValue(input, decision.env, ["binding", "actor", "principal"]),
+          revision = serviceValue(input, decision.env, ["revision"]);
+        const canonical = Boolean(decision.guarded || anchors.serviceCall?.(node, subject.kind, true));
+        if (canonical && !sameServiceValue(actor, proofActor))
           return reject(
             node,
             3,
             `command and service proof actors do not resolve to the same principal (${describe(actor)} / ${describe(proofActor)})`,
           );
-        const subject = decisionSubject(decision.node, decision.env),
-          input = decision.node.arguments[0],
-          authorizedActor = serviceValue(input, decision.env, ["binding", "actor", "principal"]),
-          revision = serviceValue(input, decision.env, ["revision"]);
         const declared = (facts.constants.actionDeclarations ?? []).some((action) => action.kind === subject.kind);
-        if (subject.kind !== descriptor.kind && (decision.guarded || !declared))
+        const commandType = serviceValue(command, env, ["type"]),
+          expectedKinds =
+            commandType?.node && !commandType.fields.length && ts.isStringLiteralLike(commandType.node)
+              ? lifecycleKinds.get(commandType.node.text)
+              : null;
+        if (canonical ? !expectedKinds || expectedKinds.size !== 1 || !expectedKinds.has(subject.kind) : !declared)
           return reject(node, 4, "own Port decision does not name this canonical action");
-        const principal = decision.guarded ? serviceValue(command, env, ["actor", "principal"]) : boundActor;
+        const principal = canonical ? serviceValue(command, env, ["actor", "principal"]) : boundActor;
         if (!sameServiceValue(principal, authorizedActor))
           return reject(
             node,
             5,
             `own Port and command actors do not resolve to the same principal (${describe(principal)} / ${describe(authorizedActor)})`,
           );
-        if (!revision || revision.fields.length) return reject(node, 6, "own Port has no resolved revision input");
+        if (!revision?.node || revision.fields.length)
+          return reject(node, 6, "own Port has no resolved revision input");
         let cut = unwrap(revision.node);
         if (
           ts.isBinaryExpression(cut) &&
@@ -1283,9 +1313,20 @@ export function makeAuthorizationTracer(graph, anchors) {
         const read = unwrap(cut.expression);
         if (!ts.isCallExpression(read) || ownFunction(read) !== fn || !callsMember(read, cutMembers, cutCalls))
           return reject(node, 8, "head revision is not read from the canonical store in this callback");
+        if (!anchors.serviceCall?.(node, subject.kind, canonical))
+          return reject(node, 9, "invocation is not its declared canonical effect or a verified technical port");
         sites.set(node, subject.kind);
       });
-      return { sites, failure };
+      if (!sites.size) return { sites, failure };
+      const reachable = processSourceSites(sourceGraph, fn, {
+        evaluator: sourceEvaluator,
+        env,
+        targets: [...sites.keys()].map((node) => sourceSite(sourceGraph, node)),
+      });
+      return {
+        sites: new Map([...sites].filter(([node]) => reachable.has(sourceSite(sourceGraph, node)))),
+        failure: "declared service invocation is unreachable in this callback frame",
+      };
     }
 
     function invokeCallback(parameter, value, call, env, state, sourceAuthority) {
@@ -1487,7 +1528,7 @@ export function makeAuthorizationTracer(graph, anchors) {
     const authorityShape = (state) =>
       `${state.authorized ? 1 : 0}${state.effect ? 1 : 0}${state.sourceCovered ? 1 : 0}${state.local ? 1 : 0}${state.sessioned.size > 0 ? 1 : 0}:${state.writerTurn ? 1 : 0}${state.writerFenced ? 1 : 0}:${state.decisionKind?.kind ?? ""}:${state.decisionKind?.routed ? 1 : 0}:${[...(state.serviceSites ?? [])].map(([node, kind]) => `${sourceSite(graph, node)}=${kind}`).join(",")}`;
 
-    function walkFunction(value, env, state) {
+    function walkFunction(value, env, state, resume = false) {
       const fn = value.node,
         none = {
           authorizedReturn: false,
@@ -1496,7 +1537,7 @@ export function makeAuthorizationTracer(graph, anchors) {
           localReturn: false,
           refusal: false,
         };
-      if (!fn.body || stack.length > maxWalkDepth) return none;
+      if (!fn.body) return none;
       // Resolve forwarded aliases and retain the source walk's bounded lexical context.
       // One identity handles both reuse and in-progress cycles: a fresh Map is not a new
       // callback, and the same expression can carry another caller's callback.
@@ -1504,7 +1545,17 @@ export function makeAuthorizationTracer(graph, anchors) {
       const seen = memo.get(fn) ?? new Map();
       // The in-progress entry terminates the same frame. Another callback binding may
       // re-enter this function and acquire its own authority, as queued continuations do.
-      if (seen.has(key)) return seen.get(key);
+      if (seen.has(key) && !(resume && seen.get(key).deferred)) return seen.get(key);
+      if (stack.length > maxWalkDepth) {
+        // The policy summary remains conservative, but a full source audit cannot drop
+        // this invocation: another shallow authorized path may have seen the same source.
+        if (descriptor.sources?.length) {
+          seen.set(key, { ...none, deferred: true });
+          memo.set(fn, seen);
+          deferredFrames.push({ value, env, state: clone(state) });
+        }
+        return none;
+      }
       seen.set(key, none);
       memo.set(fn, seen);
       stack.push(fn);
@@ -1548,6 +1599,9 @@ export function makeAuthorizationTracer(graph, anchors) {
       const env = new Map([[entry.parameters[0], { root: true }]]);
       walkFunction({ fn: true, node: entry, env: new Map() }, env, newState());
     }
+    // Bound the JavaScript stack, not the source proof. Shared frame identities still
+    // terminate cycles; an unfinished frame never supplies an authorized return summary.
+    for (const { value, env, state } of deferredFrames) walkFunction(value, env, state, true);
     // On the traced route every effect-callback call must follow the denial exit and receive the
     // decision: an earlier call runs the effect before authorization, and a call without the
     // decision leaves the effect independent of it.

@@ -4,7 +4,7 @@ import { cpSync, mkdirSync, readFileSync, readdirSync, realpathSync, symlinkSync
 import path from "node:path";
 import nodeTest from "node:test";
 import ts from "typescript";
-import { buildFlowGraph } from "../authorization-flow-graph.mjs";
+import { buildFlowGraph, makeEvaluator } from "../authorization-flow-graph.mjs";
 import {
   buildOutputWithinPackage,
   intrinsicSupport,
@@ -68,6 +68,36 @@ function callNamed(graph, file, name) {
 const build = (destination) => `import { rmSync } from "node:fs";
 const target = new URL(${JSON.stringify(destination)}, import.meta.url);
 rmSync(target, { recursive: true, force: true });`;
+
+// CH1: a compiler result has its own discriminator, even when its input carries the request.
+test("a compiled draft discriminator cannot borrow the request action kind", () => {
+  const { graph } = fixture(
+    `import { rmSync } from "node:fs";
+import { makeAction, compile } from "../contract.ts";
+function entry(request) {
+  const action = makeAction(request), selected = action.kind, compiled = compile(action);
+  if (compiled.kind !== "draft") throw new Error("wrong draft");
+  rmSync("/tmp/live-draft");
+}`,
+    undefined,
+    {
+      "packages/demo/contract.ts": `export declare function makeAction(request: unknown): { kind: string };
+export declare function compile(action: { kind: string }): { kind: "draft" };`,
+    },
+  );
+  const entry = graph.modules.get(file).sourceFile.statements.find((node) => ts.isFunctionDeclaration(node)),
+    env = new Map([[entry.parameters[0], { root: true }]]),
+    evaluator = makeEvaluator(graph, { kind: "settings-update", constants: {}, functions: {} }),
+    accesses = [];
+  (function visit(node) {
+    if (ts.isPropertyAccessExpression(node) && node.name.text === "kind") accesses.push(node);
+    ts.forEachChild(node, visit);
+  })(entry);
+  assert.deepEqual(evaluator.fold(accesses[0], env), { value: "settings-update" });
+  assert.equal(evaluator.fold(accesses[1], env), null);
+  const target = sourceSite(graph, callNamed(graph, file, "rmSync"));
+  assert.equal(processSourceSites(graph, entry, { evaluator, env, targets: [target] }).has(target), true);
+});
 
 // dec_7E44897ECDCAEF2B92EC66A260/CH1: dead source edges cannot establish authority.
 test("source reachability respects exits while preserving live branches and return-expression calls", () => {

@@ -268,15 +268,13 @@ export function createRepoCellActionContext(bindings: {
   readonly setKnownTaskIds: (value: Set<string> | null) => void;
   readonly getSquadCoordinator: () => ReturnType<typeof makeSquadCoordinator>;
 }): RepoCellActionContext {
-  const actionContext: { current: object | null } = { current: null };
+  // Bound callbacks become reachable only when the fully constructed context is returned.
   const bind =
     <Context extends object, Args extends readonly unknown[], Result>(
       implementation: (context: Context, ...args: Args) => Result,
     ) =>
-    (...args: Args): Result => {
-      if (actionContext.current === null) throw new Error("RepoCell action context is not initialized");
-      return implementation(actionContext.current as Context, ...args);
-    };
+    (...args: Args): Result =>
+      implementation(context as Context, ...args);
   const unavailableTaskQuery = (): never => {
     throw new Error("RepoCell task query functions are not installed");
   };
@@ -396,6 +394,5 @@ export function createRepoCellActionContext(bindings: {
     },
   };
 
-  actionContext.current = context;
   return context;
 }

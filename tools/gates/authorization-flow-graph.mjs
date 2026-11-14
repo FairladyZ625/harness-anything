@@ -198,6 +198,7 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
     memberSignature,
     memberKey,
     uniqueSymbolKey,
+    propertyAllowsLiteral,
     interfaceMembers,
     carriesTransport,
     takesInterface,
@@ -304,6 +305,18 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
     if (!expression || !ts.isIdentifier(expression) || !programSources.has(expression.getSourceFile())) return null;
     const type = checker.getTypeAtLocation(expression);
     return type.flags & ts.TypeFlags.UniqueESSymbol ? type : null;
+  }
+
+  // A derived result may use another discriminator namespace. Types can disprove a
+  // request-field substitution; they never supply a positive authorization fact.
+  function propertyAllowsLiteral(expression, key, value) {
+    if (!programSources.has(expression.getSourceFile())) return null;
+    const property = checker.getTypeAtLocation(expression).getProperty(key);
+    if (!property) return null;
+    const type = checker.getTypeOfSymbolAtLocation(property, expression),
+      alternatives = type.isUnion() ? type.types : [type];
+    if (!alternatives.every((part) => part.flags & ts.TypeFlags.StringLiteral)) return null;
+    return alternatives.some((part) => part.value === value);
   }
 
   function memberKey(name) {
@@ -1145,7 +1158,8 @@ export function makeEvaluator(graph, facts) {
     const tag = provenance(baseExpression, env);
     if (tag) {
       const field = requestField(key, tag);
-      if (field) return field;
+      if (field && (key !== "kind" || graph.propertyAllowsLiteral(baseExpression, key, field.value) !== false))
+        return field;
     }
     const base = fold(baseExpression, env, depth + 1);
     if (!base) return null;

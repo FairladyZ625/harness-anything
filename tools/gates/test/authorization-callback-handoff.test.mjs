@@ -990,3 +990,44 @@ test("an unknown symbol keeps every possible callback live", () => {
   const result = traceSymbolCallback("callbacks[unknownKey]();");
   assert.equal(result.seen && result.ok, true);
 });
+
+// CH1: a full source graph must not turn a bounded policy walk into a bypass exemption.
+test("a deep package callback still challenges a source certified by a shallow guarded call", () => {
+  const file = "packages/daemon/src/entry.ts",
+    bridge = "packages/storage/src/bridge.ts",
+    { rootDir } = makeRepo({
+      [bridge]: Array.from(
+        { length: 72 },
+        (_, index) => `export function hop${index}(work) { ${index === 71 ? "work()" : `hop${index + 1}(work)`}; }`,
+      ).join("\n"),
+      [file]: `import { hop0 } from "../../storage/src/bridge.ts";
+const store = { append() {} };
+function effect() { store.append(); }
+function entry(request) {
+  hop0(effect);
+  if (request.transportKind !== "unix-socket") return;
+  effect();
+}`,
+    }),
+    graph = buildFlowGraph(rootDir),
+    statements = graph.modules.get(file).sourceFile.statements,
+    entry = statements.at(-1),
+    effect = statements.at(-2),
+    call = effect.body.statements[0].expression,
+    site = sourceSite(graph, call),
+    result = makeAuthorizationTracer(graph, {
+      sourceGraph: graph,
+      ports: [],
+      entries: [entry],
+      constants: {},
+      functions: {},
+    }).traceDescriptor({
+      method: "demo",
+      kind: "demo",
+      commandClass: "repo-write",
+      localTransport: true,
+      sources: [{ id: "append", site }],
+    });
+  assert.equal(result.sources.get(site).seen, true);
+  assert.equal(result.sources.get(site).ok, false);
+});

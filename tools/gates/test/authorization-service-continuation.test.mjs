@@ -7,7 +7,7 @@ import { makeAuthorizationTracer } from "../authorization-flow-trace.mjs";
 import { sourceSite } from "../authorization-source-proof.mjs";
 import { makeRepo } from "./helpers.mjs";
 
-function continuation(mutation = "", policyBoundary = false) {
+function continuation(mutation = "", policyBoundary = false, routedKind = "task-rework") {
   const file = "packages/daemon/src/continuation.ts",
     contracts = "packages/kernel/src/ports/contracts.ts";
   const { rootDir } = makeRepo({
@@ -18,6 +18,7 @@ export interface CanonicalEventStore { readHead(): { revision: number } | null }
     [file]: `import type { AuthorizationDecision, AuthorizationPort, CanonicalEventStore } from "../../kernel/src/ports/contracts.ts";
 import { bridge } from "../../storage/src/bridge.ts";
 declare const port: AuthorizationPort, store: CanonicalEventStore;
+declare function overlay(): Record<string, unknown>;
 const fake = { authorize: () => ({ outcome: "allowed" }) };
 function decide(input) { return ${mutation === "replaced port" ? "fake" : "port"}.authorize(input, { evaluatedAtCut: \`canonical:\${input.revision}\` }); }
 function required(binding) {
@@ -28,14 +29,15 @@ function proofFor(command, binding) {
   if (command.type === "CreateTask" || command.type === "CreateReplayTask") return { actorBinding: command.actor };
   if (command.type === "ReworkTask") {
     const decision = required(binding);
-    return { actorBinding: ${mutation === "wrong proof actor" ? '{ principal: { personId: "forged" }, executor: null }' : "command.actor"}, authorizationDecision: ${mutation === "replaced proof decision" ? '{ outcome: "allowed" }' : "decision"} };
+    return { actorBinding: ${mutation === "wrong proof actor" ? '{ principal: { personId: "forged" }, executor: null }' : "command.actor"}, authorizationDecision: ${mutation === "replaced proof decision" ? '{ outcome: "allowed" }' : "decision"} ${mutation === "opaque proof overlay" ? ", ...overlay()" : ""} };
   }
   if (command.type !== "CompleteTask") throw new Error("unsupported command");
   return { authorizationDecision: required(binding) };
 }
 function envelope(input) { return Object.freeze({ actor: input.actor }); }
 function normalize(binding, intent) { return Object.freeze({ ...intent, ...envelope({ ...binding, intent }) }); }
-function withMeta(command) { return { ...command, publication: "current" }; }
+function withMeta(command) { return { ...command, publication: "current" ${mutation === "opaque command overlay" ? ", ...overlay()" : ""} }; }
+function projectActor(actor) { const projected = globalThis.projectActor(actor); return projected; }
 const context = { proofFor: (command, snapshot, binding) => proofFor(command, binding) };
 const service = { execute(command, proof) { return { outcome: "applied", proof }; } };
 export function writerFence() {}
@@ -48,13 +50,13 @@ export function queue(request, execute: (decision?: AuthorizationDecision) => un
 function entry(request) {
   const owner = request.owner;
   const work = () => {
-    const command = withMeta(normalize({ actor: owner }, { type: "ReworkTask" }));
+    const command = withMeta(normalize({ actor: ${mutation === "opaque actor caller" ? "projectActor(owner)" : "owner"} }, { type: "ReworkTask" }));
     ${mutation === "an earlier unguarded effect" ? "service.execute(command, {});" : ""}
-    const binding = { actor: ${mutation === "wrong actor" ? "request.reviewer" : "owner"} };
+    const binding = { actor: ${mutation === "opaque actor caller" ? "projectActor(request.reviewer)" : mutation === "wrong actor" ? "request.reviewer" : "owner"} };
     const decision = decide({ action: { kind: ${mutation === "wrong kind" ? '"task-review-execution"' : '"task-rework"'} }, binding, revision: ${mutation === "stale cut" ? "0" : "store.readHead()?.revision ?? 0"} });
     ${mutation === "mutated command" ? "command.actor = request.reviewer;" : ""}
     const proof = context.proofFor(command, {}, { ...binding, authorizationDecision: decision });
-    return service.execute(command, ${mutation === "detached proof" ? "{}" : "proof"});
+    ${mutation === "unreachable service" ? "if (false) " : ""}return service.execute(command, ${mutation === "detached proof" ? "{}" : "proof"});
   };
   return ${mutation === "cross-package bridge" ? "bridge(() => " : ""}queue(request, ${mutation === "detached callback" ? "() => undefined" : "work"})${mutation === "cross-package bridge" ? ")" : ""};
 }`,
@@ -74,12 +76,23 @@ function entry(request) {
     currentCut: { file: contracts, name: "CanonicalEventStore", member: "readHead" },
     writerQueue: mutation === "outside the writer turn" ? undefined : { file, name: "queue" },
     writerFence: { file, name: "writerFence" },
+    serviceCall: (node, kind) =>
+      mutation !== "unregistered service" && kind === "task-rework" && effects.includes(node),
     entries: [entry],
-    constants: {},
+    constants: {
+      actionDeclarations: [{ kind: "task-rework" }, { kind: "task-review-execution" }],
+      entityKindContracts: [
+        {
+          actionCatalog: {
+            actions: [{ execution: { ingress: "task-rework", lifecycle: { commandType: "ReworkTask" } } }],
+          },
+        },
+      ],
+    },
     functions: {},
   }).traceDescriptor({
     method: "demo",
-    kind: "task-rework",
+    kind: routedKind,
     commandClass: "repo-write",
     canonicalCut: true,
     sources: effects.map((effect, index) => ({ id: `canonical service ${index}`, site: sourceSite(graph, effect) })),
@@ -114,6 +127,21 @@ test("a typed package boundary preserves the service's independent denial exit",
   );
 });
 
+test("an independent canonical service discharges its callback without borrowing the outer action kind", () => {
+  const result = continuation("", false, "task-review-execution");
+  assert.deepEqual(result.violations, []);
+  // Its valid task-rework proof cannot certify a task-review-execution source.
+  assert.equal(
+    [...result.sources.values()].every((row) => row.seen && row.ok),
+    false,
+  );
+});
+
+test("an unreachable service invocation cannot discharge the callback's decision requirement", () => {
+  const result = continuation("unreachable service");
+  assert.ok(result.violations.some((violation) => violation.includes("without the authorization decision")));
+});
+
 for (const mutation of [
   "replaced port",
   "wrong kind",
@@ -129,6 +157,10 @@ for (const mutation of [
   "outside the writer turn",
   "wrong proof actor",
   "mutated command",
+  "opaque command overlay",
+  "opaque proof overlay",
+  "opaque actor caller",
+  "unregistered service",
 ])
   test(`a service continuation rejects ${mutation}`, () => {
     const result = continuation(mutation);
