@@ -135,7 +135,7 @@ test(
       assert.equal(
         blocked[0]!.usename,
         "ha_runtime",
-        "epoch authority must not block before the canonical append; see pg-epoch-current-syncrep.integration.test.ts",
+        "epoch authority must not block before the canonical append; see pg-epoch-transaction.integration.test.ts",
       );
       assert.ok(attemptedOpId, "the actual attempted publication identity must precede COMMIT");
       console.log("S3_STAGE", "syncrep-blocked");

@@ -180,6 +180,11 @@ export function makeDaemonProjectionReader(input: {
   return makeTaskProjectionReader({ rootDir: input.rootDir, storage: input.storage, now: input.now });
 }
 
+/** SQL workers publish the shared commit phase; synchronous SQLite batches drain on close. */
+export function daemonWriterSupportsCommitPhase(storage?: DaemonStorageConfig): boolean {
+  return storage?.backend === "postgres" || storage?.backend === "pglite";
+}
+
 /** Network PostgreSQL pins its own MVCC backup cut; local engines retain the writer barrier. */
 export function fleetBackupRequiresWriter(storage?: DaemonStorageConfig): boolean {
   return storage?.backend !== "postgres";

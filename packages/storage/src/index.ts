@@ -54,6 +54,7 @@ export {
   registerDaemonRepo,
   openFleetStorage,
   fleetBackupRequiresWriter,
+  daemonWriterSupportsCommitPhase,
   hasDaemonGitFollower,
   readDaemonHarnessConfig,
 } from "./storage-daemon-composition.ts";

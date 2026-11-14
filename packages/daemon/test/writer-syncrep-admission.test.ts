@@ -8,7 +8,16 @@ import { REPO_WRITER_QUEUE_LIMIT } from "../src/writer-request-queue.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import type { RepoWriterRequestV1, RepoWriterControlV1, RepoWriterCancelV1 } from "../src/repo-writer-protocol.ts";
 
-const input = { repoId: workspaceId("syncrep-admission"), rootDir: canonicalRoot(process.cwd()), ownerId: "test" };
+const input = {
+  repoId: workspaceId("syncrep-admission"),
+  rootDir: canonicalRoot(process.cwd()),
+  ownerId: "test",
+  storage: {
+    backend: "postgres" as const,
+    connectionString: "postgres://test",
+    authorityConnectionString: "postgres://test",
+  },
+};
 class HeldWriter extends EventEmitter {
   writes: RepoWriterRequestV1[] = [];
   cancels: string[] = [];
@@ -32,9 +41,12 @@ class HeldWriter extends EventEmitter {
   }
   unref() {}
 }
-async function open(options: Parameters<typeof openWriterSupervisor>[1] = {}) {
+async function open(
+  options: Parameters<typeof openWriterSupervisor>[1] = {},
+  config: Parameters<typeof openWriterSupervisor>[0] = input,
+) {
   const worker = new HeldWriter();
-  const opening = openWriterSupervisor(input, { ...options, createWorker: () => worker as unknown as Worker });
+  const opening = openWriterSupervisor(config, { ...options, createWorker: () => worker as unknown as Worker });
   worker.emit("message", {
     schema: "harness-repo-writer-status/v1",
     kind: "ready",
@@ -176,4 +188,21 @@ test("C6a: close terminates a stuck rollback only after abort wins and the full 
   t.mock.timers.tick(1);
   await Promise.all([first, closing]);
   assert.equal(worker.terminated, 1);
+});
+
+test("SQLite close drains its active batch without treating an absent PG phase as pre-commit", async () => {
+  const { supervisor, worker } = await open({}, { ...input, storage: undefined });
+  const first = supervisor.request("run", { opId: "sqlite-batch" });
+  await worker.posted.promise;
+  const queued = assert.rejects(supervisor.request("run", { opId: "queued" }), { code: "daemon_closing" });
+  const closing = supervisor.close();
+  await turn();
+  assert.equal(worker.cancels.length, 0);
+  assert.equal(worker.terminated, 0);
+  assert.equal(worker.writes.length, 1);
+  worker.receipt(worker.writes[0]!.requestId, "batch completed");
+  assert.equal(await first, "batch completed");
+  await queued;
+  await closing;
+  assert.equal(worker.terminated, 1, "retirement follows the batch receipt and drain");
 });

@@ -1,3 +1,4 @@
+import { daemonWriterSupportsCommitPhase } from "@harness-anything/storage";
 import { createWriterRequestQueue } from "./writer-request-queue.ts";
 import { labelWorkerMemory } from "./daemon-diagnostics-memory.ts";
 import { writerLifecyclePolicy } from "@harness-anything/kernel/internal/domain/writer-lifecycle-policy.ts";
@@ -145,6 +146,7 @@ export async function openWriterSupervisor(
 
   const writes = createWriterRequestQueue({
     repoId: input.repoId,
+    abortInFlightOnClose: daemonWriterSupportsCommitPhase(input.storage),
     rollbackGraceMs: options.rollbackGraceMs,
     syncRepDrainGraceMs: options.syncRepDrainGraceMs,
     requestTimeoutMs: options.requestTimeoutMs,

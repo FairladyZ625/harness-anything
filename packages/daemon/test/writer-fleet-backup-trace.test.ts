@@ -71,7 +71,7 @@ for (const termination of ["exit", "error", "close", "receipt-error", "post-erro
       writer.emit("exit", 1);
     } else if (termination === "close") {
       const closing = supervisor.close();
-      writer.receipt(request, true); // Acknowledge the fake worker's pre-commit rollback.
+      writer.receipt(request, true); // Settle the active embedded operation before its drain completes.
       await closing;
     } else if (termination === "receipt-error") writer.receipt(request, true);
     await rejected;

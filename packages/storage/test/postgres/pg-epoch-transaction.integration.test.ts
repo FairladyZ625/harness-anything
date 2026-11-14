@@ -54,3 +54,81 @@ test("PG writer epoch fence resists idle_in_transaction_session_timeout without 
     await fixture.close();
   }
 });
+
+async function strict(fixture: Awaited<ReturnType<typeof pgRuntimeFixture>>, enabled: boolean) {
+  await fixture.adminPool.query(
+    enabled ? "ALTER SYSTEM SET synchronous_standby_names='*'" : "ALTER SYSTEM RESET synchronous_standby_names",
+  );
+  await fixture.adminPool.query("SELECT pg_reload_conf()");
+  while (
+    (await fixture.adminPool.query("SHOW synchronous_standby_names")).rows[0]!.synchronous_standby_names !==
+    (enabled ? "*" : "")
+  ) {
+    /* configuration acknowledgement */
+  }
+}
+
+test("read-only epoch current must not acquire WAL-bearing locks and enter SyncRep", { timeout: 60_000 }, async () => {
+  const fixture = await pgRuntimeFixture(),
+    pool = new Pool({ connectionString: fixture.managementConnectionString, max: 1 }),
+    queries: string[] = [];
+  const traced = new Proxy(pool, {
+    get(target, key) {
+      if (key === "connect")
+        return async () => {
+          const client = await target.connect();
+          return new Proxy(client, {
+            get(connection, method) {
+              if (method === "query")
+                return (sql: string, args?: unknown[]) => {
+                  queries.push(sql);
+                  return connection.query(sql, args);
+                };
+              const value = Reflect.get(connection, method);
+              return typeof value === "function" ? value.bind(connection) : value;
+            },
+          });
+        };
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  const epochs = pgEpochTransactions(traced);
+  let pending: ReturnType<typeof epochs.execute> | undefined;
+  try {
+    await fixture.adminPool.query(
+      "INSERT INTO ha_repo_writer_epochs(repo_id,writer_epoch,writer_holder_id,writer_issued_at) VALUES('epoch-read-probe',1,'holder','2026-11-15T00:00:00.000Z')",
+    );
+    await strict(fixture, true);
+    let done = false;
+    pending = epochs.execute({
+      operation: "current",
+      repoId: "epoch-read-probe",
+      holderId: "holder",
+      now: "2026-11-15T00:00:00.000Z",
+    });
+    void pending.then(() => {
+      done = true;
+    });
+    let blocked: { pid: number; usename: string; query: string }[] = [];
+    while (!done && !blocked.length)
+      blocked = (
+        await fixture.adminPool.query(
+          "SELECT pid,usename,query FROM pg_stat_activity WHERE wait_event='SyncRep' AND state='active'",
+        )
+      ).rows;
+    console.log("EPOCH_CURRENT_SYNCREP", JSON.stringify({ blocked, queries }));
+    assert.deepEqual(
+      blocked,
+      [],
+      "epoch current is a snapshot check; its FOR SHARE/COMMIT must not block backup admission or the next canonical write",
+    );
+  } finally {
+    await strict(fixture, false);
+    await pending;
+    await epochs.close();
+    await pool.end();
+    await fixture.pool.end();
+    await fixture.close();
+  }
+});

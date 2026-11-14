@@ -20,6 +20,7 @@ interface Slot {
 export function createWriterRequestQueue(options: {
   readonly repoId: string;
   readonly rollbackGraceMs?: number;
+  readonly abortInFlightOnClose?: boolean;
   readonly syncRepDrainGraceMs?: number;
   readonly requestTimeoutMs?: number;
   readonly terminateAborted: (error: Error) => Promise<void>;
@@ -141,6 +142,11 @@ export function createWriterRequestQueue(options: {
       for (const slot of [...pendingQueue]) slot.cancel(error);
       const slot = inFlight;
       if (!slot) return true;
+      if (options.abortInFlightOnClose === false) {
+        // SQLite has no shared PG commit phase; its already durable batch must finish draining.
+        await slot.done.promise;
+        return true;
+      }
       slot.cancel(error);
       let timer: ReturnType<typeof setTimeout> | undefined;
       const drained = await Promise.race([

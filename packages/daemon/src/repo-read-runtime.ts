@@ -311,8 +311,15 @@ export function makeRepoReadRuntime(
       receipt = executeRepoReadAction(context, action, binding);
     if (receipt instanceof Promise)
       throw new Error(`Query-only action ${action.kind} must complete inside its synchronous read session.`);
-    const settled =
-      action.kind === "receipt-show" ? attachReceiptAcceptance(receipt, context.store, context.projection) : receipt;
+    const followers = writerStatus?.receiptFollowers,
+      receiptStore = followers
+        ? new Proxy(context.store, {
+            get: (store, property, receiver) =>
+              property === "followerStatus" ? () => followers : Reflect.get(store, property, receiver),
+          })
+        : context.store,
+      settled =
+        action.kind === "receipt-show" ? attachReceiptAcceptance(receipt, receiptStore, context.projection) : receipt;
     return context.withHumanSummary(frame(settled)) as Awaited<ReturnType<RepoCell["run"]>>;
   };
   const runReadAtCut = (projection: TaskProjectionQueries, action: RepoTaskAction, binding: RepoCellBinding) => {
