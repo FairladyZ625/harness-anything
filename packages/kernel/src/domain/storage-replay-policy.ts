@@ -81,6 +81,7 @@ export const canonicalContractDecodePolicy = {
     "One closed-world decode rule replaces per-codec strictness choices; the branch values are unchanged and remain in their codecs.",
   fixtures: [
     "packages/kernel/test/contracts/canonical-event-forward-compat.test.ts",
+    "packages/kernel/test/contracts/decision-amend-scope.test.ts",
     "packages/kernel/test/contracts/migration-import-event.test.ts",
     "packages/kernel/test/contracts/ci-run-observation-event.test.ts",
     "packages/kernel/test/contracts/fact-event.test.ts",
@@ -114,7 +115,8 @@ export const canonicalContractDecodePolicy = {
     "policy:packages/kernel:packages/kernel/src/domain/completion-gate-witness.ts#validateCompletionGateWitnessV1:4e5769645c11598977d9cc46f8acd211",
     "policy:packages/kernel:packages/kernel/src/domain/decision-event-payload-validation.ts#validDecisionMutation:898e36b89986585cb358e22b32531060",
     "policy:packages/kernel:packages/kernel/src/domain/decision-event-payload-validation.ts#judgmentConsent:0cec30c162b03598b5f0a0c3bd1eb991",
-    "policy:packages/kernel:packages/kernel/src/domain/decision-event-payload-validation.ts#amendableSnapshot:415c2aab8fcd49c2db33f60bd3fb1e67",
+    "policy:packages/kernel:packages/kernel/src/domain/decision-event-payload-validation.ts#amendableSnapshot:10365d6759819b37d9b057fa5c580a9c",
+    "policy:packages/kernel:packages/kernel/src/domain/decision-event-payload-validation.ts#amendableSnapshot:1243d5b0e260f6bd2f3756d6a6f00026",
     "policy:packages/kernel:packages/kernel/src/domain/decision-event-validation.ts#validateDecisionEventFields:6fbc498138b63f06b717c32cbd83ba2e",
     "policy:packages/kernel:packages/kernel/src/domain/decision-event-validation.ts#validateDecisionEventFields:9efe5c02151175643ce580681f70a706",
     "policy:packages/kernel:packages/kernel/src/domain/decision-event-validation.ts#validateDecisionEventFields:0c412ec3834aefa6f0f5c25922ba21e5",

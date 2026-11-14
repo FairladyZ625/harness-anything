@@ -1,3 +1,4 @@
+import { decisionDirectoryRetirements } from "./decision-directory-settlement.ts";
 import type { WriteFence } from "../durable-file.ts";
 import {
   type EventHead,
@@ -65,7 +66,7 @@ export function publishConvertedGeneration(input: {
       ...followerFiles(ledger, closureEvents, input.store.readContentObject, cut, input.store.metadata().generation),
       ...legacyRetirements(ledger, parent),
     ],
-    directories = followerDirectories(ledger, closureEvents),
+    directories = followerDirectories(ledger, closureEvents, files, undefined, layout.decisionsRoot),
     baseline = captureConversionBaseline(input.rootInput, ledger.rootDir, parent, files),
     commit = publishFollowerCut(
       ledger.rootDir,
@@ -204,6 +205,7 @@ export function followerDirectories(
   directoryClaims: readonly NonNullable<ReturnType<typeof canonicalOwnedDirectories>>[] = events.flatMap(
     (event) => canonicalOwnedDirectories(event) ?? [],
   ),
+  decisionsRoot?: string,
 ): FollowerDirectorySettlement {
   const declaredByOwner = new Map<string, readonly string[]>(),
     retiredByOwner = new Map<string, readonly string[]>();
@@ -215,11 +217,13 @@ export function followerDirectories(
     if (!("delete" in file)) return [];
     const logical = ledgerAuthoredPath(ledger, file.delete),
       parts = logical.split("/"),
-      taskRoot = parts[0] === "tasks" && parts.length > 2 ? parts.slice(0, 2) : null,
-      decisionRoot = parts[0] === "decisions" && parts.length > 2 ? parts.slice(0, 2) : null,
-      root = taskRoot ?? decisionRoot;
+      root = parts[0] === "tasks" && parts.length > 2 ? parts.slice(0, 2) : null;
     return root === null ? [] : root.map((_, index) => root.slice(0, index + 1).join("/"));
   });
+  const decisionDirectories = decisionDirectoryRetirements(
+    files.flatMap((file) => ("delete" in file ? [ledgerAuthoredPath(ledger, file.delete)] : [])),
+    decisionsRoot,
+  ).map((logical) => ledgerGitPath(ledger, logical));
   const create = [...new Set([...declaredByOwner.values()].flat())]
       .map((logical) => ledgerGitPath(ledger, logical))
       .sort(),
@@ -227,8 +231,15 @@ export function followerDirectories(
   return {
     create,
     // Reverse path order is depth order: `a/b/c` sorts after `a/b`, which sorts after `a`.
-    retire: [...new Set([...retiredByOwner.values()].flat().concat(retiredFromDocumentSet))]
-      .map((logical) => ledgerGitPath(ledger, logical))
+    retire: [
+      ...new Set([
+        ...[...retiredByOwner.values()]
+          .flat()
+          .concat(retiredFromDocumentSet)
+          .map((logical) => ledgerGitPath(ledger, logical)),
+        ...decisionDirectories,
+      ]),
+    ]
       .filter((directory) => !held.has(directory))
       .sort()
       .reverse(),

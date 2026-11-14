@@ -33,6 +33,7 @@ export function prepareDecisionAmend(
 ): Readonly<Record<string, unknown>> {
   let title = current.title,
     decisionClass = current.decisionClass,
+    appliesTo = current.appliesTo,
     chosen: DecisionProjectionRow["chosen"] = [...current.chosen],
     rejected: DecisionProjectionRow["rejected"] = [...current.rejected],
     claims: DecisionProjectionRow["claims"] = current.claims.map((claim) => ({ ...claim }));
@@ -46,6 +47,16 @@ export function prepareDecisionAmend(
     const parsed = splitPatch(patch);
     if (parsed.field === "title") {
       title = parsed.value;
+      continue;
+    }
+    if (parsed.field === "applies_to" || parsed.field === "appliesTo") {
+      const scope = jsonObject(parsed.value);
+      appliesTo = {
+        modules: scopeStrings(scope.modules, "appliesTo.modules"),
+        productLines: scopeStrings(scope.productLines, "appliesTo.productLines"),
+      };
+      if (Object.keys(scope).some((key) => !["modules", "productLines"].includes(key)))
+        fail("appliesTo must carry exactly modules and productLines.");
       continue;
     }
     if (parsed.field === "chosen") {
@@ -142,16 +153,18 @@ export function prepareDecisionAmend(
   const ids = [...chosen, ...rejected, ...claims].map(({ id }) => id);
   if (new Set(ids).size !== ids.length) fail("Chosen, rejected, and claim ids must be unique across the Decision.");
   const previous: DecisionAmendableSnapshot = {
+      appliesTo: current.appliesTo,
       title: current.title,
       decisionClass: current.decisionClass,
       chosen: current.chosen,
       rejected: current.rejected,
       claims: current.claims,
     },
-    next: DecisionAmendableSnapshot = { title, decisionClass, chosen, rejected, claims },
+    next: DecisionAmendableSnapshot = { title, decisionClass, appliesTo, chosen, rejected, claims },
     fields = [
       title !== current.title ? "title" : null,
       decisionClass !== current.decisionClass ? "decisionClass" : null,
+      stableStringify(appliesTo) !== stableStringify(current.appliesTo) ? "appliesTo" : null,
       JSON.stringify(chosen) !== JSON.stringify(current.chosen) ? "chosen" : null,
       JSON.stringify(rejected) !== JSON.stringify(current.rejected) ? "rejected" : null,
       JSON.stringify(claims) !== JSON.stringify(current.claims) ? "claims" : null,
@@ -239,6 +252,7 @@ function validateOne(
       if (unquoteDecisionScalar(readScalar(frontmatter, field)) !== expected)
         errors.push(`${field} does not match the live projection`);
     for (const [field, expected] of [
+      ["applies_to", decision.appliesTo],
       ["chosen", decision.chosen],
       ["rejected", decision.rejected],
       ["claims", decision.claims],
@@ -388,4 +402,11 @@ function fail(message: string): never {
   const error = new Error(message) as Error & { code: string };
   error.code = "invalid_command";
   throw error;
+}
+
+function scopeStrings(value: unknown, field: string): readonly string[] {
+  const values = stringArray(value, field);
+  if (values.some((entry) => !entry.trim()) || new Set(values).size !== values.length)
+    fail(`${field} must contain unique non-empty strings.`);
+  return values;
 }

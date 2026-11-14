@@ -582,7 +582,8 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
     ],
     phase: "DecisionFact-B",
     path: ["decision", "amend", "<id>"],
-    summary: "Replace or append declared Decision content with an audit reason; in_effect requires owner consent.",
+    summary:
+      "Replace or append Decision content (--set applies_to:{modules:[],productLines:[]}); in_effect requires owner consent.",
     method: "repo.task.run",
     inputs: [
       cliInput(

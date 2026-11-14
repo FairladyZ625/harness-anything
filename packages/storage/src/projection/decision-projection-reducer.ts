@@ -105,6 +105,11 @@ export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): v
       next.decisionClass,
       event.decisionId,
     );
+    if (next.appliesTo !== undefined)
+      prepareQuery(db, "UPDATE decision SET applies_json=? WHERE decision_id=?").run(
+        JSON.stringify(next.appliesTo),
+        event.decisionId,
+      );
     prepareQuery(db, "DELETE FROM decision_option WHERE decision_id=?").run(event.decisionId);
     const option = prepareQuery(db, "INSERT INTO decision_option VALUES (?, ?, ?, ?, ?, ?, ?)");
     for (const [position, value] of next.chosen.entries())

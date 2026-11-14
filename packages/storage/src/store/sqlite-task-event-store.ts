@@ -378,15 +378,22 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       worktree: pendingFollower("worktree settlement has not verified the Git cut").worktree,
     };
     localGitWorktreeSettlement.index(currentLedger.rootDir, files, false, options.withAppendFence);
-    const settled = settleFollowerWorktree(
-      latestAppendLayout ?? resolveHarnessLayout(input),
-      currentLedger,
-      files,
-      baseline,
-      commit,
-      followerDirectories(currentLedger, closure.events, files, from === 0 ? sqlite.directoryClaims() : undefined),
-      restoreMissing,
-    );
+    const layout = latestAppendLayout ?? resolveHarnessLayout(input),
+      settled = settleFollowerWorktree(
+        layout,
+        currentLedger,
+        files,
+        baseline,
+        commit,
+        followerDirectories(
+          currentLedger,
+          closure.events,
+          files,
+          from === 0 ? sqlite.directoryClaims() : undefined,
+          from === 0 ? layout.decisionsRoot : undefined,
+        ),
+        restoreMissing,
+      );
     const skipped = new Set(settled.conflicts);
     // A skipped target is never retried on its own: it stays reported until settled or its settled bytes appear.
     for (const [target, settledBytes] of worktreeConflicts)

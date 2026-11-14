@@ -340,7 +340,7 @@ function decisionMaterializationState(
     } else if (task) {
       const value = queryRows<{ readonly status: string }>(
         db,
-        "SELECT status FROM task_snapshot WHERE task_id = ?",
+        "SELECT CASE WHEN package_disposition = 'archived' THEN 'archived' ELSE status END AS status FROM task_snapshot WHERE task_id = ?",
         task,
       )[0];
       if (value) states.set(ref, { ref, state: value.status, kind: "task" });
