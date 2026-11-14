@@ -7,11 +7,7 @@ import { type TaskProjection, type TaskProjectionQueries, type WriteReceiptDraft
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { makeDaemonProjectionReader, makeTaskEventReader } from "@harness-anything/storage";
 import type { FleetEdgeConfig } from "./client/fleet-edge-config.ts";
-import {
-  makeEntityActionCatalogExecutor,
-  type EntityActionCatalogRunner,
-  type EntityActionCatalogRuntimes,
-} from "./entity-action-catalog-executor.ts";
+import { makeEntityActionCatalogExecutor, type EntityActionCatalogRuntimes } from "./entity-action-catalog-executor.ts";
 import { readEntityLocator } from "./entity-locator-read.ts";
 import { readEdgeDocWorkspace } from "./fleet-edge-doc-read.ts";
 import type { FleetMirrorView } from "./fleet-edge-mirror.ts";
@@ -43,7 +39,6 @@ import { repositoryRuntimeReads } from "./repository-runtime-reads.ts";
 import { readEdgeViewBlob, readEdgeViewBlobRange } from "./runtime-result-read.ts";
 import { makeScheduleActionRuntime } from "./schedule-action-runtime.ts";
 import { scheduleOccurrenceSettlementOwner } from "./schedule-runtime-outcome.ts";
-import { makeSettingsActionRuntime } from "./settings-action-runtime.ts";
 import { makeAgentActionRuntime, makeSquadActionRuntime } from "./squad-action-runtime.ts";
 import { explainAuthenticationRequired } from "./task-action-explanation-read.ts";
 import { makeTaskQueryReadModel } from "./task-query-read.ts";
@@ -174,16 +169,8 @@ export function makeRepoReadRuntime(
       unsupportedWrite = (): never => {
         throw cellCodedError("repo_unavailable", "A query-only RepoCell reader cannot start writer work.");
       };
-    let knownTaskIds: Set<string> | null = null;
-    const actionRuntimes: EntityActionCatalogRuntimes = Object.freeze({
-      entity: Object.freeze({
-        agent: (...args: Parameters<EntityActionCatalogRunner>) => agentActionRuntime(...args),
-        schedule: (...args: Parameters<EntityActionCatalogRunner>) => scheduleActionRuntime(...args),
-        settings: (...args: Parameters<EntityActionCatalogRunner>) => settingsActionRuntime(...args),
-        person: (...args: Parameters<EntityActionCatalogRunner>) => personActionRuntime(...args),
-        squad: (...args: Parameters<EntityActionCatalogRunner>) => squadActionRuntime(...args),
-      }),
-    });
+    let actionRuntimes: EntityActionCatalogRuntimes = Object.freeze({}),
+      knownTaskIds: Set<string> | null = null;
     const squadCoordinator = {
         hydrate: unsupportedWrite,
         retentionProtectedDispatchIds: unsupportedWrite,
@@ -225,7 +212,7 @@ export function makeRepoReadRuntime(
         getProjection: () => writableProjection,
         getStore: () => readStore,
         getEntityActionExecutor: () => entityActionExecutor,
-        entityActionRuntimes: actionRuntimes,
+        getEntityActionRuntimes: () => actionRuntimes,
         getService: unsupportedWrite,
         getSettings: () => settings.read(),
         getRecovery: () => ({
@@ -263,11 +250,14 @@ export function makeRepoReadRuntime(
         enumerable: true,
         configurable: true,
       }) as RepoCellOperationalContext;
-    const agentActionRuntime = makeAgentActionRuntime(runtimeContext),
-      scheduleActionRuntime = makeScheduleActionRuntime(runtimeContext, () => settings.read().worktree),
-      settingsActionRuntime = makeSettingsActionRuntime(runtimeContext, settings),
-      personActionRuntime = makePersonActionRuntime(runtimeContext),
-      squadActionRuntime = makeSquadActionRuntime(runtimeContext);
+    actionRuntimes = Object.freeze({
+      entity: Object.freeze({
+        agent: makeAgentActionRuntime(runtimeContext),
+        schedule: makeScheduleActionRuntime(runtimeContext, () => settings.read().worktree),
+        person: makePersonActionRuntime(runtimeContext),
+        squad: makeSquadActionRuntime(runtimeContext),
+      }),
+    });
     const context = {
         extracted: operationalContext,
         mode: input.mode ?? "local",

@@ -258,7 +258,7 @@ export function createRepoCellActionContext(bindings: {
   readonly getProjection: () => TaskProjection;
   readonly getStore: () => CanonicalEventStore;
   readonly getEntityActionExecutor: () => ReturnType<typeof makeEntityActionCatalogExecutor>;
-  readonly entityActionRuntimes: EntityActionCatalogRuntimes;
+  readonly getEntityActionRuntimes: () => EntityActionCatalogRuntimes;
   readonly getService: () => ReturnType<typeof makeTaskLifecycleService>;
   readonly getSettings: () => SettingsV1;
   readonly getRecovery: () => RepoCellCore["recovery"];
@@ -311,7 +311,9 @@ export function createRepoCellActionContext(bindings: {
     get entityActionExecutor() {
       return bindings.getEntityActionExecutor();
     },
-    entityActionRuntimes: bindings.entityActionRuntimes,
+    get entityActionRuntimes() {
+      return bindings.getEntityActionRuntimes();
+    },
     decisionProposalAction,
     upgradePresetSnapshot: bind(upgradePresetSnapshotImpl),
     upsertEntity: bind(upsertEntityImpl),

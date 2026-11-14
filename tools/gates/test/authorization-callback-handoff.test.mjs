@@ -156,6 +156,120 @@ function entry(request: { transportKind: string }) {
     .sources.get(sourceSite(graph, effect));
 }
 
+function traceQueuedReentry(invocation, recursive = false) {
+  const file = "packages/daemon/src/reentry.ts";
+  const { rootDir } = makeRepo({
+    [file]: `const store = { append() {} };
+function effect() { store.append(); }
+function queue(request, phase, callback) {
+  if (phase === "write") {
+    if (request.transportKind !== "unix-socket") return;
+    callback();
+  } else ${recursive ? "queue(request, phase, callback)" : "callback()"};
+}
+function entry(request: { transportKind: string }) { ${invocation} }`,
+  });
+  const graph = buildFlowGraph(rootDir),
+    statements = graph.modules.get(file).sourceFile.statements,
+    site = sourceSite(graph, statements[1].body.statements[0].expression);
+  return makeAuthorizationTracer(graph, { ports: [], entries: [statements.at(-1)], constants: {}, functions: {} })
+    .traceDescriptor({
+      method: "demo",
+      kind: "demo",
+      commandClass: "repo-write",
+      localTransport: true,
+      sources: [{ id: "effect", site }],
+    })
+    .sources.get(site);
+}
+
+// CH1: preparation may re-enter the queue with another callback. Only the actual
+// write frame's denial exit certifies that callback; an active function alone is no cycle.
+test("a new queued callback frame can acquire its own authority", () => {
+  const result = traceQueuedReentry('queue(request, "prepare", () => queue(request, "write", effect));');
+  assert.equal(result.seen && result.ok, true);
+});
+
+test("a replaced queued callback does not certify the unused source", () => {
+  const result = traceQueuedReentry('queue(request, "prepare", () => queue(request, "write", () => {}));');
+  assert.equal(result.seen, false);
+});
+
+test("an unguarded queue frame still rejects a source certified by a reentrant queue", () => {
+  const result = traceQueuedReentry(
+    'queue(request, "prepare", () => queue(request, "write", effect)); queue(request, "prepare", effect);',
+  );
+  assert.equal(result.seen, true);
+  assert.equal(result.ok, false);
+});
+
+test("the same recursive queue frame terminates without certifying an uncalled source", () => {
+  const result = traceQueuedReentry('queue(request, "prepare", effect);', true);
+  assert.equal(result.seen, false);
+});
+
+function traceSymbolCallback(invocation, { alias = false, separate = false } = {}) {
+  const file = "packages/daemon/src/symbol-callback.ts";
+  const { rootDir } = makeRepo({
+    "packages/daemon/src/symbols.ts": 'export const read = Symbol("read"); export const write = Symbol("write");',
+    "packages/daemon/src/other-symbols.ts": 'export const read = Symbol("read");',
+    [file]: `import { read${alias ? " as query" : ""}, write } from "./symbols.ts";
+import { read as otherRead } from "./other-symbols.ts";
+const store = { append() {} };
+const callbacks = { [${alias ? "query" : "read"}]: () => {}, [${separate ? "otherRead" : "write"}]: () => store.append() };
+function entry(request: { transportKind: string }, unknownKey: symbol) {
+  if (request.transportKind !== "unix-socket") return;
+  ${invocation}
+}`,
+  });
+  const graph = buildFlowGraph(rootDir),
+    source = graph.modules.get(file).sourceFile;
+  let effect;
+  (function visit(node) {
+    if (ts.isCallExpression(node) && node.expression.getText() === "store.append") effect = node;
+    ts.forEachChild(node, visit);
+  })(source);
+  const site = sourceSite(graph, effect);
+  return makeAuthorizationTracer(graph, {
+    ports: [],
+    entries: [source.statements.at(-1)],
+    constants: {},
+    functions: {},
+  })
+    .traceDescriptor({
+      method: "demo",
+      kind: "demo",
+      commandClass: "repo-write",
+      localTransport: true,
+      sources: [{ id: "effect", site }],
+    })
+    .sources.get(site);
+}
+
+// CH1: query-only APIs use an imported unique symbol. Treating that known key as
+// arbitrary also invokes every writer member and invents an owner/authority chain.
+test("a unique read symbol does not invoke an unrelated writer member", () => {
+  assert.equal(traceSymbolCallback("callbacks[read]();").seen, false);
+});
+
+test("the selected unique writer symbol reaches its actual source", () => {
+  const result = traceSymbolCallback("callbacks[write]();");
+  assert.equal(result.seen && result.ok, true);
+});
+
+test("an imported symbol alias retains its original member identity", () => {
+  assert.equal(traceSymbolCallback("callbacks[query]();", { alias: true }).seen, false);
+});
+
+test("same-named symbols from separate modules cannot borrow each other's callbacks", () => {
+  assert.equal(traceSymbolCallback("callbacks[read]();", { separate: true }).seen, false);
+});
+
+test("an unknown symbol keeps every possible callback live", () => {
+  const result = traceSymbolCallback("callbacks[unknownKey]();");
+  assert.equal(result.seen && result.ok, true);
+});
+
 // dec_7E44897ECDCAEF2B92EC66A260/CH1: a passed callback supplies source evidence only
 // when invocation preserves its actual argument frame, including rest/spread forwarding.
 test("an invoked ordinary object callback retains local authority", () => {

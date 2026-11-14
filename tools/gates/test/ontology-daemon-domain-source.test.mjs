@@ -74,15 +74,15 @@ for (const kind of owners)
 for (const [kind, file, from, to] of [
   [
     "settings-update",
-    "packages/daemon/src/repo-cell-open.ts",
-    "settings: (...args: Parameters<EntityActionCatalogRunner>) => settingsActionRuntime(...args),",
-    'settings: () => { throw new Error("detached settings runtime"); },',
+    "packages/daemon/src/repo-cell-action-dispatch.ts",
+    "settings: makeSettingsActionRuntime(cell, cell.settings)",
+    'settings: () => { throw new Error("detached settings runtime"); }',
   ],
   [
     "task-rework",
     "packages/daemon/src/repo-cell-command-run.ts",
-    "if (event)\n          return (await continueReviewRework(",
-    "if (false && event)\n          return (await continueReviewRework(",
+    "if (event)\n              return (await continueReviewRework(",
+    "if (false && event)\n              return (await continueReviewRework(",
   ],
 ])
   partitionedTest(`detaching ${kind} keeps owner authority but rejects its unreachable source`, (t) => {

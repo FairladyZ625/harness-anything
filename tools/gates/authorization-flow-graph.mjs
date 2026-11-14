@@ -196,6 +196,8 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
     fileOf,
     implementsMember,
     memberSignature,
+    memberKey,
+    uniqueSymbolKey,
     interfaceMembers,
     carriesTransport,
     takesInterface,
@@ -272,7 +274,7 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
   /** The declarations a property call names: interface signatures or the concrete member itself. */
   function memberSignature(access) {
     if (!programSources.has(access.getSourceFile())) return null;
-    const symbol = checker.getSymbolAtLocation(access.name),
+    const symbol = checker.getSymbolAtLocation(ts.isElementAccessExpression(access) ? access : access.name),
       declarations = symbol?.declarations ?? [];
     const result = new Set();
     function resolve(declaration) {
@@ -296,6 +298,18 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
     return result.size === 0 ? null : result;
   }
 
+  // Unique symbol types carry compiler-owned identity across imports. Keep that identity
+  // separate from string keys; unresolved symbols still enumerate all possible members.
+  function uniqueSymbolKey(expression) {
+    if (!expression || !ts.isIdentifier(expression) || !programSources.has(expression.getSourceFile())) return null;
+    const type = checker.getTypeAtLocation(expression);
+    return type.flags & ts.TypeFlags.UniqueESSymbol ? type : null;
+  }
+
+  function memberKey(name) {
+    return ts.isComputedPropertyName(name) ? uniqueSymbolKey(name.expression) : memberName(name);
+  }
+
   /** Whether an object/class member is contextually typed as one of the named signatures. */
   function implementsMember(declaration, key, signatures) {
     const owners = [];
@@ -309,7 +323,12 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
     if (
       owners.some((owner) =>
         (owner.isUnion() ? owner.types : [owner]).some((part) =>
-          (checker.getPropertyOfType(part, key)?.declarations ?? []).some((candidate) => signatures.has(candidate)),
+          (
+            (typeof key === "string"
+              ? checker.getPropertyOfType(part, key)
+              : part.getProperties().find((property) => property.escapedName === key.escapedName)
+            )?.declarations ?? []
+          ).some((candidate) => signatures.has(candidate)),
         ),
       )
     )
@@ -338,12 +357,12 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
   }
 
   function indexMembers(node, file) {
-    if (ts.isPropertyAssignment(node)) addMember(memberName(node.name), node.initializer, file, node);
+    if (ts.isPropertyAssignment(node)) addMember(memberKey(node.name), node.initializer, file, node);
     else if (ts.isShorthandPropertyAssignment(node)) addMember(node.name.text, node.name, file, node);
     else if ((ts.isMethodDeclaration(node) || ts.isGetAccessorDeclaration(node)) && node.body)
-      addMember(memberName(node.name), node, file, node);
+      addMember(memberKey(node.name), node, file, node);
     else if (ts.isPropertyDeclaration(node) && node.initializer)
-      addMember(memberName(node.name), node.initializer, file, node);
+      addMember(memberKey(node.name), node.initializer, file, node);
     else if (
       ts.isVariableDeclaration(node) &&
       node.initializer &&
@@ -551,7 +570,7 @@ export function makeEvaluator(graph, facts) {
           if (inner.length && !inner.every((entry) => entry.unknown)) return inner;
           continue;
         }
-        if (property.name && memberName(property.name) === key) {
+        if (property.name && graph.memberKey(property.name) === key) {
           if (ts.isPropertyAssignment(property)) return evaluate(property.initializer, value.env, depth + 1);
           if (ts.isShorthandPropertyAssignment(property)) return evaluate(property.name, value.env, depth + 1);
           return [{ fn: true, node: property, env: value.env }];
@@ -560,7 +579,7 @@ export function makeEvaluator(graph, facts) {
       return [unknown];
     }
     if (value.classNode) {
-      const member = value.classNode.members.find((entry) => entry.name && memberName(entry.name) === key);
+      const member = value.classNode.members.find((entry) => entry.name && graph.memberKey(entry.name) === key);
       if (member && ts.isMethodDeclaration(member) && member.body) return [{ fn: true, node: member, env: value.env }];
       if (member && ts.isPropertyDeclaration(member) && member.initializer)
         return evaluate(member.initializer, value.env, depth + 1);
@@ -688,9 +707,12 @@ export function makeEvaluator(graph, facts) {
         : (() => {
             const argument = node.argumentExpression,
               folded = argument && fold(argument, env, depth + 1);
-            return folded && (typeof folded.value === "string" || typeof folded.value === "number")
-              ? String(folded.value)
-              : null;
+            return (
+              graph.uniqueSymbolKey(argument) ??
+              (folded && (typeof folded.value === "string" || typeof folded.value === "number")
+                ? String(folded.value)
+                : null)
+            );
           })();
       // Policy dispatch must select the request's actual member. Only source reachability
       // may conservatively enumerate the authored alternatives of an unknown key.

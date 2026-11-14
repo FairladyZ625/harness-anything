@@ -1200,9 +1200,11 @@ export function makeAuthorizationTracer(graph, anchors) {
           localReturn: false,
           refusal: false,
         };
-      if (!fn.body || stack.includes(fn) || stack.length > maxWalkDepth) return none;
+      if (!fn.body || stack.length > maxWalkDepth) return none;
       const key = signature(value, env, state);
       const seen = memo.get(fn) ?? new Map();
+      // The in-progress entry terminates the same frame. Another callback binding may
+      // re-enter this function and acquire its own authority, as queued continuations do.
       if (seen.has(key)) return seen.get(key);
       seen.set(key, none);
       memo.set(fn, seen);

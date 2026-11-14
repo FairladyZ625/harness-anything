@@ -1,3 +1,4 @@
+import { makeSettingsActionRuntime } from "./settings-action-runtime.ts";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { runStorageMigrationAction } from "./storage-migration-action.ts";
 import { runTodoAction } from "./todo-action.ts";
@@ -395,7 +396,9 @@ export function executeRepoAction(
           ? cell.projection.readCut().sourceRevision
           : Number(action.expectedVersion ?? cell.store.readHead()?.revision ?? 0),
       ),
-      cell.entityActionRuntimes,
+      actionContract.target.kind === "settings"
+        ? { entity: { settings: makeSettingsActionRuntime(cell, cell.settings) } }
+        : cell.entityActionRuntimes,
     );
   if (action.kind === "preset-upgrade") return cell.upgradePresetSnapshot(action, binding);
   if (/^entity-(?:get|list)$/u.test(action.kind)) {

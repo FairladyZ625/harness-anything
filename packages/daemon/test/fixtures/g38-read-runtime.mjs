@@ -10,7 +10,6 @@ import { createRepoCellApi } from "../../src/repo-cell-api.ts";
 import { makeRepoCellSettingsState } from "../../src/repo-cell-settings-state.ts";
 import { makeEntityActionCatalogExecutor } from "../../src/entity-action-catalog-executor.ts";
 import { makeAgentActionRuntime, makeSquadActionRuntime } from "../../src/squad-action-runtime.ts";
-import { makeSettingsActionRuntime } from "../../src/settings-action-runtime.ts";
 import { makePersonActionRuntime } from "../../src/person-action-runtime.ts";
 import { makeScheduleActionRuntime } from "../../src/schedule-action-runtime.ts";
 import { executeRepoReadAction } from "../../src/repo-cell-action-dispatch.ts";
@@ -27,6 +26,7 @@ export async function createReadFixtureRuntime({ projection, store, rootDir }, n
     };
   let settings,
     executor,
+    actions,
     knownTaskIds = null;
   const context = createRepoCellActionContext({
     input,
@@ -36,7 +36,7 @@ export async function createReadFixtureRuntime({ projection, store, rootDir }, n
     getProjection: () => projection,
     getStore: () => store,
     getEntityActionExecutor: () => executor,
-    entityActionRuntimes: {},
+    getEntityActionRuntimes: () => actions,
     getService: unsupportedWrite,
     getSettings: () => settings.read(),
     getRecovery: () => ({ status: "ready" }),
@@ -63,16 +63,14 @@ export async function createReadFixtureRuntime({ projection, store, rootDir }, n
     sessionIdentity: unsupportedWrite,
     readSettings: () => settings.readRepository(),
   });
-  const actions = {
+  actions = {
     entity: {
       agent: makeAgentActionRuntime(context),
       squad: makeSquadActionRuntime(context),
       person: makePersonActionRuntime(context),
-      settings: makeSettingsActionRuntime(context, settings),
       schedule: makeScheduleActionRuntime(context, () => settings.read().worktree),
     },
   };
-  Object.assign(context, { entityActionRuntimes: actions });
   const runtimeStream = makeAgentRuntimeStreamHub({
     readSession: (id) => projection.readRuntimeSession(id),
     canAttach: (session) => {

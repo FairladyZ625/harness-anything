@@ -7640,7 +7640,7 @@
         "port": "packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-action-dispatch.ts#executeRepoAction:e77ad20a42955aa3c80e3e574f1e0668",
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-action-dispatch.ts#executeRepoAction:03f4791faf5ab5eb67d91ce2c9f266be",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.run"
