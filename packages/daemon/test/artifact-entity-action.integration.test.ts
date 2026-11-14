@@ -569,16 +569,19 @@ test("a snapshot can become a reference and reference entities support fenced up
 test("URL source resolution does not block a concurrent repository write", { timeout: 30_000 }, async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-url-artifact-import-")),
     repoId = workspaceId("url-artifact-import");
-  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined, pendingImport: Promise<unknown> | undefined;
+  const state: {
+    cell?: Awaited<ReturnType<typeof openRepoCell>>;
+    pendingImport?: Promise<unknown>;
+    response?: ServerResponse;
+  } = {};
   const requested = Promise.withResolvers<ServerResponse>(),
     server = createServer((_request, response) => requested.resolve(response));
-  let response: ServerResponse | undefined;
   const Worker = workerThreads.Worker;
   t.after(async () => {
-    if (response && !response.writableEnded) response.end("cleanup");
+    if (state.response && !state.response.writableEnded) state.response.end("cleanup");
     server.closeAllConnections();
-    await pendingImport;
-    await cell?.close();
+    await state.pendingImport;
+    await state.cell?.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     rmSync(rootDir, { recursive: true, force: true });
   });
@@ -619,12 +622,13 @@ test("URL source resolution does not block a concurrent repository write", { tim
   );
   syncBuiltinESMExports();
   initRepo(rootDir);
-  cell = await openRepoCell({
+  const cell = await openRepoCell({
     repoId,
     rootDir: canonicalRoot(rootDir),
     ownerId: "url-artifact-import-center",
     now: () => "2026-09-11T02:00:00.000Z",
   });
+  state.cell = cell;
   const created = await cell.run(
     {
       kind: "vertical-kind-upsert",
@@ -651,8 +655,9 @@ test("URL source resolution does not block a concurrent repository write", { tim
     { mode: "snapshot", kind: "entity-import", entityKind: kindRef, locator: url, expectedVersion: 0 },
     binding,
   );
-  pendingImport = importing;
-  response = await requested.promise;
+  state.pendingImport = importing;
+  const response = await requested.promise;
+  state.response = response;
   let importCompleted = false;
   void importing.then(() => {
     importCompleted = true;
