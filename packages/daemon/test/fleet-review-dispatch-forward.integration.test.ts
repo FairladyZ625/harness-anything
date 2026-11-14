@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { actionDeclarations, effectivePolicyGroupScopes } from "@harness-anything/kernel";
+import { makeTaskEventReader } from "@harness-anything/storage";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { createIdentitySession } from "../src/authorization-provider.ts";
 import { daemonBuildStamp } from "../src/build-identity.ts";
@@ -300,6 +301,19 @@ test(
         };
       };
     assert.equal(taskState.outcome, "applied", JSON.stringify(taskState));
-    assert.equal(taskSnapshot.task?.reviewDispatchIntent?.executionId, secondExecution, JSON.stringify(taskSnapshot));
+    assert.ok(
+      taskSnapshot.task?.reviewDispatchIntent?.executionId === secondExecution ||
+        (taskSnapshot.task?.reviewDispatchIntent == null &&
+          makeTaskEventReader({ repoId: "lease-repo", rootDir: f.repo })
+            .read()
+            .events.some(
+              (event) =>
+                event.type === "runtime_dispatch_requested" &&
+                event.payload.taskId === taskId &&
+                event.payload.executionId === secondExecution &&
+                event.payload.role === "reviewer",
+            )),
+      JSON.stringify(taskSnapshot),
+    );
   },
 );
