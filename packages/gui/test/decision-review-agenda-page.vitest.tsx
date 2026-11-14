@@ -22,9 +22,9 @@ import { entityDetailTargetOf } from "../src/renderer/navigation/entityRoutes.ts
 
 /**
  * 议程页(标准 §2.4 列表页)与行落点:行全部取议程读面,FilterChips 带计数 +
- * 页内搜索,默认「需要关注」不默认全量;行用 DenseRow、状态用 StatusTag;点行
- * 开抽屉,抽屉里答复(awaits 源)或「打开完整详情」落 Decision 评审页签、逐项
- * 回应、评审会话、裁决页签与源实体详情。
+ * 页内搜索。dec_653AB9E451B58125CA2B5C0289/CH1 原地升级双模工作台:
+ * 默认收件拍板,选中项内联答复与详情路由;保留原生 Decision 逐项回应、评审、
+ * 会话、裁决及源实体的精确路由覆盖,并验证无模态抽屉。
  */
 const AT = "2026-09-29T01:00:00.000Z";
 /**
@@ -142,6 +142,8 @@ const seeded = agenda({
 
 let root: Root | null = null;
 let container: HTMLElement | null = null;
+const mounted: { root: Root; container: HTMLElement }[] = [];
+const clients: QueryClient[] = [];
 
 beforeAll(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -153,8 +155,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  act(() => root?.unmount());
-  container?.remove();
+  for (const entry of mounted.splice(0)) {
+    act(() => entry.root.unmount());
+    entry.container.remove();
+  }
+  for (const client of clients.splice(0)) client.clear();
   root = null;
   container = null;
   vi.useRealTimers();
@@ -164,13 +169,17 @@ function mount(element: ReturnType<typeof createElement>): HTMLElement {
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
+  mounted.push({ root, container });
   act(() => root!.render(withQueries(element)));
   return container;
 }
 
 /** 答复面板的写动作挂在 react-query 上;只渲染不发请求。 */
-const withQueries = (element: ReturnType<typeof createElement>) =>
-  createElement(QueryClientProvider, { client: new QueryClient() }, element);
+const withQueries = (element: ReturnType<typeof createElement>) => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  clients.push(client);
+  return createElement(QueryClientProvider, { client }, element);
+};
 
 const click = (host: HTMLElement, testId: string) => {
   const button = host.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`);
@@ -219,7 +228,7 @@ describe("议程页(标准 §2.4 列表页)", () => {
     expect(navLabelOf("agenda")).toBe("议程");
   });
 
-  it("筛选按钮带计数且默认「需要关注」,不默认展示全量;空组不渲染", () => {
+  it("筛选按钮带计数且默认「收件拍板」,不默认展示全量;空组不渲染", () => {
     const host = mount(
       createElement(AgendaView, {
         repoId: "repo",
@@ -229,11 +238,11 @@ describe("议程页(标准 §2.4 列表页)", () => {
       }),
     );
     const chips = [...host.querySelectorAll('[data-testid="agenda-filter-chips"] button')];
-    expect(chips.map((chip) => chip.textContent)).toEqual(["需要关注5", "待跟进1", "全部6"]);
+    expect(chips.map((chip) => chip.textContent)).toEqual(["收件拍板5", "出件验收0", "跟进与回执1", "全部6"]);
     expect(chips[0]!.getAttribute("aria-pressed")).toBe("true");
     // 默认(需要关注):dispose/review/judge 的行都在,reviewing(待跟进)不出现。
     expect(rowIds(host)).toEqual(["rel_task", "dec_dispose", "dec_review_a", "dec_review_b", "dec_judge"]);
-    act(() => chips[2]!.click());
+    act(() => chips[3]!.click());
     expect(rowIds(host)).toEqual([
       "rel_task",
       "dec_dispose",
@@ -269,8 +278,8 @@ describe("议程页(标准 §2.4 列表页)", () => {
     expect(rowIds(host)).toEqual([taskRef]);
     expect(host.querySelector('[data-testid="agenda-row-task/task_unsubmitted"]')?.textContent).toContain("未提交交付");
     clickRow(host, taskRef);
-    expect(host.querySelector('[role="dialog"]')?.textContent).toContain("执行者退出时未提交");
-    click(host, "agenda-drawer-open");
+    expect(host.querySelector('[data-testid="agenda-current-card"]')?.textContent).toContain("执行者退出时未提交");
+    click(host, "agenda-card-open");
     expect(opened).toEqual([taskRef]);
   });
 
@@ -325,11 +334,11 @@ describe("议程页(标准 §2.4 列表页)", () => {
       }),
     );
     const title = colonHost.querySelector('[data-testid="agenda-row-dec_split"]')!;
-    expect(title.textContent).toBe("待评审重构看板:按状态分列· 需要当前内容的一次独立评审"); // TitleText 不丢字
+    expect(title.textContent).toBe("待评审重构看板:按状态分列需要当前内容的一次独立评审"); // TitleText 不丢字
     expect(title.querySelector(".text-text-faint")?.textContent).toBe(":按状态分列"); // 冒号后补充弱色
   });
 
-  it("点行打开抽屉;awaitingYou 行在抽屉里就地答复,decision 行给「打开完整详情」落评审页签", () => {
+  it("点行选中卡片;awaitingYou 行内联答复,decision 行保留精确评审路由", () => {
     const opened: string[] = [];
     const host = mount(
       createElement(AgendaView, {
@@ -340,22 +349,22 @@ describe("议程页(标准 §2.4 列表页)", () => {
       }),
     );
     clickRow(host, "rel_task");
-    let dialog = host.querySelector('[role="dialog"]');
-    expect(dialog?.textContent).toMatch(/\d+ (分钟|小时|天)前开始等待/u);
-    expect(dialog?.textContent).toContain("提案 task/task_x");
-    expect(dialog?.textContent).toContain("has review changes to resolve.");
-    click(host, "agenda-drawer-answer");
-    const panel = document.body.querySelector('[data-testid="awaits-answer-panel"]');
-    expect(panel?.textContent).toContain("has review changes to resolve.");
+    let card = host.querySelector('[data-testid="agenda-current-card"]');
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(card?.textContent).toMatch(/\d+ (分钟|小时|天)前开始等待/u);
+    expect(card?.textContent).toContain("提案 task/task_x");
+    expect(card?.textContent).toContain("has review changes to resolve.");
+    expect(card?.querySelector('[data-testid="awaits-answer-comment"]')).not.toBeNull();
+    expect(document.body.querySelector('[data-testid="awaits-answer-panel"]')).toBeNull();
     expect(opened).toEqual([]);
 
     // reviewing(待跟进桶)切到「全部」后可达。
-    act(() => [...host.querySelectorAll('[data-testid="agenda-filter-chips"] button')][2]!.click());
+    act(() => [...host.querySelectorAll('[data-testid="agenda-filter-chips"] button')][3]!.click());
     for (const id of ["dec_running", "dec_dispose", "dec_review_a", "dec_judge"]) {
       clickRow(host, id);
-      dialog = host.querySelector('[role="dialog"]');
-      expect(dialog).not.toBeNull();
-      click(host, "agenda-drawer-open");
+      card = host.querySelector('[data-testid="agenda-current-card"]');
+      expect(card).not.toBeNull();
+      click(host, "agenda-card-open");
     }
     expect(opened).toEqual([
       "decisionsessions/dec_running",
@@ -385,7 +394,7 @@ describe("议程页(标准 §2.4 列表页)", () => {
       }),
     );
     // 默认「需要关注」:answered 与 taskReviewing(评审中,等别人)都在「待跟进」桶。
-    expect(rowIds(host)).toEqual(["task_rework", "task_submitted"]);
+    expect(rowIds(host)).toEqual(["task_rework"]); // submitted 属于独立 Outbox。
     const answered = mount(
       createElement(AgendaView, {
         repoId: "repo",
@@ -400,7 +409,7 @@ describe("议程页(标准 §2.4 列表页)", () => {
       }),
     );
     // answered(待跟进桶)切到「全部」后可达。
-    act(() => [...answered.querySelectorAll('[data-testid="agenda-filter-chips"] button')][2]!.click());
+    act(() => [...answered.querySelectorAll('[data-testid="agenda-filter-chips"] button')][3]!.click());
     const answeredRow0 = answered.querySelector('[data-testid="agenda-row-rel_ans_task"]')!;
     expect(answeredRow0.textContent).toContain("已答复 task/task_asked");
     expect(answeredRow0.textContent).toContain("待跟进");
@@ -408,15 +417,21 @@ describe("议程页(标准 §2.4 列表页)", () => {
     expect(answeredRow0.textContent).toContain("答复者 owner");
     expect(answeredRow0.textContent).toContain("答:不兼容，直接删");
     expect(answeredRow0.querySelector('[data-status-tone="wait"]')).not.toBeNull();
+    const quiet = answered.querySelector<HTMLDetailsElement>('[data-testid="agenda-quiet-fyi"]')!;
+    expect(quiet.open).toBe(false);
+    act(() => {
+      quiet.open = true;
+      quiet.dispatchEvent(new Event("toggle"));
+    });
     for (const id of ["rel_ans_task", "rel_ans_dec"]) {
       clickRow(answered, id);
-      click(answered, "agenda-drawer-open");
+      click(answered, "agenda-card-open");
     }
     // taskReviewing(待跟进桶)同样切「全部」后可达。
-    act(() => [...host.querySelectorAll('[data-testid="agenda-filter-chips"] button')][2]!.click());
+    act(() => [...host.querySelectorAll('[data-testid="agenda-filter-chips"] button')][3]!.click());
     for (const id of ["task_rework", "task_submitted", "task_in_review"]) {
       clickRow(host, id);
-      click(host, "agenda-drawer-open");
+      click(host, "agenda-card-open");
     }
     expect(opened).toEqual([
       "task/task_asked",
