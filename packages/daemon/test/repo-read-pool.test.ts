@@ -236,3 +236,49 @@ test("the previous owner waits for an in-flight repository handoff before close 
     worker.emit("exit", 0);
   }
 });
+
+test("a failed repository handoff quarantines the reader until termination releases old handles", async () => {
+  let worker!: Reader;
+  const terminated = Promise.withResolvers<number>(),
+    factory = () => {
+      worker = new Reader();
+      queueMicrotask(() => worker.ready());
+      return worker as unknown as Worker;
+    },
+    first = openRepoReadClient({ repoId: "old-error" as never, rootDir: "/unused" as never, ownerId: "test" }, factory),
+    second = openRepoReadClient(
+      { repoId: "new-error" as never, rootDir: "/unused" as never, ownerId: "test" },
+      factory,
+    );
+  try {
+    await first.request("probe", []);
+    worker.hold = true;
+    worker.terminate = async () => {
+      worker.stopped = true;
+      return terminated.promise;
+    };
+    const next = second.request("probe", []),
+      rejected = assert.rejects(next, { code: "handoff_failed" });
+    await turn();
+    let closed = false;
+    const closing = first.close().then(() => {
+      closed = true;
+    });
+    worker.emit("message", {
+      requestId: worker.held[0]!.requestId,
+      outcome: "error",
+      error: { code: "handoff_failed", message: "Previous query runtime did not close." },
+    });
+    await rejected;
+    await turn();
+    assert.equal(worker.stopped, true, "an error receipt does not prove the old runtime released its handles");
+    assert.equal(closed, false, "the previous owner must wait for worker termination");
+    terminated.resolve(0);
+    await closing;
+  } finally {
+    terminated.resolve(0);
+    worker.release();
+    await Promise.all([first.close(), second.close()]);
+    worker.emit("exit", 0);
+  }
+});

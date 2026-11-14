@@ -41,6 +41,7 @@ export type RepoReadWorkerFactory = (
 ) => Worker;
 type Owner = { readonly slots: Set<Slot> };
 type Job = {
+  handoff?: boolean;
   readonly createWorker?: RepoReadWorkerFactory;
   readonly owner: Owner;
   readonly completion: Promise<void>;
@@ -186,6 +187,7 @@ function pump(): void {
       continue;
     }
     queue.shift();
+    job.handoff = slot.owner !== null && slot.owner !== job.owner;
     slot.job = job;
     slot.owner = job.owner;
     job.owner.slots.add(slot);
@@ -254,7 +256,12 @@ function pump(): void {
           if (!active || receipt.requestId !== active.request.requestId) return;
           slot.job = null;
           if (receipt.outcome === "ok") active.resolve(receipt.value);
-          else active.reject(deserializeWriterError(receipt.error!));
+          else {
+            // A failed handoff may have failed while closing the previous runtime.
+            // Only completed termination can then prove its handles were released.
+            if (active.handoff) void stop(slot);
+            active.reject(deserializeWriterError(receipt.error!));
+          }
           active.settled();
           pump();
           if (!slot.job) worker.unref();
