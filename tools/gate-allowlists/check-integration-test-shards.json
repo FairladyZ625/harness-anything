@@ -1006,9 +1006,9 @@
         "reason": "Over the 180s per-file budget (278.5s measured from run 42476112001 [node-test-duration] output, 2026-11-08); split is deferred from this shard-balancing rework."
       },
       {
-        "value": "packages/cli/test/runtime-cli-lifecycle.integration.test.ts",
-        "ref": "task_34470c99bb4b77644b9ce3a246",
-        "reason": "Over the 180s per-file budget (223.5s measured from run 42476112001 [node-test-duration] output, 2026-11-08); split is deferred from this shard-balancing rework."
+        "value": "packages/cli/test/daemon-autostart-cli.test.ts",
+        "ref": "task_2f953ccf18522e7a9535dd8dc3",
+        "reason": "Over the 180s per-file budget (192.5s measured from run 43560817174 [node-test-duration] output, 2026-11-14); CEO-authorized replacement of the stale runtime-cli-lifecycle exception (now 144.3s), keeping three exceptions; CLI splitting is deferred from P4."
       },
       {
         "value": "packages/cli/test/runtime-cli-dispatch.integration.test.ts",
