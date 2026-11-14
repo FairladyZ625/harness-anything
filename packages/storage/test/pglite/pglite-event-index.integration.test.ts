@@ -46,11 +46,20 @@ pgliteIntegrationSuite("PGlite event indexes", () => {
             VALUES($1,$2,$3,5,2002,2002)`,
             [scope.tenantId, scope.projectId, scope.policyEpoch],
           );
+          // This synthetic history is confirmed. A read-only RLS role only needs the hot cut,
+          // not the privileged cold-recovery function or any maintenance write permission.
+          await client.query(
+            `INSERT INTO ha_repo_sync_watermarks(tenant_id,project_id,repo_id,replication_history,
+              confirmed_revision,confirmed_sequence,readers,policy_epoch)
+             SELECT tenant_id,project_id,repo_id,replication_history,revision,0,readers,policy_epoch
+             FROM ha_repo_heads WHERE repo_id=$1`,
+            [repoId],
+          );
           await client.query("ANALYZE");
           await client.query("CREATE ROLE entity_page_reader NOLOGIN NOBYPASSRLS");
           await client.query("GRANT USAGE ON SCHEMA public TO entity_page_reader");
           await client.query(
-            "GRANT SELECT ON ha_events,ha_event_entity_refs,ha_projection_values,ha_projection_meta,ha_repo_heads TO entity_page_reader",
+            "GRANT SELECT ON ha_events,ha_event_entity_refs,ha_projection_values,ha_projection_meta,ha_repo_heads,ha_replication_positions,ha_repo_sync_watermarks TO entity_page_reader",
           );
         },
         scope,

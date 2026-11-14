@@ -504,11 +504,6 @@
         "role": "support"
       },
       {
-        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-task-query-reader.ts#waitForWorker:ac255a7c838d42522ce367ee725c3bbd",
-        "route": "repository-read",
-        "role": "support"
-      },
-      {
         "candidateId": "action:packages/storage:packages/storage/src/pg/pg-task-query-reader.ts#restoreError.restored:ae2fdfd25a4866822a429bdd94d23074",
         "route": "repository-read",
         "role": "support"
@@ -1433,6 +1428,31 @@
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/projection-readiness.ts#taskNotFoundCodedError:6b5d0ca44e40b032781680764f8ae3e2",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-entity-declarations.ts#readPgEntityDeclarations:de2bbb3092485a535a102ca69e41f132",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-event-queries.ts#readCutInTransaction:de2bbb3092485a535a102ca69e41f132",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-task-query-reader.ts#waitForWorker:065926b4dfa1105298a6a0465acf460a",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-task-query-worker.ts#startWorker.initialize:b3c74800a0b82d0f060460ad7517c4d0",
+        "route": "repository-read",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-task-query-worker.ts#startWorker.guardCommit:59b20254c7f3a1c9537f68181a25c8a2",
         "route": "repository-read",
         "role": "support"
       }
@@ -11942,6 +11962,12 @@
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/repo-cell-types.ts#RepoCell.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/transaction.ts#withPostgresCommitGuard:e051e62a920214db3a175fb7b370c2c0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/async_hooks.d.ts#async_hooks.AsyncLocalStorage.run"
       }
     ],
     "technical": true

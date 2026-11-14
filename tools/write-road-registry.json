@@ -114,6 +114,7 @@
     "packages/daemon/src/fleet/center-lease-claims.ts",
     "packages/daemon/src/fleet/center-listener.ts",
     "packages/storage/src/fleet-basebackup-worker.ts",
+    "packages/storage/src/postgres/pg-basebackup.ts",
     "packages/storage/src/fleet-replica-seed.ts",
     "packages/daemon/src/fleet/replica-generation.ts",
     "packages/storage/src/fleet-replication-slot.ts",

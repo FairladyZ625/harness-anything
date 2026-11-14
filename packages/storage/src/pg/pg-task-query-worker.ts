@@ -6,7 +6,6 @@ import { Pool, type PoolClient } from "pg";
 import { consumeKnownError } from "@harness-anything/kernel";
 import { createPgTaskProjectionSource } from "./pg-task-source.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
-import { POSTGRES_SCOPE_SCHEMA_CONTRACT } from "../postgres/scope-schema.ts";
 import { PG_TASK_QUERY_METHODS } from "./pg-task-query-contract.ts";
 import { createPgStorageBackend } from "./backend.ts";
 import type { PostgresTaskEventStoreRequest } from "../postgres/pg-task-event-store.ts";
@@ -17,7 +16,7 @@ import { backfillPgArtifactDocuments } from "./pg-artifact-timeline.ts";
 import { backfillPgDispatchLifecycle } from "./pg-dispatch-lifecycle.ts";
 import { maintainPgRelationCycleAuditPage } from "./pg-relation-cycle-audit.ts";
 import { backfillPgRelationReaderIndexPage } from "./pg-relation-queries.ts";
-import { withPostgresTransaction } from "../postgres/transaction.ts";
+import { borrowPostgresCommitWork, withPostgresTransaction, withPostgresCommitGuard } from "../postgres/transaction.ts";
 import { pgEpochTransactions, type PgEpochRequest } from "../postgres/pg-epoch-transaction.ts";
 import { pgReplicationHead, pgReplicationPage } from "../postgres/pg-replication.ts";
 import type { ReplicationPosition } from "../store/replication-log.ts";
@@ -85,6 +84,8 @@ function startWorker(
   authorityPool: Pool | null,
   options: {
     readonly ownsPools?: boolean;
+    readonly beforeCommitCasHook?: () => Promise<void>;
+    readonly afterCommitCasHook?: () => Promise<void>;
     readonly onClose?: () => void;
     readonly onFailure?: (error: Error) => void;
     readonly readSessions?: {
@@ -115,6 +116,7 @@ function startWorker(
   let source: ReturnType<typeof createPgTaskProjectionSource> | null = null,
     sessionClient: PoolClient | null = null;
   let readerIndexBackfill: Promise<void> | undefined, readerIndexPid: number | undefined;
+  let sessionEnd: ((rollback: boolean) => void) | undefined, sessionCompletion: Promise<boolean> | undefined;
   const pending = new Set<Promise<void>>();
   let queryNow: string | undefined;
   let stopped = false;
@@ -146,9 +148,7 @@ function startWorker(
     };
     // Destroy the checked-out client before draining the pool; no transaction can be
     // reused after an asynchronous connection error.
-    if (sessionClient) options.readSessions?.end(sessionClient);
-    sessionClient?.release(error);
-    sessionClient = null;
+    sessionEnd?.(true);
     const cleanup = cancelReaderIndexBackfill().finally(() => (ownsPools ? pool.end() : undefined));
     // A fatal reply makes the caller terminate this thread. Finish maintenance
     // cancellation first; a process already exiting can only notify synchronously.
@@ -167,6 +167,14 @@ function startWorker(
     const client = await pool.connect();
     let borrowedReadOnly = false;
     try {
+      // Embedded storage has no replication peer. Network PG must retain at least remote flush durability.
+      if (!options.readSessions) {
+        const row = (await client.query<{ synchronous_commit: string }>("SHOW synchronous_commit")).rows[0];
+        if (!row || !["on", "remote_apply"].includes(row.synchronous_commit))
+          throw Object.assign(new Error("PostgreSQL runtime requires synchronous_commit=on or remote_apply"), {
+            code: "pg_synchronous_commit_unsafe",
+          });
+      }
       if (options.readSessions)
         borrowedReadOnly =
           (await client.query<{ transaction_read_only: string }>("SHOW transaction_read_only")).rows[0]!
@@ -212,25 +220,17 @@ function startWorker(
     ({
       connect: async () => {
         if (!sessionClient) throw new Error("PostgreSQL query requested outside a reader session");
-        return borrowPgReadClient(sessionClient);
+        const owner = sessionClient;
+        return borrowPostgresCommitWork(await borrowPgReadClient(owner), owner);
       },
     }) as unknown as Pool;
 
   const finishSession = async (command: "COMMIT" | "ROLLBACK") => {
-    if (!sessionClient) return;
-    const client = sessionClient;
-    await options.readSessions?.beforeEnd(client);
-    try {
-      await client.query(command);
-    } catch (error) {
-      if (!stopped) client.release(error instanceof Error ? error : new Error(String(error)));
-      throw error;
-    } finally {
-      sessionClient = null;
-      options.readSessions?.end(client);
-    }
-    if (!stopped) client.release();
-    client.removeListener("error", fail);
+    if (sessionClient) await options.readSessions?.beforeEnd(sessionClient);
+    sessionEnd?.(command === "ROLLBACK");
+    await sessionCompletion;
+    sessionEnd = undefined;
+    sessionCompletion = undefined;
   };
 
   let closing: Promise<void> | undefined;
@@ -417,28 +417,32 @@ function startWorker(
       }
       if (request.op === "begin") {
         if (sessionClient) throw new Error("PostgreSQL query session is already active");
-        const connected = await pool.connect();
-        if (stopped || closing) {
-          connected.release();
-          throw new Error("PostgreSQL query reader closed before its session began");
-        }
-        sessionClient = connected;
-        sessionClient.on("error", fail);
-        await sessionClient.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
-        const names = POSTGRES_SCOPE_SCHEMA_CONTRACT.claims;
-        await sessionClient.query(
-          "SELECT set_config($1, $2, true), set_config($3, $4, true), set_config($5, $6, true)",
-          [
-            names.tenantId,
-            input.scope.tenantId,
-            names.projectId,
-            input.scope.projectId,
-            names.policyEpoch,
-            String(input.scope.policyEpoch),
-          ],
+        const begun = Promise.withResolvers<void>(),
+          ending = Promise.withResolvers<boolean>();
+        sessionEnd = ending.resolve;
+        sessionCompletion = withPostgresTransaction(
+          pool,
+          async (client) => {
+            if (stopped || closing) throw new Error("PostgreSQL query reader closed before its session began");
+            sessionClient = client;
+            client.on("error", fail);
+            try {
+              await readCutInTransaction(client, input.scope, [...(input.scope.readers ?? [])], input.repoId);
+              options.readSessions?.begin(client);
+              begun.resolve();
+              return await ending.promise;
+            } finally {
+              options.readSessions?.end(client);
+              client.removeListener("error", fail);
+              sessionClient = null;
+            }
+          },
+          input.scope,
+          { isolationLevel: "repeatable read", readOnly: true, rollbackOnly: (rollback) => rollback },
         );
-        await readCutInTransaction(sessionClient, input.scope, [...(input.scope.readers ?? [])], input.repoId);
-        options.readSessions?.begin(sessionClient);
+        // Startup failures settle begin; later failures are observed by finishSession.
+        void sessionCompletion.catch(begun.reject);
+        await begun.promise;
         respond(request.id, input.state, null);
         return;
       }
@@ -479,19 +483,15 @@ function startWorker(
         return;
       }
       let failure = error;
-      if (request.op === "begin" && sessionClient) {
-        const client = sessionClient;
-        sessionClient = null;
+      if (request.op === "begin" && sessionCompletion) {
         try {
-          await client.query("ROLLBACK");
-          client.release();
-          client.removeListener("error", fail);
+          await finishSession("ROLLBACK");
         } catch (rollbackError) {
-          client.release(rollbackError instanceof Error ? rollbackError : new Error(String(rollbackError)));
-          failure = new AggregateError(
-            [error, rollbackError],
-            "PostgreSQL query session failed to start and roll back.",
-          );
+          if (rollbackError !== error)
+            failure = new AggregateError(
+              [error, rollbackError],
+              "PostgreSQL query session failed to start and roll back.",
+            );
           consumeKnownError(rollbackError);
         }
       }
@@ -500,7 +500,17 @@ function startWorker(
     }
   };
 
-  void initialize().then(
+  const guardCommit = async (state: Int32Array, requestHooks: boolean) => {
+    if (requestHooks) await options.beforeCommitCasHook?.();
+    const previous = Atomics.compareExchange(state, 1, 0, 1);
+    if (previous === -1)
+      throw Object.assign(new Error("PostgreSQL write aborted before commit"), {
+        code: "write_aborted_pre_commit",
+      });
+    // Startup and multi-transaction requests remain uncancellable after their first COMMIT.
+    if (requestHooks) await options.afterCommitCasHook?.();
+  };
+  void withPostgresCommitGuard(() => guardCommit(input.ready, false), initialize).then(
     (backfillReaderKeys) => {
       if (stopped) return;
       respond(0, input.ready, null);
@@ -528,7 +538,12 @@ function startWorker(
           else fail(error instanceof Error ? error : new Error(String(error)));
         });
       input.requestPort.on("message", (request: PgQueryWorkerRequest) => {
-        const operation = handle(request);
+        // Logical reads can commit deferred cold-recovery writes. Bind their physical
+        // owner at begin too: its async context survives until end resolves the session.
+        const operation = withPostgresCommitGuard(
+          () => guardCommit(input.state, true),
+          () => handle(request),
+        );
         if (request.op !== "close") pending.add(operation);
         void operation.then(
           () => pending.delete(operation),
