@@ -196,7 +196,7 @@ export function makePgCanonicalEventStore(
             const known = new Set<string>(),
               size = storageReadPolicy.defaultValue.pageSizes.standard;
             for (let offset = 0; offset < paths.length; offset += size)
-              for (const path of execute({
+              for (const path of reader.executeCanonical({
                 operation: "document-paths",
                 paths: paths.slice(offset, offset + size),
               }) as readonly string[])
