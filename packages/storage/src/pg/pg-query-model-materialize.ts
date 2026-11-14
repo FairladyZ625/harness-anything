@@ -507,13 +507,13 @@ async function settlePgTerminalMaterialization(
       const rows = await client.query<{ task_id: string }>(
         `SELECT task_id FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
          AND package_path=ANY($4::text[]) AND
-         (task_status='cancelled' OR task_package_disposition='archived')`,
+         (task_status IN ('done','cancelled') OR task_package_disposition='archived')`,
         [scope.tenantId, scope.projectId, scope.policyEpoch, packages],
       );
       for (const { task_id } of rows.rows) changed.add(`task/${task_id}`);
     }
     // Content-only events do not change lifecycle or relations. Existing holds are
-    // already current; only terminal owners need their new claims moved to history.
+    // already current; terminal owners settle history and done Tasks refresh package revisions.
     await settlePgMaterializationCandidates(client, scope, [...changed], event.workspaceRevision, false);
     return;
   }
@@ -570,7 +570,7 @@ async function settlePgMaterializationCandidates(
         : state.kind === "decision"
           ? (terminalDecisionMaterializationStates as readonly string[]).includes(state.state)
           : ["archived", "cancelled"].includes(state.state);
-    if (!terminal && !restoreNonterminal) continue;
+    if (!terminal && !restoreNonterminal && !(state.kind === "task" && state.state === "done")) continue;
     const held =
       (
         await client.query(

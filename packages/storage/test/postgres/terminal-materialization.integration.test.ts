@@ -22,7 +22,7 @@ import {
 } from "../../src/pg/pg-query-model-materialize.ts";
 import { bundle, eventAt } from "../store/task-event-store.fixtures.ts";
 
-test("PostgreSQL nonterminal document writes do no history, subtree or hold work", async () => {
+test("PostgreSQL in-flight document writes skip settlement while done packages refresh revisions", async () => {
   const fixture = await pgRuntimeFixture(),
     repoId = "document-write-cost",
     scope = { tenantId: "documents", projectId: "cost", policyEpoch: 0, readers: [] },
@@ -96,8 +96,8 @@ test("PostgreSQL nonterminal document writes do no history, subtree or hold work
           [scope.tenantId, scope.projectId, created.taskId],
         );
         for (const [index, status] of ["planned", "active", "done"].entries()) {
-          // Exercise the read-model boundary in every nonterminal materialization state;
-          // lifecycle acceptance and terminal unlocks have the full contract below.
+          // In-flight owners avoid package settlement; done owners must refresh even
+          // unchanged package documents. Lifecycle acceptance has the full contract below.
           await client.query(
             "UPDATE ha_task_snapshots SET snapshot=jsonb_set(snapshot,'{task,status}',to_jsonb($4::text)),task_status=$4 WHERE tenant_id=$1 AND project_id=$2 AND task_id=$3",
             [scope.tenantId, scope.projectId, created.taskId, status],
@@ -146,11 +146,24 @@ test("PostgreSQL nonterminal document writes do no history, subtree or hold work
             { event, artifacts: new Map(), readContentBlob: () => Buffer.from(body) },
             null,
           );
-          assert.equal(queries.length, 2, `${status}: only document upsert and indexed task eligibility lookup`);
-          assert.ok(
-            queries.every((sql) => !/document-history|materialization-hold|ha_relations/u.test(sql)),
-            queries.join("\n"),
-          );
+          if (status !== "done") {
+            assert.equal(queries.length, 2, `${status}: only document upsert and indexed task eligibility lookup`);
+            assert.ok(
+              queries.every((sql) => !/document-history|materialization-hold|ha_relations/u.test(sql)),
+              queries.join("\n"),
+            );
+          } else {
+            const documents = await client.query<{ workspace_revision: string }>(
+              "SELECT workspace_revision FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model='document' AND entity_id LIKE $4",
+              [scope.tenantId, scope.projectId, scope.policyEpoch, `${row.rows[0]!.package_path}/%`],
+            );
+            assert.equal(documents.rows.length, 3, "the package includes two unchanged prior-state documents");
+            assert.deepEqual(
+              documents.rows.map(({ workspace_revision }) => Number(workspace_revision)),
+              Array(3).fill(event.workspaceRevision),
+              "done Task document edits refresh the whole materialized package revision",
+            );
+          }
           assert.equal((await getPgProjectionValue<DocumentState>(client, scope, "document", path))?.body, body);
           assert.equal(await getPgProjectionValue(client, scope, "document-history", path), null);
         }
