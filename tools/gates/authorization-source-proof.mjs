@@ -1769,12 +1769,19 @@ export function sourceFrameKey(graph, fn, env) {
     for (let scope = node; scope; scope = scope.parent) scopes.add(scope);
     return [...env].filter(([parameter]) => scopes.has(parameter.parent)).map(([, bound]) => bound);
   };
-  const callerShape = (bound) =>
-    bound.rest
-      ? bound.rest.map(callerShape).join(",")
-      : bound.expression && bound.env
-        ? lexicalBindings(bound.expression, bound.env).map(argumentSite).join("|")
-        : "";
+  const callerShape = (bound) => {
+    if (bound.rest) return bound.rest.map(callerShape).join(",");
+    if (!bound.expression || !bound.env) return "";
+    const node = unwrap(bound.expression),
+      binding = ts.isIdentifier(node) ? graph.lookup(node.text, node) : null,
+      // A const alias captures at its declaration, not at a later reference inside
+      // an unrelated binder. Preserve the declaration's actual captured arguments.
+      captured =
+        binding?.kind === "var" && binding.trail.length === 0 && binding.declaration.parent.flags & ts.NodeFlags.Const
+          ? (binding.declaration.initializer ?? node)
+          : node;
+    return lexicalBindings(captured, bound.env).map(argumentSite).join("|");
+  };
   // One lexical caller frame distinguishes a reused expression bound to different callbacks.
   // This is bounded calling context, not recursive serialization of the environment chain.
   return lexicalBindings(fn, env)

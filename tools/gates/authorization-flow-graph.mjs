@@ -513,7 +513,7 @@ export function makeEvaluator(graph, facts) {
   const unknown = { unknown: true },
     moduleEnv = new Map(),
     memberCache = new Map(),
-    contextFree = new Map(),
+    evaluationQueries = new WeakMap(),
     assignments = new Map(),
     writeReferences = new WeakMap(),
     provenanceCache = new WeakMap(),
@@ -522,13 +522,13 @@ export function makeEvaluator(graph, facts) {
 
   // Like provenance, these pure queries use immutable argument frames. A shared field
   // expression is one subproblem per frame and remaining depth, not a fresh receiver walk.
-  function cachedQuery(cache, expression, env, depth, calculate) {
+  function cachedQuery(cache, expression, env, depth, calculate, cycle = null) {
     const expressions = cache.get(env) ?? new WeakMap();
     cache.set(env, expressions);
     const byDepth = expressions.get(expression) ?? new Map();
     expressions.set(expression, byDepth);
     if (byDepth.has(depth)) return byDepth.get(depth);
-    byDepth.set(depth, null);
+    byDepth.set(depth, cycle);
     const result = calculate(expression, env, depth);
     byDepth.set(depth, result);
     return result;
@@ -671,17 +671,10 @@ export function makeEvaluator(graph, facts) {
 
   function evaluate(expression, env, depth = 0) {
     if (depth > maxEvaluationDepth) return [unknown];
-    // The remaining nesting budget is an input: a deep unknown cannot answer a shallow query.
-    if (env.size === 0 && expression) {
-      const byDepth = contextFree.get(expression) ?? new Map();
-      contextFree.set(expression, byDepth);
-      if (byDepth.has(depth)) return byDepth.get(depth);
-      byDepth.set(depth, [unknown]);
-      const values = evaluateNode(expression, env, depth);
-      byDepth.set(depth, values);
-      return values;
-    }
-    return evaluateNode(expression, env, depth);
+    if (!expression) return [unknown];
+    // Values depend on the immutable argument frame and remaining nesting budget.
+    // Repeated context/member queries reuse pure values, never an authorization result.
+    return cachedQuery(evaluationQueries, expression, env.size === 0 ? moduleEnv : env, depth, evaluateNode, [unknown]);
   }
 
   function evaluateNode(expression, env, depth) {

@@ -17,6 +17,7 @@ import {
   hostServiceEntryEvidence,
   hostServiceEntryRequired,
   sourceSite,
+  sourceFrameKey,
   sourceWitnesses,
   sourceFileOf,
 } from "../authorization-source-proof.mjs";
@@ -68,6 +69,36 @@ function callNamed(graph, file, name) {
 const build = (destination) => `import { rmSync } from "node:fs";
 const target = new URL(${JSON.stringify(destination)}, import.meta.url);
 rmSync(target, { recursive: true, force: true });`;
+
+test("a constant context captures its declaration frame, not unrelated binder arguments", () => {
+  const { graph } = fixture(`
+function factory(selection) {
+  const context = { selection };
+  const bind = implementation => (...args) => implementation(context, ...args);
+  return { context, bind };
+}
+function consumer(context) { return context.selection; }
+function first() {} function second() {}
+factory(first); factory(second); bind(first); bind(second);`),
+    statements = graph.modules.get(file).sourceFile.statements,
+    factory = statements.find((node) => ts.isFunctionDeclaration(node) && node.name.text === "factory"),
+    consumer = statements.find((node) => ts.isFunctionDeclaration(node) && node.name.text === "consumer"),
+    binder = factory.body.statements[1].declarationList.declarations[0].initializer,
+    callback = binder.body,
+    reference = callback.body.arguments[0],
+    calls = statements.filter((node) => ts.isExpressionStatement(node)).map((node) => node.expression),
+    empty = new Map(),
+    key = (selection, implementation) => {
+      const env = new Map([
+        [factory.parameters[0], { expression: selection, env: empty }],
+        [binder.parameters[0], { expression: implementation, env: empty }],
+        [callback.parameters[0], { rest: [{ expression: implementation, env: empty }], env: empty }],
+      ]);
+      return sourceFrameKey(graph, consumer, new Map([[consumer.parameters[0], { expression: reference, env }]]));
+    };
+  assert.equal(key(calls[0].arguments[0], calls[2].arguments[0]), key(calls[0].arguments[0], calls[3].arguments[0]));
+  assert.notEqual(key(calls[0].arguments[0], calls[2].arguments[0]), key(calls[1].arguments[0], calls[2].arguments[0]));
+});
 
 // CH1: a compiler result has its own discriminator, even when its input carries the request.
 test("a compiled draft discriminator cannot borrow the request action kind", () => {
