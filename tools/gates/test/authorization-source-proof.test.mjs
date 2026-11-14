@@ -1,8 +1,9 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { realpathSync, symlinkSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, readdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import test from "node:test";
+import nodeTest from "node:test";
+import ts from "typescript";
 import { buildFlowGraph } from "../authorization-flow-graph.mjs";
 import {
   buildOutputWithinPackage,
@@ -10,11 +11,28 @@ import {
   processEntry,
   processSourceSites,
   processOwnedOutput,
+  clientEntryEvidence,
+  repoReadServiceEvidence,
+  delegatedServiceEntryEvidence,
+  hostServiceEntryEvidence,
+  hostServiceEntryRequired,
   sourceSite,
   sourceWitnesses,
+  sourceFileOf,
 } from "../authorization-source-proof.mjs";
 import { scanOntologyText } from "../ontology-closure-scan.mjs";
-import { makeRepo } from "./helpers.mjs";
+import { makeRepo, replaceSourceOnce } from "./helpers.mjs";
+import { loadAuthorizationInputs } from "../ontology-durable-action-authorization.mjs";
+import { testOrdinalInPartition } from "../../node-test-runner-lib.mjs";
+
+// Reuse the runner's bounded partitioning: whole-file server execution exceeded its heap.
+const partitionValue = process.env.HARNESS_TEST_PARTITION;
+let testOrdinal = 0;
+function partitionedTest(name, testFn) {
+  if (!testOrdinalInPartition(testOrdinal++, partitionValue)) return;
+  nodeTest(name, testFn);
+}
+const test = partitionedTest;
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 const file = "packages/demo/scripts/copy-assets.mjs";
@@ -34,9 +52,42 @@ function fixture(text, scripts = { build: "node scripts/copy-assets.mjs" }, extr
     .map((row) => ({ candidateId: row.id }));
   return { graph, sources, nodes: sourceWitnesses(graph, sources) };
 }
+function callNamed(graph, file, name) {
+  const source = graph.modules.get(file)?.sourceFile;
+  let found = null;
+  (function visit(node) {
+    if (found) return;
+    if (ts.isCallExpression(node) && node.expression.getText(source) === name) {
+      found = node;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  })(source);
+  return found;
+}
 const build = (destination) => `import { rmSync } from "node:fs";
 const target = new URL(${JSON.stringify(destination)}, import.meta.url);
 rmSync(target, { recursive: true, force: true });`;
+
+function mutatedDaemonGraph(source, file, from, to) {
+  const { rootDir } = makeRepo({ "package.json": readFileSync(path.join(repoRoot, "package.json"), "utf8") });
+  mkdirSync(path.join(rootDir, "packages"));
+  for (const name of readdirSync(path.join(repoRoot, "packages"))) {
+    const original = path.join(repoRoot, "packages", name),
+      target = path.join(rootDir, "packages", name);
+    if (name === "daemon" || name === file.split("/")[1]) {
+      cpSync(path.join(original, "src"), path.join(target, "src"), { recursive: true });
+      cpSync(path.join(original, "package.json"), path.join(target, "package.json"));
+    } else {
+      // Read-only package sources, never a writable link into the dependency store.
+      symlinkSync(original, target, "dir");
+    }
+  }
+  symlinkSync(realpathSync(path.join(repoRoot, "node_modules")), path.join(rootDir, "node_modules"), "dir");
+  const target = path.join(rootDir, file);
+  writeFileSync(target, replaceSourceOnce(readFileSync(target, "utf8"), from, to, file));
+  return buildFlowGraph(rootDir, { sourceFiles: [sourceFileOf(source)] });
+}
 
 test("a real package script reaches its dist effect; a detached effect has no entry evidence", () => {
   const { graph, nodes } = fixture(build("../dist/assets/") + '\nfunction detached() { rmSync("/tmp/detached"); }');
@@ -49,12 +100,41 @@ test("a real package script reaches its dist effect; a detached effect has no en
   assert.equal(buildOutputWithinPackage(graph, effect), true);
 });
 
+test("targeted reachability preserves detached negatives and never caches a partial traversal as complete", () => {
+  const { graph, nodes } = fixture(`import { rmSync } from "node:fs";
+rmSync("/tmp/first");
+function unused() { rmSync("/tmp/detached"); }
+rmSync("/tmp/last");`);
+  const root = processEntry(graph, { file, script: "build" }, "package-script");
+  const [first, detached, last] = [...nodes.values()].map((node) => sourceSite(graph, node));
+  assert.ok(processSourceSites(graph, root, { targets: [first] }).has(first));
+  const both = processSourceSites(graph, root, { targets: [first, last, detached] });
+  assert.ok(both.has(first));
+  assert.ok(both.has(last));
+  assert.equal(both.has(detached), false);
+  const complete = processSourceSites(graph, root);
+  assert.ok(complete.has(last));
+  assert.equal(complete.has(detached), false);
+});
+
 test("build authority cannot claim a script absent from the package manifest or output outside dist", () => {
   const { graph, nodes } = fixture(build("../canonical/"));
   assert.equal(processEntry(graph, { file, script: "missing" }, "package-script"), null);
   assert.equal(buildOutputWithinPackage(graph, [...nodes.values()][0]), false);
   const fake = fixture(build("../dist/assets/"), { build: "echo scripts/copy-assets.mjs" });
   assert.equal(processEntry(fake.graph, { file, script: "build" }, "package-script"), null);
+});
+
+test("package output proof follows cpSync destination instead of its source", () => {
+  const makeCopy = (destination) => `import { cpSync } from "node:fs";
+cpSync(new URL("../../assets/", import.meta.url), new URL(${JSON.stringify(destination)}, import.meta.url), { recursive: true });`;
+  const inside = fixture(makeCopy("../dist/assets/")),
+    outside = fixture(makeCopy("../canonical/assets/"));
+  const insideCopy = callNamed(inside.graph, file, "cpSync"),
+    outsideCopy = callNamed(outside.graph, file, "cpSync");
+  assert.ok(insideCopy && outsideCopy);
+  assert.equal(buildOutputWithinPackage(inside.graph, insideCopy), true);
+  assert.equal(buildOutputWithinPackage(outside.graph, outsideCopy), false);
 });
 
 test("chained calls with the same start keep distinct AST witnesses; local collections are support", () => {
@@ -78,6 +158,40 @@ ignore(() => rmSync("/tmp/unused"));`);
   const [invoked, unused] = [...nodes.values()].filter((node) => node.expression.getText() === "rmSync");
   assert.equal(sites.has(sourceSite(graph, invoked)), true);
   assert.equal(sites.has(sourceSite(graph, unused)), false);
+  for (const [call, expected] of [
+    [invoked, true],
+    [unused, false],
+  ]) {
+    let callback = call.parent;
+    while (!ts.isArrowFunction(callback)) callback = callback.parent;
+    const target = sourceSite(graph, callback);
+    assert.equal(
+      processSourceSites(graph, processEntry(graph, { file, script: "build" }, "package-script"), {
+        targets: [target],
+      }).has(target),
+      expected,
+    );
+  }
+  for (const callback of ["work", "() => undefined"]) {
+    const targetFile = "packages/demo/src/callbacks.ts",
+      { graph } = fixture('import { run } from "../src/callbacks.js"; run();', undefined, {
+        [targetFile]: `import { rmSync } from "node:fs";
+export function work() { rmSync("/tmp/work"); }
+function invoke(callback: typeof work) { callback(); }
+export function run() { invoke(${callback}); }`,
+      }),
+      target = graph.modules
+        .get(targetFile)
+        .sourceFile.statements.find((node) => ts.isFunctionDeclaration(node) && node.name.text === "work"),
+      site = sourceSite(graph, target);
+    assert.equal(
+      processSourceSites(graph, processEntry(graph, { file, script: "build" }, "package-script"), {
+        targets: [site],
+      }).has(site),
+      callback === "work",
+      "typed callbacks follow the supplied function, not the type declaration's body",
+    );
+  }
 });
 
 test("stdio authority names only the real Node process streams, never a shadowed receiver", () => {
@@ -1255,4 +1369,508 @@ test("all 197 live non-main GUI client sources and 110 daemon-local-state source
     clientEntryEvidence(graph, reviewNode, reviewPair.source, reviewPair.action, droppedDispatchDescriptors),
     null,
   );
+});
+
+test("root tooling binds host-local admin commands only to their exact local-process descriptor", async () => {
+  const tool = "tools/daemon-host-client.mjs",
+    sourceText = `/// <reference types="node" />
+import { spawnSync } from "node:child_process";
+function run(args) { return spawnSync("ha", args); }
+export function start() { return run(["daemon", "start", "--service"]); }`,
+    { rootDir } = makeRepo({ [tool]: sourceText });
+  symlinkSync(realpathSync(path.join(repoRoot, "node_modules")), path.join(rootDir, "node_modules"), "dir");
+  const graph = buildFlowGraph(rootDir, { sourceFiles: [tool] }),
+    source = scanOntologyText(tool, sourceText).find((row) => row.category === "action"),
+    node = sourceWitnesses(graph, [{ candidateId: source.id }]).get(source.id),
+    action = {
+      kind: "daemon-start",
+      executionClass: "admin",
+      residency: { scope: "host-local", writer: "daemon-host" },
+      ontology: { owner: "daemon-host", authority: "local-process" },
+    },
+    binding = { ...source, candidateId: source.id, role: "client", route: "daemon-start", port: `${tool}#run` },
+    descriptor = { id: "daemon-start", hostAuthority: "local-process", path: ["daemon", "start", "--service"] };
+
+  assert.ok(node);
+  assert.ok(clientEntryEvidence(graph, node, binding, action, [descriptor]));
+  assert.equal(
+    clientEntryEvidence(graph, node, binding, action, [{ ...descriptor, hostAuthority: "authorization-port" }]),
+    null,
+  );
+  assert.equal(clientEntryEvidence(graph, node, { ...binding, route: "daemon-stop" }, action, [descriptor]), null);
+  assert.equal(
+    clientEntryEvidence(graph, node, binding, { ...action, residency: { ...action.residency, scope: "canonical" } }, [
+      descriptor,
+    ]),
+    null,
+  );
+});
+
+test("repo-read sources require a registered schedule callback and a repo-read action", async () => {
+  const inputs = await loadAuthorizationInputs(repoRoot),
+    action = inputs.constants.actionDeclarations.find((entry) => entry.kind === "repository-read"),
+    source = action.ontology.sources.find((entry) => entry.candidateId.endsWith("053357f862e586963fdcff86efcf4395")),
+    graph = buildFlowGraph(repoRoot, { sourceFiles: [sourceFileOf(source)] }),
+    node = sourceWitnesses(graph, [source]).get(source.candidateId);
+
+  assert.ok(repoReadServiceEvidence(graph, node, source, action, inputs.descriptors));
+  const writeDescriptor = inputs.descriptors.map((row) =>
+    row.id === "schedule-show" ? { ...row, commandClass: "repo-write" } : row,
+  );
+  assert.equal(repoReadServiceEvidence(graph, node, source, action, writeDescriptor), null);
+  assert.equal(
+    repoReadServiceEvidence(graph, node, { ...source, route: "schedule-show" }, action, inputs.descriptors),
+    null,
+  );
+});
+
+test("a delegated service entry still needs its own route, reachability and green denial trace", async () => {
+  const inputs = await loadAuthorizationInputs(repoRoot),
+    action = inputs.constants.actionDeclarations.find((entry) => entry.kind === "access-manage"),
+    source = action.ontology.sources.find((entry) => entry.candidateId.endsWith("1950b6d7d109682e53f67218cfc6d731")),
+    graph = buildFlowGraph(repoRoot, { sourceFiles: [sourceFileOf(source)] }),
+    node = sourceWitnesses(graph, [source]).get(source.candidateId),
+    descriptor = inputs.descriptors.find((row) => row.id === source.route),
+    route = { id: source.route, kind: action.kind, ok: true };
+
+  assert.ok(delegatedServiceEntryEvidence(graph, node, source, action, descriptor, route, { seen: true, ok: true }));
+  assert.equal(delegatedServiceEntryEvidence(graph, node, source, action, descriptor, route, { seen: false }), null);
+  assert.equal(
+    delegatedServiceEntryEvidence(graph, node, source, action, descriptor, route, { seen: true, ok: false }),
+    null,
+  );
+  assert.equal(delegatedServiceEntryEvidence(graph, node, source, action, descriptor, route, undefined), null);
+  assert.equal(
+    delegatedServiceEntryEvidence(graph, node, source, action, descriptor, { ...route, ok: false }, { seen: true }),
+    null,
+  );
+  assert.equal(
+    delegatedServiceEntryEvidence(
+      graph,
+      node,
+      source,
+      action,
+      descriptor,
+      { ...route, kind: "task-delete" },
+      { seen: true },
+    ),
+    null,
+  );
+});
+
+test("runtime host service entries carry the existing action and witness checks", async () => {
+  const inputs = await loadAuthorizationInputs(repoRoot),
+    action = inputs.constants.actionDeclarations.find((entry) => entry.kind === "runtime-run"),
+    sources = action.ontology.sources.filter((entry) =>
+      ["5d4b654eeb40831ab2116e6b60b4aacc", "e4658bef15e769118f6f44bbdb3feb35"].some((id) =>
+        entry.candidateId.endsWith(id),
+      ),
+    ),
+    graph = buildFlowGraph(repoRoot, { sourceFiles: sources.map(sourceFileOf) }),
+    nodes = sourceWitnesses(graph, sources),
+    route = { id: "runtime-run", kind: "runtime-run", ok: true };
+
+  assert.equal(sources.length, 2);
+  for (const source of sources) {
+    const node = nodes.get(source.candidateId);
+    assert.ok(hostServiceEntryEvidence(graph, node, source, action, route), source.candidateId);
+    assert.equal(hostServiceEntryEvidence(graph, node, source, action, { ...route, ok: false }), null);
+  }
+});
+
+test("a scheduler callback that is no longer invoked cannot prove a repository read source", async () => {
+  const inputs = await loadAuthorizationInputs(repoRoot),
+    action = inputs.constants.actionDeclarations.find((entry) => entry.kind === "repository-read"),
+    source = action.ontology.sources.find((entry) => entry.candidateId.endsWith("053357f862e586963fdcff86efcf4395")),
+    graph = mutatedDaemonGraph(
+      source,
+      "packages/daemon/src/schedule-scheduler.ts",
+      "await input.localBinding(repoId, rootDir, action)",
+      "input.localBinding",
+    ),
+    node = sourceWitnesses(graph, [source]).get(source.candidateId);
+  assert.ok(node);
+  assert.equal(repoReadServiceEvidence(graph, node, source, action, inputs.descriptors), null);
+});
+
+test("migration callback proof requires its invoked binding and a green owning route", async () => {
+  const inputs = await loadAuthorizationInputs(repoRoot),
+    action = inputs.constants.actionDeclarations.find((entry) => entry.kind === "migrate-import"),
+    descriptor = inputs.descriptors.find((entry) => entry.id === "migrate-import"),
+    route = { id: "migrate-import", kind: "migrate-import", ok: true };
+  for (const [id, file, from, to] of [
+    [
+      "f68abf5f098fbd135b616c70ef93c661",
+      "packages/daemon/src/migration-import-oracle-rebuild.ts",
+      "stage: (bundle) => stageAuthored(bundle, authoredRoot)",
+      "stage: (bundle) => undefined",
+    ],
+    [
+      "f68abf5f098fbd135b616c70ef93c661",
+      "packages/daemon/src/migration-import.ts",
+      "stagePrepared: staged.accept",
+      "stagePrepared: () => undefined",
+    ],
+    [
+      "f68abf5f098fbd135b616c70ef93c661",
+      "packages/daemon/src/migration-import.ts",
+      'if (property === "append")',
+      'if (false && property === "append")',
+    ],
+    [
+      "87c6fe90a713fc3ebb2c99fc3b53de3c",
+      "packages/daemon/src/migration-import.ts",
+      "matchesRestatedFact(context, row, mappedTaskId, occurredAt, event)",
+      "true",
+    ],
+  ]) {
+    const source = action.ontology.sources.find((entry) => entry.candidateId.endsWith(id)),
+      original = buildFlowGraph(repoRoot, { sourceFiles: [sourceFileOf(source)] }),
+      node = sourceWitnesses(original, [source]).get(source.candidateId);
+    assert.ok(delegatedServiceEntryEvidence(original, node, source, action, descriptor, route, undefined), id);
+    assert.equal(
+      delegatedServiceEntryEvidence(original, node, source, action, descriptor, { ...route, ok: false }, undefined),
+      null,
+    );
+    const mutated = mutatedDaemonGraph(source, file, from, to),
+      detached = sourceWitnesses(mutated, [source]).get(source.candidateId);
+    assert.ok(detached);
+    assert.equal(delegatedServiceEntryEvidence(mutated, detached, source, action, descriptor, route, undefined), null);
+  }
+});
+
+test("migration and scheduler proofs reject calls retained only in unused closures", async () => {
+  const inputs = await loadAuthorizationInputs(repoRoot),
+    migrate = inputs.constants.actionDeclarations.find((entry) => entry.kind === "migrate-import"),
+    migrateSource = migrate.ontology.sources.find((entry) =>
+      entry.candidateId.endsWith("f68abf5f098fbd135b616c70ef93c661"),
+    ),
+    migrateDescriptor = inputs.descriptors.find((entry) => entry.id === "migrate-import"),
+    migrateRoute = { id: "migrate-import", kind: "migrate-import", ok: true },
+    migrated = mutatedDaemonGraph(
+      migrateSource,
+      "packages/daemon/src/migration-import-oracle-rebuild.ts",
+      "stage: (bundle) => stageAuthored(bundle, authoredRoot)",
+      `stage: (bundle) => {
+        const unused = () => stageAuthored(bundle, authoredRoot);
+        return undefined;
+      }`,
+    ),
+    migratedNode = sourceWitnesses(migrated, [migrateSource]).get(migrateSource.candidateId);
+  assert.ok(migratedNode);
+  assert.equal(
+    delegatedServiceEntryEvidence(
+      migrated,
+      migratedNode,
+      migrateSource,
+      migrate,
+      migrateDescriptor,
+      migrateRoute,
+      undefined,
+    ),
+    null,
+  );
+
+  const read = inputs.constants.actionDeclarations.find((entry) => entry.kind === "repository-read"),
+    readSource = read.ontology.sources.find((entry) => entry.candidateId.endsWith("053357f862e586963fdcff86efcf4395")),
+    scheduler = mutatedDaemonGraph(
+      readSource,
+      "packages/daemon/src/schedule-scheduler.ts",
+      "await input.localBinding(repoId, rootDir, action)",
+      `(() => {
+            const unused = () => input.localBinding(repoId, rootDir, action);
+            return undefined;
+          })()`,
+    ),
+    schedulerNode = sourceWitnesses(scheduler, [readSource]).get(readSource.candidateId);
+  assert.ok(schedulerNode);
+  assert.equal(repoReadServiceEvidence(scheduler, schedulerNode, readSource, read, inputs.descriptors), null);
+});
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: these facade calls retain their business action owners.
+test("forwarding and local RBAC facades require their typed, registered service entries", async () => {
+  const inputs = await loadAuthorizationInputs(repoRoot),
+    file = "packages/daemon/src/daemon-host-open.ts";
+  for (const [kind, ids] of [
+    ["runtime-run", ["2b8047b354430909dfe3b369f1ef375a"]],
+    [
+      "rbac-bootstrap",
+      [
+        "85833909ab835513f6a37d3d00ce0f77",
+        "85833909ab835513f6a37d3d00ce0f77:2",
+        "85833909ab835513f6a37d3d00ce0f77:3",
+        "97ac26b82a689aef98ce00ee87bc497b",
+      ],
+    ],
+  ]) {
+    const action = inputs.constants.actionDeclarations.find((entry) => entry.kind === kind),
+      graph = buildFlowGraph(repoRoot, { sourceFiles: [file] }),
+      witnesses = sourceWitnesses(graph, action.ontology.sources),
+      route = { id: kind, kind, ok: true };
+    for (const id of ids) {
+      const source = action.ontology.sources.find((entry) => entry.candidateId.endsWith(`:${id}`)),
+        node = witnesses.get(source.candidateId);
+      assert.ok(node, id);
+      assert.ok(hostServiceEntryEvidence(graph, node, source, action, route), id);
+      assert.equal(hostServiceEntryEvidence(graph, node, source, action, { ...route, ok: false }), null);
+      assert.equal(hostServiceEntryEvidence(graph, node, { ...source, route: "task-delete" }, action, route), null);
+      assert.equal(hostServiceEntryEvidence(graph, node, source, { ...action, kind: "task-delete" }, route), null);
+      const detached = mutatedDaemonGraph(
+          source,
+          file,
+          kind === "runtime-run"
+            ? "runRuntime: async (value, requestAuth, operation) =>"
+            : "manageRbac: (request, auth) => {\n      localOnly(auth);",
+          kind === "runtime-run"
+            ? "detachedRuntime: async (value, requestAuth, operation) =>"
+            : "manageRbac: (request, auth) => {\n      void auth;",
+        ),
+        detachedWitnesses = sourceWitnesses(detached, [source]),
+        detachedNode =
+          detachedWitnesses.get(source.candidateId) ??
+          [...detachedWitnesses.values()].find((node) => node.expression.getText() === "runtime.run");
+      assert.ok(detachedNode);
+      assert.equal(hostServiceEntryEvidence(detached, detachedNode, source, action, route), null);
+    }
+  }
+});
+
+test("host service evidence requires an unconditional guard and the typed ingress receiver", async () => {
+  const inputs = await loadAuthorizationInputs(repoRoot),
+    action = inputs.constants.actionDeclarations.find((entry) => entry.kind === "runtime-run"),
+    source = action.ontology.sources.find((entry) => entry.candidateId.endsWith("e4658bef15e769118f6f44bbdb3feb35")),
+    file = "packages/daemon/src/daemon-host-runtime-api.ts",
+    route = { id: action.kind, kind: action.kind, ok: true },
+    mutations = [
+      [
+        '    runtimeIngress: async (repoId, action, auth) => {\n      context.requireHostMode(repoId, commandDescriptorForAction("runtime-run"), auth);\n      await context.attemptHostRecovery(repoId);',
+        '    runtimeIngress: async (repoId, action, auth) => {\n      if (false) context.requireHostMode(repoId, commandDescriptorForAction("runtime-run"), auth);\n      await context.attemptHostRecovery(repoId);',
+      ],
+      [
+        '    runtimeIngress: async (repoId, action, auth) => {\n      context.requireHostMode(repoId, commandDescriptorForAction("runtime-run"), auth);\n      await context.attemptHostRecovery(repoId);',
+        `    runtimeIngress: async (repoId, action, auth) => {
+      try {
+        context.requireHostMode(repoId, commandDescriptorForAction("runtime-run"), auth);
+      } catch {
+        // A swallowed denial cannot authorize the later effect.
+      }
+      await context.attemptHostRecovery(repoId);`,
+      ],
+      [
+        '    runtimeIngress: async (repoId, action, auth) => {\n      context.requireHostMode(repoId, commandDescriptorForAction("runtime-run"), auth);\n      await context.attemptHostRecovery(repoId);',
+        '    runtimeIngress: async (repoId, action, auth) => {\n      context.requireHostMode(repoId, commandDescriptorForAction("task-delete"), auth);\n      await context.attemptHostRecovery(repoId);',
+      ],
+      [
+        '    runtimeIngress: async (repoId, action, auth) => {\n      context.requireHostMode(repoId, commandDescriptorForAction("runtime-run"), auth);\n      await context.attemptHostRecovery(repoId);',
+        '    runtimeIngress: async (repoId, action, auth) => {\n      return context.requireHostMode(repoId, commandDescriptorForAction("runtime-run"), auth);\n      await context.attemptHostRecovery(repoId);',
+      ],
+      ["cell.runtimeIngress(", "untrusted.runtimeIngress("],
+    ];
+  for (const [from, to] of mutations) {
+    const graph = mutatedDaemonGraph(source, file, from, to),
+      node = sourceWitnesses(graph, [source]).get(source.candidateId);
+    assert.ok(node);
+    assert.equal(hostServiceEntryEvidence(graph, node, source, action, route), null);
+    assert.equal(hostServiceEntryRequired(graph, node, action), true);
+  }
+  const guard = 'context.requireHostMode(repoId, commandDescriptorForAction("runtime-run"), auth);',
+    ingress = `runtimeIngress: async (repoId, action, auth) => {\n      ${guard}`;
+  for (const replacement of [
+    `false && ${guard}`,
+    `true || ${guard}`,
+    `({}) ?? ${guard}`,
+    guard.replace("requireHostMode(", "requireHostMode?.("),
+    guard.replace("context.", "untrusted."),
+  ]) {
+    const graph = mutatedDaemonGraph(source, file, ingress, ingress.replace(guard, replacement)),
+      node = sourceWitnesses(graph, [source]).get(source.candidateId);
+    assert.ok(node);
+    assert.equal(hostServiceEntryEvidence(graph, node, source, action, route), null, replacement);
+  }
+
+  const witness = action.ontology.sources.find((entry) =>
+      entry.candidateId.endsWith("5d4b654eeb40831ab2116e6b60b4aacc"),
+    ),
+    graph = mutatedDaemonGraph(
+      witness,
+      "packages/daemon/src/daemon-host-control-api.ts",
+      "witness = cell.runtime.bindWitness(token)",
+      "witness = untrusted.bindWitness(token)",
+    ),
+    node = sourceWitnesses(graph, [witness]).get(witness.candidateId);
+  assert.ok(node);
+  assert.equal(hostServiceEntryEvidence(graph, node, witness, action, route), null);
+});
+
+test("RBAC service callbacks cannot detach from their actual authority or become an uncalled closure", async () => {
+  const inputs = await loadAuthorizationInputs(repoRoot),
+    action = inputs.constants.actionDeclarations.find((entry) => entry.kind === "rbac-bootstrap"),
+    route = { id: action.kind, kind: action.kind, ok: true },
+    file = "packages/daemon/src/daemon-host-open.ts";
+  for (const [id, from, to] of [
+    [
+      "85833909ab835513f6a37d3d00ce0f77:2",
+      'if (request.operation === "listener-set") {\n          return oidc.configureAuthority(() => managedRbac.run(request), requireLoginTarget());',
+      'if (request.operation === "listener-set") {\n          return Promise.resolve().then(() => managedRbac.run(request));',
+    ],
+    [
+      "85833909ab835513f6a37d3d00ce0f77:3",
+      'return requireAuthorizedHostAction({\n          kind: "rbac-bootstrap",',
+      'return requireAuthorizedHostAction({\n          kind: "task-delete",\n          reason: "rbac-bootstrap",',
+    ],
+    [
+      "97ac26b82a689aef98ce00ee87bc497b",
+      "return oidc.complete(request.code, request.state);",
+      "return (() => oidc.complete(request.code, request.state));",
+    ],
+  ]) {
+    const source = action.ontology.sources.find((entry) => entry.candidateId.endsWith(`:${id}`)),
+      graph = mutatedDaemonGraph(source, file, from, to),
+      witnesses = sourceWitnesses(graph, [source]),
+      node =
+        witnesses.get(source.candidateId) ??
+        [...witnesses.values()].find((node) => node.expression.getText() === "oidc.complete");
+    assert.ok(node, id);
+    assert.equal(hostServiceEntryEvidence(graph, node, source, action, route), null, id);
+  }
+});
+
+test("RBAC evidence uses the effective top-level authorization kind", async () => {
+  const inputs = await loadAuthorizationInputs(repoRoot),
+    action = inputs.constants.actionDeclarations.find((entry) => entry.kind === "rbac-bootstrap"),
+    source = action.ontology.sources.find((entry) => entry.candidateId.endsWith(":85833909ab835513f6a37d3d00ce0f77:3")),
+    file = "packages/daemon/src/daemon-host-open.ts",
+    route = { id: action.kind, kind: action.kind, ok: true },
+    mutations = [
+      [
+        'return requireAuthorizedHostAction({\n          kind: "rbac-bootstrap",',
+        'return requireAuthorizedHostAction({\n          metadata: { kind: "rbac-bootstrap" },\n          kind: "task-delete",',
+      ],
+      [
+        'return requireAuthorizedHostAction({\n          kind: "rbac-bootstrap",',
+        'return requireAuthorizedHostAction({\n          kind: "rbac-bootstrap",\n          ...(request.operation === "bootstrap" ? { kind: "task-delete" } : {}),',
+      ],
+      [
+        'return requireAuthorizedHostAction({\n          kind: "rbac-bootstrap",',
+        'return requireAuthorizedHostAction({\n          kind: "rbac-bootstrap",\n          ["kind"]: "task-delete",',
+      ],
+      [
+        'return requireAuthorizedHostAction({\n          kind: "rbac-bootstrap",',
+        'return requireAuthorizedHostAction({\n          kind: "rbac-bootstrap",\n          get kind() { return "task-delete"; },',
+      ],
+    ];
+  for (const [from, to] of mutations) {
+    const graph = mutatedDaemonGraph(source, file, from, to),
+      node = sourceWitnesses(graph, [source]).get(source.candidateId);
+    assert.ok(node);
+    assert.equal(hostServiceEntryEvidence(graph, node, source, action, route), null);
+  }
+});
+
+test("a typed authority service must actually invoke the registered lifecycle callback", async () => {
+  const inputs = await loadAuthorizationInputs(repoRoot),
+    action = inputs.constants.actionDeclarations.find((entry) => entry.kind === "rbac-bootstrap"),
+    source = action.ontology.sources.find((entry) => entry.candidateId.endsWith(":85833909ab835513f6a37d3d00ce0f77")),
+    graph = mutatedDaemonGraph(
+      source,
+      "packages/authorization-keycloak/src/oidc-session-service.ts",
+      "return operation();\n    });\n  }\n\n  async #bootstrapRequired",
+      "return undefined;\n    });\n  }\n\n  async #bootstrapRequired",
+    ),
+    node = sourceWitnesses(graph, [source]).get(source.candidateId);
+  assert.ok(node);
+  assert.equal(
+    hostServiceEntryEvidence(graph, node, source, action, { id: action.kind, kind: action.kind, ok: true }),
+    null,
+  );
+});
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: the host guard must authorize the effect's own scope.
+test("host authority binds repository and authentication to the ingress and witness issuer", async () => {
+  const inputs = await loadAuthorizationInputs(repoRoot),
+    action = inputs.constants.actionDeclarations.find((entry) => entry.kind === "runtime-run"),
+    route = { id: action.kind, kind: action.kind, ok: true };
+  for (const [id, file, member, topology] of [
+    [
+      "e4658bef15e769118f6f44bbdb3feb35",
+      "daemon-host-runtime-api.ts",
+      "runtimeIngress",
+      'commandDescriptorForAction("runtime-run")',
+    ],
+    [
+      "5d4b654eeb40831ab2116e6b60b4aacc",
+      "daemon-host-control-api.ts",
+      "issueRuntimeWitness",
+      "ledgerWriteCommandTopology",
+    ],
+  ]) {
+    const source = action.ontology.sources.find((entry) => entry.candidateId.endsWith(id)),
+      target = `packages/daemon/src/${file}`,
+      original = buildFlowGraph(repoRoot, { sourceFiles: [target] }),
+      node = sourceWitnesses(original, [source]).get(source.candidateId),
+      text = readFileSync(path.join(repoRoot, target), "utf8"),
+      start = text.indexOf(`    ${member}: async (`),
+      body = text.slice(start, text.indexOf("\n    },", start) + "\n    },".length),
+      guard = `context.requireHostMode(repoId, ${topology}, auth);`;
+    assert.ok(start >= 0 && body.includes(guard));
+    assert.ok(hostServiceEntryEvidence(original, node, source, action, route));
+    const cases = [
+      [guard, `context.requireHostMode("another-repository", ${topology}, auth);`],
+      [guard, `context.requireHostMode(repoId, ${topology}, { ...auth, nodePrincipal: undefined });`],
+      [
+        "context.requiredCell(context.cells, context.warming, context.unavailable, repoId)",
+        'context.requiredCell(context.cells, context.warming, context.unavailable, "another-repository")',
+      ],
+      ["cell.status().rootDir, auth", "cell.status().rootDir, { ...auth, nodePrincipal: undefined }"],
+      ["cell.status().rootDir, auth", '"/another-repository", auth'],
+      [guard, guard + '\n      repoId = "another-repository";'],
+    ];
+    if (member === "runtimeIngress") cases.push(["auth, undefined, repoId)", 'auth, undefined, "another-repository")']);
+    else {
+      cases.push(["source: serverBinding.source", 'source: "local"']);
+      cases.push([
+        guard,
+        `if (auth.nodePrincipal) return context.requiredCell(context.cells, context.warming, context.unavailable, repoId).runtime.issueWitnessToken(runtimeSessionId, { principalId: "another-person", source: "local" });\n      ${guard}`,
+      ]);
+    }
+    for (const [from, to] of cases) {
+      const graph = mutatedDaemonGraph(source, target, body, replaceSourceOnce(body, from, to, target)),
+        witness = sourceWitnesses(graph, [source]).get(source.candidateId);
+      assert.ok(witness);
+      assert.equal(hostServiceEntryEvidence(graph, witness, source, action, route), null, to);
+    }
+  }
+});
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: an unpassed callback body cannot own a migration source.
+test("restatement authority starts at the migration entry's actual callback arguments", async () => {
+  const inputs = await loadAuthorizationInputs(repoRoot),
+    action = inputs.constants.actionDeclarations.find((entry) => entry.kind === "migrate-import"),
+    source = action.ontology.sources.find((entry) => entry.candidateId.endsWith("87c6fe90a713fc3ebb2c99fc3b53de3c")),
+    descriptor = inputs.descriptors.find((entry) => entry.id === "migrate-import"),
+    route = { id: action.kind, kind: action.kind, ok: true },
+    file = "packages/daemon/src/migration-import.ts",
+    original = readFileSync(path.join(repoRoot, file), "utf8");
+  for (const callback of ["() => undefined", "(context, row) => { const unused = () => addFact(context, row); }"]) {
+    const detached = replaceSourceOnce(
+        replaceSourceOnce(original, "}, addFact);", `}, ${callback});`, file),
+        "        addFact,\n      );",
+        `        ${callback},\n      );`,
+        file,
+      ),
+      graph = mutatedDaemonGraph(source, file, original, detached),
+      witness = sourceWitnesses(graph, [source]).get(source.candidateId);
+    assert.match(detached, /function addFact\(context:/u);
+    assert.ok(witness);
+    assert.equal(delegatedServiceEntryEvidence(graph, witness, source, action, descriptor, route, undefined), null);
+  }
+  const graph = mutatedDaemonGraph(
+      source,
+      "packages/daemon/src/migration-import-run.ts",
+      "return addFactImpl(extracted, row);",
+      "return undefined;",
+    ),
+    witness = sourceWitnesses(graph, [source]).get(source.candidateId);
+  assert.ok(witness);
+  assert.equal(delegatedServiceEntryEvidence(graph, witness, source, action, descriptor, route, undefined), null);
 });

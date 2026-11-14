@@ -411,7 +411,6 @@ export function makeAuthorizationTracer(graph, anchors) {
       frameKeys = new WeakMap(),
       frameIds = new Map(),
       guardCalls = new Map(),
-      sourceCalls = new WeakMap(),
       stack = [];
 
     const newState = () => ({
@@ -789,12 +788,6 @@ export function makeAuthorizationTracer(graph, anchors) {
         target.ok &&= Boolean(allowed);
         target.evidence.push(evidence);
       };
-      if (source)
-        observe(
-          source,
-          sourceAuthority,
-          `${where(node)}: ${sourceAuthority ? "owner authority dominates this source" : "source runs before owner authority"}`,
-        );
       const sourceFunctions = descriptor.sources?.length
         ? sourceEvaluator.evaluate(callee, env).filter((value) => value.fn)
         : [];
@@ -813,14 +806,13 @@ export function makeAuthorizationTracer(graph, anchors) {
             (sourceAuthority && [...report.sources.values()].every((source) => source.seen && source.ok))
           )
             continue;
-          let sites = sourceCalls.get(node);
-          if (!sites) {
-            sites = processSourceSites(sourceGraph, value.node, {
-              evaluator: sourceEvaluator,
-              env: bindArguments(value, node.arguments, env),
-            });
-            sourceCalls.set(node, sites);
-          }
+          // Each callee and captured frame owns its reachability. A call-site-only cache can
+          // reuse another callback's sources when this node runs under different bindings.
+          const sites = processSourceSites(sourceGraph, value.node, {
+            evaluator: sourceEvaluator,
+            env: bindArguments(value, node.arguments, env),
+            targets: report.sources.keys(),
+          });
           for (const [site, target] of report.sources)
             if (sites.has(site))
               observe(
@@ -922,6 +914,16 @@ export function makeAuthorizationTracer(graph, anchors) {
         // A host enforcer has no effect callback, so it must answer for this exact action kind.
         if (state.decisionKind?.kind === descriptor.kind)
           report.authorized.push(`${where(node)}: ${label(state.decisionKind)} enforced before the effect`);
+      }
+      if (source) {
+        // A service can enforce its own denial exit. Judge that call after tracing its body,
+        // while retaining the conjunction across every invocation of the source.
+        const covered = sourceAuthority || (allAuthorized && state.decisionKind?.kind === descriptor.kind);
+        observe(
+          source,
+          covered,
+          `${where(node)}: ${covered ? "owner authority dominates this source or its service entry" : "source runs before owner authority"}`,
+        );
       }
     }
 
