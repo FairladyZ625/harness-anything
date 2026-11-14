@@ -31,7 +31,7 @@ import { decisionMaterializationHeld, refreshMaterializationHolds } from "./deci
 import { terminalDecisionMaterializationStates } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 import { refreshTaskRelationProjection } from "./task-query-projection.ts";
 import type { EventStreamPort } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
-import { canonicalJson, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
+import { canonicalJson, prepareQuery, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 import { projectInterpretedEntityValue } from "./rebuildable-task-projection-entities.ts";
 import { readRuntimeSession, readSnapshot } from "./rebuildable-task-projection-runtime.ts";
 import { applyRelationProjectionEvent } from "./relation-entity-projection.ts";
@@ -831,7 +831,10 @@ export function initializeTerminalMaterialization(
   // Legacy imports and generic document writes have no Fact entity ref. Resolve these only
   // once during upgrade, in revision order, without replaying reducers or buffering history.
   if (pending.size) {
-    for (const row of db.prepare("SELECT event_json FROM event_index ORDER BY workspace_revision DESC").iterate()) {
+    for (const row of prepareQuery(
+      db,
+      "SELECT event_json FROM event_index ORDER BY workspace_revision DESC",
+    ).iterate()) {
       const event = JSON.parse(String(row.event_json)) as PersistedCanonicalEventV1;
       for (const claim of [
         ...canonicalDocumentClaims(event),
