@@ -5887,12 +5887,6 @@
         "port": "packages/storage/src/pg/pg-task-query-reader.ts#PgTaskQueryReader.executeCanonical"
       },
       {
-        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.readEvents:efb56aa38979c4d17decfa79c0f9d545",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/storage/src/pg/pg-task-query-reader.ts#PgTaskQueryReader.executeCanonical"
-      },
-      {
         "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.checkpointSource.eventIdentityAtRevision.event:1b8b94ada7c0571fd0d7c002a438a4a6",
         "route": "daemon-local-state",
         "role": "technical-port",
