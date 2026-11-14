@@ -6,12 +6,15 @@ import { Pool, type PoolClient, type PoolConfig } from "pg";
 import type { PostgresEventStoreScope } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
 import { TaskEventStoreError } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 import { POSTGRES_SCOPE_SCHEMA_CONTRACT } from "./scope-schema.ts";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 export type { PostgresScopeClaims } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
 
 export interface PostgresTransactionOptions<T = unknown> {
   /** Keep every statement in a read transaction on one committed snapshot. */
   readonly isolationLevel?: "repeatable read";
+  readonly readOnly?: boolean;
+  readonly onCommitStarted?: () => void;
   /** A replay may have acquired a row lock; discard its lock WAL instead of synchronously committing it. */
   readonly rollbackOnly?: (result: T) => boolean;
   readonly onSyncRepInterrupted?: (notice: SyncRepNotice) => void;
@@ -42,12 +45,33 @@ class SyncRepWaitInterruptedError extends Error {
 }
 
 const committedWork = new WeakMap<PoolClient, (() => Promise<void>)[] | undefined>();
+const commitGuard = new AsyncLocalStorage<() => Promise<void>>();
+
+/** Bind the request's CAS to every real transaction owner, including maintenance and epoch writes. */
+export function withPostgresCommitGuard<T>(guard: () => Promise<void>, operation: () => Promise<T>): Promise<T> {
+  return commitGuard.run(guard, operation);
+}
+
+/** The guard may fail while rollback is still legal; only then mark COMMIT as started. */
+export async function commitPostgresTransaction(client: PoolClient, onStarted?: () => void): Promise<void> {
+  await commitGuard.getStore()?.();
+  onStarted?.();
+  await client.query("COMMIT");
+}
 
 /** Register connection-local work that must never run before a successful COMMIT. */
 export function afterPostgresCommit(client: PoolClient, operation: () => Promise<void>): void {
   const pending = committedWork.get(client);
   if (!pending) throw new Error("PostgreSQL commit work requires an owned transaction");
   pending.push(operation);
+}
+
+/** Savepoint readers defer their commit work to the physical snapshot owner. */
+export function borrowPostgresCommitWork(client: PoolClient, owner: PoolClient): PoolClient {
+  const pending = committedWork.get(owner);
+  if (!pending) throw new Error("PostgreSQL borrowed read requires an owned transaction");
+  committedWork.set(client, pending);
+  return client;
 }
 
 export function createPostgresPool(connectionString: string, options: Omit<PoolConfig, "connectionString"> = {}): Pool {
@@ -82,11 +106,12 @@ export async function withPostgresTransaction<T>(
     }
   };
   client.on("notice", onNotice);
-  const pending: (() => Promise<void>)[] = [];
+  const inherited = committedWork.get(client),
+    pending: (() => Promise<void>)[] = inherited ?? [];
   committedWork.set(client, pending);
   try {
     await client.query(
-      options?.isolationLevel ? `BEGIN ISOLATION LEVEL ${options.isolationLevel.toUpperCase()}` : "BEGIN",
+      `${options?.isolationLevel ? `BEGIN ISOLATION LEVEL ${options.isolationLevel.toUpperCase()}` : "BEGIN"}${options?.readOnly ? " READ ONLY" : ""}`,
     );
     if (claims) await setPostgresClaims(client, claims);
     const result = await operation(client);
@@ -95,11 +120,13 @@ export async function withPostgresTransaction<T>(
       await client.query("ROLLBACK");
       return result;
     }
-    commitStarted = true;
-    await client.query("COMMIT");
+    await commitPostgresTransaction(client, () => {
+      commitStarted = true;
+      options?.onCommitStarted?.();
+    });
     if (interrupted) throw new SyncRepWaitInterruptedError(interrupted);
     if (connectionError) throw connectionError;
-    for (const operation of pending) {
+    for (const operation of inherited ? [] : pending) {
       await operation();
       if (interrupted) throw new SyncRepWaitInterruptedError(interrupted);
     }
@@ -122,7 +149,7 @@ export async function withPostgresTransaction<T>(
     }
     throw error;
   } finally {
-    committedWork.set(client, undefined);
+    if (!inherited) committedWork.set(client, undefined);
     if (!returned) client.release();
     client.removeListener("error", onConnectionError);
     client.removeListener("notice", onNotice);
@@ -275,7 +302,7 @@ export async function resolveConfirmedRepoCut(
           await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ");
           await setPostgresClaims(client, ownerScope);
           await backfillConfirmedLegacyOutcomes(client, ownerScope, repoId);
-          await client.query("COMMIT");
+          await commitPostgresTransaction(client);
         });
       afterPostgresCommit(client, () => advanceConfirmedRepoCut(client, ownerScope, repoId, cut));
     }

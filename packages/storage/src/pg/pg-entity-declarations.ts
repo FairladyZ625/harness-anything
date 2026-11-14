@@ -8,6 +8,7 @@ import type {
 } from "@harness-anything/kernel/internal/ports/entity-declarations.ts";
 import { type StoredEntityEventV1 } from "@harness-anything/kernel/internal/domain/entity-event.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
+import { resolveConfirmedRepoCut } from "../postgres/transaction.ts";
 
 export const entityDeclarationDdl = [
   /* @gate-identity state-store/task.projection.ha_entity_declaration_heads */ `CREATE TABLE IF NOT EXISTS ha_entity_declaration_heads (
@@ -75,14 +76,19 @@ export async function readPgEntityDeclarations(
 ): Promise<readonly EntityDeclarationState[]> {
   const keys = [scope.tenantId, scope.projectId, scope.policyEpoch],
     readiness = (
-      await client.query<{ ready: boolean }>(
-        `SELECT COALESCE(m.entity_declaration_watermark,0)=h.revision AS ready
+      await client.query<{ ready: boolean; revision: string }>(
+        `SELECT h.revision,COALESCE(m.entity_declaration_watermark,0)=h.revision AS ready
       FROM ha_repo_heads h LEFT JOIN ha_projection_meta m ON m.tenant_id=h.tenant_id AND m.project_id=h.project_id
       AND m.policy_epoch=h.policy_epoch AND m.projection_name='task/v1'
       WHERE h.tenant_id=$1 AND h.project_id=$2 AND h.policy_epoch=$3 AND h.repo_id=$4`,
         [...keys, repoId],
       )
     ).rows[0];
+  const cut = readiness
+    ? await resolveConfirmedRepoCut(client, { ...scope, readers: [...(scope.readers ?? [])] }, repoId)
+    : null;
+  if (readiness && Number(readiness.revision) > (cut?.confirmedRevision ?? 0))
+    throw Object.assign(new Error("sync_replication_unconfirmed"), { code: "sync_replication_unconfirmed" });
   if (readiness && !readiness.ready)
     throw Object.assign(new Error("Current declaration index needs projection rebuild"), {
       code: "projection_pending",
