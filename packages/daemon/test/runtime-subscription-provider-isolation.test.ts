@@ -242,7 +242,16 @@ for (const kindId of ["devin", "minimax-code"] as const) {
       installation = witness(kindId),
       executablePath = path.join(bin, process.platform === "win32" ? `${kindId}.cmd` : kindId);
     mkdirSync(bin);
-    writeProviderExecutable(executablePath, 'console.log(JSON.stringify({families:[{slug:"test-model"}]}));');
+    writeProviderExecutable(
+      executablePath,
+      kindId === "devin"
+        ? 'console.log(JSON.stringify({families:[{slug:"test-model"}]}));'
+        : `require("node:readline").createInterface({input:process.stdin}).on("line",line=>{
+          const m=JSON.parse(line);
+          if(!["initialize","session/new"].includes(m.method)) process.exit(93);
+          console.log(JSON.stringify({id:m.id,result:m.method==="initialize"?{authMethods:[]}:{sessionId:"credential-session"}}));
+        });`,
+    );
     const relative =
       kindId === "devin" ? ".local/share/devin/credentials.toml" : ".minimax/auth/prod/cn/mcode-public/auth-state.json";
     const credential =

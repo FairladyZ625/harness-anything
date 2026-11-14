@@ -1073,10 +1073,15 @@ export const runtimeKinds = [
       accountModelProbe: { kind: "acp" },
       shape: "subscription-only",
       modes: ["subscription"],
-      subscriptionProbe: ["--version"],
+      subscriptionProbe: {
+        kind: "json-credential-map",
+        contentEnvironment: "OPENCODE_AUTH_CONTENT",
+        directoryEnvironment: "XDG_DATA_HOME",
+        directoryName: "opencode",
+      },
       subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
-      // `opencode-login` consumes the linked auth.json and accepts an empty
-      // api_key; it is the only advertised method.
+      // 1.18.30's authenticate accepts this method without checking credentials.
+      // Auth.json supplies metadata; an ACP auth_required refusal overrides it.
       acpAuthMethod: "opencode-login",
       endpoints: { baseUrl: "none" },
     },

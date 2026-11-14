@@ -71,10 +71,17 @@ export interface RuntimeProviderDeclaration {
      * provider's own login-state document and requires its status field to equal
      * `readyStatus` while its expiry field is still in the future: an exit-0 command
      * cannot tell "signed out" from "signed in" (mcode's `provider list` says
-     * `managed login` in an empty HOME too). */
+     * `managed login` in an empty HOME too). A json-credential-map observes native
+     * provider credentials as metadata; ACP refusals outrank that observation. */
     readonly subscriptionProbe:
       | readonly string[]
       | { readonly kind: "file-key" }
+      | {
+          readonly kind: "json-credential-map";
+          readonly contentEnvironment: string;
+          readonly directoryEnvironment: string;
+          readonly directoryName: string;
+        }
       | {
           readonly kind: "json-auth-state";
           /** Path relative to the provider's config directory. */

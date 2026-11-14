@@ -44,6 +44,7 @@ export async function probeSessionModelCatalog(
     throw invalidCatalog();
   }
   let result: RuntimeAccountModelCatalog | null = null;
+  let acpSession: ReturnType<typeof runAcpProviderSession> | undefined;
   await runExecutable(
     platform,
     input.executablePath,
@@ -52,8 +53,7 @@ export async function probeSessionModelCatalog(
       ...options,
       input: async (child) => {
         if (kind === "acp") {
-          let failed = false;
-          const session = runAcpProviderSession(
+          acpSession = runAcpProviderSession(
             child,
             {
               kindId: input.kindId,
@@ -65,13 +65,13 @@ export async function probeSessionModelCatalog(
             },
             (frame) => {
               const event = object(frame.event);
-              if (event.type === "acp.error") failed = true;
               if (event.type === "acp.session") result = catalog(event.models, event.currentModelId);
             },
             { catalogOnly: true },
           );
-          await session.done;
-          if (failed) throw invalidCatalog();
+          await acpSession.done;
+          const failure = acpCatalogFailure(acpSession);
+          if (failure) throw failure;
           return;
         }
         const rpc = new JsonRpcLineClient(child.stdout!, child.stdin!);
@@ -100,8 +100,31 @@ export async function probeSessionModelCatalog(
         }
       },
     },
-  );
+  ).then(undefined, (error: unknown) => {
+    // Termination can close the process before its async handshake reports failure.
+    // The live checkpoint still distinguishes an unfinished auth stage from model I/O.
+    const failure = acpSession
+      ? acpCatalogFailure(acpSession)
+      : kind === "acp"
+        ? runtimeInstanceError("runtime_auth_probe_failed", "ACP authentication could not start. Retry the probe.")
+        : null;
+    throw failure ?? error;
+  });
   return result;
+}
+
+function acpCatalogFailure(session: ReturnType<typeof runAcpProviderSession>): Error | null {
+  if (session.failure?.code === -32000)
+    return runtimeInstanceError(
+      "runtime_subscription_required",
+      "ACP requires subscription sign-in for this instance.",
+    );
+  if (!session.authenticationComplete)
+    return runtimeInstanceError(
+      "runtime_auth_probe_failed",
+      "ACP authentication could not determine readiness. Retry the probe.",
+    );
+  return session.failure ? invalidCatalog() : null;
 }
 
 function catalog(values: unknown, preferred?: unknown): RuntimeAccountModelCatalog | null {

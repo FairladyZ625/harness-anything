@@ -1,4 +1,5 @@
 import { commandInterceptionNeedsFiles } from "./runtime-command-interception-files.ts";
+import { isNonEmptyString } from "@harness-anything/kernel/internal/domain/contract-validation.ts";
 import { commandInterceptionHook, type CommandInterceptions } from "./runtime-command-interceptions.ts";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -307,6 +308,29 @@ export async function providerSubscriptionReadiness(
       if (!home)
         return unavailable("runtime_auth_probe_failed", "Provider authentication probe could not determine readiness.");
       const directory = providerConfigDirectory(home, input.installation.kindId);
+      if (probe.kind === "json-credential-map") {
+        const authFile = declaration.executable.authFile;
+        if (!authFile) return unavailable("runtime_auth_probe_failed", "No credential file is declared.");
+        const dataHome = input.env[probe.directoryEnvironment],
+          file = path.join(dataHome ? path.join(dataHome, probe.directoryName) : directory, authFile),
+          content = input.env[probe.contentEnvironment];
+        if (!content && !existsSync(file)) return unavailable("runtime_subscription_required", hint);
+        const credentials: unknown = JSON.parse(content || readFileSync(file, "utf8"));
+        if (!isPlainRecord(credentials))
+          return unavailable("runtime_auth_probe_failed", "The credential map could not be read.");
+        // Validate the native provider-map format at its file-reading boundary.
+        const present = Object.values(credentials).some(
+          (value) =>
+            isPlainRecord(value) &&
+            ((value.type === "api" && isNonEmptyString(value.key)) ||
+              (value.type === "wellknown" && isNonEmptyString(value.key) && isNonEmptyString(value.token)) ||
+              (value.type === "oauth" &&
+                typeof value.expires === "number" &&
+                value.expires >= 0 &&
+                (isNonEmptyString(value.refresh) || (isNonEmptyString(value.access) && value.expires > Date.now())))),
+        );
+        return present ? available("metadata") : unavailable("runtime_subscription_required", hint);
+      }
       if (probe.kind === "file-key") {
         const authFile = declaration.executable.authFile,
           key = "acpCredentialKey" in declaration.auth ? declaration.auth.acpCredentialKey : undefined;

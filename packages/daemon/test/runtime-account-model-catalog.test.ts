@@ -230,3 +230,249 @@ test("an undeclared account catalog is explicitly unsupported after successful a
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+// F3: stored credentials are metadata; ACP authentication refusals outrank that metadata.
+for (const scenario of [
+  { name: "empty HOME", credentials: undefined, authCode: "runtime_subscription_required" },
+  { name: "empty credential map", credentials: {}, authCode: "runtime_subscription_required" },
+  {
+    name: "empty API credential",
+    credentials: { openai: { type: "api", key: "" } },
+    authCode: "runtime_subscription_required",
+  },
+  {
+    name: "refreshable OAuth credential",
+    credentials: { openai: { type: "oauth", refresh: "test-refresh", access: "expired-test-access", expires: 0 } },
+    authCode: null,
+  },
+  {
+    name: "wellknown credential",
+    credentials: { openai: { type: "wellknown", key: "test-key", token: "test-token" } },
+    authCode: null,
+  },
+  { name: "malformed credential file", credentials: "invalid-json", authCode: "runtime_auth_probe_failed" },
+  {
+    name: "authenticate refuses login",
+    method: "authenticate",
+    code: -32000,
+    authCode: "runtime_subscription_required",
+  },
+  { name: "session refuses login", method: "session/new", code: -32000, authCode: "runtime_subscription_required" },
+  { name: "initialization unavailable", method: "initialize", code: -32603, authCode: "runtime_auth_probe_failed" },
+  { name: "authentication unavailable", method: "authenticate", code: -32603, authCode: "runtime_auth_probe_failed" },
+  { name: "authentication times out", method: "authenticate", timeout: true, authCode: "runtime_auth_probe_failed" },
+  { name: "model catalog fails after authentication", method: "session/new", code: -32603, authCode: null },
+  { name: "authenticated account catalog", authCode: null },
+] as const)
+  test(`OpenCode ${scenario.name} is reported independently of executable availability`, async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "ha-opencode-auth-evidence-"));
+    try {
+      const executablePath = writeProviderExecutable(
+          path.join(root, "opencode"),
+          `
+        const fs=require("node:fs"), path=require("node:path");
+        const scenario=${JSON.stringify(scenario)};
+        if (process.argv[2] === "--version") {console.log("9999.1.0"); process.exit(0);}
+        require("node:readline").createInterface({input:process.stdin}).on("line",line=>{
+          const m=JSON.parse(line);
+          if(m.method===scenario.method) {
+            if(scenario.timeout) return;
+            console.log(JSON.stringify({id:m.id,error:{code:scenario.code,message:scenario.code===-32000?"Authentication required":"temporary service failure"}}));
+            return;
+          }
+          const result=m.method==="initialize"?{authMethods:[{id:"opencode-login"}]}:m.method==="authenticate"?{}:{sessionId:"signed-in",models:{availableModels:[{modelId:"openai/account-model"}]}};
+          console.log(JSON.stringify({id:m.id,result}));
+        });
+      `,
+        ),
+        installation: RuntimeInstallationWitness = {
+          kindId: "opencode",
+          installationId: "opencode",
+          executablePath,
+          version: "9999.1.0",
+          observedAt: "2026-11-14T00:00:00Z",
+        },
+        store = openRuntimeInstanceStore({
+          userRoot: root,
+          platform: "darwin",
+          env: {},
+          discover: () => [installation],
+        });
+      store.command({
+        kind: "runtime-instance-create",
+        instanceId: "account",
+        name: "Account",
+        kindId: "opencode",
+        installationId: "opencode",
+        providerId: "opencode",
+        models: ["openai/account-model"],
+        authMode: "subscription",
+        credentialSource: "instance",
+      });
+      const file = path.join(root, "runtime-instances", "account", "home", ".local/share/opencode/auth.json"),
+        credentials =
+          "credentials" in scenario ? scenario.credentials : { openai: { type: "api", key: "test-f3-key" } };
+      if (credentials !== undefined) {
+        mkdirSync(path.dirname(file), { recursive: true });
+        writeFileSync(file, typeof credentials === "string" ? credentials : JSON.stringify(credentials));
+      }
+      const result =
+        "timeout" in scenario
+          ? await store.refreshAccount("account", undefined, AbortSignal.timeout(150))
+          : await store.command({ kind: "runtime-instance-show", instanceId: "account", probe: true });
+      const readiness = store.listPublic()[0]!.authReadiness;
+      assert.equal(readiness.code, scenario.authCode);
+      assert.equal(readiness.status, scenario.authCode === null ? "ready" : "not-ready");
+      const models = result.modelCatalogReadiness as { code: string | null };
+      if (scenario.authCode !== null) {
+        assert.equal(models.code, "runtime_model_catalog_not_probed");
+        assert.equal(store.read("account")?.availableModels, undefined);
+      } else if ("code" in scenario) {
+        assert.equal(models.code, "runtime_model_catalog_probe_failed");
+        assert.equal(readiness.basis, "metadata");
+      } else {
+        assert.equal(models.code, null);
+        assert.deepEqual(store.read("account")?.availableModels, ["openai/account-model"]);
+      }
+      assert.deepEqual(store.read("account")?.models, ["openai/account-model"]);
+      if (!("timeout" in scenario)) {
+        assert.equal(
+          (await store.authStatus("account")).code,
+          scenario.authCode,
+          "plain auth status uses the same authority",
+        );
+        if (scenario.authCode !== null)
+          await assert.rejects(
+            store.prepareLaunch("account", { cwd: root, prompt: "must not launch" }),
+            (error) => error instanceof Error && "code" in error && error.code === scenario.authCode,
+          );
+      }
+      if (scenario.name === "empty HOME") {
+        const list = await store.command({ kind: "runtime-instance-list", all: true, probe: true });
+        assert.equal(
+          (list.instances as { authReadiness: { code: string } }[])[0]?.authReadiness.code,
+          "runtime_subscription_required",
+        );
+        await assert.rejects(
+          store.prepareLaunch("account", { cwd: root, prompt: "must not launch" }),
+          (error) => error instanceof Error && "code" in error && error.code === "runtime_subscription_required",
+        );
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+for (const kindId of ["claude-acp", "codex-acp"] as const)
+  test(`${kindId} ACP auth_required overrides successful native login metadata`, async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "ha-acp-auth-authority-"));
+    try {
+      const executablePath = writeProviderExecutable(
+          path.join(root, "provider"),
+          `
+        if(["auth","login"].includes(process.argv[2])) process.exit(0);
+        require("node:readline").createInterface({input:process.stdin}).on("line",line=>{
+          const m=JSON.parse(line);
+          console.log(JSON.stringify(m.method==="initialize"?{id:m.id,result:{authMethods:[{id:${JSON.stringify(kindId === "codex-acp" ? "chat-gpt" : "native")}}]}}:{id:m.id,error:{code:-32000,message:"Authentication required"}}));
+        });
+      `,
+        ),
+        nativeKind = kindId === "codex-acp" ? "codex" : "claude",
+        installations: RuntimeInstallationWitness[] = [kindId, nativeKind].map((kind) => ({
+          kindId: kind as RuntimeInstallationWitness["kindId"],
+          installationId: kind,
+          executablePath,
+          version: "9999.1.0",
+          observedAt: "2026-11-14T00:00:00Z",
+        })),
+        store = openRuntimeInstanceStore({
+          userRoot: root,
+          platform: "darwin",
+          env: {},
+          discover: () => installations,
+        });
+      store.command({
+        kind: "runtime-instance-create",
+        instanceId: "account",
+        name: "Account",
+        kindId,
+        installationId: kindId,
+        providerId: runtimeKindForId(kindId).defaultProviderId,
+        models: ["configured-model"],
+        authMode: "subscription",
+        credentialSource: "instance",
+      });
+      assert.equal((await store.authStatus("account")).code, "runtime_subscription_required");
+      await assert.rejects(
+        store.prepareLaunch("account", { cwd: root, prompt: "must not launch" }),
+        (error) => error instanceof Error && "code" in error && error.code === "runtime_subscription_required",
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+for (const credentialEnvironment of ["OPENCODE_AUTH_CONTENT", "XDG_DATA_HOME"] as const)
+  for (const credentialSource of ["operator", "instance"] as const)
+    test(`OpenCode ${credentialSource} credentials respect ${credentialEnvironment}`, async () => {
+      const root = mkdtempSync(path.join(tmpdir(), "ha-opencode-auth-env-"));
+      try {
+        const operatorHome = path.join(root, "operator");
+        mkdirSync(operatorHome);
+        const dataHome = path.join(root, "data");
+        mkdirSync(path.join(dataHome, "opencode"), { recursive: true });
+        writeFileSync(
+          path.join(dataHome, "opencode", "auth.json"),
+          JSON.stringify({ openai: { type: "api", key: "test-operator-key" } }),
+        );
+        const executablePath = writeProviderExecutable(
+            path.join(root, "opencode"),
+            `
+        require("node:readline").createInterface({input:process.stdin}).on("line",line=>{
+          const m=JSON.parse(line);
+          console.log(JSON.stringify({id:m.id,result:m.method==="initialize"?{authMethods:[{id:"opencode-login"}]}:m.method==="authenticate"?{}:{sessionId:"operator",models:{availableModels:[{modelId:"account-model"}]}}}));
+        });
+      `,
+          ),
+          installation: RuntimeInstallationWitness = {
+            kindId: "opencode",
+            installationId: "opencode",
+            executablePath,
+            version: "9999.1.0",
+            observedAt: "2026-11-14T00:00:00Z",
+          },
+          store = openRuntimeInstanceStore({
+            userRoot: root,
+            platform: "darwin",
+            env: {
+              HOME: operatorHome,
+              [credentialEnvironment]:
+                credentialEnvironment === "OPENCODE_AUTH_CONTENT"
+                  ? JSON.stringify({ openai: { type: "api", key: "test-operator-key" } })
+                  : dataHome,
+            },
+            discover: () => [installation],
+          });
+        store.command({
+          kind: "runtime-instance-create",
+          instanceId: "account",
+          name: "Account",
+          kindId: "opencode",
+          installationId: "opencode",
+          providerId: "opencode",
+          models: ["account-model"],
+          authMode: "subscription",
+          credentialSource,
+        });
+        assert.equal(
+          (await store.authStatus("account")).status,
+          credentialSource === "operator" ? "ready" : "not-ready",
+        );
+        assert.deepEqual(
+          store.read("account")?.availableModels,
+          credentialSource === "operator" ? ["account-model"] : undefined,
+        );
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
