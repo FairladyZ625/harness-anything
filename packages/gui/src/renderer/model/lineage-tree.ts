@@ -113,6 +113,13 @@ function taskNode(row: TaskRow, children: readonly AgentTreeNode[]): AgentTreeNo
     id: `${LINEAGE_TASK_PREFIX}${row.taskId}`,
     role: splitTitleFocus(row.title).focus,
     status: taskActivity(row.canonicalStatus),
+    details: row.blockers?.map((blocker) => ({
+      text:
+        blocker.kind === "depends-on"
+          ? `${blocker.kind}${blocker.rationale ? ` · ${blocker.rationale}` : ""}`
+          : `${blocker.kind} · ${blocker.question}`,
+      ...(blocker.kind === "depends-on" ? { entityRef: `task/${blocker.targetTaskId}` } : {}),
+    })),
     ...(children.length > 0 ? { children } : {}),
   };
 }

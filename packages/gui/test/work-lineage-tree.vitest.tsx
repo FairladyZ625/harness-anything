@@ -269,3 +269,56 @@ describe("WorkView lineage tree", () => {
     ).toBe(true);
   });
 });
+
+// dec_653AB9E451B58125CA2B5C0289/CH2 preserves ARIA activation and cost semantics.
+describe("work lineage blocker markers", () => {
+  it("shows causal markers and links the upstream task without activating the blocked row", async () => {
+    getTaskDispatches.mockResolvedValue({
+      ok: true,
+      status: "ready",
+      taskIds: ["work-root"],
+      unavailableTaskIds: [],
+      dispatches: [],
+      outcome: "succeeded",
+      exitCode: 0,
+      page: { limit: 16, cursor: null, nextCursor: null },
+      watermark: 1,
+      sourceRevision: 1,
+    });
+    const onOpenTask = vi.fn();
+    const container = await mountWork(
+      [
+        task("work-root", {
+          blockers: [
+            {
+              kind: "depends-on",
+              relationId: "dep",
+              sourceTaskId: "work-root",
+              targetTaskId: "upstream",
+              rationale: "API contract",
+            },
+            {
+              kind: "awaits",
+              relationId: "ask",
+              sourceTaskId: "work-root",
+              personId: "owner",
+              askKind: "question",
+              question: "Which store?",
+            },
+          ],
+        }),
+      ],
+      { onOpenTask, onNavigateEntity: vi.fn() },
+    );
+    await act(async () => byTestId(container, "work-lineage-toggle-work-root").click());
+    const tree = await vi.waitFor(() => byTestId(container, "work-lineage-tree-work-root"));
+    expect(tree.textContent).toContain("depends-on · API contract");
+    expect(tree.textContent).toContain("awaits · Which store?");
+    const link = tree.querySelector<HTMLButtonElement>('[title="task/upstream"]')!;
+    await act(async () => link.click());
+    expect(onOpenTask.mock.calls).toEqual([["upstream"]]);
+    const row = tree.querySelector<HTMLElement>('[role="treeitem"]')!;
+    expect(row.tabIndex).toBe(0);
+    expect(tree.textContent).not.toContain("Σ");
+  });
+});

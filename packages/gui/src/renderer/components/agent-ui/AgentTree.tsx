@@ -3,6 +3,7 @@ import { CaretDown, CaretRight } from "@phosphor-icons/react";
 import { formatDuration } from "../../model/time.ts";
 import { compactTokens } from "../../token-format.ts";
 import { t, type MessageKey } from "../../i18n/index.tsx";
+import { EntityRefLink } from "../EntityRefLink.tsx";
 import { Button } from "../primitives/Button.tsx";
 import { StatusTag, type StatusTone } from "../primitives/StatusTag.tsx";
 
@@ -42,6 +43,8 @@ export interface AgentTreeNode {
   /** 身份:如 CEO / Commander / Squad Alpha / Worker-1。 */
   readonly role: string;
   readonly model?: string;
+  /** Display-only causal details, never included in cost rollup. */
+  readonly details?: readonly { readonly text: string; readonly entityRef?: string }[];
   readonly status: AgentActivity;
   /** 本节点自身 Token 成本,不含子树;缺省视为 0,不虚构。 */
   readonly ownTokens?: number;
@@ -103,6 +106,7 @@ export function AgentTree({
   root,
   defaultCollapsedIds,
   onNodeActivate,
+  onNavigateEntity,
   testId,
 }: {
   readonly root: AgentTreeNode;
@@ -113,6 +117,7 @@ export function AgentTree({
    * (task→详情、dispatch→会话)由调用方解读;折叠按钮与键盘漫游不受影响。
    */
   readonly onNodeActivate?: (node: AgentTreeNode) => void;
+  readonly onNavigateEntity?: (ref: string) => void;
   readonly testId?: string;
 }) {
   const [collapsedIds, setCollapsedIds] = useState<ReadonlySet<string>>(() => new Set(defaultCollapsedIds ?? []));
@@ -288,6 +293,20 @@ export function AgentTree({
             <span className="min-w-0 shrink truncate font-mono ui-micro text-text-muted" title={node.model}>
               {node.model}
             </span>
+          )}
+          {node.details !== undefined && node.details.length > 0 && (
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5 ui-micro text-text-muted">
+              {node.details.map((detail, index) => (
+                <div key={index} className="flex min-w-0 items-center gap-1">
+                  <span className="min-w-0 truncate" title={detail.text}>
+                    {t("components.taskJourney.blocked")} · {detail.text}
+                  </span>
+                  {detail.entityRef !== undefined && onNavigateEntity !== undefined && (
+                    <EntityRefLink entityRef={detail.entityRef} onNavigate={onNavigateEntity} />
+                  )}
+                </div>
+              ))}
+            </div>
           )}
           <span className="ml-auto flex shrink-0 items-center gap-2 font-mono tabular-nums ui-micro text-text-muted">
             {node.ownTokens !== undefined && (

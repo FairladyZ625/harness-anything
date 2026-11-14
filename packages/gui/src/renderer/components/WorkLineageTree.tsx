@@ -82,7 +82,12 @@ export function WorkLineageTree({
   const root = buildLineageTree({ rootTask, tasks, dispatches: rows, nowMs: Date.now() });
   return (
     <div className="flex min-w-0 flex-col gap-1.5" data-testid={testId}>
-      <AgentTree root={root} onNodeActivate={activate} testId={testId !== undefined ? `${testId}-tree` : undefined} />
+      <AgentTree
+        root={root}
+        onNodeActivate={activate}
+        onNavigateEntity={onOpenTask === undefined ? undefined : (ref) => onOpenTask(ref.slice("task/".length))}
+        testId={testId !== undefined ? `${testId}-tree` : undefined}
+      />
     </div>
   );
 }

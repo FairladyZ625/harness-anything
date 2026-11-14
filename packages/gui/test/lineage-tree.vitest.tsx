@@ -202,3 +202,40 @@ describe("lineageTaskIds", () => {
     expect(lineageTaskIds("task-root", cyclic)).toEqual(["task-root", "task-child", "task-grandchild"]);
   });
 });
+
+// dec_653AB9E451B58125CA2B5C0289/CH2: blockers are presentation data, never own cost.
+describe("lineage causal details", () => {
+  it("preserves depends-on / awaits details without changing token rollup", () => {
+    const rootTask = task("task-root", {
+      blockers: [
+        {
+          kind: "depends-on",
+          relationId: "dep",
+          sourceTaskId: "task-root",
+          targetTaskId: "upstream",
+          rationale: "API contract",
+        },
+        {
+          kind: "awaits",
+          relationId: "ask",
+          sourceTaskId: "task-root",
+          personId: "owner",
+          askKind: "question",
+          question: "Which store?",
+        },
+      ],
+    });
+    const tree = buildLineageTree({
+      rootTask,
+      tasks: [],
+      dispatches: [dispatch({ metrics: { totalTokens: 42 } as TaskDispatchProjectionRow["metrics"] })],
+      nowMs: NOW,
+    });
+    expect(tree.details).toEqual([
+      { text: "depends-on · API contract", entityRef: "task/upstream" },
+      { text: "awaits · Which store?" },
+    ]);
+    expect(tree.ownTokens).toBeUndefined();
+    expect(rollupSubtree(tree).tokens).toBe(42);
+  });
+});
