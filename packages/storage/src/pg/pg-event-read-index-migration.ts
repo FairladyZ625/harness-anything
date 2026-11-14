@@ -287,8 +287,6 @@ export function eventReadIndexDdl(): readonly string[] {
     `CREATE INDEX IF NOT EXISTS ha_events_dispatch_outcome ON ha_events (${eventScope},dispatch_id,revision DESC)
       WHERE event_schema='agent-runtime-event/v1' AND event_type='runtime_session_outcome_observed'`,
     `CREATE INDEX IF NOT EXISTS ha_events_task_index ON ha_events (${eventScope},task_index_id,revision DESC) WHERE event_type<>'ci_run_observed'`,
-    `CREATE INDEX IF NOT EXISTS ha_events_canonical_task ON ha_events (${eventScope},canonical_task_id,revision DESC)
-      WHERE event_type<>'ci_run_observed' AND canonical_task_id IS NOT NULL`,
     `CREATE INDEX IF NOT EXISTS ha_events_task_submission ON ha_events (${eventScope},canonical_task_id,task_execution_id,revision DESC)
       WHERE event_schema='task-event/v1' AND event_type='execution_submitted'`,
     `CREATE INDEX IF NOT EXISTS ha_events_task_completion ON ha_events (${eventScope},canonical_task_id,task_execution_id,revision DESC)
