@@ -229,8 +229,10 @@ for (const mode of ["product", "bridge"])
         timings.startBackup = performance.now() - backupStart;
         results.backup = backup.metadata;
         await backup.complete;
+        // The short-deadline bridge signals an actual 1s commit-liveness poll.
+        if (mode === "bridge") await Atomics.waitAsync(gate, 0, 0).value;
         const blockedForMs = performance.now() - blockedAt;
-        assert.ok(blockedForMs > 500, `the observed backup completion covered only ${blockedForMs}ms`);
+        if (mode === "bridge") assert.ok(blockedForMs > 500, `commit polling covered only ${blockedForMs}ms`);
         assert.ok((await blocked(fixture)).length);
         assert.equal(stats[2], 0);
         if (mode === "bridge") assert.equal(state[1], 1);

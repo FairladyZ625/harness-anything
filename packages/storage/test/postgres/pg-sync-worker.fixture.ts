@@ -78,6 +78,23 @@ if (data.mode === "cas") {
     parentPort!.close();
   });
 } else {
+  Atomics.wait = new Proxy(Atomics.wait, {
+    apply(target, receiver, args) {
+      const result = Reflect.apply(target, receiver, args),
+        [state, , , timeout] = args;
+      if (
+        state instanceof Int32Array &&
+        state.length === 3 &&
+        Atomics.load(state, 1) === 1 &&
+        timeout === 1_000 &&
+        result === "timed-out"
+      ) {
+        Atomics.store(data.gate, 0, 1);
+        Atomics.notify(data.gate, 0);
+      }
+      return result;
+    },
+  });
   const bridge =
     data.mode === "bridge"
       ? createPgTaskQueryReader({
