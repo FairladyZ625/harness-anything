@@ -38,7 +38,11 @@ function executeRead(request: RepoWriterRequestV1): unknown {
       value = reader.read(args[0] as never, args[1] as never, binding, args[2] as number | undefined);
       break;
     case "run":
-      value = reader.run(args[0] as never, binding!);
+      value = reader.run(
+        args[0] as never,
+        binding!,
+        args[1] as import("./repo-cell-types.ts").RepoCellStatus | undefined,
+      );
       break;
     case "explainBasis":
       value = reader.explainBasis(args[0] as never, binding);

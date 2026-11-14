@@ -21,17 +21,18 @@ test("backup phases retain each request's context and span beyond its receipt", 
     first = context.run("first caller", () => supervisor.request("fleetBackup", {})),
     [firstRequest] = (await firstArrived) as [RepoWriterRequestV1],
     secondArrived = once(writer, "request"),
-    second = context.run("second caller", () => supervisor.request("fleetBackup", {})),
-    [secondRequest] = (await secondArrived) as [RepoWriterRequestV1];
+    second = context.run("second caller", () => supervisor.request("fleetBackup", {}));
 
+  // Admission is single-flight; a completed receipt releases the slot while its trace stays open.
   writer.trace(firstRequest, "start", null);
+  writer.trace(firstRequest, "asyncStart", "first-repo");
+  writer.receipt(firstRequest);
+  await first;
+  const [secondRequest] = (await secondArrived) as [RepoWriterRequestV1];
   writer.trace(secondRequest, "start", null);
   writer.trace(secondRequest, "asyncStart", "second-repo");
   writer.receipt(secondRequest);
   await second;
-  writer.trace(firstRequest, "asyncStart", "first-repo");
-  writer.receipt(firstRequest);
-  await first;
   assert.equal(events.length, 4, "receipt completion does not prematurely end the storage span");
   writer.trace(secondRequest, "end", "second-repo");
   writer.trace(firstRequest, "end", "first-repo");
@@ -41,18 +42,18 @@ test("backup phases retain each request's context and span beyond its receipt", 
     events.map(({ phase, caller, repoId }) => ({ phase, caller, repoId })),
     [
       { phase: "start", caller: "first caller", repoId: null },
+      { phase: "asyncStart", caller: "first caller", repoId: "first-repo" },
       { phase: "start", caller: "second caller", repoId: null },
       { phase: "asyncStart", caller: "second caller", repoId: "second-repo" },
-      { phase: "asyncStart", caller: "first caller", repoId: "first-repo" },
       { phase: "end", caller: "second caller", repoId: "second-repo" },
       { phase: "end", caller: "first caller", repoId: "first-repo" },
     ],
   );
-  assert.strictEqual(events[0]!.span, events[3]!.span);
+  assert.strictEqual(events[0]!.span, events[1]!.span);
   assert.strictEqual(events[0]!.span, events[5]!.span);
-  assert.strictEqual(events[1]!.span, events[2]!.span);
-  assert.strictEqual(events[1]!.span, events[4]!.span);
-  assert.notStrictEqual(events[0]!.span, events[1]!.span);
+  assert.strictEqual(events[2]!.span, events[3]!.span);
+  assert.strictEqual(events[2]!.span, events[4]!.span);
+  assert.notStrictEqual(events[0]!.span, events[2]!.span);
 });
 
 for (const termination of ["exit", "error", "close", "receipt-error", "post-error"] as const) {
@@ -68,8 +69,11 @@ for (const termination of ["exit", "error", "close", "receipt-error", "post-erro
     else if (termination === "error") {
       writer.emit("error", new Error("backup failed"));
       writer.emit("exit", 1);
-    } else if (termination === "close") await supervisor.close();
-    else if (termination === "receipt-error") writer.receipt(request, true);
+    } else if (termination === "close") {
+      const closing = supervisor.close();
+      writer.receipt(request, true); // Acknowledge the fake worker's pre-commit rollback.
+      await closing;
+    } else if (termination === "receipt-error") writer.receipt(request, true);
     await rejected;
     writer.trace(request, "end", "backup-repo");
     assert.deepEqual(

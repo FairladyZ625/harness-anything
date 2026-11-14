@@ -1,7 +1,13 @@
 import { nodeMaterializationPolicyForMode } from "@harness-anything/kernel/internal/domain/task-wip-policy.ts";
 import { consumeKnownError, type TaskProjection } from "@harness-anything/kernel";
 import { nodeLocalWriteCommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
-import { acquireRepoStorageLock } from "@harness-anything/storage";
+import {
+  acquireRepoStorageLock,
+  assertWriterEpochFenceDescriptor,
+  configureWriterEpochStorage,
+  openFleetStorage,
+  fleetBackupRequiresWriter,
+} from "@harness-anything/storage";
 import path from "node:path";
 import { makeAgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
@@ -27,7 +33,10 @@ const writerAttached = (cell: { readonly state: string }): boolean => cell.state
 /** Host-side RepoCell boundary: admission, bounded read RPC, writer proxy and live streams. */
 export async function openRepoCellProxy(
   input: RepoCellOpenInput & { readonly onStatus?: (status: ReturnType<RepoCell["status"]>) => void },
-  options: { readonly createReadWorker?: RepoReadWorkerFactory } = {},
+  options: {
+    readonly createReadWorker?: RepoReadWorkerFactory;
+    readonly createWriterWorker?: NonNullable<Parameters<typeof openWriterSupervisor>[1]>["createWorker"];
+  } = {},
 ): Promise<RepoCell> {
   input = {
     ...input,
@@ -80,6 +89,7 @@ export async function openRepoCellProxy(
         },
       },
       {
+        createWorker: options.createWriterWorker,
         onAttachStatus: input.onStatus,
         onPublishedStatus: (status) => {
           input.onStatus?.(status);
@@ -153,7 +163,9 @@ export async function openRepoCellProxy(
     const status = supervisor.status();
     const observeEvents = method === "observeTail" && (args[0] as { kind?: unknown } | null)?.kind === "events";
     const independent =
-      (method === "read" && args[0] === "repo.entity.locator.read") || (method === "observeTail" && !observeEvents);
+      (method === "run" && (args[0] as { kind: string }).kind === "receipt-show") ||
+      (method === "read" && args[0] === "repo.entity.locator.read") ||
+      (method === "observeTail" && !observeEvents);
     const replicaRead =
       input.mode === "remote-edge" &&
       ((method === "read" && args[0] !== "repo.agent.skills.list") ||
@@ -203,9 +215,12 @@ export async function openRepoCellProxy(
           "Canonical acceptance and follower progress belong to the center writer, not this edge runtime ledger.",
         ),
       ) as Awaited<ReturnType<RepoCell["run"]>>;
-    if (repoCellExecutionForAction(action.kind) === "query-only") {
+    if (
+      repoCellExecutionForAction(action.kind) === "query-only" &&
+      !(action.kind === "receipt-show" && action.waitFor !== undefined)
+    ) {
       try {
-        return await query("run", [action], binding);
+        return await query("run", [action, supervisor.status()], binding);
       } catch (error) {
         return failed(operationId(action, binding, input.repoId, 0), error) as Awaited<ReturnType<RepoCell["run"]>>;
       }
@@ -365,7 +380,21 @@ export async function openRepoCellProxy(
     settlePendingMaterialization: (context) => supervisor.request("settlePendingMaterialization", context),
     backup: (request) => supervisor.request("backup", request),
     pruneReplicationLog: (beforeSequence) => supervisor.request("pruneReplicationLog", beforeSequence),
-    fleetBackup: (request, signal) => supervisor.request("fleetBackup", request, undefined, signal),
+    fleetBackup: async (request, signal) => {
+      if (fleetBackupRequiresWriter(input.storage))
+        return supervisor.request("fleetBackup", request, undefined, signal);
+      signal?.throwIfAborted();
+      if (closed || !writerAttached(supervisor.status())) throw cellCodedError("repo_unavailable", latched());
+      configureWriterEpochStorage(request.writerEpochFence, input.storage);
+      assertWriterEpochFenceDescriptor(request.writerEpochFence);
+      const source = openFleetStorage(input);
+      try {
+        const backup = await source.startBackup(request.directory, "", signal);
+        return await backup.complete;
+      } finally {
+        source.close();
+      }
+    },
     close: async () => {
       if (closed) return;
       closed = true;

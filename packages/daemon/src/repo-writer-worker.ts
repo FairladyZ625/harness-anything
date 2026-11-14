@@ -4,7 +4,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
 import { consumeKnownError } from "@harness-anything/kernel";
-import { fleetBaseBackupTrace } from "@harness-anything/storage";
+import { fleetBaseBackupTrace, withStorageWriteRequest } from "@harness-anything/storage";
 import type { RepoCellOpenInput } from "./repo-cell-open.ts";
 import { openRepoWriterCell } from "./repo-cell-open.ts";
 import type {
@@ -130,7 +130,15 @@ async function startRepoWriterWorker(): Promise<void> {
       return;
     }
     if (isWriterRequest(message)) {
-      const operation = handleRequest(message);
+      const operation = message.writeRequest
+        ? withStorageWriteRequest(
+            {
+              ...message.writeRequest,
+              onOperation: (opId) => void syncCapability("writeOperation", { requestId: message.requestId, opId }),
+            },
+            () => handleRequest(message),
+          )
+        : handleRequest(message);
       if (message.method === "canonicalStore") {
         activeStoreRequests.add(operation);
         void operation.finally(() => activeStoreRequests.delete(operation));

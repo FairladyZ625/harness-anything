@@ -1,3 +1,5 @@
+import { publicPublication } from "./repo-cell-receipts.ts";
+import { attachReceiptAcceptance } from "@harness-anything/kernel";
 import { nodeMaterializationPolicyForMode } from "@harness-anything/kernel/internal/domain/task-wip-policy.ts";
 import { readRuntimeCanAttach } from "./agent-runtime-read.ts";
 import { taskListQueryFromPayload } from "./repo-query-payload.ts";
@@ -30,7 +32,7 @@ import { cellCodedError } from "./repo-cell-errors.ts";
 import type { RepoCellOpenInput } from "./repo-cell-open.ts";
 import { makeRepoCellSettingsState } from "./repo-cell-settings-state.ts";
 import { requiredCellText } from "./repo-cell-settlement.ts";
-import type { RepoCell, RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import type { RepoCell, RepoCellBinding, RepoCellStatus, RepoTaskAction } from "./repo-cell-types.ts";
 import { repoCellTaskQueryJudgmentsFor } from "./repo-cell.ts";
 import { readRepoInFlightWork } from "./repo-in-flight-work.ts";
 import { repositoryRuntimeReads } from "./repository-runtime-reads.ts";
@@ -89,6 +91,7 @@ export function makeRepoReadRuntime(
     readSession = (runtimeSessionId: string) =>
       reader.withSession((projection) => projection.readRuntimeSession(runtimeSessionId));
   let closed = false;
+  let writerStatus: RepoCellStatus | undefined;
   const latched = () => "Query-only reader cannot start writer work.";
   const edgeConfig = input.edgeConfig ?? (() => null);
   /**
@@ -213,15 +216,18 @@ export function makeRepoReadRuntime(
         },
         rootDir: input.rootDir,
         now,
-        publicPublication: unsupportedWrite,
+        publicPublication,
         getProjection: () => writableProjection,
         getStore: () => readStore,
         getEntityActionExecutor: () => entityActionExecutor,
         getEntityActionRuntimes: () => actionRuntimes,
         getService: unsupportedWrite,
         getSettings: () => settings.read(),
-        getRecovery: unsupportedWrite,
-        getRecoveryUncertain: () => false,
+        getRecovery: () => ({
+          status: writerStatus?.state === "unavailable" ? "indeterminate" : "none",
+          elapsedMs: writerStatus?.recoveryMs ?? 0,
+        }),
+        getRecoveryUncertain: () => writerStatus?.state === "unavailable",
         setRecoveryUncertain: unsupportedWrite,
         getKnownTaskIds: () => knownTaskIds,
         setKnownTaskIds: (value) => {
@@ -305,7 +311,9 @@ export function makeRepoReadRuntime(
       receipt = executeRepoReadAction(context, action, binding);
     if (receipt instanceof Promise)
       throw new Error(`Query-only action ${action.kind} must complete inside its synchronous read session.`);
-    return context.withHumanSummary(frame(receipt)) as Awaited<ReturnType<RepoCell["run"]>>;
+    const settled =
+      action.kind === "receipt-show" ? attachReceiptAcceptance(receipt, context.store, context.projection) : receipt;
+    return context.withHumanSummary(frame(settled)) as Awaited<ReturnType<RepoCell["run"]>>;
   };
   const runReadAtCut = (projection: TaskProjectionQueries, action: RepoTaskAction, binding: RepoCellBinding) => {
     const verified = bindVerifiedExecutorClaim({
@@ -316,7 +324,8 @@ export function makeRepoReadRuntime(
     });
     return executeReadAtCut(projection, verified.action, verified.binding);
   };
-  const run = (action: RepoTaskAction, binding: RepoCellBinding) => {
+  const run = (action: RepoTaskAction, binding: RepoCellBinding, status?: RepoCellStatus) => {
+    writerStatus = status;
     if (
       input.mode === "remote-edge" &&
       commandDescriptorForAction(action.kind).admission["remote-edge"] === "edge-replica"

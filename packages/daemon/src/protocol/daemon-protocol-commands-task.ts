@@ -1,6 +1,6 @@
 import {
   defineEdgeReplicaQueryOnlyReadCommand,
-  defineRepoReadCommand,
+  defineRepoQueryOnlyReadCommand,
   defineCenterForwardWriteCommand,
   cliInput,
   defineCliCommand,
@@ -388,7 +388,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
     // <task-id> and --id are the same field in two spellings; the parser rejects both-at-once.
     inputs: [cliInput("--id", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "taskId" })],
   }),
-  defineRepoReadCommand({
+  defineRepoQueryOnlyReadCommand({
     id: "receipt-show",
     phase: "W3",
     path: ["receipt", "show", "<op-id>"],

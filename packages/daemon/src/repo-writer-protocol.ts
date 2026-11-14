@@ -77,6 +77,7 @@ export interface RepoWriterRequestV1 {
     | "pruneReplicationLog"
     | "fleetBackup"
     | "catalog";
+  readonly writeRequest?: { readonly state: Int32Array; readonly id: number };
   readonly payload: unknown;
   readonly binding?: SerializableRepoCellBindingV1;
   readonly writerEpoch: SerializableRepoCellBindingV1["writerEpochFence"] | null;
@@ -204,7 +205,8 @@ export type RepoWriterCapabilityName =
   | "runtimeSignal"
   | "attemptTerminal"
   | "lifecycle"
-  | "fleetBaseBackupTrace";
+  | "fleetBaseBackupTrace"
+  | "writeOperation";
 
 export type RuntimeInstanceSchedulingCall =
   | { readonly operation: "snapshot" }
