@@ -9,7 +9,7 @@ import { daemonStoppedMarkerPath } from "@harness-anything/daemon/internal/clien
 import { perUserSocketRoot } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import { createRuntimeCallbackRelay } from "@harness-anything/daemon/internal/runtime-callback-relay";
 import * as shared from "./daemon-autostart-cli.fixture.ts";
-import { waitForCondition } from "../../../tools/fixtures/wait-for-condition.ts";
+import { waitForCondition, waitForValue } from "../../../tools/fixtures/wait-for-condition.ts";
 
 const {
   assert,
@@ -713,13 +713,16 @@ const runtimeAttachWhileBlockedTest = async (context: TestContext) => {
       `${launched.stderr}\n${launched.stdout}\n${existsSync(path.join(fixture.userRoot, "logs", "daemon-default.log")) ? readFileSync(path.join(fixture.userRoot, "logs", "daemon-default.log"), "utf8") : "daemon log missing"}`,
     );
     // Host readiness precedes repository attachment; establish the seeded read before measuring idle attach.
-    const ready = await requestDaemonJsonRpcAt(
-      endpoint,
-      "repo.agentRuntime.sessions.read",
-      { repo: { repoId }, payload: { runtimeSessionId } },
-      2_000,
-      30_000,
-    );
+    const ready = await waitForValue(async () => {
+      const receipt = await requestDaemonJsonRpcAt(
+        endpoint,
+        "repo.agentRuntime.sessions.read",
+        { repo: { repoId }, payload: { runtimeSessionId } },
+        2_000,
+        30_000,
+      );
+      return receipt.code === "repo_warming" ? null : receipt;
+    }, "seeded runtime repository to finish attaching before the idle probe");
     assert.equal(ready.ok, true, JSON.stringify(ready));
     assert.equal((ready.session as Record<string, unknown>).runtimeSessionId, runtimeSessionId, JSON.stringify(ready));
     const idle = await probeRuntimeAttach(endpoint, repoId, runtimeSessionId);

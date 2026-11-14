@@ -51,7 +51,7 @@ type Job = {
 };
 type Slot = {
   worker: Worker | null;
-  createWorker?: RepoReadWorkerFactory;
+  createWorker?: RepoReadWorkerFactory | typeof Worker;
   ready: boolean;
   starting: Job | null;
   job: Job | null;
@@ -178,7 +178,7 @@ function pump(): void {
     const job = queue[0]!;
     if (
       slot.owner !== job.owner &&
-      (slot.createWorker !== job.createWorker ||
+      (slot.createWorker !== (job.createWorker ?? Worker) ||
         slot.contextOwner !== null ||
         requiresStorageWorkerContext((job.request.payload as RepoReadPayload).config.storage))
     ) {
@@ -238,7 +238,7 @@ function pump(): void {
         // Other readers already close/reopen their query runtime when config changes.
         slot.contextOwner = context.context === undefined ? null : job.owner;
         slot.worker = worker;
-        slot.createWorker = job.createWorker;
+        slot.createWorker = job.createWorker ?? Worker;
         worker.on("message", (receipt: RepoWriterReceiptV1 | RepoWriterStatusV1) => {
           if (slot.worker !== worker) return;
           if (receipt.schema === "harness-repo-writer-status/v1") {
