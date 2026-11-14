@@ -6,7 +6,7 @@
 // is compared here.
 import ts from "typescript";
 import { bindArguments, isFunctionNode, makeEvaluator, unwrap } from "./authorization-flow-graph.mjs";
-import { processSourceSites, sourceFrameKey, sourceSite } from "./authorization-source-proof.mjs";
+import { processSourceSites, sourceSite } from "./authorization-source-proof.mjs";
 
 const maxWalkDepth = 60;
 
@@ -406,6 +406,8 @@ export function makeAuthorizationTracer(graph, anchors) {
         ),
       },
       memo = new Map(),
+      frameKeys = new WeakMap(),
+      frameIds = new Map(),
       guardCalls = new Map(),
       stack = [];
 
@@ -984,7 +986,7 @@ export function makeAuthorizationTracer(graph, anchors) {
 
     function invokeCallback(parameter, value, call, env, state, sourceAuthority) {
       // Grouped per guard frame: a non-durable branch of another command is not this route's bypass.
-      const group = sourceFrameKey(graph, parameter.parent, env),
+      const group = `${frameKeys.get(env) ?? 0}`,
         frames = guardCalls.get(parameter) ?? new Map(),
         calls = frames.get(group) ?? { routed: routedFrame(env), calls: [] };
       calls.calls.push({ authorized: state.authorized, at: where(call), carried: false, parameter });
@@ -1154,8 +1156,40 @@ export function makeAuthorizationTracer(graph, anchors) {
       Object.assign(state, merged);
     }
 
-    const authorityShape = (state) =>
-      `${state.authorized ? 1 : 0}${state.effect ? 1 : 0}${state.sourceCovered ? 1 : 0}${state.local ? 1 : 0}${state.sessioned.size > 0 ? 1 : 0}:${state.decisionKind?.kind ?? ""}:${state.decisionKind?.routed ? 1 : 0}`;
+    // A walk is reused only for the same function under the same bindings: a parameter is keyed
+    // by its request provenance or by its expression and the binding frame's own parameter shape
+    // (one level of calling context), so a closure bound under the request and the same closure
+    // bound under an unrelated caller are separate walks without unbounded context growth.
+    function parameterShape(value, env, withFrames) {
+      return value.node.parameters
+        .map((parameter) => {
+          const bound = env.get(parameter);
+          if (!bound) return "-";
+          if (bound.root) return "request";
+          if (bound.rest)
+            return `rest:[${bound.rest
+              .map((entry) => {
+                const tag = evaluator.provenance(entry.expression, entry.env) ?? "";
+                return `${tag}:${entry.expression.pos}:${graph.fileOf(entry.expression)}`;
+              })
+              .join("|")}]`;
+          const tag = evaluator.provenance(bound.expression, bound.env) ?? "",
+            site = `${tag}:${bound.expression.pos}:${graph.fileOf(bound.expression)}`;
+          return withFrames ? `${site}@${frameKeys.get(bound.env) ?? 0}` : site;
+        })
+        .join(",");
+    }
+
+    function signature(value, env, state) {
+      return `${state.authorized ? 1 : 0}${state.effect ? 1 : 0}${state.sourceCovered ? 1 : 0}${state.local ? 1 : 0}${state.sessioned.size > 0 ? 1 : 0}|${frameKeys.get(value.env) ?? 0}|${parameterShape(value, env, true)}`;
+    }
+
+    function internFrame(env, value) {
+      // The captured frame is part of the identity: closures nest lexically, so this stays bounded.
+      const text = `${value.node.pos}:${graph.fileOf(value.node)}|${frameKeys.get(value.env) ?? 0}|${parameterShape(value, env, false)}`;
+      if (!frameIds.has(text)) frameIds.set(text, frameIds.size + 1);
+      frameKeys.set(env, frameIds.get(text));
+    }
 
     function walkFunction(value, env, state) {
       const fn = value.node,
@@ -1166,17 +1200,13 @@ export function makeAuthorizationTracer(graph, anchors) {
           localReturn: false,
           refusal: false,
         };
-      if (!fn.body || stack.length > maxWalkDepth) return none;
-      // Resolve forwarded aliases and retain the source walk's bounded lexical context.
-      // One identity handles both reuse and in-progress cycles: a fresh Map is not a new
-      // callback, and the same expression can carry another caller's callback.
-      const key = `${authorityShape(state)}|${sourceFrameKey(graph, fn, env)}`;
+      if (!fn.body || stack.includes(fn) || stack.length > maxWalkDepth) return none;
+      const key = signature(value, env, state);
       const seen = memo.get(fn) ?? new Map();
-      // The in-progress entry terminates the same frame. Another callback binding may
-      // re-enter this function and acquire its own authority, as queued continuations do.
       if (seen.has(key)) return seen.get(key);
       seen.set(key, none);
       memo.set(fn, seen);
+      internFrame(env, value);
       stack.push(fn);
       const frame = { returns: [] };
       if (ts.isBlock(fn.body)) {

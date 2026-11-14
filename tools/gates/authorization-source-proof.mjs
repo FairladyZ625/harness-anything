@@ -1739,8 +1739,28 @@ function reachesSource(graph, entry, node, options = {}) {
   return processSourceSites(graph, entry, { ...options, targets: [target] }).has(target);
 }
 
-/** Bounded lexical/caller identity shared by source and policy cycle detection. */
-export function sourceFrameKey(graph, fn, env) {
+const sourceWalks = new WeakMap();
+
+export function processSourceSites(
+  graph,
+  entry,
+  {
+    evaluator = makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true }),
+    env = new Map(),
+    targets = [],
+  } = {},
+) {
+  targets = [...targets];
+  const requestedSites = new Set(targets);
+  // Evaluator facts and source bindings are immutable within a descriptor. Cache only a frame's
+  // direct sites/edges, never its transitive result or the authority that reached it. Traversal
+  // remains per caller, so cycles and early target exits cannot poison later callers' evidence.
+  const graphs = sourceWalks.get(evaluator) ?? new WeakMap();
+  sourceWalks.set(evaluator, graphs);
+  const frames = graphs.get(graph) ?? new Map();
+  graphs.set(graph, frames);
+  const seen = new Set(),
+    sites = new Set();
   const argumentSite = (argument) => {
     let bound = argument;
     // Parameter bindings point into older caller frames, so forwarding aliases terminate at
@@ -1777,35 +1797,12 @@ export function sourceFrameKey(graph, fn, env) {
         : "";
   // One lexical caller frame distinguishes a reused expression bound to different callbacks.
   // This is bounded calling context, not recursive serialization of the environment chain.
-  return lexicalBindings(fn, env)
-    .map((bound) => `${argumentSite(bound)}@[${callerShape(bound)}]`)
-    .join("|");
-}
-
-const sourceWalks = new WeakMap();
-
-export function processSourceSites(
-  graph,
-  entry,
-  {
-    evaluator = makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true }),
-    env = new Map(),
-    targets = [],
-  } = {},
-) {
-  targets = [...targets];
-  const requestedSites = new Set(targets);
-  // Evaluator facts and source bindings are immutable within a descriptor. Cache only a frame's
-  // direct sites/edges, never its transitive result or the authority that reached it. Traversal
-  // remains per caller, so cycles and early target exits cannot poison later callers' evidence.
-  const graphs = sourceWalks.get(evaluator) ?? new WeakMap();
-  sourceWalks.set(evaluator, graphs);
-  const frames = graphs.get(graph) ?? new Map();
-  graphs.set(graph, frames);
-  const seen = new Set(),
-    sites = new Set();
+  const bindingShape = (fn, env) =>
+    lexicalBindings(fn, env)
+      .map((bound) => `${argumentSite(bound)}@[${callerShape(bound)}]`)
+      .join("|");
   function frameFor(fn, env) {
-    const key = sourceFrameKey(graph, fn, env),
+    const key = bindingShape(fn, env),
       contexts = frames.get(fn) ?? new Map();
     frames.set(fn, contexts);
     if (!contexts.has(key)) contexts.set(key, { fn, env, sites: new Set(), edges: null });

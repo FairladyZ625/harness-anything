@@ -13,7 +13,7 @@ import fs from "node:fs";
 import { pathToFileURL } from "node:url";
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
 import ts from "typescript";
-import { buildFlowGraph, isFunctionNode } from "./authorization-flow-graph.mjs";
+import { authorizationPolicyGraph, buildFlowGraph, isFunctionNode } from "./authorization-flow-graph.mjs";
 import { makeAuthorizationTracer } from "./authorization-flow-trace.mjs";
 import { withArtifactActionIngressDeclarations } from "./ontology-gate-lib.mjs";
 import {
@@ -220,9 +220,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
           site: sourceSite(graph, witnesses.get(source.candidateId)),
         })),
     sourceResults = new Map(),
-    // Package callbacks can re-enter a daemon service that enforces its own authority.
-    // Trace that actual path instead of flattening it to reachability at the package boundary.
-    tracer = makeAuthorizationTracer(graph, {
+    tracer = makeAuthorizationTracer(authorizationPolicyGraph(graph), {
       sourceGraph: graph,
       ports: portAnchors,
       authorityModule: "@harness-anything/kernel",
