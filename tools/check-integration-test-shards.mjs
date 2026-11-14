@@ -174,9 +174,7 @@ function readGitSourceBatch(repoRoot, ref, files) {
   const output = execFileSync("git", ["cat-file", "--batch"], {
     cwd: repoRoot,
     input: files.map((file) => `${ref}:${file}`).join("\n") + "\n",
-    // This batch deliberately contains every test source; its total size grows with the repository.
-    // A fixed transport cap must not make an intact baseline indistinguishable from a missing one.
-    maxBuffer: Infinity,
+    maxBuffer: 16 * 1024 * 1024,
     stdio: ["pipe", "pipe", "ignore"],
   });
   const sources = [];

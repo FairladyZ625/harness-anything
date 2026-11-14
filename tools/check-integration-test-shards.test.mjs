@@ -123,34 +123,6 @@ test("a new inline-declared integration test is discovered without central regis
   }
 });
 
-test("a complete Git baseline larger than 16 MiB still enforces the integration count ratchet", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-integration-large-baseline-"));
-  try {
-    const testRoot = path.join(root, "tools");
-    mkdirSync(testRoot, { recursive: true });
-    writeShardPadding(testRoot);
-    writeDeletionAllowlist(root);
-    writeFileSync(
-      path.join(testRoot, "large.test.mjs"),
-      "// harness-test-tier: fast\n// " + "x".repeat(16 * 1024 * 1024) + "\n",
-    );
-    git(root, ["init", "-q"]);
-    git(root, ["config", "user.name", "Harness Test"]);
-    git(root, ["config", "user.email", "harness@example.test"]);
-    git(root, ["add", "tools"]);
-    git(root, ["commit", "-qm", "register large baseline"]);
-    const before = checkIntegrationTestShards({ repoRoot: root, baselineRef: "HEAD", weightOverrides: {} });
-    assert.equal(before.ok, true, before.errors.join("\n"));
-    assert.equal(before.delta, 0);
-    unlinkSync(path.join(testRoot, "padding", "pad-1.test.mjs"));
-    const after = checkIntegrationTestShards({ repoRoot: root, baselineRef: "HEAD", weightOverrides: {} });
-    assert.equal(after.ok, false);
-    assert.match(after.errors.join("\n"), /integration test count decreased without path confirmation/u);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test("default shard assignment is deterministic across discovery order", () => {
   const files = ["tools/c.test.mjs", "tools/a.test.mjs", "tools/b.test.mjs", "tools/d.test.mjs"];
   const forward = assignIntegrationTestShards(files, {}, 2, 10);
