@@ -6,7 +6,11 @@ import { DatabaseSync } from "node:sqlite";
 import { createPgTaskProjectionSource } from "../../src/pg/pg-task-source.ts";
 import { createPgTaskQueryReader } from "../../src/pg/pg-task-query-reader.ts";
 import { ensurePgProjectionSchema } from "../../src/pg/pg-projection-schema.ts";
-import { backfillPgRelationReaderIndexPage, relationReaderIndexDdl } from "../../src/pg/pg-relation-queries.ts";
+import {
+  backfillPgRelationReaderIndexPage,
+  readVersionedRelationsInTransaction,
+  relationReaderIndexDdl,
+} from "../../src/pg/pg-relation-queries.ts";
 import { createPGliteStorageBackend } from "../../src/pglite/storage-backend.ts";
 import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
 import { createRelationGraphProjectionTables } from "../../src/projection/relation-graph-projection.ts";
@@ -285,6 +289,40 @@ for (const backend of ["postgres", "pglite"]) {
         ? "PGlite database assertions require Node 26"
         : false,
   };
+  test(`${backend} batch relation filters are conjunctive regardless of array identity`, runtime, async (t) => {
+    const f = await fixture(backend),
+      read = (query) =>
+        scoped(f.pool, (client) => readVersionedRelationsInTransaction(client, scope, scope.readers, query));
+    try {
+      for (const [id, source, target] of [
+        ["aa", "task/a", "task/a"],
+        ["ab", "task/a", "task/b"],
+        ["ba", "task/b", "task/a"],
+        ["bb", "task/b", "task/b"],
+      ])
+        await edge(f.adminPool, id, source, target);
+      await edge(f.adminPool, "hidden", "task/a", "task/a", { readers: ["hidden"] });
+      await edge(f.adminPool, "aa", "task/a", "task/a", { tenant: "foreign" });
+      for (const fields of [
+        ["targets", "sources"],
+        ["targets", "relationIds"],
+        ["sources", "relationIds"],
+        ["targets", "sources", "relationIds"],
+      ])
+        await t.test(fields.join(" + "), async () => {
+          const refs = ["task/a", "aa", "aa"],
+            separate = Object.fromEntries(fields.map((field) => [field, [...refs]])),
+            shared = Object.fromEntries(fields.map((field) => [field, refs]));
+          assert.deepEqual(ids(await read(separate)), ["aa"], "independent arrays retain every filter");
+          assert.deepEqual(ids(await read(shared)), ["aa"], "sharing arrays must retain the same conjunction");
+          assert.deepEqual(ids(await read({ ...shared, limit: 1 })), ["aa"]);
+          assert.deepEqual(ids(await read({ ...shared, afterRelationId: "aa", limit: 1 })), []);
+          for (const field of fields) assert.deepEqual(await read({ ...shared, [field]: [] }), []);
+        });
+    } finally {
+      await f.close();
+    }
+  });
   test(
     `${backend} relation owner, endpoint and overlapping authorization pages preserve identity`,
     runtime,
