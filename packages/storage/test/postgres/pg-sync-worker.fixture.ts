@@ -3,13 +3,15 @@ import type { MessagePort } from "node:worker_threads";
 import { Pool } from "pg";
 import { resolvePostgresEventStoreScope } from "../../src/pg/backend.ts";
 import { startPgQuerySession } from "../../src/pg/pg-task-query-worker.ts";
-import { createPgTaskQueryReader } from "../../src/pg/pg-task-query-reader.ts";
+import { createPgTaskQueryReader, type PgQueryConnector } from "../../src/pg/pg-task-query-reader.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import type { PostgresStorageBackendConfig } from "../../src/storage-backend.ts";
 import type { PostgresTaskEventStoreRequest } from "../../src/postgres/pg-task-event-store.ts";
 
 const data = workerData as {
-  mode: "cas" | "bridge" | "product";
+  mode: "cas" | "bridge" | "product" | "cold-read";
+  coldRead?: boolean;
+  controlPort?: MessagePort;
   storage: PostgresStorageBackendConfig;
   repoId: string;
   stats: Int32Array;
@@ -35,12 +37,20 @@ if (data.mode === "cas") {
           return new Proxy(client, {
             get(connection, method) {
               if (method === "query")
-                return (sql: string, values?: unknown[]) => {
+                return async (sql: string, values?: unknown[]) => {
                   if (Atomics.load(data.state, 2) !== 0) {
                     if (sql === "COMMIT") Atomics.add(data.stats, 0, 1);
                     if (sql === "ROLLBACK") Atomics.add(data.stats, 1, 1);
                   }
-                  return connection.query(sql, values);
+                  const result = await connection.query(sql, values);
+                  if (data.coldRead && sql.includes("SELECT EXISTS(SELECT 1 FROM ha_command_outcomes")) {
+                    data.controlPort!.postMessage({
+                      event: "cold-snapshot",
+                      hasNull: result.rows[0]?.has_null_outcomes,
+                    });
+                    await Atomics.waitAsync(data.gate, 0, 0).value;
+                  }
+                  return result;
                 };
               const value = Reflect.get(connection, method);
               return typeof value === "function" ? value.bind(connection) : value;
@@ -57,7 +67,7 @@ if (data.mode === "cas") {
   };
   const session = startPgQuerySession(
     {
-      requestPort: data.port!,
+      requestPort: data.coldRead ? parentPort! : data.port!,
       responsePort: data.port!,
       ready: data.ready!,
       state: data.state,
@@ -68,15 +78,17 @@ if (data.mode === "cas") {
     traced,
     null,
     {
-      beforeCommitCasHook: data.before ? pause : undefined,
-      afterCommitCasHook: data.before ? undefined : pause,
+      beforeCommitCasHook: !data.coldRead && data.before ? pause : undefined,
+      afterCommitCasHook: !data.coldRead && !data.before ? pause : undefined,
+      onClose: () => data.controlPort?.close(),
     },
   );
-  parentPort!.on("message", async () => {
-    await session.close();
-    parentPort!.postMessage({ event: "closed" });
-    parentPort!.close();
-  });
+  if (!data.coldRead)
+    parentPort!.on("message", async () => {
+      await session.close();
+      parentPort!.postMessage({ event: "closed" });
+      parentPort!.close();
+    });
 } else {
   Atomics.wait = new Proxy(Atomics.wait, {
     apply(target, receiver, args) {
@@ -89,26 +101,41 @@ if (data.mode === "cas") {
         timeout === 1_000 &&
         result === "timed-out"
       ) {
-        Atomics.store(data.gate, 0, 1);
-        Atomics.notify(data.gate, 0);
+        if (data.mode === "cold-read") parentPort!.postMessage({ event: "poll" });
+        else {
+          Atomics.store(data.gate, 0, 1);
+          Atomics.notify(data.gate, 0);
+        }
       }
       return result;
     },
   });
-  const bridge =
-    data.mode === "bridge"
-      ? createPgTaskQueryReader({
-          connectionString: data.storage.connectionString,
-          repoId: data.repoId,
-          scope,
-          state: data.state,
-          preCommitTimeoutMs: 200,
-          queryTimeoutMs: 200,
-        })
-      : null;
+  const readerOptions = {
+    connectionString: data.storage.connectionString,
+    repoId: data.repoId,
+    scope,
+    state: data.state,
+    preCommitTimeoutMs: 200,
+    queryTimeoutMs: 200,
+  };
+  const connect: PgQueryConnector | undefined =
+    data.mode === "cold-read"
+      ? (input) => {
+          const nested = new Worker(new URL(import.meta.url), {
+            workerData: { ...data, mode: "cas", coldRead: true, ready: input.ready, port: input.responsePort },
+            transferList: [input.responsePort, data.controlPort!],
+          });
+          return nested;
+        }
+      : undefined;
+  const bridge = ["bridge", "cold-read"].includes(data.mode)
+    ? connect
+      ? createPgTaskQueryReader(readerOptions, connect)
+      : createPgTaskQueryReader(readerOptions)
+    : null;
   const store = data.mode === "product" ? makeTaskEventStore({ repoId: data.repoId, storage: data.storage }) : null;
   parentPort!.postMessage({ event: "ready" });
-  parentPort!.on("message", async (request: PostgresTaskEventStoreRequest | { operation: "close" }) => {
+  parentPort!.on("message", async (request: PostgresTaskEventStoreRequest | { operation: "close" | "cold-read" }) => {
     if (request.operation === "close") {
       bridge?.close();
       await store?.drain();
@@ -117,11 +144,14 @@ if (data.mode === "cas") {
       return;
     }
     try {
-      const result = bridge
-        ? bridge.executeCanonical(request)
-        : request.operation === "append"
-          ? store!.append(request.bundle as Parameters<NonNullable<typeof store>["append"]>[0])
-          : null;
+      const result =
+        request.operation === "cold-read"
+          ? bridge!.withSession(() => null)
+          : bridge
+            ? bridge.executeCanonical(request as PostgresTaskEventStoreRequest)
+            : request.operation === "append"
+              ? store!.append(request.bundle as Parameters<NonNullable<typeof store>["append"]>[0])
+              : null;
       parentPort!.postMessage({ event: "result", result });
     } catch (error) {
       parentPort!.postMessage({

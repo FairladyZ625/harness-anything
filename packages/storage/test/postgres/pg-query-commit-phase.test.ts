@@ -66,16 +66,73 @@ test("C6a timeout waits for rollback and kills only a stuck aborted request", (t
   }
 });
 
-test("C6b committed request ignores expired deadline, polls in 1s slices, and never terminates", (t) => {
+for (const write of [false, true])
+  test(`C6b ${write ? "write" : "read"} commit ignores expired deadline, polls in 1s slices, and never terminates`, (t) => {
+    const { port1, port2 } = new MessageChannel(),
+      state = new Int32Array(new SharedArrayBuffer(12));
+    Atomics.compareExchange(state, 1, 0, 1);
+    let terminateCalls = 0;
+    const waits: number[] = [];
+    t.mock.method(Atomics, "wait", (_state: Int32Array, _index: number, _value: number, ms: number) => {
+      waits.push(ms);
+      assert.equal(Atomics.compareExchange(state, 1, 0, -1), 1);
+      if (waits.length === 3) {
+        port2.postMessage({ id: 1, result: "committed" });
+        Atomics.store(state, 0, 1);
+      }
+      return "timed-out" as const;
+    });
+    try {
+      assert.equal(
+        waitForPgQueryWorker(
+          state,
+          port1,
+          1,
+          1,
+          {
+            terminate: () => {
+              terminateCalls++;
+            },
+          } as never,
+          "timeout",
+          write ? { rollbackGraceMs: 1 } : undefined,
+        ).result,
+        "committed",
+      );
+      assert.deepEqual(waits, [1000, 1000, 1000]);
+      assert.equal(terminateCalls, 0);
+      assert.equal(state[1], 1);
+      console.log("C6B_WAIT", JSON.stringify({ terminateCalls, waits, phase: state[1] }));
+    } finally {
+      port1.close();
+      port2.close();
+    }
+  });
+
+test("read timeout losing the abort CAS retains a concurrently committing worker", (t) => {
   const { port1, port2 } = new MessageChannel(),
-    state = new Int32Array(new SharedArrayBuffer(12));
-  Atomics.compareExchange(state, 1, 0, 1);
-  let terminateCalls = 0;
+    state = new Int32Array(new SharedArrayBuffer(12)),
+    compareExchange = Atomics.compareExchange;
+  let clock = 0,
+    terminateCalls = 0,
+    abortAttempts = 0;
   const waits: number[] = [];
+  t.mock.method(performance, "now", () => clock);
+  t.mock.method(
+    Atomics,
+    "compareExchange",
+    (array: Int32Array, index: number, expected: number, replacement: number) => {
+      if (index === 1 && replacement === -1) {
+        abortAttempts++;
+        assert.equal(compareExchange(array, index, 0, 1), 0);
+      }
+      return compareExchange(array, index, expected, replacement);
+    },
+  );
   t.mock.method(Atomics, "wait", (_state: Int32Array, _index: number, _value: number, ms: number) => {
     waits.push(ms);
-    assert.equal(Atomics.compareExchange(state, 1, 0, -1), 1);
-    if (waits.length === 3) {
+    clock += ms;
+    if (ms === 1000) {
       port2.postMessage({ id: 1, result: "committed" });
       Atomics.store(state, 0, 1);
     }
@@ -87,22 +144,79 @@ test("C6b committed request ignores expired deadline, polls in 1s slices, and ne
         state,
         port1,
         1,
-        1,
+        200,
         {
           terminate: () => {
             terminateCalls++;
           },
         } as never,
         "timeout",
-        { rollbackGraceMs: 1 },
       ).result,
       "committed",
     );
-    assert.deepEqual(waits, [1000, 1000, 1000]);
-    assert.equal(terminateCalls, 0);
+    assert.equal(abortAttempts, 1);
+    assert.deepEqual(waits, [200, 1000]);
     assert.equal(state[1], 1);
-    console.log("C6B_WAIT", JSON.stringify({ terminateCalls, waits, phase: state[1] }));
+    assert.equal(terminateCalls, 0);
   } finally {
+    port1.close();
+    port2.close();
+  }
+});
+
+test("startup maintenance owns a protected commit phase before its handshake settles", { timeout: 5000 }, async () => {
+  const ready = new Int32Array(new SharedArrayBuffer(12)),
+    state = new Int32Array(new SharedArrayBuffer(12)),
+    entered = Promise.withResolvers<void>(),
+    released = Promise.withResolvers<void>(),
+    { port1, port2 } = new MessageChannel();
+  let requestHooks = 0;
+  const client = Object.assign(new EventEmitter(), {
+    async query(sql: string) {
+      if (sql === "SHOW synchronous_commit") return { rows: [{ synchronous_commit: "on" }] };
+      if (sql.includes("SELECT backfill_cursor,backfill_complete FROM ha_relation_cycle_count"))
+        return { rows: [{ backfill_cursor: null, backfill_complete: true }] };
+      if (sql === "COMMIT") {
+        entered.resolve();
+        await released.promise;
+      }
+      return { rows: [], rowCount: 0 };
+    },
+    release() {},
+  });
+  const startup = once(port1, "message"),
+    session = startPgQuerySession(
+      {
+        repoId: "startup",
+        path: "startup",
+        scope: { tenantId: "t", projectId: "p", policyEpoch: 1 },
+        ready,
+        state,
+        requestPort: port2,
+        responsePort: port2,
+      },
+      { connect: async () => client } as unknown as Pool,
+      null,
+      {
+        ownsPools: false,
+        beforeCommitCasHook: async () => {
+          requestHooks++;
+        },
+      },
+    );
+  try {
+    await entered.promise;
+    assert.equal(ready[0], 0);
+    assert.equal(ready[1], 1);
+    assert.equal(state[1], 0, "startup must not consume the first request's phase");
+    assert.equal(requestHooks, 0, "request interleaving hooks do not run during startup");
+    released.resolve();
+    assert.equal((await startup)[0].error, undefined);
+    assert.equal(ready[0], 1);
+  } finally {
+    released.resolve();
+    await startup;
+    await session.close();
     port1.close();
     port2.close();
   }
@@ -198,7 +312,7 @@ for (const setting of ["on", "remote_apply", "off", "local", "remote_write"])
         repoId: "r",
         path: "test",
         scope: { tenantId: "t", projectId: "p", policyEpoch: 1 },
-        ready: new Int32Array(new SharedArrayBuffer(4)),
+        ready: new Int32Array(new SharedArrayBuffer(12)),
         state: new Int32Array(new SharedArrayBuffer(12)),
       },
       { connect: async () => client } as unknown as Pool,

@@ -95,7 +95,7 @@ for (const before of [true, false])
         state = shared(3),
         stats = shared(3),
         gate = shared(1),
-        ready = shared(1),
+        ready = shared(3),
         { port1, port2 } = new MessageChannel();
       const host = worker(storage, repoId, { mode: "cas", state, stats, gate, ready, port: port2, before }, [port2]);
       try {
@@ -347,3 +347,73 @@ test(
     }
   },
 );
+
+test("F1: cold reader retains its legacy maintenance COMMIT across a read deadline", { timeout: 60_000 }, async () => {
+  const fixture = await pgRuntimeFixture(),
+    repoId = `cold-${randomUUID()}`,
+    storage = { backend: "postgres" as const, connectionString: fixture.connectionString, scope },
+    state = shared(3),
+    stats = shared(3),
+    gate = shared(1),
+    backend = createPgStorageBackend({ pool: fixture.pool, repoId, scope });
+  await backend.eventStore.execute(append(repoId, 1));
+  await fixture.adminPool.query("UPDATE ha_command_outcomes SET replication_sequence=NULL WHERE repo_id=$1", [repoId]);
+  await fixture.adminPool.query("DELETE FROM ha_repo_sync_watermarks WHERE repo_id=$1", [repoId]);
+  const { port1, port2 } = new MessageChannel();
+  const host = worker(storage, repoId, { mode: "cold-read", state, stats, gate, controlPort: port2 }, [port2]);
+  try {
+    assert.equal((await once(host, "message"))[0].event, "ready");
+    const snapshot = once(port1, "message");
+    host.postMessage({ operation: "cold-read" });
+    assert.deepEqual((await snapshot)[0], { event: "cold-snapshot", hasNull: true });
+    // The reader has proved its snapshot, but has not committed or run maintenance yet.
+    await strict(fixture, true);
+    const progress = once(host, "message");
+    Atomics.store(gate, 0, 1);
+    Atomics.notify(gate, 0);
+    const message = (await progress)[0];
+    console.log("F1_READ_PROGRESS", JSON.stringify({ message, state: [...state], stats: [...stats] }));
+    assert.equal(message.event, "poll", "the read deadline must retain the worker through maintenance SyncRep");
+    assert.equal(state[1], 1);
+    assert.equal(stats[2], 0);
+    assert.ok((await blocked(fixture)).length);
+    assert.equal(
+      (await fixture.adminPool.query("SELECT * FROM ha_repo_sync_watermarks WHERE repo_id=$1", [repoId])).rowCount,
+      0,
+    );
+    const completed = once(host, "message");
+    await strict(fixture, false);
+    const result = (await completed)[0];
+    assert.equal(result.event, "result");
+    assert.equal(result.error, undefined);
+    assert.equal(stats[0], 2, "read owner and legacy maintenance both committed");
+    assert.equal(stats[1], 0);
+    assert.equal(stats[2], 0);
+    const outcomes = await fixture.adminPool.query(
+      "SELECT replication_sequence FROM ha_command_outcomes WHERE repo_id=$1",
+      [repoId],
+    );
+    assert.equal(Number(outcomes.rows[0].replication_sequence), 1);
+    const watermarks = await fixture.adminPool.query(
+      "SELECT confirmed_revision FROM ha_repo_sync_watermarks WHERE repo_id=$1",
+      [repoId],
+    );
+    assert.equal(Number(watermarks.rows[0].confirmed_revision), 1);
+    console.log(
+      "F1_READ_COMMITTED",
+      JSON.stringify({ state: [...state], stats: [...stats], outcomes: outcomes.rows, watermarks: watermarks.rows }),
+    );
+  } finally {
+    Atomics.store(gate, 0, 1);
+    Atomics.notify(gate, 0);
+    await strict(fixture, false);
+    const closing = once(host, "message");
+    host.postMessage({ operation: "close" });
+    await closing;
+    await host.terminate();
+    port1.close();
+    await backend.projection.close();
+    await fixture.pool.end();
+    await fixture.close();
+  }
+});

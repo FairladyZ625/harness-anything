@@ -478,30 +478,27 @@ function startWorker(
     }
   };
 
-  void initialize().then(
+  const guardCommit = async (state: Int32Array, requestHooks: boolean) => {
+    if (requestHooks) await options.beforeCommitCasHook?.();
+    const previous = Atomics.compareExchange(state, 1, 0, 1);
+    if (previous === -1)
+      throw Object.assign(new Error("PostgreSQL write aborted before commit"), {
+        code: "write_aborted_pre_commit",
+      });
+    // Startup and multi-transaction requests remain uncancellable after their first COMMIT.
+    if (requestHooks) await options.afterCommitCasHook?.();
+  };
+  void withPostgresCommitGuard(() => guardCommit(input.ready, false), initialize).then(
     () => {
       if (stopped) return;
       respond(0, input.ready, null);
       input.requestPort.on("message", (request: PgQueryWorkerRequest) => {
-        const write =
-          request.op === "canonical"
-            ? ["append", "reject", "prune"].includes((request.args![0] as PostgresTaskEventStoreRequest).operation)
-            : !["begin", "query", "end", "close", "replication"].includes(request.op);
-        const operation = write
-          ? withPostgresCommitGuard(
-              async () => {
-                await options.beforeCommitCasHook?.();
-                const previous = Atomics.compareExchange(input.state, 1, 0, 1);
-                if (previous === -1)
-                  throw Object.assign(new Error("PostgreSQL write aborted before commit"), {
-                    code: "write_aborted_pre_commit",
-                  });
-                // A multi-transaction maintenance request remains uncancellable after its first COMMIT.
-                await options.afterCommitCasHook?.();
-              },
-              () => handle(request),
-            )
-          : handle(request);
+        // Logical reads can commit deferred cold-recovery writes. Bind their physical
+        // owner at begin too: its async context survives until end resolves the session.
+        const operation = withPostgresCommitGuard(
+          () => guardCommit(input.state, true),
+          () => handle(request),
+        );
         if (request.op !== "close") pending.add(operation);
         void operation.then(
           () => pending.delete(operation),

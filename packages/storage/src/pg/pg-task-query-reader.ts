@@ -107,7 +107,7 @@ export function createPgTaskQueryReader(
     preCommitTimeoutMs = checkedTimeout(options.preCommitTimeoutMs ?? queryTimeoutMs, "pre-commit"),
     rollbackGraceMs = checkedTimeout(options.rollbackGraceMs ?? 5_000, "rollback grace"),
     { port1, port2 } = new MessageChannel(),
-    ready = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT)),
+    ready = new Int32Array(new SharedArrayBuffer(12)),
     state = options.state ?? new Int32Array(new SharedArrayBuffer(12)),
     worker: PgQueryEndpoint =
       connect?.({ ...options, path, ready, state, responsePort: port2, requestPort: port1 }) ??
@@ -151,13 +151,15 @@ export function createPgTaskQueryReader(
   worker.unref();
   let startup: WorkerResponse;
   try {
-    startup = waitForWorker(ready, port1, 0, startupTimeoutMs, worker, "PostgreSQL task query worker failed to start");
+    startup = waitForWorker(ready, port1, 0, startupTimeoutMs, worker, "PostgreSQL task query worker failed to start", {
+      rollbackGraceMs,
+    });
   } catch (error) {
     port1.close();
     throw error;
   }
   if (startup.error) {
-    void worker.terminate();
+    if (Atomics.load(ready, 1) !== 1) void worker.terminate();
     port1.close();
     throw restoreError(startup.error);
   }
@@ -309,11 +311,12 @@ function waitForWorker(
   timeoutMessage: string,
   write?: { readonly rollbackGraceMs: number },
 ): WorkerResponse {
-  const deadline = performance.now() + waitMs;
+  const deadline = performance.now() + waitMs,
+    shared = state.length === 3;
   let rollbackDeadline: number | undefined;
   while (Atomics.load(state, 0) === 0) {
-    const phase = write ? Atomics.load(state, 1) : 0;
-    if (write && phase === 1) {
+    const phase = shared ? Atomics.load(state, 1) : 0;
+    if (phase === 1) {
       // SyncRep may take arbitrarily long. The host can detach the caller, never the connection.
       Atomics.wait(state, 0, 0, 1_000);
       continue;
@@ -324,20 +327,23 @@ function waitForWorker(
       Atomics.wait(state, 0, 0, remaining);
       continue;
     }
-    if (write && rollbackDeadline === undefined) {
-      Atomics.compareExchange(state, 1, 0, -1);
-      continue;
+    if (shared && rollbackDeadline === undefined) {
+      // A read can own cold-recovery maintenance. Win abort before terminating,
+      // or retain the connection if its physical commit won this exact race.
+      const previous = Atomics.compareExchange(state, 1, 0, -1);
+      if (previous === 1 || write) continue;
     }
     void worker.terminate();
     throw Object.assign(new Error(timeoutMessage), { code: "pg_query_worker_timeout" });
   }
+  const committing = shared && Atomics.load(state, 1) === 1;
   let response: WorkerResponse | undefined;
   // Drain already delivered responses, giving a terminal failure precedence over a
   // successful response sent immediately before the connection died.
   for (let entry = receiveMessageOnPort(port); entry; entry = receiveMessageOnPort(port)) {
     response = entry.message as WorkerResponse;
     if (response.fatal) {
-      if (write && Atomics.load(state, 1) === 1 && response.error)
+      if (committing && response.error)
         return {
           ...response,
           error: { ...response.error, fields: { ...response.error.fields, code: "publication_indeterminate" } },
@@ -346,9 +352,9 @@ function waitForWorker(
     }
   }
   if (!response || response.id !== requestId) {
-    if (!write || Atomics.load(state, 1) !== 1) void worker.terminate();
+    if (!committing) void worker.terminate();
     throw Object.assign(new Error("PostgreSQL task query worker returned an invalid response"), {
-      code: write && Atomics.load(state, 1) === 1 ? "publication_indeterminate" : "pg_query_worker_protocol_error",
+      code: committing ? "publication_indeterminate" : "pg_query_worker_protocol_error",
     });
   }
   return response;
