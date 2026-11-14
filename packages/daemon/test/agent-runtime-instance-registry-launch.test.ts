@@ -224,15 +224,17 @@ test("runtime installation probes are asynchronous and parallel across providers
   // Control the process boundary, rather than making real children race their 5s probe deadline.
   // The production queue, process port, candidate selection and result assembly still run.
   t.mock.method(childProcess, "execFile", (command, args, options, callback) => {
+    // cmd.exe carries the version flag inside its final command-line argument.
+    const versionProbe = args.some((argument) => /(?:^|\s)--version$/u.test(argument));
     const child = { stdin: new PassThrough(), exitCode: null as number | null, signalCode: null };
     let finished = false;
     const finish = () => {
       if (finished) return;
       finished = true;
       child.exitCode = 0;
-      callback(null, args.includes("--version") ? `${path.basename(String(command))}-async\n` : "", "");
+      callback(null, versionProbe ? `${path.basename(String(command))}-async\n` : "", "");
     };
-    if (args.includes("--version")) {
+    if (versionProbe) {
       assert.equal(options.timeout, 5_000);
       probes.push({ finish });
     } else queueMicrotask(finish); // Model-catalog requests are not version-probe queue slots.
