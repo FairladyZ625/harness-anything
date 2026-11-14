@@ -1,4 +1,7 @@
 import path from "node:path";
+import type { HarnessLayout } from "@harness-anything/kernel/internal/layout/index.ts";
+import { decisionDirectoryRetirements } from "./store/decision-directory-settlement.ts";
+import { localGitWorktreeSettlement } from "./store/local-version-control-system.ts";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { sha256Bytes } from "@harness-anything/kernel";
 import { writeFileDurably, removeFileDurably, type WriteFence } from "./durable-file.ts";
@@ -6,7 +9,7 @@ import type { MaterializationSettlement } from "@harness-anything/kernel";
 
 /** The shared fleet materialization owner; canonical absence removes only previously owned paths. */
 export function applyCanonicalTree(input: {
-  readonly authoredRoot: string;
+  readonly layout: Pick<HarnessLayout, "authoredRoot" | "decisionsRoot">;
   readonly markerPath: string;
   readonly generation: number;
   readonly revision: number;
@@ -32,7 +35,7 @@ export function applyCanonicalTree(input: {
       marker.entries !== undefined &&
       (previous.generation === undefined || previous.generation === input.generation);
   input.requirePreviousPaths?.(Object.keys(previous.entries));
-  const root = input.authoredRoot,
+  const root = input.layout.authoredRoot,
     entries = { ...previous.entries },
     dirtyPaths: string[] = [],
     settlements: MaterializationSettlement[] = [];
@@ -88,13 +91,24 @@ export function applyCanonicalTree(input: {
     if (!input.preview) removeFileDurably(target, input.withFence);
     delete entries[logical];
   }
-  if (!input.preview)
+  if (!input.preview) {
+    localGitWorktreeSettlement.retireEmptyDirectories(
+      root,
+      decisionDirectoryRetirements(
+        settlements.filter(({ action }) => action === "delete").map(({ path }) => path),
+        !input.selectedPaths && (!hasMaterializationBaseline || !input.changedPaths)
+          ? input.layout.decisionsRoot
+          : undefined,
+      ),
+      input.withFence,
+    );
     writeFileDurably(
       markerPath,
       JSON.stringify({ revision: input.revision, generation: input.generation, entries }),
       undefined,
       input.withFence,
     );
+  }
   return { fromRevision: previous.revision, toRevision: input.revision, dirtyPaths, settlements };
 }
 

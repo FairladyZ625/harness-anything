@@ -124,6 +124,25 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
     assert.equal(validatedAfterRelate.outcome, "applied");
     assert.equal(validationAfterRelate.rows[0]?.valid, true);
     assert.deepEqual(validationAfterRelate.rows[0]?.errors, []);
+    for (const scope of [
+      { modules: [42], productLines: [] },
+      { modules: [""], productLines: [] },
+      { modules: ["daemon", "daemon"], productLines: [] },
+      { modules: [], productLines: [""] },
+      { modules: [], productLines: ["x", "x"] },
+    ]) {
+      const invalid = await cell.run(
+        {
+          kind: "decision-amend",
+          decisionId,
+          reason: "Reject malformed scope at admission.",
+          sets: [`applies_to:${JSON.stringify(scope)}`],
+          appends: [],
+        },
+        proposer,
+      );
+      assert.equal(invalid.code, "invalid_command", JSON.stringify(invalid));
+    }
     const amended = await cell.run(
       {
         kind: "decision-amend",
@@ -133,6 +152,7 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
         standingPolicy: false,
         fulfillments: [],
         sets: [
+          'applies_to:{"modules":["kernel","daemon"],"productLines":["harness-anything"]}',
           'chosen:[{"id":"CH1","text":"Preserve correction history"}]',
           'rejected:[{"id":"RJ1","text":"Rewrite in place","whyNot":"It loses history"}]',
           'claims:[{"id":"C1","text":"The task provides evidence.","loadBearing":false}]',
@@ -238,7 +258,7 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
           title: "Owner-approved title correction",
           standingPolicy: false,
           fulfillments: [],
-          sets: [],
+          sets: ['appliesTo:{"modules":["storage"],"productLines":["harness-anything"]}'],
           appends: [],
         },
         proposer,
@@ -261,7 +281,7 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
         title: "Owner-approved title correction",
         standingPolicy: false,
         fulfillments: [],
-        sets: [],
+        sets: ['appliesTo:{"modules":["storage"],"productLines":["harness-anything"]}'],
         appends: [],
         consentBy: "person-proposer",
         consentAt: "2026-08-15T00:10:00.000Z",
@@ -280,7 +300,14 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
         };
       }[];
       readonly title: string;
+      readonly appliesTo: { modules: readonly string[]; productLines: readonly string[] };
     };
+    assert.deepEqual(consentedDecision.appliesTo, { modules: ["storage"], productLines: ["harness-anything"] });
+    await cell.settlePendingMaterialization("read scope-amended document");
+    assert.match(
+      readFileSync(path.join(rootDir, "harness", `decisions/decision-${decisionId}/decision.md`), "utf8"),
+      /applies_to: \{"modules":\["storage"\],"productLines":\["harness-anything"\]\}/u,
+    );
     assert.equal(consentedDecision.title, "Owner-approved title correction");
     assert.deepEqual(consentedDecision.judgmentConsents, consentsBeforeAmend);
     assert.deepEqual(consentedDecision.amendments.at(-1)?.ownerConsent, {
@@ -430,7 +457,7 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
     assert.equal(firstAmendment?.payload.amendment.reason, firstAmendment?.payload.reason);
     assert.deepEqual(
       firstAmendment?.payload.amendment.changes.map(({ field }) => field),
-      ["title", "chosen", "rejected", "claims", "body"],
+      ["title", "appliesTo", "chosen", "rejected", "claims", "body"],
     );
     assert.ok(
       firstAmendment?.payload.amendment.changes.every(({ beforeDigest, afterDigest }) => beforeDigest !== afterDigest),

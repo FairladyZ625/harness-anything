@@ -282,7 +282,7 @@
         "explain": "Single-package `decision.md` authored-file vs canonical Decision projection consistency inspector.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/decision-surface-actions.ts#validateOne:90da8b4bd6abdac4f13c202e624c151d",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/decision-surface-actions.ts#validateOne:75ec792826972c8f8c4c29875b185939",
             "route": "packages/daemon/src/decision-surface-actions.ts#validateOne"
           }
         ]

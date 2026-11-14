@@ -6025,6 +6025,12 @@
         "port": "packages/storage/src/postgres/pg-writer-epoch.ts#openPgWriterEpoch.execute"
       },
       {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#reduceDecisionEvent:9e1ecfdd18cae098304540220c66ba53",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
+      },
+      {
         "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#reduceDecisionEvent:d41efd54c9cd78aa77b1926122cde91f",
         "route": "daemon-local-state",
         "role": "technical-port",

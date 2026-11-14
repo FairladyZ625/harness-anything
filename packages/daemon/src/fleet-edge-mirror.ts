@@ -393,11 +393,12 @@ export function applyFleetMirrorCut(
     readonly changedPaths?: readonly string[];
   } = {},
 ): FleetMirrorApplyResult {
-  const markerPath = path.join(resolveHarnessLayout(workspaceRoot).localRoot, "fleet-materialized.json"),
+  const layout = resolveHarnessLayout(workspaceRoot),
+    markerPath = path.join(layout.localRoot, "fleet-materialized.json"),
     view = locateFleetMirrorView(viewRoot, repoId, context.viewId);
   if (!view) return { outcome: "no_view", fromRevision: null, toRevision: null, dirtyPaths: [], conflicts: [] };
   const result = applyCanonicalTree({
-    authoredRoot: materializedRoot(workspaceRoot),
+    layout,
     markerPath,
     revision: view.revision,
     generation: view.ledgerGeneration,

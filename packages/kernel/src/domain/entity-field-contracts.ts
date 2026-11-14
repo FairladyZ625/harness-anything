@@ -62,11 +62,7 @@ export const decisionFieldContracts = {
   vertical: immutable("vertical routing is creation-time governance metadata", show("decision.vertical")),
   preset: immutable("preset routing is creation-time governance metadata", show("decision.preset")),
   provenance: immutable("session provenance is bound at proposal time", show("decision.provenance")),
-  appliesTo: immutable(
-    "scope changes require a new Decision",
-    projection("appliesTo", false),
-    show("decision.appliesTo"),
-  ),
+  appliesTo: amendable([amendWrite("replace")], projection("appliesTo", false), show("decision.appliesTo")),
   decisionClass: amendable([amendWrite("metadata")], show("decision.decisionClass")),
   proposer: immutable("proposal actor is canonical event provenance", show("decision.proposer")),
   arbiter: lifecycle(
@@ -250,6 +246,7 @@ export const entityFieldContracts = {
 } as const;
 
 export const decisionAmendableFields = [
+  "appliesTo",
   "title",
   "decisionClass",
   "chosen",

@@ -143,7 +143,7 @@ export function makePgCanonicalEventStore(
           : null,
       result = materializeTree
         ? applyCanonicalTree({
-            authoredRoot: layout.authoredRoot,
+            layout,
             markerPath: path.join(layout.localRoot, "fleet-materialized.json"),
             requirePreviousPaths,
             generation: 3,
