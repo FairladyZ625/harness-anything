@@ -44,6 +44,8 @@ for (const selectionStrategy of ["sticky", "lru"] as const)
           installationId: "pool-installation",
           providerId: "openai",
           models: ["pool-model"],
+          // dec_DA1602487428A58E8B446ECE38/CH2: the ready pool has observed account entitlements.
+          availableModels: ["pool-model"],
           defaultModel: "pool-model",
           enabled: true,
           tier: 1,

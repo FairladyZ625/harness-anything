@@ -45,6 +45,7 @@ const runtimeInstanceCreateFields = [
   "installationId",
   "providerId",
   "models",
+  "enabled",
   "defaultModel",
   "permissionMode",
   "mcpPolicy",
@@ -264,11 +265,12 @@ function runtimeInstanceCreateProblem(value: unknown): string | undefined {
   const declaration = runtimeKindForId(value.kindId);
   if (
     !Array.isArray(value.models) ||
-    value.models.length === 0 ||
+    (value.models.length === 0 &&
+      !(value.enabled === false && value.credentialSource === "instance" && value.authMode === "subscription")) ||
     value.models.some((model) => typeof model !== "string" || model.trim().length === 0) ||
     new Set(value.models).size !== value.models.length
   )
-    return 'field "models" must be a non-empty array of non-blank strings with no duplicates.';
+    return 'field "models" must contain unique non-blank strings; only a disabled independent subscription account can start empty.';
   if (
     value.defaultModel !== undefined &&
     (typeof value.defaultModel !== "string" || !value.models.includes(value.defaultModel))
@@ -301,6 +303,7 @@ function runtimeInstanceCreateProblem(value: unknown): string | undefined {
     return `field "isolationState" is not supported for ${value.kindId}.`;
   if (value.credentialSource !== undefined && !["operator", "instance"].includes(String(value.credentialSource)))
     return 'field "credentialSource" must be operator or instance.';
+  if (value.enabled !== undefined && typeof value.enabled !== "boolean") return 'field "enabled" must be boolean.';
   if (value.tier !== undefined && !validRuntimeInstanceTier(value.tier))
     return 'field "tier" must be an integer from 1 to 9.';
   if (

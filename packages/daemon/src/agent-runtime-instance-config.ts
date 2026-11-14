@@ -138,8 +138,12 @@ export function runtimeInstanceConfig(
     );
   if (value.tier !== undefined && !validRuntimeInstanceTier(value.tier))
     throw runtimeInstanceError("invalid_runtime_tier", "Runtime instance tier must be an integer from 1 to 9.");
-  const models = legacy ? [requiredRuntimeInstanceText(value.model, "model")] : normalizeModels(value.models),
-    defaultModel = legacy ? models[0]! : requiredRuntimeInstanceText(value.defaultModel, "defaultModel"),
+  const models = legacy ? [requiredRuntimeInstanceText(value.model, "model")] : normalizeModels(value.models, true),
+    defaultModel = legacy
+      ? models[0]!
+      : models.length === 0 && value.defaultModel === ""
+        ? ""
+        : requiredRuntimeInstanceText(value.defaultModel, "defaultModel"),
     enabled = legacy ? true : requireBoolean(value.enabled, "enabled");
   if (value.kindId === "zcode" && models.length !== 1)
     throw runtimeInstanceError(
@@ -147,7 +151,7 @@ export function runtimeInstanceConfig(
       "ZCode runtime instances require exactly one model because ZCode selects model.main from its " +
         "per-instance config; create a separate instance for each model.",
     );
-  if (!models.includes(defaultModel))
+  if (models.length > 0 && !models.includes(defaultModel))
     throw runtimeInstanceError(
       "invalid_runtime_model",
       `Default model ${defaultModel} is not in the instance model set. Supported models: ${models.join(", ")}.`,
@@ -173,6 +177,11 @@ export function runtimeInstanceConfig(
     );
   if (credentialSource === "instance" && value.isolationState !== undefined && value.isolationState !== "enforced")
     throw runtimeInstanceError("invalid_runtime_isolation", "Instance credentials require enforced isolation.");
+  if (models.length === 0 && (enabled || credentialSource !== "instance" || auth.mode !== "subscription"))
+    throw runtimeInstanceError(
+      "invalid_runtime_model",
+      "Only disabled independent subscription accounts may have no selected models.",
+    );
   const availableModels = value.availableModels === undefined ? undefined : normalizeModels(value.availableModels),
     instanceIsolation = credentialSource === "instance" ? "enforced" : value.isolationState,
     permissionMode = runtimePermissionMode(value.permissionMode, kindId),
@@ -461,8 +470,8 @@ export function needsRuntimeInstanceNormalization(value: unknown): boolean {
   );
 }
 
-export function normalizeModels(value: unknown): string[] {
-  if (!Array.isArray(value) || value.length === 0)
+export function normalizeModels(value: unknown, allowEmpty = false): string[] {
+  if (!Array.isArray(value) || (!allowEmpty && value.length === 0))
     throw runtimeInstanceError("invalid_runtime_model", "Runtime instance models must be a non-empty array.");
   const models = value.map((model) => requiredRuntimeInstanceText(model, "model")),
     unique = [...new Set(models)];

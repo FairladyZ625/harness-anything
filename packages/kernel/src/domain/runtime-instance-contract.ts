@@ -67,7 +67,33 @@ export function runtimeInstanceAccountCutMatches(
   );
 }
 
+/** Authored dispatch choices and observed account entitlements have separate owners. */
+export function runtimeInstanceDispatchModels(instance: {
+  readonly models: readonly string[];
+  readonly availableModels?: readonly string[];
+  readonly credentialSource?: "operator" | "instance";
+}): readonly string[] {
+  if (instance.availableModels === undefined) return instance.credentialSource === "instance" ? [] : instance.models;
+  const available = new Set(instance.availableModels.map((model) => model.toLowerCase()));
+  return instance.models.filter((model) => available.has(model.toLowerCase()));
+}
+
 export const runtimeInstanceAccountJudgments = [
+  {
+    id: "runtime-instance-account-model-eligibility",
+    symbol: "packages/kernel/src/domain/runtime-instance-contract.ts#runtimeInstanceDispatchModels",
+    inputs: ["RuntimeInstance authored models, observed availableModels and credentialSource"],
+    output: "readonly string[]",
+    failureCodes: ["invalid_runtime_model"],
+    explain:
+      "dec_DA1602487428A58E8B446ECE38/CH2: dispatch uses the authored/observed model intersection. Independent accounts without an observation admit no models. Refresh never authors model choices. Empty independent accounts may be created disabled, signed in and probed before models are selected and enablement is requested.",
+    consumers: [
+      "packages/daemon/src/agent-runtime-instance-store.ts",
+      "packages/daemon/src/runtime-instance-selection.ts",
+      "packages/daemon/src/runtime-spawn-mission.ts",
+    ],
+    sources: [],
+  },
   {
     id: "operator-subscription-instance-uniqueness",
     symbol: "packages/kernel/src/domain/runtime-instance-contract.ts#findRuntimeOperatorSubscriptionConflict",
@@ -98,9 +124,9 @@ const runtimeInstanceSchedulingPolicy = {
   ownerRef: "runtime-instance",
   unit: "priority tier, same-tier strategy and node-local activity",
   bounds:
-    "Tier is an integer 1..9 (default 1), lower first after local model and health admission. Agent selectionStrategy overrides repository selectionStrategy (default sticky). Sticky prefers the first idle instance; lru minimizes this node's starting, active and unproven-stop attempt count across all repository/Fleet runtime owners, then O(1) node-local dispatch sequence. Selection never queries repository lifecycle or dispatch history for load. Recovery seeds existing bounded, owner-fenced local candidates before session/auth I/O. Activity is removed only for proven_stopped or explicit no-process start rejection; settlement alone does not prove a process stopped. Explicit pins and resumed sessions retain instance affinity. Model catalog exact/case-insensitive spelling resolves launch compatibility within an admitted pool.",
+    "Account model admission intersects authored choices with observed entitlements; unobserved independent accounts admit none. Empty authored choices are allowed only for disabled independent subscription bootstrap; observed catalogs stay non-empty. Tier is an integer 1..9 (default 1), lower first after local model and health admission. Agent selectionStrategy overrides repository selectionStrategy (default sticky). Sticky prefers the first idle instance; lru minimizes this node's starting, active and unproven-stop attempt count across all repository/Fleet runtime owners, then O(1) node-local dispatch sequence. Selection never queries repository lifecycle or dispatch history for load. Recovery seeds existing bounded, owner-fenced local candidates before session/auth I/O. Activity is removed only for proven_stopped or explicit no-process start rejection; settlement alone does not prove a process stopped. Explicit pins and resumed sessions retain instance affinity. Model catalog exact/case-insensitive spelling resolves launch compatibility within an admitted pool.",
   defaultValue: { tier: 1, selectionStrategy: "sticky" },
-  version: 1,
+  version: 2,
   scope: "RuntimeInstance, Agent scheduling configuration and dispatch receipts",
   reason: "Keep model isolation, cross-tier spillover and user-selected scheduling on the existing dispatch path.",
   fixtures: [
@@ -112,6 +138,7 @@ const runtimeInstanceSchedulingPolicy = {
     "packages/cli/test/runtime-scheduling-command.test.ts",
   ],
   sources: [
+    "policy:packages/daemon:packages/daemon/src/agent-runtime-instance-config.ts#normalizeModels:d7c6d4ad981133616fc1646f440138f9",
     "policy:packages/daemon:packages/daemon/src/runtime-spawn-adoption.ts#restoreRuntime:9a0e6b07a57082633ca0700fd2858b72",
     "policy:packages/daemon:packages/daemon/src/runtime-spawn-control.ts#cancelRuntime:e24c7b6e0a3bb22504cd1592af1366a0",
     "policy:packages/daemon:packages/daemon/src/runtime-spawn-control.ts#cancelRuntime:a22f56098e090c4d5670656446639576",

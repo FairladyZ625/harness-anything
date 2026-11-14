@@ -683,9 +683,10 @@ test("runtime create rejection names an unknown field and the allowed expectatio
 
 test("runtime create rejection names invalid models and the expected shape", () => {
   const payload = buildRuntimeInstanceCreatePayload(runtimeCreateForm, "claude-install");
+  // dec_DA1602487428A58E8B446ECE38/CH2 adds only the disabled independent bootstrap exception.
   assert.throws(
     () => assertPreloadPayload("createRuntimeInstance", { ...payload, models: [] }),
-    /models.*non-empty array.*non-blank strings/u,
+    /models.*non-blank strings.*disabled independent subscription/u,
   );
 });
 
@@ -898,6 +899,24 @@ test("Decisions Provider credentials cross preload only as a top-level API key",
 
 test("multi-account tier bounds and read-only account catalog are enforced at preload", () => {
   const payload = buildRuntimeInstanceCreatePayload(runtimeCreateForm, "claude-install");
+  // dec_DA1602487428A58E8B446ECE38/CH2: bootstrap before choosing observed account models.
+  const bootstrap = {
+    ...payload,
+    models: [],
+    defaultModel: undefined,
+    enabled: false,
+    credentialSource: "instance",
+    isolationState: "enforced",
+  };
+  assert.equal(assertPreloadPayload("createRuntimeInstance", bootstrap), true);
+  for (const invalid of [
+    { enabled: true },
+    { enabled: "false" },
+    { credentialSource: "operator" },
+    { authMode: "api-key", apiKey: "test-key" },
+    { defaultModel: "invented-model" },
+  ])
+    assert.throws(() => assertPreloadPayload("createRuntimeInstance", { ...bootstrap, ...invalid }));
   for (const tier of [1, 9]) {
     assert.equal(assertPreloadPayload("createRuntimeInstance", { ...payload, tier }), true);
     assert.equal(assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", tier }), true);

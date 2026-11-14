@@ -63,7 +63,7 @@ afterEach(async () => {
   document.body.innerHTML = "";
 });
 describe("subscription multi-account contracts (dec_DA1602487428A58E8B446ECE38)", () => {
-  it("preserves account source, priority and selected models without copying the detected catalog", () => {
+  it("bootstraps independent accounts without authoring an installation model, and preserves explicit edit choices", () => {
     expect(
       buildRuntimeInstanceCreatePayload(form, "agy-install", {
         models: instance.availableModels,
@@ -73,8 +73,8 @@ describe("subscription multi-account contracts (dec_DA1602487428A58E8B446ECE38)"
       credentialSource: "instance",
       isolationState: "enforced",
       tier: 2,
-      models: ["gemini-4-hydrogen-low"],
-      defaultModel: "gemini-4-hydrogen-low",
+      models: [],
+      enabled: false,
     });
     const edit = runtimeInstanceEditForm(instance, true);
     expect(edit.tier).toBe(3);
@@ -97,15 +97,21 @@ describe("subscription multi-account contracts (dec_DA1602487428A58E8B446ECE38)"
       expect(() => buildRuntimeInstanceCreatePayload({ ...form, ...patch }, "agy-install")).toThrow();
     }
   });
-  it("does not turn an explicit empty model selection back into all installation models", () => {
+  it("allows an empty independent bootstrap but refuses an empty operator selection (dec_DA1602487428A58E8B446ECE38)", () => {
+    expect(runtimeInstanceFormReady({ ...form, models: [] }, "agy-install", {})).toBe(true);
+    expect(buildRuntimeInstanceCreatePayload({ ...form, models: [] }, "agy-install", {})).toMatchObject({
+      models: [],
+      enabled: false,
+    });
+    const operator = { ...form, credentialSource: "operator" as const, models: [] };
     expect(
-      runtimeInstanceFormReady({ ...form, models: [] }, "agy-install", {
+      runtimeInstanceFormReady(operator, "agy-install", {
         models: instance.availableModels,
         defaultModel: instance.defaultModel,
       }),
     ).toBe(false);
     expect(() =>
-      buildRuntimeInstanceCreatePayload({ ...form, models: [] }, "agy-install", {
+      buildRuntimeInstanceCreatePayload(operator, "agy-install", {
         models: instance.availableModels,
         defaultModel: instance.defaultModel,
       }),

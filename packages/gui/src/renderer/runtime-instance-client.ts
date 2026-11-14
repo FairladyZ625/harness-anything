@@ -43,6 +43,7 @@ export type RuntimeInstanceUpdateInput = {
   readonly clearFreeze?: boolean;
 };
 type RuntimeInstanceCreateCommon = {
+  readonly enabled?: boolean;
   readonly instanceId: string;
   readonly name: string;
   readonly installationId: string;

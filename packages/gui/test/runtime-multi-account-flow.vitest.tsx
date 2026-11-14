@@ -95,129 +95,143 @@ function mockReadSurfaces() {
   vi.spyOn(harnessClient, "updateSettings").mockResolvedValue(receipt as never);
 }
 describe("multi-account provider workflow", () => {
-  it("creates an independent account, opens native login, refreshes its own models and quota, and saves an exact subset and tier", async () => {
-    mockReadSurfaces();
-    let instance: RuntimeInstanceSummary | null = null;
-    vi.spyOn(runtimeInstanceClient, "list").mockImplementation(async () => ({
-      instances: instance ? [instance] : [],
-      installations: [installation],
-      subscriptionIsolationKinds: ["agy"],
-    }));
-    const create = vi.spyOn(runtimeInstanceClient, "create").mockImplementation(async (input, repoId) => {
-      assertPreloadPayload("createRuntimeInstance", { ...input, repoId });
-      instance = {
-        schemaVersion: 2,
-        instanceId: input.instanceId,
-        name: input.name,
-        kindId: input.kindId,
-        installationId: input.installationId,
-        providerId: input.providerId,
-        models: input.models,
-        defaultModel: input.defaultModel ?? input.models[0]!,
-        enabled: true,
-        tier: input.tier,
-        credentialSource: "instance",
-        permissionMode: null,
-        isolationState: "enforced",
-        configuration: {},
-        authMode: "subscription",
-        authState: "unauthenticated",
-        authReadiness: { status: "not-ready", code: "runtime_subscription_required", hint: "Sign in" },
-      };
-      return receipt;
-    });
-    const auth = vi.spyOn(runtimeInstanceClient, "auth").mockResolvedValue({
-      schema: "terminal-control-receipt/v1",
-      outcome: "applied",
-      sessionId: "login-test",
-    } as never);
-    const probe = vi.spyOn(runtimeInstanceClient, "probe").mockImplementation(async () => {
-      instance = {
-        ...instance!,
-        authState: "authenticated",
-        authReadiness: { status: "ready", code: null, hint: null },
-        availableModels: [hydrogen, "gemini-3.8-flash"],
-        providerHealth: {
-          nodeId: "test-node",
-          failureStreak: 0,
-          cooldownUntil: "2026-11-14T12:00:00Z",
-          frozen: false,
-          frozenUntil: null,
-          reason: "quota_exhausted",
-          lastFailureAt: null,
-          lastResetAt: null,
+  it.each([installation, { ...installation, models: [], defaultModel: undefined }])(
+    "creates a disabled independent account from any installation catalog, signs in, selects observed models and enables explicitly (%j)",
+    async (witness) => {
+      mockReadSurfaces();
+      let instance: RuntimeInstanceSummary | null = null;
+      vi.spyOn(runtimeInstanceClient, "list").mockImplementation(async () => ({
+        instances: instance ? [instance] : [],
+        installations: [witness],
+        subscriptionIsolationKinds: ["agy"],
+      }));
+      const create = vi.spyOn(runtimeInstanceClient, "create").mockImplementation(async (input, repoId) => {
+        assertPreloadPayload("createRuntimeInstance", { ...input, repoId });
+        instance = {
+          schemaVersion: 2,
+          instanceId: input.instanceId,
+          name: input.name,
+          kindId: input.kindId,
+          installationId: input.installationId,
+          providerId: input.providerId,
+          models: input.models,
+          defaultModel: input.defaultModel ?? input.models[0] ?? "",
+          enabled: input.enabled ?? true,
+          tier: input.tier,
+          credentialSource: "instance",
+          permissionMode: null,
+          isolationState: "enforced",
+          configuration: {},
+          authMode: "subscription",
+          authState: "unauthenticated",
+          authReadiness: { status: "not-ready", code: "runtime_subscription_required", hint: "Sign in" },
+        };
+        return receipt;
+      });
+      const auth = vi.spyOn(runtimeInstanceClient, "auth").mockResolvedValue({
+        schema: "terminal-control-receipt/v1",
+        outcome: "applied",
+        sessionId: "login-test",
+      } as never);
+      const probe = vi.spyOn(runtimeInstanceClient, "probe").mockImplementation(async () => {
+        instance = {
+          ...instance!,
+          authState: "authenticated",
+          authReadiness: { status: "ready", code: null, hint: null },
+          availableModels: [hydrogen, "gemini-3.8-flash"],
+          providerHealth: {
+            nodeId: "test-node",
+            failureStreak: 0,
+            cooldownUntil: "2026-11-14T12:00:00Z",
+            frozen: false,
+            frozenUntil: null,
+            reason: "quota_exhausted",
+            lastFailureAt: null,
+            lastResetAt: null,
+          },
+        };
+        return instance;
+      });
+      const update = vi.spyOn(runtimeInstanceClient, "update").mockImplementation(async (input, repoId) => {
+        assertPreloadPayload("updateRuntimeInstance", { ...input, repoId });
+        instance = { ...instance!, models: input.models!, defaultModel: input.defaultModel!, tier: input.tier };
+        return receipt;
+      });
+      await mount(createElement(ProvidersHarness));
+      await click("runtime-new-runtimes");
+      await click("provider-type-llm");
+      await click("new-runtime-kind-agy");
+      await change("new-runtime-id", "agy-pro");
+      await change("new-runtime-name", "AGY Pro");
+      await change("new-runtime-credential-source", "instance");
+      await change("new-runtime-tier", "2");
+      expect(field<HTMLSelectElement>("new-runtime-isolation").disabled).toBe(true);
+      await click("new-runtime-create");
+      await settled(() => expect(auth).toHaveBeenCalledWith("demo", "agy-pro", "login"));
+      expect(create.mock.calls[0]).toEqual([
+        {
+          instanceId: "agy-pro",
+          name: "AGY Pro",
+          kindId: "agy",
+          installationId: "agy-install",
+          providerId: "google",
+          models: [],
+          enabled: false,
+          authMode: "subscription",
+          isolationState: "enforced",
+          credentialSource: "instance",
+          tier: 2,
+          agy: {},
         },
-      };
-      return instance;
-    });
-    const update = vi.spyOn(runtimeInstanceClient, "update").mockImplementation(async (input, repoId) => {
-      assertPreloadPayload("updateRuntimeInstance", { ...input, repoId });
-      instance = { ...instance!, models: input.models!, defaultModel: input.defaultModel!, tier: input.tier };
-      return receipt;
-    });
-    await mount(createElement(ProvidersHarness));
-    await click("runtime-new-runtimes");
-    await click("provider-type-llm");
-    await click("new-runtime-kind-agy");
-    await change("new-runtime-id", "agy-pro");
-    await change("new-runtime-name", "AGY Pro");
-    await change("new-runtime-credential-source", "instance");
-    await change("new-runtime-tier", "2");
-    expect(field<HTMLSelectElement>("new-runtime-isolation").disabled).toBe(true);
-    await click("new-runtime-create");
-    await settled(() => expect(auth).toHaveBeenCalledWith("demo", "agy-pro", "login"));
-    expect(create.mock.calls[0]).toEqual([
-      {
-        instanceId: "agy-pro",
-        name: "AGY Pro",
-        kindId: "agy",
-        installationId: "agy-install",
-        providerId: "google",
-        models: [hydrogen, carbon],
-        defaultModel: hydrogen,
-        authMode: "subscription",
-        isolationState: "enforced",
-        credentialSource: "instance",
-        tier: 2,
-        agy: {},
-      },
-      "demo",
-    ]);
-    await settled(() => expect(document.querySelector('[data-testid="runtime-account-refresh"]')).not.toBeNull());
-    await click("runtime-account-refresh");
-    await settled(() => expect(probe).toHaveBeenCalledWith("agy-pro", "demo"));
-    await settled(() =>
-      expect(document.querySelector('[data-testid="runtime-card-health"]')?.textContent).toContain("quota_exhausted"),
-    );
-    await click("runtime-provider-edit");
-    const labels = [...field("runtime-provider-models").querySelectorAll("label")];
-    expect(labels.some((label) => label.textContent === "gemini-3.8-flash")).toBe(true);
-    // Account models replace the installation's Ultra catalog. The old authored Carbon selection remains removable.
-    await act(async () =>
-      labels
-        .find((label) => label.textContent === carbon)!
-        .querySelector<HTMLInputElement>("input")!
-        .click(),
-    );
-    await change("runtime-provider-tier", "3");
-    await click("runtime-provider-save");
-    await settled(() => expect(update).toHaveBeenCalledTimes(1));
-    expect(update.mock.calls[0]).toEqual([
-      {
-        instanceId: "agy-pro",
-        name: "AGY Pro",
-        installationId: "agy-install",
-        models: [hydrogen],
-        defaultModel: hydrogen,
-        isolationState: "enforced",
-        credentialSource: "instance",
-        tier: 3,
-        effort: "",
-      },
-      "demo",
-    ]);
-    expect(document.querySelector('[data-testid="runtime-provider-editor"]')).toBeNull();
-  });
+        "demo",
+      ]);
+      await settled(() => expect(document.querySelector('[data-testid="runtime-account-refresh"]')).not.toBeNull());
+      await click("runtime-account-refresh");
+      await settled(() => expect(probe).toHaveBeenCalledWith("agy-pro", "demo"));
+      await settled(() =>
+        expect(document.querySelector('[data-testid="runtime-card-health"]')?.textContent).toContain("quota_exhausted"),
+      );
+      await click("runtime-provider-edit");
+      const labels = [...field("runtime-provider-models").querySelectorAll("label")];
+      expect(labels.some((label) => label.textContent === "gemini-3.8-flash")).toBe(true);
+      expect(labels.some((label) => label.textContent === carbon)).toBe(false);
+      expect(labels.every((label) => !label.querySelector<HTMLInputElement>("input")!.checked)).toBe(true);
+      expect(instance?.enabled).toBe(false);
+      // Only the account catalog is offered; selecting Hydrogen is an explicit authored choice.
+      await act(async () =>
+        labels
+          .find((label) => label.textContent === hydrogen)!
+          .querySelector<HTMLInputElement>("input")!
+          .click(),
+      );
+      await change("runtime-provider-tier", "3");
+      await click("runtime-provider-save");
+      await settled(() => expect(update).toHaveBeenCalledTimes(1));
+      expect(update.mock.calls[0]).toEqual([
+        {
+          instanceId: "agy-pro",
+          name: "AGY Pro",
+          installationId: "agy-install",
+          models: [hydrogen],
+          defaultModel: hydrogen,
+          isolationState: "enforced",
+          credentialSource: "instance",
+          tier: 3,
+          effort: "",
+        },
+        "demo",
+      ]);
+      expect(document.querySelector('[data-testid="runtime-provider-editor"]')).toBeNull();
+      expect(instance?.enabled).toBe(false);
+      const enable = vi.spyOn(runtimeInstanceClient, "setEnabled").mockResolvedValue(receipt);
+      const toggle = [...document.querySelectorAll<HTMLButtonElement>('[role="switch"]')].find(
+        (node) => node.getAttribute("aria-label") === "Enabled",
+      );
+      expect(toggle).toBeDefined();
+      await act(async () => toggle!.click());
+      await settled(() => expect(enable).toHaveBeenCalledWith("agy-pro", true, "demo"));
+    },
+  );
   it.each(["en-US", "zh-CN"] as const)(
     "saves sticky, lru and repository inheritance in the Agent editor (%s)",
     async (locale) => {

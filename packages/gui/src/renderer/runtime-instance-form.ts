@@ -85,11 +85,17 @@ export function buildRuntimeInstanceCreatePayload(
   detected: DetectedModels = {},
 ): RuntimeInstanceCreateInput {
   if (!runtimeAccessFormReady(form)) throw new Error("Invalid runtime account source, isolation or tier.");
-  const customModels = runtimeCustomModels(form.model),
+  const independent = form.authMode === "subscription" && form.credentialSource === "instance",
+    customModels = runtimeCustomModels(form.model),
     overrideModels = runtimeModels(form.models ?? [], customModels),
-    models = form.models !== undefined || customModels.length ? overrideModels : [...(detected.models ?? [])],
-    defaultModel =
-      form.models !== undefined
+    models = independent
+      ? []
+      : form.models !== undefined || customModels.length
+        ? overrideModels
+        : [...(detected.models ?? [])],
+    defaultModel = independent
+      ? undefined
+      : form.models !== undefined
         ? runtimeDefaultModel(overrideModels, overrideModels[0]) || detected.defaultModel
         : customModels.length
           ? undefined
@@ -100,10 +106,11 @@ export function buildRuntimeInstanceCreatePayload(
       installationId,
       providerId: form.providerId.trim(),
       models,
+      ...(independent ? { enabled: false } : {}),
       ...(defaultModel ? { defaultModel } : {}),
     },
     baseUrl = form.baseUrl.trim();
-  if (!models.length) throw new Error("Select at least one runtime model.");
+  if (!independent && !models.length) throw new Error("Select at least one runtime model.");
   const declaration = runtimeKindForId(form.kindId);
   if (!declaration.auth.modes.some((mode) => mode === form.authMode))
     throw new Error(`${form.kindId} runtime instances do not support ${form.authMode} authentication.`);
@@ -334,7 +341,8 @@ export function runtimeInstanceFormReady(
     Boolean(installationId) &&
     form.instanceId.trim() !== "" &&
     form.name.trim() !== "" &&
-    (selectedModels.length > 0 ||
+    ((form.authMode === "subscription" && form.credentialSource === "instance") ||
+      selectedModels.length > 0 ||
       (form.models === undefined && Boolean(detected.defaultModel) && Boolean(detected.models?.length))) &&
     (form.authMode !== "api-key" || form.apiKey.trim() !== "") &&
     (form.authMode !== "api-key" ||

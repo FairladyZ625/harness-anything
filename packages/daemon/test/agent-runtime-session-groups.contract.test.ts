@@ -340,6 +340,16 @@ test("runtime overview accepts an instance whose account model catalog has not b
     validateAgentRuntimeOverview({ ...overview, instances: [{ ...instance, availableModels: [] }] }),
     [],
   );
+  // dec_DA1602487428A58E8B446ECE38/CH2: a disabled account can exist before login/catalog selection.
+  const bootstrap = { ...instance, models: [], defaultModel: "", enabled: false };
+  assert.deepEqual(validateAgentRuntimeOverview({ ...overview, instances: [bootstrap] }), []);
+  for (const invalid of [
+    { enabled: true },
+    { credentialSource: "operator" },
+    { defaultModel: "invented" },
+    { authMode: "api-key" },
+  ])
+    assert.notDeepEqual(validateAgentRuntimeOverview({ ...overview, instances: [{ ...bootstrap, ...invalid }] }), []);
 });
 
 test("session groups preserve stopped runtime session status in the projection contract", () => {

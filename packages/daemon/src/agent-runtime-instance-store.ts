@@ -1,3 +1,4 @@
+import { runtimeInstanceDispatchModels } from "@harness-anything/kernel/internal/domain/runtime-instance-contract.ts";
 import { createRuntimeInstanceDispatchState } from "./runtime-instance-selection.ts";
 import {
   commandInterceptionNeedsFiles,
@@ -494,7 +495,7 @@ export function openRuntimeInstanceStore(input: {
       return observed(
         rememberAuthReadiness(config.instanceId, unavailable(webSearchRefusal.code, webSearchRefusal.hint)),
       );
-    const modelSearchRefusal = runtimeWebSearchModelGate(config, selectRuntimeModel(config), installation);
+    const modelSearchRefusal = runtimeWebSearchModelGate(config, config.defaultModel, installation);
     if (modelSearchRefusal)
       return observed(
         rememberAuthReadiness(config.instanceId, unavailable(modelSearchRefusal.code, modelSearchRefusal.hint)),
@@ -512,7 +513,7 @@ export function openRuntimeInstanceStore(input: {
             ? await currentAccountProbeTarget(config, witnessed)
             : undefined;
       const codexProbe =
-        !input.subscriptionReady && config.kindId === "codex"
+        !input.subscriptionReady && config.kindId === "codex" && config.models.length > 0
           ? {
               config,
               cwd: path.join(instancesRoot, config.instanceId),
@@ -854,9 +855,29 @@ export function openRuntimeInstanceStore(input: {
       return launch;
     };
     if (config.auth.mode === "subscription") {
-      const probe = await probeSubscription(installation, env, config.isolationState, undefined, config, witnessed),
+      const probe = await probeSubscription(
+          installation,
+          env,
+          config.isolationState,
+          undefined,
+          config,
+          witnessed,
+          true,
+        ),
         readiness = rememberLaunchReadiness(probe.readiness);
       if (readiness.code !== null) throw runtimeInstanceError(readiness.code, readiness.hint!);
+      // Authentication keeps its own refusal code. Before returning any launch, admit the
+      // model against the current authored choices and the freshest account observation.
+      selectRuntimeModel(
+        {
+          ...config,
+          models: runtimeInstanceDispatchModels({
+            ...currentAccountForCut(launchCut),
+            ...(probe.availableModels === undefined ? {} : { availableModels: probe.availableModels }),
+          }),
+        },
+        model,
+      );
       return finishLaunch({
         definition,
         installation,
@@ -1036,11 +1057,13 @@ export function openRuntimeInstanceStore(input: {
           action.authMode === "subscription"
             ? { mode: "subscription" as const }
             : { mode: "api-key" as const, credentialRef: action.credentialRef },
-        models = normalizeModels(action.models),
+        models = normalizeModels(action.models, true),
         defaultModel =
           action.defaultModel === undefined
-            ? models[0]!
-            : requiredRuntimeInstanceText(action.defaultModel, "defaultModel"),
+            ? (models[0] ?? "")
+            : models.length === 0 && action.defaultModel === ""
+              ? ""
+              : requiredRuntimeInstanceText(action.defaultModel, "defaultModel"),
         kindConfig = Object.fromEntries(
           runtimeKindIds
             .filter((candidate) => action[candidate] !== undefined || candidate === action.kindId)
@@ -1055,7 +1078,7 @@ export function openRuntimeInstanceStore(input: {
           providerId: action.providerId,
           models,
           defaultModel,
-          enabled: true,
+          enabled: action.enabled === undefined ? true : requireBoolean(action.enabled, "enabled"),
           ...(action.tier === undefined ? {} : { tier: action.tier }),
           ...(action.credentialSource !== undefined ? { credentialSource: action.credentialSource } : {}),
           ...(action.permissionMode !== undefined ? { permissionMode: action.permissionMode } : {}),
@@ -1261,10 +1284,14 @@ export function openRuntimeInstanceStore(input: {
       const installationId = hasInstallation
           ? requireWitnessedInstallation(current.kindId, action.installationId, input.discover()).installationId
           : current.installationId,
-        models = hasModels ? normalizeModels(action.models) : [...current.models],
+        models = hasModels ? normalizeModels(action.models, true) : [...current.models],
         defaultModel = hasDefault
-          ? requiredRuntimeInstanceText(action.defaultModel, "defaultModel")
-          : current.defaultModel,
+          ? models.length === 0 && action.defaultModel === ""
+            ? ""
+            : requiredRuntimeInstanceText(action.defaultModel, "defaultModel")
+          : models.length === 0
+            ? ""
+            : current.defaultModel,
         enabled = hasEnabled ? requireBoolean(action.enabled, "enabled") : current.enabled,
         // Base URL edit on the existing instance: a non-empty value replaces the current
         // endpoint (same secure validation as create); an explicit empty string clears it
@@ -1280,7 +1307,7 @@ export function openRuntimeInstanceStore(input: {
           effort,
           webSearch,
         );
-      if (!models.includes(defaultModel))
+      if (models.length > 0 && !models.includes(defaultModel))
         throw runtimeInstanceError(
           "invalid_runtime_model",
           `Default model ${defaultModel} is not in the instance model set. Supported models: ${models.join(", ")}.`,
@@ -1317,7 +1344,19 @@ export function openRuntimeInstanceStore(input: {
         },
         platform,
       );
-      const accountChanged = accountIdentityChanged(current, updated);
+      const accountChanged = accountIdentityChanged(current, updated),
+        dispatchModels = runtimeInstanceDispatchModels(
+          accountChanged ? { ...updated, availableModels: undefined } : updated,
+        );
+      if (
+        hasEnabled &&
+        enabled &&
+        (!dispatchModels.includes(updated.defaultModel) || dispatchModels.length !== updated.models.length)
+      )
+        throw runtimeInstanceError(
+          "invalid_runtime_model",
+          "Select models observed for this account before enabling it.",
+        );
       ensureOperatorInstanceSlot(
         updated,
         read().filter((entry) => entry.instanceId !== current.instanceId),

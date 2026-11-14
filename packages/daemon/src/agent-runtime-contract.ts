@@ -493,14 +493,15 @@ function validInstance(value: unknown): value is AgentRuntimeInstanceDto {
     ) &&
     value.schemaVersion === 2 &&
     Array.isArray(value.models) &&
-    value.models.length > 0 &&
+    (value.models.length > 0 ||
+      (value.enabled === false && value.credentialSource === "instance" && value.authMode === "subscription")) &&
     value.models.every((item) => typeof item === "string" && item.length > 0) &&
     (value.availableModels === undefined ||
       (Array.isArray(value.availableModels) &&
         value.availableModels.length > 0 &&
         value.availableModels.every((item) => typeof item === "string" && item.length > 0))) &&
     typeof value.defaultModel === "string" &&
-    value.models.includes(value.defaultModel) &&
+    (value.models.includes(value.defaultModel) || (value.models.length === 0 && value.defaultModel === "")) &&
     typeof value.enabled === "boolean" &&
     (value.tier === undefined || validRuntimeInstanceTier(value.tier)) &&
     ["operator", "instance"].includes(String(value.credentialSource)) &&

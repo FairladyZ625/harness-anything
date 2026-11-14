@@ -95,6 +95,7 @@ export function NewRuntimeDialog({
     : (witnessed[0]?.installationId ?? "");
   const installation = witnessed.find((row) => row.installationId === installationId),
     apiOn = form.authMode === "api-key",
+    independent = form.authMode === "subscription" && form.credentialSource === "instance",
     selectedModels = form.models ?? installation?.models ?? [],
     duplicate = form.instanceId.trim() !== "" && !runtimeInstanceIdAvailable(form.instanceId, existingInstanceIds),
     ready =
@@ -297,21 +298,23 @@ export function NewRuntimeDialog({
         <Labelled label="provider">
           <TextInput label="provider" mono value={form.providerId} onChange={(providerId) => patch({ providerId })} />
         </Labelled>
-        <Labelled label={t("agentRuntime.model")} hint={t(`agentRuntime.modelHint_${form.kindId}` as never)}>
-          <RuntimeModelEditor
-            availableModels={installation?.models ?? []}
-            selectedModels={selectedModels}
-            customModel={form.model ?? ""}
-            customModelOpen={customModelOpen}
-            onToggleModel={(model) =>
-              patch({ models: toggleRuntimeModel(form.models, installation?.models, model), model: "" })
-            }
-            onCustomModelChange={(model) => patch({ model, models: form.models ?? selectedModels })}
-            onCustomModelOpenChange={setCustomModelOpen}
-            detectedDefault={installation?.defaultModel}
-            testIdPrefix="new-runtime"
-          />
-        </Labelled>
+        {!independent && (
+          <Labelled label={t("agentRuntime.model")} hint={t(`agentRuntime.modelHint_${form.kindId}` as never)}>
+            <RuntimeModelEditor
+              availableModels={installation?.models ?? []}
+              selectedModels={selectedModels}
+              customModel={form.model ?? ""}
+              customModelOpen={customModelOpen}
+              onToggleModel={(model) =>
+                patch({ models: toggleRuntimeModel(form.models, installation?.models, model), model: "" })
+              }
+              onCustomModelChange={(model) => patch({ model, models: form.models ?? selectedModels })}
+              onCustomModelOpenChange={setCustomModelOpen}
+              detectedDefault={installation?.defaultModel}
+              testIdPrefix="new-runtime"
+            />
+          </Labelled>
+        )}
         <Labelled
           label={t("agentRuntime.baseUrl")}
           hint={
