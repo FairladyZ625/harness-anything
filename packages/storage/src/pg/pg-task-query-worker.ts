@@ -165,7 +165,8 @@ function startWorker(
 
   const initialize = async () => {
     const client = await pool.connect();
-    let borrowedReadOnly = false;
+    let borrowedReadOnly = false,
+      backfillReaderKeys = false;
     try {
       // Embedded storage has no replication peer. Network PG must retain at least remote flush durability.
       if (!options.readSessions) {
@@ -199,7 +200,18 @@ function startWorker(
       for (;;) {
         const page = await withPostgresTransaction(
           pool,
-          (cycleClient) => maintainPgRelationCycleAuditPage(cycleClient, input.scope),
+          async (cycleClient) => {
+            const page = await maintainPgRelationCycleAuditPage(cycleClient, input.scope);
+            if (page.done && ownsPools)
+              backfillReaderKeys =
+                (
+                  await cycleClient.query(
+                    "SELECT 1 FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND reader_index_version=0 LIMIT 1",
+                    [input.scope.tenantId, input.scope.projectId, input.scope.policyEpoch],
+                  )
+                ).rows.length > 0;
+            return page;
+          },
           input.scope,
         );
         if (page.done) break;
@@ -213,7 +225,7 @@ function startWorker(
       ownsPool: false,
       now: () => queryNow ?? new Date().toISOString(),
     });
-    return ownsPools && !borrowedReadOnly;
+    return backfillReaderKeys;
   };
 
   const sessionPool = () =>
