@@ -425,8 +425,8 @@ function materializationReleaseRefs(db: DatabaseSync, event: PersistedCanonicalE
     return [
       ...new Set(
         event.payload.changes.flatMap(({ path }) => {
-          const decisionId = /^decisions\/decision-([^/]+)\//u.exec(path)?.[1],
-            factId = /^facts\/(F-[^/]+)\.md$/u.exec(path)?.[1];
+          const decisionId = path.match(/^decisions\/decision-([^/]+)\//u)?.[1],
+            factId = path.match(/^facts\/(F-[^/]+)\.md$/u)?.[1];
           if (decisionId) return [`decision/${decisionId}`];
           if (factId) return [`fact/${factId}`];
           const row = queryRows<{ readonly task_id: string }>(
