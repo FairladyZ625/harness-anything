@@ -124,7 +124,8 @@ export function makeEntityActionCatalogExecutor(input: {
     opId: string,
     runtimes: EntityActionCatalogRuntimes,
   ): WriteReceipt | Promise<WriteReceipt> => {
-    const contract = executableAction(action.kind);
+    const contract = getExecutableEntityAction(action.kind);
+    executableAction(contract, action.kind);
     if (contract.execution.read) {
       if (action.kind === "fact-type-list") return readReceipt("fact-type-list", facts.listDomainTypes());
       if (action.kind === "fact-show") {
@@ -231,8 +232,9 @@ export function makeEntityActionCatalogExecutor(input: {
         });
       return deriveActionResult(result.contract, result.action, result.receipt);
     }
-    const contract = executableAction(action.kind),
-      prepare = runtimes.prepare?.[contract.target.kind],
+    const contract = getExecutableEntityAction(action.kind);
+    executableAction(contract, action.kind);
+    const prepare = runtimes.prepare?.[contract.target.kind],
       preparedAction = prepare?.(contract, action, binding, opId) ?? action;
     if (contract.execution.implementation === "catalog-runtime") {
       const runtime = contract.target.kind === "task" ? runtimes.task : runtimes.entity?.[contract.target.kind];
@@ -288,8 +290,9 @@ export function makeEntityActionCatalogExecutor(input: {
     if (existingOutcome !== null) return { outcome: "applied", ...base };
     if (ids.length === 0) return { outcome: "no_changes", ...base };
     if (action.dryRun === true) return { outcome: "pending", ...base };
-    const contract = executableAction(action.kind),
-      bundles = ids.map((decisionId, index) => {
+    const contract = getExecutableEntityAction(action.kind);
+    executableAction(contract, action.kind);
+    const bundles = ids.map((decisionId, index) => {
         const memberOpId =
           index === ids.length - 1
             ? opId
@@ -388,13 +391,14 @@ export function makeEntityActionCatalogExecutor(input: {
           workspaceRevision,
           relationBundle,
         }) => {
-          const decisionContract = executableAction("decision-transition"),
-            supersedeAction = {
-              kind: "decision-transition",
-              decisionId,
-              targetState: "superseded",
-              reason: `Superseded by ${String(rawAction.sourceRef)} through an active decision supersedes Relation.`,
-            };
+          const decisionContract = getExecutableEntityAction("decision-transition");
+          executableAction(decisionContract, "decision-transition");
+          const supersedeAction = {
+            kind: "decision-transition",
+            decisionId,
+            targetState: "superseded",
+            reason: `Superseded by ${String(rawAction.sourceRef)} through an active decision supersedes Relation.`,
+          };
           return compileAction(
             decisionContract,
             supersedeAction,
@@ -699,13 +703,14 @@ function resolveActionCriterion(contract: EntityActionContract, criterionRef: st
   return { ref: criterion.ref, failureCode: criterion.failureCode, explain: criterion.explain };
 }
 
-function executableAction(ingress: string): ExecutableAction {
-  const action = getExecutableEntityAction(ingress);
+function executableAction(
+  action: EntityActionContract | undefined,
+  ingress: string,
+): asserts action is ExecutableAction {
   if (!action?.execution)
     throw Object.assign(new Error(`Action ${ingress} is not declared in the entity action catalog.`), {
       code: "unsupported_command",
     });
-  return action as ExecutableAction;
 }
 
 function isFactBundle(bundle: CatalogBundle): bundle is FactBundle {

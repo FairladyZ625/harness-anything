@@ -11,6 +11,76 @@ const sourceRoots = ["packages/daemon/src", "packages/authorization-keycloak/src
 const maxEvaluationDepth = 12;
 // A request travels through many frames before its effect; provenance is memoized per frame.
 const maxProvenanceDepth = 64;
+export const EMPTY_ENV = new Map();
+// Weak ownership lets detached Programs die after an audit; no module-level table owns ASTs.
+const environmentInterners = new WeakMap();
+
+function makeEnvironmentInterner(lookup) {
+  const ids = new WeakMap(),
+    frames = new Map(),
+    canonical = new WeakSet();
+  let nextId = 0;
+  function id(value) {
+    if (!ids.has(value)) ids.set(value, ++nextId);
+    return ids.get(value);
+  }
+  // A parameter forwarded through another immutable frame still denotes the original
+  // argument. Keeping the alias's caller env would create an unbounded chain of copies.
+  function argumentBinding(bound) {
+    while (bound.expression) {
+      const expression = unwrap(bound.expression);
+      if (!ts.isIdentifier(expression)) break;
+      const binding = lookup(expression.text, expression);
+      if (binding?.kind !== "param" || binding.trail.length > 0) break;
+      const original = bound.env.get(binding.parameter);
+      if (!original) break;
+      bound = original;
+    }
+    if (!bound.expression || bound.env.size === 0) return bound;
+    const expression = unwrap(bound.expression),
+      binding = ts.isIdentifier(expression) ? lookup(expression.text, expression) : null,
+      primitive =
+        ts.isStringLiteralLike(expression) ||
+        ts.isNumericLiteral(expression) ||
+        [ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword, ts.SyntaxKind.NullKeyword].includes(expression.kind),
+      // Closed values never capture a caller. Const aliases and functions capture at
+      // their declaration, so an unrelated inner binder cannot multiply that value.
+      env =
+        primitive || binding?.kind === "import" || binding?.moduleScoped
+          ? EMPTY_ENV
+          : binding?.kind === "fn"
+            ? lexicalEnvironment(binding.node.parent, bound.env)
+            : binding?.kind === "var" && binding.declaration.parent.flags & ts.NodeFlags.Const
+              ? lexicalEnvironment(binding.declaration, bound.env)
+              : bound.env;
+    return env === bound.env ? bound : { ...bound, env };
+  }
+  function boundKey(bound) {
+    if (bound.root) return "root";
+    if (bound.rest)
+      return `rest:[${bound.rest.map((entry) => boundKey(argumentBinding(entry))).join(",")}]@${id(internEnv(bound.env))}`;
+    return `${id(bound.expression)}@${id(internEnv(bound.env))}`;
+  }
+  function internEnv(entries = EMPTY_ENV) {
+    if (entries.size === 0) return EMPTY_ENV;
+    if (canonical.has(entries)) return entries;
+    const ordered = [...entries].map(([param, bound]) => [id(param), param, argumentBinding(bound)]);
+    if (ordered.length === 0) return EMPTY_ENV;
+    ordered.sort(([left], [right]) => left - right);
+    const key = ordered.map(([paramId, , bound]) => `${paramId}=${boundKey(bound)}`).join(";");
+    if (!frames.has(key)) {
+      const frame = new Map(ordered.map(([, param, bound]) => [param, bound]));
+      canonical.add(frame);
+      frames.set(key, frame);
+    }
+    return frames.get(key);
+  }
+  return internEnv;
+}
+
+function internEnvironment(node, entries) {
+  return environmentInterners.get(node.getSourceFile())(entries);
+}
 
 /**
  * Workspace imports must resolve to the checkout under audit. A git worktree shares the canonical
@@ -125,6 +195,7 @@ function makeFileOf(relativeFiles) {
  * name (the same checkout unless a test traces a mutated copy of the sources).
  */
 export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = [], lexicalFiles = [] } = {}) {
+  const internEnv = makeEnvironmentInterner(lookup);
   const modules = new Map(),
     members = new Map(),
     typedEntries = new Map(),
@@ -152,6 +223,9 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
     programSources = new WeakSet(program.getSourceFiles()),
     relativeFiles = new WeakMap(),
     fileOf = makeFileOf(relativeFiles);
+  // Declaration fallback can call an implementation outside the indexed source roots.
+  // It still belongs to this Program and must use this graph's frame pool.
+  for (const sourceFile of program.getSourceFiles()) environmentInterners.set(sourceFile, internEnv);
   files = [
     ...new Set([
       ...files,
@@ -171,6 +245,7 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
     const sourceFile = program.getSourceFile(path.join(rootDir, file)) ?? parseTypeScript(rootDir, file),
       imports = new Map();
     relativeFiles.set(sourceFile, file);
+    environmentInterners.set(sourceFile, internEnv);
     for (const statement of sourceFile.statements) {
       if (!ts.isImportDeclaration(statement) || !statement.importClause || statement.importClause.isTypeOnly) continue;
       const from = statement.moduleSpecifier.text,
@@ -187,6 +262,7 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
   }
   return {
     rootDir,
+    internEnv,
     modules,
     members,
     typedEntries,
@@ -486,8 +562,8 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
 const lexicalAncestors = new WeakMap();
 
 /** A closure captures lexical ancestors, never unrelated or prior invocation parameters. */
-function lexicalEnvironment(node, env = new Map()) {
-  if (env.size === 0) return env;
+function lexicalEnvironment(node, env = EMPTY_ENV) {
+  if (env.size === 0) return EMPTY_ENV;
   let scopes = lexicalAncestors.get(node);
   if (!scopes) {
     scopes = new Set();
@@ -495,7 +571,7 @@ function lexicalEnvironment(node, env = new Map()) {
     lexicalAncestors.set(node, scopes);
   }
   const captured = [...env].filter(([parameter]) => scopes.has(parameter.parent));
-  return captured.length === env.size ? env : new Map(captured);
+  return internEnvironment(node, captured.length === env.size ? env : captured);
 }
 
 /**
@@ -504,6 +580,7 @@ function lexicalEnvironment(node, env = new Map()) {
  * expression frame while it is forwarded through another spread call.
  */
 export function bindArguments(fn, args, callerEnv, env = fn.env) {
+  callerEnv = internEnvironment(fn.node, callerEnv);
   const captured = lexicalEnvironment(fn.node.parent, env),
     next = new Map(captured),
     entries = args.map((argument) =>
@@ -522,31 +599,36 @@ export function bindArguments(fn, args, callerEnv, env = fn.env) {
         env: argument ? argument.env : captured,
       });
   });
-  return next;
+  return internEnvironment(fn.node, next);
 }
 
 export function makeEvaluator(graph, facts) {
   const unknown = { unknown: true },
-    moduleEnv = new Map(),
+    moduleEnv = EMPTY_ENV,
     memberCache = new Map(),
-    contextFree = new Map(),
+    valueQueries = new WeakMap(),
+    expressionIds = new WeakMap(),
     assignments = new Map(),
     writeReferences = new WeakMap(),
     provenanceCache = new WeakMap(),
     objectQueries = new WeakMap(),
     foldQueries = new WeakMap();
+  let nextExpressionId = 0;
 
   // Like provenance, these pure queries use immutable argument frames. A shared field
   // expression is one subproblem per frame and remaining depth, not a fresh receiver walk.
-  function cachedQuery(cache, expression, env, depth, calculate) {
-    const expressions = cache.get(env) ?? new WeakMap();
-    cache.set(env, expressions);
-    const byDepth = expressions.get(expression) ?? new Map();
-    expressions.set(expression, byDepth);
-    if (byDepth.has(depth)) return byDepth.get(depth);
-    byDepth.set(depth, null);
+  function cachedQuery(cache, expression, env, depth, calculate, pending = null) {
+    env = lexicalEnvironment(expression, env);
+    if (!expressionIds.has(expression)) expressionIds.set(expression, ++nextExpressionId);
+    // Depth is bounded before this query. A graph-local node ID and a fixed stride
+    // preserve the exact expression/depth pair without a Map allocation per expression.
+    const key = expressionIds.get(expression) * (maxProvenanceDepth + 1) + depth,
+      entries = cache.get(env) ?? new Map();
+    cache.set(env, entries);
+    if (entries.has(key)) return entries.get(key);
+    entries.set(key, pending);
     const result = calculate(expression, env, depth);
-    byDepth.set(depth, result);
+    entries.set(key, result);
     return result;
   }
 
@@ -568,7 +650,7 @@ export function makeEvaluator(graph, facts) {
       if (target.broken) return [{ broken: target.broken }];
       const exported = graph.exportedBinding(target.file, binding.exported);
       return exported
-        ? evaluateBinding(exported, binding.exported, new Map(), depth + 1)
+        ? evaluateBinding(exported, binding.exported, EMPTY_ENV, depth + 1)
         : [{ broken: `${target.file}: ${binding.exported} is not exported` }];
     }
     const trail = binding.trail ?? [];
@@ -593,7 +675,7 @@ export function makeEvaluator(graph, facts) {
     if (value.module) {
       const exported = graph.exportedBinding(value.module, key);
       return exported
-        ? evaluateBinding(exported, key, new Map(), depth + 1)
+        ? evaluateBinding(exported, key, EMPTY_ENV, depth + 1)
         : [{ broken: `${value.module}: ${key} is not exported` }];
     }
     if (value.object) {
@@ -668,8 +750,8 @@ export function makeEvaluator(graph, facts) {
     const values = distinct(
       entries.flatMap(({ value }) =>
         isFunctionNode(value)
-          ? [{ fn: true, node: value, env: new Map() }]
-          : evaluate(value, new Map(), depth + 1).filter((entry) => entry.fn || entry.broken),
+          ? [{ fn: true, node: value, env: EMPTY_ENV }]
+          : evaluate(value, EMPTY_ENV, depth + 1).filter((entry) => entry.fn || entry.broken),
       ),
     );
     byDepth.set(depth, values);
@@ -694,16 +776,7 @@ export function makeEvaluator(graph, facts) {
   function evaluate(expression, env, depth = 0) {
     if (depth > maxEvaluationDepth) return [unknown];
     // The remaining nesting budget is an input: a deep unknown cannot answer a shallow query.
-    if (env.size === 0 && expression) {
-      const byDepth = contextFree.get(expression) ?? new Map();
-      contextFree.set(expression, byDepth);
-      if (byDepth.has(depth)) return byDepth.get(depth);
-      byDepth.set(depth, [unknown]);
-      const values = evaluateNode(expression, env, depth);
-      byDepth.set(depth, values);
-      return values;
-    }
-    return evaluateNode(expression, env, depth);
+    return expression ? cachedQuery(valueQueries, expression, env, depth, evaluateNode, [unknown]) : [unknown];
   }
 
   function evaluateNode(expression, env, depth) {
@@ -873,7 +946,7 @@ export function makeEvaluator(graph, facts) {
       if (!target.file) return null;
       const exported = graph.exportedBinding(target.file, binding.exported);
       return exported?.kind === "var" && exported.trail.length === 0 && exported.declaration.initializer
-        ? fold(exported.declaration.initializer, new Map(), depth + 1)
+        ? fold(exported.declaration.initializer, EMPTY_ENV, depth + 1)
         : null;
     }
     if (binding.kind !== "var" || !binding.declaration.initializer) return null;
@@ -897,15 +970,7 @@ export function makeEvaluator(graph, facts) {
     if (depth > maxProvenanceDepth) return null;
     const node = unwrap(expression);
     if (!node) return null;
-    const cache = provenanceCache.get(env) ?? new Map();
-    provenanceCache.set(env, cache);
-    const byDepth = cache.get(node) ?? new Map();
-    cache.set(node, byDepth);
-    if (byDepth.has(depth)) return byDepth.get(depth);
-    byDepth.set(depth, null);
-    const tag = provenanceOf(node, env, depth);
-    byDepth.set(depth, tag);
-    return tag;
+    return cachedQuery(provenanceCache, node, env, depth, provenanceOf);
   }
 
   function provenanceOf(node, env, depth) {

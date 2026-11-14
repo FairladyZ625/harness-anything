@@ -5,7 +5,7 @@
 // flowing into it. Extraction and renaming keep that flow, so no production name or source text
 // is compared here.
 import ts from "typescript";
-import { bindArguments, isFunctionNode, makeEvaluator, unwrap } from "./authorization-flow-graph.mjs";
+import { bindArguments, EMPTY_ENV, isFunctionNode, makeEvaluator, unwrap } from "./authorization-flow-graph.mjs";
 import { processSourceSites, sourceFrameKey, sourceSite } from "./authorization-source-proof.mjs";
 
 const maxWalkDepth = 60;
@@ -430,6 +430,8 @@ export function makeAuthorizationTracer(graph, anchors) {
       memo = new Map(),
       guardCalls = new Map(),
       deferredFrames = [],
+      deferredKeys = new WeakMap(),
+      deferredReachability = new WeakMap(),
       stack = [];
 
     const newState = () => ({
@@ -551,7 +553,7 @@ export function makeAuthorizationTracer(graph, anchors) {
           if (ts.isSpreadAssignment(property)) {
             // `...(cond ? { a } : {})` cannot supply the key; any other spread might.
             if (lacksKey(property.expression, key)) continue;
-            return ts.factory.createPropertyAccessExpression(property.expression, key);
+            return syntheticAccess(property.expression, key);
           }
         }
         return undefined;
@@ -843,7 +845,7 @@ export function makeAuthorizationTracer(graph, anchors) {
         declaredCallee.body &&
         !sourceFunctions.some((value) => value.node === declaredCallee)
       )
-        sourceFunctions.push({ node: declaredCallee, env: new Map() });
+        sourceFunctions.push({ node: declaredCallee, env: EMPTY_ENV });
       // Defer positive discovery to callees the policy walk will actually enter below.
       // This issues no certificate: missed sources still need the full-graph fallback. Unguarded calls
       // must still challenge every previously authorized source through the full graph.
@@ -912,7 +914,7 @@ export function makeAuthorizationTracer(graph, anchors) {
       if (functions.length === 0 && values.some((value) => value.external !== undefined))
         for (const argument of node.arguments)
           for (const value of functionArgument(argument, env) ? evaluator.evaluate(argument, env) : [])
-            if (value.fn) walkFunction(value, new Map(value.env), clone(state));
+            if (value.fn) walkFunction(value, value.env, clone(state));
       if (
         state.effect &&
         decisionData &&
@@ -1528,7 +1530,56 @@ export function makeAuthorizationTracer(graph, anchors) {
     const authorityShape = (state) =>
       `${state.authorized ? 1 : 0}${state.effect ? 1 : 0}${state.sourceCovered ? 1 : 0}${state.local ? 1 : 0}${state.sessioned.size > 0 ? 1 : 0}:${state.writerTurn ? 1 : 0}${state.writerFenced ? 1 : 0}:${state.decisionKind?.kind ?? ""}:${state.decisionKind?.routed ? 1 : 0}:${[...(state.serviceSites ?? [])].map(([node, kind]) => `${sourceSite(graph, node)}=${kind}`).join(",")}`;
 
+    function frameReachesSource(fn, env) {
+      const reachable = deferredReachability.get(fn) ?? new WeakMap();
+      deferredReachability.set(fn, reachable);
+      if (!reachable.has(env)) {
+        const targets = [...report.sources.keys()],
+          sites = processSourceSites(sourceGraph, fn, { evaluator: sourceEvaluator, env, targets });
+        reachable.set(
+          env,
+          targets.some((site) => sites.has(site)),
+        );
+      }
+      return reachable.get(env);
+    }
+
+    function deferSourceFrame(value, env, state, key) {
+      const fn = value.node,
+        contexts = deferredKeys.get(fn) ?? new WeakMap(),
+        keys = contexts.get(env) ?? new Set();
+      if (keys.has(key)) return;
+      contexts.set(env, keys);
+      deferredKeys.set(fn, contexts);
+      keys.add(key);
+      // Deferred frames cannot supply a return summary. Only a real source reachable in
+      // this exact argument frame can affect the remaining source proof; no authority is cached.
+      if (frameReachesSource(fn, env)) deferredFrames.push({ value, env, state: clone(state) });
+    }
+
+    function carriesSourceCallback(env) {
+      return [...env.values()].some((bound) =>
+        (bound.rest ?? [bound]).some(
+          (argument) =>
+            argument.expression &&
+            evaluator
+              .evaluate(argument.expression, argument.env)
+              .some((value) => value.fn && enclosesSource(value.node)),
+        ),
+      );
+    }
+
+    function enclosesSource(fn) {
+      return [...report.sources.keys()].some((site) => {
+        const [, file, start, end] = /^(.*):(\d+):(\d+)$/u.exec(site);
+        return (
+          sourceGraph.fileOf(fn) === file && fn.getStart(fn.getSourceFile()) <= Number(start) && fn.end >= Number(end)
+        );
+      });
+    }
+
     function walkFunction(value, env, state, resume = false) {
+      env = graph.internEnv(env);
       const fn = value.node,
         none = {
           authorizedReturn: false,
@@ -1538,6 +1589,17 @@ export function makeAuthorizationTracer(graph, anchors) {
           refusal: false,
         };
       if (!fn.body) return none;
+      // The owner walk above remains unchanged. Inside its covered source trace, a
+      // closed negative reachability proof can discard only an irrelevant frame. This
+      // grants no return authority; uncovered invocations and callback carriers still walk.
+      if (
+        descriptor.sources?.length &&
+        state.sourceCovered &&
+        !enclosesSource(fn) &&
+        !carriesSourceCallback(env) &&
+        !frameReachesSource(fn, env)
+      )
+        return none;
       // Resolve forwarded aliases and retain the source walk's bounded lexical context.
       // One identity handles both reuse and in-progress cycles: a fresh Map is not a new
       // callback, and the same expression can carry another caller's callback.
@@ -1552,7 +1614,7 @@ export function makeAuthorizationTracer(graph, anchors) {
         if (descriptor.sources?.length) {
           seen.set(key, { ...none, deferred: true });
           memo.set(fn, seen);
-          deferredFrames.push({ value, env, state: clone(state) });
+          deferSourceFrame(value, env, state, key);
         }
         return none;
       }
@@ -1596,12 +1658,16 @@ export function makeAuthorizationTracer(graph, anchors) {
     }
 
     for (const entry of descriptor.entries ?? anchors.entries) {
-      const env = new Map([[entry.parameters[0], { root: true }]]);
-      walkFunction({ fn: true, node: entry, env: new Map() }, env, newState());
+      const env = graph.internEnv([[entry.parameters[0], { root: true }]]);
+      walkFunction({ fn: true, node: entry, env: EMPTY_ENV }, env, newState());
     }
     // Bound the JavaScript stack, not the source proof. Shared frame identities still
     // terminate cycles; an unfinished frame never supplies an authorized return summary.
-    for (const { value, env, state } of deferredFrames) walkFunction(value, env, state, true);
+    for (let index = 0; index < deferredFrames.length; index++) {
+      const { value, env, state } = deferredFrames[index];
+      deferredFrames[index] = null;
+      walkFunction(value, env, state, true);
+    }
     // On the traced route every effect-callback call must follow the denial exit and receive the
     // decision: an earlier call runs the effect before authorization, and a call without the
     // decision leaves the effect independent of it.

@@ -14,6 +14,99 @@ import { makeAuthorizationTracer } from "../authorization-flow-trace.mjs";
 import { processSourceSites, sourceSite, sourceWitnesses } from "../authorization-source-proof.mjs";
 import { makeRepo } from "./helpers.mjs";
 
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: reuse calculations, never an authorization result.
+test("equivalent immutable argument frames share identity and cache nonempty evaluation", () => {
+  const file = "packages/daemon/src/callback.ts";
+  const { rootDir } = makeRepo({
+    [file]: `
+function first() {} function second(unrelated) {}
+function factory(selection, ...callbacks) { return { selection, callbacks }; }
+factory(first, first); factory(second, first);`,
+  });
+  const graph = buildFlowGraph(rootDir),
+    evaluator = makeEvaluator(graph, { constants: {}, functions: {} }),
+    source = graph.modules.get(file).sourceFile,
+    calls = source.statements.filter(ts.isExpressionStatement).map((statement) => statement.expression),
+    [fn] = evaluator.evaluate(calls[0].expression, new Map()),
+    first = bindArguments(fn, calls[0].arguments, new Map()),
+    again = bindArguments(fn, calls[0].arguments, new Map()),
+    other = bindArguments(fn, calls[1].arguments, new Map()),
+    body = fn.node.body.statements[0].expression;
+  assert.ok(first === again, "same parameter/expression/rest bindings must intern to one Map");
+  assert.ok(first !== other, "a different argument remains a different frame");
+  assert.ok(graph.internEnv([...first].reverse()) === first, "binding order cannot create another frame");
+  const values = evaluator.evaluate(body, first);
+  assert.ok(values === evaluator.evaluate(body, again), "nonempty frames must hit the evaluation cache");
+  const unrelated = source.statements[1].parameters[0],
+    extra = new Map([...first, [unrelated, first.get(fn.node.parameters[0])]]);
+  assert.ok(values === evaluator.evaluate(body, extra), "unrelated caller parameters cannot multiply a lexical query");
+  assert.ok(values !== evaluator.evaluate(body, other));
+  assert.equal(evaluator.evaluate(body, first, 13)[0].unknown, true, "a shallow result cannot extend the depth budget");
+  assert.ok(
+    bindArguments({ node: fn.node, env: new Map() }, [], new Map()) ===
+      bindArguments({ node: fn.node, env: new Map() }, [], new Map()),
+    "empty frames share one identity",
+  );
+});
+
+test("forwarded parameter aliases retain one immutable argument frame", () => {
+  const file = "packages/daemon/src/callback.ts";
+  const { rootDir } = makeRepo({
+    [file]: `function take(value) { return value; }
+function forward(value) { return take(value); }
+const first = "first", second = "second";`,
+  });
+  const graph = buildFlowGraph(rootDir),
+    [take, forward, declaration] = graph.modules.get(file).sourceFile.statements,
+    [first, second] = declaration.declarationList.declarations,
+    empty = new Map(),
+    fn = { node: take, env: empty },
+    direct = bindArguments(fn, [first.initializer], empty),
+    caller = bindArguments({ node: forward, env: empty }, [first.initializer], empty),
+    forwarded = bindArguments(fn, forward.body.statements[0].expression.arguments, caller);
+  assert.ok(direct === forwarded, "forwarding an immutable parameter must not grow the environment chain");
+  assert.ok(direct === bindArguments(fn, [first.initializer], caller), "a literal has no caller environment");
+  assert.ok(
+    direct !== bindArguments(fn, [second.initializer], empty),
+    "different callbacks/data keep different frames",
+  );
+});
+
+test("complete source misses reuse their closed call graph without poisoning hits or full walks", () => {
+  const file = "packages/daemon/src/callback.ts";
+  const { rootDir } = makeRepo({
+    [file]: `function target() {}
+function first() { second(); }
+function second() { first(); }
+function entry() { first(); }`,
+  });
+  const original = buildFlowGraph(rootDir),
+    [target, first, second, entry] = original.modules.get(file).sourceFile.statements;
+  let reads = 0;
+  const graph = {
+      ...original,
+      fileOf(node) {
+        reads++;
+        return original.fileOf(node);
+      },
+    },
+    evaluator = makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true }),
+    missing = sourceSite(original, target),
+    query = () => processSourceSites(graph, entry, { evaluator, targets: [missing] });
+  const early = sourceSite(original, first);
+  assert.ok(processSourceSites(graph, entry, { evaluator, targets: [early] }).has(early));
+  assert.equal(query().has(missing), false);
+  const firstReads = reads;
+  assert.ok(firstReads > 0);
+  assert.equal(query().has(missing), false);
+  assert.equal(reads, firstReads, "a complete negative closure must not be walked again");
+  const live = sourceSite(original, first);
+  assert.ok(processSourceSites(graph, entry, { evaluator, targets: [live] }).has(live));
+  assert.ok(
+    processSourceSites(graph, entry, { evaluator }).has(sourceSite(original, second.body.statements[0].expression)),
+  );
+});
+
 // dec_7E44897ECDCAEF2B92EC66A260/CH1: repeated receiver projections on the
 // same argument DAG must not expand both unknown choices again at each use.
 test("shared object choices keep lexical lookup work linear in the argument chain", () => {
@@ -535,6 +628,17 @@ test("the real catalog executor reaches its bound todo runtime directly", async 
     authorityModule: "@harness-anything/kernel",
     strictMembers: true,
   });
+  let targetKind;
+  (function visit(node) {
+    if (!targetKind && ts.isPropertyAccessExpression(node) && node.getText() === "contract.target.kind")
+      targetKind = node;
+    ts.forEachChild(node, visit);
+  })(run.body);
+  assert.deepEqual(
+    evaluator.fold(targetKind, env),
+    { value: "todo" },
+    "catalog dispatch must retain the registry target coordinate",
+  );
   const witness = sourceWitnesses(graph, [source]).get(source.candidateId);
   const site = sourceSite(graph, witness);
   const sites = processSourceSites(graph, run, { evaluator, env, targets: [site] });

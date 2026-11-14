@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import ts from "typescript";
 import { stripGlobals } from "../../packages/cli/src/cli/thin-command-flags.ts";
-import { bindArguments, isFunctionNode, makeEvaluator, unwrap } from "./authorization-flow-graph.mjs";
+import { bindArguments, EMPTY_ENV, isFunctionNode, makeEvaluator, unwrap } from "./authorization-flow-graph.mjs";
 import { scanOntologyText } from "./ontology-closure-scan.mjs";
 
 export const sourceFileOf = (source) => source.candidateId.split(":")[2].split("#")[0];
@@ -1796,7 +1796,7 @@ export function processSourceSites(
   entry,
   {
     evaluator = makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true }),
-    env = new Map(),
+    env = EMPTY_ENV,
     targets = [],
   } = {},
 ) {
@@ -1815,7 +1815,7 @@ export function processSourceSites(
     const key = sourceFrameKey(graph, fn, env),
       contexts = frames.get(fn) ?? new Map();
     frames.set(fn, contexts);
-    if (!contexts.has(key)) contexts.set(key, { fn, env, sites: new Set(), edges: null });
+    if (!contexts.has(key)) contexts.set(key, { fn, env, sites: new Set(), edges: null, missing: new Set() });
     return contexts.get(key);
   }
   function expand(frame) {
@@ -1824,7 +1824,9 @@ export function processSourceSites(
     const linkFrame = (value, args = null) =>
       frame.edges.push({
         frame: frameFor(value.node, args ? bindArguments(value, evaluator.expandArguments(args, env), env) : value.env),
-        arguments: args,
+        // Ordering needs only declaration ranges, not argument AST arrays. These cached
+        // edges are reused for different target queries, so retain no query-specific flag.
+        references: args?.flatMap(referencedRanges) ?? [],
       });
     function visit(node) {
       if (isFunctionNode(node)) return true;
@@ -1862,7 +1864,7 @@ export function processSourceSites(
         // A typeof callback signature can refer to a different implementation. The supplied
         // function owns this call; use declaration fallback only when no function resolves.
         if (isFunctionNode(declared) && declared.body && !values.some((value) => value.fn))
-          linkFrame({ node: declared, env: new Map() }, node.arguments);
+          linkFrame({ node: declared, env: EMPTY_ENV }, node.arguments);
         if (values.some((value) => value.external !== undefined))
           for (const arg of node.arguments)
             for (const value of evaluator.evaluate(arg, env).filter((value) => value.fn)) linkFrame(value);
@@ -1880,22 +1882,21 @@ export function processSourceSites(
     const [, file, start, end] = /^(.*):(\d+):(\d+)$/u.exec(site);
     return { file, start: Number(start), end: Number(end) };
   });
-  const enclosesTarget = (node) =>
-    targetRanges.some(
-      ({ file, start, end }) =>
-        graph.fileOf(node) === file && node.getStart(node.getSourceFile()) <= start && node.end >= end,
-    );
+  const rangeOf = (node) => ({ file: graph.fileOf(node), start: node.getStart(node.getSourceFile()), end: node.end });
+  const containsTarget = (range) =>
+    targetRanges.some(({ file, start, end }) => range.file === file && range.start <= start && range.end >= end);
+  const targetFiles = new Set(targetRanges.map(({ file }) => file));
+  const enclosesTarget = (node) => containsTarget(rangeOf(node));
   const references = new WeakMap();
-  function mentionsTarget(node) {
+  function referencedRanges(node) {
     if (references.has(node)) return references.get(node);
-    let found = false;
+    const found = [];
     (function visit(child) {
-      if (found) return;
       if (ts.isCallExpression(child)) {
         const declaration = graph.callDeclaration(child);
-        if (isFunctionNode(declaration) && declaration.body && enclosesTarget(declaration)) found = true;
+        if (isFunctionNode(declaration) && declaration.body) found.push(rangeOf(declaration));
       }
-      if (!found) ts.forEachChild(child, visit);
+      ts.forEachChild(child, visit);
     })(node);
     references.set(node, found);
     return found;
@@ -1905,6 +1906,7 @@ export function processSourceSites(
     // each binding context its identity; seen frames terminate cycles without pruning it.
     if (!frame.fn.body || seen.has(frame)) return;
     if (targets.length > 0 && targets.every((site) => sites.has(site))) return;
+    if (targets.length > 0 && targets.every((site) => sites.has(site) || frame.missing.has(site))) return;
     seen.add(frame);
     // Upstream host/migration proofs target an invoked callback endpoint as well as calls.
     const endpoint = sourceSite(graph, frame.fn);
@@ -1914,14 +1916,26 @@ export function processSourceSites(
     // An authored callback naming the target is cheap evidence to inspect first. This only
     // orders actual call edges; every other edge remains available when the target is absent.
     const preferred = [],
+      neighboring = [],
       remaining = [];
-    for (const edge of frame.edges)
-      (targets.length > 0 && (enclosesTarget(edge.frame.fn) || edge.arguments?.some(mentionsTarget))
-        ? preferred
-        : remaining
-      ).push(edge.frame);
-    for (const edge of [...preferred, ...remaining]) walk(edge);
+    for (const edge of frame.edges) {
+      const next =
+        targets.length > 0 && (enclosesTarget(edge.frame.fn) || edge.references.some(containsTarget))
+          ? preferred
+          : targetFiles.has(graph.fileOf(edge.frame.fn))
+            ? neighboring
+            : remaining;
+      next.push(edge.frame);
+    }
+    // A sibling helper in the target's module is the next search choice. Every other
+    // real edge remains available; ordering cannot certify an absent source.
+    for (const edge of [...preferred, ...neighboring, ...remaining]) walk(edge);
   }
   walk(frameFor(entry, env));
+  // A missing requested target forces a complete traversal (including cycles). Every
+  // visited frame then has the same negative reachability fact. An early hit proves
+  // no absence; an untargeted query still walks the whole graph. Never cache authority.
+  const missing = targets.filter((site) => !sites.has(site));
+  for (const frame of seen) for (const site of missing) frame.missing.add(site);
   return sites;
 }
