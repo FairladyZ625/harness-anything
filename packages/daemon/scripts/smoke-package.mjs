@@ -1,11 +1,10 @@
 import assert from "node:assert/strict";
-import { execFile, spawn, spawnSync } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { promisify } from "node:util";
 import { workspaceDependencyClosure } from "../../../tools/smoke-cli-package.mjs";
 import { preparePackageExports, restorePackageExports } from "../../../tools/package-exports-lifecycle.mjs";
 
@@ -14,15 +13,6 @@ const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-package-"));
 const consumer = path.join(parent, "consumer");
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("HARNESS_")));
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-const execFileAsync = promisify(execFile);
-async function runAsync(command, args, cwd = repository) {
-  console.log(JSON.stringify({ command, args, cwd }));
-  const result = await execFileAsync(command, args, { cwd, env, encoding: "utf8", timeout: 180_000 });
-  process.stdout.write(result.stdout);
-  process.stderr.write(result.stderr);
-  console.log("exit=0");
-  return result.stdout;
-}
 // Finish every sibling before cleanup, including when a build or pack fails.
 async function wave(operations) {
   const results = await Promise.allSettled(operations);
@@ -30,14 +20,32 @@ async function wave(operations) {
   if (failures.length) throw new AggregateError(failures.map((result) => result.reason));
   return results.map((result) => result.value);
 }
-function run(command, args, cwd = repository) {
+async function run(command, args, cwd = repository) {
   console.log(JSON.stringify({ command, args, cwd }));
-  const result = spawnSync(command, args, { cwd, env, encoding: "utf8", timeout: 180_000 });
+  const result = await new Promise((resolve) => {
+    execFile(command, args, { cwd, env, encoding: "utf8", timeout: 180_000 }, (error, stdout, stderr) =>
+      resolve({ status: error ? (error.code ?? null) : 0, error, stdout, stderr }),
+    );
+  });
   process.stdout.write(result.stdout ?? "");
   process.stderr.write(result.stderr ?? "");
   console.log(`exit=${result.status}`);
   assert.equal(result.status, 0, result.error?.message ?? result.stderr);
   return result.stdout;
+}
+async function buildAndPack(packages, build, pack) {
+  // Libraries need kernel declarations. The CLI compiles the daemon source closure too;
+  // isolate that compiler so package smoke also fits the server's 4 GiB test budget.
+  await build(packages.find(({ name }) => name === "@harness-anything/kernel"));
+  await wave(
+    packages
+      .filter(
+        ({ name }) => !["@harness-anything/kernel", "@harness-anything/daemon", "@harness-anything/cli"].includes(name),
+      )
+      .map(build),
+  );
+  await build(packages.find(({ name }) => name === "@harness-anything/cli"));
+  return wave(packages.map(pack));
 }
 try {
   mkdirSync(consumer);
@@ -52,46 +60,41 @@ try {
       manifest = JSON.parse(readFileSync(path.join(source, "package.json"), "utf8"));
     return { name, source, stage, manifest };
   });
-  const build = ({ name, manifest }) =>
-    runAsync(npm, ["run", manifest.scripts["build:publish"] ? "build:publish" : "build", "-w", name]);
-  // Publish consumers resolve kernel declarations. Other builds write separate dist trees;
-  // daemon already has npm ci's build and must keep its resident-process build identity.
-  await build(packages.find(({ name }) => name === "@harness-anything/kernel"));
-  await wave(
-    packages.filter(({ name }) => !["@harness-anything/kernel", "@harness-anything/daemon"].includes(name)).map(build),
-  );
-  const tarballs = await wave(
-    packages.map(async ({ source, stage, manifest }) => {
+  const tarballs = await buildAndPack(
+    packages,
+    ({ name, manifest }) =>
+      run(npm, ["run", manifest.scripts["build:publish"] ? "build:publish" : "build", "-w", name]),
+    async ({ source, stage, manifest }) => {
       mkdirSync(stage);
       for (const file of new Set(["package.json", ...manifest.files]))
         cpSync(path.join(source, file), path.join(stage, file), { recursive: true });
       preparePackageExports(stage, process.pid);
       try {
         const [packed] = JSON.parse(
-          await runAsync(npm, ["pack", "--ignore-scripts", "--json", "--pack-destination", parent], stage),
+          await run(npm, ["pack", "--ignore-scripts", "--json", "--pack-destination", parent], stage),
         );
         return path.join(parent, packed.filename);
       } finally {
         restorePackageExports(stage);
       }
-    }),
+    },
   );
   assert.equal(
     readFileSync(path.join(repository, "packages/daemon/dist/build-id.txt"), "utf8"),
     daemonDistBuildId,
     "packing must not rewrite the daemon dist build-id mid-run",
   );
-  run(npm, ["install", "--no-audit", "--no-fund", ...tarballs], consumer);
+  await run(npm, ["install", "--no-audit", "--no-fund", ...tarballs], consumer);
   const cli = path.join(consumer, "node_modules/@harness-anything/cli/dist/cli/src/index.js");
   const cliArgs = ["--user-root", path.join(parent, "cli-user"), "--daemon-id", "cli-smoke", "--json"];
-  run(process.execPath, [cli, "daemon", "start", "--service", ...cliArgs], consumer);
+  await run(process.execPath, [cli, "daemon", "start", "--service", ...cliArgs], consumer);
   try {
-    const status = JSON.parse(run(process.execPath, [cli, "daemon", "status", ...cliArgs], consumer));
+    const status = JSON.parse(await run(process.execPath, [cli, "daemon", "status", ...cliArgs], consumer));
     assert.equal(status.ok, true);
     assert.equal(status.entry, "dist");
     console.log("installed CLI status exit=0; daemon start --service and protocol hello=true");
   } finally {
-    run(process.execPath, [cli, "daemon", "stop", ...cliArgs], consumer);
+    await run(process.execPath, [cli, "daemon", "stop", ...cliArgs], consumer);
   }
   const installed = path.join(consumer, "node_modules/@harness-anything/daemon");
   const manifest = JSON.parse(readFileSync(path.join(installed, "package.json"), "utf8"));
@@ -128,7 +131,7 @@ try {
       const hello = await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, 2_000);
       assert.equal(hello.ok, true);
       console.log(JSON.stringify({ mode, hello: hello.ok, protocolVersion: hello.protocolVersion }));
-      const deferred = run(process.execPath, args, consumer);
+      const deferred = await run(process.execPath, args, consumer);
       assert.equal(JSON.parse(deferred).outcome, "deferred");
       const stopped = await client.request("daemon.stop", {}, 5_000);
       assert.equal(stopped.ok, true);
