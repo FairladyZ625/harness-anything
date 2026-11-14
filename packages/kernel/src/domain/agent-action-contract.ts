@@ -1,3 +1,4 @@
+import { runtimeSelectionStrategies } from "./agent-runtime.ts";
 import { parseAgentDeclarationV1, requiredPreparedText, type AgentDeclarationV1 } from "./agent-squad-schema.ts";
 import type {
   EntityActionContract,
@@ -63,6 +64,7 @@ export function createAgentActionCatalog(
             { field: "declaration", type: "json-object", required: false },
             { field: "declarationSource", type: "string", required: false },
             { field: "agentId", type: "string", required: false },
+            { field: "selectionStrategy", type: "string", required: false, enum: runtimeSelectionStrategies },
             { field: "mcpPolicy", type: "string", required: false, enum: ["disabled", "inherit"] },
             { field: "clearMcpPolicy", type: "boolean", required: false },
             { field: "dryRun", type: "boolean", required: false },

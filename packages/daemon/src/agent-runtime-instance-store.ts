@@ -1,3 +1,4 @@
+import { createRuntimeInstanceDispatchState } from "./runtime-instance-selection.ts";
 import {
   commandInterceptionNeedsFiles,
   compileCommandInterceptionFiles,
@@ -182,6 +183,7 @@ export function openRuntimeInstanceStore(input: {
    *  custom base URL needs. Production uses the process fetch. */
   readonly webSearchFetch?: typeof fetch;
 }) {
+  const dispatchState = createRuntimeInstanceDispatchState();
   const platform = input.platform ?? process.platform,
     providerHealth = input.providerHealth ?? openRuntimeProviderHealthStore(input.userRoot),
     accountProbe = createRuntimeInstanceAccountProbe(platform),
@@ -1054,6 +1056,7 @@ export function openRuntimeInstanceStore(input: {
           models,
           defaultModel,
           enabled: true,
+          ...(action.tier === undefined ? {} : { tier: action.tier }),
           ...(action.credentialSource !== undefined ? { credentialSource: action.credentialSource } : {}),
           ...(action.permissionMode !== undefined ? { permissionMode: action.permissionMode } : {}),
           ...(action.mcpPolicy !== undefined ? { mcpPolicy: action.mcpPolicy } : {}),
@@ -1211,6 +1214,7 @@ export function openRuntimeInstanceStore(input: {
         !hasInstallation &&
         !hasModels &&
         !hasDefault &&
+        action.tier === undefined &&
         !hasEnabled &&
         !hasPermission &&
         !hasMcpPolicy &&
@@ -1293,6 +1297,7 @@ export function openRuntimeInstanceStore(input: {
           models,
           defaultModel,
           enabled,
+          ...(action.tier === undefined ? {} : { tier: action.tier }),
           credentialSource,
           ...(hasPermission ? { permissionMode: action.permissionMode } : {}),
           ...(hasMcpPolicy
@@ -1353,7 +1358,7 @@ export function openRuntimeInstanceStore(input: {
             instance,
             modelCatalogReadiness: result.modelCatalogReadiness,
             evidence: JSON.stringify({ ...instance, modelCatalogReadiness: result.modelCatalogReadiness }),
-            summary: `modelCatalog: ${result.modelCatalogReadiness.code ?? "ready"}${result.modelCatalogReadiness.hint ? ` · ${result.modelCatalogReadiness.hint}` : ""}\nruntime-instance-show: ${instanceId}\nmodels: ${instance.models.join(", ")}\navailableModels: ${instance.availableModels?.join(", ") ?? "(not probed)"}\ncredentialSource: ${instance.credentialSource}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}\nmcpPolicy: ${instance.mcpPolicy ?? "unsupported"}`,
+            summary: `modelCatalog: ${result.modelCatalogReadiness.code ?? "ready"}${result.modelCatalogReadiness.hint ? ` · ${result.modelCatalogReadiness.hint}` : ""}\nruntime-instance-show: ${instanceId}\ntier: ${instance.tier}\nmodels: ${instance.models.join(", ")}\navailableModels: ${instance.availableModels?.join(", ") ?? "(not probed)"}\ncredentialSource: ${instance.credentialSource}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}\nmcpPolicy: ${instance.mcpPolicy ?? "unsupported"}`,
           };
         });
       }
@@ -1362,7 +1367,7 @@ export function openRuntimeInstanceStore(input: {
         ...base,
         instance,
         evidence: JSON.stringify(instance),
-        summary: `runtime-instance-show: ${instanceId}\nmodels: ${instance.models.join(", ")}\navailableModels: ${instance.availableModels?.join(", ") ?? "(not probed)"}\ncredentialSource: ${instance.credentialSource}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}\nmcpPolicy: ${instance.mcpPolicy ?? "unsupported"}`,
+        summary: `runtime-instance-show: ${instanceId}\ntier: ${instance.tier}\nmodels: ${instance.models.join(", ")}\navailableModels: ${instance.availableModels?.join(", ") ?? "(not probed)"}\ncredentialSource: ${instance.credentialSource}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}\nmcpPolicy: ${instance.mcpPolicy ?? "unsupported"}`,
       };
     }
     if (kind === "runtime-instance-delete") {
@@ -1457,6 +1462,7 @@ export function openRuntimeInstanceStore(input: {
     reclaimSettledRuntimeTempDirectories,
     prepareDaemonGitEnvironment,
     runtimeProviderHealth: providerHealth,
+    runtimeInstanceDispatchState: dispatchState,
     refreshInstallations,
     recordedInstallations,
     command,

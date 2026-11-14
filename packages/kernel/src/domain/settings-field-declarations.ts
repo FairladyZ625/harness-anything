@@ -1,3 +1,4 @@
+import { runtimeSelectionStrategies } from "./agent-runtime.ts";
 import type { CommandInterception } from "./command-interceptions.ts";
 import type { EntityActionInputField } from "./entity-kind-registry.ts";
 import type { GateWitnessMappingV1 } from "./completion-contract.ts";
@@ -695,6 +696,18 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     group: "schedules-nodes",
     action: { field: "fleetClaimScope", type: "string" },
     cli: { name: "--fleet-claim-scope", kind: "single", enum: ["node", "reserved", "startable"] },
+  }),
+  defineSettingsField({
+    path: ["runtime", "selectionStrategy"],
+    ownership: repository,
+    valueKind: "enum",
+    defaultValue: "sticky",
+    allowedValues: runtimeSelectionStrategies,
+    description: "Same-tier runtime instance scheduling strategy; Agent declarations may override it.",
+    effect: "Sticky reuses the first idle instance; lru balances active load then least-recent dispatch.",
+    group: "schedules-nodes",
+    action: { field: "runtimeSelectionStrategy", type: "string" },
+    cli: { name: "--runtime-selection-strategy", kind: "single", enum: runtimeSelectionStrategies },
   }),
   defineSettingsField({
     path: ["runtime", "allowedInstances"],

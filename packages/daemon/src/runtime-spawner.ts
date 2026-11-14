@@ -21,7 +21,11 @@ import {
   type AuthorizationDecision,
 } from "@harness-anything/kernel";
 import { agentRuntimeModelSpelling, agentRuntimeTargetForKind } from "./agent-runtime-contract.ts";
-import { agentRuntimeAmbiguityWarning, selectedRuntimeInstance } from "./runtime-instance-selection.ts";
+import {
+  agentRuntimeAmbiguityWarning,
+  selectedRuntimeInstance,
+  createRuntimeInstanceDispatchState,
+} from "./runtime-instance-selection.ts";
 import { resolveDispatchAgent } from "./runtime-spawn-agent.ts";
 import { assertAgentDispatchable } from "./agent-entities.ts";
 import { sharedProviderDirectory } from "./agent-runtime-instance-storage.ts";
@@ -165,6 +169,7 @@ function releaseFailedTaskClaim<Args extends unknown[]>(
 }
 
 export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
+  const dispatchState = input.runtimeInstanceDispatchState ?? createRuntimeInstanceDispatchState();
   const processes = new Map<string, ActiveRuntime>(),
     exiting = new Set<string>(),
     launch = input.launch ?? launchNative,
@@ -555,6 +560,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           allowedInstanceIds,
           sessions: localRuntimeSessions,
           capacity,
+          selectionStrategy: input.readSettings?.().runtime.selectionStrategy,
+          ...(dryRun ? {} : { dispatchState }),
           health: providerHealth,
           now: input.now(),
         },
@@ -833,6 +840,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         ...(model === undefined ? {} : { model }),
         instances: runtimeInstances,
         selected: runtimeInstanceId,
+        selectionStrategy: input.readSettings?.().runtime.selectionStrategy,
         ...(explicitRuntimeInstanceId === undefined ? {} : { explicitlyRequested: true }),
         ...(providerSessionId === null || providerSessionId === undefined ? {} : { resumedSession: true }),
       }),
@@ -1351,6 +1359,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     const selectionFields = {
         runtimeSelection: {
           instanceId: runtimeSelection.instanceId,
+          tier: runtimeSelection.tier,
+          selectionStrategy: runtimeSelection.selectionStrategy,
           basis: runtimeSelection.basis,
           reason: runtimeSelection.reason,
           model: definition.model,
@@ -1366,6 +1376,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               agent,
               runtimeInstances,
               selected: runtimeSelection.instanceId,
+              selectionStrategy: input.readSettings?.().runtime.selectionStrategy,
             }),
       // A launch without the operator's GitHub login still runs; this is the one place the operator
       // learns the worker cannot publish before the credential error would arrive at `ha task push`.

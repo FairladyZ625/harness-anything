@@ -71,11 +71,29 @@ export function parsePreset(
   if (route.id === "agent-install") {
     if (!f.one.has("--source") && !f.one.has("--id"))
       return rejected("missing_field", "Use ha agent install --source <path> or --id <agent-id>.", json);
-    if (f.one.has("--id") && !f.one.has("--mcp-policy") && !f.booleans.has("--clear-mcp-policy"))
-      return rejected("missing_field", "ha agent install --id requires --mcp-policy or --clear-mcp-policy.", json);
+    if (
+      f.one.has("--id") &&
+      !f.one.has("--mcp-policy") &&
+      !f.booleans.has("--clear-mcp-policy") &&
+      !f.one.has("--selection-strategy")
+    )
+      return rejected(
+        "missing_field",
+        "ha agent install --id requires --mcp-policy, --clear-mcp-policy, or --selection-strategy.",
+        json,
+      );
   }
-  if (route.id === "agent-update" && !f.one.has("--mcp-policy") && !f.booleans.has("--clear-mcp-policy"))
-    return rejected("missing_field", "ha agent update <agent-id> requires --mcp-policy or --clear-mcp-policy.", json);
+  if (
+    route.id === "agent-update" &&
+    !f.one.has("--mcp-policy") &&
+    !f.booleans.has("--clear-mcp-policy") &&
+    !f.one.has("--selection-strategy")
+  )
+    return rejected(
+      "missing_field",
+      "ha agent update <agent-id> requires --mcp-policy, --clear-mcp-policy, or --selection-strategy.",
+      json,
+    );
   if (positionalField && !nonEmpty(positional))
     return rejected("missing_field", `${positionalField} is required.`, json);
   const matched =

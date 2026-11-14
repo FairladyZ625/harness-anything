@@ -64,6 +64,7 @@ export interface AgentEntityGuiAvailableRow {
   readonly instance: string | null;
   readonly permissionMode: AgentDeclarationV1["permissionMode"] | null;
   readonly mcpPolicy?: AgentDeclarationV1["mcpPolicy"] | null;
+  readonly selectionStrategy?: AgentDeclarationV1["selectionStrategy"];
   /** Effective host access; an undeclared declaration resolves to the Kernel default. */
   readonly hostAccess: AgentHostAccess;
   /** Whether `hostAccess` came from the declaration or from the undeclared default. */
@@ -107,6 +108,7 @@ export interface AgentEntityGuiDetail {
   readonly instance: string | null;
   readonly permissionMode: AgentDeclarationV1["permissionMode"] | null;
   readonly mcpPolicy?: AgentDeclarationV1["mcpPolicy"] | null;
+  readonly selectionStrategy?: AgentDeclarationV1["selectionStrategy"];
   /** Effective host access; an undeclared declaration resolves to the Kernel default. */
   readonly hostAccess: AgentHostAccess;
   /** Whether `hostAccess` came from the declaration or from the undeclared default. */
@@ -236,6 +238,7 @@ export function readAgentEntityGuiProjection<
         instance: agent.instance ?? null,
         permissionMode: agent.permissionMode ?? null,
         mcpPolicy: agent.mcpPolicy ?? null,
+        ...(agent.selectionStrategy === undefined ? {} : { selectionStrategy: agent.selectionStrategy }),
         ...resolveAgentHostAccess(agent.hostAccess),
         role: agent.role ?? "worker",
         instructions: agent.instructions,
@@ -358,6 +361,7 @@ function agentEntityCatalogRow(row: AgentEntityProjectionRow): AgentEntityGuiRow
     instance: agent.instance ?? null,
     permissionMode: agent.permissionMode ?? null,
     mcpPolicy: agent.mcpPolicy ?? null,
+    ...(agent.selectionStrategy === undefined ? {} : { selectionStrategy: agent.selectionStrategy }),
     ...resolveAgentHostAccess(agent.hostAccess),
     role: agent.role ?? "worker",
     layer: "user",
@@ -600,8 +604,15 @@ export function prepareAgentEntityInstall(input: {
   const store = input.entityStore ?? openEntityStore(input.rootDir);
   if (hasAgentId) {
     const agentId = requiredEntityText(input.action.agentId, "agentId");
-    if (input.action.mcpPolicy === undefined && input.action.clearMcpPolicy !== true)
-      throw entityError("invalid_command", "agent install with agentId requires mcpPolicy or clearMcpPolicy.");
+    if (
+      input.action.mcpPolicy === undefined &&
+      input.action.clearMcpPolicy !== true &&
+      input.action.selectionStrategy === undefined
+    )
+      throw entityError(
+        "invalid_command",
+        "agent install with agentId requires mcpPolicy, clearMcpPolicy, or selectionStrategy.",
+      );
     const current = repairableStoredDeclaration(store, "agent", agentId);
     const projectedLifecycle = input.projection?.getEntity("agent", agentId)?.value.lifecycleState;
     if (current.value?.lifecycleState === "retired" || projectedLifecycle === "retired")
@@ -618,7 +629,7 @@ export function prepareAgentEntityInstall(input: {
         `${agentId} is not an installed agent.`,
         "agent/entity-present",
       );
-    const patched = applyAgentMcpPolicyOverride(current.value, input.action);
+    const patched = applyAgentRuntimeOverrides(current.value, input.action);
     if ("issues" in patched)
       throw agentInstallError(
         "agent",
@@ -889,7 +900,7 @@ function repairableStoredDeclaration(
     return { value: null, workspaceRevision: null };
   }
 }
-function applyAgentMcpPolicyOverride(
+function applyAgentRuntimeOverrides(
   declaration: Readonly<Record<string, unknown>> | AgentDeclarationV1,
   action: Readonly<Record<string, unknown>>,
 ):
@@ -920,6 +931,8 @@ function applyAgentMcpPolicyOverride(
   } else {
     next = { ...declaration };
   }
+  if (action.selectionStrategy !== undefined)
+    next = { ...(next as AgentDeclarationV1), selectionStrategy: action.selectionStrategy };
   const issues = validateAgentDeclarationV1(next);
   return issues.length
     ? { issues: issues.map((message) => ({ code: "invalid_manifest", message })) }
@@ -931,7 +944,10 @@ export function readAgentEntityDeclarationSource(
   | { readonly declaration: AgentDeclarationV1 & SquadDeclarationV1; readonly source?: string }
   | { readonly issues: readonly { readonly code: string; readonly message: string }[]; readonly source?: string } {
   const kind = entityKind(String(action.kind));
-  if (kind !== "agent" && (action.mcpPolicy !== undefined || action.clearMcpPolicy === true))
+  if (
+    kind !== "agent" &&
+    (action.mcpPolicy !== undefined || action.clearMcpPolicy === true || action.selectionStrategy !== undefined)
+  )
     return {
       issues: [{ code: "invalid_command", message: `${kind} install does not support mcpPolicy overrides.` }],
     };
@@ -941,8 +957,9 @@ export function readAgentEntityDeclarationSource(
       | { readonly issues: readonly { readonly code: string; readonly message: string }[]; readonly source?: string },
   ) => {
     if ("issues" in decoded || kind !== "agent") return decoded;
-    if (action.mcpPolicy === undefined && action.clearMcpPolicy !== true) return decoded;
-    const patched = applyAgentMcpPolicyOverride(decoded.declaration, action);
+    if (action.mcpPolicy === undefined && action.clearMcpPolicy !== true && action.selectionStrategy === undefined)
+      return decoded;
+    const patched = applyAgentRuntimeOverrides(decoded.declaration, action);
     if ("issues" in patched) return { issues: patched.issues, ...(decoded.source ? { source: decoded.source } : {}) };
     return {
       declaration: patched.declaration,

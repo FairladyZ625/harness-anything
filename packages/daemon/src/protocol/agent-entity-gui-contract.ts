@@ -1,3 +1,4 @@
+import { runtimeSelectionStrategies } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import { entityNonEmpty, entitySlug } from "@harness-anything/kernel";
 import { runtimeEffortValues } from "@harness-anything/kernel/runtime-effort";
 import { EntitySchemaContractError } from "@harness-anything/kernel";
@@ -63,11 +64,18 @@ function entityReadRowErrors(
 const agentGuiRoles = Object.freeze(["worker", "commander", "reviewer"]),
   agentGuiHostAccess = Object.freeze(["isolated", "operator", "bypass"]),
   agentGuiMcpPolicies = Object.freeze(["disabled", "inherit"]),
-  agentOptionalWireFields = Object.freeze(["mcpPolicy"]),
-  agentMcpPolicyError = (row: Record<string, unknown>, prefix: string): readonly string[] =>
-    Object.hasOwn(row, "mcpPolicy") && row.mcpPolicy !== null && !agentGuiMcpPolicies.includes(String(row.mcpPolicy))
+  agentOptionalWireFields = Object.freeze(["mcpPolicy", "selectionStrategy"]),
+  agentMcpPolicyError = (row: Record<string, unknown>, prefix: string): readonly string[] => [
+    ...(Object.hasOwn(row, "mcpPolicy") &&
+    row.mcpPolicy !== null &&
+    !agentGuiMcpPolicies.includes(String(row.mcpPolicy))
       ? [`${prefix} mcpPolicy must be null, disabled, or inherit.`]
-      : [],
+      : []),
+    ...(row.selectionStrategy !== undefined &&
+    !(runtimeSelectionStrategies as readonly unknown[]).includes(row.selectionStrategy)
+      ? [`${prefix} selectionStrategy must be sticky or lru.`]
+      : []),
+  ],
   agentHostAccessErrors = (row: Record<string, unknown>, prefix: string): readonly string[] =>
     [
       !agentGuiHostAccess.includes(String(row.hostAccess))
@@ -392,7 +400,7 @@ function agentDiffFieldErrors(value: unknown, prefix: string): readonly string[]
   }
   errors.push(...entityReadRowErrors(value, ["field", "kind", "from", "to"], prefix));
   if (
-    !["name", "role", "preset", "instance", "permissionMode", "mcpPolicy"].includes(field) ||
+    !["name", "role", "preset", "instance", "permissionMode", "mcpPolicy", "selectionStrategy"].includes(field) ||
     value.kind !== "changed"
   )
     errors.push(`${prefix} names an undeclared scalar field or a non-changed kind.`);

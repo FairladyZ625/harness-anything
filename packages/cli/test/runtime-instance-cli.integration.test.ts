@@ -51,6 +51,8 @@ test("real CLI performs machine runtime instance CRUD through an isolated reside
       "runtime",
       "instance",
       "create",
+      "--tier",
+      "2",
       "--id",
       "cli-isolated",
       "--name",
@@ -81,6 +83,12 @@ test("real CLI performs machine runtime instance CRUD through an isolated reside
       probed = run(root, env, ["runtime", "instance", "show", "cli-isolated", "--probe"]),
       listed = run(root, env, ["runtime", "instance", "list"]);
     assert.deepEqual(shown.instance, created.instance);
+    assert.equal((shown.instance as Record<string, unknown>).tier, 2);
+    run(root, env, ["runtime", "instance", "update", "cli-isolated", "--tier", "1"]);
+    assert.equal(
+      (run(root, env, ["runtime", "instance", "show", "cli-isolated"]).instance as Record<string, unknown>).tier,
+      1,
+    );
     assert.deepEqual((shown.instance as Record<string, unknown>).configuration, {
       reasoningEffort: "high",
       fast: true,

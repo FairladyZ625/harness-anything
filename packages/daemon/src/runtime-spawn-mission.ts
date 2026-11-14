@@ -1,3 +1,7 @@
+import type {
+  RuntimeInstanceDispatchState,
+  RuntimeSelectionStrategy,
+} from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import type { AgentRole, DispatchLifecycleView, TaskLifecycleSnapshot, TaskProjection } from "@harness-anything/kernel";
@@ -160,6 +164,8 @@ export function resolveRuntimeInstanceCandidates(input: {
   readonly instances: readonly RuntimeInstanceSummary[];
   readonly sessions: readonly RuntimeSessionSelection[];
   readonly capacity?: readonly DispatchLifecycleView[];
+  readonly selectionStrategy?: RuntimeSelectionStrategy;
+  readonly dispatchState?: RuntimeInstanceDispatchState;
   readonly health?: readonly RuntimeProviderHealth[];
   readonly now?: string;
 }): string[] {
@@ -376,16 +382,27 @@ export function resolveRuntimeInstanceCandidates(input: {
     load = new Map<string, number>();
   for (const { attempt, policy } of input.capacity ?? [])
     if (policy.capacity !== "released") load.set(attempt.instanceId, (load.get(attempt.instanceId) ?? 0) + 1);
+  const strategy = input.agent?.selectionStrategy ?? input.selectionStrategy ?? "sticky",
+    ranks = new Map(ready.map((instance) => [instance.instanceId, runtimeInstanceRank(input, instance.instanceId)]));
   return [...ready]
-    .sort(
-      (a, b) =>
-        compareRuntimeInstanceRank(
-          runtimeInstanceRank(input, a.instanceId),
-          runtimeInstanceRank(input, b.instanceId),
-        ) ||
-        (load.get(a.instanceId) ?? 0) - (load.get(b.instanceId) ?? 0) ||
-        (allowedRank.get(a.instanceId) ?? allowed.length) - (allowedRank.get(b.instanceId) ?? allowed.length),
-    )
+    .sort((a, b) => {
+      const left = ranks.get(a.instanceId)!,
+        right = ranks.get(b.instanceId)!,
+        leftLoad = load.get(a.instanceId) ?? 0,
+        rightLoad = load.get(b.instanceId) ?? 0;
+      return (
+        left.tier - right.tier ||
+        left.rowIndex - right.rowIndex ||
+        (strategy === "lru"
+          ? leftLoad - rightLoad ||
+            (input.dispatchState?.lastDispatchedAt.get(a.instanceId) ?? 0) -
+              (input.dispatchState?.lastDispatchedAt.get(b.instanceId) ?? 0)
+          : Number(leftLoad > 0) - Number(rightLoad > 0)) ||
+        compareRuntimeInstanceRank(left, right) ||
+        (strategy === "sticky" ? leftLoad - rightLoad : 0) ||
+        (allowedRank.get(a.instanceId) ?? allowed.length) - (allowedRank.get(b.instanceId) ?? allowed.length)
+      );
+    })
     .map((instance) => instance.instanceId);
 }
 
@@ -401,6 +418,7 @@ export async function prepareRuntimeInstance<T>(
     candidates = resolveRuntimeInstanceCandidates({ ...input, unavailableReasons: reasons });
   for (const instanceId of candidates) {
     try {
+      input.dispatchState?.recordDispatch(instanceId);
       return { instanceId, launch: await prepare(instanceId) };
     } catch (error) {
       const code = (error as { readonly code?: string }).code;

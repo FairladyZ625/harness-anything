@@ -1266,16 +1266,19 @@ test("an old-shape stored declaration rejects dispatch with the reinstall comman
 
 test("install and validate warn when a valid declaration leaves the instance choice open", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-instance-ambiguity-")),
-    // The deli-ai-lab shape: one kind, two instances, the model spelled with different case.
+    // dec_DA1602487428A58E8B446ECE38/CH3: only unstated cross-kind choices warn.
     runtimeInstances = [
       { instanceId: "ds-bailian", kindId: "deepseek-harness", models: ["deepseek-v4.1-flash"], enabled: true },
-      { instanceId: "ds-harness-api", kindId: "deepseek-harness", models: ["Deepseek-V4.1-Flash"], enabled: true },
+      { instanceId: "ds-harness-api", kindId: "codex", models: ["Deepseek-V4.1-Flash"], enabled: true },
     ],
     declaration = {
       ...agent,
       id: "lab-glm-reviewer",
       name: "Lab reviewer",
-      runtimes: [{ type: "deepseek-harness", model: "deepseek-v4.1-flash" }],
+      runtimes: [
+        { type: "deepseek-harness", model: "deepseek-v4.1-flash" },
+        { type: "codex", model: "Deepseek-V4.1-Flash" },
+      ],
     };
   try {
     const report = (await install({ rootDir, kind: "agent-install", declaration, runtimeInstances })) as {

@@ -19,6 +19,7 @@ export function parseRuntimeInstanceUpdate(
   if (
     !flags.booleans.has("--api-key-stdin") &&
     !flags.one.has("--api-key-file") &&
+    !flags.one.has("--tier") &&
     !flags.one.has("--name") &&
     !flags.one.has("--installation") &&
     models.length === 0 &&
@@ -64,6 +65,7 @@ export function parseRuntimeInstanceUpdate(
           ? { mcpPolicy: "" }
           : {}),
       ...(flags.one.get("--isolation") ? { isolationState: flags.one.get("--isolation") } : {}),
+      ...(flags.one.has("--tier") ? { tier: Number(flags.one.get("--tier")) } : {}),
       ...(flags.one.get("--credential-source") ? { credentialSource: flags.one.get("--credential-source") } : {}),
       ...(flags.booleans.has("--fast") ? { fast: true } : {}),
       ...(enable || disable ? { enabled: enable } : {}),
