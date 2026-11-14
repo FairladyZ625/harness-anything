@@ -315,6 +315,108 @@ if (!isMainThread) {
     }
   }
 
+  test("default event views preserve raw UTC timestamp precision through every materialization path", async (t) => {
+    const fixture = await pgRuntimeFixture(),
+      repoId = "raw-summary-time",
+      scope = { tenantId: "raw-time", projectId: "raw-time", policyEpoch: 1, readers: [] },
+      backend = createPgStorageBackend({ pool: fixture.pool, repoId, scope }),
+      times = ["2026-08-13T00:00:00.123456Z", "2026-08-13T00:00:00Z"],
+      events = [1, 2, 3, 4].map((revision) => ({ ...eventAt(revision), occurredAt: times[(revision - 1) % 2] })),
+      keys = [scope.tenantId, scope.projectId, scope.policyEpoch, repoId];
+    let reader;
+    try {
+      for (const event of events.slice(0, 2))
+        await backend.eventStore.append(
+          { event, plan: taskLifecycleWritePlan(event), blobs: [] },
+          event.workspaceRevision - 1,
+          { repoId, holderId: "raw-time-writer", epoch: 1 },
+        );
+      reader = createPgTaskQueryReader({ connectionString: fixture.connectionString, scope, repoId });
+      const verify = async (stage, selected) => {
+        const expected = selected.map(canonicalEventSummary),
+          views = reader.withSession((projection) => {
+            const input = { repoId, rootDir: tmpdir(), mode: "local", projection };
+            return {
+              default: projection.readEventSummaries(0, 20).events,
+              workspace: projection.readEventSummaries(0, 20, { taskIds: selected.map((event) => event.taskId) })
+                .events,
+              history: readObserveEventTail({ ...input, payload: { kind: "events", direction: "history" } }).items,
+              follow: readObserveEventTail({
+                ...input,
+                payload: { kind: "events", direction: "follow", cursor: { kind: "events", revision: 0 } },
+              }).items,
+            };
+          });
+        t.diagnostic(
+          JSON.stringify({
+            timestampStage: stage,
+            expected: expected.map((event) => event.occurredAt),
+            actual: views.default.map((event) => event.occurredAt),
+          }),
+        );
+        for (const [view, actual] of Object.entries(views))
+          await t.test(`${stage}/${view}`, () => assert.deepEqual(actual, expected));
+      };
+      await verify("current writer", events.slice(0, 2));
+      await backfillPgDefaultEventSummaries(fixture.adminPool, scope, repoId);
+      for (const event of events.slice(2)) {
+        const body = serializeCanonicalEventUnchecked(event).trimEnd();
+        await fixture.adminPool.query(
+          `INSERT INTO ha_events(tenant_id,project_id,repo_id,revision,op_id,event_id,event_type,event_json,event_digest,
+             occurred_at,policy_epoch,readers,entity_refs,actor_refs)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+          [
+            scope.tenantId,
+            scope.projectId,
+            repoId,
+            event.workspaceRevision,
+            event.opId,
+            event.eventId,
+            event.type,
+            body,
+            `sha256:${sha256Text(body)}`,
+            event.occurredAt,
+            scope.policyEpoch,
+            scope.readers,
+            canonicalEventEntityRefs(event),
+            [event.actor.principal.personId, event.actor.executor.id],
+          ],
+        );
+      }
+      await fixture.adminPool.query(
+        "UPDATE ha_repo_heads SET revision=4,head_op_id=$5 WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4",
+        [...keys, events.at(-1).opId],
+      );
+      await fixture.adminPool.query(
+        "UPDATE ha_projection_meta SET watermark=4,source_revision=4 WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND projection_name='task/v1'",
+        keys.slice(0, 3),
+      );
+      await verify("previous writer after ready", events);
+      const canonicalBodies = await fixture.adminPool.query("SELECT event_json FROM ha_events ORDER BY revision");
+      await fixture.adminPool.query(
+        "UPDATE ha_events SET default_summary_json=NULL WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4",
+        keys,
+      );
+      await fixture.adminPool.query(
+        "DELETE FROM ha_event_summary_state WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4",
+        keys,
+      );
+      await backfillPgDefaultEventSummaries(fixture.adminPool, scope, repoId);
+      await verify("management backfill", events);
+      reader.rebuild();
+      await verify("cold rebuild", events);
+      assert.deepEqual(
+        (await fixture.adminPool.query("SELECT event_json FROM ha_events ORDER BY revision")).rows,
+        canonicalBodies.rows,
+        "summary materialization must preserve canonical bytes",
+      );
+    } finally {
+      reader?.close();
+      await fixture.pool.end();
+      await fixture.close();
+    }
+  });
+
   test("R8 and R9 PostgreSQL event summary queries preserve SQLite parity across edge shapes, tail cursors, and backfill", async () => {
     const pgFixture = await pgRuntimeFixture(),
       rootDir = mkdtempSync(path.join(tmpdir(), "ha-g38-p2-parity-")),
@@ -520,7 +622,7 @@ if (!isMainThread) {
             ...surrogateFactSeed.event.payload,
             statement: `surrogate-\u0000-\ud800-${"q".repeat(280)}`,
           },
-          occurredAt: "2026-11-10T00:05:00Z",
+          occurredAt: "2026-11-10T00:05:00.000Z",
         };
       for (const blob of surrogateFactSeed.blobs) blobs.set(blob.sha256, Buffer.from(blob.body));
       const allEvents = [...appended, retiredCi, loneSurrogateEvent];

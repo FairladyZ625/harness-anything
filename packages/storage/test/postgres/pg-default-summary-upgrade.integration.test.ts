@@ -255,7 +255,7 @@ test("external PostgreSQL upgrade drains default summaries before workspace read
       type: "fact_recorded",
       actor: { principal: { personId: "rich-principal" }, executor: null },
       source: "local",
-      occurredAt: "2026-08-13T00:00:00.000Z",
+      occurredAt: "2026-08-13T00:00:00.123456Z",
       payload: {
         statement: `${"汉".repeat(279)}😀`,
         text: `nul-\u0000-${"x".repeat(300)}`,

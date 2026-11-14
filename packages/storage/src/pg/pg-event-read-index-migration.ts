@@ -4,7 +4,6 @@ import {
   canonicalEventSummary,
   SUMMARY_TEXT_LIMIT,
 } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
-import { normalizeHistoricalEvent } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";
 import {
   storageReadPolicy,
   validateStorageReadWindow,
@@ -131,7 +130,7 @@ export function eventReadIndexDdl(): readonly string[] {
         RETURN json_build_object(
           'eventId',ha_default_summary_text(raw->'eventId')::json,
           'schema',ha_default_summary_text(raw->'schema')::json,'type',ha_default_summary_text(raw->'type')::json,
-          'occurredAt',to_char((raw->>'occurredAt')::timestamptz AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+          'occurredAt',ha_default_summary_text(raw->'occurredAt')::json,
           'workspaceRevision',raw->'workspaceRevision',
           'taskId',ha_default_summary_text(raw->'taskId')::json,
           'factId',ha_default_summary_text(raw->'factId')::json,'decisionId',ha_default_summary_text(raw->'decisionId')::json,
@@ -467,12 +466,11 @@ export function pgDefaultEventSummaryEntry(
   readonly eventId: string;
   readonly summaryJson: string;
 } {
-  const normalized = normalizeHistoricalEvent(rawEvent);
   return {
-    revision: sourceRevision ?? normalized.workspaceRevision,
+    revision: sourceRevision ?? rawEvent.workspaceRevision,
     opId: rawEvent.opId,
     eventId: rawEvent.eventId,
-    summaryJson: JSON.stringify(canonicalEventSummary(normalized)),
+    summaryJson: JSON.stringify(canonicalEventSummary(rawEvent)),
   };
 }
 
