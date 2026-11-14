@@ -123,7 +123,6 @@ export async function runCompletionSources(
     const pending = chainRepoCellWrite(
       context.tail,
       async () => {
-        context.queueDepth -= 1;
         if (context.state !== "attached")
           throw context.cellCodedError("repo_unavailable", "The source host lost its attached RepoCell.");
         assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
@@ -143,6 +142,9 @@ export async function runCompletionSources(
       },
       {
         queue: context.writeQueue,
+        onDequeued: () => {
+          context.queueDepth -= 1;
+        },
         label: { command: action.kind, requestId: null },
       },
     );

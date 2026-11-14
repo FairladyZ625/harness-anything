@@ -105,7 +105,7 @@ test("RepoWriter sends complete PG operations asynchronously and drains before r
         await drained.promise;
       },
     }).execute;
-    const inFlight = assert.rejects(supervisor.request("canonicalStore", next), /RepoWriterCell closed/u);
+    const inFlight = assert.rejects(supervisor.request("canonicalStore", next), { code: "daemon_closing" });
     await draining.promise;
     const closing = supervisor.close();
     drained.resolve();

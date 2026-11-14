@@ -1,3 +1,4 @@
+import { publicPublication } from "./repo-cell-receipts.ts";
 import { nodeMaterializationPolicyForMode } from "@harness-anything/kernel/internal/domain/task-wip-policy.ts";
 import { writerLifecyclePolicy } from "@harness-anything/kernel/internal/domain/writer-lifecycle-policy.ts";
 import { readRuntimeCanAttach } from "./agent-runtime-read.ts";
@@ -17,7 +18,6 @@ import {
   isSamePerson,
   runtimeSessionActionIds,
   type AgentRuntimeEventV1,
-  type CanonicalEventAppendReceipt,
   type DaemonRepoMode,
   type EventPublicationKillpoint,
   type SettingsV1,
@@ -76,7 +76,6 @@ import { authorizeRuntimeRepoAction } from "./repo-cell-authorization.ts";
 import { commitRuntimeSettlement } from "./repo-cell-runtime-settlement.ts";
 import { failed, rejected, requiredCellText } from "./repo-cell-settlement.ts";
 import type {
-  PublicPublication,
   RepoCell,
   RepoCellAttachProgress,
   RepoCellBinding,
@@ -101,10 +100,6 @@ import { repoCellLatchedMessage } from "./repo-cell-latched-message.ts";
 import { backupRepo, drillRepoBackup } from "./repo-all-purge.ts";
 import { makeRepoCellFleetBackup } from "./repo-cell-fleet-backup.ts";
 import { reviewerArtifactsFromCarriedReview } from "./reviewer-artifact-publication.ts";
-
-export function publicPublication(value: Pick<CanonicalEventAppendReceipt, "commitSha" | "cut">): PublicPublication {
-  return { commitSha: value.commitSha?.sha ?? null, cut: value.cut };
-}
 
 export interface RepoCellOpenInput {
   readonly storage?: DaemonStorageConfig;
@@ -398,8 +393,6 @@ export async function openRepoWriterCell(
     const pending = chainRepoCellWrite(
       tail,
       async () => {
-        queueDepth -= 1;
-        input.onQueueDepthChange?.(queueDepth);
         // Runtime terminal work (exit publication, Schedule settlement) queued here must survive the
         // latched window: the durable SQLite ledger still accepts appends while Git publication and
         // projection recovery run behind them, and the writer-epoch fence rejects appends whose epoch
@@ -407,7 +400,14 @@ export async function openRepoWriterCell(
         if (state !== "closed")
           await recoveryWork.queued(() => (binding ? withWriterEpochBinding(binding, work) : work()));
       },
-      { queue: writeQueue, label: { command: "runtime-settlement", requestId: null } },
+      {
+        queue: writeQueue,
+        label: { command: "runtime-settlement", requestId: null },
+        onDequeued: () => {
+          queueDepth -= 1;
+          input.onQueueDepthChange?.(queueDepth);
+        },
+      },
     ).finally(() => {
       releaseAuthorization?.();
       input.onQueueDepthChange?.(queueDepth);
@@ -428,8 +428,6 @@ export async function openRepoWriterCell(
     const pending = chainRepoCellWrite(
       tail,
       async () => {
-        queueDepth -= 1;
-        input.onQueueDepthChange?.(queueDepth);
         if (request.kind === "backup")
           return backupRepo({
             rootDir,
@@ -446,6 +444,10 @@ export async function openRepoWriterCell(
       {
         queue: writeQueue,
         label: queueObservation?.label ?? { command: "ledger-backup", requestId: null },
+        onDequeued: () => {
+          queueDepth -= 1;
+          input.onQueueDepthChange?.(queueDepth);
+        },
         ...(queueObservation ? { observation: queueObservation } : {}),
       },
     ).finally(() => input.onQueueDepthChange?.(queueDepth));

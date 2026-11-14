@@ -1,4 +1,5 @@
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { receiveMessageOnPort, Worker, MessageChannel, type MessagePort } from "node:worker_threads";
 import { extname } from "node:path";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
@@ -9,6 +10,29 @@ import type { PgEpochRequest } from "../postgres/pg-epoch-transaction.ts";
 import type { WriterEpochLease } from "../writer-epoch-contract.ts";
 import type { PgRelationCycleRefreshPage } from "./pg-relation-cycle-audit.ts";
 export type { PgTaskQueryMethods } from "./pg-task-query-contract.ts";
+
+/** The daemon request owns its phase across all of its SQL RPCs. SQL response state stays private. */
+export interface StorageWriteRequest {
+  readonly state: Int32Array;
+  readonly id: number;
+  readonly onOperation?: (opId: string) => void;
+}
+const writeRequests = new AsyncLocalStorage<StorageWriteRequest & { active: boolean }>();
+
+export async function withStorageWriteRequest<T>(
+  request: StorageWriteRequest,
+  operation: () => Promise<T>,
+): Promise<T> {
+  if (request.state.length !== 3 || !(request.state.buffer instanceof SharedArrayBuffer))
+    throw new TypeError("Storage write request state must be a shared Int32Array[3]");
+  const bound = { ...request, active: true };
+  try {
+    return await writeRequests.run(bound, operation);
+  } finally {
+    // Detached publication callbacks may inherit the async context, but no longer own this request.
+    bound.active = false;
+  }
+}
 
 export interface PgTaskQueryReaderOptions {
   readonly connectionString: string;
@@ -22,7 +46,7 @@ export interface PgTaskQueryReaderOptions {
   readonly queryTimeoutMs?: number;
   readonly preCommitTimeoutMs?: number;
   readonly rollbackGraceMs?: number;
-  /** Shared with the host cancellation owner; one request remains in flight until its response. */
+  /** SQL RPC state for standalone cancellation. Daemon requests bind their separate state with withStorageWriteRequest. */
   readonly state?: Int32Array;
   readonly now?: () => string;
 }
@@ -185,6 +209,10 @@ export function createPgTaskQueryReader(
     if (closed && op !== "close") throw new Error("PostgreSQL task query reader is closed", { cause: lifecycleError });
     if (op === "query" && !activeSession) throw new Error("PostgreSQL query methods require an active reader session");
     const id = ++requestId;
+    const bound = writeRequests.getStore(),
+      owner = bound?.active ? bound : undefined;
+    if (owner && Atomics.load(owner.state, 2) !== owner.id)
+      throw Object.assign(new Error("Storage write request no longer owns its slot"), { code: "write_request_stale" });
     // Never overwrite the worker's terminal (-1) signal between requests.
     Atomics.compareExchange(state, 0, 1, 0);
     // The previous response has settled; no old cancellation may pass the new request's id fence.
@@ -201,6 +229,7 @@ export function createPgTaskQueryReader(
         ...(method ? { method } : {}),
         ...(args ? { args } : {}),
         ...(op === "query" && options.now ? { now: options.now() } : {}),
+        ...(owner ? { writeRequest: { state: owner.state, id: owner.id } } : {}),
       });
     let response: WorkerResponse;
     try {
@@ -211,7 +240,7 @@ export function createPgTaskQueryReader(
         write ? preCommitTimeoutMs : queryTimeoutMs,
         worker,
         "PostgreSQL task query worker timed out",
-        write ? { rollbackGraceMs } : undefined,
+        write || owner ? { rollbackGraceMs, owner } : undefined,
       );
     } catch (error) {
       closed = true;
@@ -222,7 +251,7 @@ export function createPgTaskQueryReader(
       lifecycleError = response.error ? restoreError(response.error) : undefined;
       closed = true;
       port1.close();
-      if (Atomics.load(state, 1) !== 1) void worker.terminate();
+      if (Atomics.load(state, 1) !== 1 && (!owner || Atomics.load(owner.state, 1) !== 1)) void worker.terminate();
     }
     if (response.error) throw restoreError(response.error);
     return response.result as Result;
@@ -243,6 +272,11 @@ export function createPgTaskQueryReader(
     path,
     executeCanonical: (value) => {
       if (activeSession) throw new Error("canonical operations cannot run inside a projection read session");
+      const owner = writeRequests.getStore();
+      if (owner?.active) {
+        if (value.operation === "append") owner.onOperation?.(value.bundle.event.opId);
+        if (value.operation === "reject") owner.onOperation?.(value.rejection.opId);
+      }
       return request("canonical", undefined, [value]);
     },
     changeLease: (...args) => {
@@ -309,34 +343,41 @@ function waitForWorker(
   waitMs: number,
   worker: PgQueryEndpoint,
   timeoutMessage: string,
-  write?: { readonly rollbackGraceMs: number },
+  write?: { readonly rollbackGraceMs: number; readonly owner?: StorageWriteRequest },
 ): WorkerResponse {
   const deadline = performance.now() + waitMs,
     shared = state.length === 3;
   let rollbackDeadline: number | undefined;
   while (Atomics.load(state, 0) === 0) {
-    const phase = shared ? Atomics.load(state, 1) : 0;
+    const owner = write?.owner,
+      waitState = owner?.state ?? state,
+      phase = owner ? Atomics.load(owner.state, 1) : shared ? Atomics.load(state, 1) : 0;
     if (phase === 1) {
       // SyncRep may take arbitrarily long. The host can detach the caller, never the connection.
-      Atomics.wait(state, 0, 0, 1_000);
+      Atomics.wait(waitState, 0, 0, 1_000);
       continue;
     }
-    if (write && phase === -1) rollbackDeadline ??= performance.now() + write.rollbackGraceMs;
+    if (write && phase === -1) {
+      Atomics.compareExchange(state, 1, 0, -1);
+      rollbackDeadline ??= performance.now() + write.rollbackGraceMs;
+    }
     const remaining = (rollbackDeadline ?? deadline) - performance.now();
     if (remaining > 0) {
-      Atomics.wait(state, 0, 0, remaining);
+      Atomics.wait(waitState, 0, 0, remaining);
       continue;
     }
     if (shared && rollbackDeadline === undefined) {
       // A read can own cold-recovery maintenance. Win abort before terminating,
       // or retain the connection if its physical commit won this exact race.
-      const previous = Atomics.compareExchange(state, 1, 0, -1);
+      const previous = Atomics.compareExchange(waitState, 1, 0, -1);
       if (previous === 1 || write) continue;
     }
     void worker.terminate();
     throw Object.assign(new Error(timeoutMessage), { code: "pg_query_worker_timeout" });
   }
-  const committing = shared && Atomics.load(state, 1) === 1;
+  const committing =
+    (shared && Atomics.load(state, 1) === 1) ||
+    (write?.owner !== undefined && Atomics.load(write.owner.state, 1) === 1);
   let response: WorkerResponse | undefined;
   // Drain already delivered responses, giving a terminal failure precedence over a
   // successful response sent immediately before the connection died.

@@ -38,6 +38,7 @@ export interface PgQuerySessionInput {
 
 interface PgQueryWorkerRequest {
   readonly id: number;
+  readonly writeRequest?: { readonly state: Int32Array; readonly id: number };
   readonly op:
     | "begin"
     | "query"
@@ -116,6 +117,7 @@ function startWorker(
     sessionClient: PoolClient | null = null;
   let sessionEnd: ((rollback: boolean) => void) | undefined, sessionCompletion: Promise<boolean> | undefined;
   const pending = new Set<Promise<void>>();
+  const requestOwners = new Set<NonNullable<PgQueryWorkerRequest["writeRequest"]>>();
   let queryNow: string | undefined;
   let stopped = false;
 
@@ -133,6 +135,11 @@ function startWorker(
     for (const target of [input.ready, input.state]) {
       Atomics.store(target, 0, -1);
       Atomics.notify(target, 0);
+    }
+    for (const owner of requestOwners) {
+      if (Atomics.load(owner.state, 2) !== owner.id) continue;
+      Atomics.store(owner.state, 0, -1);
+      Atomics.notify(owner.state, 0);
     }
     // Destroy the checked-out client before draining the pool; no transaction can be
     // reused after an asynchronous connection error.
@@ -506,15 +513,32 @@ function startWorker(
       if (stopped) return;
       respond(0, input.ready, null);
       input.requestPort.on("message", (request: PgQueryWorkerRequest) => {
+        const owner = request.writeRequest;
+        if (owner) requestOwners.add(owner);
         // Logical reads can commit deferred cold-recovery writes. Bind their physical
         // owner at begin too: its async context survives until end resolves the session.
         const operation = withPostgresCommitGuard(
-          () => guardCommit(input.state, true),
+          async () => {
+            if (owner) {
+              if (Atomics.load(owner.state, 2) !== owner.id)
+                throw Object.assign(new Error("Storage write request no longer owns its slot"), {
+                  code: "write_request_stale",
+                });
+              await guardCommit(owner.state, true);
+            }
+            await guardCommit(input.state, !owner);
+          },
           () => handle(request),
         );
         if (request.op !== "close") pending.add(operation);
         void operation.then(
-          () => pending.delete(operation),
+          () => {
+            pending.delete(operation);
+            if (owner) {
+              requestOwners.delete(owner);
+              Atomics.notify(owner.state, 0);
+            }
+          },
           (error: unknown) => {
             pending.delete(operation);
             fail(error instanceof Error ? error : new Error(String(error)));

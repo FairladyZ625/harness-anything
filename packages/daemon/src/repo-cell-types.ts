@@ -6,6 +6,7 @@ import type {
   AgentRuntimeEventV1,
   AuthorizationDecision,
   CanonicalEventCut,
+  CanonicalEventStore,
   DaemonRepoMode,
   DelegatedExecutionToken,
   MaterializationHealth,
@@ -220,6 +221,7 @@ export interface RepoCellStatus {
   readonly causeClass: "data-shape" | "infrastructure" | "projection" | null;
   readonly recoveryMs: number | null;
   readonly materialization: MaterializationHealth | null;
+  readonly receiptFollowers?: ReturnType<CanonicalEventStore["followerStatus"]>;
   readonly attach?: RepoCellAttachProgress;
 }
 

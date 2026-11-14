@@ -330,8 +330,8 @@ for (const setting of ["on", "remote_apply", "off", "local", "remote_write"])
     }
   });
 
-for (const held of [false, true])
-  test(`epoch ${held ? "held fence end" : "current"} COMMIT obeys the same cancellation guard`, async () => {
+for (const operation of ["acquire", "retire"] as const)
+  test(`epoch ${operation} COMMIT obeys the same cancellation guard`, async () => {
     const queries: string[] = [];
     const client = Object.assign(new EventEmitter(), {
       async query(sql: string) {
@@ -339,21 +339,22 @@ for (const held of [false, true])
         return {
           rows: sql.startsWith("SELECT writer_epoch")
             ? [{ writer_epoch: "1", writer_holder_id: "h", writer_issued_at: "now", migration_control: null }]
-            : [],
+            : sql.startsWith("SELECT MAX(writer_epoch)")
+              ? [{ floor: "0" }]
+              : [],
         };
       },
       release() {},
     });
     const epochs = pgEpochTransactions({ connect: async () => client } as unknown as Pool);
     const request = { repoId: "r", holderId: "h", now: "now", epoch: 1 };
-    if (held) await epochs.execute({ ...request, operation: "begin" });
     const aborted = Object.assign(new Error("cancelled"), { code: "write_aborted_pre_commit" });
     await assert.rejects(
       withPostgresCommitGuard(
         async () => {
           throw aborted;
         },
-        () => epochs.execute({ ...request, operation: held ? "end" : "current" }),
+        () => epochs.execute({ ...request, operation }),
       ),
       { code: "write_aborted_pre_commit" },
     );
@@ -362,8 +363,8 @@ for (const held of [false, true])
     await epochs.close();
   });
 
-for (const held of [false, true])
-  test(`epoch ${held ? "held fence end" : "current"} commit disconnect destroys the connection without rollback`, async () => {
+for (const operation of ["acquire", "retire"] as const)
+  test(`epoch ${operation} commit disconnect destroys the connection without rollback`, async () => {
     const queries: string[] = [],
       failure = Object.assign(new Error("connection lost"), { code: "ECONNRESET" });
     let releaseError: unknown;
@@ -374,7 +375,9 @@ for (const held of [false, true])
         return {
           rows: sql.startsWith("SELECT writer_epoch")
             ? [{ writer_epoch: "1", writer_holder_id: "h", writer_issued_at: "now", migration_control: null }]
-            : [],
+            : sql.startsWith("SELECT MAX(writer_epoch)")
+              ? [{ floor: "0" }]
+              : [],
         };
       },
       release(error: unknown) {
@@ -383,13 +386,44 @@ for (const held of [false, true])
     });
     const epochs = pgEpochTransactions({ connect: async () => client } as unknown as Pool),
       request = { repoId: "r", holderId: "h", now: "now", epoch: 1 };
-    if (held) await epochs.execute({ ...request, operation: "begin" });
-    await assert.rejects(
-      epochs.execute({ ...request, operation: held ? "end" : "current" }),
-      (error) => error === failure,
-    );
+    await assert.rejects(epochs.execute({ ...request, operation }), (error) => error === failure);
     assert.equal(queries.filter((q) => q === "ROLLBACK").length, 0);
     assert.equal(releaseError, failure);
+    await epochs.close();
+  });
+
+for (const broken of [false, true])
+  test(`epoch held fence releases lock WAL with rollback (${broken ? "broken connection" : "healthy"})`, async () => {
+    const queries: string[] = [];
+    const failure = new Error("rollback connection lost");
+    let releaseError: unknown;
+    const client = {
+      async query(sql: string) {
+        queries.push(sql);
+        if (broken && sql === "ROLLBACK") throw failure;
+        return { rows: [{ writer_epoch: "1", writer_holder_id: "h", migration_control: null }] };
+      },
+      release(error: unknown) {
+        releaseError = error;
+      },
+    };
+    const epochs = pgEpochTransactions({ connect: async () => client } as unknown as Pool);
+    const request = { repoId: "r", holderId: "h", now: "now", epoch: 1 };
+    await epochs.execute({ ...request, operation: "begin" });
+    let commitGuardCalls = 0;
+    const end = withPostgresCommitGuard(
+      async () => {
+        commitGuardCalls++;
+      },
+      () => epochs.execute({ ...request, operation: "end" }),
+    );
+    if (broken) await assert.rejects(end, (error) => error === failure);
+    else await end;
+    assert.ok(queries.some((sql) => sql.endsWith(" FOR SHARE")));
+    assert.equal(queries.filter((sql) => sql === "COMMIT").length, 0);
+    assert.equal(queries.filter((sql) => sql === "ROLLBACK").length, 1);
+    assert.equal(commitGuardCalls, 0);
+    assert.equal(releaseError, broken ? failure : undefined);
     await epochs.close();
   });
 

@@ -299,7 +299,6 @@ export function makeRepoCellCommandRunner(
       const pending = chainRepoCellWrite(
         context.tail,
         async () => {
-          context.queueDepth -= 1;
           executionStarted?.();
           const claimRejected = claimAtPublication ? await bindExecutorClaim() : null;
           if (claimRejected) return claimRejected;
@@ -392,6 +391,9 @@ export function makeRepoCellCommandRunner(
         },
         {
           queue: context.writeQueue,
+          onDequeued: () => {
+            context.queueDepth -= 1;
+          },
           label: queueObservation?.label ?? { command: action.kind, requestId: null },
           ...(queueObservation ? { observation: queueObservation } : {}),
         },

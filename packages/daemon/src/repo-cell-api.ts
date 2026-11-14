@@ -246,11 +246,13 @@ export function createRepoCellApi(
     const pending = chainRepoCellWrite(
       context.tail,
       () => {
-        context.queueDepth -= 1;
         return bindVerifiedExecutorClaim({ action, binding, projection: context.projection, now: context.now() });
       },
       {
         queue: context.writeQueue,
+        onDequeued: () => {
+          context.queueDepth -= 1;
+        },
         label: queueObservation?.label ?? { command: action.kind, requestId: null },
         ...(queueObservation ? { observation: queueObservation } : {}),
       },
@@ -1058,7 +1060,6 @@ export function createRepoCellApi(
         const snapshot = chainRepoCellWrite(
           context.tail,
           async () => {
-            context.queueDepth -= 1;
             // Await the existing follower before worker IO yields this event loop.
             await context.store.settlePendingMaterialization?.("backup capture");
             if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
@@ -1085,6 +1086,9 @@ export function createRepoCellApi(
           },
           {
             queue: context.writeQueue,
+            onDequeued: () => {
+              context.queueDepth -= 1;
+            },
             label: { command: builtinCommand, requestId: null },
           },
         );

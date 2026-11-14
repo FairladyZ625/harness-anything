@@ -6,7 +6,9 @@ import {
   type CanonicalEventStore,
   type TaskProjection,
   type WriteReceipt,
+  type WriteReceiptDraft,
 } from "@harness-anything/kernel";
+import type { ReceiptAcceptanceFields } from "@harness-anything/kernel/internal/domain/receipt-acceptance.ts";
 import type { RepoTaskAction, TaskCreateReceipt } from "./repo-cell-types.ts";
 
 const canonicalSettlementActions = new Set(
@@ -41,12 +43,7 @@ export async function settleWriteReceipt(
     action.kind !== "receipt-show"
   )
     return receipt;
-  const read = () =>
-    relationWorktreeSettlement(
-      action,
-      attachReceiptAcceptance(receipt, context.store, context.projection),
-      context.store,
-    );
+  const read = () => attachWriteReceiptAcceptance(context, action, receipt);
   if (action.kind === "task-create" && receipt.proof?.durable === true) return settleTaskCreateScaffold(context, read);
   if (isRelationWrite(action) && receipt.proof?.durable === true) {
     await context.store.settlePendingMaterialization?.("relation document write");
@@ -59,7 +56,20 @@ export async function settleWriteReceipt(
     : read();
 }
 
-function relationWorktreeSettlement<R extends WriteReceipt>(
+/** The same synchronous receipt judgment serves writer settlement and independent read sessions. */
+export function attachWriteReceiptAcceptance<R extends WriteReceiptDraft>(
+  context: { readonly store: CanonicalEventStore; readonly projection: TaskProjection },
+  action: RepoTaskAction,
+  receipt: R,
+): R & ReceiptAcceptanceFields {
+  return relationWorktreeSettlement(
+    action,
+    attachReceiptAcceptance(receipt, context.store, context.projection),
+    context.store,
+  );
+}
+
+function relationWorktreeSettlement<R extends WriteReceiptDraft & ReceiptAcceptanceFields>(
   action: RepoTaskAction,
   receipt: R,
   store: CanonicalEventStore,

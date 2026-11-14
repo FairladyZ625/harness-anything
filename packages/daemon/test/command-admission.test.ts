@@ -239,13 +239,12 @@ test("legacy repo reads have no descriptor left on the serialized write method",
 
 test("RepoCell execution context is declared independently from read authorization", () => {
   const byId = new Map(daemonProtocolCommands.map((command) => [command.id, command]));
-  for (const id of ["receipt-show", "doctor-health", "preset-list"]) {
+  for (const id of ["doctor-health", "preset-list"]) {
     assert.equal(byId.get(id)?.commandClass, "repo-read", id);
     assert.equal(byId.get(id)?.repoCellExecution, "writer", id);
   }
-  // Edge-replica reads execute in the query-only context: the edge answers from its replica, and
-  // the center's own writer cell is never entered for them.
-  for (const id of ["task-list", "task-show", "agent-list", "doc-status"])
+  // Replica reads and non-waiting canonical receipts execute through the independent query pool.
+  for (const id of ["task-list", "task-show", "agent-list", "doc-status", "receipt-show"])
     assert.equal(byId.get(id)?.repoCellExecution, "query-only", id);
   for (const command of daemonProtocolCommands)
     if (command.commandClass !== "repo-read")

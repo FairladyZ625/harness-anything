@@ -15,6 +15,7 @@ import { removeTemporaryDirectory } from "../../../tools/temporary-directory-cle
 const actor = { principal: { personId: "person-owner" }, executor: null },
   binding = withPolicyGroup({ actor, source: "local" as const }, "viewer"),
   actions = new Map<string, RepoTaskAction>([
+    ["receipt-show", { kind: "receipt-show", opId: "op_missing" }],
     ["decision-list", { kind: "decision-list" }],
     ["decision-show", { kind: "decision-show", decisionId: "dec_MISSING" }],
     ["fact-show", { kind: "fact-show", factId: "F-MISSING" }],

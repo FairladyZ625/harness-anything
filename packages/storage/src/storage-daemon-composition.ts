@@ -180,29 +180,44 @@ export function makeDaemonProjectionReader(input: {
   return makeTaskProjectionReader({ rootDir: input.rootDir, storage: input.storage, now: input.now });
 }
 
+/** SQL workers publish the shared commit phase; synchronous SQLite batches drain on close. */
+export function daemonWriterSupportsCommitPhase(storage?: DaemonStorageConfig): boolean {
+  return storage?.backend === "postgres" || storage?.backend === "pglite";
+}
+
+/** Network PostgreSQL pins its own MVCC backup cut; local engines retain the writer barrier. */
+export function fleetBackupRequiresWriter(storage?: DaemonStorageConfig): boolean {
+  return storage?.backend !== "postgres";
+}
+
 export function openFleetStorage(input: {
   readonly rootDir: string;
   readonly repoId: string;
   readonly storage?: DaemonStorageConfig;
+  /** Backup-only callers need no query worker; ordinary readers initialize before they are exposed. */
+  readonly deferReader?: boolean;
 }) {
   const storage = input.storage;
   if (storage?.backend === "postgres" || storage?.backend === "pglite") {
-    const reader = createSqlTaskQueryReader({
-      storage,
-      repoId: input.repoId,
-      requireRuntimeRole: true,
-    });
+    let opened: ReturnType<typeof createSqlTaskQueryReader> | undefined;
+    const reader = () =>
+      (opened ??= createSqlTaskQueryReader({
+        storage,
+        repoId: input.repoId,
+        requireRuntimeRole: true,
+      }));
+    if (!input.deferReader) reader();
     return {
-      replicationPosition: () => reader.replication("head") as ReplicationPosition,
+      replicationPosition: () => reader().replication("head") as ReplicationPosition,
       replicationCommits: (after: ReplicationPosition, limit: number) =>
-        reader.replication("page", { after, limit }) as {
+        reader().replication("page", { after, limit }) as {
           readonly commits: readonly ReplicationCommit[];
           readonly head: ReplicationPosition;
           readonly done: boolean;
         },
       readContentObject: (sha256: string) =>
-        reader.executeCanonical({ operation: "content", sha256 }) as Uint8Array | null,
-      close: reader.close,
+        reader().executeCanonical({ operation: "content", sha256 }) as Uint8Array | null,
+      close: () => opened?.close(),
       startBackup: (directory: string, _projectionPath: string, signal?: AbortSignal) =>
         startBaseBackup({ repoId: input.repoId, storage, directory }, signal),
     };

@@ -77,6 +77,7 @@ export interface RepoWriterRequestV1 {
     | "pruneReplicationLog"
     | "fleetBackup"
     | "catalog";
+  readonly writeRequest?: { readonly state: Int32Array; readonly id: number };
   readonly payload: unknown;
   readonly binding?: SerializableRepoCellBindingV1;
   readonly writerEpoch: SerializableRepoCellBindingV1["writerEpochFence"] | null;
@@ -110,6 +111,8 @@ export interface RepoWriterStatusV1 {
   readonly protocolVersion: typeof REPO_WRITER_PROTOCOL_VERSION;
   readonly kind: "ready" | "cut" | "status" | "attach-progress" | "closed";
   readonly status?: RepoCellStatus;
+  /** This worker acquires the host slot at the exclusive RepoCell write seam. */
+  readonly stagedWriteSlot?: boolean;
   readonly bootstrapReceipt?: unknown;
   readonly ledgerCut?: ReturnType<import("./repo-cell-types.ts").ReplicaCutSource["ledgerCut"]>;
   readonly error?: SerializedWriterErrorV1;
@@ -204,7 +207,11 @@ export type RepoWriterCapabilityName =
   | "runtimeSignal"
   | "attemptTerminal"
   | "lifecycle"
-  | "fleetBaseBackupTrace";
+  | "fleetBaseBackupTrace"
+  | "writeOperation"
+  | "writeQueued"
+  | "acquireWriteSlot"
+  | "releaseWriteSlot";
 
 export type RuntimeInstanceSchedulingCall =
   | { readonly operation: "snapshot" }
