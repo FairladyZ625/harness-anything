@@ -11,10 +11,149 @@ import {
 import { serializePersistedCanonicalEvent } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { createPgStorageBackend } from "../../src/pg/backend.ts";
-import { backfillPgDefaultEventSummaries } from "../../src/pg/pg-event-read-index-migration.ts";
+import {
+  backfillPgDefaultEventSummaries,
+  backfillPgDefaultEventSummariesPage,
+} from "../../src/pg/pg-event-read-index-migration.ts";
+import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
 import { eventAt } from "../store/task-event-store.fixtures.ts";
 import { fact } from "../store/relation-graph-projection.fixtures.ts";
 import { pgRuntimeFixture } from "./pg-runtime.fixture.ts";
+
+test("default readiness is independent of legacy fleet readiness through interrupted backfill", async (t) => {
+  const fixture = await pgRuntimeFixture(),
+    repoId = "default-readiness",
+    scope = { tenantId: "readiness", projectId: "readiness", policyEpoch: 1, readers: [] },
+    keys = [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
+    backend = createPgStorageBackend({ pool: fixture.pool, repoId, scope }),
+    events = [1, 2, 3, 4, 5].map(eventAt),
+    append = (index: number) =>
+      backend.eventStore.append(
+        { event: events[index]!, plan: taskLifecycleWritePlan(events[index]!), blobs: [] },
+        index,
+        { repoId, holderId: "readiness-writer", epoch: 1 },
+      ),
+    pending = () =>
+      fixture.adminPool.query<{ count: number }>(
+        "SELECT count(*)::integer AS count FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4 AND default_summary_json IS NULL",
+        keys,
+      ),
+    assertPending = async (stage: string) => {
+      for (const fields of [undefined, { taskIds: events.map((event) => event.taskId) }])
+        await t.test(`${stage}/${fields ? "workspace" : "default"}`, async () => {
+          await assert.rejects(backend.projection.readEventSummaries(0, 20, fields), { code: "projection_pending" });
+        });
+    };
+  try {
+    for (const index of [0, 1, 2]) await append(index);
+    await fixture.adminPool.query(
+      "UPDATE ha_events SET default_summary_json=NULL WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4",
+      keys,
+    );
+    // A completed legacy fleet migration is not a default-summary completion proof.
+    assert.equal(
+      (
+        await fixture.adminPool.query<{ processed: number }>(
+          "SELECT ha_backfill_event_read_indexes($1,$2,$3,$4) AS processed",
+          keys,
+        )
+      ).rows[0]!.processed,
+      0,
+    );
+    assert.equal(
+      (
+        await fixture.adminPool.query<{ ready: boolean }>(
+          "SELECT ready FROM ha_event_summary_state WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4",
+          keys,
+        )
+      ).rows[0]!.ready,
+      true,
+    );
+    await assertPending("legacy fleet ready with NULL defaults");
+    const page = await withPostgresTransaction(
+      fixture.pool,
+      (client) => backfillPgDefaultEventSummariesPage(client, scope, repoId, 1),
+      scope,
+    );
+    assert.deepEqual(page, { processed: 1, done: false });
+    await assertPending("one committed page");
+
+    const interrupted = new Error("interrupt backfill before commit");
+    await assert.rejects(
+      withPostgresTransaction(
+        fixture.pool,
+        async (client) => {
+          assert.deepEqual(await backfillPgDefaultEventSummariesPage(client, scope, repoId, 1), {
+            processed: 1,
+            done: false,
+          });
+          // Both writer generations commit while a management page is still in flight.
+          await append(3);
+          const previous = events[4]!,
+            body = serializePersistedCanonicalEvent(previous).trimEnd();
+          await fixture.adminPool.query(
+            `INSERT INTO ha_events(tenant_id,project_id,policy_epoch,repo_id,revision,op_id,event_id,event_type,event_json,
+          event_digest,occurred_at,actor_refs,entity_refs,readers)
+         SELECT tenant_id,project_id,policy_epoch,repo_id,5,$5,$6,$7,$8,$9,$10,actor_refs,$11,readers
+         FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4 AND revision=4`,
+            [
+              ...keys,
+              previous.opId,
+              previous.eventId,
+              previous.type,
+              body,
+              `sha256:${sha256Text(body)}`,
+              previous.occurredAt,
+              canonicalEventEntityRefs(previous),
+            ],
+          );
+          await fixture.adminPool.query(
+            "UPDATE ha_repo_heads SET revision=5,head_op_id=$5 WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4",
+            [...keys, previous.opId],
+          );
+          await fixture.adminPool.query(
+            "UPDATE ha_projection_meta SET watermark=5,source_revision=5 WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND projection_name='task/v1'",
+            keys.slice(0, 3),
+          );
+          throw interrupted;
+        },
+        scope,
+      ),
+      (error) => error === interrupted,
+    );
+    assert.equal((await pending()).rows[0]!.count, 2, "only the committed historical page may persist");
+    await assertPending("rollback with current and previous writers committed");
+    await fixture.adminPool.query(
+      "UPDATE ha_event_summary_state SET ready=false WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4",
+      keys,
+    );
+    await backfillPgDefaultEventSummaries(fixture.pool, scope, repoId);
+    await backfillPgDefaultEventSummaries(fixture.pool, scope, repoId);
+    assert.equal((await pending()).rows[0]!.count, 0);
+    await t.test("default completion does not publish fleet readiness", async () => {
+      assert.equal(
+        (
+          await fixture.adminPool.query<{ ready: boolean }>(
+            "SELECT ready FROM ha_event_summary_state WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4",
+            keys,
+          )
+        ).rows[0]!.ready,
+        false,
+      );
+    });
+    for (const fields of [undefined, { taskIds: events.map((event) => event.taskId) }])
+      assert.deepEqual(
+        (await backend.projection.readEventSummaries(0, 20, fields)).events,
+        events.map(canonicalEventSummary),
+      );
+    t.diagnostic(
+      "legacy-ready NULL defaults and partial/rollback states refused; resumed defaults ready with fleet=false; both writer generations retained",
+    );
+  } finally {
+    await fixture.pool.end();
+    await fixture.close();
+  }
+});
 
 test("external PostgreSQL upgrade drains default summaries before workspace reads", { timeout: 120_000 }, async () => {
   const fixture = await pgRuntimeFixture(),

@@ -105,7 +105,10 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
    loop; it commits the existing 64-row `backfillPgDefaultEventSummariesPage` transactions until
    the final page is `{ processed: 0, done: true }`. Do not run this loop inside the DDL
    transaction. Until the pending probe is empty, default/workspace event-summary reads return
-   `projection_pending` rather than reading `event_json`.
+   `projection_pending` rather than reading `event_json`. This check uses the independent
+   `ha_events_default_summary_pending` partial index in the serving transaction's snapshot.
+   The legacy `ha_event_summary_state.ready` flag certifies only fleet `summary_json`;
+   it does not bypass default-summary readiness, and the default backfill does not set it.
 
    After readiness, the existing event trigger keeps that column populated for previous-version
    INSERTs and event updates in the same transaction. Those writers store a bounded input projection;

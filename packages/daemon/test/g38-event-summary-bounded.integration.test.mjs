@@ -874,18 +874,32 @@ if (!isMainThread) {
             [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
           );
           await client.query(
-            "DELETE FROM ha_event_summary_state WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4",
+            "UPDATE ha_event_summary_state SET ready=true WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4",
             [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
           );
         },
         scope,
       );
-      pgReader.withSession((pgQueries) => {
-        assert.throws(() => pgQueries.readEventSummaries(0, 200), { code: "projection_pending" });
-        assert.throws(() => pgQueries.readEventSummaries(0, 200, { taskIds: ["task_alpha"] }), {
-          code: "projection_pending",
+      const assertPending = () =>
+        pgReader.withSession((pgQueries) => {
+          assert.throws(() => pgQueries.readEventSummaries(0, 200), { code: "projection_pending" });
+          assert.throws(() => pgQueries.readEventSummaries(0, 200, { taskIds: ["task_alpha"] }), {
+            code: "projection_pending",
+          });
+          for (const direction of ["history", "follow"])
+            assert.throws(
+              () =>
+                readObserveEventTail({
+                  repoId,
+                  rootDir,
+                  mode: "local",
+                  projection: pgQueries,
+                  payload: { kind: "events", direction, cursor: { kind: "events", revision: 0 } },
+                }),
+              { code: "projection_pending" },
+            );
         });
-      });
+      assertPending();
 
       await backfillPgDefaultEventSummaries(pgFixture.pool, scope, repoId);
       assertParity();
@@ -906,6 +920,7 @@ if (!isMainThread) {
         scope,
       );
       assert.deepEqual(page1, { processed: 64, done: false });
+      assertPending();
       const page2 = await withPostgresTransaction(
         pgFixture.pool,
         (client) => backfillPgDefaultEventSummariesPage(client, scope, repoId),
@@ -913,6 +928,7 @@ if (!isMainThread) {
       );
       assert.equal(page2.processed, allEvents.length - 64);
       assert.equal(page2.done, false);
+      assertParity();
       const page3 = await withPostgresTransaction(
         pgFixture.pool,
         (client) => backfillPgDefaultEventSummariesPage(client, scope, repoId),

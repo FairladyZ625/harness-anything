@@ -342,19 +342,12 @@ export async function assertPgEventReadIndexReady(
     throw Object.assign(new Error("Event read-index backfill is pending"), { code: "projection_pending" });
 }
 
-/** Default event summaries are the serving representation for local/workspace pages. */
+/** Default readiness uses its own pending index; legacy fleet readiness certifies a different column. */
 export async function pgDefaultEventSummaryGate(
   client: PoolClient,
   scope: PgProjectionScope,
   repoId: string,
 ): Promise<void> {
-  const ready = await client.query(
-    `SELECT 1 FROM ha_event_summary_state
-     WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4 AND ready
-     LIMIT 1`,
-    [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
-  );
-  if (ready.rowCount) return;
   const pending = await client.query(
     `SELECT 1 FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4
       AND default_summary_json IS NULL LIMIT 1`,
@@ -379,20 +372,7 @@ export async function backfillPgDefaultEventSummaries(
       (client) => backfillPgDefaultEventSummariesPage(client, scope, repoId),
       scope,
     );
-    if (page.done) {
-      await withPostgresTransaction(
-        pool,
-        (client) =>
-          client.query(
-            `INSERT INTO ha_event_summary_state(tenant_id,project_id,policy_epoch,repo_id,ready)
-             VALUES ($1,$2,$3,$4,true)
-             ON CONFLICT (tenant_id,project_id,policy_epoch,repo_id) DO UPDATE SET ready=true`,
-            [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
-          ),
-        scope,
-      );
-      return;
-    }
+    if (page.done) return;
   }
 }
 
