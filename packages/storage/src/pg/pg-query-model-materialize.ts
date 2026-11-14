@@ -489,6 +489,10 @@ async function settlePgTerminalMaterialization(
       for (const ref of [row.source_ref, row.target_ref]) changed.add(materializationEntityRef(ref));
   }
   if (event.schema === "doc-event/v1") {
+    for (const { path } of event.payload.changes) {
+      const owner = materializationOwnerForPath(path);
+      if (owner) changed.add(owner);
+    }
     const packages = [...new Set(event.payload.changes.map(({ path }) => path.split("/").slice(0, 2).join("/")))];
     const rows = await client.query<{ task_id: string }>(
       "SELECT task_id FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND package_path=ANY($4::text[])",

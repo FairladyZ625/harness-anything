@@ -22,13 +22,20 @@ import {
 } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 import { taskLifecycleWritePlan } from "@harness-anything/kernel/internal/domain/task-lifecycle-publication.ts";
 import type { CanonicalWriteBundle } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
-import type { DocumentState } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
+import {
+  docSyncWritePlan,
+  ledgerCommitSha,
+  type DocEventV1,
+  type DocumentState,
+} from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import type { FactProjectionRow } from "@harness-anything/kernel";
 import { fact, proposal, taskCreated, actor } from "./store/relation-graph-projection.fixtures.ts";
 
 /** One event/claim contract, executed by real SQLite and PostgreSQL-dialect accepting stores. */
 export async function assertTerminalMaterialization(input: {
   readonly append: (bundle: CanonicalWriteBundle) => void | Promise<unknown>;
+  /** Replay a previously accepted historical write, bypassing today's canonical admission. */
+  readonly replayAcceptedDocument?: (bundle: CanonicalWriteBundle) => void | Promise<unknown>;
   readonly document: (path: string) => DocumentState | null | Promise<DocumentState | null>;
   readonly history: (path: string) => DocumentState | null | Promise<DocumentState | null>;
   readonly fact: (id: string) => FactProjectionRow | null | Promise<FactProjectionRow | null>;
@@ -202,6 +209,13 @@ export async function assertTerminalMaterialization(input: {
   assert.equal((await input.document(reportPath))?.body, reportBody, "carried review stays with a held Decision");
   await retire(derives);
   assert.ok(await input.document(targetPath), "implements keeps a rejected Decision materialized");
+  const taskDocumentPath = `tasks/${taskId}-cycle-task/closeout.md`,
+    taskDocumentBody = "# Task closeout\n",
+    taskCandidate = {
+      sha256: sha256Text(taskDocumentBody),
+      size: Buffer.byteLength(taskDocumentBody),
+      mediaType: "text/markdown",
+    };
   const cancelled = {
     ...created,
     workspaceRevision: revision,
@@ -212,9 +226,22 @@ export async function assertTerminalMaterialization(input: {
       task: { ...created.payload.task, status: "cancelled" as const },
       mutation: { command: "transition", reason: "release final implements hold", fields: ["status"] },
       documentClaims: [],
+      carriedDocumentClaims: [
+        {
+          path: taskDocumentPath,
+          baseBlobSha256: null,
+          candidate: taskCandidate,
+          policyId: "opaque-textual-whole-file/v1",
+          regionProofs: [],
+        },
+      ],
     },
   };
-  await append({ event: cancelled, plan: taskLifecycleWritePlan(cancelled), blobs: [] });
+  await append({
+    event: cancelled,
+    plan: taskLifecycleWritePlan(cancelled),
+    blobs: [{ ...taskCandidate, body: taskDocumentBody }],
+  });
   assert.equal(
     await input.document(targetPath),
     null,
@@ -245,4 +272,69 @@ export async function assertTerminalMaterialization(input: {
   assert.equal(await input.document(old.path), null, "unheld superseded Fact is absent from the active working set");
   assert.ok(await input.history(old.path));
   assert.equal((await input.fact(oldDraft.factId))?.materializationState, "dematerialized_terminal");
+
+  // Old ledgers contain generic writes accepted after retirement. Their base is still the
+  // logical document head, even though it now lives outside the active working-set index.
+  if (input.replayAcceptedDocument)
+    for (const path of [targetPath, reportPath, old.path, taskDocumentPath]) {
+      const previous = await input.history(path);
+      assert.ok(previous);
+      const body = `${previous.body}\nHistorical accepted update.\n`,
+        candidate = { sha256: sha256Text(body), size: Buffer.byteLength(body), mediaType: previous.mediaType },
+        event: DocEventV1 = {
+          schema: "doc-event/v1",
+          type: "documents_written",
+          eventId: `event-${revision}`,
+          opId: `op-${revision}`,
+          workspaceRevision: revision++,
+          actor,
+          source: "local",
+          occurredAt: "2026-08-13T00:00:00.000Z",
+          payload: {
+            executionId: null,
+            baseLedgerSha: ledgerCommitSha("terminal-materialization", "a".repeat(40)),
+            changes: [
+              {
+                path: previous.path,
+                baseBlobSha256: previous.blobSha256,
+                candidate,
+                policyId: previous.policyId,
+                regionProofs: [],
+              },
+            ],
+          },
+        };
+      await input.replayAcceptedDocument({ event, plan: docSyncWritePlan(event), blobs: [{ ...candidate, body }] });
+      assert.equal(await input.document(path), null, "replay must not resurrect a terminal document");
+      assert.equal((await input.history(path))?.body, body, "history advances to the accepted content");
+    }
+  if (input.replayAcceptedDocument) {
+    const previous = await input.history(taskDocumentPath);
+    assert.ok(previous);
+    const body = `${previous.body}\nHistorical carried update.\n`,
+      candidate = { sha256: sha256Text(body), size: Buffer.byteLength(body), mediaType: previous.mediaType },
+      event = {
+        ...cancelled,
+        eventId: `event-${revision}`,
+        opId: `op-${revision}`,
+        workspaceRevision: revision++,
+        type: "task_amended" as const,
+        payload: {
+          ...cancelled.payload,
+          mutation: { command: "amend", reason: "historical prose update", fields: ["title"] },
+          carriedDocumentClaims: [
+            {
+              path: taskDocumentPath,
+              baseBlobSha256: previous.blobSha256,
+              candidate,
+              policyId: previous.policyId,
+              regionProofs: [],
+            },
+          ],
+        },
+      };
+    await input.replayAcceptedDocument({ event, plan: taskLifecycleWritePlan(event), blobs: [{ ...candidate, body }] });
+    assert.equal(await input.document(taskDocumentPath), null);
+    assert.equal((await input.history(taskDocumentPath))?.body, body, "Task carried claims also use the logical head");
+  }
 }

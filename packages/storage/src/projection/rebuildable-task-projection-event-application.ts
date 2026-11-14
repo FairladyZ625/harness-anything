@@ -135,7 +135,8 @@ export type { TaskProjection } from "@harness-anything/kernel";
 const DOCUMENT_BASE_SQL = [
   "SELECT json_extract(value_json, '$.blobSha256') AS blobSha256,",
   "json_extract(value_json, '$.size') AS size, json_extract(value_json, '$.mediaType') AS mediaType,",
-  "json_extract(value_json, '$.policyId') AS policyId FROM document WHERE path = ?",
+  "json_extract(value_json, '$.policyId') AS policyId FROM " +
+    "(SELECT path,value_json FROM document UNION ALL SELECT path,value_json FROM document_history) WHERE path = ? LIMIT 1",
 ].join(" ");
 const UPSERT_DOCUMENT_SQL = [
   "INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?)",
@@ -620,6 +621,7 @@ function applyEventProjection(
         )
           throw new Error(`document retirement mismatch for ${change.path}`);
         runSql(db, "DELETE FROM document WHERE path = ?", change.path);
+        runSql(db, "DELETE FROM document_history WHERE path = ?", change.path);
         continue;
       }
       if (change.baseBlobSha256 !== (base?.blobSha256 ?? null)) {
@@ -660,6 +662,7 @@ function applyEventProjection(
         policyId: change.policyId,
         workspaceRevision: event.workspaceRevision,
       };
+      runSql(db, "DELETE FROM document_history WHERE path = ?", change.path);
       runSql(db, UPSERT_DOCUMENT_SQL, change.path, event.workspaceRevision, canonicalJson(document));
       refreshDecisionDocumentSearch(db, document);
     }
@@ -947,8 +950,7 @@ export function applyTaskEvent(
   // as the lifecycle transition. Replaying this event after a process crash
   // therefore restores both the task snapshot and its carried documents.
   for (const change of event.payload.carriedDocumentClaims ?? []) {
-    const previous = queryRows(db, "SELECT value_json FROM document WHERE path = ?", change.path)[0],
-      base = previous ? (JSON.parse(String(previous.value_json)) as DocumentState) : null,
+    const base = queryRows<Pick<DocumentState, "blobSha256">>(db, DOCUMENT_BASE_SQL, change.path)[0],
       bytes = readBlob(change.candidate.sha256);
     if (!bytes || bytes.byteLength !== change.candidate.size)
       throw new Error(`carried document blob ${change.candidate.sha256} is unavailable`);
