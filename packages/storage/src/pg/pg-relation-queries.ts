@@ -211,7 +211,8 @@ export async function readVersionedRelationsInTransaction(
     values.push(query.source);
     where.push(`source_ref = $${values.length}`);
   }
-  if (query.targets !== undefined && query.targets !== batch) {
+  // The driver supplies one column predicate; shared arrays still represent independent filters.
+  if (query.targets !== undefined && batchColumn !== "target_ref") {
     values.push(query.targets);
     where.push(`target_ref = ANY($${values.length}::text[])`);
   }
@@ -223,11 +224,11 @@ export async function readVersionedRelationsInTransaction(
     values.push(query.relationType);
     where.push(`relation_type = $${values.length}`);
   }
-  if (query.relationIds !== undefined && query.relationIds !== batch) {
+  if (query.relationIds !== undefined && batchColumn !== "relation_id") {
     values.push(query.relationIds);
     where.push(`relation_id=ANY($${values.length}::text[])`);
   }
-  if (query.sources !== undefined && query.sources !== batch) {
+  if (query.sources !== undefined && batchColumn !== "source_ref") {
     values.push(query.sources);
     where.push(`source_ref = ANY($${values.length}::text[])`);
   }
