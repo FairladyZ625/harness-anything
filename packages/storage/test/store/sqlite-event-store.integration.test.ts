@@ -93,6 +93,7 @@ test("attach migration scan watermarks persist locally without changing the even
   assert.deepEqual(
     [...store.attachMigrationScanWatermarks()],
     [
+      ["entity-directory-working-set/v1", 0],
       ["closeout-overrides.codeDoc", 0],
       ["settings.ci", 0],
     ],
@@ -107,6 +108,7 @@ test("attach migration scan watermarks persist locally without changing the even
     assert.deepEqual(
       [...reopened.attachMigrationScanWatermarks()],
       [
+        ["entity-directory-working-set/v1", 0],
         ["closeout-overrides.codeDoc", 0],
         ["settings.ci", 0],
       ],
