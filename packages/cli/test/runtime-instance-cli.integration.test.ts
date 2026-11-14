@@ -19,11 +19,13 @@ test("real CLI performs machine runtime instance CRUD through an isolated reside
     binRoot = path.join(root, "bin"),
     fixtureVersion = "0.0.0-runtime-instance-fixture";
   mkdirSync(binRoot, { recursive: true });
-  for (const kind of ["claude", "codex"] as const)
+  for (const kind of ["claude", "codex", "codex-acp"] as const)
     writeProviderExecutable(path.join(binRoot, kind), `console.log("${kind} ${fixtureVersion}");\n`);
   const env = {
     ...process.env,
     HOME: path.join(root, "home"),
+    CODEX_HOME: undefined,
+    CLAUDE_CONFIG_DIR: undefined,
     PATH: [
       binRoot,
       ...(process.env.PATH ?? "")
@@ -142,6 +144,35 @@ test("real CLI performs machine runtime instance CRUD through an isolated reside
     assert.match(persisted, /requires_openai_auth = true/u);
     assert.match(persisted, /http_headers = \{ "X-Harness-Probe" = "present" \}/u);
     assert.doesNotMatch(`${readFileSync(target, "utf8")}\n${persisted}`, /Bearer |instance-secret|OPENAI_API_KEY/u);
+    // dec_DA1602487428A58E8B446ECE38 CH1 / F-5A49386A: persisted enforced
+    // Codex ACP rows must not block the real `ha runtime instance list --all` path.
+    run(root, env, [
+      "runtime",
+      "instance",
+      "create",
+      "--id",
+      "cli-codex-acp",
+      "--name",
+      "Codex ACP",
+      "--kind",
+      "codex-acp",
+      "--provider",
+      "openai",
+      "--model",
+      "runtime-test-model",
+      "--auth",
+      "subscription",
+      "--isolation",
+      "enforced",
+    ]);
+    const withAcp = run(root, env, ["runtime", "instance", "list", "--all"]);
+    assert.equal(withAcp.ok, true);
+    assert.equal(
+      (withAcp.instances as Array<Record<string, unknown>>).find((row) => row.instanceId === "cli-codex-acp")
+        ?.isolationState,
+      "enforced",
+    );
+    run(root, env, ["runtime", "instance", "delete", "cli-codex-acp"]);
     assert.equal(run(root, env, ["runtime", "instance", "delete", "cli-isolated"]).deletedInstanceId, "cli-isolated");
     assert.equal(existsSync(stateRoot), false);
     const missing = runMaybe(root, env, ["runtime", "instance", "show", "cli-isolated"]);

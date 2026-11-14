@@ -74,18 +74,22 @@ export function isolatedEnvironment(
 
 const codexShellEnvironmentKey = "shell_environment_policy";
 
-function codexAcpSessionConfig(raw: string | undefined): string {
-  if (raw === undefined || raw.trim() === "")
-    return JSON.stringify({ [codexShellEnvironmentKey]: codexToolEnvironmentConfig });
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw runtimeInstanceError("invalid_runtime_launch", "CODEX_CONFIG must be a JSON object.");
+function codexAcpSessionConfig(raw: string | undefined, isolated: boolean): string {
+  let parsed: unknown = {};
+  if (raw !== undefined && raw.trim() !== "") {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw runtimeInstanceError("invalid_runtime_launch", "CODEX_CONFIG must be a JSON object.");
+    }
   }
   if (!isRuntimeInstanceRecord(parsed))
     throw runtimeInstanceError("invalid_runtime_launch", "CODEX_CONFIG must be a JSON object.");
-  return JSON.stringify({ ...parsed, [codexShellEnvironmentKey]: codexToolEnvironmentConfig });
+  return JSON.stringify({
+    ...parsed,
+    ...(isolated ? { cli_auth_credentials_store: "file" } : {}),
+    [codexShellEnvironmentKey]: codexToolEnvironmentConfig,
+  });
 }
 
 export function launchEnvironment(
@@ -99,7 +103,9 @@ export function launchEnvironment(
     ...baseEnv,
     ...(permissionMode ? declaration.launch.permissionEnvironment?.[permissionMode] : undefined),
     ...(config.kindId === "claude" && commandInterceptions.length ? { CLAUDE_CODE_SIMPLE: undefined } : {}),
-    ...(config.kindId === "codex-acp" ? { CODEX_CONFIG: codexAcpSessionConfig(baseEnv.CODEX_CONFIG) } : {}),
+    ...(config.kindId === "codex-acp"
+      ? { CODEX_CONFIG: codexAcpSessionConfig(baseEnv.CODEX_CONFIG, config.isolationState === "enforced") }
+      : {}),
   };
 }
 

@@ -165,7 +165,7 @@ export function runtimeInstanceConfig(
   if (credentialSource === "instance" && !supportsRuntimeSubscriptionMultiAccountIsolation(kindId, platform))
     throw runtimeInstanceError(
       "runtime_instance_isolation_unsupported",
-      `Independent subscription credentials are not supported for ${kindId} on ${platform}.`,
+      `Independent subscription credentials are not supported for ${kindId} on ${platform}. Use credentialSource=operator for the operator login, or select a verified execution platform.`,
     );
   if (credentialSource === "instance" && value.isolationState !== undefined && value.isolationState !== "enforced")
     throw runtimeInstanceError("invalid_runtime_isolation", "Instance credentials require enforced isolation.");

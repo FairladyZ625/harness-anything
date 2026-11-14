@@ -1471,7 +1471,7 @@ export function openRuntimeInstanceStore(input: {
     // Materialize non-secret defaults at creation. Each API-key launch atomically
     // publishes the current resolved bearer; metadata edits keep the previous
     // complete native config until that launch is ready.
-    if (config.kindId === "codex") {
+    if (config.kindId === "codex" || config.kindId === "codex-acp") {
       const configPath = path.join(provider, "config.toml");
       if (config.auth.mode === "subscription" || !existsSync(configPath))
         writeCodexConfig(configPath, config, undefined, undefined, platform);
@@ -1536,11 +1536,22 @@ export function openRuntimeInstanceStore(input: {
               ),
             };
       }
-      const readiness = await providerSubscriptionReadiness(
-        { installation, env, isolationState, ...(codexProbe ? { codexProbe } : {}) },
-        platform,
-      );
-      return { readiness };
+      const target = config
+          ? await currentAccountProbeTarget(config, witnessed)
+          : { kindId: installation.kindId, installation },
+        readiness = await providerSubscriptionReadiness(
+          { installation: target.installation, env, isolationState, ...(codexProbe ? { codexProbe } : {}) },
+          platform,
+        ),
+        catalog =
+          readiness.status === "ready" && captureCatalog && config?.credentialSource === "instance"
+            ? await accountProbe.probeModels({
+                kindId: target.kindId,
+                executablePath: target.installation.executablePath,
+                env,
+              })
+            : null;
+      return { readiness, ...(catalog ? { availableModels: catalog.models } : {}) };
     } catch (error) {
       consumeKnownError(error);
       const terminated =

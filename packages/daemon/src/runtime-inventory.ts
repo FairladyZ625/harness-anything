@@ -37,6 +37,15 @@ export const runtimeWebSearchModes = ["disabled", "cached", "live"] as const sat
 export const runtimeSubscriptionMultiAccountIsolation = Object.freeze({
   "agy@darwin": true,
   "agy-acp@darwin": true,
+  // dec_DA1602487428A58E8B446ECE38 CH1; native storage verified on macOS.
+  // Claude namespaces its keychain item by CLAUDE_CONFIG_DIR, with a file fallback.
+  "claude@darwin": true,
+  "claude-acp@darwin": true,
+  "codex@darwin": true,
+  "codex-acp@darwin": true,
+  "devin@darwin": true,
+  "opencode@darwin": true,
+  "minimax-code@darwin": true,
 } as const satisfies Readonly<Record<string, true>>);
 
 export function supportsRuntimeSubscriptionMultiAccountIsolation(kindId: string, platform: NodeJS.Platform): boolean {
@@ -784,6 +793,7 @@ export const runtimeKinds = [
       // npm bin of @agentclientprotocol/codex-acp; wraps the codex CLI and
       // reuses its CODEX_HOME login.
       command: "codex-acp",
+      credentialCommand: "codex",
       configDirectory: ".codex",
       configHomeEnvironment: "CODEX_HOME",
       authFile: "auth.json",
@@ -802,10 +812,9 @@ export const runtimeKinds = [
       shape: "separate",
       modes: ["subscription", "api-key"],
       apiKeyIsolation: "enforced",
-      // The wrapper has no login-status subcommand; version output is the
-      // weakest available presence probe. The ACP `authenticate` handshake is
-      // the authoritative check at launch time.
-      subscriptionProbe: ["--version"],
+      // Account operations use credentialCommand in this instance's CODEX_HOME.
+      subscriptionProbe: ["login", "status"],
+      commands: { login: ["login"], logout: ["logout"] },
       subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
       // Advertised methods are ["api-key", "chat-gpt"]; the ChatGPT login in
       // the linked auth.json answers "chat-gpt" with an empty api_key.
@@ -861,6 +870,7 @@ export const runtimeKinds = [
       // and reuses its CLAUDE_CONFIG_DIR credentials. The adapter advertises no
       // authMethods: the wrapped CLI authenticates from its own login.
       command: "claude-agent-acp",
+      credentialCommand: "claude",
       configDirectory: ".claude",
       configHomeEnvironment: "CLAUDE_CONFIG_DIR",
       authFile: ".credentials.json",
@@ -876,7 +886,8 @@ export const runtimeKinds = [
     auth: {
       shape: "subscription-only",
       modes: ["subscription"],
-      subscriptionProbe: ["--version"],
+      subscriptionProbe: ["auth", "status", "--json"],
+      commands: { login: ["auth", "login"], logout: ["auth", "logout"] },
       subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
       endpoints: { baseUrl: "none" },
     },
