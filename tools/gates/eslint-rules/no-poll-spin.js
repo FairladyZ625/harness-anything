@@ -47,15 +47,23 @@ const pollHelperName = /^eventually/u;
 const deadlineOption = /^(?:timeoutMs|timeout|intervalMs)$/u;
 const elapsedName = /(?:duration|elapsed|latency)Ms$/iu;
 
-// Resolve only local initializers, using ESLint's lexical scopes so an unrelated fixture's
-// `elapsedMs = 0` cannot hide a measurement in another test. No whole-program/data-flow pass.
-function initializer(node, sourceCode) {
+// Follow writes in the same lexical variable, including assignments after a literal fixture
+// initializer. References come from ESLint's existing scope graph; no program-wide data-flow pass.
+function lexicalVariable(node, sourceCode) {
   if (node?.type !== "Identifier") return undefined;
   for (let scope = sourceCode.getScope(node); scope; scope = scope.upper) {
     const variable = scope.set.get(node.name);
-    if (variable) return variable.defs[0]?.node?.init;
+    if (variable) return variable;
   }
   return undefined;
+}
+
+function assignedValues(node, sourceCode) {
+  return (
+    lexicalVariable(node, sourceCode)
+      ?.references.filter((reference) => reference.isWrite() && reference.writeExpr)
+      .map((reference) => reference.writeExpr) ?? []
+  );
 }
 
 function numericLimit(node, sourceCode, seen = new Set()) {
@@ -65,31 +73,61 @@ function numericLimit(node, sourceCode, seen = new Set()) {
     return numericLimit(node.argument, sourceCode, seen);
   if (node.type === "BinaryExpression" && ["+", "-", "*", "/", "%", "**"].includes(node.operator))
     return numericLimit(node.left, sourceCode, new Set(seen)) && numericLimit(node.right, sourceCode, seen);
-  return node.type === "Literal"
-    ? typeof node.value === "number"
-    : numericLimit(initializer(node, sourceCode), sourceCode, seen);
+  if (node.type === "Literal") return typeof node.value === "number";
+  const values = assignedValues(node, sourceCode);
+  return values.length > 0 && values.every((value) => numericLimit(value, sourceCode, new Set(seen)));
+}
+
+function clockInstant(node, sourceCode, seen = new Set()) {
+  if (!node || seen.has(node)) return false;
+  if (isNowCall(node)) return true;
+  seen.add(node);
+  return assignedValues(node, sourceCode).some((value) => clockInstant(value, sourceCode, new Set(seen)));
 }
 
 function measuredElapsed(node, sourceCode, seen = new Set()) {
   if (!node || seen.has(node)) return false;
   seen.add(node);
-  if (node.type === "BinaryExpression" && node.operator === "-") return containsNow(node, sourceCode.visitorKeys);
+  if (node.type === "BinaryExpression" && node.operator === "-")
+    return (
+      containsNow(node, sourceCode.visitorKeys) ||
+      (clockInstant(node.left, sourceCode) && clockInstant(node.right, sourceCode))
+    );
   if (node.type === "Identifier") {
-    const init = initializer(node, sourceCode);
-    // Literal timing fixtures are data for a timing-policy test, not elapsed wall time.
-    if (init?.type === "Literal") return false;
-    return elapsedName.test(node.name) || measuredElapsed(init, sourceCode, seen);
+    const values = assignedValues(node, sourceCode);
+    // Only *all-numeric* writes establish a pure timing fixture. A later measurement wins.
+    return (
+      values.some((value) => measuredElapsed(value, sourceCode, new Set(seen))) ||
+      (elapsedName.test(node.name) && !numericLimit(node, sourceCode))
+    );
   }
   if (node.type === "MemberExpression") {
     const name = node.computed ? node.property.value : node.property.name;
-    const object = node.object.type === "ObjectExpression" ? node.object : initializer(node.object, sourceCode);
-    if (object?.type === "ObjectExpression") {
-      const value = object.properties.find(
-        (property) => property.type === "Property" && (property.key.name ?? property.key.value) === name,
-      )?.value;
-      if (value && numericLimit(value, sourceCode)) return false;
-      if (value && measuredElapsed(value, sourceCode, seen)) return true;
+    const objects = node.object.type === "ObjectExpression" ? [node.object] : assignedValues(node.object, sourceCode);
+    const values = objects.flatMap((object) =>
+      object.type === "ObjectExpression"
+        ? object.properties
+            .filter((property) => property.type === "Property" && (property.key.name ?? property.key.value) === name)
+            .map((property) => property.value)
+        : [],
+    );
+    for (const reference of lexicalVariable(node.object, sourceCode)?.references ?? []) {
+      const member = reference.identifier.parent;
+      if (
+        member?.type === "MemberExpression" &&
+        (member.computed ? member.property.value : member.property.name) === name &&
+        member.parent?.type === "AssignmentExpression" &&
+        member.parent.left === member
+      )
+        values.push(member.parent.right);
     }
+    if (
+      objects.every((object) => object.type === "ObjectExpression") &&
+      values.length &&
+      values.every((value) => numericLimit(value, sourceCode))
+    )
+      return false;
+    if (values.some((value) => measuredElapsed(value, sourceCode, new Set(seen)))) return true;
     return typeof name === "string" && elapsedName.test(name);
   }
   return false;

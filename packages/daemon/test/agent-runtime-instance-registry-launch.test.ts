@@ -1,5 +1,8 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import childProcess from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
+import { PassThrough } from "node:stream";
 import {
   chmodSync,
   existsSync,
@@ -10,8 +13,6 @@ import {
   rmSync,
   statSync,
   symlinkSync,
-  watch,
-  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -26,7 +27,6 @@ import {
 import { discoverRuntimeModelCatalog } from "../src/agent-runtime-installation-discovery.ts";
 import { codedAs, observed } from "./agent-runtime-instance-environment.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
-import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
 
 test("a blocked credential backend keeps the daemon runtime-instance caller responsive", async (context) => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-credential-block-"));
@@ -217,44 +217,51 @@ test("model catalog discovery reads each account environment without a shared ca
   }
 });
 
-test("runtime installation probes are asynchronous and parallel across providers", { timeout: 20_000 }, async () => {
+test("runtime installation probes are asynchronous and parallel across providers", { timeout: 20_000 }, async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-async-discovery-")),
     bin = path.join(root, "bin"),
-    release = path.join(root, "release");
+    probes: { readonly finish: () => void }[] = [];
+  // Control the process boundary, rather than making real children race their 5s probe deadline.
+  // The production queue, process port, candidate selection and result assembly still run.
+  t.mock.method(childProcess, "execFile", (command, args, options, callback) => {
+    const child = { stdin: new PassThrough(), exitCode: null as number | null, signalCode: null };
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      child.exitCode = 0;
+      callback(null, args.includes("--version") ? `${path.basename(String(command))}-async\n` : "", "");
+    };
+    if (args.includes("--version")) {
+      assert.equal(options.timeout, 5_000);
+      probes.push({ finish });
+    } else queueMicrotask(finish); // Model-catalog requests are not version-probe queue slots.
+    return child as childProcess.ChildProcess;
+  });
+  syncBuiltinESMExports();
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  });
   try {
     mkdirSync(bin);
     for (const kindId of ["codex", "claude", "agy"] as const)
-      writeProviderExecutable(
-        path.join(bin, kindId),
-        `const fs = require('node:fs');
-const answer = () => console.log('${kindId}-async');
-const watcher = fs.watch(${JSON.stringify(root)}, () => {
-  if (fs.existsSync(${JSON.stringify(release)})) { watcher.close(); answer(); }
-});
-fs.writeFileSync(${JSON.stringify(path.join(root, `${kindId}.started`))}, 'started');
-if (fs.existsSync(${JSON.stringify(release)})) { watcher.close(); answer(); }
-`,
-      );
+      writeProviderExecutable(path.join(bin, kindId), "// probe output is controlled by the test\n");
     const discovery = discoverRuntimeInstallations({ env: { PATH: bin } });
-    const started = await waitForArrival(
-      () => {
-        const kinds = ["codex", "claude", "agy"].filter((kind) => existsSync(path.join(root, `${kind}.started`)));
-        return kinds.length >= 2 ? kinds : null;
-      },
-      (arrive) => {
-        const watcher = watch(root, arrive);
-        return () => watcher.close();
-      },
-    );
-    assert.equal(started.length, 2, "two probes must start before either is released");
-    writeFileSync(release, "release both probes");
+    assert.equal(probes.length, 2, "two probes must start before either result is released");
+    // A paused parent cannot expire these probes: the fake process boundary owns completion.
+    probes[0]!.finish();
+    probes[1]!.finish();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(probes.length, 3, "completing probes must release a queue slot");
+    probes[2]!.finish();
     const rows = await discovery;
     assert.deepEqual(
       rows.map(({ kindId }) => kindId),
       ["agy", "claude", "codex"],
     );
   } finally {
-    writeFileSync(release, "cleanup");
+    for (const probe of probes) probe.finish();
     rmSync(root, { recursive: true, force: true });
   }
 });
