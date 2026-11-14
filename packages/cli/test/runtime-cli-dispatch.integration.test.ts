@@ -39,9 +39,9 @@ test(
   "Delegated dispatches archive identity, mission and separate reports and reject invalid delegates",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context);
+    const fixture = createRuntimeFixture(context, true);
     const { parent, root, env, userRoot, daemonId } = fixture;
-    installIdentities(parent, root, env);
+    installIdentities(parent, root, env, true);
     // The stub worker completes its provider turn but never commits, so every task-bound dispatch in
     // this file settles stopped and each wait/report command honestly exits 1 (F-4C182EEE).
     const runStopped = (args: readonly string[]): Record<string, unknown> => {
@@ -258,8 +258,8 @@ test(
 );
 
 test("Runtime report is archived after the worker submits its execution", { timeout: 300_000 }, async (context) => {
-  const fixture = createRuntimeFixture(context);
-  installIdentities(fixture.parent, fixture.root, fixture.env);
+  const fixture = createRuntimeFixture(context, true);
+  installIdentities(fixture.parent, fixture.root, fixture.env, true);
   const { root, env } = fixture;
   const taskId = "task-runtime-archive",
     executionId = "exec-runtime-archive";
@@ -327,9 +327,9 @@ test(
   "Task-bound batch enforces one lease holder and archives successful dispatches",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context);
+    const fixture = createRuntimeFixture(context, true);
     const { parent, root, env } = fixture;
-    installIdentities(parent, root, env);
+    installIdentities(parent, root, env, true);
     const { taskId, executionId, packagePath, artifactRoot } = seedTask(root, env, "batch");
     run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
     mkdirSync(path.join(artifactRoot, "missions"), { recursive: true });
@@ -468,7 +468,7 @@ test(
   "CLI discovers instances, runs direct prompts, resumes and streams with status retrieval",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context);
+    const fixture = createRuntimeFixture(context, true);
     const { root, env, version } = fixture;
     const { artifactRoot } = seedTask(root, env, "direct");
     const inventory = run(root, env, ["runtime", "instance", "list"]),
@@ -526,8 +526,8 @@ test(
   "Provider failures preserve reasons, redact secrets and publish failed task archives",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context);
-    installIdentities(fixture.parent, fixture.root, fixture.env);
+    const fixture = createRuntimeFixture(context, true);
+    installIdentities(fixture.parent, fixture.root, fixture.env, true);
     const { root, env } = fixture;
     const { taskId, executionId, packagePath, artifactRoot } = seedTask(root, env, "failure");
     // This file's subject is the terminal record a provider failure leaves behind: its reason,
@@ -659,9 +659,9 @@ test(
   "Named missions reject invalid inputs and task-derived missions carry dispatch preconditions",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context);
+    const fixture = createRuntimeFixture(context, true);
     const { parent, root, env, userRoot, daemonId } = fixture;
-    installIdentities(parent, root, env);
+    installIdentities(parent, root, env, true);
     const { taskId, executionId, packagePath, artifactRoot } = seedTask(root, env, "mission");
     const stopGuidance = (dispatchId: string) =>
       `\n\nTask ${taskId} is not submitted: the worker exited without a submitted delivery. ` +
@@ -859,8 +859,8 @@ test(
   "Missing and nonzero callbacks preserve runtime outcome and redact callback environment",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context);
-    installIdentities(fixture.parent, fixture.root, fixture.env);
+    const fixture = createRuntimeFixture(context, true);
+    installIdentities(fixture.parent, fixture.root, fixture.env, true);
     const { parent, root, env } = fixture;
     const { taskId, executionId, artifactRoot } = seedTask(root, env, "notification-failure");
     run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
@@ -1021,8 +1021,8 @@ test(
 );
 
 test("Repository writes commit while an exit callback is still running", { timeout: 300_000 }, async (context) => {
-  const fixture = createRuntimeFixture(context);
-  installIdentities(fixture.parent, fixture.root, fixture.env);
+  const fixture = createRuntimeFixture(context, true);
+  installIdentities(fixture.parent, fixture.root, fixture.env, true);
   const { parent, root, env } = fixture;
   const { taskId, executionId } = seedTask(root, env, "notification-queue");
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);

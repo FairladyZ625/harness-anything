@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { after } from "node:test";
 import {
   isMainThread,
   MessageChannel,
@@ -15,6 +16,8 @@ import pg from "pg";
 import { canonicalEventCut, canonicalLedgerCut } from "@harness-anything/kernel";
 import { createPGliteStorageBackend } from "../../../storage/src/pglite/storage-backend.ts";
 import { createPgStorageBackend } from "../../../storage/src/pg/backend.ts";
+import { PG_PROJECTION_TABLES } from "../../../storage/src/pg/pg-projection-schema.ts";
+import { POSTGRES_EVENT_LEDGER_TABLES } from "../../../storage/src/postgres/index.ts";
 import { localGitWorktreeSettlement } from "../../../storage/src/store/local-version-control-system.ts";
 import { pgRuntimeFixture } from "../../../storage/test/postgres/pg-runtime.fixture.ts";
 import { initRepo } from "../../../storage/test/store/task-event-store.fixtures.ts";
@@ -90,18 +93,19 @@ if (!isMainThread) {
   };
 
   installReadProbe();
-  const { state, responsePort, dimension, size, rootDir } = workerData;
+  const { state, responsePort } = workerData;
   const respond = (value) => {
     responsePort.postMessage(value);
     Atomics.store(state, 0, 1);
     Atomics.notify(state, 0);
   };
-  let backend, nativeFixture;
-  try {
+  let backend, nativeFixture, embeddedFixture;
+  async function prepare({ dimension, size, rootDir, backendKind }) {
+    measuring = false;
     const lowVisibility = dimension === "relation-visibility";
     const scope = {
       tenantId: "g38",
-      projectId: "read",
+      projectId: `${dimension}-${size}`,
       policyEpoch: 0,
       readers: lowVisibility ? ["reader-visible"] : [],
     };
@@ -112,8 +116,8 @@ if (!isMainThread) {
         return node ? { ...node, nodeKind: node.mode === "120000" ? "symbolic-link" : "file" } : null;
       },
     };
-    if (workerData.backend === "postgres") {
-      nativeFixture = await pgRuntimeFixture();
+    if (backendKind === "postgres") {
+      nativeFixture ??= await pgRuntimeFixture();
       backend = {
         ...createPgStorageBackend({
           ...backendOptions,
@@ -121,28 +125,29 @@ if (!isMainThread) {
           scope,
         }),
         pool: nativeFixture.pool,
-        close: async () => {
-          await nativeFixture.pool.end();
-          await nativeFixture.close();
-        },
       };
     } else {
-      backend = await createPGliteStorageBackend({
+      embeddedFixture ??= await createPGliteStorageBackend({
         ...backendOptions,
         storage: { backend: "pglite", scope },
       });
+      backend = {
+        ...createPgStorageBackend({ ...backendOptions, pool: embeddedFixture.pool, scope }),
+        pool: embeddedFixture.pool,
+      };
     }
+    const adminPool = backendKind === "postgres" ? nativeFixture.adminPool : backend.pool;
+    // Reuse the schema, not prior samples: tiny-table sequential plans must see the same
+    // isolated cardinalities as the original fresh-database fixture at both scales.
+    await adminPool.query(`TRUNCATE ${[...POSTGRES_EVENT_LEDGER_TABLES, ...PG_PROJECTION_TABLES].join(",")}`);
     const bundles = [],
       writerFence = { repoId: "g38-read", holderId: "read-fixture", epoch: 1 };
-    let collecting = false;
+    // Fixture construction derives its cuts locally, so base events can use the same
+    // canonical append batches as history instead of one transaction per setup event.
     await seedReadLedger(
       {
         append: async (bundle) => {
-          if (collecting) bundles.push(bundle);
-          else await backend.eventStore.append(bundle, bundle.event.workspaceRevision - 1, writerFence);
-        },
-        beginHistory: () => {
-          collecting = true;
+          bundles.push(bundle);
         },
       },
       dimension,
@@ -155,23 +160,26 @@ if (!isMainThread) {
       await backend.eventStore.append({ ...last, preceding: batch }, baseRevision, writerFence);
     }
     if (lowVisibility)
-      await (nativeFixture?.adminPool ?? backend.pool).query(`
+      await adminPool.query(
+        `
       WITH ranked AS (SELECT relation_id,row_number() OVER(ORDER BY relation_id) AS n,
-        count(*) OVER() AS total FROM ha_relations WHERE tenant_id='g38' AND project_id='read'
+        count(*) OVER() AS total FROM ha_relations WHERE tenant_id=$1 AND project_id=$2
         AND policy_epoch=0 AND relation_type='depends-on')
       UPDATE ha_relations r SET readers=CASE WHEN n>total-GREATEST(1,CEIL(total/100.0))
         THEN ARRAY['reader-visible'] ELSE ARRAY['reader-hidden'] END FROM ranked
-      WHERE r.tenant_id='g38' AND r.project_id='read' AND r.policy_epoch=0 AND r.relation_id=ranked.relation_id`);
-    await (nativeFixture?.adminPool ?? backend.pool).query("ANALYZE");
-    respond({ ready: true });
-  } catch (error) {
-    respond({ error: { message: error.message, stack: error.stack } });
+      WHERE r.tenant_id=$1 AND r.project_id=$2 AND r.policy_epoch=0 AND r.relation_id=ranked.relation_id`,
+        [scope.tenantId, scope.projectId],
+      );
+    await adminPool.query("ANALYZE");
   }
+  respond({ ready: true });
 
   parentPort.on("message", async ({ method, args = [] }) => {
     try {
       let result;
-      if (method === "reset") {
+      if (method === "prepare") {
+        await prepare(args[0]);
+      } else if (method === "reset") {
         resetReadProbe();
         measuring = true;
         sqlRowsRead = 0;
@@ -184,7 +192,11 @@ if (!isMainThread) {
           statements,
         };
       } else if (method === "close") {
-        await backend.close();
+        await embeddedFixture?.close();
+        if (nativeFixture) {
+          await nativeFixture.pool.end();
+          await nativeFixture.close();
+        }
         parentPort.close();
       } else if (method === "canonical") {
         result = await backend.eventStore.execute(args[0]);
@@ -198,18 +210,14 @@ if (!isMainThread) {
   });
 }
 
-async function tracePgProbe(dimension, size, probeIds, backend = "pglite") {
-  installReadProbe();
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-g38-p4-trace-"));
-  initRepo(rootDir);
-  writeFileSync(
-    path.join(rootDir, "harness/harness.yaml"),
-    "schema: harness-anything/v1\nname: parity\nsettings: {}\n",
-  );
+// A file owns one worker and one database per backend; every original scale gets its own scope.
+let traceWorker;
+function sharedTraceWorker() {
+  if (traceWorker) return traceWorker;
   const state = new Int32Array(new SharedArrayBuffer(4)),
     { port1, port2 } = new MessageChannel(),
     worker = new Worker(new URL(import.meta.url), {
-      workerData: { state, responsePort: port2, dimension, size, rootDir, backend },
+      workerData: { state, responsePort: port2 },
       transferList: [port2],
       execArgv: [],
     });
@@ -226,8 +234,33 @@ async function tracePgProbe(dimension, size, probeIds, backend = "pglite") {
     worker.postMessage({ method, args });
     return wait().result;
   };
+  wait();
+  traceWorker = { request, worker, port: port1 };
+  return traceWorker;
+}
+if (isMainThread)
+  after(async () => {
+    if (!traceWorker) return;
+    try {
+      traceWorker.request("close");
+    } finally {
+      await traceWorker.worker.terminate();
+      traceWorker.port.close();
+    }
+  });
+
+async function tracePgProbe(dimension, size, probeIds, backend = "pglite") {
+  installReadProbe();
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-g38-p4-trace-"));
+  initRepo(rootDir);
+  writeFileSync(
+    path.join(rootDir, "harness/harness.yaml"),
+    "schema: harness-anything/v1\nname: parity\nsettings: {}\n",
+  );
+  const { request } = sharedTraceWorker();
+  let runtime;
   try {
-    wait();
+    request("prepare", { dimension, size, rootDir, backendKind: backend });
     const projection = new Proxy(
         {},
         { get: (_, key) => (key === "path" ? "pglite:read-fixture" : (...args) => request(key, ...args)) },
@@ -252,7 +285,7 @@ async function tracePgProbe(dimension, size, probeIds, backend = "pglite") {
         readContentBlobSize: (sha256) => canonical("content-size", { sha256 }),
         drain: async () => {},
       };
-    const runtime = await createReadFixtureRuntime({ projection, store, rootDir }, () => "2026-11-05T00:00:00Z");
+    runtime = await createReadFixtureRuntime({ projection, store, rootDir }, () => "2026-11-05T00:00:00Z");
     const measurements = {};
     for (const probeId of probeIds) {
       const probe = READ_PROBES[probeId];
@@ -290,13 +323,7 @@ async function tracePgProbe(dimension, size, probeIds, backend = "pglite") {
     }
     return measurements;
   } finally {
-    try {
-      request("close");
-    } catch {
-      // Worker already exited.
-    }
-    await worker.terminate();
-    port1.close();
+    await runtime?.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
 }
