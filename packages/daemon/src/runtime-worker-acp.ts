@@ -74,6 +74,7 @@ export function runAcpProviderSession(
   child: ChildProcess,
   manifest: AcpWorkerManifest,
   append: Append,
+  options: { readonly catalogOnly?: boolean } = {},
 ): { readonly done: Promise<void>; readonly cancel: () => void; readonly steer: (prompt: string) => void } {
   let nextId: JsonRpcId = 1,
     buffer = "",
@@ -315,6 +316,8 @@ export function runAcpProviderSession(
         ...(models.available.length ? { models: models.available } : {}),
         ...(models.current ? { currentModelId: models.current } : {}),
       });
+      // Account discovery uses the same authenticated handshake, without sending a turn.
+      if (options.catalogOnly) return;
       const requested = manifest.permissionMode,
         applied = requested ? pickAcpMode(requested, modes.available) : null;
       if (applied && applied !== modes.current)

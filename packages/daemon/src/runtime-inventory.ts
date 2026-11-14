@@ -120,6 +120,7 @@ function acpKind<K extends RuntimeKindId>(
     modes: readonly RuntimeAuthMode[];
     subscriptionProbe: RuntimeProviderDeclaration["auth"]["subscriptionProbe"];
     subscriptionProbeTimeoutMs: number;
+    accountModelProbe?: RuntimeProviderDeclaration["auth"]["accountModelProbe"];
     commands?: Readonly<Partial<Record<"login" | "logout", readonly string[]>>>;
     acpAuthMethod?: RuntimeAcpAuthMethod;
     acpCredentialKey?: string;
@@ -151,6 +152,7 @@ function acpKind<K extends RuntimeKindId>(
       subscriptionProbe: auth.subscriptionProbe,
       subscriptionProbeTimeoutMs: auth.subscriptionProbeTimeoutMs,
       endpoints: auth.endpoints ?? { baseUrl: "none" },
+      ...(auth.accountModelProbe ? { accountModelProbe: auth.accountModelProbe } : {}),
       ...(auth.commands ? { commands: auth.commands } : {}),
       ...(auth.acpAuthMethod ? { acpAuthMethod: auth.acpAuthMethod } : {}),
       ...(auth.acpCredentialKey ? { acpCredentialKey: auth.acpCredentialKey } : {}),
@@ -258,6 +260,7 @@ export const runtimeKinds = [
       publicDefaults: { effort: null, baseUrl: null, baseUrlConfigured: false },
     },
     auth: {
+      accountModelProbe: { kind: "claude-sdk" },
       shape: "api-override",
       modes: ["subscription", "api-key"],
       subscriptionProbe: ["auth", "status", "--json"],
@@ -404,6 +407,7 @@ export const runtimeKinds = [
       },
     },
     auth: {
+      accountModelProbe: { kind: "codex-app-server" },
       shape: "separate",
       modes: ["subscription", "api-key"],
       apiKeyIsolation: "enforced",
@@ -528,6 +532,7 @@ export const runtimeKinds = [
       // `agy models` boots a language server, resolves OAuth, then fetches the model
       // list: measured 5-22s end to end, so the probe budget must clear that tail.
       subscriptionProbe: ["models"],
+      accountModelProbe: { kind: "command", args: ["models"] },
       subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.modelListing,
       endpoints: { baseUrl: "none" },
       commands: { login: ["acp", "--login"] },
@@ -675,6 +680,7 @@ export const runtimeKinds = [
       // consumes is the windsurf_api_key entry in credentials.toml, so presence
       // of that key is the meaningful local readiness check.
       subscriptionProbe: { kind: "file-key" },
+      accountModelProbe: { kind: "command", args: ["models", "list", "--format", "json"] },
       subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
       acpCredentialKey: "windsurf_api_key",
       // ACP local binary: the key rides authenticate's _meta.api_key; no endpoint exists.
@@ -809,6 +815,7 @@ export const runtimeKinds = [
       publicDefaults: { reasoningEffort: null },
     },
     auth: {
+      accountModelProbe: { kind: "acp" },
       shape: "separate",
       modes: ["subscription", "api-key"],
       apiKeyIsolation: "enforced",
@@ -884,6 +891,7 @@ export const runtimeKinds = [
       publicDefaults: {},
     },
     auth: {
+      accountModelProbe: { kind: "acp" },
       shape: "subscription-only",
       modes: ["subscription"],
       subscriptionProbe: ["auth", "status", "--json"],
@@ -978,6 +986,7 @@ export const runtimeKinds = [
     ["acp"],
     ".minimax",
     {
+      accountModelProbe: { kind: "acp" },
       shape: "subscription-only",
       modes: ["subscription"],
       subscriptionProbe: {
@@ -1061,6 +1070,7 @@ export const runtimeKinds = [
       publicDefaults: {},
     },
     auth: {
+      accountModelProbe: { kind: "acp" },
       shape: "subscription-only",
       modes: ["subscription"],
       subscriptionProbe: ["--version"],

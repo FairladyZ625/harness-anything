@@ -84,6 +84,10 @@ export interface RuntimeProviderDeclaration {
           readonly expiresAtField: string;
         };
     readonly subscriptionProbeTimeoutMs: number;
+    /** Authenticated account catalog only; installation help/bundled catalogs are not entitlements. */
+    readonly accountModelProbe?:
+      | { readonly kind: "command"; readonly args: readonly string[] }
+      | { readonly kind: "claude-sdk" | "codex-app-server" | "acp" };
     /** The provider's own sign-in argv per action, for kinds whose CLI exposes a
      * top-level `login`/`logout` rather than `auth login`. Absent keeps the
      * `auth <action>` default. */

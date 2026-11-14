@@ -3,7 +3,7 @@ import { accessSync, constants, realpathSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
 import type { RuntimeInstallationWitness, RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
-import { runProcessExitAsync, runProcessTextAsync, type ProcessExitResult } from "./process-port.ts";
+import { runProcessExitAsync, runProcessTextAsync, type ProcessExitResult, type ProcessInput } from "./process-port.ts";
 import { runtimeKindForId, runtimeKinds, type RuntimeProviderDeclaration } from "./runtime-inventory.ts";
 import { runtimeVersionGate } from "./runtime-version.ts";
 
@@ -210,6 +210,8 @@ export async function runExecutable(
     readonly env: NodeJS.ProcessEnv;
     readonly timeoutMs: number;
     readonly captureOutput: boolean;
+    readonly input?: ProcessInput;
+    readonly cwd?: string;
     readonly signal?: AbortSignal;
   },
 ): Promise<string> {
@@ -218,9 +220,9 @@ export async function runExecutable(
   const stdout = await runProcessTextAsync(
     command,
     argv,
-    undefined,
+    options.cwd,
     options.env,
-    undefined,
+    options.input,
     options.signal ?? AbortSignal.timeout(options.timeoutMs),
     {
       timeoutMs: options.timeoutMs,

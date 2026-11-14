@@ -184,7 +184,15 @@ test("ACP account probes use native login status and record catalogs from the is
         const fs = require("node:fs"), path = require("node:path");
         const args = process.argv.slice(2);
         if (args[0] === "--version") { console.log("9999.1.0"); process.exit(0); }
-        if (${JSON.stringify(kindId)}.endsWith("-acp")) process.exit(93);
+        if (${JSON.stringify(kindId)}.endsWith("-acp")) {
+          require("node:readline").createInterface({input:process.stdin}).on("line", line => {
+            const m = JSON.parse(line);
+            const result = m.method === "initialize" ? {authMethods:[]} : {sessionId:"test-session",models:{availableModels:[{modelId:"test-model"}],currentModelId:"test-model"}};
+            if (!["initialize","session/new"].includes(m.method)) process.exit(93);
+            console.log(JSON.stringify({jsonrpc:"2.0",id:m.id,result}));
+          });
+          return;
+        }
         if (args[0] === "debug") console.log(JSON.stringify({models:[{slug:"test-model"}]}));
         else if (args[0] === "--help") console.log('Use a model alias (e.g. "sonnet" or "opus")');
         else if (!fs.existsSync(path.join(process.env.HOME, "signed-in"))) process.exit(1);
@@ -217,7 +225,9 @@ test("ACP account probes use native login status and record catalogs from the is
       );
       writeFileSync(path.join(userRoot, "runtime-instances", kindId, "home", "signed-in"), "test");
       assert.equal((await store.authStatus(kindId)).status, "ready");
-      assert.ok(store.read(kindId)?.availableModels?.length);
+      const refreshed = await store.command({ kind: "runtime-instance-show", instanceId: kindId, probe: true });
+      assert.equal((refreshed.modelCatalogReadiness as { status: string }).status, "ready");
+      assert.deepEqual(store.read(kindId)?.availableModels, ["test-model"]);
     }
   } finally {
     rmSync(userRoot, { recursive: true, force: true });

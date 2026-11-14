@@ -332,7 +332,7 @@ export function openRuntimeInstanceStore(input: {
   }
   function persistAvailableModels(
     config: RuntimeInstanceConfig,
-    models: readonly string[],
+    models: readonly string[] | undefined,
     cut: RuntimeInstanceAccountCut,
   ): RuntimeInstanceConfig {
     const current = currentAccountForCut(cut);
@@ -341,10 +341,13 @@ export function openRuntimeInstanceStore(input: {
         "runtime_instance_probe_stale",
         `Runtime instance ${config.instanceId} changed to a non-subscription account while its model probe was running.`,
       );
-    const availableModels = normalizeModels(models);
+    const availableModels = models === undefined ? undefined : normalizeModels(models);
     if (
-      current.availableModels?.length === availableModels.length &&
-      current.availableModels.every((model, index) => model === availableModels[index])
+      current.availableModels === availableModels ||
+      (current.availableModels !== undefined &&
+        availableModels !== undefined &&
+        current.availableModels.length === availableModels.length &&
+        current.availableModels.every((model, index) => model === availableModels[index]))
     )
       return current;
     const updated = runtimeInstanceConfig({ ...current, availableModels }, platform);
@@ -554,6 +557,68 @@ export function openRuntimeInstanceStore(input: {
         unavailable("runtime_credential_unavailable", credentialHint(error)),
       );
     }
+  }
+  async function refreshAccount(
+    instanceId: string,
+    snapshot?: { readonly witnessed: readonly RuntimeInstallationWitness[]; readonly config: RuntimeInstanceConfig },
+    signal?: AbortSignal,
+  ): Promise<{ readonly readiness: RuntimeAuthReadiness; readonly modelCatalogReadiness: RuntimeAuthReadiness }> {
+    const witnessed = snapshot?.witnessed ?? (await refreshInstallations()),
+      config = snapshot?.config ?? readOne(instanceId, witnessed);
+    if (!config)
+      throw runtimeInstanceError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
+    const cut = accountCut(config),
+      status = await authStatus(instanceId, { witnessed, config });
+    currentAccountForCut(cut);
+    if (status.status !== "ready" || config.auth.mode !== "subscription")
+      return {
+        readiness: status,
+        modelCatalogReadiness: unavailable(
+          "runtime_model_catalog_not_probed",
+          "Account models were not probed because subscription authentication is unavailable.",
+        ),
+      };
+    if (isAgyAccountConfig(config)) return { readiness: status, modelCatalogReadiness: available("provider") };
+    const declaration = runtimeKindForId(config.kindId);
+    if (declaration.auth.accountModelProbe === undefined) {
+      persistAvailableModels(config, undefined, cut);
+      return {
+        readiness: status,
+        modelCatalogReadiness: unavailable(
+          "runtime_model_catalog_unsupported",
+          `${declaration.displayName} does not declare a verified account model catalog. Configured models are not an account entitlement observation.`,
+        ),
+      };
+    }
+    const installation = witnessed.find(
+      (entry) => entry.installationId === config.installationId && entry.kindId === config.kindId,
+    )!;
+    // Refresh has its own failure result; it never substitutes a new authentication result.
+    const outcome = await accountProbe
+      .probeModels({
+        kindId: config.kindId,
+        executablePath: installation.executablePath,
+        env: authEnvironment(config),
+        signal,
+      })
+      .then(
+        (catalog) => ({
+          catalog,
+          modelCatalogReadiness: catalog
+            ? available("provider")
+            : unavailable("runtime_model_catalog_empty", "The provider returned no account models."),
+        }),
+        (error: unknown) => ({
+          catalog: null,
+          modelCatalogReadiness: unavailable(
+            "runtime_model_catalog_probe_failed",
+            `Account model refresh failed${typeof error === "object" && error !== null && "status" in error && typeof error.status === "number" ? ` (exit ${error.status})` : ""}; subscription authentication remains verified. Retry the model refresh.`,
+          ),
+        }),
+      );
+    currentAccountForCut(cut);
+    persistAvailableModels(config, outcome.catalog?.models, cut);
+    return { readiness: status, modelCatalogReadiness: outcome.modelCatalogReadiness };
   }
   function prepareAuthCommand(instanceId: string, action: "login" | "logout"): PreparedRuntimeAuthCommand {
     const config = readOne(instanceId);
@@ -1026,10 +1091,18 @@ export function openRuntimeInstanceStore(input: {
       if (probe)
         return Promise.all(
           configs.map(async (config) => {
-            const status = await authStatus(config.instanceId, { witnessed: live ?? [], config });
-            return publicConfig(readOne(config.instanceId) ?? config, status);
+            const result = await refreshAccount(config.instanceId, { witnessed: live ?? [], config });
+            return {
+              instance: publicConfig(readOne(config.instanceId) ?? config, result.readiness),
+              modelCatalogReadiness: result.modelCatalogReadiness,
+            };
           }),
-        ).then(listed);
+        ).then((results) => ({
+          ...listed(results.map((result) => result.instance)),
+          modelCatalogReadiness: Object.fromEntries(
+            results.map((result) => [result.instance.instanceId, result.modelCatalogReadiness]),
+          ),
+        }));
       const instances = configs.map((config) => publicConfig(config, readiness.get(config.instanceId)));
       return listed(instances);
     }
@@ -1221,13 +1294,14 @@ export function openRuntimeInstanceStore(input: {
       if (!config)
         throw runtimeInstanceError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
       if (action.probe === true)
-        return authStatus(instanceId, { witnessed: witnessed!, config }).then((status) => {
-          const instance = publicConfig(readOne(instanceId) ?? config, status);
+        return refreshAccount(instanceId, { witnessed: witnessed!, config }).then((result) => {
+          const instance = publicConfig(readOne(instanceId) ?? config, result.readiness);
           return {
             ...base,
             instance,
-            evidence: JSON.stringify(instance),
-            summary: `runtime-instance-show: ${instanceId}\nmodels: ${instance.models.join(", ")}\navailableModels: ${instance.availableModels?.join(", ") ?? "(not probed)"}\ncredentialSource: ${instance.credentialSource}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}\nmcpPolicy: ${instance.mcpPolicy ?? "unsupported"}`,
+            modelCatalogReadiness: result.modelCatalogReadiness,
+            evidence: JSON.stringify({ ...instance, modelCatalogReadiness: result.modelCatalogReadiness }),
+            summary: `modelCatalog: ${result.modelCatalogReadiness.code ?? "ready"}${result.modelCatalogReadiness.hint ? ` · ${result.modelCatalogReadiness.hint}` : ""}\nruntime-instance-show: ${instanceId}\nmodels: ${instance.models.join(", ")}\navailableModels: ${instance.availableModels?.join(", ") ?? "(not probed)"}\ncredentialSource: ${instance.credentialSource}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}\nmcpPolicy: ${instance.mcpPolicy ?? "unsupported"}`,
           };
         });
       const instance = publicConfig(config, readiness.get(config.instanceId));
@@ -1321,6 +1395,7 @@ export function openRuntimeInstanceStore(input: {
     read: readOne,
     delete: remove,
     authStatus,
+    refreshAccount,
     prepareAuthCommand,
     prepareLaunch,
     prepareCloudRelay,
@@ -1542,16 +1617,8 @@ export function openRuntimeInstanceStore(input: {
         readiness = await providerSubscriptionReadiness(
           { installation: target.installation, env, isolationState, ...(codexProbe ? { codexProbe } : {}) },
           platform,
-        ),
-        catalog =
-          readiness.status === "ready" && captureCatalog && config?.credentialSource === "instance"
-            ? await accountProbe.probeModels({
-                kindId: target.kindId,
-                executablePath: target.installation.executablePath,
-                env,
-              })
-            : null;
-      return { readiness, ...(catalog ? { availableModels: catalog.models } : {}) };
+        );
+      return { readiness };
     } catch (error) {
       consumeKnownError(error);
       const terminated =

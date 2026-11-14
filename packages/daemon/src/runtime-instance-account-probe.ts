@@ -8,6 +8,7 @@ import {
 } from "./agent-runtime-installation-discovery.ts";
 import type { RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
+import { probeSessionModelCatalog } from "./runtime-account-model-catalog.ts";
 
 export interface RuntimeAccountModelCatalog {
   readonly models: readonly string[];
@@ -31,8 +32,10 @@ export function createRuntimeInstanceAccountProbe(
         signal = probeSignal(input.signal, timeoutMs);
       return runBounded(signal, async () => {
         const declaration = runtimeKindForId(input.kindId);
-        if (declaration.executable.modelProbe === null) return null;
-        const args = [...declaration.executable.modelProbe];
+        const probe = declaration.auth.accountModelProbe;
+        if (probe === undefined) return null;
+        if (probe.kind !== "command") return probeSessionModelCatalog(platform, input, probe.kind, signal, timeoutMs);
+        const args = [...probe.args];
         appendAgyAccountDirectories(input.kindId, input.env, args);
         const output = await runExecutable(platform, input.executablePath, args, {
             env: input.env,

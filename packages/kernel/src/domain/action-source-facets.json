@@ -9758,6 +9758,12 @@
         "port": "packages/daemon/src/process-port.ts#launchProcessText.child.settle"
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-account-model-catalog.ts#probeSessionModelCatalog.input:f5f64c7d060c5b47d23dce3daf463c4e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/stream.d.ts#stream.Stream.Writable.write"
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/runtime-callback-relay.ts#createRuntimeCallbackRelay.server.closeBoth:6b02bc08b50fb843e2840b9d3cc34d7b",
         "route": "daemon-local-state",
         "role": "technical-port",
