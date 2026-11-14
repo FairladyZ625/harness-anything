@@ -1,5 +1,15 @@
-import type { PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
+import type { PersistedCanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync-types.ts";
+import {
+  canonicalEventSummary,
+  SUMMARY_TEXT_LIMIT,
+} from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
+import {
+  storageReadPolicy,
+  validateStorageReadWindow,
+} from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
+import { withPostgresTransaction } from "../postgres/transaction.ts";
 import { POSTGRES_EVENT_REF_INDEX_SCHEMA_STATEMENTS } from "../postgres/event-ledger-schema.ts";
 import { POSTGRES_SCOPE_SCHEMA_CONTRACT, postgresScopeRlsStatements } from "../postgres/scope-schema.ts";
 
@@ -85,6 +95,66 @@ export function eventReadIndexDdl(): readonly string[] {
     "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS runtime_session_present boolean NOT NULL DEFAULT false",
     "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS runtime_session_unsettled boolean NOT NULL DEFAULT false",
     "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS summary_json text",
+    "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS default_summary_json text",
+    // Previous writers persist only bounded input; the kernel remains the final summary authority.
+    // Even json getters decode unrelated NUL/lone-surrogate escapes. Parse a disposable copy whose
+    // strings contain their original JSON escape tokens, then put those tokens back without loss.
+    String.raw`CREATE OR REPLACE FUNCTION ha_default_summary_text(encoded jsonb, clip boolean DEFAULT false) RETURNS text
+      LANGUAGE plpgsql IMMUTABLE AS $function$
+      DECLARE token text; cursor_pos integer := 2; end_pos integer; units integer := 0;
+      BEGIN
+        IF jsonb_typeof(encoded) IS DISTINCT FROM 'string' THEN RETURN COALESCE(encoded::text,'null'); END IF;
+        token := '"'||(encoded #>> '{}')||'"';
+        IF NOT clip THEN RETURN token; END IF;
+        end_pos := char_length(token);
+        WHILE cursor_pos < end_pos AND units < ${SUMMARY_TEXT_LIMIT} LOOP
+          cursor_pos := cursor_pos + CASE WHEN substr(token,cursor_pos,1) <> E'\\' THEN 1
+            WHEN substr(token,cursor_pos+1,1)='u' THEN 6 ELSE 2 END;
+          units := units+1;
+        END LOOP;
+        RETURN substr(token,1,cursor_pos-1)||'"';
+      END $function$`,
+    String.raw`CREATE OR REPLACE FUNCTION ha_default_summary_source(serialized text) RETURNS text
+      LANGUAGE plpgsql IMMUTABLE STRICT AS $function$
+      DECLARE raw jsonb; payload jsonb; claims json;
+      BEGIN
+        SELECT string_agg(CASE WHEN left(part[1],1)='"'
+          THEN to_json(substr(part[1],2,char_length(part[1])-2))::text ELSE part[1] END,'' ORDER BY position)::jsonb
+          INTO raw FROM regexp_matches(serialized,$tokens$("(?:\\.|[^"\\])*"|[^"]+)$tokens$,'g')
+          WITH ORDINALITY AS tokens(part,position);
+        payload := raw->'payload';
+        IF jsonb_typeof(payload->'documentClaims')='array' THEN
+          SELECT COALESCE(json_agg(json_build_object('path',ha_default_summary_text(claim->'path')::json)),'[]'::json)
+          INTO claims FROM jsonb_array_elements(payload->'documentClaims') claim;
+        END IF;
+        RETURN json_build_object(
+          'eventId',ha_default_summary_text(raw->'eventId')::json,
+          'schema',ha_default_summary_text(raw->'schema')::json,'type',ha_default_summary_text(raw->'type')::json,
+          'occurredAt',ha_default_summary_text(raw->'occurredAt')::json,
+          'workspaceRevision',raw->'workspaceRevision',
+          'taskId',ha_default_summary_text(raw->'taskId')::json,
+          'factId',ha_default_summary_text(raw->'factId')::json,'decisionId',ha_default_summary_text(raw->'decisionId')::json,
+          'actor',json_build_object('executor',json_build_object('id',ha_default_summary_text(raw#>'{actor,executor,id}')::json)),
+          'payload',json_build_object(
+            'taskId',ha_default_summary_text(payload->'taskId')::json,
+            'subject',json_build_object('kind',ha_default_summary_text(payload#>'{subject,kind}')::json,
+              'taskId',ha_default_summary_text(payload#>'{subject,taskId}')::json),
+            'statement',ha_default_summary_text(payload->'statement',true)::json,
+            'text',ha_default_summary_text(payload->'text',true)::json,
+            'title',ha_default_summary_text(payload->'title',true)::json,
+            'runtimeSessionId',ha_default_summary_text(payload->'runtimeSessionId')::json,
+            'instanceId',ha_default_summary_text(payload->'instanceId')::json,
+            'entityKind',ha_default_summary_text(payload->'entityKind')::json,
+            'entityId',ha_default_summary_text(payload->'entityId')::json,
+            'witness',CASE WHEN jsonb_typeof(payload->'witness')='object' THEN json_build_object(
+              'gateId',ha_default_summary_text(payload#>'{witness,gateId}')::json,
+              'result',ha_default_summary_text(payload#>'{witness,result}')::json) END,
+            'review',CASE WHEN jsonb_typeof(payload->'review')='object' THEN json_build_object(
+              'verdict',ha_default_summary_text(payload#>'{review,verdict}')::json) END,
+            'documentClaims',claims
+          )
+        )::text;
+      END $function$`,
     String.raw`CREATE OR REPLACE FUNCTION ha_fleet_event_summary_from_jsonb(v jsonb) RETURNS text
       LANGUAGE sql IMMUTABLE STRICT AS $function$
         SELECT jsonb_build_object(
@@ -138,6 +208,13 @@ export function eventReadIndexDdl(): readonly string[] {
           SELECT 1 FROM ha_projection_values p WHERE p.tenant_id=NEW.tenant_id AND p.project_id=NEW.project_id
           AND p.policy_epoch=NEW.policy_epoch AND p.model='runtime-session' AND p.owner_id=''
           AND p.entity_id=NEW.runtime_session_id COLLATE "default" AND p.runtime_outcome IS NULL);
+        IF TG_OP='UPDATE' AND OLD.event_json IS DISTINCT FROM NEW.event_json
+           AND NEW.default_summary_json IS NOT DISTINCT FROM OLD.default_summary_json THEN
+          NEW.default_summary_json := NULL;
+        END IF;
+        IF NEW.default_summary_json IS NULL THEN
+          NEW.default_summary_json := ha_default_summary_source(NEW.event_json);
+        END IF;
         IF NEW.summary_json IS NULL THEN
           NEW.summary_json := ha_fleet_event_summary_from_jsonb(v);
         END IF;
@@ -148,6 +225,8 @@ export function eventReadIndexDdl(): readonly string[] {
       FOR EACH ROW EXECUTE FUNCTION ha_event_read_index_fields()`,
     `CREATE INDEX IF NOT EXISTS ha_events_summary_pending ON ha_events
       (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE summary_json IS NULL`,
+    `CREATE INDEX IF NOT EXISTS ha_events_default_summary_pending ON ha_events
+      (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE default_summary_json IS NULL`,
     `CREATE INDEX IF NOT EXISTS ha_events_read_index_pending_v5 ON ha_events
       (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE read_index_version<5`,
     `CREATE INDEX IF NOT EXISTS ha_events_read_index_pending_v6 ON ha_events
@@ -263,6 +342,40 @@ export async function assertPgEventReadIndexReady(
     throw Object.assign(new Error("Event read-index backfill is pending"), { code: "projection_pending" });
 }
 
+/** Default readiness uses its own pending index; legacy fleet readiness certifies a different column. */
+export async function pgDefaultEventSummaryGate(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  repoId: string,
+): Promise<void> {
+  const pending = await client.query(
+    `SELECT 1 FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4
+      AND default_summary_json IS NULL LIMIT 1`,
+    [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
+  );
+  if (pending.rows.length) {
+    const error = new Error("Default event summaries are not backfilled");
+    Object.defineProperty(error, "code", { value: "projection_pending" });
+    throw error;
+  }
+}
+
+/** Drain historical default summaries in independently committed 64-row transactions. */
+export async function backfillPgDefaultEventSummaries(
+  pool: Pool,
+  scope: PgProjectionScope,
+  repoId: string,
+): Promise<void> {
+  for (;;) {
+    const page = await withPostgresTransaction(
+      pool,
+      (client) => backfillPgDefaultEventSummariesPage(client, scope, repoId),
+      scope,
+    );
+    if (page.done) return;
+  }
+}
+
 /** Schema-owner contract step, outside serving PostgreSQL transactions. A scoped page only
  * certifies its own repo; the physical index remains until all scopes have committed readiness.
  * The shared event trigger fills every subsequent old/current writer insert atomically.
@@ -290,4 +403,89 @@ export async function contractPgEventSummaryIndex(
     `DROP INDEX ${options.indexBuild === "isolated" ? "" : "CONCURRENTLY "}IF EXISTS ha_events_summary_pending`,
   );
   return true;
+}
+
+/** Bounded 64-row management backfill page for historical default event summaries. */
+export async function backfillPgDefaultEventSummariesPage(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  repoId: string,
+  pageSize: number = storageReadPolicy.defaultValue.pageSizes.sessions,
+): Promise<{ readonly processed: number; readonly done: boolean }> {
+  if (!validateStorageReadWindow(pageSize, storageReadPolicy.defaultValue.pageSizes.sessions))
+    throw new Error("default event summary backfill page size must be between 1 and 64");
+  const batch = await client.query<{ readonly revision: string; readonly event_json: string }>(
+    `SELECT revision::text AS revision, event_json FROM ha_events
+     WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4
+       AND default_summary_json IS NULL
+     ORDER BY revision ASC LIMIT $5 FOR UPDATE`,
+    [scope.tenantId, scope.projectId, scope.policyEpoch, repoId, pageSize],
+  );
+  if (batch.rows.length === 0) return { processed: 0, done: true };
+  const revisions = batch.rows.map((row) => row.revision),
+    summaries = batch.rows.map(
+      (row) => pgDefaultEventSummaryEntry(JSON.parse(row.event_json) as PersistedCanonicalEventV1).summaryJson,
+    );
+  await client.query(
+    `UPDATE ha_events AS e
+     SET default_summary_json = filled.summary_json
+     FROM unnest($5::bigint[], $6::text[]) AS filled(revision, summary_json)
+     WHERE e.tenant_id=$1 AND e.project_id=$2 AND e.policy_epoch=$3 AND e.repo_id=$4
+       AND e.revision=filled.revision`,
+    [scope.tenantId, scope.projectId, scope.policyEpoch, repoId, revisions, summaries],
+  );
+  return { processed: batch.rows.length, done: false };
+}
+
+export function pgDefaultEventSummaryEntry(
+  rawEvent: PersistedCanonicalEventV1,
+  sourceRevision?: number,
+): {
+  readonly revision: number;
+  readonly opId: string;
+  readonly eventId: string;
+  readonly summaryJson: string;
+} {
+  return {
+    revision: sourceRevision ?? rawEvent.workspaceRevision,
+    opId: rawEvent.opId,
+    eventId: rawEvent.eventId,
+    summaryJson: JSON.stringify(canonicalEventSummary(rawEvent)),
+  };
+}
+
+export async function fillPgDefaultEventSummaries(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  entries: readonly {
+    readonly revision: number;
+    readonly opId: string;
+    readonly eventId: string;
+    readonly summaryJson: string;
+  }[],
+): Promise<void> {
+  if (entries.length === 0) return;
+  await client.query(
+    `UPDATE ha_events AS e
+     SET default_summary_json = batch.summary_json
+     FROM unnest($4::bigint[], $5::text[], $6::text[], $7::text[])
+       AS batch(revision, op_id, event_id, summary_json),
+       ha_repo_heads AS h
+     WHERE h.tenant_id = $1 AND h.project_id = $2 AND h.policy_epoch = $3
+       AND e.tenant_id = h.tenant_id AND e.project_id = h.project_id
+       AND e.repo_id = h.repo_id AND e.policy_epoch = $3
+       AND e.revision = batch.revision
+       AND e.op_id = batch.op_id
+       AND e.event_id = batch.event_id
+       AND e.default_summary_json IS DISTINCT FROM batch.summary_json`,
+    [
+      scope.tenantId,
+      scope.projectId,
+      scope.policyEpoch,
+      entries.map((entry) => entry.revision),
+      entries.map((entry) => entry.opId),
+      entries.map((entry) => entry.eventId),
+      entries.map((entry) => entry.summaryJson),
+    ],
+  );
 }

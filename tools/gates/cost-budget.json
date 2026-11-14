@@ -1710,15 +1710,6 @@
         "expiresAt": "2026-11-26T00:00:00Z"
       },
       {
-        "probe": "event-tail",
-        "backend": "pglite",
-        "dimension": "event-bytes",
-        "metric": "sqlResultBytes",
-        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 84411 at 200 -> 113212 at 2000 (cold/warm maximum). Bytes-only boundary; scan attribution unverified, tracked separately.",
-        "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
         "probe": "cli-decision-validate",
         "backend": "pglite",
         "dimension": "dispatches",

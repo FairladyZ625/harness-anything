@@ -2,7 +2,7 @@ import {
   storageReadPolicy,
   validateStorageReadWindow,
 } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
-import { assertPgEventReadIndexReady } from "./pg-event-read-index-migration.ts";
+import { assertPgEventReadIndexReady, pgDefaultEventSummaryGate } from "./pg-event-read-index-migration.ts";
 import { assertPgProjectionSchemaVersion } from "./pg-projection-schema.ts";
 import type { AgentRuntimeEventV1, CanonicalEventV1 } from "@harness-anything/kernel";
 import { normalizeHistoricalEvent } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";
@@ -25,6 +25,10 @@ import type { PgTaskProjectionSourceOptions, PgTaskProjectionSource, PgProjectio
 /** SQLite event_index keeps accepted bytes unless the registered reviewer-key transform changes a dispatch. */
 export function eventIndexEvent<Event extends CanonicalEventV1>(event: Event): Event {
   return withReviewerQualifiedDispatchKey(event) === event ? event : (normalizeHistoricalEvent(event) as Event);
+}
+
+function parseDefaultEventSummaryRow(summaryJson: string): CanonicalEventSummary {
+  return canonicalEventSummary(JSON.parse(summaryJson) as CanonicalEventV1);
 }
 
 export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
@@ -235,21 +239,35 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
           throw new Error("event summary page requires a non-negative revision and a limit from 1 to 2048");
         const cut = await readCutInTransaction(client, claims, readers, repoId);
         if (typeof fields === "object") {
+          const taskIds = [...new Set(fields.taskIds)].filter((taskId) => taskId.length > 0);
+          if (taskIds.length === 0) return { ...cut, events: [], hasMore: false };
+          await assertPgEventReadIndexReady(client, claims, repoId);
+          await pgDefaultEventSummaryGate(client, claims, repoId);
           const selected: CanonicalEventSummary[] = [];
-          for (const taskId of new Set(fields.taskIds)) {
-            const rows = await readEventRowsInTransaction(
-              client,
-              claims,
-              readers,
-              repoId,
-              "canonical_task_id = $6 AND revision > $7 AND revision <= $8",
-              [taskId, afterRevision, cut.watermark],
-              "DESC",
-              limit + 1,
+          for (const taskId of taskIds) {
+            const result = await client.query<{ revision: string; summary_json: string }>(
+              `SELECT revision::text AS revision, default_summary_json AS summary_json
+               FROM ha_events
+               WHERE tenant_id = $1 AND project_id = $2 AND repo_id = $3 AND policy_epoch = $4
+                 AND event_type <> 'ci_run_observed'
+                 AND canonical_task_id IS NOT NULL
+                 AND canonical_task_id = $6
+                 AND (cardinality($5::text[]) = 0 OR readers && $5::text[])
+                 AND revision > $7 AND revision <= $8
+               ORDER BY ha_events.revision DESC LIMIT $9`,
+              [
+                claims.tenantId,
+                claims.projectId,
+                repoId,
+                claims.policyEpoch,
+                readers,
+                taskId,
+                afterRevision,
+                cut.watermark,
+                limit + 1,
+              ],
             );
-            selected.push(
-              ...rows.map(({ event_json }) => canonicalEventSummary(JSON.parse(event_json) as CanonicalEventV1)),
-            );
+            selected.push(...result.rows.map(({ summary_json }) => parseDefaultEventSummaryRow(summary_json)));
           }
           selected.sort((left, right) => right.workspaceRevision - left.workspaceRevision);
           return { ...cut, events: selected.slice(0, limit).reverse(), hasMore: selected.length > limit };
@@ -311,22 +329,21 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
             ),
           };
         }
-        const rows = await readEventRowsInTransaction(
-          client,
-          claims,
-          readers,
-          repoId,
-          "revision > $6 AND revision <= $7",
-          [afterRevision, cut.watermark],
-          "ASC",
-          limit,
+        await assertPgEventReadIndexReady(client, claims, repoId);
+        await pgDefaultEventSummaryGate(client, claims, repoId);
+        const result = await client.query<{ revision: string; summary_json: string }>(
+          `SELECT revision::text AS revision, default_summary_json AS summary_json
+           FROM ha_events
+           WHERE tenant_id = $1 AND project_id = $2 AND repo_id = $3 AND policy_epoch = $4
+             AND event_type <> 'ci_run_observed'
+             AND (cardinality($5::text[]) = 0 OR readers && $5::text[])
+             AND revision > $6 AND revision <= $7
+           ORDER BY ha_events.revision ASC LIMIT $8`,
+          [claims.tenantId, claims.projectId, repoId, claims.policyEpoch, readers, afterRevision, cut.watermark, limit],
         );
         return {
           ...cut,
-          events: rows.map(
-            ({ event_json }) =>
-              canonicalEventSummary(JSON.parse(event_json) as CanonicalEventV1) as CanonicalEventSummary,
-          ),
+          events: result.rows.map(({ summary_json }) => parseDefaultEventSummaryRow(summary_json)),
         };
       },
       claims,

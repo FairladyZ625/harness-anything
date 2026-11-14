@@ -148,7 +148,7 @@ function readEventTail(
     };
   }
 
-  const probe = projection.readEventSummaries(0, 1, payload.fields),
+  const probe = projection.readCut(),
     before = requested ?? probe.watermark + 1;
   if (before > probe.sourceRevision + 1)
     throw observeError(

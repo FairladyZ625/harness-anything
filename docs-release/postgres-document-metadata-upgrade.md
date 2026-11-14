@@ -98,6 +98,26 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
    repeating the function. Preserve tenant/project/policy-epoch **and repo** identity; do not
    merge scopes.
 
+   The same release also stores the default/workspace event summary in
+   `default_summary_json`. The PGlite opening path drains this column before it returns a serving
+   backend. For an external PostgreSQL deployment, the schema-owner management process must call
+   the exported `backfillPgDefaultEventSummaries(pool, scope, repoId)` entry after the event page
+   loop; it commits the existing 64-row `backfillPgDefaultEventSummariesPage` transactions until
+   the final page is `{ processed: 0, done: true }`. Do not run this loop inside the DDL
+   transaction. Until the pending probe is empty, default/workspace event-summary reads return
+   `projection_pending` rather than reading `event_json`. This check uses the independent
+   `ha_events_default_summary_pending` partial index in the serving transaction's snapshot.
+   The legacy `ha_event_summary_state.ready` flag certifies only fleet `summary_json`;
+   it does not bypass default-summary readiness, and the default backfill does not set it.
+
+   After readiness, the existing event trigger keeps that column populated for previous-version
+   INSERTs and event updates in the same transaction. Those writers store a bounded input projection;
+   the current reader passes it through the same kernel `canonicalEventSummary` used by current
+   writes and management backfill. JSON string tokens retain NUL and surrogate escapes, with at most
+   280 input characters for each clipped text field. Default/workspace readers never fetch complete
+   event bodies to fill a missing summary, and repeated page reads do no repair writes. Keep the
+   trigger through the supported current/previous writer window.
+
 5. Verify readiness on the same claims before enabling current readers. All probes must
    return no rows (use the actual deployment identifiers):
 
@@ -116,6 +136,9 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
    SELECT 1 FROM ha_events
    WHERE tenant_id='tenant-id' AND project_id='project-id' AND policy_epoch=1 AND repo_id='repo-id'
      AND summary_json IS NULL LIMIT 1;
+   SELECT 1 FROM ha_events
+   WHERE tenant_id='tenant-id' AND project_id='project-id' AND policy_epoch=1 AND repo_id='repo-id'
+     AND default_summary_json IS NULL LIMIT 1;
    ```
 
    Document metadata must also be complete as in phase 2. Finish the current declaration

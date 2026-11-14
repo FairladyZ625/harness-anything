@@ -1,3 +1,4 @@
+import { fillPgDefaultEventSummaries, pgDefaultEventSummaryEntry } from "./pg-event-read-index-migration.ts";
 import { pgEventShapeReplayInput } from "./pg-event-shape-replay.ts";
 import { decideRawTaskLease } from "@harness-anything/kernel/internal/domain/task-lease-policy.ts";
 import { relationCreatedEventForReplay } from "@harness-anything/kernel";
@@ -20,6 +21,7 @@ import { derivedRelationRecordsForReplay } from "../projection/relation-entity-p
 import { materializePgQueryModels } from "./pg-query-model-materialize.ts";
 import { flushPgArtifactDocuments } from "./pg-artifact-timeline.ts";
 import type { PoolClient } from "pg";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { normalizeHistoricalEvent } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";
 import {
   emptyTaskLifecycleSnapshot,
@@ -113,7 +115,10 @@ export async function materializePgProjectionEvent(
     input.sourceHeadRevision ?? input.sourceRevision ?? input.event.workspaceRevision,
     input.readContentBlob,
   );
-  return replay ? rebuildPgProjection(client, scope, replay) : materializeProjectionEvent(client, scope, input);
+  if (replay) return rebuildPgProjection(client, scope, replay);
+  const receipt = await materializeProjectionEvent(client, scope, input);
+  await fillPgDefaultEventSummaries(client, scope, [pgDefaultEventSummaryEntry(input.event, input.sourceRevision)]);
+  return receipt;
 }
 
 async function admitProjectionGeneration(client: PoolClient, scope: PgProjectionScope): Promise<void> {
@@ -221,6 +226,11 @@ export async function materializePgProjectionEvents(
     scope,
     [...artifacts.values()].filter((entry) => entry !== null),
   );
+  await fillPgDefaultEventSummaries(
+    client,
+    scope,
+    input.events.map((event) => pgDefaultEventSummaryEntry(event, event.workspaceRevision)),
+  );
 }
 
 /** Rebuild the projection from an ordered canonical event stream. Existing projection rows are discarded. */
@@ -272,15 +282,25 @@ export async function rebuildPgProjection(
      WHERE tenant_id = $4 AND project_id = $5 AND policy_epoch = $6 AND projection_name = 'task/v1'`,
     [stateDigest, sourceHeadRevision, PG_PROJECTION_SCHEMA_VERSION, scope.tenantId, scope.projectId, scope.policyEpoch],
   );
-  // Rebuild/import clears derived readiness with the other scoped projections. Publish it in
-  // the same transaction as the new cut, from the canonical rows (including every scoped repo).
+  // Reuse replay input in bounded batches, committed with the existing atomic rebuild cut.
+  const summaryPageSize = storageReadPolicy.defaultValue.pageSizes.sessions;
+  for (let offset = 0; offset < input.events.length; offset += summaryPageSize)
+    await fillPgDefaultEventSummaries(
+      client,
+      scope,
+      input.events.slice(offset, offset + summaryPageSize).map((event) => pgDefaultEventSummaryEntry(event)),
+    );
   await client.query(
     `INSERT INTO ha_event_summary_state(tenant_id,project_id,policy_epoch,repo_id,ready)
-     SELECT h.tenant_id,h.project_id,h.policy_epoch,h.repo_id,NOT EXISTS (
-       SELECT 1 FROM ha_events e
-       WHERE (e.tenant_id,e.project_id,e.policy_epoch,e.repo_id) =
-         (h.tenant_id,h.project_id,h.policy_epoch,h.repo_id) AND e.summary_json IS NULL
-     ) FROM ha_repo_heads h WHERE h.tenant_id=$1 AND h.project_id=$2 AND h.policy_epoch=$3`,
+     SELECT h.tenant_id,h.project_id,h.policy_epoch,h.repo_id,
+       NOT EXISTS (
+         SELECT 1 FROM ha_events e
+         WHERE (e.tenant_id,e.project_id,e.policy_epoch,e.repo_id) =
+           (h.tenant_id,h.project_id,h.policy_epoch,h.repo_id) AND e.summary_json IS NULL
+       )
+     FROM ha_repo_heads h WHERE h.tenant_id=$1 AND h.project_id=$2 AND h.policy_epoch=$3
+     ON CONFLICT (tenant_id,project_id,policy_epoch,repo_id)
+     DO UPDATE SET ready=EXCLUDED.ready`,
     scopeValues,
   );
   return receipt;

@@ -14,7 +14,7 @@ export type CanonicalEventSummary = Readonly<Record<string, unknown>> & {
   readonly payload: Readonly<Record<string, unknown>>;
 };
 
-const SUMMARY_TEXT_LIMIT = 280;
+export const SUMMARY_TEXT_LIMIT = 280;
 
 /** The list-row projection of a canonical event. Large event-specific payloads never cross the RPC boundary. */
 export function canonicalEventSummary(event: PersistedCanonicalEventV1): CanonicalEventSummary {
