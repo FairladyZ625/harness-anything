@@ -112,6 +112,17 @@ describe("provider edit form", () => {
       buildRuntimeInstanceUpdatePayload("codex-edit", { ...subscription, isolation: "operator-environment" }),
     ).toMatchObject({ isolationState: "operator-environment" });
   });
+  it("preserves credential source through create and edit payloads", () => {
+    expect(buildRuntimeInstanceCreatePayload({ ...form, credentialSource: "instance" }, "install")).toMatchObject({
+      credentialSource: "instance",
+    });
+
+    const instance = runtimeInstanceEditForm({ ...apiCodex, credentialSource: "instance" });
+    expect(instance.credentialSource).toBe("instance");
+    expect(buildRuntimeInstanceUpdatePayload("codex-edit", instance)).toMatchObject({
+      credentialSource: "instance",
+    });
+  });
   it("seeds the edit form with the current base URL and keeps it editable", () => {
     const form = runtimeInstanceEditForm(apiCodex);
     expect(form.baseUrl).toBe("https://old.example/v1");
@@ -434,6 +445,7 @@ describe("provider planes (2026-08-20 adjudication)", () => {
         models: ["gpt-5.6-sol", "gpt-5.6-terra"],
         defaultModel: "gpt-5.6-sol",
       },
+      selectedInstallation = { ...detected, installationId: "codex-install-selected" },
       blank = {
         ...form,
         instanceId: "blank-model",
@@ -446,7 +458,7 @@ describe("provider planes (2026-08-20 adjudication)", () => {
         isolation: "operator-environment" as const,
       };
     try {
-      const store = openRuntimeInstanceStore({ userRoot, discover: () => [detected] }),
+      const store = openRuntimeInstanceStore({ userRoot, discover: () => [detected, selectedInstallation] }),
         unavailable = async () => ({}),
         createRuntimeInstance = async (payload: Record<string, unknown>) =>
           store.command({ kind: "runtime-instance-create", ...payload } as never),
@@ -484,7 +496,7 @@ describe("provider planes (2026-08-20 adjudication)", () => {
         model: "",
       };
       await runtimeInstanceClient.create(
-        buildRuntimeInstanceCreatePayload(selected, detected.installationId, detected),
+        buildRuntimeInstanceCreatePayload(selected, selectedInstallation.installationId, selectedInstallation),
       );
       const shown = (await runtimeInstanceClient.show(selected.instanceId)).instance as {
         readonly instanceId: string;
@@ -631,10 +643,11 @@ describe("provider planes (2026-08-20 adjudication)", () => {
       models: ["gemini-3.1-pro-low"],
       kindId: "agy",
       authMode: "subscription",
+      isolationState: "operator-environment",
       agy: {},
     });
     expect("permissionMode" in agy).toBe(false);
-    expect("isolationState" in agy).toBe(false);
+    expect(agy.isolationState).toBe("operator-environment");
     expect(() =>
       buildRuntimeInstanceCreatePayload({ ...form, kindId: "agy", authMode: "api-key", apiKey: "sk" }, "agy-install"),
     ).toThrow();

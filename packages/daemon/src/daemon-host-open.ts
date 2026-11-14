@@ -263,7 +263,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       isCredentialInUse: (reference) =>
         instanceStore.list().some((config) => runtimeInstanceUsesCredential(config, reference)),
     }),
-    runtimePorts = openDaemonRuntimePorts({ userRoot: input.userRoot, instances }),
+    runtimePorts = openDaemonRuntimePorts({ instances }),
     startedAt = input.startedAt ?? new Date().toISOString(),
     now = input.now ?? (() => new Date().toISOString()),
     initialRegistry = readDaemonRegistry({ userRoot: input.userRoot }),

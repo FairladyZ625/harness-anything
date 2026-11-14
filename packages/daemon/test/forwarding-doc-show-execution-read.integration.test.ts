@@ -31,15 +31,16 @@ console.log(JSON.stringify({ type: "thread.started", thread_id: "probe" }));
 console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }));`,
     );
     const installation = {
-      installationId: "forwarding-codex",
-      kindId: "codex" as const,
-      executablePath,
-      version: "1.0.0",
-      observedAt: "2026-11-01T00:00:00.000Z",
-    };
+        installationId: "forwarding-codex",
+        kindId: "codex" as const,
+        executablePath,
+        version: "1.0.0",
+        observedAt: "2026-11-01T00:00:00.000Z",
+      },
+      centerInstallation = { ...installation, installationId: "forwarding-codex-forward-center" };
     const credentials = new Map<string, string>();
     const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, false, {
-      runtimeDiscover: async () => [installation],
+      runtimeDiscover: async () => [installation, centerInstallation],
       runtimeLaunch: (prepared) => {
         const repoId = String(prepared.env.HARNESS_DAEMON_REPO_ID),
           credential = prepared.env.HARNESS_EXECUTION_CREDENTIAL;
@@ -82,7 +83,7 @@ console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, o
         instanceId: runtimeInstanceId,
         name: "Forwarding read Codex",
         kindId: "codex",
-        installationId: installation.installationId,
+        installationId: repoId === "lease-repo" ? installation.installationId : centerInstallation.installationId,
         providerId: "openai",
         models: ["gpt-5.6-sol"],
         authMode: "subscription",

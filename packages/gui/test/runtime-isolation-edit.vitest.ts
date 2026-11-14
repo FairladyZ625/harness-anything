@@ -185,13 +185,21 @@ describe("RuntimeCard isolation editing follows the declared capability states",
     );
   });
 
-  it("offers no isolation choice for a kind that declares a single state", async () => {
+  it("offers AGY's declared isolation states and submits the selected state", async () => {
     const onUpdate = vi.fn(async () => ({ ok: false }));
     const container = await renderCard(runtimeInstance("agy", "operator-environment"), onUpdate);
-    expect(container.querySelector('[data-testid="runtime-provider-isolation"]')).toBeNull();
+    const isolation = container.querySelector<HTMLSelectElement>('[data-testid="runtime-provider-isolation"]');
+    expect(isolation).not.toBeNull();
+    expect(isolation?.value).toBe("operator-environment");
     expect(container.querySelector('[data-testid="runtime-provider-mcp-policy"]')).toBeNull();
+    await pickSelect(container, "runtime-provider-isolation", "enforced");
     await submitPermissions(container);
-    expect(onUpdate.mock.calls[0]?.[0]).not.toHaveProperty("isolationState");
+    expect(onUpdate.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        instanceId: "agy-edit",
+        isolationState: "enforced",
+      }),
+    );
     expect(onUpdate.mock.calls[0]?.[0]).not.toHaveProperty("mcpPolicy");
   });
 });

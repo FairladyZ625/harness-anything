@@ -9568,22 +9568,10 @@
         "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-instance-store.ts#openRuntimeInstanceStore.remove:b6a072f6a46c6e93db843a63f07a9fc8",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-instance-store.ts#openRuntimeInstanceStore.remove:64927c6305060610ac0bfca6d0898137",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-instance-store.ts#openRuntimeInstanceStore.command.finish:6cbae649cf33b3084c1aa5c99f7a25af",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-instance-store.ts#openRuntimeInstanceStore.command:370dae9915533839044582bd2bce7f71",
@@ -12653,6 +12641,21 @@
         "route": "runtime-instance-update",
         "role": "client",
         "port": "packages/gui/src/renderer/runtime-instance-client.ts#runtimeInstanceClient.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-instance-store.ts#openRuntimeInstanceStore.clearAccountState:2b3c494ecf29701732b9c965e179335f",
+        "route": "runtime-instance-update",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-instance-store.ts#openRuntimeInstanceStore.detachInstanceCredential:d356ee8ef7ef0b8a7042ac442fa9fdee",
+        "route": "runtime-instance-update",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-instance-store.ts#openRuntimeInstanceStore.command.finish:6abe1ab0c1daa80d7a228ec790aa7dc5",
+        "route": "runtime-instance-update",
+        "role": "effect"
       }
     ]
   },

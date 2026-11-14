@@ -904,7 +904,7 @@ describe("agent runtime renderer", () => {
     expect(controls(instance)).toContain('data-testid="edit-web-search"');
     expect(controls(claudeInstance)).toContain('data-testid="edit-isolation"');
     expect(controls(claudeInstance)).not.toContain('data-testid="edit-web-search"');
-    expect(controls(agyInstance)).not.toContain("<select");
+    expect(controls(agyInstance)).toContain('data-testid="edit-isolation"');
     expect(runtimeCard(instance)).not.toContain('data-testid="runtime-instance-permissions"');
   });
   it("rejects a malformed session-groups projection instead of rendering it", async () => {

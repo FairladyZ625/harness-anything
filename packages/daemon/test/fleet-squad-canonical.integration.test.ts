@@ -30,15 +30,18 @@ import { makeFleetSquadCoordinator } from "../src/fleet-squad-coordinator.ts";
 
 test("owner edge Squad launch publishes a canonical run visible on another edge", { timeout: 180_000 }, async (t) => {
   const witness = {
-    installationId: "squad-install",
-    kindId: "codex",
-    executablePath: "/usr/bin/true",
-    version: "fixture",
-    observedAt: new Date().toISOString(),
-  };
+      installationId: "squad-install",
+      kindId: "codex",
+      executablePath: "/usr/bin/true",
+      version: "fixture",
+      observedAt: new Date().toISOString(),
+    },
+    successorWitness = { ...witness, installationId: "successor-install" },
+    centerWitness = { ...witness, installationId: "center-codex-install" },
+    witnesses = [witness, successorWitness, centerWitness];
   let now = new Date().toISOString();
   const f = await fleetNodeClaimFixture(t, undefined, undefined, () => now, undefined, false, {
-    runtimeDiscover: () => [witness],
+    runtimeDiscover: () => witnesses,
     runtimeLaunch: () => {
       throw new Error("Center must not launch Squad processes");
     },
@@ -58,7 +61,7 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     instanceId: "successor-runtime",
     name: "Successor",
     kindId: "codex",
-    installationId: "squad-install",
+    installationId: "successor-install",
     providerId: "openai",
     models: ["gpt-5.6-sol"],
     authMode: "subscription",
@@ -88,7 +91,7 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     instanceId: "center-codex",
     name: "Center declaration witness",
     kindId: "codex",
-    installationId: "squad-install",
+    installationId: "center-codex-install",
     providerId: "openai",
     models: ["gpt-5.6-sol"],
     authMode: "subscription",
@@ -134,15 +137,7 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     kills = 0;
   const a = await fleetEdgeHostFixture(t, f, {
     name: "owner",
-    runtimeDiscover: () => [
-      {
-        installationId: "squad-install",
-        kindId: "codex",
-        executablePath: "/usr/bin/true",
-        version: "fixture",
-        observedAt: new Date().toISOString(),
-      },
-    ],
+    runtimeDiscover: () => [witness],
     runtimeLaunch: () => {
       launches += 1;
       return {
@@ -160,7 +155,7 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   const b = await fleetEdgeHostFixture(t, f, {
     name: "reader",
     nodeId: "node-two",
-    runtimeDiscover: () => [witness],
+    runtimeDiscover: () => [successorWitness],
     runtimeLaunch: () => {
       successorLaunches += 1;
       return {
@@ -430,7 +425,7 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
       instanceId: "successor-runtime",
       name: "Successor",
       kindId: "codex",
-      installationId: "squad-install",
+      installationId: "successor-install",
       providerId: "openai",
       models: ["gpt-5.6-sol"],
       authMode: "subscription",

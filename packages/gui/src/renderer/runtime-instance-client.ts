@@ -34,6 +34,7 @@ export type RuntimeInstanceUpdateInput = {
   readonly permissionMode?: "bypass" | "workspace-write" | "read-only";
   readonly mcpPolicy?: "disabled" | "inherit";
   readonly isolationState?: DomainStatus.RuntimeIsolationState;
+  readonly credentialSource?: "operator" | "instance";
   readonly fast?: boolean;
   readonly webSearch?: "disabled" | "cached" | "live";
   readonly clearFreeze?: boolean;
@@ -48,6 +49,7 @@ type RuntimeInstanceCreateCommon = {
   readonly permissionMode?: "bypass" | "workspace-write" | "read-only";
   readonly mcpPolicy?: "disabled" | "inherit";
   readonly isolationState?: DomainStatus.RuntimeIsolationState;
+  readonly credentialSource?: "operator" | "instance";
 };
 // Keys travel once through the trusted bridge to the selected daemon's native vault.
 export type RuntimeInstanceCreateInput = RuntimeInstanceCreateCommon & {

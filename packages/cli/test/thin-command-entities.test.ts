@@ -1365,13 +1365,18 @@ test("runtime instance create leaves installation discovery to the daemon when o
     "google",
     "--model",
     "gemini-3.1-pro-low",
+    "--credential-source",
+    "instance",
     "--permission-mode",
     "bypass",
     "--auth",
     "subscription",
   ]);
   assert.equal(agy.ok, true, JSON.stringify(agy));
-  if (agy.ok) assert.equal(agy.command.action.permissionMode, "bypass");
+  if (agy.ok) {
+    assert.equal(agy.command.action.permissionMode, "bypass");
+    assert.equal(agy.command.action.credentialSource, "instance");
+  }
   assert.equal(
     parseThinCommand([
       "runtime",

@@ -663,6 +663,7 @@ test("preload accepts the renderer's agy create payload", () => {
     "authMode",
     "installationId",
     "instanceId",
+    "isolationState",
     "kindId",
     "models",
     "name",
@@ -716,6 +717,7 @@ test("runtime update accepts exactly the fields the registry declares", () => {
     "apiKey",
     "baseUrl",
     "clearFreeze",
+    "credentialSource",
     "defaultModel",
     "effort",
     "enabled",
@@ -741,17 +743,37 @@ test("runtime update accepts exactly the fields the registry declares", () => {
               ? { permissionMode: "bypass" }
               : field === "isolationState"
                 ? { isolationState: "enforced" }
-                : field === "mcpPolicy"
-                  ? { mcpPolicy: "disabled" }
-                  : field === "webSearch"
-                    ? { webSearch: "disabled" }
-                    : { [field]: "value" };
+                : field === "credentialSource"
+                  ? { credentialSource: "operator" }
+                  : field === "mcpPolicy"
+                    ? { mcpPolicy: "disabled" }
+                    : field === "webSearch"
+                      ? { webSearch: "disabled" }
+                      : { [field]: "value" };
     assert.equal(
       assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", ...sample }),
       true,
       `registry declares ${field} but preload rejected it`,
     );
   }
+});
+
+test("runtime create and update validate credential source values", () => {
+  const payload = buildRuntimeInstanceCreatePayload(runtimeCreateForm, "claude-install");
+  assert.equal(assertPreloadPayload("createRuntimeInstance", { ...payload, credentialSource: "operator" }), true);
+  assert.equal(assertPreloadPayload("createRuntimeInstance", { ...payload, credentialSource: "instance" }), true);
+  assert.throws(
+    () => assertPreloadPayload("createRuntimeInstance", { ...payload, credentialSource: "shared" }),
+    /credentialSource.*operator or instance/u,
+  );
+  assert.equal(
+    assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", credentialSource: "instance" }),
+    true,
+  );
+  assert.throws(
+    () => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", credentialSource: "shared" }),
+    /invalid/u,
+  );
 });
 
 test("runtime update still rejects empty values, empty model lists, and secret-like keys", () => {

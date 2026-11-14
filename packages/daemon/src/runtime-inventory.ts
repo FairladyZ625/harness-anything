@@ -33,6 +33,20 @@ export {
  *  product does not offer: issue #4369 names disabled/cached/live. */
 export const runtimeWebSearchModes = ["disabled", "cached", "live"] as const satisfies readonly RuntimeWebSearchMode[];
 
+/** Only verified provider/platform pairs may use an independent subscription credential home. */
+export const runtimeSubscriptionMultiAccountIsolation = Object.freeze({
+  "agy@darwin": true,
+  "agy-acp@darwin": true,
+} as const satisfies Readonly<Record<string, true>>);
+
+export function supportsRuntimeSubscriptionMultiAccountIsolation(kindId: string, platform: NodeJS.Platform): boolean {
+  return (
+    runtimeSubscriptionMultiAccountIsolation[
+      `${kindId}@${platform}` as keyof typeof runtimeSubscriptionMultiAccountIsolation
+    ] === true
+  );
+}
+
 // Only daemon-mediated task commands: `ha task artifact add --run`, for example,
 // executes a local subprocess before daemon authorization. Never approve `ha *`.
 export const claudeWorkspaceWriteCli = {
@@ -97,13 +111,14 @@ function acpKind<K extends RuntimeKindId>(
     modes: readonly RuntimeAuthMode[];
     subscriptionProbe: RuntimeProviderDeclaration["auth"]["subscriptionProbe"];
     subscriptionProbeTimeoutMs: number;
-    commands?: Readonly<Record<"login" | "logout", readonly string[]>>;
+    commands?: Readonly<Partial<Record<"login" | "logout", readonly string[]>>>;
     acpAuthMethod?: RuntimeAcpAuthMethod;
     acpCredentialKey?: string;
     endpoints?: { baseUrl: RuntimeEndpointAvailability };
   },
   modelFamily: "open" | "codex-only" | "gemini-only" = "open",
   authFile: string | null = null,
+  credentialCommand?: string,
 ): RuntimeProviderDeclaration & { readonly kindId: K } {
   return {
     kindId,
@@ -112,6 +127,7 @@ function acpKind<K extends RuntimeKindId>(
     defaultProviderId: kindId,
     executable: {
       command,
+      ...(credentialCommand ? { credentialCommand } : {}),
       configDirectory,
       configHomeEnvironment: null,
       authFile,
@@ -485,9 +501,9 @@ export const runtimeKinds = [
     defaultProviderId: "google",
     executable: {
       command: "agy",
-      configDirectory: ".agy",
+      configDirectory: ".gemini",
       configHomeEnvironment: null,
-      authFile: null,
+      authFile: "antigravity-oauth-token",
       modelProbe: ["models"],
       modelProbeFormat: "tabular-models",
     },
@@ -505,8 +521,9 @@ export const runtimeKinds = [
       subscriptionProbe: ["models"],
       subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.modelListing,
       endpoints: { baseUrl: "none" },
+      commands: { login: ["acp", "--login"] },
     },
-    isolation: { defaultState: "operator-environment", states: ["operator-environment"] },
+    isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
     permissions: { available: false, defaultMode: "bypass" },
     launch: {
       // Print mode reads the prompt from a piped stdin (measured 2026-10-24: without -p and
@@ -991,13 +1008,24 @@ export const runtimeKinds = [
     subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
     acpAuthMethod: "z-ai-api-key",
   }),
-  acpKind("agy-acp", "AGY (ACP)", "agy_acp_server", [], ".gemini", {
-    shape: "separate",
-    modes: ["subscription", "api-key"],
-    subscriptionProbe: ["--notices"],
-    subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.extended,
-    acpAuthMethod: "gemini-api-key",
-  }),
+  acpKind(
+    "agy-acp",
+    "AGY (ACP)",
+    "agy_acp_server",
+    [],
+    ".gemini",
+    {
+      shape: "separate",
+      modes: ["subscription", "api-key"],
+      subscriptionProbe: ["--notices"],
+      subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.modelListing,
+      commands: { login: ["acp", "--login"] },
+      acpAuthMethod: "gemini-api-key",
+    },
+    "gemini-only",
+    "antigravity-oauth-token",
+    "agy",
+  ),
   {
     kindId: "opencode",
     protocolFamily: "acp",

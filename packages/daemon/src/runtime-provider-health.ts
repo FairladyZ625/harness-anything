@@ -47,6 +47,11 @@ export function openRuntimeProviderHealthStore(userRoot: string) {
     persist(next);
     return next[instanceId]!;
   };
+  const clear = (instanceId: string): void => {
+    const next = { ...read() };
+    delete next[instanceId];
+    persist(next);
+  };
   const recordFailure = (input: {
     readonly instanceId: string;
     readonly reason: string;
@@ -108,7 +113,7 @@ export function openRuntimeProviderHealthStore(userRoot: string) {
     if (started <= Math.max(failure, resetAt)) return previous;
     return reset(instanceId, attemptStartedAt);
   };
-  return Object.freeze({ get, list, reset, recordFailure, recordSuccess });
+  return Object.freeze({ get, list, reset, clear, recordFailure, recordSuccess });
 }
 
 export type RuntimeProviderHealthStore = ReturnType<typeof openRuntimeProviderHealthStore>;

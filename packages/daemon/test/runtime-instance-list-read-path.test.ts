@@ -218,7 +218,10 @@ test("a steady-state list starts no provider process, and a probe still does", a
     runtimeDiscover: () => {
       discoveries += 1;
       return discoverRuntimeInstallations({
-        env: { PATH: `${binRoot}${path.delimiter}${path.dirname(process.execPath)}` },
+        // Keep the inventory to this fixture. The provider script's shebang uses the absolute
+        // Node executable, so PATH does not need the host runtime directory (which may contain
+        // another Codex installation on shared test workers).
+        env: { PATH: binRoot },
       });
     },
   });
