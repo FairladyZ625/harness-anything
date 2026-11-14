@@ -264,7 +264,7 @@ export const nodeTaskMaterializationPolicy = {
     "policy:packages/daemon:packages/daemon/src/doc-sync-candidate-scanner.ts#scanDocCandidates.scanOne:27054bed81347e56f9081d7397c65e4a",
     "policy:packages/daemon:packages/daemon/src/doc-sync-reads.ts#readAction.materializationState:71a3d721091e8253a10a63913edca6d1",
     "policy:packages/daemon:packages/daemon/src/entity-action-catalog-executor.ts#withNodeMaterializationState:daf168a4166c963e3e6de1d64c76c6fb",
-    "policy:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.publishFollower:f031ba7c2870177c6a56ba078eb715f4",
+    "policy:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.publishConfirmedFollower:f031ba7c2870177c6a56ba078eb715f4",
     "policy:packages/storage:packages/storage/src/storage-backend.ts#readNodeMaterializationDocuments:9c89aee9a882cdd6835efd2f47f68e6c",
     "policy:packages/storage:packages/storage/src/storage-backend.ts#readNodeMaterializationDocuments:556bd90fc717033e0511b5a53b769ad9",
     "policy:packages/storage:packages/storage/src/store/sqlite-task-event-materialize.ts#closureFiles:547f324ddeef9152f3d4a35de9164673",
