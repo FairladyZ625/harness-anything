@@ -529,6 +529,8 @@ function createTables(db: DatabaseSync, onValidationProgress?: ProjectionProgres
       workspace_revision INTEGER NOT NULL,
       value_json TEXT NOT NULL
     );
+    CREATE INDEX IF NOT EXISTS document_revision ON document(workspace_revision,path);
+    CREATE INDEX IF NOT EXISTS document_history_revision ON document_history(workspace_revision,path);
     -- Cover document lists with metadata only. JSON extraction runs once at projection write,
     -- never when listing a repository that contains a large inline historical body.
     CREATE INDEX IF NOT EXISTS document_metadata ON document (

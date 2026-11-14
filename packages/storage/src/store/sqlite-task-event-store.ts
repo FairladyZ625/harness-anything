@@ -66,6 +66,7 @@ export interface SqliteCanonicalEventStore extends CanonicalEventStore {
 }
 
 export interface MaterializationDocumentDescriptor {
+  readonly retired?: boolean;
   readonly path: string;
   readonly blobSha256: string;
   readonly size: number;
@@ -92,6 +93,7 @@ export interface SqliteTaskEventStoreOptions {
   /** Current active projection documents; null means the projection has not reached the accepted cut yet. */
   readonly readMaterializationDocuments?: (
     includePolicySkippedPaths?: readonly string[],
+    afterRevision?: number,
   ) => readonly MaterializationDocumentDescriptor[] | null;
 }
 

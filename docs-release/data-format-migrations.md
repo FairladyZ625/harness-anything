@@ -60,8 +60,12 @@ Stop older writers before opening the repository with the new build. The existin
 path classifies current rows once (`terminal-materialization-v1` in SQLite and
 `materialization-index/v1` in PostgreSQL). Older archive handlers deleted the Fact descriptor,
 so classification alone is insufficient: the history step also finds archived Facts missing from
-both document indexes, seeks only their indexed entity events, and restores the exact retirement
-preimage descriptor and original blob. It handles re-archive after unarchive and keeps current
+both document indexes, seeks their indexed archive events, and restores the exact retirement
+preimage descriptor and original blob. Legacy imports and generic document edits lack Fact entity
+refs, so upgrade streams retained event declarations once in
+descending revision order, stopping when all preimages match. This one-time O(history) repair does
+not run reducers or buffer history; it is separate from projection-backed O(working set) cold
+materialization. PostgreSQL reads at most 64 events per repair page. It handles re-archive after unarchive and keeps current
 descriptors intact. SQLite records `terminal-materialization-history-v1`; PostgreSQL records
 `materialization-index/history-v1`, scoped to tenant, project and policy epoch. Both backends commit
 the recovered rows and completion marker in the same existing projection transaction. Interruption

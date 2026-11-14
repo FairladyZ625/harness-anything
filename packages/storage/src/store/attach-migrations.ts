@@ -289,7 +289,7 @@ export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = 
     attachRequired: false,
     conclusion:
       "Canonical events and content blobs remain byte-identical. Projection open classifies the " +
-      "working set and restores missing archived Fact preimages through indexed entity history. " +
+      "working set and restores missing archived Fact preimages through indexed entity history, with a one-time streaming declaration lookup for legacy imports/doc edits absent from that index. " +
       "Local maintenance markers commit with the recovered descriptors; cold rebuild derives the same history.",
   },
   ...historicalReadConclusions,

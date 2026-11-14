@@ -1,3 +1,4 @@
+import { canonicalDocumentRetirements } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 import { TASK_PROGRESS_POLICY_ID } from "@harness-anything/kernel/internal/domain/task-progress-event.ts";
 import type { WriteFence } from "../durable-file.ts";
 import {
@@ -38,9 +39,13 @@ export interface MaterializeStoreContext {
   readonly authoredRef: () => string;
   readonly sqlite: ReturnType<typeof openSqliteEventStore>;
   readonly readContent: (sha256: string) => Uint8Array | null;
-  readonly readMaterializationDocuments?: (includePolicySkippedPaths?: readonly string[]) =>
+  readonly readMaterializationDocuments?: (
+    includePolicySkippedPaths?: readonly string[],
+    afterRevision?: number,
+  ) =>
     | readonly {
         readonly path: string;
+        readonly retired?: boolean;
         readonly blobSha256: string;
         readonly size: number;
         readonly mediaType: string;
@@ -140,7 +145,10 @@ export function closureFiles(
   from: number,
   includePolicySkippedPaths: readonly string[] = [],
 ): { readonly events: readonly CanonicalEventV1[]; readonly files: readonly (PublicationWrite | PublicationDelete)[] } {
-  const projectionDocuments = context.readMaterializationDocuments?.(includePolicySkippedPaths);
+  const projectionDocuments = context.readMaterializationDocuments?.(
+    includePolicySkippedPaths,
+    from > 0 ? from : undefined,
+  );
   if (context.readMaterializationDocuments && projectionDocuments === null)
     throw new TaskEventStoreError(
       "publication_indeterminate",
@@ -151,16 +159,24 @@ export function closureFiles(
       indexed = new Map(
         projectionDocuments.map((document) => [
           document.path,
-          { sha256: document.blobSha256, size: document.size, nodeKind: "file" as const },
+          {
+            sha256: document.retired ? null : document.blobSha256,
+            size: document.retired ? null : document.size,
+            nodeKind: "file" as const,
+          },
         ]),
       ),
-      parent = localGitObjectRefStore.resolveCommit(context.ledger().rootDir, context.authoredRef()),
+      parent =
+        from === 0 ? localGitObjectRefStore.resolveCommit(context.ledger().rootDir, context.authoredRef()) : null,
       managedRoot = ledgerGitPath(context.ledger(), "").replace(/\/$/u, "") || ".",
-      previouslyMaterializedManagedPaths = localGitObjectRefStore
-        .listTree(context.ledger().rootDir, parent, [managedRoot])
-        .map(({ target }) => ledgerAuthoredPath(context.ledger(), target))
-        // Bootstrap Git prose has not entered the canonical document projection yet.
-        .filter((path) => projectionManagedPath(path) && context.sqlite.documentHead(path) !== undefined),
+      previouslyMaterializedManagedPaths =
+        from > 0
+          ? []
+          : localGitObjectRefStore
+              .listTree(context.ledger().rootDir, parent!, [managedRoot])
+              .map(({ target }) => ledgerAuthoredPath(context.ledger(), target))
+              // Bootstrap Git prose has not entered the canonical document projection yet.
+              .filter((path) => projectionManagedPath(path) && context.sqlite.documentHead(path) !== undefined),
       staleManagedHeads = previouslyMaterializedManagedPaths
         .filter((path) => !indexed.has(path))
         .map((path) => ({ path, sha256: null, size: null, nodeKind: null })),
@@ -174,6 +190,10 @@ export function closureFiles(
           })(),
         })),
         ...staleManagedHeads,
+        ...events
+          .flatMap((event) => canonicalDocumentRetirements(event))
+          .filter(({ path }) => !indexed.has(path))
+          .map(({ path }) => ({ path, sha256: null, size: null, nodeKind: null })),
       ];
     return {
       events,

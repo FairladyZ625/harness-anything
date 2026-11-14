@@ -104,7 +104,7 @@ export interface RepoCellCore {
 
 export async function initializeRepoCell(context: RepoCellCoreInput): Promise<RepoCellCore> {
   let projection: ReturnType<typeof makeTaskProjection> | null = null;
-  const readMaterializationDocuments = (includePolicySkippedPaths: readonly string[] = []) => {
+  const readMaterializationDocuments = (includePolicySkippedPaths: readonly string[] = [], afterRevision?: number) => {
     if (!projection) return null;
     const cut = projection.readCut();
     if (cut.status !== "ready" || cut.watermark !== cut.sourceRevision) return null;
@@ -112,6 +112,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
       projection,
       context.input.storage?.nodeTaskMaterializationPolicy ?? "include_done",
       includePolicySkippedPaths,
+      afterRevision,
     );
   };
   prepareDaemonRepoStorage({

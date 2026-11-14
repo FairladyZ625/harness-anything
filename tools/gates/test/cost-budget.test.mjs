@@ -696,6 +696,7 @@ test("terminal settlement scales with degree and cold materialization excludes d
     "task-transition:materialization-degree",
     "doc-materialize:cold-history",
     "doc-materialize:none-history",
+    "doc-materialize:incremental-history",
   ]) {
     const probe = COLLECTION_PROBES[id];
     measured[id] = {
@@ -709,4 +710,11 @@ test("terminal settlement scales with degree and cold materialization excludes d
   const negative = structuredClone(measured);
   negative["doc-materialize:cold-history"].large.counts.sqliteVmSteps += 1000000;
   assert.equal(evaluateCollectionCosts(negative).ok, false, "a cold history scan must fail the constant-work gate");
+  const incrementalNegative = structuredClone(measured);
+  incrementalNegative["doc-materialize:incremental-history"].large.counts.sqliteVmSteps += 1000000;
+  assert.equal(
+    evaluateCollectionCosts(incrementalNegative).ok,
+    false,
+    "incremental full-set reads must fail the constant-work gate",
+  );
 });

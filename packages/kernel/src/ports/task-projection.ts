@@ -326,6 +326,7 @@ export interface TaskProjection {
     page?: {
       readonly limit: number;
       readonly afterPath?: string;
+      readonly afterRevision?: number;
       readonly includeHistory?: boolean;
       readonly excludeTaskPackages?: boolean;
     },
@@ -333,6 +334,7 @@ export interface TaskProjection {
     readonly status: ReadSet.ReadSetProjectionCut["status"];
     readonly documents: readonly {
       readonly path: string;
+      readonly retired?: boolean;
       readonly blobSha256: string;
       readonly size: number;
       readonly mediaType: string;

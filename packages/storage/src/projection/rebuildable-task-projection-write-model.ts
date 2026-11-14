@@ -35,7 +35,10 @@ import { canonicalJson, queryRows, runSql } from "./rebuildable-task-projection-
 import { projectInterpretedEntityValue } from "./rebuildable-task-projection-entities.ts";
 import { readRuntimeSession, readSnapshot } from "./rebuildable-task-projection-runtime.ts";
 import { applyRelationProjectionEvent } from "./relation-entity-projection.ts";
-import { archivedFactDocumentPreimage } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
+import {
+  archivedFactDocumentPreimage,
+  canonicalDocumentClaims,
+} from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "@harness-anything/kernel";
 
@@ -352,6 +355,14 @@ function settleDocumentPrefix(
   active: boolean,
   subtree = true,
 ): void {
+  if (active)
+    runSql(
+      db,
+      `UPDATE document SET workspace_revision=? WHERE ${subtree ? "path>=? AND path<?" : "path=?"} AND workspace_revision<?`,
+      revision,
+      ...(subtree ? [prefix, `${prefix.slice(0, -1)}0`] : [prefix]),
+      revision,
+    );
   const source = active ? "document_history" : "document";
   for (const row of queryRows<{ readonly path: string; readonly value_json: string }>(
     db,
@@ -763,7 +774,7 @@ function hasTaskSnapshot(db: DatabaseSync, taskId: string): boolean {
   return row !== undefined && row.task_type !== null && row.task_type !== "null";
 }
 
-/** One projection-only upgrade: classify existing current rows, never replay event history. */
+/** Upgrade derived membership and recover archived descriptors without replaying event reducers. */
 export function initializeTerminalMaterialization(
   db: DatabaseSync,
   readBlob?: EventStreamPort["readContentBlob"],
@@ -793,25 +804,55 @@ export function initializeTerminalMaterialization(
       AND NOT EXISTS (SELECT 1 FROM document WHERE path='facts/'||fact.fact_id||'.md')
       AND NOT EXISTS (SELECT 1 FROM document_history WHERE path='facts/'||fact.fact_id||'.md')`,
   );
-  for (const row of missing) {
-    const events = queryRows<{ event_json: string }>(
-        db,
-        `SELECT e.event_json FROM event_summary_entity_ref AS r JOIN event_index AS e USING(workspace_revision)
-          WHERE r.entity_ref=? AND r.workspace_revision<=? ORDER BY r.workspace_revision DESC`,
-        `fact/${row.fact_id}`,
-        row.workspace_revision,
-      ).map(({ event_json }) => JSON.parse(event_json) as PersistedCanonicalEventV1),
-      preimage = archivedFactDocumentPreimage(events, row.fact_id);
-    if (!preimage) throw new Error(`archived Fact ${row.fact_id} has no retained document descriptor`);
+  const pending = new Map<string, readonly PersistedCanonicalEventV1[]>();
+  const restore = (factId: string, preimage: NonNullable<ReturnType<typeof archivedFactDocumentPreimage>>) => {
     const bytes = readBlob(preimage.document.blobSha256);
     if (!bytes) throw new Error(`projection document blob ${preimage.document.blobSha256} is unavailable`);
     upsertActiveDocument(db, preimage.document.path, preimage.document.workspaceRevision, {
       ...preimage.document,
       body: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
     });
-    if (!factMaterializationHeld(db, `fact/${row.fact_id}`, "archived"))
+    if (!factMaterializationHeld(db, `fact/${factId}`, "archived"))
       archiveDocument(db, preimage.document.path, preimage.retiredAt);
+  };
+  for (const row of missing) {
+    const events = queryRows<{ event_json: string }>(
+      db,
+      `SELECT e.event_json FROM event_summary_entity_ref AS r JOIN event_index AS e USING(workspace_revision)
+          WHERE r.entity_ref=? AND r.workspace_revision<=? ORDER BY r.workspace_revision DESC`,
+      `fact/${row.fact_id}`,
+      row.workspace_revision,
+    ).map(({ event_json }) => JSON.parse(event_json) as PersistedCanonicalEventV1);
+    pending.set(
+      `facts/${row.fact_id}.md`,
+      events.filter((event) => event.type === "fact_archived"),
+    );
   }
+  // Legacy imports and generic document writes have no Fact entity ref. Resolve these only
+  // once during upgrade, in revision order, without replaying reducers or buffering history.
+  if (pending.size) {
+    for (const row of db.prepare("SELECT event_json FROM event_index ORDER BY workspace_revision DESC").iterate()) {
+      const event = JSON.parse(String(row.event_json)) as PersistedCanonicalEventV1;
+      for (const claim of [
+        ...canonicalDocumentClaims(event),
+        ...(event.schema === "fact-event/v1" && event.payload.supersededFactsDocumentClaim
+          ? [event.payload.supersededFactsDocumentClaim]
+          : []),
+      ]) {
+        const history = pending.get(claim.path);
+        if (!history) continue;
+        const factId = claim.path.slice(6, -3),
+          preimage = archivedFactDocumentPreimage([...history, event], factId);
+        if (preimage) {
+          restore(factId, preimage);
+          pending.delete(claim.path);
+        }
+      }
+      if (!pending.size) break;
+    }
+  }
+  if (pending.size)
+    throw new Error(`archived Fact document descriptors unavailable: ${[...pending.keys()].join(", ")}`);
   runSql(
     db,
     "INSERT INTO projection_maintenance(key,completed_at) VALUES (?,strftime('%Y-%m-%dT%H:%M:%fZ','now'))",

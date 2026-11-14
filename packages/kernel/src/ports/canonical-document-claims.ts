@@ -32,7 +32,7 @@ import { isTaskProgressEvent } from "../domain/task-progress-event.ts";
 import { isSnapshotUpgradeEvent, snapshotUpgradeClaims } from "../domain/task-snapshot-upgrade-store-seam.ts";
 import { terminalDecisionMaterializationStates } from "../domain/entity-relation.ts";
 
-/** Recover the retained preimage descriptor from one Fact's indexed history, newest first. */
+/** Recover an archived Fact preimage from its archive plus newest-first retained declarations. */
 export function archivedFactDocumentPreimage(
   events: readonly PersistedCanonicalEventV1[],
   factId: string,
@@ -44,10 +44,15 @@ export function archivedFactDocumentPreimage(
   const retirement = archived.payload.factsDocumentRetirement;
   if (!retirement) return null;
   for (const event of events) {
-    if (event.workspaceRevision >= archived.workspaceRevision || !isFactEvent(event)) continue;
-    const claim = [event.payload.factsDocumentClaim, event.payload.supersededFactsDocumentClaim].find(
-      (claim) => claim?.path === retirement.path && claim.sha256 === retirement.sha256,
-    );
+    if (event.workspaceRevision >= archived.workspaceRevision) continue;
+    const claims = isFactEvent(event)
+      ? [event.payload.factsDocumentClaim, event.payload.supersededFactsDocumentClaim]
+      : isDocEvent(event)
+        ? event.payload.changes.flatMap(({ path, candidate, policyId }) =>
+            candidate ? [{ path, ...candidate, policyId }] : [],
+          )
+        : canonicalDocumentClaims(event);
+    const claim = claims.find((claim) => claim?.path === retirement.path && claim.sha256 === retirement.sha256);
     if (claim)
       return {
         retiredAt: archived.workspaceRevision,
@@ -56,7 +61,7 @@ export function archivedFactDocumentPreimage(
           blobSha256: claim.sha256,
           size: docByteLength(claim.size),
           mediaType: claim.mediaType,
-          policyId: claim.policyId,
+          policyId: claim.policyId!,
           workspaceRevision: event.workspaceRevision,
         },
       };

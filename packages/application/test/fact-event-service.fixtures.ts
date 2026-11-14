@@ -244,7 +244,7 @@ export function compileDecision(projection: TaskProjection, draft: DecisionEvent
   const read = projection.readDecision(draft.decisionId),
     current = read.decision,
     path = `decisions/decision-${draft.decisionId}/decision.md`,
-    document = projection.readDocument(path).document,
+    document = projection.readDocument(path).document ?? projection.readDocumentHistory(path).document,
     relations = projection
       .readDecisionGraph()
       .edges.filter((edge) => edge.ownerRef === `decision/${draft.decisionId}`)

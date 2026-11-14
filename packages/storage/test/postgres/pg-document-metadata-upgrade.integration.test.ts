@@ -125,6 +125,19 @@ test("populated v5 upgrades online with bounded backfill and previous/current re
       cursor = batch;
     }
     assert.equal(await pending(), 0);
+    const delta = await source.readDocuments("docs/", { limit: 500, afterRevision: 1, includeHistory: true });
+    assert.ok(delta.documents.length > 0);
+    assert.ok(delta.documents.every((row) => row.retired === false));
+    assert.ok(
+      delta.documents.every(
+        (row) =>
+          row.path === large.path ||
+          row.path === current.path ||
+          row.path === "docs/000.md" ||
+          row.path === "docs/129.md" ||
+          row.path === "docs/001-previous-insert.md",
+      ),
+    );
     const previous = await transaction((client) => v5Documents(client, scope)),
       parse = JSON.parse;
     JSON.parse = (value, reviver) => {

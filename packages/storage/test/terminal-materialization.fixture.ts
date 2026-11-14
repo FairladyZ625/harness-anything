@@ -53,7 +53,49 @@ export function archivedFactUpgradeHistory(): readonly CanonicalWriteBundle[] {
       },
     }),
     second = compileFactWrite({ event: { ...fact(5), factId: "F-00000011" } });
-  return [first, archive(2, first), restored, archive(4, restored), second, archive(6, second)];
+  const body = `${second.body}\nAccepted generic edit before archive.\n`,
+    candidate = { sha256: sha256Text(body), size: Buffer.byteLength(body), mediaType: "text/markdown" },
+    edited: DocEventV1 = {
+      schema: "doc-event/v1",
+      type: "documents_written",
+      eventId: "event-6",
+      opId: "op-6",
+      workspaceRevision: 6,
+      actor,
+      source: "local",
+      occurredAt: "2026-08-13T00:00:00.000Z",
+      payload: {
+        executionId: null,
+        baseLedgerSha: ledgerCommitSha("archived-fact-upgrade", "a".repeat(40)),
+        changes: [
+          {
+            path: second.path as DocumentState["path"],
+            baseBlobSha256: second.event.payload.factsDocumentClaim!.sha256,
+            candidate,
+            policyId: second.event.payload.factsDocumentClaim!.policyId!,
+            regionProofs: [],
+          },
+        ],
+      },
+    },
+    archived = compileFactArchiveWrite({
+      event: {
+        ...fact(7),
+        factId: second.event.factId,
+        type: "fact_archived",
+        payload: { ...fact(7).payload, archiveReason: "after generic edit" },
+      },
+      retiredDocumentSha256: candidate.sha256,
+    });
+  return [
+    first,
+    archive(2, first),
+    restored,
+    archive(4, restored),
+    second,
+    { event: edited, plan: docSyncWritePlan(edited), blobs: [{ ...candidate, body }] },
+    archived,
+  ];
 }
 
 /** One event/claim contract, executed by real SQLite and PostgreSQL-dialect accepting stores. */

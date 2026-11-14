@@ -76,7 +76,7 @@ export async function measureTerminalMaterialization(root, size) {
 }
 
 /** CH3: fixed working set, growing done packages and event history. Real SQL work, not returned-row counts. */
-export async function measureColdMaterialization(root, size, policy = "in_flight") {
+export async function measureColdMaterialization(root, size, policy = "in_flight", incremental = false) {
   installSqliteWorkProbe();
   const [{ DatabaseSync }, fixtures, { withTempStore }, { readNodeMaterializationDocuments }] = await Promise.all([
     import("node:sqlite"),
@@ -126,6 +126,11 @@ export async function measureColdMaterialization(root, size, policy = "in_flight
           id,
         );
       }
+      if (incremental)
+        db.prepare("UPDATE document SET workspace_revision=2 WHERE path IN (?,?)").run(
+          "context/architecture.md",
+          "tasks/task_hot/task_plan.md",
+        );
       db.exec("COMMIT");
     } finally {
       db.close();
@@ -134,7 +139,7 @@ export async function measureColdMaterialization(root, size, policy = "in_flight
     try {
       projection.readCut(); // Initialize the connection outside the measurement.
       resetSqliteWork();
-      const documents = readNodeMaterializationDocuments(projection, policy),
+      const documents = readNodeMaterializationDocuments(projection, policy, [], incremental ? 1 : undefined),
         counts = snapshotSqliteWork();
       assert.deepEqual(
         documents.map(({ path }) => path),
@@ -161,6 +166,12 @@ export const MATERIALIZATION_PROBES = Object.freeze({
     dimension: "cold-history",
     growth: "constant",
     run: measureColdMaterialization,
+  },
+  "doc-materialize:incremental-history": {
+    action: "doc-materialize",
+    dimension: "incremental-history",
+    growth: "constant",
+    run: (root, n) => measureColdMaterialization(root, n, "in_flight", true),
   },
   "doc-materialize:none-history": {
     action: "doc-materialize",

@@ -570,6 +570,7 @@ export function readDocumentRows(
   page?: {
     readonly limit: number;
     readonly afterPath?: string;
+    readonly afterRevision?: number;
     readonly includeHistory?: boolean;
     readonly excludeTaskPackages?: boolean;
   },
@@ -578,27 +579,40 @@ export function readDocumentRows(
     values: (string | number)[] = [prefix, ...(upper === null ? [] : [upper])],
     afterPredicate = page?.afterPath === undefined ? "" : "AND path > ?";
   if (page?.afterPath !== undefined) values.push(page.afterPath);
+  const revisionPredicate = page?.afterRevision === undefined ? "" : "AND workspace_revision > ?";
+  if (page?.afterRevision !== undefined) values.push(page.afterRevision);
   if (page !== undefined) values.push(checkedPageLimit(page.limit) + 1);
+  const indexed = (table: string) =>
+    page?.afterRevision === undefined ? table : `${table} INDEXED BY ${table}_revision`;
   const tables = page?.includeHistory ? ["document", "document_history"] : ["document"],
     source =
       !page?.includeHistory && !page?.excludeTaskPackages
-        ? "document"
+        ? indexed("document")
         : `(${tables
             .flatMap((table) =>
               page?.excludeTaskPackages
-                ? [`SELECT * FROM ${table} WHERE path < 'tasks/'`, `SELECT * FROM ${table} WHERE path >= 'tasks0'`]
-                : [`SELECT * FROM ${table}`],
+                ? [
+                    `SELECT *, ${table === "document_history" ? 1 : 0} AS retired FROM ${indexed(table)} WHERE path < 'tasks/'`,
+                    `SELECT *, ${table === "document_history" ? 1 : 0} AS retired FROM ${indexed(table)} WHERE path >= 'tasks0'`,
+                  ]
+                : [`SELECT *, ${table === "document_history" ? 1 : 0} AS retired FROM ${indexed(table)}`],
             )
             .join(" UNION ALL ")})`;
   return queryRows(
     db,
-    "SELECT path, json_extract(value_json, '$.blobSha256') AS blob_sha256, " +
+    (page?.afterRevision === undefined
+      ? "SELECT "
+      : page?.includeHistory || page?.excludeTaskPackages
+        ? "SELECT retired, "
+        : "SELECT 0 AS retired, ") +
+      "path, json_extract(value_json, '$.blobSha256') AS blob_sha256, " +
       "json_extract(value_json, '$.size') AS size, json_extract(value_json, '$.mediaType') AS media_type, " +
       "json_extract(value_json, '$.policyId') AS policy_id " +
-      `FROM ${source} WHERE path >= ? ${upper === null ? "" : "AND path < ?"} ${afterPredicate} ORDER BY path ${page === undefined ? "" : "LIMIT ?"}`,
+      `FROM ${source} WHERE path >= ? ${upper === null ? "" : "AND path < ?"} ${afterPredicate} ${revisionPredicate} ORDER BY path ${page === undefined ? "" : "LIMIT ?"}`,
     ...values,
   ).map((row) => ({
     path: String(row.path),
+    ...(page?.afterRevision === undefined ? {} : { retired: Number(row.retired) === 1 }),
     blobSha256: String(row.blob_sha256),
     size: Number(row.size),
     mediaType: String(row.media_type),

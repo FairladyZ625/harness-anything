@@ -60,6 +60,7 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
     page?: {
       readonly limit: number;
       readonly afterPath?: string;
+      readonly afterRevision?: number;
       readonly includeHistory?: boolean;
       readonly excludeTaskPackages?: boolean;
     },
@@ -74,28 +75,37 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
         ...(upper === null ? [] : [upper]),
       ],
       after = page?.afterPath,
-      afterPredicate = after === undefined ? "" : `WHERE entity_id COLLATE "C" > $${values.push(after)}`,
+      afterPredicate = after === undefined ? "" : `AND entity_id COLLATE "C" > $${values.push(after)}`,
+      revisionPredicate =
+        page?.afterRevision === undefined ? "" : `AND workspace_revision > $${values.push(page.afterRevision)}`,
       limitClause = page === undefined ? "" : `LIMIT $${values.push(checkedPageLimit(page.limit, 500) + 1)}`,
       range = `entity_id COLLATE "C" >= $5 ${upper === null ? "" : 'AND entity_id COLLATE "C" < $6'}`,
       model = page?.includeHistory ? "model IN ('document','document-history')" : "model='document'",
       readersPredicate = "(cardinality($4::text[])=0 OR readers && $4::text[])",
       taskExcluded = page?.excludeTaskPackages
-        ? `SELECT entity_id, document_metadata FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${model} AND owner_id='' AND ${range} AND ${readersPredicate} AND entity_id COLLATE "C" < 'tasks/'
+        ? `SELECT entity_id, document_metadata, workspace_revision, model FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${model} AND owner_id='' AND ${range} AND ${readersPredicate} AND entity_id COLLATE "C" < 'tasks/'
            UNION ALL
-           SELECT entity_id, document_metadata FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${model} AND owner_id='' AND ${range} AND ${readersPredicate} AND entity_id COLLATE "C" >= 'tasks0'`
-        : `SELECT entity_id, document_metadata FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${model} AND owner_id='' AND ${range} AND ${readersPredicate}`,
-      result = await client.query<{ value: string | null }>(
-        `SELECT document_metadata AS value FROM (${taskExcluded}) AS materialized_documents
-         ${afterPredicate} ORDER BY entity_id COLLATE "C" ${limitClause}`,
+           SELECT entity_id, document_metadata, workspace_revision, model FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${model} AND owner_id='' AND ${range} AND ${readersPredicate} AND entity_id COLLATE "C" >= 'tasks0'`
+        : `SELECT entity_id, document_metadata, workspace_revision, model FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${model} AND owner_id='' AND ${range} AND ${readersPredicate}`,
+      result = await client.query<{ value: string | null; model: string }>(
+        `SELECT document_metadata AS value,model FROM (${taskExcluded}) AS materialized_documents
+         WHERE true ${afterPredicate} ${revisionPredicate} ORDER BY entity_id COLLATE "C" ${limitClause}`,
         values,
       );
-    return result.rows.map(({ value }) => {
+    return result.rows.map(({ value, model }) => {
       if (value === null)
         throw Object.assign(new Error("Document metadata backfill is pending; retry after migration."), {
           code: "projection_pending",
         });
       const { path, blobSha256, size, mediaType, policyId } = JSON.parse(value) as Omit<DocumentState, "body">;
-      return { path, blobSha256, size, mediaType, policyId: policyId ?? null };
+      return {
+        path,
+        blobSha256,
+        size,
+        mediaType,
+        policyId: policyId ?? null,
+        ...(page?.afterRevision === undefined ? {} : { retired: model === "document-history" }),
+      };
     });
   };
   const ready = async (client: PoolClient) => {

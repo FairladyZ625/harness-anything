@@ -82,6 +82,7 @@ export function readNodeMaterializationDocuments(
   q: TaskProjectionQueries,
   policy: NodeTaskMaterializationPolicy,
   forced: readonly string[] = [],
+  afterRevision?: number,
 ) {
   type Descriptor = ReturnType<typeof q.readDocuments>["documents"][number];
   const documents = new Map<string, Descriptor>();
@@ -91,6 +92,7 @@ export function readNodeMaterializationDocuments(
       const result = q.readDocuments(prefix, {
         limit: storageReadPolicy.defaultValue.pageSizes.standard,
         excludeTaskPackages,
+        ...(afterRevision === undefined ? {} : { afterRevision, includeHistory: true }),
         ...(afterPath === undefined ? {} : { afterPath }),
       });
       if (result.status !== "ready" || result.watermark !== result.sourceRevision)
@@ -100,6 +102,49 @@ export function readNodeMaterializationDocuments(
       afterPath = result.page!.nextPath;
     }
   };
+  if (afterRevision !== undefined) {
+    if (policy === "none") return [];
+    page("");
+    const packages = new Map<string, string>();
+    for (const { path } of documents.values())
+      if (path.startsWith("tasks/")) {
+        const prefix = path.split("/").slice(0, 2).join("/");
+        if (!packages.has(prefix)) {
+          const id = q.taskIdForDocumentPath(path);
+          if (id) packages.set(prefix, id);
+        }
+      }
+    const ids = [...packages.values()],
+      tasks = ids.length ? q.readTaskIndex({ taskIds: ids, activePackagesOnly: true }).rows : [],
+      full = new Set(
+        tasks.filter((task) => taskIncludedByNodeMaterializationPolicy(policy, task)).map((task) => task.taskId),
+      ),
+      dependencies = ids.length
+        ? q
+            .readTaskRelationsByTargets(
+              ids.map((id) => `task/${id}`),
+              "depends-on",
+            )
+            .rows.filter((row) => row.state === "active")
+        : [],
+      sources = [...new Set(dependencies.map((row) => row.sourceRef.slice(5)))],
+      active = new Set(
+        (sources.length ? q.readTaskStatuses(sources).rows : [])
+          .filter((row) => taskIncludedByNodeMaterializationPolicy("in_flight", { status: row.status ?? "" }))
+          .map((row) => `task/${row.taskId}`),
+      ),
+      held = new Set(dependencies.filter((row) => active.has(row.sourceRef)).map((row) => row.targetRef.slice(5)));
+    return [...documents.values()].map((document) => {
+      const id = packages.get(document.path.split("/").slice(0, 2).join("/")),
+        included =
+          !document.path.startsWith("tasks/") ||
+          (id &&
+            (full.has(id) ||
+              (held.has(id) &&
+                ["INDEX.md", "task_plan.md", "task-contract.json"].includes(document.path.split("/").at(-1)!))));
+      return { ...document, retired: document.retired || !included };
+    });
+  }
   if (policy !== "none") {
     page("", true);
     const tasks = replayTaskStatuses
