@@ -483,13 +483,29 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
   }
 }
 
+const lexicalAncestors = new WeakMap();
+
+/** A closure captures lexical ancestors, never unrelated or prior invocation parameters. */
+function lexicalEnvironment(node, env = new Map()) {
+  if (env.size === 0) return env;
+  let scopes = lexicalAncestors.get(node);
+  if (!scopes) {
+    scopes = new Set();
+    for (let scope = node; scope; scope = scope.parent) scopes.add(scope);
+    lexicalAncestors.set(node, scopes);
+  }
+  const captured = [...env].filter(([parameter]) => scopes.has(parameter.parent));
+  return captured.length === env.size ? env : new Map(captured);
+}
+
 /**
  * An environment maps a parameter node to the argument expression evaluated in its caller's env.
  * Callers inside the evaluator pass argument records so a rest binding can retain the original
  * expression frame while it is forwarded through another spread call.
  */
 export function bindArguments(fn, args, callerEnv, env = fn.env) {
-  const next = new Map(env),
+  const captured = lexicalEnvironment(fn.node.parent, env),
+    next = new Map(captured),
     entries = args.map((argument) =>
       argument?.flowArgument ? argument : { flowArgument: true, expression: argument, env: callerEnv },
     );
@@ -503,7 +519,7 @@ export function bindArguments(fn, args, callerEnv, env = fn.env) {
     if (expression)
       next.set(parameter, {
         expression,
-        env: argument ? argument.env : fn.env,
+        env: argument ? argument.env : captured,
       });
   });
   return next;
@@ -513,7 +529,7 @@ export function makeEvaluator(graph, facts) {
   const unknown = { unknown: true },
     moduleEnv = new Map(),
     memberCache = new Map(),
-    evaluationQueries = new WeakMap(),
+    contextFree = new Map(),
     assignments = new Map(),
     writeReferences = new WeakMap(),
     provenanceCache = new WeakMap(),
@@ -522,13 +538,13 @@ export function makeEvaluator(graph, facts) {
 
   // Like provenance, these pure queries use immutable argument frames. A shared field
   // expression is one subproblem per frame and remaining depth, not a fresh receiver walk.
-  function cachedQuery(cache, expression, env, depth, calculate, cycle = null) {
+  function cachedQuery(cache, expression, env, depth, calculate) {
     const expressions = cache.get(env) ?? new WeakMap();
     cache.set(env, expressions);
     const byDepth = expressions.get(expression) ?? new Map();
     expressions.set(expression, byDepth);
     if (byDepth.has(depth)) return byDepth.get(depth);
-    byDepth.set(depth, cycle);
+    byDepth.set(depth, null);
     const result = calculate(expression, env, depth);
     byDepth.set(depth, result);
     return result;
@@ -537,7 +553,13 @@ export function makeEvaluator(graph, facts) {
   function evaluateBinding(binding, name, env, depth) {
     // A nested declaration closes over its enclosing frame; a module-level one over nothing.
     if (binding.kind === "fn")
-      return [{ fn: true, node: binding.node, env: ts.isSourceFile(binding.node.parent) ? moduleEnv : env }];
+      return [
+        {
+          fn: true,
+          node: binding.node,
+          env: ts.isSourceFile(binding.node.parent) ? moduleEnv : lexicalEnvironment(binding.node.parent, env),
+        },
+      ];
     if (binding.kind === "class") return [{ classNode: binding.node, env }];
     if (binding.kind === "opaque") return [unknown];
     if (binding.kind === "import") {
@@ -671,10 +693,17 @@ export function makeEvaluator(graph, facts) {
 
   function evaluate(expression, env, depth = 0) {
     if (depth > maxEvaluationDepth) return [unknown];
-    if (!expression) return [unknown];
-    // Values depend on the immutable argument frame and remaining nesting budget.
-    // Repeated context/member queries reuse pure values, never an authorization result.
-    return cachedQuery(evaluationQueries, expression, env.size === 0 ? moduleEnv : env, depth, evaluateNode, [unknown]);
+    // The remaining nesting budget is an input: a deep unknown cannot answer a shallow query.
+    if (env.size === 0 && expression) {
+      const byDepth = contextFree.get(expression) ?? new Map();
+      contextFree.set(expression, byDepth);
+      if (byDepth.has(depth)) return byDepth.get(depth);
+      byDepth.set(depth, [unknown]);
+      const values = evaluateNode(expression, env, depth);
+      byDepth.set(depth, values);
+      return values;
+    }
+    return evaluateNode(expression, env, depth);
   }
 
   function evaluateNode(expression, env, depth) {
@@ -687,8 +716,9 @@ export function makeEvaluator(graph, facts) {
         ? [{ external: node.text }]
         : [{ broken: `${graph.fileOf(node)}: ${node.text} is not defined` }];
     }
-    if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) return [{ fn: true, node, env }];
-    if (ts.isObjectLiteralExpression(node)) return [{ object: node, env }];
+    if (ts.isArrowFunction(node) || ts.isFunctionExpression(node))
+      return [{ fn: true, node, env: lexicalEnvironment(node.parent, env) }];
+    if (ts.isObjectLiteralExpression(node)) return [{ object: node, env: lexicalEnvironment(node, env) }];
     if (node.kind === ts.SyntaxKind.ThisKeyword) {
       for (let scope = node.parent; scope; scope = scope.parent)
         if (ts.isClassLike(scope)) return [{ classNode: scope, env }];
@@ -917,7 +947,22 @@ export function makeEvaluator(graph, facts) {
         : ts.isBinaryExpression(node)
           ? [node.left, node.right]
           : null;
-    if (parts) return parts.some((part) => provenance(part, env, depth + 1)) ? "request" : null;
+    if (parts) {
+      const tags = parts.map((part) => provenance(part, env, depth + 1)),
+        choice =
+          ts.isConditionalExpression(node) ||
+          (ts.isBinaryExpression(node) &&
+            [ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.BarBarToken].includes(node.operatorToken.kind));
+      // Choosing between actions retains their coordinate. A compiler's distinct kind
+      // namespace can disprove that identity even when it consumed action data.
+      if (
+        choice &&
+        tags.every((tag) => tag === "action") &&
+        parts.every((part) => graph.propertyAllowsLiteral(part, "kind", facts.kind) !== false)
+      )
+        return "action";
+      return tags.some(Boolean) ? "request" : null;
+    }
     if (ts.isObjectLiteralExpression(node)) {
       // Spreading the action keeps it the action; carrying request fields makes request data.
       const tags = node.properties.map((property) =>

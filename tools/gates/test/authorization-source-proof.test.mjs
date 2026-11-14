@@ -4,7 +4,7 @@ import { cpSync, mkdirSync, readFileSync, readdirSync, realpathSync, symlinkSync
 import path from "node:path";
 import nodeTest from "node:test";
 import ts from "typescript";
-import { buildFlowGraph, makeEvaluator } from "../authorization-flow-graph.mjs";
+import { bindArguments, buildFlowGraph, makeEvaluator } from "../authorization-flow-graph.mjs";
 import {
   buildOutputWithinPackage,
   intrinsicSupport,
@@ -100,20 +100,49 @@ factory(first); factory(second); bind(first); bind(second);`),
   assert.notEqual(key(calls[0].arguments[0], calls[2].arguments[0]), key(calls[1].arguments[0], calls[2].arguments[0]));
 });
 
+test("a reentered named closure binds fresh parameters and retains its lexical capture", () => {
+  const { graph } = fixture(`
+function captured() {} function stale() {} function supplied() {}
+function factory(selection) {
+  return function reenter(mode, callback) {
+    if (mode === "again") return reenter;
+    if (mode === "selection") return selection;
+    return callback;
+  };
+}
+const seed = factory(captured);
+seed("again", stale); seed("read"); seed("read", supplied); seed("selection");`),
+    evaluator = makeEvaluator(graph, { constants: {}, functions: {} }),
+    empty = new Map(),
+    source = graph.modules.get(file).sourceFile,
+    calls = source.statements.filter(ts.isExpressionStatement).map((statement) => statement.expression),
+    [seed] = evaluator.evaluate(callNamed(graph, file, "factory"), empty),
+    [reentered] = evaluator.returnValues(seed, bindArguments(seed, calls[0].arguments, empty), 0),
+    returned = (call) => evaluator.returnValues(reentered, bindArguments(reentered, call.arguments, empty), 0),
+    names = (values) => values.filter((value) => value.fn).map((value) => value.node.name?.text);
+  assert.deepEqual(names(returned(calls[1])), [], "an omitted parameter cannot borrow the prior invocation's callback");
+  assert.deepEqual(names(returned(calls[2])), ["supplied"]);
+  assert.deepEqual(names(returned(calls[3])), ["captured"]);
+});
+
 // CH1: a compiler result has its own discriminator, even when its input carries the request.
 test("a compiled draft discriminator cannot borrow the request action kind", () => {
   const { graph } = fixture(
     `import { rmSync } from "node:fs";
-import { makeAction, compile } from "../contract.ts";
+import { makeAction, compile, prepare } from "../contract.ts";
 function entry(request) {
-  const action = makeAction(request), selected = action.kind, compiled = compile(action);
+  const action = makeAction(request), selected = action.kind, compiled = compile(action),
+    prepared = prepare(action) ?? action, preparedKind = prepared.kind,
+    mixed = prepare(action) ?? request.params, mixedKind = mixed.kind,
+    compilerChoice = compile(action) ?? action, compilerChoiceKind = compilerChoice.kind;
   if (compiled.kind !== "draft") throw new Error("wrong draft");
   rmSync("/tmp/live-draft");
 }`,
     undefined,
     {
       "packages/demo/contract.ts": `export declare function makeAction(request: unknown): { kind: string };
-export declare function compile(action: { kind: string }): { kind: "draft" };`,
+export declare function compile(action: { kind: string }): { kind: "draft" };
+export declare function prepare(action: { kind: string }): { kind: string } | null;`,
     },
   );
   const entry = graph.modules.get(file).sourceFile.statements.find((node) => ts.isFunctionDeclaration(node)),
@@ -125,7 +154,11 @@ export declare function compile(action: { kind: string }): { kind: "draft" };`,
     ts.forEachChild(node, visit);
   })(entry);
   assert.deepEqual(evaluator.fold(accesses[0], env), { value: "settings-update" });
-  assert.equal(evaluator.fold(accesses[1], env), null);
+  const byReceiver = (receiver) => accesses.find((node) => node.expression.getText() === receiver);
+  assert.deepEqual(evaluator.fold(byReceiver("prepared"), env), { value: "settings-update" });
+  assert.equal(evaluator.fold(byReceiver("mixed"), env), null);
+  assert.equal(evaluator.fold(byReceiver("compilerChoice"), env), null);
+  assert.equal(evaluator.fold(byReceiver("compiled"), env), null);
   const target = sourceSite(graph, callNamed(graph, file, "rmSync"));
   assert.equal(processSourceSites(graph, entry, { evaluator, env, targets: [target] }).has(target), true);
 });
