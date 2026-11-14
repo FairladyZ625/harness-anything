@@ -3,10 +3,12 @@ import type * as OperationalStatus from "@harness-anything/kernel/internal/domai
 import { makeTaskLifecycleService } from "@harness-anything/application/internal/task-lifecycle-service";
 import {
   prepareDaemonRepoStorage,
+  readNodeMaterializationDocuments,
   activateEmptyCanonicalGeneration,
   applyAttachMigrations,
   makeTaskEventStore,
   makeTaskProjection,
+  makeTaskProjectionReader,
   ProjectionIdentityMismatchError,
 } from "@harness-anything/storage";
 import {
@@ -15,6 +17,7 @@ import {
   consumeKnownError,
   type DaemonRepoMode,
   type TaskProjectionQueries,
+  type TaskProjectionReader,
 } from "@harness-anything/kernel";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
@@ -53,7 +56,6 @@ export type {
  * this size lets the supervisor observe advancing watermarks during reconstruction, before ready. */
 const coldAttachCatchUpLimit = storageReadPolicy.defaultValue.recovery.coldAttachCatchUpLimit;
 
-/**
 /** Read judgments bound to one projection cut: the closeout verdict follows the effective gate set. */
 export function repoCellTaskQueryJudgmentsFor(projection: TaskProjectionQueries): TaskQueryJudgments {
   return {
@@ -103,7 +105,32 @@ export interface RepoCellCore {
 }
 
 export async function initializeRepoCell(context: RepoCellCoreInput): Promise<RepoCellCore> {
-  let projection: ReturnType<typeof makeTaskProjection> | null = null;
+  let projection: ReturnType<typeof makeTaskProjection> | null = null,
+    materializationReader: TaskProjectionReader | null = null;
+  const readMaterializationDocuments = (
+    includePolicySkippedPaths: readonly string[] = [],
+    afterRevision?: number,
+    expectedRevision?: number,
+    previouslyMaterializedPaths?: readonly string[],
+  ) => {
+    if (!projection) return null;
+    materializationReader ??= makeTaskProjectionReader({
+      rootDir: context.rootDir,
+      projectionPath: projection.path,
+      now: context.now,
+    });
+    return materializationReader.withSession((q) => {
+      const cut = q.readCut();
+      if (cut.status !== "ready" || cut.watermark !== (expectedRevision ?? cut.sourceRevision)) return null;
+      return readNodeMaterializationDocuments(
+        q,
+        context.input.storage?.nodeTaskMaterializationPolicy ?? "include_done",
+        includePolicySkippedPaths,
+        afterRevision,
+        previouslyMaterializedPaths,
+      );
+    });
+  };
   prepareDaemonRepoStorage({
     rootDir: context.rootDir,
     repoId: context.input.repoId,
@@ -125,6 +152,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
     activationPreflight: activateEmptyCanonicalGeneration,
     killpoint: context.input.killpoint,
     onMaterializationHealthChange: context.input.onMaterializationHealthChange,
+    readMaterializationDocuments,
     onOpenProgress: (progress) =>
       context.input.onOpenProgress?.({
         phase: "recovering",
@@ -182,6 +210,14 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
           watermark: progress.watermark,
         }),
     });
+    const closeProjection = projection.close;
+    projection = {
+      ...projection,
+      close: () => {
+        materializationReader?.close();
+        closeProjection();
+      },
+    };
     // Attach advances one bounded, complete projection cut. Serving reads never mutates L2; future
     // writer events remain the authority and apply through the normal single-writer path.
     try {
@@ -228,6 +264,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
       sessionIdentity: currentSessionIdentity,
       readSettings: () => readRepositorySettings(projection!),
       killpoint: context.input.killpoint,
+      nodeTaskMaterializationPolicy: context.input.storage?.nodeTaskMaterializationPolicy,
     });
     const runtimeReads = makeAgentRuntimeReadModel({
         readAttemptChain: (runtimeSessionId) => readRuntimeAttemptChain(runtimeSessionId, projection!),

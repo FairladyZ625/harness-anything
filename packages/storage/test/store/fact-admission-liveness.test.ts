@@ -18,6 +18,9 @@ test("Fact admission accepts superseding a standing target", () => {
   try {
     createRelationGraphProjectionTables(db);
     createFactProjectionTables(db);
+    db.exec(
+      "CREATE TABLE IF NOT EXISTS document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS document_history (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL)",
+    );
     reduceFactEvent(db, fact(1, "F-ABCDEFGH"));
     reduceFactEvent(db, fact(2, "F-BCDEFGHJ", "fact/F-ABCDEFGH"));
     assert.equal(readFactRow(db, "F-ABCDEFGH")?.state, "superseded_fact");
@@ -32,6 +35,9 @@ test("Fact admission rejects superseding an already-superseded target", () => {
   try {
     createRelationGraphProjectionTables(db);
     createFactProjectionTables(db);
+    db.exec(
+      "CREATE TABLE IF NOT EXISTS document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS document_history (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL)",
+    );
     reduceFactEvent(db, fact(1, "F-ABCDEFGH"));
     reduceFactEvent(db, fact(2, "F-BCDEFGHJ", "fact/F-ABCDEFGH"));
     assert.throws(
@@ -51,6 +57,9 @@ test("Fact admission names an unregistered domain type instead of a relation fai
   try {
     createRelationGraphProjectionTables(db);
     createFactProjectionTables(db);
+    db.exec(
+      "CREATE TABLE IF NOT EXISTS document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS document_history (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL)",
+    );
     reduceFactEvent(db, fact(1, "F-ABCDEFGH"));
     assert.throws(
       () => reduceFactEvent(db, fact(2, "F-BCDEFGHJ", undefined, ["architecture"])),
@@ -69,6 +78,9 @@ test("Fact admission lists the registered domain types when rejecting an unregis
   try {
     createRelationGraphProjectionTables(db);
     createFactProjectionTables(db);
+    db.exec(
+      "CREATE TABLE IF NOT EXISTS document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS document_history (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL)",
+    );
     assert.throws(
       () => reduceFactEvent(db, fact(1, "F-ABCDEFGH", undefined, ["observation"])),
       (error: unknown) =>
@@ -137,6 +149,9 @@ test("Fact archive toggles the archived flag and rejects repeat or premature tra
   try {
     createRelationGraphProjectionTables(db);
     createFactProjectionTables(db);
+    db.exec(
+      "CREATE TABLE IF NOT EXISTS document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS document_history (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL)",
+    );
     reduceFactEvent(db, fact(1, "F-ABCDEFGH"));
     assert.equal(readFactRow(db, "F-ABCDEFGH")?.archived, false);
 
@@ -161,7 +176,12 @@ test("Fact archive toggles the archived flag and rejects repeat or premature tra
     assert.equal(archivedRow?.archived, true);
     assert.equal(archivedRow?.state, "standing");
     assert.equal(archivedRow?.statement, "Fact F-ABCDEFGH");
-    assert.deepEqual(archivedRow, { ...originalRow, archived: true, workspaceRevision: 2 });
+    assert.deepEqual(archivedRow, {
+      ...originalRow,
+      archived: true,
+      workspaceRevision: 2,
+      materializationState: "dematerialized_terminal",
+    });
 
     assert.throws(
       () => reduceFactEvent(db, archive(3, "F-ABCDEFGH", "fact_archived")),

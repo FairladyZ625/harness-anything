@@ -15,6 +15,7 @@ import type {
   UseCaseProjectionName as KernelUseCaseProjectionName,
   taskPhaseSteps,
 } from "@harness-anything/kernel";
+import type { CanonicalMaterializationState } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 import type { TaskDeliveryStage } from "./daemon-protocol-gui-types.ts";
 
 export const AGENDA_PIN_CRITERIA = "blocking an active work or awaiting owner decision; otherwise leave unpinned";
@@ -146,6 +147,18 @@ export const relationDirectionWords = ["directed", "undirected"] as const;
 export const relationOriginWords = ["declared", "imported_snapshot", "generated", "inferred"] as const;
 
 export const packageDispositionWords = ["active", "archived", "tombstoned"] as const;
+
+/** Wire mirror of canonical entity document materialization states. */
+export const canonicalMaterializationStateWords = Object.freeze([
+  "materialized",
+  "dematerialized_terminal",
+  "skipped_by_node_policy",
+] as const satisfies readonly CanonicalMaterializationState[]);
+export const canonicalMaterializationStateWordsAreExact: [CanonicalMaterializationState] extends [
+  (typeof canonicalMaterializationStateWords)[number],
+]
+  ? true
+  : never = true;
 
 /** Wire mirror of the kernel SQLite-to-Git publication health vocabulary. */
 export const materializationStateWords = Object.freeze([

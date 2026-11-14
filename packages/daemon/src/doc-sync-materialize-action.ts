@@ -1,8 +1,9 @@
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { stableStringify } from "@harness-anything/kernel";
 import { touch } from "./doc-sync-details.ts";
 import { docSyncError, hasExactDocSyncActionFields, proof, rejectDocSyncAction } from "./doc-sync-files.ts";
 import { workspacePathOf } from "./doc-sync-settlement.ts";
-import type { Action, DocSettlementReceipt, Input } from "./doc-sync-command-actions.ts";
+import type { DocSettlementReceipt, Input } from "./doc-sync-command-actions.ts";
 
 /**
  * `doc materialize` never settles the worktree by implication. Bare, it previews what a whole-closure
@@ -11,7 +12,7 @@ import type { Action, DocSettlementReceipt, Input } from "./doc-sync-command-act
  * where the overwritten local bytes were kept, the conflict copy beside it.
  */
 export function runDocMaterialize(input: Input): DocSettlementReceipt {
-  const paths = materializePaths(input.action),
+  const paths = materializePaths(input),
     workspacePath = workspacePathOf(input);
   const result =
     paths === undefined
@@ -98,7 +99,37 @@ export function runDocMaterialize(input: Input): DocSettlementReceipt {
 }
 
 /** undefined = preview (bare), null = whole cut (--all), otherwise the explicit --path selection. */
-function materializePaths(action: Action): readonly string[] | null | undefined {
+function materializePaths(input: Input): readonly string[] | null | undefined {
+  const action = input.action;
+  if (typeof action.taskId === "string") {
+    const taskFields = Object.hasOwn(action, "paths") ? ["kind", "paths", "taskId"] : ["kind", "taskId"];
+    if (
+      !hasExactDocSyncActionFields(action, taskFields) ||
+      (Object.hasOwn(action, "paths") && (!Array.isArray(action.paths) || action.paths.length > 0))
+    )
+      throw docSyncError(
+        "invalid_command",
+        `doc materialize --task cannot be combined with another selection (fields: ${Object.keys(action).sort().join(", ")})`,
+      );
+    const task = input.projection.read(action.taskId);
+    if (!task.snapshot.task || task.packagePath === null)
+      throw docSyncError("entity_not_found", `Task ${action.taskId} has no materialized package path`);
+    const paths: string[] = [];
+    let afterPath: string | undefined;
+    for (;;) {
+      const documents = input.projection.readDocuments(`${task.packagePath}/`, {
+        limit: storageReadPolicy.defaultValue.pageSizes.standard,
+        includeHistory: true,
+        ...(afterPath === undefined ? {} : { afterPath }),
+      });
+      if (documents.status !== "ready" || documents.watermark !== documents.sourceRevision)
+        throw docSyncError("projection_pending", `Task ${action.taskId} document projection is still catching up`);
+      paths.push(...documents.documents.map(({ path }) => path));
+      if (documents.page!.nextPath === null) break;
+      afterPath = documents.page!.nextPath;
+    }
+    return paths;
+  }
   const selection = (fields: readonly string[]): readonly string[] | null | undefined => {
     if (!Array.isArray(action.paths) || action.paths.some((p) => typeof p !== "string"))
       throw docSyncError("invalid_command", "doc materialize --path takes document paths");

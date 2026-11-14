@@ -476,9 +476,12 @@ async function authorizeReplacements(
       size: string | null;
       node_kind: DocumentHead["nodeKind"] | null;
       body: Buffer | null;
+      terminal_event_json: string | null;
     }>(
-      `SELECT head.path,head.sha256,head.size,head.node_kind,blob.body FROM ha_document_heads head
+      `SELECT head.path,head.sha256,head.size,head.node_kind,blob.body,terminal.event_json AS terminal_event_json FROM ha_document_heads head
        LEFT JOIN ha_content_blobs blob ON blob.tenant_id=head.tenant_id AND blob.project_id=head.project_id AND blob.sha256=head.sha256
+       LEFT JOIN ha_events terminal ON head.sha256 IS NULL AND head.path LIKE 'decisions/%/decision.md'
+         AND terminal.tenant_id=head.tenant_id AND terminal.project_id=head.project_id AND terminal.repo_id=head.repo_id AND terminal.revision=head.revision
      WHERE head.tenant_id=$1 AND head.project_id=$2 AND head.repo_id=$3 AND head.path=ANY($4::text[])`,
       [scope.tenantId, scope.projectId, repoId, paths],
     )
@@ -487,9 +490,16 @@ async function authorizeReplacements(
     bodies = new Map<string, Uint8Array>(),
     local = new Map<string, DocumentNode | null>();
   for (const row of rows) {
+    const terminal = row.terminal_event_json ? (JSON.parse(row.terminal_event_json) as CanonicalEventV1) : null,
+      claim = terminal?.schema === "decision-event/v1" ? terminal.payload.decisionDocumentClaim : undefined,
+      retained = claim?.path === row.path ? claim : undefined;
     heads.set(
       row.path,
-      row.sha256 === null ? "retired" : { sha256: row.sha256, size: Number(row.size), nodeKind: row.node_kind! },
+      row.sha256 === null
+        ? retained
+          ? { sha256: retained.sha256, size: retained.size, nodeKind: "file" }
+          : "retired"
+        : { sha256: row.sha256, size: Number(row.size), nodeKind: row.node_kind! },
     );
     if (row.sha256 !== null && row.body !== null) bodies.set(row.sha256, row.body);
   }

@@ -151,8 +151,8 @@ export const canonicalContractDecodePolicy = {
     "policy:packages/kernel:packages/kernel/src/domain/execution.ts#validateArchivedExecutionV0:392ba7a348c23586ab71e91253363260",
     "policy:packages/kernel:packages/kernel/src/domain/execution.ts#validateLeaseV1:9c374a9f66d5b3db53418636c8cfe8e6",
     "policy:packages/kernel:packages/kernel/src/domain/execution.ts#validateLeaseHolder:90c6712ec3380677ef46c04f6f8b31e5",
-    "policy:packages/kernel:packages/kernel/src/domain/fact-event.ts#validateFactEventFields:6888a1b0dd1586e4d83630348d70ca7a",
-    "policy:packages/kernel:packages/kernel/src/domain/fact-event.ts#validateFactEventFields:cd33b7625bca3d691dda8ee40fa71598",
+    "policy:packages/kernel:packages/kernel/src/domain/fact-event.ts#validateFactEventFields:2290f6cee92f7fd84142870df4d9150b",
+    "policy:packages/kernel:packages/kernel/src/domain/fact-event.ts#validateFactEventFields:0565033b03517751604e53472f998729",
     "policy:packages/kernel:packages/kernel/src/domain/fact-event.ts#validFactsClaim:ad6bb1e7c004146216f43392710251ce",
     "policy:packages/kernel:packages/kernel/src/domain/migration-import-event.ts#validateMigrationImportEventFields:6acc6101ca5278e96fed8386938db5e9",
     "policy:packages/kernel:packages/kernel/src/domain/migration-import-event.ts#validateMigrationImportEventFields:1e576b5bd5c1a4d63156375e1576cd01",
@@ -266,6 +266,7 @@ export const documentClaimPolicy = {
     "policy:packages/kernel:packages/kernel/src/domain/vertical-declaration.ts#compileVerticalDeclarationEvent.claim:f62a5570b4f7e93c3e03b6b5ef4f6a21",
     "policy:packages/kernel:packages/kernel/src/domain/vertical-declaration.ts#validateVerticalDeclarationEventFields:d4dc862d5ef94e8a70fbccc06673d527",
     "policy:packages/kernel:packages/kernel/src/ports/canonical-document-claims.ts#canonicalDocumentMode:b3f67ec951607c83f05f8cbef2456012",
+    "policy:packages/kernel:packages/kernel/src/ports/canonical-document-claims.ts#canonicalDocumentRetirements:afd89875f98737624175aff62b12dbf2",
     "policy:packages/kernel:packages/kernel/src/ports/canonical-event-validation.ts#assertContentInputs:178cd98afee4576447e81ff686681ab8",
   ].map((candidateId) => ({ candidateId, route: "canonical document claim policyId" })),
 } as const satisfies OntologyPolicyDeclaration;

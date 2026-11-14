@@ -75,6 +75,7 @@ export interface DecisionProjectionRow {
   readonly readiness?: DecisionReadinessProjection;
   readonly capabilities: readonly DecisionCapability[];
   readonly claimsOpen: boolean;
+  readonly materializationState?: import("../domain/entity-relation.ts").CanonicalMaterializationState;
 }
 
 export type DecisionAgendaProjectionRow = Pick<

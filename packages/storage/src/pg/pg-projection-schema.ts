@@ -205,6 +205,9 @@ export function projectionDdl(): readonly string[] {
     // It rejects valid opaque provider bytes and cannot serve runtime RLS's outcome predicate.
     // No table, column, identity key or canonical value is removed.
     `DROP INDEX IF EXISTS ha_projection_values_runtime_unsettled`,
+    `CREATE INDEX IF NOT EXISTS ha_projection_document_revision ON ha_projection_values
+      (tenant_id,project_id,policy_epoch,workspace_revision,entity_id)
+      WHERE model IN ('document','document-history') AND owner_id=''`,
     `CREATE INDEX IF NOT EXISTS ha_projection_document_path ON ha_projection_values
       (tenant_id,project_id,policy_epoch,entity_id COLLATE "C") WHERE model='document' AND owner_id=''`,
     /* @gate-identity state-store/task.projection.ha_task_snapshots */ `CREATE TABLE IF NOT EXISTS ha_task_snapshots (

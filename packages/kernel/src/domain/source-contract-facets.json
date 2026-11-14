@@ -238,7 +238,7 @@
         "explain": "Wire-response validator for `repo.decisions.list` summary and full `decision-row/v1` envelopes, amendments and content pins; Decision lifecycle and review readiness stay kernel-owned.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-projections.ts#validateDaemonDecisionList:9ae6ed1f3fdcba40919b9e4ca0f09b7f",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-validate-projections.ts#validateDaemonDecisionList:cdf4610fd27d3cc7d30767a56c492a2f",
             "route": "packages/daemon/src/protocol/daemon-protocol-validate-projections.ts#validateDaemonDecisionList"
           }
         ]
@@ -282,7 +282,7 @@
         "explain": "Single-package `decision.md` authored-file vs canonical Decision projection consistency inspector.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/decision-surface-actions.ts#validateOne:654798729b6d3757220339a910cc4828",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/decision-surface-actions.ts#validateOne:90da8b4bd6abdac4f13c202e624c151d",
             "route": "packages/daemon/src/decision-surface-actions.ts#validateOne"
           }
         ]
@@ -5608,7 +5608,7 @@
         "explain": "fact-event: Versioned fact-event.ts input envelope and declared publication contract.",
         "sources": [
           {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/fact-event.ts#validateFactEventFields:fe7380277ea705a7c9d3a680a6d7e407",
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/fact-event.ts#validateFactEventFields:f02d8825c9e0f82de3fac95dd0ae174f",
             "route": "packages/kernel/src/domain/fact-event.ts#validateFactEventFields"
           }
         ]

@@ -6,6 +6,7 @@ import { createPgTaskProjectionSource } from "../../src/pg/pg-task-source.ts";
 import { backfillPgDecisionSearchPage } from "@harness-anything/storage";
 import { refreshPgDecisionSearch } from "../../src/pg/pg-decision-search.ts";
 import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
+import { putPgProjectionValue } from "../../src/pg/pg-projection-values.ts";
 import { decisionProjectionDatabase, proposal } from "../store/relation-graph-projection.fixtures.ts";
 import { listDecisionRowsPage, reduceDecisionEvent } from "../../src/projection/decision-event-projection.ts";
 import { refreshDecisionDocumentSearch } from "../../src/projection/decision-projection-reducer.ts";
@@ -94,6 +95,15 @@ export async function assertDecisionSearchEdges(pool: Pool, backend: string) {
               claim.size,
               index + 1,
             ],
+          );
+          await putPgProjectionValue(
+            client,
+            { ...scope, readers: ["visible"] },
+            "document",
+            claim.path,
+            "",
+            index + 1,
+            document,
           );
           await refreshPgDecisionSearch(client, scope, id);
         },

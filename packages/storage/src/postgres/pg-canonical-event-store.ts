@@ -1,4 +1,5 @@
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
+import { readNodeMaterializationDocuments, requireTaskMaterializationMetadata } from "../storage-backend.ts";
 import {
   ledgerCommitSha,
   serializePersistedCanonicalEvent,
@@ -28,15 +29,11 @@ import type { PostgresTaskEventStoreOptions, PGliteTaskEventStoreOptions } from 
 import { applyCanonicalTree } from "../canonical-tree-materialization.ts";
 import { resolveLedgerGitLayout } from "../store/ledger-git-layout.ts";
 import { localGitObjectRefStore, localGitWorktreeSettlement } from "../store/local-version-control-system.ts";
-import {
-  certifiedFollowerRevision,
-  followerEventsAfter,
-  followerFiles,
-  physicalWorktreeRevision,
-} from "../store/sqlite-task-event-publication.ts";
+import { certifiedFollowerRevision, followerFilesFromDocumentHeads } from "../store/sqlite-task-event-publication.ts";
 import { publishFollowerCut } from "../store/task-event-store-git-refs.ts";
-import { restoreCanonicalDocumentSelection } from "../store/sqlite-task-event-materialize.ts";
+import { projectionManagedPath, restoreCanonicalDocumentSelection } from "../store/sqlite-task-event-materialize.ts";
 import { createDurableFollowerPublisher } from "../store/durable-follower-publisher.ts";
+import { ledgerAuthoredPath, ledgerGitPath } from "../store/ledger-git-layout.ts";
 
 /**
  * One handle belongs to the single writer. Its synchronous bridge can wait in SyncRep;
@@ -56,8 +53,6 @@ export function makePgCanonicalEventStore(
     execute = reader.executeCanonical,
     head: CanonicalEventStore["readHead"] = () =>
       execute({ operation: "head" }) as ReturnType<CanonicalEventStore["readHead"]>,
-    readEvents = (afterRevision = 0, limit?: number) =>
-      execute({ operation: "events", afterRevision, limit }) as readonly CanonicalEventV1[],
     checkpointSource = {
       metadata: () => ({ repoId: options.repoId, generation: 3, revision: head()?.revision ?? 0 }),
       eventIdentityAtRevision: (revision: number) => {
@@ -99,6 +94,11 @@ export function makePgCanonicalEventStore(
     const cut = canonicalLedgerCut(options.repoId, head()),
       rootInput = options.rootInput ?? options.rootDir,
       materializeTree = options.storage.materialize !== false;
+    if (options.storage.nodeTaskMaterializationPolicy === "none" && request === undefined) {
+      git = { status: "pending", cut, commitSha: null, reason: "Skipped by node policy" };
+      worktree = { status: "verified", cut, commitSha: null, conflicts: [] };
+      return { status: "visible", commitSha: null, settlements: [], conflicts: [] };
+    }
     if (!materializeTree && request)
       throw new TaskEventStoreError("materialization_failed", "Authored tree materialization is disabled");
     if (rootInput === undefined) {
@@ -106,23 +106,21 @@ export function makePgCanonicalEventStore(
         throw new TaskEventStoreError("materialization_failed", "No authored tree is configured for this repository");
       return { status: "visible", commitSha: null, settlements: [], conflicts: [] };
     }
+    const requirePreviousPaths = (paths: readonly string[]) => {
+      if (paths.some((path) => path.startsWith("tasks/") && path.split("/").length > 2))
+        reader.withSession((q) => requireTaskMaterializationMetadata(q, paths));
+    };
     const layout = resolveHarnessLayout(rootInput),
-      documents = materializeTree
-        ? reader.withSession((q) => {
-            const documents: ReturnType<typeof q.readDocuments>["documents"][number][] = [];
-            let afterPath: string | undefined;
-            for (;;) {
-              const result = q.readDocuments("", {
-                limit: storageReadPolicy.defaultValue.pageSizes.standard,
-                ...(afterPath === undefined ? {} : { afterPath }),
-              });
-              documents.push(...result.documents);
-              if (result.page!.nextPath === null) break;
-              afterPath = result.page!.nextPath;
-            }
-            return documents;
-          })
-        : [],
+      documents =
+        materializeTree || options.storage.gitFollower
+          ? reader.withSession((q) =>
+              readNodeMaterializationDocuments(
+                q,
+                options.storage.nodeTaskMaterializationPolicy ?? "include_done",
+                request?.paths,
+              ),
+            )
+          : [],
       entries = new Map(documents.map((doc) => [doc.path, { sha256: doc.blobSha256 }])),
       restored =
         request?.paths && !request.preview
@@ -147,6 +145,7 @@ export function makePgCanonicalEventStore(
         ? applyCanonicalTree({
             authoredRoot: layout.authoredRoot,
             markerPath: path.join(layout.localRoot, "fleet-materialized.json"),
+            requirePreviousPaths,
             generation: 3,
             revision: cut.revision,
             entries,
@@ -187,12 +186,25 @@ export function makePgCanonicalEventStore(
           git.commitSha === parent && git.cut
             ? git.cut.revision
             : certifiedFollowerRevision(ledger, parent, checkpointSource),
-        events = followerEventsAfter(
-          readEvents,
-          materializeTree ? Math.min(checkpoint, physicalWorktreeRevision(ledger, checkpointSource)) : checkpoint,
-          cut.revision,
-        ),
-        files = followerFiles(ledger, events, readContentBlob, cut, 3),
+        files = followerFilesForNodePolicy({
+          ledger,
+          documents,
+          parent,
+          readContent: readContentBlob,
+          requirePreviousPaths,
+          knownDocumentPaths: (paths) => {
+            const known = new Set<string>(),
+              size = storageReadPolicy.defaultValue.pageSizes.standard;
+            for (let offset = 0; offset < paths.length; offset += size)
+              for (const path of reader.executeCanonical({
+                operation: "document-paths",
+                paths: paths.slice(offset, offset + size),
+              }) as readonly string[])
+                known.add(path);
+            return known;
+          },
+          cut,
+        }),
         commit = publishFollowerCut(ledger.rootDir, authoredRef, parent, checkpoint, cut, files, {
           killpoint: options.killpoint,
           withFence: options.withAppendFence,
@@ -302,4 +314,44 @@ export function makePgCanonicalEventStore(
       execute({ operation: "prune", beforeSequence, writerFence: fence() });
     },
   };
+}
+
+/** Build the local Git follower from the policy-filtered projection and retain event retirements for other paths. */
+function followerFilesForNodePolicy(input: {
+  readonly ledger: ReturnType<typeof resolveLedgerGitLayout>;
+  readonly documents: readonly {
+    readonly path: string;
+    readonly blobSha256: string;
+    readonly size: number;
+    readonly nodeKind?: "file" | "symbolic-link" | null;
+  }[];
+  readonly parent: string;
+  readonly readContent: (sha256: string) => Uint8Array | null;
+  readonly cut: ReturnType<typeof canonicalLedgerCut>;
+  readonly requirePreviousPaths?: (paths: readonly string[]) => void;
+  readonly knownDocumentPaths: (paths: readonly string[]) => ReadonlySet<string>;
+}): readonly (PublicationWrite | { readonly delete: string })[] {
+  const projected = followerFilesFromDocumentHeads(
+      input.ledger,
+      input.documents.map((document) => ({
+        path: document.path,
+        sha256: document.blobSha256,
+        size: document.size,
+        nodeKind: document.nodeKind ?? "file",
+      })),
+      input.readContent,
+      input.cut,
+      3,
+    ),
+    projectedLogical = new Set(input.documents.map(({ path: documentPath }) => documentPath)),
+    previous = localGitObjectRefStore
+      .listTree(input.ledger.rootDir, input.parent, [ledgerGitPath(input.ledger, "").replace(/\/$/u, "") || "."])
+      .map(({ target }) => ({ target, logical: ledgerAuthoredPath(input.ledger, target) }));
+  const known = input.knownDocumentPaths(previous.map(({ logical }) => logical)),
+    owned = previous.filter(({ logical }) => known.has(logical));
+  input.requirePreviousPaths?.(owned.map(({ logical }) => logical));
+  const staleManaged = owned
+    .filter(({ logical }) => projectionManagedPath(logical) && !projectedLogical.has(logical))
+    .map(({ target }) => ({ delete: target }));
+  return [...projected, ...staleManaged];
 }

@@ -18,6 +18,12 @@ export type {
   FactSearchPage,
 } from "@harness-anything/kernel";
 import { factInvalidated, factLiveness } from "@harness-anything/kernel/internal/domain/fact-liveness.ts";
+import {
+  activeMaterializationHolds,
+  materializationEntityRef,
+  type MaterializationEntityState,
+  type MaterializationRelation,
+} from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 import { ftsQuery } from "./fts-query.ts";
 import { applyEmbeddedRelationProjectionEvents } from "./relation-entity-projection.ts";
 import { prepareQuery, queryRows, type ProjectionSqlRow } from "./rebuildable-task-projection-sql.ts";
@@ -58,6 +64,54 @@ export function readFactAdmissionState(db: DatabaseSync, event: FactEventV1) {
     supersededTarget: target ?? null,
     relations: target ? livenessRelations(db, [target.ref]) : [],
   };
+}
+
+export function factMaterializationHeld(
+  db: DatabaseSync,
+  factRef: string,
+  state: "archived" | "superseded_fact",
+): boolean {
+  const relations = queryRows<{
+    readonly source_ref: string;
+    readonly target_ref: string;
+    readonly relation_type: string;
+    readonly state: string;
+  }>(
+    db,
+    "SELECT source_ref, target_ref, relation_type, state FROM relation_edge INDEXED BY relation_edge_target " +
+      "WHERE target_ref = ? AND state = 'active'",
+    factRef,
+  ).map(
+    (edge): MaterializationRelation => ({
+      source: edge.source_ref,
+      target: edge.target_ref,
+      type: edge.relation_type as MaterializationRelation["type"],
+      state: edge.state,
+    }),
+  );
+  const sourceRefs = [...new Set(relations.map(({ source }) => materializationEntityRef(source)))],
+    decisionIds = sourceRefs.flatMap((source) => source.match(/^decision\/([^/]+)$/u)?.[1] ?? []),
+    taskIds = sourceRefs.flatMap((source) => source.match(/^task\/(.+)$/u)?.[1] ?? []),
+    states = new Map<string, MaterializationEntityState>([[factRef, { ref: factRef, state, kind: "fact" }]]);
+  if (decisionIds.length)
+    for (const row of queryRows<{ readonly decision_id: string; readonly state: string }>(
+      db,
+      "SELECT decision_id, state FROM decision WHERE decision_id IN (SELECT value FROM json_each(?))",
+      JSON.stringify(decisionIds),
+    )) {
+      const ref = `decision/${row.decision_id}`;
+      states.set(ref, { ref, state: row.state, kind: "decision" });
+    }
+  if (taskIds.length)
+    for (const row of queryRows<{ readonly task_id: string; readonly status: string }>(
+      db,
+      "SELECT task_id, CASE WHEN json_extract(snapshot_json,'$.task.packageDisposition')='archived' THEN 'archived' ELSE status END AS status FROM task_snapshot WHERE task_id IN (SELECT value FROM json_each(?))",
+      JSON.stringify(taskIds),
+    )) {
+      const ref = `task/${row.task_id}`;
+      states.set(ref, { ref, state: row.status, kind: "task" });
+    }
+  return activeMaterializationHolds({ ref: factRef, state, kind: "fact" }, relations, states).length > 0;
 }
 
 export function reduceFactEvent(db: DatabaseSync, event: FactEventV1): void {
@@ -189,9 +243,26 @@ function decodeFactRows(db: DatabaseSync, records: readonly FactRecord[]): reado
       db,
       raw.map((row) => row.ref),
     );
+  const activePaths = new Set(
+    queryRows<{ path: string }>(
+      db,
+      "SELECT path FROM document WHERE path IN (SELECT value FROM json_each(?))",
+      JSON.stringify(raw.map(({ factId }) => `facts/${factId}.md`)),
+    ).map(({ path }) => path),
+  );
   return raw.map((row) => {
     const state = factLiveness(row, relations);
-    return { ...row, state, invalidated: factInvalidated(state), archived: row.archived === true };
+    const materializationState =
+      (state === "superseded_fact" || row.archived === true) && !activePaths.has(`facts/${row.factId}.md`)
+        ? "dematerialized_terminal"
+        : "materialized";
+    return {
+      ...row,
+      state,
+      invalidated: factInvalidated(state),
+      archived: row.archived === true,
+      materializationState,
+    };
   });
 }
 function listFactRows(db: DatabaseSync, where: string, values: readonly string[]): readonly FactProjectionRow[] {

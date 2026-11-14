@@ -6,7 +6,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader, makeTaskProjectionReader } from "@harness-anything/storage";
-import { deriveRelationId } from "@harness-anything/kernel";
+import {
+  deriveRelationId,
+  INITIAL_SETTINGS_V1,
+  repositorySettings,
+  type TaskProjection,
+} from "@harness-anything/kernel";
+import { makeEntityActionCatalogExecutor } from "../src/entity-action-catalog-executor.ts";
 import { assembleTaskCausalContext } from "../src/dispatch-causal-context.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
@@ -684,6 +690,79 @@ test("the decisions readiness cache key never reserializes the decision rows", a
     assert.equal(updated.decisions.length, 2);
     assert.ok(updated.decisions.every(({ readiness }) => readiness));
   } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("Decision validation preserves Proxy query methods and reads dematerialized history", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-validation-proxy-"));
+  initRepo(rootDir);
+  const cell = await openRepoCell({
+    repoId: workspaceId("decision-validation-proxy"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "decision-validation-proxy-test",
+    now: monotonicClock(),
+  });
+  const reader = makeTaskProjectionReader({ rootDir });
+  try {
+    const proposed = await cell.run(proposal("Proxy validation"), proposer),
+      decisionId = receiptJson(proposed).decisionId as string;
+    assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
+    for (const terminal of [false, true]) {
+      if (terminal) {
+        const rejected = await cell.run(
+          { kind: "decision-reject", decisionId, reason: "Retain the rejected package in object history." },
+          withPolicyGroup(
+            { ...proposer, actor: { principal: proposer.actor.principal, executor: null } },
+            "maintainer",
+          ),
+        );
+        assert.equal(rejected.outcome, "applied", JSON.stringify(rejected));
+      }
+      reader.withSession((queries) => {
+        const decision = queries.readDecision(decisionId).decision,
+          readHistory = queries.readDocumentHistory;
+        assert.ok(decision);
+        assert.ok(readHistory);
+        assert.equal(queries.readDocument(decision.path).document === null, terminal);
+        if (terminal) assert.ok(readHistory(decision.path).document);
+        for (const missingHistory of terminal ? [false, true] : [false]) {
+          // PG readers expose methods through get, without enumerable own properties.
+          const projection = new Proxy({} as TaskProjection, {
+            get: (_, key) => {
+              if (key === "readDocumentHistory")
+                return (logicalPath: string) => {
+                  assert.equal(terminal, true, "active documents must take precedence over history");
+                  const history = readHistory(logicalPath);
+                  return missingHistory ? { ...history, document: null } : history;
+                };
+              return Reflect.get(queries, key);
+            },
+          });
+          assert.deepEqual(Object.keys(projection), []);
+          const executor = makeEntityActionCatalogExecutor({
+            projection,
+            store: {} as never,
+            now: monotonicClock(),
+            sessionIdentity: () => assert.fail("validation must not invoke writer identity"),
+            readSettings: () => repositorySettings(INITIAL_SETTINGS_V1),
+          });
+          for (const selection of [{ decisionId }, { all: true }]) {
+            const receipt = executor.run({ kind: "decision-validate", ...selection }, proposer, "proxy-validation");
+            assert.ok(!(receipt instanceof Promise), "validation remains a synchronous projection read");
+            assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+            const rows = receiptJson(receipt).rows as readonly { valid: boolean; errors: readonly string[] }[];
+            assert.equal(rows.length, 1);
+            assert.equal(rows[0]?.valid, !missingHistory);
+            if (missingHistory) assert.ok(rows[0]?.errors.includes("decision package document is missing"));
+            else assert.deepEqual(rows[0]?.errors, []);
+          }
+        }
+      });
+    }
+  } finally {
+    reader.close();
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
   }

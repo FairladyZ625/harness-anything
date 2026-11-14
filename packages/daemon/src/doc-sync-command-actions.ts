@@ -42,6 +42,8 @@ import { publishDocIntent } from "./doc-sync-publication.ts";
 import { readAction, readDocReceipt } from "./doc-sync-reads.ts";
 import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 import { runDocMaterialize } from "./doc-sync-materialize-action.ts";
+import type { CanonicalMaterializationState } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
+import type { NodeTaskMaterializationPolicy } from "@harness-anything/kernel/internal/domain/task-wip-policy.ts";
 import { taskWorktreeCandidateInventory, taskWorktreeRoot } from "./task-worktree-candidates.ts";
 import { acceptTaskWorktreeDocumentBase } from "./worktree-setup.ts";
 import { executionCredentialRejected, type RuntimeExecutionPrincipal } from "./runtime-execution-credential.ts";
@@ -76,6 +78,7 @@ export type Input = {
   readonly rootDir: string;
   readonly store: CanonicalEventStore;
   readonly projection: TaskProjection;
+  readonly nodeTaskMaterializationPolicy?: NodeTaskMaterializationPolicy;
   readonly now: () => string;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
   readonly authoredCandidateInventory?: AuthoredCandidateInventoryV1;
@@ -93,6 +96,7 @@ export type DocSettlementReceipt = WriteReceipt & {
   readonly settlement?: WriteReceipt["outcome"];
   readonly receiptId?: string;
   readonly summary?: string;
+  readonly materializationState?: CanonicalMaterializationState;
 };
 
 export type ArtifactAddReceipt = DocSettlementReceipt & {

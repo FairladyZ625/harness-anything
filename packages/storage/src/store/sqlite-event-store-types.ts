@@ -146,10 +146,26 @@ export interface SqliteEventStore {
   readonly event: (opId: string) => CanonicalEventV1 | null;
   readonly eventById: (eventId: string) => CanonicalEventV1 | null;
   readonly eventAtRevision: (revision: number) => CanonicalEventV1 | null;
+  readonly firstEntityEvent: (ref: string) => CanonicalEventV1 | null;
   readonly eventIdentity: (opId: string) => SqliteEventIdentity | null;
   readonly headIdentity: () => SqliteEventIdentity | null;
   readonly eventIdentityAtRevision: (revision: number) => SqliteEventIdentity | null;
-  readonly documentHead: (documentPath: string) => SqliteDocumentHead | "retired" | undefined;
+  readonly documentHead: (
+    documentPath: string,
+    includeTerminalPreimage?: boolean,
+  ) => SqliteDocumentHead | "retired" | undefined;
+  readonly directoryClaims: () => readonly NonNullable<
+    ReturnType<
+      typeof import("@harness-anything/kernel/internal/ports/canonical-document-claims.ts").canonicalOwnedDirectories
+    >
+  >[];
+  /** Current document-head projection, including retired paths, for O(|working_set|) cold materialization. */
+  readonly documentHeads: () => readonly {
+    readonly path: string;
+    readonly sha256: string | null;
+    readonly size: number | null;
+    readonly nodeKind: SqliteDocumentHead["nodeKind"] | null;
+  }[];
   readonly eventsAfter: (revision: number, limit?: number) => readonly CanonicalEventV1[];
   readonly eventsBefore: (revision: number, limit?: number) => readonly CanonicalEventV1[];
   readonly attachMigrationScanWatermarks: () => ReadonlyMap<string, number>;

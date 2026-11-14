@@ -83,6 +83,8 @@ export interface FactEventPayload {
   /** Required on every type except `fact_archived`, which retires the document instead of writing one. */
   readonly factsDocumentClaim?: FactsDocumentClaim;
   readonly supersededFactsDocumentClaim?: FactsDocumentClaim;
+  /** The preimage hash of the currently materialized document retired by a superseding write. */
+  readonly supersededFactsDocumentRetirement?: { readonly path: string; readonly sha256: string };
   /** Audit reason carried by `fact_archived`/`fact_unarchived`. */
   readonly archiveReason?: string;
   /** The managed document a `fact_archived` event retires: its canonical path and pre-delete blob hash. */
@@ -102,7 +104,10 @@ export type FactEventV1 = EventEnvelope<
 export type FactEventDraftV1 = Omit<FactEventV1, "payload"> & {
   readonly payload: Omit<
     FactEventPayload,
-    "factsDocumentClaim" | "supersededFactsDocumentClaim" | "factsDocumentRetirement"
+    | "factsDocumentClaim"
+    | "supersededFactsDocumentClaim"
+    | "supersededFactsDocumentRetirement"
+    | "factsDocumentRetirement"
   >;
 };
 export interface CompiledFactWrite {
@@ -115,6 +120,7 @@ export interface CompiledFactWrite {
 
 export interface SupersededFactDocumentSource {
   readonly factId: string;
+  readonly baseDocumentSha256: string;
   readonly taskId?: string;
   readonly statement: string;
   readonly evidenceSource: string;
@@ -160,7 +166,15 @@ export function compileFactWrite(input: {
       payload: {
         ...input.event.payload,
         factsDocumentClaim: claim,
-        ...(superseded ? { supersededFactsDocumentClaim: superseded.claim } : {}),
+        ...(superseded
+          ? {
+              supersededFactsDocumentClaim: superseded.claim,
+              supersededFactsDocumentRetirement: {
+                path: superseded.claim.path,
+                sha256: input.supersededFact!.baseDocumentSha256,
+              },
+            }
+          : {}),
       },
     };
   return {
@@ -180,6 +194,8 @@ function supersededFactDocument(
 ): { readonly claim: FactsDocumentClaim; readonly blob: FactContentBlob } | null {
   const supersedes = input.event.payload.supersedes;
   if (!supersedes || !input.supersededFact) return null;
+  if (!/^[0-9a-f]{64}$/u.test(input.supersededFact.baseDocumentSha256))
+    throw new Error("superseded fact document base hash is invalid");
   const factId = /^fact\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u.exec(supersedes.factRef)?.[1];
   if (!factId || input.supersededFact.factId !== factId)
     throw new Error("superseded fact record must match the supersedes ref");
@@ -294,6 +310,7 @@ export function factWritePlan(event: FactEventV1): FrozenWritePlan<"FactRecord">
   const claim = event.payload.factsDocumentClaim;
   if (!claim) throw new Error(`fact event ${event.type} requires a factsDocumentClaim`);
   const supersededClaim = event.payload.supersededFactsDocumentClaim;
+  const supersededRetirement = event.payload.supersededFactsDocumentRetirement;
   targets.push(
     {
       kind: "authored_file",
@@ -303,15 +320,13 @@ export function factWritePlan(event: FactEventV1): FrozenWritePlan<"FactRecord">
       size: claim.size,
       mediaType: claim.mediaType,
     },
-    ...(supersededClaim
+    ...(supersededClaim && supersededRetirement
       ? [
           {
-            kind: "authored_file",
-            path: supersededClaim.path,
-            operation: "replace",
-            sha256: supersededClaim.sha256,
-            size: supersededClaim.size,
-            mediaType: supersededClaim.mediaType,
+            kind: "authored_file_delete",
+            path: supersededRetirement.path,
+            operation: "delete",
+            baseSha256: supersededRetirement.sha256,
           } as const,
         ]
       : []),
@@ -375,6 +390,7 @@ function validateFactEventFields(value: unknown, allowUnknownFields: boolean): r
         "supersedes",
         "factsDocumentClaim",
         "supersededFactsDocumentClaim",
+        "supersededFactsDocumentRetirement",
         "reclassificationRationale",
         "archiveReason",
         "factsDocumentRetirement",
@@ -409,6 +425,18 @@ function validateFactEventFields(value: unknown, allowUnknownFields: boolean): r
     !uniqueProvenance(payload.provenance) ||
     (payload.supersedes !== undefined && !supersedes(payload.supersedes, allowUnknownFields)) ||
     !validSupersededFactsClaim(payload, value.type, allowUnknownFields) ||
+    (payload.supersededFactsDocumentRetirement !== undefined &&
+      (value.type !== "fact_recorded" ||
+        payload.supersededFactsDocumentClaim === undefined ||
+        !validFactDocumentRetirement(
+          payload.supersededFactsDocumentRetirement,
+          /^facts\/(F-[0-9A-HJKMNP-TV-Z]{8})\.md$/u.exec(
+            String(isRecord(payload.supersededFactsDocumentClaim) ? payload.supersededFactsDocumentClaim.path : ""),
+          )?.[1],
+        ))) ||
+    (!allowUnknownFields &&
+      payload.supersededFactsDocumentClaim !== undefined &&
+      payload.supersededFactsDocumentRetirement === undefined) ||
     (value.type === "fact_reclassified" &&
       (payload.domainTypes === undefined ||
         payload.registersDomainType !== undefined ||
@@ -423,6 +451,7 @@ function validateFactEventFields(value: unknown, allowUnknownFields: boolean): r
     (value.type === "fact_archived" &&
       (payload.factsDocumentClaim !== undefined ||
         payload.supersededFactsDocumentClaim !== undefined ||
+        payload.supersededFactsDocumentRetirement !== undefined ||
         payload.supersedes !== undefined ||
         payload.domainTypes !== undefined ||
         payload.registersDomainType !== undefined ||
@@ -433,6 +462,7 @@ function validateFactEventFields(value: unknown, allowUnknownFields: boolean): r
       (payload.factsDocumentClaim === undefined ||
         payload.factsDocumentRetirement !== undefined ||
         payload.supersededFactsDocumentClaim !== undefined ||
+        payload.supersededFactsDocumentRetirement !== undefined ||
         payload.supersedes !== undefined ||
         payload.domainTypes !== undefined ||
         payload.registersDomainType !== undefined ||

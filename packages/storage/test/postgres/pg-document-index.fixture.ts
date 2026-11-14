@@ -22,7 +22,15 @@ export async function assertDocumentIndex(pool: Pool, seedPool: Pool, backend: s
       FROM generate_series(1,100000) n`,
         [scope.tenantId, scope.projectId, scope.policyEpoch],
       );
-      for (const path of ["target/%_/a", "target/%_/b", "target/%_/深😀", "target/other", "target/%_0", "最大/😀/a"])
+      for (const path of [
+        "target/%_/a",
+        "target/%_/b",
+        "target/%_/深😀",
+        "target/other",
+        "target/%_0",
+        "最大/😀/a",
+        "tasks/parent/file.md",
+      ])
         await putPgProjectionValue(client, scope, "document", path, "", 2, {
           path,
           body: "body\0😀",
@@ -31,6 +39,14 @@ export async function assertDocumentIndex(pool: Pool, seedPool: Pool, backend: s
           mediaType: "text/plain",
           workspaceRevision: 2,
         });
+      await putPgProjectionValue(client, scope, "document-history", "target/%_/retired", "", 2, {
+        path: "target/%_/retired",
+        body: "historical",
+        blobSha256: "history-digest",
+        size: 10,
+        mediaType: "text/plain",
+        workspaceRevision: 2,
+      });
       await client.query(
         `INSERT INTO ha_task_snapshots
       (tenant_id,project_id,policy_epoch,task_id,workspace_revision,snapshot,package_path)
@@ -114,7 +130,18 @@ export async function assertDocumentIndex(pool: Pool, seedPool: Pool, backend: s
     [],
   );
   assert.deepEqual((await queries.readDocuments("absent/")).documents, []);
-  assert.equal((await queries.readDocuments("")).documents.length, 100006);
+  assert.equal((await queries.readDocuments("")).documents.length, 100007);
+  assert.deepEqual(
+    (await queries.readDocuments("target/%_/", { limit: 10, includeHistory: true })).documents.map(({ path }) => path),
+    ["target/%_/a", "target/%_/b", "target/%_/retired", "target/%_/深😀"],
+  );
+  assert.deepEqual((await queries.readDocuments("tasks/", { limit: 10, excludeTaskPackages: true })).documents, []);
+  assert.deepEqual(
+    (await queries.readDocuments("target/%_/", { limit: 2, excludeTaskPackages: true })).documents.map(
+      ({ path }) => path,
+    ),
+    ["target/%_/a", "target/%_/b"],
+  );
   assert.equal(await queries.taskIdForDocumentPath("tasks/parent/nested/a.md"), "child");
   assert.equal(await queries.taskIdForDocumentPath("tasks/parent/nested"), "child");
   assert.equal(await queries.taskIdForDocumentPath("tasks/parent/nested-neighbor/a.md"), "parent");

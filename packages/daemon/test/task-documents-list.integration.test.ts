@@ -65,6 +65,127 @@ test("repo.tasks.documents.list returns package-relative projected documents inc
   }
 });
 
+test("none policy leaves the existing tree untouched on attach while reads use canonical objects", async () => {
+  const repoId = "task-doc-policy-reopen";
+  const rootDir = mkdtempSync(path.join(tmpdir(), `ha-${repoId}-`));
+  initRepo(rootDir);
+  const canonical = canonicalRoot(rootDir),
+    cellInput = {
+      repoId: workspaceId(repoId),
+      rootDir: canonical,
+      ownerId: `daemon-${repoId}`,
+    };
+  let cell = await openRepoCell(cellInput);
+  const binding: RepoCellBinding = withPolicyGroup({ actor, source: "local" }, "admin");
+  try {
+    const created = await cell.run(
+        { kind: "task-create", taskId: "task-policy-reopen", title: "Policy changes between nodes" },
+        binding,
+      ),
+      packagePath = String((created as Record<string, unknown>).packagePath);
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFixturePublication(cell, created.opId, binding);
+    assert.equal(existsSync(path.join(canonical, "harness", packagePath)), true);
+
+    await cell.close();
+    cell = await openRepoCell({
+      ...cellInput,
+      storage: { nodeTaskMaterializationPolicy: "none" },
+    });
+    const settled = await cell.run(
+      {
+        kind: "receipt-show",
+        opId: created.opId,
+        waitFor: ["projection_visible", "worktree_visible"],
+        timeoutMs: 5_000,
+      },
+      binding,
+    );
+    assert.equal(settled.wait?.state, "satisfied", JSON.stringify(settled));
+    // CH2 none is a disk no-op, including an attach to a tree an operator already populated.
+    assert.equal(existsSync(path.join(canonical, "harness", packagePath)), true);
+    const shown = await cell.run({ kind: "doc-show", path: `${packagePath}/task_plan.md` }, binding);
+    assert.equal(shown.outcome, "applied", JSON.stringify(shown));
+    assert.equal(shown.materializationState, "skipped_by_node_policy");
+    assert.match(String(shown.evidence), /Policy changes between nodes/u);
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("node policy none skips Task Markdown locally while task and document reads use the projection", async () => {
+  const repoId = "task-doc-policy-none";
+  const rootDir = mkdtempSync(path.join(tmpdir(), `ha-${repoId}-`));
+  initRepo(rootDir);
+  const canonical = canonicalRoot(rootDir),
+    cell = await openRepoCell({
+      repoId: workspaceId(repoId),
+      rootDir: canonical,
+      ownerId: `daemon-${repoId}`,
+      storage: { nodeTaskMaterializationPolicy: "none" },
+    });
+  const binding: RepoCellBinding = withPolicyGroup({ actor, source: "local" }, "admin");
+  try {
+    const created = (await cell.run(
+      { kind: "task-create", taskId: "task-policy-none", title: "Hidden Task documents" },
+      binding,
+    )) as { readonly outcome: string; readonly packagePath?: string };
+    assert.equal(created.outcome, "applied");
+    const packagePath = String(created.packagePath),
+      planPath = `${packagePath}/task_plan.md`;
+    assert.equal(existsSync(path.join(canonical, "harness", packagePath)), false);
+
+    const task = await cell.run({ kind: "task-show", taskId: "task-policy-none" }, binding),
+      taskEvidence = JSON.parse(String(task.evidence)) as { readonly materializationState: string };
+    assert.equal(taskEvidence.materializationState, "skipped_by_node_policy");
+
+    const document = await cell.run({ kind: "doc-show", path: planPath }, binding);
+    assert.equal(document.outcome, "applied", JSON.stringify(document));
+    assert.equal(document.materializationState, "skipped_by_node_policy");
+    assert.match(String(document.evidence), /Hidden Task documents/u);
+
+    const factId = "F-0000N0NE";
+    const fact = await cell.run(
+      {
+        kind: "fact-record",
+        factId,
+        statement: "Headless nodes retain canonical Fact content in the object store.",
+        evidenceSource: "test:node-policy-none",
+        confidence: "high",
+        memoryClass: "semantic",
+      },
+      binding,
+    );
+    assert.equal(fact.outcome, "applied", JSON.stringify(fact));
+    const settled = await cell.run(
+      { kind: "receipt-show", opId: fact.opId, waitFor: ["worktree_visible"], timeoutMs: 5000 },
+      binding,
+    );
+    assert.equal(settled.wait?.state, "satisfied", JSON.stringify(settled));
+    assert.equal(settled.git?.state, "pending");
+    const factPath = `facts/${factId}.md`;
+    assert.equal(existsSync(path.join(canonical, "harness", factPath)), false);
+    const shownFact = await cell.run({ kind: "fact-show", factId }, binding);
+    assert.equal(shownFact.outcome, "applied", JSON.stringify(shownFact));
+    assert.equal(JSON.parse(String(shownFact.evidence)).fact.materializationState, "skipped_by_node_policy");
+    const shownFactDocument = await cell.run({ kind: "doc-show", path: factPath }, binding);
+    assert.equal(shownFactDocument.outcome, "applied", JSON.stringify(shownFactDocument));
+    assert.equal(shownFactDocument.materializationState, "skipped_by_node_policy");
+    assert.match(String(shownFactDocument.evidence), /Headless nodes retain canonical Fact/u);
+
+    const mixed = await cell.run({ kind: "doc-materialize", taskId: "task-policy-none", paths: [planPath] }, binding);
+    assert.equal(mixed.outcome, "op_rejected", JSON.stringify(mixed));
+    assert.equal(mixed.code, "invalid_command");
+    const restored = await cell.run({ kind: "doc-materialize", taskId: "task-policy-none" }, binding);
+    assert.equal(restored.outcome, "applied", JSON.stringify(restored));
+    assert.equal(existsSync(path.join(canonical, "harness", planPath)), true);
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("work explainer is generated by document reads and cannot be written as an artifact", async () => {
   const repoId = "work-explainer-derived";
   const rootDir = mkdtempSync(path.join(tmpdir(), `ha-${repoId}-`));

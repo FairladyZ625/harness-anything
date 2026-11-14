@@ -482,7 +482,7 @@ for (const sample of [
         restored = store.materialize();
       assert.deepEqual(
         restored.settlements.map(({ path: settledPath, action }) => [settledPath, action]),
-        dryRunPaths.map((settledPath) => [settledPath, "restore"]),
+        dryRunPaths.map((settledPath) => [settledPath, "restore"]).sort(),
       );
       assert.deepEqual(store.read(), accepted);
       for (const document of preview.documents) {

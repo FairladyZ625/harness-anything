@@ -76,6 +76,46 @@ test("fact archive retires the managed document, leaves the projection row, and 
       assert.equal(related.outcome, "applied", JSON.stringify(related));
     }
 
+    const heldArchive = await cell.run({ kind: "fact-archive", factId, reason: "still referenced" }, binding);
+    assert.equal(heldArchive.outcome, "applied", JSON.stringify(heldArchive));
+    await waitForFixturePublication(cell, heldArchive.opId, binding);
+    assert.equal(
+      projection.readFact(factId).fact?.archived,
+      true,
+      "holds guard materialization, not lifecycle transitions",
+    );
+    assert.equal(
+      existsSync(path.join(canonical, "harness", factPath)),
+      true,
+      "active holds keep the document materialized",
+    );
+    const activeHolds = projection.readRelationQuery({ target: factRef, state: "active" }).rows;
+    assert.equal(activeHolds.length, 2);
+    for (const [index, relation] of activeHolds.entries()) {
+      const retired = await cell.run(
+        {
+          kind: "relation-unrelate",
+          relationId: relation.relationId,
+          expectedVersion: relation.workspaceRevision ?? 0,
+          reason: "release the Fact materialization hold",
+        },
+        binding,
+      );
+      assert.equal(retired.outcome, "applied", JSON.stringify(retired));
+      await waitForFixturePublication(cell, retired.opId, binding);
+      assert.equal(
+        existsSync(path.join(canonical, "harness", factPath)),
+        index < activeHolds.length - 1,
+        "only releasing the final hold dematerializes the already-terminal Fact",
+      );
+    }
+    const restoredForArchiveCases = await cell.run(
+      { kind: "fact-unarchive", factId, reason: "exercise archive validation" },
+      binding,
+    );
+    assert.equal(restoredForArchiveCases.outcome, "applied", JSON.stringify(restoredForArchiveCases));
+    await waitForFixturePublication(cell, restoredForArchiveCases.opId, binding);
+
     // Negative: unknown id and unarchive-before-archive are rejected per item.
     const missing = await cell.run({ kind: "fact-archive", factId: "F-ABCDEFGH", reason: "no such fact" }, binding);
     assert.equal(missing.outcome, "op_rejected", JSON.stringify(missing));
@@ -109,6 +149,18 @@ test("fact archive retires the managed document, leaves the projection row, and 
       existsSync(path.join(canonical, "harness", factPath)),
       false,
       "archive must retire the managed document",
+    );
+    const historyRead = projection.readDocumentHistory?.(factPath),
+      archivedDocument = historyRead?.document;
+    assert.ok(archivedDocument, "the archived body remains available through the object-store projection");
+    assert.match(archivedDocument.body, new RegExp(factId, "u"));
+    assert.equal(projection.readDocument(factPath).document, null, "active document reads stay worktree-scoped");
+    const documentShown = await cell.run({ kind: "doc-show", path: factPath }, binding);
+    assert.equal(documentShown.outcome, "applied", JSON.stringify(documentShown));
+    assert.equal(
+      documentShown.evidence,
+      archivedDocument.body,
+      "doc show reads the archived object without rematerializing it",
     );
 
     // The projection row stays canonical and carries the archived flag.
@@ -150,7 +202,7 @@ test("fact archive retires the managed document, leaves the projection row, and 
     assert.equal(projection.readDocument(factPath).document, null, "rebuild must keep the retired document absent");
     assert.equal(projection.readFact(factId).fact?.archived, true, "rebuild must keep the archived flag");
 
-    // Read-set and relation evidence stay intact: no orphaned-required gap, edge still active.
+    // The retired edges no longer pull the archived Fact into this task's required read-set.
     const readSet = (await cell.run({ kind: "task-read-set", taskId: "task_arch" }, binding)) as unknown as Record<
       string,
       unknown
@@ -162,18 +214,14 @@ test("fact archive retires the managed document, leaves the projection row, and 
       blockedReasons?: readonly { code: string }[];
     };
     const factEntry = readSetPayload.entries.find((entry) => entry.entityRef === factRef);
-    assert.ok(factEntry, "read-set must still list the archived Fact");
-    assert.notEqual(factEntry.freshness, "orphaned");
+    assert.equal(factEntry, undefined);
     assert.equal(
       (readSetPayload.blockedReasons ?? []).some((reason) => reason.code === "required_target_orphaned"),
       false,
       JSON.stringify(readSetPayload.blockedReasons),
     );
     const relationRead = projection.readRelationQuery({ target: factRef, state: "active" });
-    assert.ok(
-      relationRead.rows.length >= 2,
-      `evidence relations must stay active for an archived Fact: ${JSON.stringify(relationRead.rows)}`,
-    );
+    assert.equal(relationRead.rows.length, 0);
 
     // Graph hides the archived Fact by default; --include-archived restores it.
     const graphDefault = await cell.run({ kind: "graph", ref: "task_arch" }, binding);
@@ -212,6 +260,23 @@ test("fact archive retires the managed document, leaves the projection row, and 
       "unarchive must restore the managed document",
     );
     assert.equal(projection.readFact(factId).fact?.archived, false);
+    for (const relation of ["produces", "evidences"] as const) {
+      const retiredRelation = projection
+        .readRelationQuery({ target: factRef, state: "retired" })
+        .rows.find((row) => row.relationType === relation);
+      const related = await cell.run(
+        {
+          kind: "relation-relate",
+          sourceRef: "task/task_arch",
+          targetRef: factRef,
+          relationType: relation,
+          rationale: "Restored Fact evidence.",
+          expectedVersion: retiredRelation?.workspaceRevision ?? 0,
+        },
+        binding,
+      );
+      assert.equal(related.outcome, "applied", JSON.stringify(related));
+    }
     const graphAfter = await cell.run({ kind: "graph", ref: "task_arch" }, binding);
     assert.ok(find((evidence(graphAfter) as { root: GraphNode }).root, factRef));
 

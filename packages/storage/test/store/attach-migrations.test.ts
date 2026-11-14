@@ -101,9 +101,11 @@ test("attach migration registry covers each retired historical field and is idem
       "runtime.reviewDispatchKey",
       "vertical.completion.sources",
       "vertical.completion.closeoutCodeDoc",
+      "projection.terminal-materialization",
       "submission.delivery-facts",
       "review.finding.category",
       "task.packageDisposition",
+      "sqlite.entity-directory-working-set",
     ],
   );
   assert.deepEqual(
@@ -328,6 +330,26 @@ test("a retired codeDoc step still runs on a ledger that already applied its par
     "vertical.completion.closeoutCodeDoc",
   ]);
   assert.equal(events.length, 6);
+});
+
+test("terminal working-set projection upgrade is registered without rewriting canonical history", () => {
+  const conclusion = attachMigrationRegistry.find((entry) => entry.name === "projection.terminal-materialization");
+  assert.equal(conclusion?.kind, "read-conclusion");
+  assert.deepEqual(conclusion?.fields, [
+    "Projection.document",
+    "Projection.document_history",
+    "Projection.materialization_hold",
+  ]);
+  assert.equal(conclusion?.kind === "read-conclusion" && conclusion.attachRequired, false);
+  const directory = attachMigrationRegistry.find((entry) => entry.name === "sqlite.entity-directory-working-set");
+  assert.equal(directory?.kind === "read-conclusion" && directory.attachRequired, false);
+  assert.deepEqual(directory?.fields, [
+    "entity_declaration_head.directory_json",
+    "attach_migration_scan_meta.entity-directory-working-set/v1",
+  ]);
+  const { store, events } = fakeStore([]);
+  assert.deepEqual(applyAttachMigrations({ store }).applied, []);
+  assert.deepEqual(events, [], "derived-index upgrade appends no event");
 });
 
 test("legacy submission facts stay readable without an attach migration event", () => {

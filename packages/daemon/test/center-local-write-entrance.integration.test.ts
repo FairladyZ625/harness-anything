@@ -63,7 +63,11 @@ async function openModes(prefix: string) {
     });
   }
   signInPolicyTestUser(userRoot, "writer", ["center", "edge"], "admin");
-  const host = await openDaemonHost({ daemonId: "center-entrance", userRoot });
+  const host = await openDaemonHost({
+    daemonId: "center-entrance",
+    userRoot,
+    storage: { center: { nodeTaskMaterializationPolicy: "include_done" } },
+  });
   await host.attachmentsSettled();
   return { parent, host };
 }

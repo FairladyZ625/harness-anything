@@ -22,6 +22,7 @@ import {
 import { blockingAssessment, queryPageRow } from "./daemon-protocol-validate-task.ts";
 import {
   awaitsAskKindWords,
+  canonicalMaterializationStateWords,
   decisionCapabilityIdWords,
   decisionCapabilityReasonWords,
   decisionStateWords,
@@ -704,6 +705,7 @@ export function validateDaemonDecisionList(value: unknown): readonly string[] {
       "reviewDispatches",
       "currentReviewContentDigest",
       "acceptReviewReadiness",
+      "materializationState",
     ],
     history = (row: JsonObject) =>
       (row.amendments !== undefined &&
@@ -817,7 +819,9 @@ export function validateDaemonDecisionList(value: unknown): readonly string[] {
       !isJsonObject(row.appliesTo) ||
       !isJsonObject(row.proposer) ||
       (row.arbiter !== null && !isJsonObject(row.arbiter)) ||
-      (row.body !== null && !isJsonObject(row.body)),
+      (row.body !== null && !isJsonObject(row.body)) ||
+      (row.materializationState !== undefined &&
+        !(canonicalMaterializationStateWords as readonly unknown[]).includes(row.materializationState)),
   );
   if (invalidIndex >= 0)
     return [

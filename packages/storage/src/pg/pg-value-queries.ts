@@ -38,6 +38,7 @@ export type PgValueQueries = AsyncQueries<
   | "readLatestLeaseInterval"
   | "readDocumentMetadata"
   | "readDocument"
+  | "readDocumentHistory"
   | "readDocuments"
   | "readArtifactTimelinePage"
   | "readReplicaBasis"
@@ -56,7 +57,13 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
   const documents = async (
     client: PoolClient,
     prefix: string,
-    page?: { readonly limit: number; readonly afterPath?: string },
+    page?: {
+      readonly limit: number;
+      readonly afterPath?: string;
+      readonly afterRevision?: number;
+      readonly includeHistory?: boolean;
+      readonly excludeTaskPackages?: boolean;
+    },
   ) => {
     const upper = prefixUpperBound(prefix),
       values: unknown[] = [
@@ -69,23 +76,36 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
       ],
       after = page?.afterPath,
       afterPredicate = after === undefined ? "" : `AND entity_id COLLATE "C" > $${values.push(after)}`,
+      revisionPredicate =
+        page?.afterRevision === undefined ? "" : `AND workspace_revision > $${values.push(page.afterRevision)}`,
       limitClause = page === undefined ? "" : `LIMIT $${values.push(checkedPageLimit(page.limit, 500) + 1)}`,
-      result = await client.query<{ value: string | null }>(
-        `SELECT document_metadata AS value FROM ha_projection_values
-         WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model='document'
-           AND owner_id='' AND entity_id COLLATE "C" >= $5
-           ${upper === null ? "" : 'AND entity_id COLLATE "C" < $6'}
-           AND (cardinality($4::text[])=0 OR readers && $4::text[])
-         ${afterPredicate} ORDER BY entity_id COLLATE "C" ${limitClause}`,
+      range = `entity_id COLLATE "C" >= $5 ${upper === null ? "" : 'AND entity_id COLLATE "C" < $6'}`,
+      model = page?.includeHistory ? "model IN ('document','document-history')" : "model='document'",
+      readersPredicate = "(cardinality($4::text[])=0 OR readers && $4::text[])",
+      taskExcluded = page?.excludeTaskPackages
+        ? `SELECT entity_id, document_metadata, workspace_revision, model FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${model} AND owner_id='' AND ${range} AND ${readersPredicate} AND entity_id COLLATE "C" < 'tasks/'
+           UNION ALL
+           SELECT entity_id, document_metadata, workspace_revision, model FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${model} AND owner_id='' AND ${range} AND ${readersPredicate} AND entity_id COLLATE "C" >= 'tasks0'`
+        : `SELECT entity_id, document_metadata, workspace_revision, model FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${model} AND owner_id='' AND ${range} AND ${readersPredicate}`,
+      result = await client.query<{ value: string | null; model: string }>(
+        `SELECT document_metadata AS value,model FROM (${taskExcluded}) AS materialized_documents
+         WHERE true ${afterPredicate} ${revisionPredicate} ORDER BY entity_id COLLATE "C" ${limitClause}`,
         values,
       );
-    return result.rows.map(({ value }) => {
+    return result.rows.map(({ value, model }) => {
       if (value === null)
         throw Object.assign(new Error("Document metadata backfill is pending; retry after migration."), {
           code: "projection_pending",
         });
       const { path, blobSha256, size, mediaType, policyId } = JSON.parse(value) as Omit<DocumentState, "body">;
-      return { path, blobSha256, size, mediaType, policyId: policyId ?? null };
+      return {
+        path,
+        blobSha256,
+        size,
+        mediaType,
+        policyId: policyId ?? null,
+        ...(page?.afterRevision === undefined ? {} : { retired: model === "document-history" }),
+      };
     });
   };
   const ready = async (client: PoolClient) => {
@@ -199,7 +219,7 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
       read(async (client) => {
         const cut = await readCutInTransaction(client, scope, readers, repoId),
           row = await client.query<{ entity_id: string; workspace_revision: string }>(
-            `SELECT entity_id, workspace_revision FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model='document' AND entity_id=$4 AND owner_id=''
+            `SELECT entity_id, workspace_revision FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model IN ('document','document-history') AND entity_id=$4 AND owner_id=''
            AND (cardinality($5::text[])=0 OR readers && $5::text[])`,
             [scope.tenantId, scope.projectId, scope.policyEpoch, path, readers],
           );
@@ -214,6 +234,11 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
       read(async (client) => ({
         ...(await readCutInTransaction(client, scope, readers, repoId)),
         document: await getPgProjectionValue<DocumentState>(client, scope, "document", path),
+      })),
+    readDocumentHistory: (path) =>
+      read(async (client) => ({
+        ...(await readCutInTransaction(client, scope, readers, repoId)),
+        document: await getPgProjectionValue<DocumentState>(client, scope, "document-history", path),
       })),
     readDocuments: (prefix, page) =>
       read(async (client) => {

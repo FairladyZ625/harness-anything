@@ -54,6 +54,7 @@ import {
   verifyAcceptedContent,
 } from "./submission-artifacts.ts";
 import { renderWorkExplainer } from "./work-read.ts";
+import { projectedTaskMaterializationState } from "./repo-cell-completion.ts";
 
 export function readAction(input: Input): WriteReceipt {
   if (input.action.kind !== "doc-show") return scanReceipt(input, scannerRead(input));
@@ -193,10 +194,40 @@ export function readAction(input: Input): WriteReceipt {
       "execution_scope_mismatch",
       readDetail(input, paths, current, lease, scope),
     );
-  const reads = paths.map((candidate) => input.projection.readDocument(candidate)),
+  const activeReads = paths.map((candidate) => input.projection.readDocument(candidate)),
+    reads = paths.map((candidate, index) => {
+      const active = activeReads[index]!;
+      if (active.document !== null) return active;
+      return input.projection.readDocumentHistory?.(candidate) ?? active;
+    }),
     revision = current.revision,
     ready = reads.every((read) => read.status === "ready");
   const receiptDetail = readDetail(input, paths, current, lease, []),
+    materializationState =
+      input.action.kind === "doc-show" && reads[0]?.document !== null
+        ? activeReads[0]?.document === null
+          ? ("dematerialized_terminal" as const)
+          : input.nodeTaskMaterializationPolicy === "none" && reads[0]!.document!.mediaType === "text/markdown"
+            ? ("skipped_by_node_policy" as const)
+            : activeReads[0]?.document !== null
+              ? (() => {
+                  const document = activeReads[0]!.document!,
+                    taskId = input.projection.taskIdForDocumentPath(document.path),
+                    taskRead = taskId === null ? null : input.projection.read(taskId),
+                    task = taskRead?.snapshot.task
+                      ? { ...taskRead.snapshot.task, packagePath: taskRead.packagePath }
+                      : null;
+                  return task === null
+                    ? ("materialized" as const)
+                    : projectedTaskMaterializationState(
+                        input.projection,
+                        task,
+                        input.nodeTaskMaterializationPolicy ?? "include_done",
+                        document.path,
+                      );
+                })()
+              : ("dematerialized_terminal" as const)
+        : undefined,
     worktreeVisible = observe(
       input.rootDir,
       input.binding.source,
@@ -281,6 +312,7 @@ export function readAction(input: Input): WriteReceipt {
       evidenceSourceRevision: sourceRevision,
       evidenceWorkspaceRevision: document.workspaceRevision,
       evidenceContentEncoding: encoding,
+      ...(materializationState === undefined ? {} : { materializationState }),
     } as unknown as WriteReceipt;
   }
   const evidence =
@@ -297,6 +329,7 @@ export function readAction(input: Input): WriteReceipt {
           visibility: "center",
           proof: proof(revision, revision, true, worktreeVisible),
           detail: receiptDetail,
+          ...(materializationState === undefined ? {} : { materializationState }),
         }
       : {
           outcome: "pending",
@@ -306,6 +339,7 @@ export function readAction(input: Input): WriteReceipt {
           visibility: "center",
           proof: proof(revision, Math.min(...reads.map((read) => read.watermark)), false, worktreeVisible),
           detail: receiptDetail,
+          ...(materializationState === undefined ? {} : { materializationState }),
         }
   ) as WriteReceipt;
   if (rangeOffset === null || rangeLength === null) return baseReceipt;

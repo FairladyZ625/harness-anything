@@ -27,7 +27,7 @@ for (const { embedded, readOnly } of [
         releases = 0,
         waiting = false;
       const client = Object.assign(new EventEmitter(), {
-        async query(sql: string) {
+        async query(sql: string, values?: readonly unknown[]) {
           assert.equal(checkedOut, true, "an unfinished operation used a returned pool client");
           if (sql === "SHOW synchronous_commit") return { rows: [{ synchronous_commit: "on" }], rowCount: 1 };
           if (sql === "SHOW transaction_read_only")
@@ -41,7 +41,11 @@ for (const { embedded, readOnly } of [
           if (sql === "SHOW synchronous_commit") return { rows: [{ synchronous_commit: "on" }], rowCount: 1 };
           if (sql.includes("SELECT backfill_cursor,backfill_complete FROM ha_relation_cycle_count"))
             return { rows: [{ backfill_cursor: null, backfill_complete: true }], rowCount: 1 };
-          if (/^\s*SELECT value FROM ha_projection_values/u.test(sql) && !waiting) {
+          if (
+            /^\s*SELECT value FROM ha_projection_values/u.test(sql) &&
+            values?.[3] === "runtime-session" &&
+            !waiting
+          ) {
             waiting = true;
             observed();
             await blocked;
@@ -95,7 +99,7 @@ for (const { embedded, readOnly } of [
         assert.equal(closed, false, "close returned while its query still owned the connection");
         assert.equal(
           releases,
-          readOnly ? 1 : 2,
+          readOnly ? 1 : 3,
           "only initialization and standalone maintenance have released clients",
         );
         unblock();
@@ -103,7 +107,7 @@ for (const { embedded, readOnly } of [
         assert.equal(reply.error, undefined);
         assert.equal(reply.result, null);
         await closing;
-        assert.equal(releases, readOnly ? 2 : 3);
+        assert.equal(releases, readOnly ? 2 : 4);
         assert.equal(checkedOut, false);
       } finally {
         unblock();

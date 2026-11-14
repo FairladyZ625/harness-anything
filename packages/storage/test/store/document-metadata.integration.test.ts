@@ -125,6 +125,25 @@ test("SQLite document prefix pages use the path index and terminate after the fi
           projection.readDocuments("target/%_/", { limit: 2, afterPath: "target/%_/深😀" }).documents,
           [],
         );
+        const changed = {
+          path: "target/changed",
+          blobSha256: "digest",
+          size: 1,
+          mediaType: "text/plain",
+          policyId: "fixture",
+        };
+        db.prepare("INSERT INTO document(path,workspace_revision,value_json) VALUES(?,2,?)").run(
+          changed.path,
+          JSON.stringify(changed),
+        );
+        db.prepare("INSERT INTO document_history(path,workspace_revision,value_json) VALUES(?,3,?)").run(
+          "target/retired",
+          JSON.stringify({ ...changed, path: "target/retired" }),
+        );
+        assert.deepEqual(projection.readDocuments("", { limit: 2, afterRevision: 1, includeHistory: true }).documents, [
+          { ...changed, retired: false },
+          { ...changed, path: "target/retired", retired: true },
+        ]);
         assert.ok(plans.length >= 2);
         for (const rows of plans as { detail: string }[][])
           for (const row of rows)

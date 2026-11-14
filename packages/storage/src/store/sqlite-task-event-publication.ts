@@ -15,7 +15,7 @@ import {
   canonicalOwnedDirectories,
 } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 import { canonicalLedgerCut } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
-import { resolveLedgerGitLayout, ledgerGitPath } from "./ledger-git-layout.ts";
+import { resolveLedgerGitLayout, ledgerAuthoredPath, ledgerGitPath } from "./ledger-git-layout.ts";
 import { localGitObjectRefStore, localGitWorktreeSettlement } from "./local-version-control-system.ts";
 import { openSqliteEventStore } from "./sqlite-event-store.ts";
 import type { SqliteEventStore } from "./sqlite-event-store.ts";
@@ -134,6 +134,39 @@ export function followerFiles(
   ];
 }
 
+/** Build a follower cut from the indexed current document set without replaying event history. */
+export function followerFilesFromDocumentHeads(
+  ledger: ReturnType<typeof resolveLedgerGitLayout>,
+  heads: readonly {
+    readonly path: string;
+    readonly sha256: string | null;
+    readonly size: number | null;
+    readonly nodeKind: "file" | "symbolic-link" | null;
+  }[],
+  readContent: (sha256: string) => Uint8Array | null,
+  cut: LedgerCutIdentity,
+  generation: number,
+): (PublicationWrite | PublicationDelete)[] {
+  const files: (PublicationWrite | PublicationDelete)[] = [];
+  for (const head of heads) {
+    const target = ledgerGitPath(ledger, head.path);
+    if (head.sha256 === null) {
+      files.push({ delete: target });
+      continue;
+    }
+    const bytes = readContent(head.sha256);
+    if (!bytes || head.size === null || bytes.byteLength !== head.size || sha256Bytes(bytes) !== head.sha256)
+      throw new TaskEventStoreError("invalid_store", `content object ${head.sha256} is missing or corrupt`);
+    files.push({ target, body: bytes, mode: head.nodeKind === "symbolic-link" ? "120000" : "100644" });
+  }
+  files.push({
+    target: ledgerGitPath(ledger, followerManifestPath),
+    body: followerManifest(generation, cut),
+    mode: "100644",
+  });
+  return files;
+}
+
 function followerManifest(generation: number, cut: LedgerCutIdentity): string {
   return `${JSON.stringify({ schema: "sqlite-ledger-segment-manifest/v1", generation, cut })}\n`;
 }
@@ -167,15 +200,26 @@ export interface FollowerDirectorySettlement {
 export function followerDirectories(
   ledger: ReturnType<typeof resolveLedgerGitLayout>,
   events: readonly CanonicalEventV1[],
+  files: readonly (PublicationWrite | PublicationDelete)[] = [],
+  directoryClaims: readonly NonNullable<ReturnType<typeof canonicalOwnedDirectories>>[] = events.flatMap(
+    (event) => canonicalOwnedDirectories(event) ?? [],
+  ),
 ): FollowerDirectorySettlement {
   const declaredByOwner = new Map<string, readonly string[]>(),
     retiredByOwner = new Map<string, readonly string[]>();
-  for (const event of events) {
-    const owned = canonicalOwnedDirectories(event);
-    if (!owned) continue;
+  for (const owned of directoryClaims) {
     declaredByOwner.set(owned.ownerRef, owned.directories);
     retiredByOwner.set(owned.ownerRef, owned.retirements);
   }
+  const retiredFromDocumentSet = files.flatMap((file) => {
+    if (!("delete" in file)) return [];
+    const logical = ledgerAuthoredPath(ledger, file.delete),
+      parts = logical.split("/"),
+      taskRoot = parts[0] === "tasks" && parts.length > 2 ? parts.slice(0, 2) : null,
+      decisionRoot = parts[0] === "decisions" && parts.length > 2 ? parts.slice(0, 2) : null,
+      root = taskRoot ?? decisionRoot;
+    return root === null ? [] : root.map((_, index) => root.slice(0, index + 1).join("/"));
+  });
   const create = [...new Set([...declaredByOwner.values()].flat())]
       .map((logical) => ledgerGitPath(ledger, logical))
       .sort(),
@@ -183,7 +227,7 @@ export function followerDirectories(
   return {
     create,
     // Reverse path order is depth order: `a/b/c` sorts after `a/b`, which sorts after `a`.
-    retire: [...new Set([...retiredByOwner.values()].flat())]
+    retire: [...new Set([...retiredByOwner.values()].flat().concat(retiredFromDocumentSet))]
       .map((logical) => ledgerGitPath(ledger, logical))
       .filter((directory) => !held.has(directory))
       .sort()

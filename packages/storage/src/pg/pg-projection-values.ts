@@ -21,7 +21,7 @@ export async function putPgProjectionValue(
   value: unknown,
 ): Promise<void> {
   let documentMetadata: string | null = null;
-  if (model === "document") {
+  if (model === "document" || model === "document-history") {
     const { body: _body, ...metadata } =
       value as import("@harness-anything/kernel/internal/domain/doc-sync.contract.ts").DocumentState;
     documentMetadata = canonicalJson(metadata);

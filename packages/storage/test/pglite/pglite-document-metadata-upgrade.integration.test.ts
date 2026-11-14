@@ -36,12 +36,32 @@ pgliteIntegrationSuite("PGlite v5 document metadata upgrade", () => {
               policyId: "document/v1",
               workspaceRevision: 0,
             });
+          for (const path of ["context/architecture.md", "tasks/task-old/task_plan.md", "tasks0/kept.md"])
+            await v5PutDocument(client, scope, {
+              path,
+              body: "materialization range",
+              blobSha256: `sha256:${path}`,
+              size: 21,
+              mediaType: "text/markdown",
+              policyId: "document/v1",
+              workspaceRevision: 0,
+            });
         },
         scope,
       );
       await backend.close();
       backend = await createPGliteStorageBackend(input);
-      assert.equal((await backend.projection.readDocuments("")).documents.length, 130);
+      assert.equal((await backend.projection.readDocuments("")).documents.length, 133);
+      assert.deepEqual(
+        (await backend.projection.readDocuments("", { limit: 500, excludeTaskPackages: true })).documents.map(
+          ({ path }) => path,
+        ),
+        [
+          ...Array.from({ length: 130 }, (_, id) => `docs/${id}.md`),
+          "context/architecture.md",
+          "tasks0/kept.md",
+        ].sort(),
+      );
       assert.equal((await backend.projection.readDocument("docs/0.md")).document!.body, "previous\u0000 bytes\ud800");
       assert.equal(
         (await backend.db.query<{ schema_version: number }>("SELECT schema_version FROM ha_projection_meta")).rows[0]!

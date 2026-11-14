@@ -48,6 +48,15 @@ test("Fleet accepts the declared doc-show fields for center-owned frozen reads",
 });
 
 const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
+const materializedTaskProjection = {
+  taskIdForDocumentPath: (candidate: string) => /^tasks\/([^/]+)\//u.exec(candidate)?.[1] ?? null,
+  read: (taskId: string) => ({
+    packagePath: `tasks/${taskId}`,
+    snapshot: { task: { taskId, status: "active", packageDisposition: "active" } },
+  }),
+  readTaskRelationsByTargets: () => ({ rows: [] }),
+  readTaskStatuses: () => ({ rows: [] }),
+};
 
 test("reviewer doc-show preserves frozen submitted artifacts and permits other read paths", () => {
   const packagePath = "tasks/task-one",
@@ -80,7 +89,9 @@ test("reviewer doc-show preserves frozen submitted artifacts and permits other r
         },
       },
       projection: {
+        ...materializedTaskProjection,
         read: (taskId: string) => {
+          if (taskId === "task-other") return materializedTaskProjection.read(taskId);
           assert.equal(taskId, "task-one");
           return {
             packagePath,
@@ -198,6 +209,7 @@ test("implementer doc-show reads repository documents through the live projectio
         },
       },
       projection: {
+        ...materializedTaskProjection,
         taskIdForDocumentPath: (candidate: string) =>
           candidate.startsWith("tasks/task-one/") ? "task-one" : candidate.startsWith("tasks/") ? "task-other" : null,
         readDocument: (candidate: string) => {
@@ -261,6 +273,7 @@ test("pinned range reads reject a same-size document update between windows", ()
         },
       },
       projection: {
+        ...materializedTaskProjection,
         readDocument: () => ({
           status: "ready",
           document: {

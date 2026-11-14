@@ -282,7 +282,27 @@ export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = 
     fields: ["Vertical.completion.closeoutDefaults.codeDoc"],
     matches: readRetiredVerticalCloseoutCodeDoc,
   },
+  {
+    kind: "read-conclusion",
+    name: "projection.terminal-materialization",
+    fields: ["Projection.document", "Projection.document_history", "Projection.materialization_hold"],
+    attachRequired: false,
+    conclusion:
+      "Canonical events and content blobs remain byte-identical. Projection open classifies the " +
+      "working set and restores missing archived Fact preimages through indexed entity history, with a one-time streaming declaration lookup for legacy imports/doc edits absent from that index. " +
+      "Local maintenance markers commit with the recovered descriptors; cold rebuild derives the same history.",
+  },
   ...historicalReadConclusions,
+  {
+    kind: "read-conclusion",
+    name: "sqlite.entity-directory-working-set",
+    fields: ["entity_declaration_head.directory_json", "attach_migration_scan_meta.entity-directory-working-set/v1"],
+    attachRequired: false,
+    conclusion:
+      "SQLite writer open expands the existing declaration index with latest owned directory sets and " +
+      "retirement candidates. Its resumable 64-event catch-up preserves canonical bytes; follower cold " +
+      "materialization reads only the partial working-set index, including blocked directory retirements.",
+  },
 ]);
 
 const registeredRetiredFields = new Set(

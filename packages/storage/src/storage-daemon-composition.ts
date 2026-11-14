@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { resolvePostgresEventStoreScope } from "./pg/backend.ts";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
+import { normalizeNodeTaskMaterializationPolicy } from "@harness-anything/kernel/internal/domain/task-wip-policy.ts";
 import { sqliteLedgerPath } from "./store/sqlite-event-store.ts";
 import { generationThreeUpgradeStatus } from "./store/generation-three-selection.ts";
 import { removeFileDurably } from "./durable-file.ts";
@@ -77,6 +78,8 @@ export function readDaemonStorageConfig(userRoot?: string): Readonly<Record<stri
     if (!repoId || !raw || typeof raw !== "object" || Array.isArray(raw))
       throw new TypeError("daemon storage repository config is invalid");
     const config = raw as Record<string, unknown>;
+    if (config.nodeTaskMaterializationPolicy !== undefined)
+      normalizeNodeTaskMaterializationPolicy(config.nodeTaskMaterializationPolicy);
     if (config.backend === "sqlite") continue;
     if (config.backend === "pglite") {
       if (typeof config.dataDir !== "string" || !path.isAbsolute(config.dataDir))

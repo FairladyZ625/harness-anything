@@ -449,6 +449,26 @@
           "measurements": [
             "task-witness-run:frozen-gates"
           ]
+        },
+        "task-transition": {
+          "measurements": [
+            "task-transition:materialization-degree"
+          ]
+        },
+        "task-complete": {
+          "measurements": [
+            "task-complete:materialization-degree"
+          ]
+        },
+        "task-archive": {
+          "measurements": [
+            "task-archive:materialization-degree"
+          ]
+        },
+        "relation-unrelate": {
+          "measurements": [
+            "relation-unrelate:materialization-degree"
+          ]
         }
       },
       "notApplicable": [
@@ -592,12 +612,6 @@
         },
         {
           "actions": [
-            "relation-unrelate"
-          ],
-          "reason": "relation unrelate compiles one relation retirement event; it does not scan the owner relation collection."
-        },
-        {
-          "actions": [
             "runtime_session_cancelled"
           ],
           "reason": "runtime-session lifecycle event records one session state change with scalar payload; no collection is traversed."
@@ -736,12 +750,6 @@
         },
         {
           "actions": [
-            "task-archive"
-          ],
-          "reason": "task archive runtime updates one task record; no task collection is traversed."
-        },
-        {
-          "actions": [
             "task-artifact-add"
           ],
           "reason": "artifact-add runtime writes one named artifact; the task-submit artifact collection dimension covers multi-artifact publication."
@@ -751,12 +759,6 @@
             "task-attest"
           ],
           "reason": "task attestation runtime records one gate witness; it has no collection input."
-        },
-        {
-          "actions": [
-            "task-complete"
-          ],
-          "reason": "completion validation consumes the fixed closeout gate set for one execution; gate receipt cardinality is contract-bounded and not a user collection."
         },
         {
           "actions": [
@@ -829,12 +831,6 @@
             "task-supersede"
           ],
           "reason": "task supersede links one old task to one replacement; no task collection is traversed."
-        },
-        {
-          "actions": [
-            "task-transition"
-          ],
-          "reason": "task transition updates one task status; execution history is not enumerated by the status validator."
         },
         {
           "actions": [

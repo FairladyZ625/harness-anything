@@ -12,6 +12,7 @@ import {
   type SettingsV1,
   type TaskProjection,
 } from "@harness-anything/kernel";
+import type { NodeTaskMaterializationPolicy } from "@harness-anything/kernel/internal/domain/task-wip-policy.ts";
 import {
   annotateExecution as annotateExecutionImpl,
   declareExecutionExecutor as declareExecutionExecutorImpl,
@@ -140,6 +141,7 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly store: CanonicalEventStore;
   readonly input: {
     readonly repoId: string;
+    readonly nodeTaskMaterializationPolicy?: NodeTaskMaterializationPolicy;
     readonly runtimeDaemonRoute?: import("./runtime-spawn.ts").RuntimeDaemonRoute;
     readonly killpoint?: (point: EventPublicationKillpoint) => void;
     readonly shouldStop?: () => boolean;
@@ -243,6 +245,7 @@ export interface RepoCellOperationalContext extends RepoCellRuntimeContext {
 export function createRepoCellActionContext(bindings: {
   readonly input: {
     readonly repoId: string;
+    readonly nodeTaskMaterializationPolicy?: NodeTaskMaterializationPolicy;
     readonly runtimeDaemonRoute?: import("./runtime-spawn.ts").RuntimeDaemonRoute;
     readonly killpoint?: (point: EventPublicationKillpoint) => void;
     readonly shouldStop?: () => boolean;

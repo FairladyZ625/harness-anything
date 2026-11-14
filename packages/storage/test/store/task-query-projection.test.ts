@@ -790,6 +790,9 @@ test("fact search pages concatenate to the full result, honor windows, and keep 
   try {
     createRelationGraphProjectionTables(db);
     createFactProjectionTables(db);
+    db.exec(
+      "CREATE TABLE document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL)",
+    );
     const insertFact = db.prepare(
       "INSERT INTO fact(task_id, fact_id, ref, statement, evidence_source, observed_at, confidence, memory_class, op_id, workspace_revision, row_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
@@ -893,6 +896,9 @@ test("fact search liveness reads only supersedes edges, however many facts and e
   try {
     createRelationGraphProjectionTables(db);
     createFactProjectionTables(db);
+    db.exec(
+      "CREATE TABLE document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL)",
+    );
     const insertFact = db.prepare(
         "INSERT INTO fact(task_id, fact_id, ref, statement, evidence_source, observed_at, confidence, memory_class, op_id, workspace_revision, row_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       ),

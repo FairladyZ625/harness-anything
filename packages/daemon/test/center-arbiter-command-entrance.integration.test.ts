@@ -246,6 +246,7 @@ test("a center-local reviewer records an Execution Review while the submitting e
       rootDir: canonicalRoot(rootDir),
       ownerId: "center-arbiter-task-test",
       mode: "remote-center",
+      storage: { nodeTaskMaterializationPolicy: "include_done" },
     });
     const run = (action: Readonly<Record<string, unknown>>, binding: typeof proposer) =>
       cell!.run(action as never, binding) as Promise<Receipt>;

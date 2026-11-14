@@ -16,6 +16,7 @@ export function applyCanonicalTree(input: {
   readonly preview?: boolean;
   readonly readContent: (logical: string) => Uint8Array | null;
   readonly withFence?: WriteFence;
+  readonly requirePreviousPaths?: (paths: readonly string[]) => void;
 }) {
   const markerPath = input.markerPath,
     markerExists = existsSync(markerPath),
@@ -30,6 +31,7 @@ export function applyCanonicalTree(input: {
       previous.revision !== null &&
       marker.entries !== undefined &&
       (previous.generation === undefined || previous.generation === input.generation);
+  input.requirePreviousPaths?.(Object.keys(previous.entries));
   const root = input.authoredRoot,
     entries = { ...previous.entries },
     dirtyPaths: string[] = [],

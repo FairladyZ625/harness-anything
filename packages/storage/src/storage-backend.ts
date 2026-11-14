@@ -1,9 +1,16 @@
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
+import { TaskEventStoreError } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
+import { replayTaskStatuses } from "@harness-anything/kernel/internal/domain/task.ts";
+import { taskIncludedByNodeMaterializationPolicy } from "@harness-anything/kernel/internal/domain/task-wip-policy.ts";
+import type { TaskProjectionQueries } from "@harness-anything/kernel/internal/ports/task-projection.ts";
 import type { StorageScope } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
+import type { NodeTaskMaterializationPolicy } from "@harness-anything/kernel/internal/domain/task-wip-policy.ts";
 export type { StorageScope } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
 
 export interface SqliteStorageBackendConfig {
   readonly backend?: "sqlite";
   readonly scope?: StorageScope;
+  readonly nodeTaskMaterializationPolicy?: NodeTaskMaterializationPolicy;
 }
 
 export interface PostgresStorageBackendConfig {
@@ -16,6 +23,7 @@ export interface PostgresStorageBackendConfig {
   readonly gitFollower?: { readonly branch: string };
   /** Centers without agents may leave their authored tree unmaterialized. */
   readonly materialize?: boolean;
+  readonly nodeTaskMaterializationPolicy?: NodeTaskMaterializationPolicy;
 }
 
 export interface PGliteStorageBackendConfig {
@@ -25,6 +33,7 @@ export interface PGliteStorageBackendConfig {
   readonly scope?: StorageScope;
   readonly gitFollower?: { readonly branch: string };
   readonly materialize?: boolean;
+  readonly nodeTaskMaterializationPolicy?: NodeTaskMaterializationPolicy;
 }
 
 export type StorageBackendConfig =
@@ -66,4 +75,148 @@ export function resolveStorageBackend(options: StorageBackendOptions = {}): Reso
 
 export function unsupportedStorageBackendError(backend: StorageBackend): UnsupportedStorageBackendError {
   return new UnsupportedStorageBackendError(backend);
+}
+
+/** Enumerate only the node working set with indexed status and package-prefix reads. */
+export function readNodeMaterializationDocuments(
+  q: TaskProjectionQueries,
+  policy: NodeTaskMaterializationPolicy,
+  forced: readonly string[] = [],
+  afterRevision?: number,
+  previouslyMaterializedPaths: readonly string[] = [],
+) {
+  type Descriptor = ReturnType<typeof q.readDocuments>["documents"][number];
+  const documents = new Map<string, Descriptor>();
+  const page = (prefix: string, excludeTaskPackages = false) => {
+    let afterPath: string | undefined;
+    for (;;) {
+      const result = q.readDocuments(prefix, {
+        limit: storageReadPolicy.defaultValue.pageSizes.standard,
+        excludeTaskPackages,
+        ...(afterRevision === undefined ? {} : { afterRevision, includeHistory: true }),
+        ...(afterPath === undefined ? {} : { afterPath }),
+      });
+      if (result.status !== "ready" || result.watermark !== result.sourceRevision)
+        throw new TaskEventStoreError("publication_indeterminate", "Materialization projection is catching up");
+      for (const document of result.documents) documents.set(document.path, document);
+      if (result.page!.nextPath === null) break;
+      afterPath = result.page!.nextPath;
+    }
+  };
+  if (afterRevision !== undefined) {
+    if (policy === "none") return [];
+    page("");
+    const packages = new Map<string, string>();
+    for (const { path, retired } of documents.values())
+      if (path.startsWith("tasks/")) {
+        const prefix = path.split("/").slice(0, 2).join("/");
+        if (!packages.has(prefix)) {
+          const id = q.taskIdForDocumentPath(path);
+          if (!id && !retired)
+            throw new TaskEventStoreError(
+              "publication_indeterminate",
+              `Task materialization metadata is unavailable for ${prefix}; rebuild the projection`,
+            );
+          if (id) packages.set(prefix, id);
+        }
+      }
+    const ids = [...packages.values()],
+      tasks = ids.length ? q.readTaskIndex({ taskIds: ids }).rows : [],
+      full = new Set(
+        tasks.filter((task) => taskIncludedByNodeMaterializationPolicy(policy, task)).map((task) => task.taskId),
+      ),
+      dependencies = ids.length
+        ? q
+            .readTaskRelationsByTargets(
+              ids.map((id) => `task/${id}`),
+              "depends-on",
+            )
+            .rows.filter((row) => row.state === "active")
+        : [],
+      sources = [...new Set(dependencies.map((row) => row.sourceRef.slice(5)))],
+      active = new Set(
+        (sources.length ? q.readTaskIndex({ taskIds: sources, activePackagesOnly: true }).rows : [])
+          .filter((row) => taskIncludedByNodeMaterializationPolicy("in_flight", row))
+          .map((row) => `task/${row.taskId}`),
+      ),
+      held = new Set(dependencies.filter((row) => active.has(row.sourceRef)).map((row) => row.targetRef.slice(5)));
+    const knownIds = new Set(tasks.map((task) => task.taskId));
+    for (const [prefix, id] of packages)
+      if (!knownIds.has(id))
+        throw new TaskEventStoreError(
+          "publication_indeterminate",
+          `Task materialization metadata is unavailable for ${prefix}; rebuild the projection`,
+        );
+    return [...documents.values()].map((document) => {
+      const id = packages.get(document.path.split("/").slice(0, 2).join("/")),
+        included =
+          !document.path.startsWith("tasks/") ||
+          (id &&
+            (full.has(id) ||
+              (held.has(id) &&
+                ["INDEX.md", "task_plan.md", "task-contract.json"].includes(document.path.split("/").at(-1)!))));
+      return { ...document, retired: document.retired || !included };
+    });
+  }
+  requireTaskMaterializationMetadata(q, previouslyMaterializedPaths);
+  if (policy !== "none") {
+    page("", true);
+    const tasks = replayTaskStatuses
+        .filter((status) => taskIncludedByNodeMaterializationPolicy(policy, { status }))
+        .flatMap((status) => q.readTaskIndex({ status, activePackagesOnly: true }).rows),
+      full = new Set(tasks.map(({ taskId }) => taskId));
+    for (const task of tasks) if (task.packagePath) page(`${task.packagePath}/`);
+    const sources = tasks
+        .filter((task) => taskIncludedByNodeMaterializationPolicy("in_flight", task))
+        .map(({ taskId }) => `task/${taskId}`),
+      dependencies = sources.length ? q.readTaskRelationsBySources(sources, "depends-on").rows : [],
+      targets = [
+        ...new Set(
+          dependencies
+            .filter(({ state }) => state === "active")
+            .flatMap(({ targetRef }) => /^task\/([^/]+)$/u.exec(targetRef)?.[1] ?? []),
+        ),
+      ].filter((id) => !full.has(id));
+    for (const task of targets.length ? q.readTaskIndex({ taskIds: targets }).rows : [])
+      if (task.packagePath)
+        for (const name of ["INDEX.md", "task_plan.md", "task-contract.json"]) {
+          const document = q.readDocument(`${task.packagePath}/${name}`).document;
+          if (document) documents.set(document.path, document);
+        }
+  }
+  for (const path of forced) {
+    const document =
+      q.readDocument(path).document ?? (path.startsWith("tasks/") ? q.readDocumentHistory?.(path).document : null);
+    if (document) documents.set(path, document);
+  }
+  return [...documents.values()].sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/** Partial Task caches cannot authorize pruning files a follower already owns. */
+export function requireTaskMaterializationMetadata(q: TaskProjectionQueries, paths: readonly string[]): void {
+  // A damaged/partial cache cannot authorize deleting an already materialized Task package.
+  // Validate only prior working-set roots, not the repository's completed Task history.
+  const priorRoots = new Map<string, string>();
+  for (const path of paths)
+    if (path.startsWith("tasks/") && path.split("/").length > 2) {
+      const prefix = path.split("/").slice(0, 2).join("/");
+      if (priorRoots.has(prefix)) continue;
+      const owner = q.taskIdForDocumentPath(path);
+      if (!owner)
+        throw new TaskEventStoreError(
+          "publication_indeterminate",
+          `Task materialization metadata is unavailable for ${prefix}; rebuild the projection`,
+        );
+      priorRoots.set(prefix, owner);
+    }
+  const priorIds = [...new Set(priorRoots.values())],
+    known = new Map(
+      (priorIds.length ? q.readTaskIndex({ taskIds: priorIds }).rows : []).map((row) => [row.taskId, row.packagePath]),
+    );
+  for (const [prefix, id] of priorRoots)
+    if (!known.get(id))
+      throw new TaskEventStoreError(
+        "publication_indeterminate",
+        `Task materialization metadata is unavailable for ${prefix}; rebuild the projection`,
+      );
 }

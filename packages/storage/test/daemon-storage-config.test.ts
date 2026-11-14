@@ -49,6 +49,22 @@ test("absent deployment config preserves SQLite; explicit PG config preserves it
   }
 });
 
+test("node task materialization policy is validated from the Ontology vocabulary", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-storage-materialization-policy-"));
+  try {
+    const config = { ...valid, nodeTaskMaterializationPolicy: "none" };
+    writeFileSync(path.join(root, "daemon-storage.json"), JSON.stringify({ repo: config }));
+    assert.deepEqual(readDaemonStorageConfig(root), { repo: config });
+    writeFileSync(
+      path.join(root, "daemon-storage.json"),
+      JSON.stringify({ repo: { ...valid, nodeTaskMaterializationPolicy: "all" } }),
+    );
+    assert.throws(() => readDaemonStorageConfig(root), /must be one of none, in_flight, include_done/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("malformed external PG scope is rejected before any connection or local fallback", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-storage-config-invalid-"));
   try {

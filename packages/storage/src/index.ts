@@ -2,7 +2,11 @@ export * from "./store/index.ts";
 export * from "./postgres/index.ts";
 export * from "./pg/index.ts";
 export * from "./pglite/index.ts";
-export { resolveStorageBackend, unsupportedStorageBackendError } from "./storage-backend.ts";
+export {
+  resolveStorageBackend,
+  unsupportedStorageBackendError,
+  readNodeMaterializationDocuments,
+} from "./storage-backend.ts";
 export type {
   PGliteStorageBackendConfig,
   PostgresStorageBackendConfig,

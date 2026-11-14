@@ -1,4 +1,10 @@
 // harness-test-tier: fast
+import {
+  nodeMaterializationPolicyForMode,
+  nodeTaskMaterializationPolicy,
+  normalizeNodeTaskMaterializationPolicy,
+  taskIncludedByNodeMaterializationPolicy,
+} from "../../src/domain/task-wip-policy.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DEFAULT_TASK_WIP_LIMIT, admitTaskExecutionWip, parseTaskWipLimit } from "../../src/index.ts";
@@ -34,6 +40,24 @@ test("the default limit is 30 and the count admits work below it", () => {
     }),
     { ok: true },
   );
+});
+
+test("node materialization policy keeps in-flight work and gates active done packages", () => {
+  assert.equal(nodeTaskMaterializationPolicy.defaultValue, "include_done");
+  assert.equal(normalizeNodeTaskMaterializationPolicy("none"), "none");
+  assert.equal(taskIncludedByNodeMaterializationPolicy("none", { status: "active" }), false);
+  assert.equal(taskIncludedByNodeMaterializationPolicy("in_flight", { status: "submitted" }), true);
+  assert.equal(taskIncludedByNodeMaterializationPolicy("in_flight", { status: "done" }), false);
+  assert.equal(
+    taskIncludedByNodeMaterializationPolicy("in_flight", { status: "active", packageDisposition: "archived" }),
+    false,
+  );
+  assert.equal(taskIncludedByNodeMaterializationPolicy("include_done", { status: "done" }), true);
+  assert.equal(
+    taskIncludedByNodeMaterializationPolicy("include_done", { status: "done", packageDisposition: "archived" }),
+    false,
+  );
+  assert.throws(() => normalizeNodeTaskMaterializationPolicy("all"), /must be one of none, in_flight, include_done/u);
 });
 
 test("an exactly full worktable rejects a new activation with the counting criteria in the message", () => {
@@ -341,4 +365,11 @@ test("suggestions rank inactive review leaves before blocked leaves and exclude 
   const suggestions = admission.message.split("Suggested:")[1].split("Next:")[0];
   assert.match(suggestions, /task_REVIEW.*task_BLOCKED/u);
   assert.doesNotMatch(suggestions, /task_ROOT|task_RUNNING/u);
+});
+
+test("node role defaults and explicit policies come from the Ontology policy", () => {
+  assert.equal(nodeMaterializationPolicyForMode("remote-center"), "none");
+  assert.equal(nodeMaterializationPolicyForMode("remote-edge"), "in_flight");
+  assert.equal(nodeMaterializationPolicyForMode("local"), "include_done");
+  assert.equal(nodeMaterializationPolicyForMode("remote-center", "include_done"), "include_done");
 });

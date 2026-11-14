@@ -313,6 +313,9 @@ test("G1 operation names are exactly the committed baseline's operations, the li
   assert.deepEqual(G1_OPERATION_NAMES, Object.keys(committed.writeCostScaling.baseline));
   assert.ok(G1_OPERATION_NAMES.includes("agenda"));
   assert.ok(Object.isFrozen(G1_OPERATION_NAMES));
+  const coverage = committed.writeCostScaling.actionCoverage,
+    actions = [...Object.keys(coverage.measured), ...coverage.notApplicable.flatMap((entry) => entry.actions)];
+  assert.equal(new Set(actions).size, actions.length, "production coverage must classify each action exactly once");
 });
 
 test("G38 requires every canonical write action to have a measured operation or a reason", async (t) => {
@@ -368,6 +371,10 @@ test("coverage cannot bind another action's probe or exempt an action without a 
   writeFileSync(budgetPath, JSON.stringify(budget));
   await assert.rejects(evaluateG1WriteCostScaling({ rootDir, measured }), /no matching production measurement/u);
   budget.writeCostScaling.actionCoverage.measured["op-a"].measurements = ["op-a:ledger-events"];
+  budget.writeCostScaling.actionCoverage.notApplicable[0].actions.push("op-a");
+  writeFileSync(budgetPath, JSON.stringify(budget));
+  await assert.rejects(evaluateG1WriteCostScaling({ rootDir, measured }), /duplicates action op-a/u);
+  budget.writeCostScaling.actionCoverage.notApplicable[0].actions.pop();
   budget.writeCostScaling.actionCoverage.notApplicable[0].reason = "   ";
   writeFileSync(budgetPath, JSON.stringify(budget));
   await assert.rejects(evaluateG1WriteCostScaling({ rootDir, measured }), /reason is required/u);
@@ -687,4 +694,34 @@ test("worktree document bases scale through the 34,000-file production case", as
     [],
   );
   for (const measurement of measurements) t.diagnostic(JSON.stringify(measurement));
+});
+
+// dec_D0460C1DBD540A8641B4E78F7F/CH1–CH3: protect degree bounds and history-independent working sets.
+test("terminal settlement scales with degree and cold materialization excludes done history", async (t) => {
+  const measured = {};
+  for (const id of [
+    "task-transition:materialization-degree",
+    "doc-materialize:cold-history",
+    "doc-materialize:none-history",
+    "doc-materialize:incremental-history",
+  ]) {
+    const probe = COLLECTION_PROBES[id];
+    measured[id] = {
+      small: await probe.run(process.cwd(), 100),
+      large: await probe.run(process.cwd(), 2000),
+      ...(probe.growth ? { growth: probe.growth } : {}),
+    };
+  }
+  t.diagnostic(JSON.stringify(measured));
+  assert.deepEqual(evaluateCollectionCosts(measured).errors, []);
+  const negative = structuredClone(measured);
+  negative["doc-materialize:cold-history"].large.counts.sqliteVmSteps += 1000000;
+  assert.equal(evaluateCollectionCosts(negative).ok, false, "a cold history scan must fail the constant-work gate");
+  const incrementalNegative = structuredClone(measured);
+  incrementalNegative["doc-materialize:incremental-history"].large.counts.sqliteVmSteps += 1000000;
+  assert.equal(
+    evaluateCollectionCosts(incrementalNegative).ok,
+    false,
+    "incremental full-set reads must fail the constant-work gate",
+  );
 });

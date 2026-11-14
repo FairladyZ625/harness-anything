@@ -120,7 +120,8 @@ export async function commitRuntimeSettlement(
     const transition = applyTransition(snapshot, command, {});
     for (const path of lifecycleDocumentFetchPaths(transition.event, read.packagePath!)) {
       if (documents.has(path)) continue;
-      const document = cell.projection.readDocument(path);
+      const active = cell.projection.readDocument(path),
+        document = active.document ? active : (cell.projection.readDocumentHistory?.(path) ?? active);
       if (!cell.projectionReady(document))
         throw cell.cellCodedError("content_not_ready", `Document ${path} is not ready.`);
       if (document.document) documents.set(path, document.document);

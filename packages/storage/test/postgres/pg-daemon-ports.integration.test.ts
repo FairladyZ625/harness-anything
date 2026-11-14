@@ -121,6 +121,103 @@ test("daemon PG storage factories expose canonical lifecycle ports without local
         payload: { ...base.payload, task: { ...base.payload.task, taskId } },
       };
     };
+    for (const gitOnly of [false, true])
+      await t.test(
+        `PG ${gitOnly ? "Git-only" : "tree"} keeps materialized Task documents when its snapshot cache is missing`,
+        async () => {
+          const id = `pg-metadata-guard-${gitOnly}`,
+            root = join(fixture.root, id),
+            taskId = `task-${id}`;
+          mkdirSync(root, { recursive: true });
+          initRepo(root);
+          mkdirSync(join(root, "harness/context"), { recursive: true });
+          writeFileSync(join(root, "harness/context/bootstrap.md"), "Unadmitted bootstrap prose\n");
+          execFileSync("git", ["-C", root, "add", "harness/context/bootstrap.md"]);
+          execFileSync("git", ["-C", root, "commit", "-qm", "bootstrap prose"]);
+          const branch = execFileSync("git", ["-C", root, "symbolic-ref", "--short", "HEAD"], {
+              encoding: "utf8",
+            }).trim(),
+            configuration = {
+              ...storage,
+              scope: { ...storage.scope, projectId: id },
+              materialize: !gitOnly,
+              ...(gitOnly ? { gitFollower: { branch } } : {}),
+            },
+            follower = makeTaskEventStore({ rootDir: root, repoId: id, storage: configuration }),
+            logical = `tasks/${taskId}-guard/INDEX.md`,
+            body = "# Retained Task document\n",
+            claim = {
+              path: logical,
+              sha256: sha256Bytes(Buffer.from(body)),
+              size: Buffer.byteLength(body),
+              mediaType: "text/markdown" as const,
+              policyId: "typed-machine-writer/v1" as const,
+            },
+            base = createdAt(taskId, 1),
+            event = {
+              ...base,
+              payload: { ...base.payload, task: { ...base.payload.task, title: "Guard" }, documentClaims: [claim] },
+            };
+          try {
+            follower.append({
+              event,
+              plan: taskLifecycleWritePlan(event),
+              blobs: [{ sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType, body }],
+            });
+            await follower.settlePendingMaterialization!("metadata guard initial");
+            assert.equal(follower.materializationHealth().state, "ok");
+            assert.equal(
+              readFileSync(join(root, "harness/context/bootstrap.md"), "utf8"),
+              "Unadmitted bootstrap prose\n",
+            );
+            if (gitOnly)
+              assert.equal(
+                execFileSync("git", ["-C", root, "show", `${branch}:harness/context/bootstrap.md`], {
+                  encoding: "utf8",
+                }),
+                "Unadmitted bootstrap prose\n",
+              );
+            const marker = join(resolveHarnessLayout(root).localRoot, "fleet-materialized.json"),
+              before = gitOnly ? follower.currentCommit()!.sha : readFileSync(marker, "utf8");
+            await withPostgresTransaction(
+              fixture.pool,
+              (client) =>
+                client.query(
+                  "DELETE FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND task_id=$4",
+                  [
+                    configuration.scope.tenantId,
+                    configuration.scope.projectId,
+                    configuration.scope.policyEpoch,
+                    taskId,
+                  ],
+                ),
+              configuration.scope,
+            );
+            await follower.settlePendingMaterialization!("metadata guard corrupt");
+            assert.equal(follower.materializationHealth().state, "failed");
+            if (gitOnly) {
+              assert.equal(follower.currentCommit()!.sha, before);
+              assert.equal(
+                execFileSync("git", ["-C", root, "show", `${branch}:harness/${logical}`], { encoding: "utf8" }),
+                body,
+              );
+            } else {
+              assert.equal(readFileSync(join(resolveHarnessLayout(root).authoredRoot, logical), "utf8"), body);
+              assert.equal(readFileSync(marker, "utf8"), before);
+            }
+            const rebuilt = makeTaskProjection({ rootDir: root, storage: configuration, eventStore: follower });
+            try {
+              rebuilt.rebuild();
+            } finally {
+              rebuilt.close();
+            }
+            await follower.settlePendingMaterialization!("metadata guard repaired");
+            assert.equal(follower.materializationHealth().state, "ok");
+          } finally {
+            await follower.drain();
+          }
+        },
+      );
     await t.test(
       "failed PG tree publication retries its durable cut without another append",
       { timeout: 5_000 },
@@ -359,7 +456,16 @@ test("daemon PG storage factories expose canonical lifecycle ports without local
       try {
         const event = createdAt("task-object-follower", store!.readHead()!.revision + 1);
         follower.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+        const logical = "context/object-only-follower.md",
+          body = "# Object-only follower\n";
+        follower.append(docBundle(follower, body, follower.readHead()!.revision + 1, "object-only-document", logical));
         await follower.settlePendingMaterialization!("object-only Git follower");
+        assert.equal(
+          execFileSync("git", ["-C", rootDir, "show", `${branch}:harness/${logical}`], { encoding: "utf8" }),
+          body,
+          "Git still follows canonical documents while the authored worktree is disabled",
+        );
+        assert.equal(existsSync(join(rootDir, "harness", logical)), false);
         assert.match(follower.currentCommit()!.sha, /^[0-9a-f]{40}$/u);
         assert.equal(follower.followerStatus().git.status, "verified");
         assert.equal(follower.followerStatus().worktree.status, "pending");

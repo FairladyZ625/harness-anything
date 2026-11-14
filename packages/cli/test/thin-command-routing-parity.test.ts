@@ -1336,15 +1336,15 @@ test("all public commands expose the canonical structured input facet", () => {
     [["--id", "single", false, "taskId"]],
     "task-show",
   );
-  // doc-materialize mirrors doc-sync-submit's confirmation gate surface: a repeated --path for an
-  // explicit selection and a boolean --all that excludes it.
+  // doc-materialize supports historical task restore, named paths, and the whole cut.
   assert.deepEqual(
     daemonProtocolCommands
       .find(({ id }) => id === "doc-materialize")
       ?.inputs.map(({ name, kind, required, conflictsWith }) => [name, kind, required, conflictsWith]),
     [
+      ["--task", "single", false, undefined],
       ["--path", "repeated", false, undefined],
-      ["--all", "boolean", false, ["--path"]],
+      ["--all", "boolean", false, ["--task", "--path"]],
     ],
     "doc-materialize",
   );

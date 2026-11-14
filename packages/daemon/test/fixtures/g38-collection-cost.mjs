@@ -1,3 +1,4 @@
+import { MATERIALIZATION_PROBES } from "./g38-materialization-cost.mjs";
 import assert from "node:assert/strict";
 import { createHash, Hash } from "node:crypto";
 import path from "node:path";
@@ -762,6 +763,7 @@ export async function measureCollectionCosts(rootDir, scales = COLLECTION_SCALES
 
 export const COLLECTION_PROBES = Object.freeze({
   ...DECISION_PROBES,
+  ...MATERIALIZATION_PROBES,
   // Writer-held work must not grow with the unchanged ledger: the gate holds it constant, not linear.
   "schedule-run-now:unchanged-ledger-files": {
     action: "schedule-run-now",

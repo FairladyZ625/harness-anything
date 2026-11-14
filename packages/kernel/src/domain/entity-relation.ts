@@ -63,6 +63,118 @@ export function derivesRelationClause(sourceRef: string): {
   return match ? { decisionId: match[1]!, clauseId: match[2]! } : null;
 }
 
+const terminalFactMaterializationStates = Object.freeze(["archived", "superseded_fact"] as const);
+export const terminalDecisionMaterializationStates = Object.freeze([
+  "outcome_retired",
+  "superseded",
+  "rejected",
+] as const);
+export type TerminalDecisionMaterializationState = (typeof terminalDecisionMaterializationStates)[number];
+const canonicalMaterializationStates = Object.freeze([
+  "materialized",
+  "dematerialized_terminal",
+  "skipped_by_node_policy",
+] as const);
+export type CanonicalMaterializationState = (typeof canonicalMaterializationStates)[number];
+
+/** Clause edges are anchors for admission, but the hold belongs to the decision aggregate. */
+export function materializationEntityRef(ref: string): string {
+  const match = /^decision\/([^/]+)(?:\/[^/]+)?$/u.exec(ref);
+  return match ? `decision/${match[1]}` : ref;
+}
+
+export interface MaterializationRelation {
+  readonly source: string;
+  readonly target: string;
+  readonly type: RelationType;
+  readonly state: string;
+}
+
+export interface MaterializationEntityState {
+  readonly ref: string;
+  readonly state: string;
+  readonly kind: "fact" | "decision" | "task";
+}
+
+/** Returns only active holds using the registered direction, endpoint kinds, and lifecycle states. */
+export function activeMaterializationHolds(
+  entity: MaterializationEntityState,
+  relations: readonly MaterializationRelation[],
+  states: ReadonlyMap<string, MaterializationEntityState>,
+): readonly MaterializationRelation[] {
+  const ref = materializationEntityRef(entity.ref);
+  return relations.filter((relation) => {
+    if (relation.state !== "active") return false;
+    const source = materializationEntityRef(relation.source),
+      target = materializationEntityRef(relation.target),
+      sourceKind = materializationEntityKind(source),
+      targetKind = materializationEntityKind(target),
+      sourceState = states.get(source)?.state,
+      targetState = states.get(target)?.state,
+      canonical = canonicalRelationDirections.some(
+        (direction) =>
+          direction.type === relation.type &&
+          direction.sourceKind === sourceKind &&
+          direction.targetKind === targetKind,
+      );
+    if (!canonical) return false;
+    if (entity.kind === "fact")
+      return (
+        target === ref &&
+        ((sourceKind === "decision" &&
+          ["evidenced-by", "refuted-by"].includes(relation.type) &&
+          activeDecision(sourceState)) ||
+          (sourceKind === "task" && ["evidences", "produces"].includes(relation.type) && activeTask(sourceState)))
+      );
+    if (entity.kind === "task")
+      return target === ref && relation.type === "depends-on" && sourceKind === "task" && activeTask(sourceState);
+    if (entity.kind !== "decision") return false;
+    return (
+      (source === ref &&
+        relation.type === "derives" &&
+        ((targetKind === "task" && activeTask(targetState)) ||
+          (targetKind === "decision" && activeDecision(targetState)))) ||
+      (target === ref &&
+        ((relation.type === "implements" && sourceKind === "task" && activeTask(sourceState)) ||
+          (["refines", "narrows", "supports"].includes(relation.type) &&
+            sourceKind === "decision" &&
+            source !== ref &&
+            activeDecision(sourceState))))
+    );
+  });
+}
+
+function materializationEntityKind(ref: string): MaterializationEntityState["kind"] | null {
+  const kind = ref.split("/", 1)[0];
+  return kind === "fact" || kind === "decision" || kind === "task" ? kind : null;
+}
+
+function activeDecision(state: string | undefined): boolean {
+  return state === "proposed" || state === "in_effect";
+}
+
+function activeTask(state: string | undefined): boolean {
+  return ["planned", "active", "blocked", "submitted", "in_review"].includes(state ?? "");
+}
+
+function isTerminalMaterializationState(entity: Pick<MaterializationEntityState, "kind" | "state">): boolean {
+  return entity.kind === "fact"
+    ? (terminalFactMaterializationStates as readonly string[]).includes(entity.state)
+    : entity.kind === "decision"
+      ? (terminalDecisionMaterializationStates as readonly string[]).includes(entity.state)
+      : entity.state === "cancelled" || entity.state === "archived";
+}
+
+export function materializationState(
+  entity: MaterializationEntityState,
+  relations: readonly MaterializationRelation[] = [],
+  states: ReadonlyMap<string, MaterializationEntityState> = new Map([[materializationEntityRef(entity.ref), entity]]),
+): "materialized" | "dematerialized_terminal" {
+  return isTerminalMaterializationState(entity) && activeMaterializationHolds(entity, relations, states).length === 0
+    ? canonicalMaterializationStates[1]
+    : canonicalMaterializationStates[0];
+}
+
 /**
  * Which endpoint's cut verdict each relation type's freshness follows
  * (dec_D6970DC1303EF90E8B4855FC80/CH1). `derives` anchors on the source: "this task is

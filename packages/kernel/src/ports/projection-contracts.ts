@@ -46,6 +46,7 @@ export interface FactProjectionRow {
   readonly state: FactDomain.FactLiveness;
   readonly invalidated: boolean;
   readonly archived: boolean;
+  readonly materializationState?: import("../domain/entity-relation.ts").CanonicalMaterializationState;
 }
 
 export interface FactRelationEdgeRow {

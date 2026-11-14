@@ -14,6 +14,7 @@ import { createFactProjectionTables } from "./fact-event-projection.ts";
 import { createRelationGraphProjectionTables } from "./relation-graph-projection.ts";
 import { createRelationFreshnessMaintenance } from "./relation-freshness-maintenance.ts";
 import { ensureRelationCycleAudit } from "./relation-cycle-audit-projection.ts";
+import { initializeTerminalMaterialization } from "./rebuildable-task-projection-write-model.ts";
 import { taskProjectionSchemaVersion } from "./projection-schema.ts";
 import { createTaskRelationProjectionTable } from "./task-query-projection.ts";
 import { ensureLeaseTaskActiveColumn, REPOSITORY_READ_TABLES_SQL, TASK_INDEX_TABLES_SQL } from "./projection-tables.ts";
@@ -523,6 +524,13 @@ function createTables(db: DatabaseSync, onValidationProgress?: ProjectionProgres
       workspace_revision INTEGER NOT NULL,
       value_json TEXT NOT NULL
     );
+    /* @gate-identity state-store/task.projection.document_history */ CREATE TABLE IF NOT EXISTS document_history (
+      path TEXT PRIMARY KEY,
+      workspace_revision INTEGER NOT NULL,
+      value_json TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS document_revision ON document(workspace_revision,path);
+    CREATE INDEX IF NOT EXISTS document_history_revision ON document_history(workspace_revision,path);
     -- Cover document lists with metadata only. JSON extraction runs once at projection write,
     -- never when listing a repository that contains a large inline historical body.
     CREATE INDEX IF NOT EXISTS document_metadata ON document (
@@ -596,6 +604,7 @@ ${ARTIFACT_TIMELINE_TABLES_SQL}
   createDecisionProjectionTables(db);
   createRelationFreshnessMaintenance(db);
   ensureRelationCycleAudit(db);
+  transaction(db, () => initializeTerminalMaterialization(db));
 }
 
 /** Existing projections predate the owner column; add it before the DDL creates its index. */

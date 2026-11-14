@@ -228,6 +228,8 @@ export interface TaskProjection {
   readonly readDecisionDocumentState?: (decisionId: string) => DecisionDocumentState | null;
   readonly readTaskOperation: (opId: string) => { readonly event: TaskEventV1; readonly watermark: number } | null;
   readonly readDocument: (path: string) => DocumentProjectionRead;
+  /** Historical object-store read used by `ha doc show`; active projection reads stay worktree-scoped. */
+  readonly readDocumentHistory?: (path: string) => DocumentProjectionRead;
   readonly readDocumentMetadata: (path: string) => Omit<DocumentProjectionRead, "document"> & {
     readonly document: { readonly path: string; readonly workspaceRevision: number } | null;
   };
@@ -321,11 +323,18 @@ export interface TaskProjection {
   ) => Pick<CanonicalEventV1, "workspaceRevision" | "occurredAt" | "actor" | "source"> | null;
   readonly readDocuments: (
     prefix: string,
-    page?: { readonly limit: number; readonly afterPath?: string },
+    page?: {
+      readonly limit: number;
+      readonly afterPath?: string;
+      readonly afterRevision?: number;
+      readonly includeHistory?: boolean;
+      readonly excludeTaskPackages?: boolean;
+    },
   ) => {
     readonly status: ReadSet.ReadSetProjectionCut["status"];
     readonly documents: readonly {
       readonly path: string;
+      readonly retired?: boolean;
       readonly blobSha256: string;
       readonly size: number;
       readonly mediaType: string;

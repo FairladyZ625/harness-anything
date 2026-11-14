@@ -5,8 +5,14 @@ import {
   assertDecisionAdmissionAtCut,
   type DecisionAdmissionState,
 } from "@harness-anything/kernel/internal/domain/decision-admission.ts";
+import {
+  activeMaterializationHolds,
+  materializationEntityRef,
+  type MaterializationEntityState,
+  type MaterializationRelation,
+} from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 import { readDecisionDocumentState } from "./decision-projection-reads.ts";
-import { prepareQuery } from "./rebuildable-task-projection-sql.ts";
+import { prepareQuery, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 
 export function assertDecisionAdmission(db: DatabaseSync, event: DecisionEventV1): void {
   const document = readDecisionDocumentState(db, event.decisionId);
@@ -23,6 +29,69 @@ export function assertDecisionAdmission(db: DatabaseSync, event: DecisionEventV1
     { document, relations, hasSupersedes: hasActiveSupersedesRelation(db, event.decisionId) },
     event,
   );
+}
+
+export function decisionMaterializationHeld(db: DatabaseSync, decisionId: string, state: string): boolean {
+  const ref = `decision/${decisionId}`,
+    pattern = `${ref}/*`,
+    source = queryRows<{
+      readonly source_ref: string;
+      readonly target_ref: string;
+      readonly relation_type: string;
+      readonly state: string;
+    }>(
+      db,
+      "SELECT source_ref, target_ref, relation_type, state FROM relation_edge INDEXED BY relation_edge_source " +
+        "WHERE state='active' AND (source_ref=? OR source_ref GLOB ?)",
+      ref,
+      pattern,
+    ),
+    target = queryRows<{
+      readonly source_ref: string;
+      readonly target_ref: string;
+      readonly relation_type: string;
+      readonly state: string;
+    }>(
+      db,
+      "SELECT source_ref, target_ref, relation_type, state FROM relation_edge INDEXED BY relation_edge_target " +
+        "WHERE state='active' AND (target_ref=? OR target_ref GLOB ?)",
+      ref,
+      pattern,
+    ),
+    byId = new Map(
+      [...source, ...target].map((edge) => [`${edge.source_ref}\0${edge.target_ref}\0${edge.relation_type}`, edge]),
+    );
+  const relations: MaterializationRelation[] = [...byId.values()].map((edge) => ({
+      source: edge.source_ref,
+      target: edge.target_ref,
+      type: edge.relation_type as MaterializationRelation["type"],
+      state: edge.state,
+    })),
+    endpointRefs = [
+      ...new Set(relations.flatMap(({ source: from, target: to }) => [from, to]).map(materializationEntityRef)),
+    ],
+    decisionIds = endpointRefs.flatMap((endpoint) => endpoint.match(/^decision\/([^/]+)$/u)?.[1] ?? []),
+    taskIds = endpointRefs.flatMap((endpoint) => endpoint.match(/^task\/(.+)$/u)?.[1] ?? []),
+    states = new Map<string, MaterializationEntityState>([[ref, { ref, state, kind: "decision" }]]);
+  if (decisionIds.length)
+    for (const row of queryRows<{ readonly decision_id: string; readonly state: string }>(
+      db,
+      "SELECT decision_id, state FROM decision WHERE decision_id IN (SELECT value FROM json_each(?))",
+      JSON.stringify(decisionIds),
+    )) {
+      const endpoint = `decision/${row.decision_id}`;
+      states.set(endpoint, { ref: endpoint, state: row.state, kind: "decision" });
+    }
+  if (taskIds.length)
+    for (const row of queryRows<{ readonly task_id: string; readonly status: string }>(
+      db,
+      "SELECT task_id, CASE WHEN json_extract(snapshot_json,'$.task.packageDisposition')='archived' THEN 'archived' ELSE status END AS status FROM task_snapshot WHERE task_id IN (SELECT value FROM json_each(?))",
+      JSON.stringify(taskIds),
+    )) {
+      const endpoint = `task/${row.task_id}`;
+      states.set(endpoint, { ref: endpoint, state: row.status, kind: "task" });
+    }
+  return activeMaterializationHolds({ ref, state, kind: "decision" }, relations, states).length > 0;
 }
 
 function hasActiveSupersedesRelation(db: DatabaseSync, decisionId: string): boolean {
@@ -46,4 +115,77 @@ export function decisionState(
 
 export function fail(code: FactProjectionError["code"], message: string): never {
   throw new FactProjectionError(code, message);
+}
+
+/** Refresh each affected edge once. The owner index makes subsequent hold tests independent of neighbor degree. */
+export function refreshMaterializationHolds(db: DatabaseSync, refs: readonly string[]): readonly string[] {
+  const edges = new Map<
+      string,
+      {
+        relation_id: string;
+        source_ref: string;
+        target_ref: string;
+        relation_type: MaterializationRelation["type"];
+        state: string;
+      }
+    >(),
+    candidates = new Set(refs.map(materializationEntityRef)),
+    states = new Map<string, MaterializationEntityState>();
+  for (const ref of candidates)
+    for (const edge of queryRows<{
+      relation_id: string;
+      source_ref: string;
+      target_ref: string;
+      relation_type: MaterializationRelation["type"];
+      state: string;
+    }>(
+      db,
+      "SELECT relation_id,source_ref,target_ref,relation_type,state FROM relation_edge WHERE source_ref=? OR target_ref=? OR " +
+        "(source_ref>=? AND source_ref<?) OR (target_ref>=? AND target_ref<?)",
+      ref,
+      ref,
+      `${ref}/`,
+      `${ref}0`,
+      `${ref}/`,
+      `${ref}0`,
+    ))
+      edges.set(edge.relation_id, edge);
+  const stateFor = (ref: string): MaterializationEntityState | null => {
+    const cached = states.get(ref);
+    if (cached) return cached;
+    const [kind, id] = ref.split("/");
+    if (kind !== "fact" && kind !== "decision" && kind !== "task") return null;
+    const row =
+      kind === "decision"
+        ? queryRows<{ state: string }>(db, "SELECT state FROM decision WHERE decision_id=?", id!)[0]
+        : kind === "task"
+          ? queryRows<{ state: string }>(
+              db,
+              "SELECT CASE WHEN json_extract(snapshot_json,'$.task.packageDisposition')='archived' THEN 'archived' ELSE status END AS state FROM task_snapshot WHERE task_id=?",
+              id!,
+            )[0]
+          : { state: "standing" };
+    if (!row) return null;
+    const entity: MaterializationEntityState = { ref, kind, state: row.state };
+    states.set(ref, entity);
+    return entity;
+  };
+  for (const edge of edges.values()) {
+    const source = materializationEntityRef(edge.source_ref),
+      target = materializationEntityRef(edge.target_ref),
+      entities = [stateFor(source), stateFor(target)].filter((value) => value !== null),
+      relation = { source: edge.source_ref, target: edge.target_ref, type: edge.relation_type, state: edge.state };
+    runSql(db, "DELETE FROM materialization_hold WHERE relation_id=?", edge.relation_id);
+    for (const entity of entities) {
+      candidates.add(entity.ref);
+      if (activeMaterializationHolds(entity, [relation], states).length)
+        runSql(
+          db,
+          "INSERT OR IGNORE INTO materialization_hold(owner_ref,relation_id) VALUES (?,?)",
+          entity.ref,
+          edge.relation_id,
+        );
+    }
+  }
+  return [...candidates];
 }

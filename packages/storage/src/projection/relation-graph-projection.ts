@@ -16,6 +16,10 @@ export function createRelationGraphProjectionTables(db: DatabaseSync): void {
       state TEXT NOT NULL, target_observed_version, owner_ref TEXT NOT NULL,
       workspace_revision INTEGER NOT NULL, updated_at TEXT NOT NULL, row_json TEXT NOT NULL,
       freshness TEXT, current_target_version);
+    /* @gate-identity state-store/task.projection.materialization_hold */ CREATE TABLE IF NOT EXISTS materialization_hold (
+      owner_ref TEXT NOT NULL, relation_id TEXT NOT NULL, PRIMARY KEY(owner_ref, relation_id)
+    );
+    CREATE INDEX IF NOT EXISTS materialization_hold_relation ON materialization_hold(relation_id);
     CREATE INDEX IF NOT EXISTS relation_edge_source ON relation_edge(source_ref, state);
     CREATE INDEX IF NOT EXISTS relation_edge_target ON relation_edge(target_ref, state);
     CREATE INDEX IF NOT EXISTS relation_edge_type_target ON relation_edge(relation_type, target_ref, state);

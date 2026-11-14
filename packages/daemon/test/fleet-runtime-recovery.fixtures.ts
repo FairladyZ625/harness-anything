@@ -118,6 +118,8 @@ export async function fleetFixture(
     host = await openDaemonHost({
       daemonId: "fleet-center",
       userRoot,
+      // This fixture authors task plans through Git before running the fleet protocol.
+      storage: { "fleet-repo": { nodeTaskMaterializationPolicy: "include_done" } },
       runtimeInstanceCapacities,
       ...(centerRuntimes.length ? { runtimeDiscover: () => [...centerRuntimes] } : {}),
     });

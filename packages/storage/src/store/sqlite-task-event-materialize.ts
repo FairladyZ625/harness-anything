@@ -1,3 +1,5 @@
+import { taskIncludedByNodeMaterializationPolicy } from "@harness-anything/kernel/internal/domain/task-wip-policy.ts";
+import { canonicalDocumentRetirements } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 import { TASK_PROGRESS_POLICY_ID } from "@harness-anything/kernel/internal/domain/task-progress-event.ts";
 import type { WriteFence } from "../durable-file.ts";
 import {
@@ -13,6 +15,7 @@ import { localGitObjectRefStore, localGitWorktreeSettlement } from "./local-vers
 import { openSqliteEventStore } from "./sqlite-event-store.ts";
 import {
   followerFiles,
+  followerFilesFromDocumentHeads,
   publicationDigest,
   readPendingEvents,
   settleVisibleChange,
@@ -37,6 +40,21 @@ export interface MaterializeStoreContext {
   readonly authoredRef: () => string;
   readonly sqlite: ReturnType<typeof openSqliteEventStore>;
   readonly readContent: (sha256: string) => Uint8Array | null;
+  readonly readMaterializationDocuments?: (
+    includePolicySkippedPaths?: readonly string[],
+    afterRevision?: number,
+    expectedRevision?: number,
+    previouslyMaterializedPaths?: readonly string[],
+  ) =>
+    | readonly {
+        readonly path: string;
+        readonly retired?: boolean;
+        readonly blobSha256: string;
+        readonly size: number;
+        readonly mediaType: string;
+        readonly policyId: string | null;
+      }[]
+    | null;
   readonly acceptedWorktree: Map<string, { readonly fingerprint: string; readonly preserve: boolean }>;
   readonly worktreeConflicts: Map<string, string>;
   readonly layout: () => HarnessLayout;
@@ -78,9 +96,11 @@ export function planFollowerSettlement(
   }
   const eligible = files.filter((file) => {
     const target = "target" in file ? file.target : file.delete,
-      current = worktreeFingerprint(localGitWorktreeSettlement.readNode(`${currentLedger.rootDir}/${target}`));
+      settled = settledFingerprint(file);
+    if (!restoreMissing && baseline.get(target) === settled) return false;
+    const current = worktreeFingerprint(localGitWorktreeSettlement.readNode(`${currentLedger.rootDir}/${target}`));
     if (current === "missing" && (restoreMissing || !permitted.has(target))) permitted.set(target, "missing");
-    if (current === settledFingerprint(file)) return false;
+    if (current === settled) return false;
     if (current === permitted.get(target)) {
       if (current === "missing") missing.add(target);
       return true;
@@ -128,12 +148,139 @@ export function closureFiles(
   context: MaterializeStoreContext,
   accepted: LedgerCutIdentity,
   from: number,
+  includePolicySkippedPaths: readonly string[] = [],
+  skipUnchanged = false,
 ): { readonly events: readonly CanonicalEventV1[]; readonly files: readonly (PublicationWrite | PublicationDelete)[] } {
-  const events = readPendingEvents(context.sqlite, from);
+  const pending = from === 0 ? [] : readPendingEvents(context.sqlite, from);
+  // Creation owns a new planned package, included by both disk-enabled node policies.
+  // The append boundary already validates its claims; no prior terminal owner can be released.
+  if (
+    from > 0 &&
+    pending.length &&
+    pending.every(
+      (event) =>
+        (isTaskBootstrapEvent(event) || (isTaskEvent(event) && event.type === "task_created")) &&
+        taskIncludedByNodeMaterializationPolicy("in_flight", event.payload.task),
+    )
+  )
+    return {
+      events: pending,
+      files: followerFiles(
+        context.ledger(),
+        pending,
+        context.readContent,
+        accepted,
+        context.sqlite.metadata().generation,
+      ),
+    };
+  const currentLedger = context.ledger(),
+    existingPaths =
+      (context.readMaterializationDocuments && from === 0) || skipUnchanged
+        ? localGitObjectRefStore
+            .listTree(
+              currentLedger.rootDir,
+              localGitObjectRefStore.resolveCommit(currentLedger.rootDir, context.authoredRef()),
+              [ledgerGitPath(currentLedger, "").replace(/\/$/u, "") || "."],
+            )
+            .map(({ target }) => ledgerAuthoredPath(currentLedger, target))
+        : [],
+    unchangedPaths = new Set(skipUnchanged ? existingPaths : []),
+    previouslyMaterializedManagedPaths =
+      context.readMaterializationDocuments && from === 0
+        ? existingPaths.filter((path) => projectionManagedPath(path) && context.sqlite.documentHead(path) !== undefined)
+        : [];
+  const projectionDocuments = context.readMaterializationDocuments?.(
+    includePolicySkippedPaths,
+    from > 0 ? from : undefined,
+    accepted.revision,
+    previouslyMaterializedManagedPaths,
+  );
+  if (context.readMaterializationDocuments && projectionDocuments === null)
+    throw new TaskEventStoreError(
+      "publication_indeterminate",
+      "materialization projection has not reached the accepted cut",
+    );
+  if (projectionDocuments !== undefined && projectionDocuments !== null) {
+    const events = pending,
+      indexed = new Map(
+        projectionDocuments.map((document) => [
+          document.path,
+          {
+            sha256: document.retired ? null : document.blobSha256,
+            size: document.retired ? null : document.size,
+            nodeKind: "file" as const,
+          },
+        ]),
+      ),
+      staleManagedHeads = previouslyMaterializedManagedPaths
+        .filter((path) => !indexed.has(path))
+        .map((path) => ({ path, sha256: null, size: null, nodeKind: null })),
+      heads = [
+        ...[...indexed].map(([path, value]) => ({
+          path,
+          ...value,
+          nodeKind: (() => {
+            const head = context.sqlite.documentHead(path);
+            return head && head !== "retired" ? head.nodeKind : ("file" as const);
+          })(),
+        })),
+        ...staleManagedHeads,
+        ...events
+          .flatMap((event) => canonicalDocumentRetirements(event))
+          .filter(({ path }) => !indexed.has(path))
+          .map(({ path }) => ({ path, sha256: null, size: null, nodeKind: null })),
+      ];
+    const files = followerFilesFromDocumentHeads(
+      context.ledger(),
+      heads.filter((head) => head.sha256 === null || !unchangedPaths.has(head.path)),
+      context.readContent,
+      accepted,
+      context.sqlite.metadata().generation,
+    );
+    return { events: from === 0 ? bootstrapBaselineEvents(context, files) : events, files };
+  }
+  if (from === 0) {
+    const files = followerFilesFromDocumentHeads(
+      context.ledger(),
+      context.sqlite.documentHeads().filter((head) => head.sha256 === null || !unchangedPaths.has(head.path)),
+      context.readContent,
+      accepted,
+      context.sqlite.metadata().generation,
+    );
+    return { events: bootstrapBaselineEvents(context, files), files };
+  }
+  const events = pending;
   return {
     events,
     files: followerFiles(context.ledger(), events, context.readContent, accepted, context.sqlite.metadata().generation),
   };
+}
+
+/** Birth preimages are one indexed point per current Task, not a replay of its history. */
+function bootstrapBaselineEvents(
+  context: MaterializeStoreContext,
+  files: readonly (PublicationWrite | PublicationDelete)[],
+): readonly CanonicalEventV1[] {
+  const tasks = new Set(
+    files.flatMap((file) =>
+      "target" in file && /\/task-contract\.json$/u.test(file.target)
+        ? [(JSON.parse(String(file.body)) as { taskId: string }).taskId]
+        : [],
+    ),
+  );
+  return [...tasks].flatMap((taskId) => {
+    const event = context.sqlite.firstEntityEvent(`task/${taskId}`);
+    return event && isTaskBootstrapEvent(event) ? [event] : [];
+  });
+}
+
+export function projectionManagedPath(path: string): boolean {
+  return (
+    path.startsWith("facts/") ||
+    path.startsWith("decisions/decision-") ||
+    path.startsWith("tasks/") ||
+    /\.(?:md|mdx|markdown)$/u.test(path)
+  );
 }
 
 /**
@@ -153,7 +300,7 @@ export function restoreRequestedDocuments(
   // The named selection still reads the whole closure — the same start the whole-cut pass settles from —
   // because any document in the cut may be named.
   const canonical = new Map(
-      closureFiles(context, accepted, 0).files.flatMap((file) =>
+      closureFiles(context, accepted, 0, logicals).files.flatMap((file) =>
         "target" in file ? [[ledgerAuthoredPath(currentLedger, file.target), file] as const] : [],
       ),
     ),

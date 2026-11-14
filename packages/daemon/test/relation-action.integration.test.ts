@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -380,7 +380,9 @@ test("supersedes-fact relation create and final retirement publish current Fact 
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-relation-fact-document-"));
   initRepo(rootDir);
   const repoId = workspaceId("relation-fact-document"),
-    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "relation-fact-document-test" });
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "relation-fact-document-test" }),
+    reader = makeTaskEventReader({ repoId, rootDir }),
+    projection = makeTaskProjection({ rootDir, eventStore: reader });
   try {
     const first = await cell.run(
         {
@@ -474,8 +476,10 @@ test("supersedes-fact relation create and final retirement publish current Fact 
     assert.equal(reverseSupersession.outcome, "op_rejected", JSON.stringify(reverseSupersession));
     assert.equal(reverseSupersession.code, "relation_cycle");
     const firstPath = path.join(rootDir, "harness", `facts/${firstId}.md`),
-      superseded = readFileSync(firstPath, "utf8");
+      superseded = projection.readDocumentHistory?.(`facts/${firstId}.md`).document?.body ?? "";
+    assert.equal(projection.readDocument(`facts/${firstId}.md`).document, null);
     assert.match(superseded, /State: superseded_fact/u);
+    assert.equal(existsSync(firstPath), false);
     assert.match(superseded, new RegExp(`Observed commit: ${"a".repeat(40)}`, "u"));
     assert.match(superseded, new RegExp(`Superseded by: fact/${secondId}`, "u"));
     assert.match(superseded, new RegExp(`Superseded by: fact/${thirdId}`, "u"));
@@ -491,7 +495,7 @@ test("supersedes-fact relation create and final retirement publish current Fact 
     );
     assert.equal(firstRetired.outcome, "applied", JSON.stringify(firstRetired));
     assert.equal((await waitForAcceptedReceipt(cell, firstRetired)).wait?.state, "satisfied");
-    const stillSuperseded = readFileSync(firstPath, "utf8");
+    const stillSuperseded = projection.readDocumentHistory?.(`facts/${firstId}.md`).document?.body ?? "";
     assert.match(stillSuperseded, /State: superseded_fact/u);
     assert.doesNotMatch(stillSuperseded, new RegExp(`Superseded by: fact/${secondId}`, "u"));
     assert.match(stillSuperseded, new RegExp(`Superseded by: fact/${thirdId}`, "u"));
@@ -508,9 +512,11 @@ test("supersedes-fact relation create and final retirement publish current Fact 
     assert.equal((await waitForAcceptedReceipt(cell, finalRetired)).wait?.state, "satisfied");
     const restored = readFileSync(firstPath, "utf8");
     assert.match(restored, /State: standing/u);
+    assert.match(projection.readDocument(`facts/${firstId}.md`).document?.body ?? "", /State: standing/u);
     assert.doesNotMatch(restored, /Superseded by:/u);
   } finally {
     await cell.close();
+    projection.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
 });

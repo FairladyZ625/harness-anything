@@ -551,7 +551,8 @@ export function prepareTaskSurfaceWriteAt(
     next = reduceTaskEvent(snapshot, event),
     paths = lifecycleDocumentFetchPaths(event, current.packagePath),
     documents = paths.flatMap((target) => {
-      const read = cell.projection.readDocument(target);
+      const active = cell.projection.readDocument(target),
+        read = active.document ? active : (cell.projection.readDocumentHistory?.(target) ?? active);
       if (!cell.projectionReady(read))
         throw cell.cellCodedError(
           "content_not_ready",

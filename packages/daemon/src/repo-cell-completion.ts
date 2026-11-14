@@ -24,6 +24,16 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import type { RepoCellBinding, Snapshot } from "./repo-cell-types.ts";
+import {
+  taskIncludedByNodeMaterializationPolicy,
+  type NodeTaskMaterializationPolicy,
+} from "@harness-anything/kernel/internal/domain/task-wip-policy.ts";
+import {
+  activeMaterializationHolds,
+  materializationState as canonicalMaterializationState,
+  type MaterializationEntityState,
+  type MaterializationRelation,
+} from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 import { projectedTaskSettings, resolveTaskRootThreshold } from "./task-wip-settings.ts";
 import { readEffectiveCloseoutGates, readEffectiveReviewReturnBudget } from "./repo-cell-settings-state.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
@@ -153,6 +163,7 @@ export function taskShowFromProjection(
   taskId: string,
   directChildCount = projection.readTaskChildCounts([taskId])[taskId] ?? 0,
   actor?: ActorIdentity,
+  nodeTaskMaterializationPolicy: NodeTaskMaterializationPolicy = "include_done",
 ): WriteReceipt {
   const layout = resolveHarnessLayout(rootDir),
     read = projection.read(taskId),
@@ -168,7 +179,8 @@ export function taskShowFromProjection(
       taskId,
       projection.readTaskIndex().rows.map(({ taskId: candidate }) => candidate),
     );
-    if (prefixed.matched) return taskShowFromProjection(rootDir, projection, prefixed.id, undefined, actor);
+    if (prefixed.matched)
+      return taskShowFromProjection(rootDir, projection, prefixed.id, undefined, actor, nodeTaskMaterializationPolicy);
     if (prefixed.candidates.length > 1)
       return failed(
         `read:${taskId}`,
@@ -216,6 +228,14 @@ export function taskShowFromProjection(
         )
       : null,
     completion = readTaskCompletion(projection, taskId, rootDir, actor),
+    materializationState =
+      task === null
+        ? "materialized"
+        : projectedTaskMaterializationState(
+            projection,
+            { ...task, packagePath: read.packagePath },
+            nodeTaskMaterializationPolicy,
+          ),
     workspace = taskWorkspaceView(
       rootDir,
       task,
@@ -252,6 +272,7 @@ export function taskShowFromProjection(
           }
         : null,
       packagePath: read.packagePath,
+      materializationState,
       ...(read.packagePath === null
         ? {}
         : { workspacePackagePath: documentWorkspacePath(rootDir, read.packagePath, layout) }),
@@ -308,4 +329,51 @@ export function taskShowFromProjection(
 function projectedWorktreeSetup(projection: Pick<TaskProjectionQueries, "getEntity">): readonly string[] {
   const projected = projection.getEntity("settings", SETTINGS_ID)?.value;
   return projected === undefined ? [] : repositorySettings(projected as unknown as RepositorySettingsV1).worktree.setup;
+}
+
+export function projectedTaskMaterializationState(
+  projection: TaskProjectionQueries,
+  task: {
+    readonly taskId: string;
+    readonly status: string;
+    readonly packageDisposition?: string | null;
+    readonly packagePath?: string | null;
+  },
+  policy: NodeTaskMaterializationPolicy,
+  documentPath?: string,
+): "materialized" | "dematerialized_terminal" | "skipped_by_node_policy" {
+  const taskRef = `task/${task.taskId}`,
+    entity: MaterializationEntityState = {
+      ref: taskRef,
+      kind: "task",
+      state: task.packageDisposition === "archived" ? "archived" : task.status,
+    },
+    rows = projection.readTaskRelationsByTargets([taskRef], "depends-on").rows,
+    relations: MaterializationRelation[] = rows.map((row) => ({
+      source: row.sourceRef,
+      target: row.targetRef,
+      type: row.relationType as MaterializationRelation["type"],
+      state: row.state,
+    })),
+    sourceTaskIds = [...new Set(rows.flatMap(({ sourceRef }) => /^task\/([^/]+)$/u.exec(sourceRef)?.[1] ?? []))],
+    states = new Map<string, MaterializationEntityState>([[taskRef, entity]]);
+  for (const source of projection.readTaskStatuses(sourceTaskIds).rows) {
+    if (source.status !== null)
+      states.set(`task/${source.taskId}`, { ref: `task/${source.taskId}`, kind: "task", state: source.status });
+  }
+  const holds = activeMaterializationHolds(entity, relations, states);
+  if (canonicalMaterializationState(entity, relations, states) === "dematerialized_terminal")
+    return "dematerialized_terminal";
+  if (taskIncludedByNodeMaterializationPolicy(policy, task)) return "materialized";
+  const relativePath =
+      documentPath === undefined || task.packagePath === null || task.packagePath === undefined
+        ? null
+        : documentPath.startsWith(`${task.packagePath}/`)
+          ? documentPath.slice(task.packagePath.length + 1)
+          : documentPath,
+    dependencyAnchor =
+      policy !== "none" &&
+      holds.length > 0 &&
+      (relativePath === null || ["INDEX.md", "task_plan.md", "task-contract.json"].includes(relativePath));
+  return dependencyAnchor ? "materialized" : "skipped_by_node_policy";
 }

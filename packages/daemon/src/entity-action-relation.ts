@@ -461,7 +461,7 @@ function decisionDocumentUpdate(
 ): RelationDocumentUpdate {
   const state = projection.readDecisionDocumentState?.(decisionId),
     path = `decisions/decision-${decisionId}/decision.md`,
-    document = projection.readDocument(path).document;
+    document = readCanonicalDocument(projection, path);
   if (!state || !document) reject("content_not_ready", `Decision document ${path} is unavailable.`);
   const relations = overlayRelation(
       relationRows(projection.readRelationQuery({ ownerRef: `decision/${decisionId}` }).rows),
@@ -498,7 +498,7 @@ function factDocumentUpdate(
 ): RelationDocumentUpdate {
   const fact = projection.readFact(factId).fact,
     path = `facts/${factId}.md`;
-  if (!fact || !projection.readDocument(path).document)
+  if (!fact || !readCanonicalDocument(projection, path))
     reject("content_not_ready", `Fact document ${path} is unavailable.`);
   const incoming = overlayRelation(
     relationRows(projection.readRelationQuery({ target: fact.ref, relationType: "supersedes-fact" }).rows),
@@ -511,6 +511,16 @@ function factDocumentUpdate(
       { ...factDocumentRecord(projection, fact, incoming), workspaceRevision: event.workspaceRevision },
     ]),
   };
+}
+
+/**
+ * Relation updates can touch a terminal entity after its last active materialization was
+ * settled into the projection's historical object index.  The object store remains the
+ * canonical source, so use that historical preimage to compile the next relation claim;
+ * settlement after the event decides whether the updated claim returns to active storage.
+ */
+function readCanonicalDocument(projection: TaskProjection, path: string) {
+  return projection.readDocument(path).document ?? projection.readDocumentHistory?.(path).document ?? null;
 }
 
 /** The Fact document record the current projection implies: observation fields plus derived liveness. */

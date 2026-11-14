@@ -11,15 +11,18 @@ import { factWritePlan } from "@harness-anything/kernel";
 import { reject } from "./entity-action-write-helpers.ts";
 
 export function supersededFactDocumentSource(
-  projection: Pick<TaskProjection, "readFact">,
+  projection: Pick<TaskProjection, "readFact" | "readDocument">,
   event: FactEventDraftV1,
 ): SupersededFactDocumentSource | null {
   const factId = /^fact\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u.exec(event.payload.supersedes?.factRef ?? "")?.[1];
   if (!factId) return null;
   const fact = projection.readFact(factId).fact;
   if (fact === null) return null;
+  const document = projection.readDocument(`facts/${factId}.md`).document;
+  if (document === null) throw new Error(`superseded fact document facts/${factId}.md has no materialized preimage`);
   return {
     factId: fact.factId,
+    baseDocumentSha256: document.blobSha256,
     ...(fact.taskId ? { taskId: fact.taskId } : {}),
     statement: fact.statement,
     evidenceSource: fact.evidenceSource,

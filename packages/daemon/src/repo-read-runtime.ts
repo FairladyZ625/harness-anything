@@ -1,3 +1,4 @@
+import { nodeMaterializationPolicyForMode } from "@harness-anything/kernel/internal/domain/task-wip-policy.ts";
 import { readRuntimeCanAttach } from "./agent-runtime-read.ts";
 import { taskListQueryFromPayload } from "./repo-query-payload.ts";
 import { type TaskProjection, type TaskProjectionQueries, type WriteReceiptDraft } from "@harness-anything/kernel";
@@ -48,6 +49,16 @@ export function makeRepoReadRuntime(
     "repoId" | "rootDir" | "storage" | "mode" | "authoredBranch" | "now" | "runtimeInstances"
   > & { readonly edgeConfig?: () => FleetEdgeConfig | null },
 ) {
+  input = {
+    ...input,
+    storage: {
+      ...input.storage,
+      nodeTaskMaterializationPolicy: nodeMaterializationPolicyForMode(
+        input.mode,
+        input.storage?.nodeTaskMaterializationPolicy,
+      ),
+    },
+  };
   let ledgerReader: ReturnType<typeof makeTaskEventReader> | null = null;
   const reader = makeDaemonProjectionReader({
       repoId: input.repoId,
@@ -197,6 +208,7 @@ export function makeRepoReadRuntime(
       actionContext = createRepoCellActionContext({
         input: {
           repoId: input.repoId,
+          nodeTaskMaterializationPolicy: input.storage?.nodeTaskMaterializationPolicy,
           ...(input.runtimeInstances ? { runtimeInstances: input.runtimeInstances } : {}),
         },
         rootDir: input.rootDir,
@@ -230,6 +242,7 @@ export function makeRepoReadRuntime(
         now,
         sessionIdentity: unsupportedWrite,
         readSettings: () => settings.readRepository(),
+        nodeTaskMaterializationPolicy: input.storage?.nodeTaskMaterializationPolicy,
       }),
       operationalContext = Object.defineProperty(runtimeContext, "settings", {
         value: settings,

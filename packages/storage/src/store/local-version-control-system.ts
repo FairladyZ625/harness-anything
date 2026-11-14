@@ -350,6 +350,7 @@ function withStdinFile<T>(
   }
 }
 function treeTargetIsScoped(target: string, scopes: ReadonlySet<string>): boolean {
+  if (scopes.has(".")) return true;
   if (scopes.has(target)) return true;
   let separator = target.lastIndexOf("/");
   while (separator >= 0) {

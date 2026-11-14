@@ -65,6 +65,15 @@ export interface SqliteCanonicalEventStore extends CanonicalEventStore {
   readonly pruneReplicationLog: (beforeSequence: number) => void;
 }
 
+export interface MaterializationDocumentDescriptor {
+  readonly retired?: boolean;
+  readonly path: string;
+  readonly blobSha256: string;
+  readonly size: number;
+  readonly mediaType: string;
+  readonly policyId: string | null;
+}
+
 export interface SqliteTaskEventStoreOptions {
   readonly storage?: SqliteStorageBackendConfig;
   readonly repoId: string;
@@ -81,6 +90,13 @@ export interface SqliteTaskEventStoreOptions {
     point: import("@harness-anything/kernel/internal/ports/task-event-store.ts").EventPublicationKillpoint,
   ) => void;
   readonly onOpenProgress?: (progress: { readonly applied: number; readonly total: number }) => void;
+  /** Current active projection documents; null means the projection has not reached the accepted cut yet. */
+  readonly readMaterializationDocuments?: (
+    includePolicySkippedPaths?: readonly string[],
+    afterRevision?: number,
+    expectedRevision?: number,
+    previouslyMaterializedPaths?: readonly string[],
+  ) => readonly MaterializationDocumentDescriptor[] | null;
 }
 
 export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): SqliteCanonicalEventStore {
@@ -133,7 +149,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     assertAuthorizedReplacements(
       {
         eventExists: (opId) => sqlite.event(opId) !== null,
-        documentHead: sqlite.documentHead,
+        documentHead: (target) => sqlite.documentHead(target, true),
         readContentObject: sqlite.readContentObject,
         local: (target) => {
           const node = localGitWorktreeSettlement.readNode(`${authoredRoot}/${target}`);
@@ -269,8 +285,15 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
    * runs that same whole-closure read and reports the plan without writing anything.
    */
   const publishFollower = (restoreMissing = false, preview = false): MaterializationReceipt => {
-    const accepted = cut(),
-      currentLedger = ledger(),
+    const accepted = cut();
+    if (options.storage?.nodeTaskMaterializationPolicy === "none" && !restoreMissing) {
+      follower = {
+        git: { status: "pending", cut: accepted, commitSha: null, reason: "Skipped by node policy" },
+        worktree: { status: "verified", cut: accepted, commitSha: null, conflicts: [] },
+      };
+      return { status: "visible", commitSha: null, settlements: [], conflicts: [] };
+    }
+    const currentLedger = ledger(),
       currentRef = authoredRef(),
       parent = localGitObjectRefStore.resolveCommit(currentLedger.rootDir, currentRef);
     if (accepted.revision === 0) {
@@ -287,9 +310,10 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       worktreeRevision = settledWorktreeRevision ?? physicalWorktreeRevision(currentLedger, sqlite),
       // A generation converted before the index followed Git can still index pre-SQLite paths; an open repairs it.
       legacy = settledWorktreeRevision === null ? legacyRetirements(currentLedger, null) : [],
-      from = restoreMissing ? 0 : Math.min(verifiedRevision, worktreeRevision);
+      from = restoreMissing || settledWorktreeRevision === null ? 0 : Math.min(verifiedRevision, worktreeRevision);
     certified = { commit: parent, revision: verifiedRevision };
-    if (from === accepted.revision && legacy.length === 0) {
+    // The manifest binds the canonical cut, not this node's policy; re-evaluate the local working set once per open.
+    if (from === accepted.revision && legacy.length === 0 && settledWorktreeRevision !== null) {
       settledWorktreeRevision = accepted.revision;
       follower = {
         git: { status: "verified", cut: accepted, commitSha: parent },
@@ -305,7 +329,13 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
         conflicts: [],
       };
     }
-    const closure = closureFiles(materializeContext(), accepted, from),
+    const closure = closureFiles(
+        materializeContext(),
+        accepted,
+        from,
+        [],
+        !restoreMissing && worktreeRevision === accepted.revision && verifiedRevision === accepted.revision,
+      ),
       files = [...closure.files, ...legacy],
       baseline = new Map(captureGitBaseline(currentLedger.rootDir, parent, files));
     if (restoreMissing || worktreeRevision !== verifiedRevision) {
@@ -354,7 +384,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       files,
       baseline,
       commit,
-      followerDirectories(currentLedger, closure.events),
+      followerDirectories(currentLedger, closure.events, files, from === 0 ? sqlite.directoryClaims() : undefined),
       restoreMissing,
     );
     const skipped = new Set(settled.conflicts);
@@ -425,6 +455,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     authoredRef,
     sqlite,
     readContent,
+    readMaterializationDocuments: options.readMaterializationDocuments,
     acceptedWorktree,
     worktreeConflicts,
     layout: () => resolveHarnessLayout(input),

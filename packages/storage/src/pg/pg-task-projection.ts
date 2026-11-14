@@ -113,14 +113,21 @@ export function makePgTaskProjection(
     releaseLease: (lease) => reader.changeLease("release", lease, now()),
     admitFact: (event) =>
       reader.withSession((q) => {
-        const ref = "supersedes" in event.payload ? event.payload.supersedes?.factRef : undefined,
-          target = ref ? q.readFact(ref.replace(/^fact\//u, "")).fact : null;
+        const supersedesRef = "supersedes" in event.payload ? event.payload.supersedes?.factRef : undefined,
+          target = supersedesRef ? q.readFact(supersedesRef.replace(/^fact\//u, "")).fact : null,
+          livenessRelations = target
+            ? q.readRelationQuery({ target: target.ref }).rows.map((row) => ({
+                targetRef: row.targetRef,
+                relationType: row.relationType,
+                state: row.state,
+              }))
+            : [];
         assertFactAdmissionAtCut(
           {
             row: q.readFact(event.factId).fact,
             domainTypes: q.listFactDomainTypes().domainTypes,
             supersededTarget: target,
-            relations: target ? q.readFactGraph().edges : [],
+            relations: livenessRelations,
           },
           event,
         );

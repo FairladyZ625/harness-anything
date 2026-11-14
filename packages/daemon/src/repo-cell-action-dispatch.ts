@@ -100,6 +100,7 @@ export function executeRepoAction(
       rootDir: cell.rootDir,
       store: cell.store,
       projection: cell.projection,
+      nodeTaskMaterializationPolicy: cell.input.nodeTaskMaterializationPolicy,
       now: cell.now,
       killpoint: cell.input.killpoint,
     });
@@ -183,7 +184,14 @@ export function executeRepoAction(
     return cell.receiptForOperation(opId, binding);
   }
   if (action.kind === "task-show")
-    return taskShowFromProjection(cell.rootDir, cell.projection, String(action.taskId ?? ""), undefined, binding.actor);
+    return taskShowFromProjection(
+      cell.rootDir,
+      cell.projection,
+      String(action.taskId ?? ""),
+      undefined,
+      binding.actor,
+      cell.input.nodeTaskMaterializationPolicy,
+    );
   if (action.kind === "task-list") return cell.listTasks(action, binding);
   if (action.kind === "work-list" || action.kind === "work-show") return readWork(cell, action, binding);
   if (action.kind === "relation-list") return cell.listRelations(action, binding);
@@ -830,7 +838,8 @@ export function declareExecutionExecutor(
       snapshot: declaration.snapshot,
       packagePath: current.packagePath,
       currentDocuments: paths.flatMap((target) => {
-        const document = cell.projection.readDocument(target).document;
+        const document =
+          cell.projection.readDocument(target).document ?? cell.projection.readDocumentHistory?.(target).document;
         return document ? [document] : [];
       }),
       completionContext: readCompletionContext(
@@ -903,7 +912,8 @@ export function annotateExecution(
       snapshot: annotation.snapshot,
       packagePath: current.packagePath,
       currentDocuments: paths.flatMap((target) => {
-        const document = cell.projection.readDocument(target).document;
+        const document =
+          cell.projection.readDocument(target).document ?? cell.projection.readDocumentHistory?.(target).document;
         return document ? [document] : [];
       }),
       completionContext: readCompletionContext(

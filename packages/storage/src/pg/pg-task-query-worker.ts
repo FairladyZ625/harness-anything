@@ -11,6 +11,7 @@ import { createPgStorageBackend } from "./backend.ts";
 import type { PostgresTaskEventStoreRequest } from "../postgres/pg-task-event-store.ts";
 import type { CanonicalEventV1, LeaseV1 } from "@harness-anything/kernel";
 import { changePgLease } from "./pg-lease-cas.ts";
+import { initializePgTerminalMaterialization } from "./pg-query-model-materialize.ts";
 import { rebuildPgProjection } from "./pg-task-event-materialize.ts";
 import { backfillPgArtifactDocuments } from "./pg-artifact-timeline.ts";
 import { backfillPgDispatchLifecycle } from "./pg-dispatch-lifecycle.ts";
@@ -187,6 +188,18 @@ function startWorker(
         );
         if (page.done) break;
       }
+    if (!borrowedReadOnly)
+      await withPostgresTransaction(
+        pool,
+        async (client) => {
+          const metadata = await client.query<{ watermark: string }>(
+            "SELECT watermark FROM ha_projection_meta WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND projection_name='task/v1'",
+            [input.scope.tenantId, input.scope.projectId, input.scope.policyEpoch],
+          );
+          await initializePgTerminalMaterialization(client, input.scope, Number(metadata.rows[0]?.watermark ?? 0));
+        },
+        input.scope,
+      );
     source = createPgTaskProjectionSource({
       pool: sessionPool(),
       scope: input.scope,
