@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { createPgTaskProjectionSource } from "../../src/pg/pg-task-source.ts";
+import { createPgTaskQueryReader } from "../../src/pg/pg-task-query-reader.ts";
 import { ensurePgProjectionSchema } from "../../src/pg/pg-projection-schema.ts";
 import { backfillPgRelationReaderIndexPage, relationReaderIndexDdl } from "../../src/pg/pg-relation-queries.ts";
 import { createPGliteStorageBackend } from "../../src/pglite/storage-backend.ts";
@@ -66,6 +67,59 @@ function capture(operation) {
     return { error: error.message };
   }
 }
+test("postgres production open completes reader-key expansion independently for each scope", async () => {
+  const f = await fixture("postgres");
+  try {
+    await f.adminPool.query("DROP TRIGGER ha_relation_reader_index_mark ON ha_relations");
+    await f.adminPool.query("DROP TRIGGER ha_relation_reader_index_sync ON ha_relations");
+    for (const tenant of [scope.tenantId, "second-scope"])
+      for (let i = 0; i < 130; i++)
+        await edge(f.adminPool, `legacy-${String(i).padStart(3, "0")}`, "task/old", `task/${i}`, { tenant });
+    const client = await f.adminPool.connect();
+    try {
+      await ensurePgProjectionSchema(client, { indexBuild: "isolated" });
+    } finally {
+      client.release();
+    }
+    for (const tenantId of [scope.tenantId, "second-scope"]) {
+      const reader = createPgTaskQueryReader({
+        connectionString: f.connectionString,
+        requireRuntimeRole: true,
+        scope: { ...scope, tenantId },
+        repoId: "bounded",
+      });
+      try {
+        assert.equal(
+          (
+            await f.adminPool.query(
+              "SELECT count(*)::integer AS n FROM ha_relations WHERE tenant_id=$1 AND reader_index_version=0",
+              [tenantId],
+            )
+          ).rows[0].n,
+          0,
+          "production startup must commit the expansion before handing off this scope",
+        );
+        assert.deepEqual(ids(reader.withSession((queries) => queries.readRelationQuery({ limit: 1 })).rows), [
+          "legacy-000",
+        ]);
+        if (tenantId === scope.tenantId)
+          assert.equal(
+            (
+              await f.adminPool.query(
+                "SELECT count(*)::integer AS n FROM ha_relations WHERE tenant_id='second-scope' AND reader_index_version=0",
+              )
+            ).rows[0].n,
+            130,
+            "opening one scope must leave the other scope for its own startup",
+          );
+      } finally {
+        reader.close();
+      }
+    }
+  } finally {
+    await f.close();
+  }
+});
 async function captureAsync(operation) {
   try {
     return { ids: ids((await operation()).rows) };
@@ -181,47 +235,55 @@ for (const backend of ["postgres", "pglite"]) {
       }
     },
   );
-  test(
-    `${backend} expansion rejects unfilled pages and backfills the previous writer in committed batches`,
-    runtime,
-    async () => {
-      const f = await fixture(backend),
-        source = createPgTaskProjectionSource({ pool: f.pool, repoId: "bounded", scope });
+  test(`${backend} expansion keeps previous pages readable until committed backfill completes`, runtime, async () => {
+    const f = await fixture(backend),
+      source = createPgTaskProjectionSource({ pool: f.pool, repoId: "bounded", scope });
+    try {
+      await f.adminPool.query("DROP TRIGGER ha_relation_reader_index_mark ON ha_relations");
+      await f.adminPool.query("DROP TRIGGER ha_relation_reader_index_sync ON ha_relations");
+      for (let i = 0; i < 130; i++)
+        await edge(f.adminPool, `old-${String(i).padStart(3, "0")}`, "task/old", `task/${i}`);
+      const client = await f.adminPool.connect();
       try {
-        await f.adminPool.query("DROP TRIGGER ha_relation_reader_index_mark ON ha_relations");
-        await f.adminPool.query("DROP TRIGGER ha_relation_reader_index_sync ON ha_relations");
-        for (let i = 0; i < 130; i++)
-          await edge(f.adminPool, `old-${String(i).padStart(3, "0")}`, "task/old", `task/${i}`);
-        const client = await f.adminPool.connect();
-        try {
-          await ensurePgProjectionSchema(client, { indexBuild: "isolated" });
-        } finally {
-          client.release();
-        }
-        await assert.rejects(source.readRelationQuery({ limit: 1 }), { code: "projection_pending" });
-        assert.equal(await scoped(f.pool, (client) => backfillPgRelationReaderIndexPage(client, scope)), 64);
-        await assert.rejects(source.readRelationQuery({ limit: 1 }), { code: "projection_pending" });
-        assert.equal(await scoped(f.pool, (client) => backfillPgRelationReaderIndexPage(client, scope)), 64);
-        assert.equal(await scoped(f.pool, (client) => backfillPgRelationReaderIndexPage(client, scope)), 2);
-        assert.equal(await scoped(f.pool, (client) => backfillPgRelationReaderIndexPage(client, scope)), 0);
-        assert.deepEqual(ids((await source.readRelationQuery({ limit: 1 })).rows), ["old-000"]);
-        const rows = await scoped(f.pool, (client) =>
-          client.query("SELECT count(*)::integer AS n FROM ha_relation_reader_keys"),
-        );
-        assert.equal(rows.rows[0].n, 260);
-        const metadata = await scoped(f.pool, (client) =>
-          client.query("SELECT bool_and(readers=ARRAY[reader_key]) AS narrow FROM ha_relation_reader_keys"),
-        );
-        assert.equal(
-          metadata.rows[0].narrow,
-          true,
-          "one index row carries only its own key, avoiding quadratic ACL replication",
-        );
+        await ensurePgProjectionSchema(client, { indexBuild: "isolated" });
       } finally {
-        await f.close();
+        client.release();
       }
-    },
-  );
+      const first = await source.readRelationQuery({ limit: 1 });
+      assert.deepEqual(ids(first.rows), ["old-000"]);
+      assert.equal(
+        (
+          await scoped(f.pool, (client) =>
+            client.query("SELECT count(*)::integer AS n FROM ha_relations WHERE reader_index_version=0"),
+          )
+        ).rows[0].n,
+        130,
+        "reads must not lazily backfill",
+      );
+      assert.equal(await scoped(f.pool, (client) => backfillPgRelationReaderIndexPage(client, scope)), 64);
+      assert.deepEqual(ids((await source.readRelationQuery({ limit: 1, cursor: first.page.nextCursor })).rows), [
+        "old-001",
+      ]);
+      assert.equal(await scoped(f.pool, (client) => backfillPgRelationReaderIndexPage(client, scope)), 64);
+      assert.equal(await scoped(f.pool, (client) => backfillPgRelationReaderIndexPage(client, scope)), 2);
+      assert.equal(await scoped(f.pool, (client) => backfillPgRelationReaderIndexPage(client, scope)), 0);
+      assert.deepEqual(ids((await source.readRelationQuery({ limit: 1 })).rows), ["old-000"]);
+      const rows = await scoped(f.pool, (client) =>
+        client.query("SELECT count(*)::integer AS n FROM ha_relation_reader_keys"),
+      );
+      assert.equal(rows.rows[0].n, 260);
+      const metadata = await scoped(f.pool, (client) =>
+        client.query("SELECT bool_and(readers=ARRAY[reader_key]) AS narrow FROM ha_relation_reader_keys"),
+      );
+      assert.equal(
+        metadata.rows[0].narrow,
+        true,
+        "one index row carries only its own key, avoiding quadratic ACL replication",
+      );
+    } finally {
+      await f.close();
+    }
+  });
   test(
     `${backend} previous writes at every expansion cut cannot become ready before their keys exist`,
     runtime,
