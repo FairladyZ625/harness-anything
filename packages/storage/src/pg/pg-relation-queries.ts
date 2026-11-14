@@ -170,11 +170,12 @@ export async function readVersionedRelationsInTransaction(
     query.updatedBefore === undefined
   ) {
     const ids = await readReaderRelationPage(client, claims, readers, query);
-    return readVersionedRelationsInTransaction(client, claims, readers, {
-      ...query,
-      limit: undefined,
-      relationIds: ids,
-    });
+    if (ids !== null)
+      return readVersionedRelationsInTransaction(client, claims, readers, {
+        ...query,
+        limit: undefined,
+        relationIds: ids,
+      });
   }
   const values: unknown[] = [claims.tenantId, claims.projectId, claims.policyEpoch, readers],
     where = [
@@ -303,18 +304,16 @@ async function readReaderRelationPage(
   scope: PgProjectionScope,
   readers: readonly string[],
   query: PgRelationQuery,
-): Promise<readonly string[]> {
+): Promise<readonly string[] | null> {
   const values: unknown[] = [scope.tenantId, scope.projectId, scope.policyEpoch, [...new Set(readers)]],
     pending = await client.query(
       `SELECT 1 FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
       AND reader_index_version=0 LIMIT 1`,
       values.slice(0, 3),
     );
-  if (pending.rows.length) {
-    const error = new Error("Relation reader-index backfill is pending");
-    Object.defineProperty(error, "code", { value: "projection_pending" });
-    throw error;
-  }
+  // During the dated expansion, keep the previous reader available until the
+  // scoped pending index is empty. A read never repairs or partially trusts keys.
+  if (pending.rows.length) return null;
   const where = ["tenant_id=$1", "project_id=$2", "policy_epoch=$3", "reader_key=allowed.key"];
   for (const [value, column, op] of [
     [query.relationType, "relation_type", "="],

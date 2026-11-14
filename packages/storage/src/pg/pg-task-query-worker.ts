@@ -16,6 +16,7 @@ import { rebuildPgProjection } from "./pg-task-event-materialize.ts";
 import { backfillPgArtifactDocuments } from "./pg-artifact-timeline.ts";
 import { backfillPgDispatchLifecycle } from "./pg-dispatch-lifecycle.ts";
 import { maintainPgRelationCycleAuditPage } from "./pg-relation-cycle-audit.ts";
+import { backfillPgRelationReaderIndexPage } from "./pg-relation-queries.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
 import { pgEpochTransactions, type PgEpochRequest } from "../postgres/pg-epoch-transaction.ts";
 import { pgReplicationHead, pgReplicationPage } from "../postgres/pg-replication.ts";
@@ -170,7 +171,15 @@ function startWorker(
     }
     // An embedded facade may borrow another reader's snapshot. Only that actual read-only
     // transaction must skip writes; ordinary opens still prepare their scoped cache.
-    if (!borrowedReadOnly)
+    if (!borrowedReadOnly) {
+      for (;;) {
+        const processed = await withPostgresTransaction(
+          pool,
+          (client) => backfillPgRelationReaderIndexPage(client, input.scope),
+          input.scope,
+        );
+        if (processed === 0) break;
+      }
       for (;;) {
         const page = await withPostgresTransaction(
           pool,
@@ -179,6 +188,7 @@ function startWorker(
         );
         if (page.done) break;
       }
+    }
     source = createPgTaskProjectionSource({
       pool: sessionPool(),
       scope: input.scope,
