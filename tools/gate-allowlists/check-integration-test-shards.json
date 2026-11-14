@@ -1003,12 +1003,17 @@
       {
         "value": "packages/cli/test/daemon-multi-repo-lifecycle-cli.test.ts",
         "ref": "task_2f953ccf18522e7a9535dd8dc3",
-        "reason": "Over the unchanged 180s file budget (296.2s; complete ten-shard run43608963618, source32fc07ee, 2026-11-14). All650 files have unique hosted duration samples; original cases/assertions/scales remain. Align existing exception slots only to measured over-budget files; count3 to2, no threshold increase."
+        "reason": "Owner-authorized unchanged 180s boundary; 267700ms from official per-file median of three complete same-source hosted ten-shard cohorts. Existing exception slots only; no threshold increase."
       },
       {
-        "value": "packages/daemon/test/daemon-package.integration.test.mjs",
+        "value": "packages/daemon/test/g38-relation-bounded.integration.test.mjs",
         "ref": "task_2f953ccf18522e7a9535dd8dc3",
-        "reason": "Over the unchanged 180s file budget (229.2s; complete ten-shard run43608963618, source32fc07ee, 2026-11-14). All650 files have unique hosted duration samples; original cases/assertions/scales remain. Align existing exception slots only to measured over-budget files; count3 to2, no threshold increase."
+        "reason": "Owner-authorized unchanged 180s boundary; 227500ms from official per-file median of three complete same-source hosted ten-shard cohorts. Existing exception slots only; no threshold increase."
+      },
+      {
+        "value": "packages/daemon/test/task-completion-review.integration.test.ts",
+        "ref": "task_2f953ccf18522e7a9535dd8dc3",
+        "reason": "Owner-authorized unchanged 180s boundary; 181600ms from official per-file median of three complete same-source hosted ten-shard cohorts. Existing exception slots only; no threshold increase."
       }
     ]
   }
