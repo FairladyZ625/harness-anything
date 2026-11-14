@@ -69,6 +69,34 @@ const build = (destination) => `import { rmSync } from "node:fs";
 const target = new URL(${JSON.stringify(destination)}, import.meta.url);
 rmSync(target, { recursive: true, force: true });`;
 
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: dead source edges cannot establish authority.
+test("source reachability respects exits while preserving live branches and return-expression calls", () => {
+  const { graph } = fixture(`import { rmSync } from "node:fs";
+function returned() { return; rmSync("/tmp/after-return"); }
+function thrown() { throw new Error(); rmSync("/tmp/after-throw"); }
+function readOnly(write) { if (write) throw new Error(); else return; rmSync("/tmp/after-folded-exit"); }
+function bothExit(flag) { if (flag) return; else throw new Error(); rmSync("/tmp/after-both-exit"); }
+function live(flag) { if (flag) return; rmSync("/tmp/live-branch"); }
+function invokes(callback) { return callback(); rmSync("/tmp/after-return-call"); }
+returned(); thrown(); readOnly(false); bothExit(globalThis.flag); live(globalThis.flag);
+invokes(() => rmSync("/tmp/returned-call"));`);
+  const root = processEntry(graph, { file, script: "build" }, "package-script"),
+    sites = processSourceSites(graph, root),
+    effects = [];
+  (function visit(node) {
+    if (ts.isCallExpression(node) && node.expression.getText() === "rmSync") effects.push(node);
+    ts.forEachChild(node, visit);
+  })(graph.modules.get(file).sourceFile);
+  for (const effect of effects) {
+    const target = effect.arguments[0].text;
+    assert.equal(
+      sites.has(sourceSite(graph, effect)),
+      target === "/tmp/live-branch" || target === "/tmp/returned-call",
+      target,
+    );
+  }
+});
+
 function mutatedDaemonGraph(source, file, from, to) {
   const { rootDir } = makeRepo({ "package.json": readFileSync(path.join(repoRoot, "package.json"), "utf8") });
   mkdirSync(path.join(rootDir, "packages"));

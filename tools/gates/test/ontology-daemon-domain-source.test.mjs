@@ -94,3 +94,56 @@ for (const [kind, file, from, to] of [
     assert.equal(row?.ok, false, JSON.stringify(row));
     assert.ok(result.findings.some((finding) => finding.includes(source.candidateId)));
   });
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1, CEO Option 2: ReturnWrite's own
+// AuthorizationPort decision must survive the real actor/cut/enforcer/service chain.
+for (const [label, file, from, to] of [
+  [
+    "a replaced own Port",
+    "packages/daemon/src/task-return-dispatch.ts",
+    'authorizationDecision = await evaluateRepoCellAction({\n          action: {\n            kind: "task-rework",',
+    'authorizationDecision = await (async () => ({ outcome: "allowed" }))({\n          action: {\n            kind: "task-rework",',
+  ],
+  [
+    "another action kind",
+    "packages/daemon/src/task-return-dispatch.ts",
+    'kind: "task-rework",\n            taskId: input.taskId,',
+    'kind: "task-review-execution",\n            taskId: input.taskId,',
+  ],
+  [
+    "the reviewer's actor",
+    "packages/daemon/src/task-return-dispatch.ts",
+    "actor: { principal: arrangement.actor.principal, executor: null },",
+    "actor: { principal: binding.actor.principal, executor: null },",
+  ],
+  [
+    "a stale canonical cut",
+    "packages/daemon/src/task-return-dispatch.ts",
+    "binding: ownerBinding,\n          actionId: normalized.opId,\n          revision: cell.store.readHead()?.revision ?? 0,",
+    "binding: ownerBinding,\n          actionId: normalized.opId,\n          revision: 0,",
+  ],
+  [
+    "a bypassed allowed-decision enforcer",
+    "packages/daemon/src/repo-cell-proof.ts",
+    'if (!binding.authorizationDecision || binding.authorizationDecision.outcome !== "allowed")',
+    "if (false)",
+  ],
+  [
+    "a detached decision at proofFor",
+    "packages/daemon/src/task-return-dispatch.ts",
+    "proof = await cell.proofFor(command, snapshot, { ...ownerBinding, authorizationDecision }, cell.projection),",
+    "proof = await cell.proofFor(command, snapshot, ownerBinding, cell.projection),",
+  ],
+  [
+    "a detached service proof",
+    "packages/daemon/src/task-return-dispatch.ts",
+    "result = await cell.service.execute(command, proof);",
+    "result = await cell.service.execute(command, {});",
+  ],
+])
+  partitionedTest(`canonical rework rejects ${label}`, (t) => {
+    const result = audit(detachedSource(t, file, from, to), ["task-rework"]),
+      row = result.sourceRows.find((entry) => entry.id === effects[1].candidateId);
+    assert.equal(row?.ok, false, JSON.stringify(row));
+    assert.ok(result.findings.length > 0);
+  });

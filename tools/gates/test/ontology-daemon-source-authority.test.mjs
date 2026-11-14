@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import nodeTest from "node:test";
+import { testOrdinalInPartition } from "../../node-test-runner-lib.mjs";
 import { auditDurableActionAuthorization, loadAuthorizationInputs } from "../ontology-durable-action-authorization.mjs";
 import { replaceSourceOnce, runGit } from "./helpers.mjs";
 import { scanOntologyText } from "../ontology-closure-scan.mjs";
@@ -12,6 +13,14 @@ import { sourceWitnesses, technicalPortEvidence } from "../authorization-source-
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 const inputs = await loadAuthorizationInputs(repoRoot);
+
+// Whole-file execution exceeded the isolated runner's time budget. Preserve every case
+// and use the same bounded partitions as the other real-source authorization consumers.
+let testOrdinal = 0;
+function partitionedTest(name, fn) {
+  if (testOrdinalInPartition(testOrdinal++, process.env.HARNESS_TEST_PARTITION)) nodeTest(name, fn);
+}
+const test = partitionedTest;
 
 function sourceCopy(t) {
   const dir = mkdtempSync(path.join(tmpdir(), "daemon-source-authority-"));

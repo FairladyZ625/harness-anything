@@ -220,16 +220,27 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
           site: sourceSite(graph, witnesses.get(source.candidateId)),
         })),
     sourceResults = new Map(),
-    tracer = makeAuthorizationTracer(authorizationPolicyGraph(graph), {
+    anchors = {
       sourceGraph: graph,
       ports: portAnchors,
       authorityModule: "@harness-anything/kernel",
       decision: decisionAnchor,
+      currentCut: {
+        file: "packages/kernel/src/ports/task-event-store.ts",
+        name: "CanonicalEventStore",
+        member: "readHead",
+      },
+      writerQueue: { file: "packages/daemon/src/repo-cell.ts", name: "chainRepoCellWrite" },
+      writerFence: { file: "packages/kernel/src/domain/write-chain.contract.ts", name: "assertCurrentWriter" },
       sessions: sessionAnchors,
       entries: transportEntries(graph),
       constants: inputs.constants,
       functions: inputs.functions,
-    }),
+    },
+    tracer = makeAuthorizationTracer(authorizationPolicyGraph(graph), anchors),
+    // A typed policy boundary is not an unguarded call: its implementation may obtain
+    // and enforce its own canonical decision. Source ownership must retain those guards.
+    sourceTracer = makeAuthorizationTracer(graph, anchors),
     // ActionDeclaration residency: a host- or runtime-local action is not decided at a canonical cut.
     nonCanonical = new Set(
       (inputs.constants.actionDeclarations ?? [])
@@ -293,7 +304,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       ownerEvidence.length > 0 &&
       declarationViolations.length === 0 &&
       owner.violations.length === 0
-        ? tracer.traceDescriptor({ ...traceInput, sources: targets })
+        ? sourceTracer.traceDescriptor({ ...traceInput, sources: targets })
         : owner;
     for (const source of trace.sources.values()) sourceResults.set(source.id, source);
     const evidence =

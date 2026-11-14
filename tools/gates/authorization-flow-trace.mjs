@@ -6,7 +6,7 @@
 // is compared here.
 import ts from "typescript";
 import { bindArguments, isFunctionNode, makeEvaluator, unwrap } from "./authorization-flow-graph.mjs";
-import { processSourceSites, sourceSite } from "./authorization-source-proof.mjs";
+import { processSourceSites, sourceFrameKey, sourceSite } from "./authorization-source-proof.mjs";
 
 const maxWalkDepth = 60;
 
@@ -194,6 +194,17 @@ export function makeAuthorizationTracer(graph, anchors) {
   }
   const isPortCall = (node) => callsMember(node, portMembers, portCalls);
   const isSessionCall = (node) => callsMember(node, sessionMembers, sessionCalls);
+  const authorityGraph = anchors.sourceGraph ?? graph;
+  const declaredFunction = (anchor) =>
+    anchor && authorityGraph.modules.has(anchor.file) && authorityGraph.exportedBinding(anchor.file, anchor.name)?.node;
+  const writerQueue = declaredFunction(anchors.writerQueue),
+    writerFence = declaredFunction(anchors.writerFence);
+  const cutMember =
+      anchors.currentCut &&
+      authorityGraph.modules.has(anchors.currentCut.file) &&
+      authorityGraph.interfaceMembers(anchors.currentCut.file, anchors.currentCut.name).get(anchors.currentCut.member),
+    cutMembers = new Map(cutMember ? [[anchors.currentCut.member, new Set([cutMember])]] : []),
+    cutCalls = new Map();
 
   function declaredIn(tainted, identifier) {
     const binding = graph.lookup(identifier.text, identifier);
@@ -387,6 +398,7 @@ export function makeAuthorizationTracer(graph, anchors) {
         authorityModule: anchors.authorityModule,
         constants: anchors.constants,
         functions: anchors.functions,
+        strictMembers: Boolean(descriptor.sources?.length),
       },
       evaluator = makeEvaluator(graph, facts),
       sourceGraph = anchors.sourceGraph ?? graph,
@@ -406,8 +418,6 @@ export function makeAuthorizationTracer(graph, anchors) {
         ),
       },
       memo = new Map(),
-      frameKeys = new WeakMap(),
-      frameIds = new Map(),
       guardCalls = new Map(),
       stack = [];
 
@@ -416,6 +426,8 @@ export function makeAuthorizationTracer(graph, anchors) {
       authorized: false,
       effect: false,
       sourceCovered: false,
+      writerTurn: false,
+      writerFenced: false,
       local: false,
       consumed: false,
       tainted: new Set(),
@@ -440,6 +452,13 @@ export function makeAuthorizationTracer(graph, anchors) {
         effect: live.some((state) => state.effect),
         local: live.every((state) => state.local),
         sourceCovered: live.every((state) => state.sourceCovered),
+        writerTurn: live.every((state) => state.writerTurn),
+        writerFenced: live.every((state) => state.writerFenced),
+        serviceSites: new Map(
+          [...(live[0].serviceSites ?? [])].filter(([site, kind]) =>
+            live.every((state) => state.serviceSites?.get(site) === kind),
+          ),
+        ),
         // Spent on some path: what is still pending after the meeting point is the unspent rest.
         consumed: live.some((state) => state.consumed),
         tainted: new Set([...left.tainted, ...right.tainted]),
@@ -772,6 +791,7 @@ export function makeAuthorizationTracer(graph, anchors) {
       if (ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee))
         visit(callee.expression, env, state);
       for (const argument of node.arguments) visit(argument, env, state);
+      if (writerFence && graph.callDeclaration(node) === writerFence) state.writerFenced = true;
       if (isPortCall(node)) return;
       const values = evaluator.evaluate(callee, env);
       const boundParameter = ts.isIdentifier(callee) ? graph.lookup(callee.text, callee) : null,
@@ -784,11 +804,16 @@ export function makeAuthorizationTracer(graph, anchors) {
       }
       const functions = values.filter((value) => value.fn);
       const sourceAuthority =
+        state.serviceSites?.get(node) === descriptor.kind ||
         state.sourceCovered ||
         (state.effect && state.decisionKind?.kind === descriptor.kind) ||
         (state.authorized && state.decisionKind?.kind === descriptor.kind) ||
         (descriptor.localTransport && state.local) ||
         (descriptor.ownSession && state.sessioned.size > 0);
+      if (state.serviceSites?.get(node) === descriptor.kind)
+        report.authorized.push(
+          `${where(node)}: independent current-cut ${descriptor.kind} decision for the command actor flows through its allowed service proof`,
+        );
       const source = report.sources.get(sourceSite(graph, node));
       const observe = (target, allowed, evidence) => {
         target.seen = true;
@@ -898,6 +923,13 @@ export function makeAuthorizationTracer(graph, anchors) {
           allAuthorized = false;
           continue;
         }
+        // A supplied callback is invoked in this caller's guard frame even when its
+        // return value depends on a decision it obtains itself.
+        if (boundParameter?.kind === "param" && env.get(boundParameter.parameter)?.expression) {
+          invokeCallback(boundParameter.parameter, value, node, env, state, sourceAuthority);
+          allAuthorized = false;
+          continue;
+        }
         if (producesDecision(value.node)) {
           // A producer that itself exits on denial is an enforcer: what follows it is authorized.
           const outcome = walkFunction(
@@ -912,11 +944,6 @@ export function makeAuthorizationTracer(graph, anchors) {
             enforcedSubject = decisionSubject(node, env);
             checkCut(node, env, enforcedSubject);
           } else allAuthorized = false;
-          continue;
-        }
-        if (boundParameter?.kind === "param" && env.get(boundParameter.parameter)?.expression) {
-          invokeCallback(boundParameter.parameter, value, node, env, state, sourceAuthority);
-          allAuthorized = false;
           continue;
         }
         if (!shouldDescend(value, node, env, state)) {
@@ -984,9 +1011,286 @@ export function makeAuthorizationTracer(graph, anchors) {
       return false;
     }
 
+    // Resolve a field through immutable aliases, arguments and returned objects. Unknown
+    // branches must agree; two opaque values are never equal merely because both are unknown.
+    const serviceQueries = new WeakMap();
+    function serviceValue(expression, env, fields = [], depth = 0) {
+      const node = unwrap(expression);
+      if (!node || depth > maxWalkDepth) return null;
+      const key = `${fields.join(".")}|${sourceFrameKey(sourceGraph, node, env)}`,
+        active = serviceQueries.get(node) ?? [];
+      if (active.includes(key)) return null;
+      serviceQueries.set(node, active);
+      active.push(key);
+      try {
+        return serviceValueIn(node, env, fields, depth);
+      } finally {
+        active.pop();
+      }
+    }
+
+    function serviceValueIn(expression, env, fields, depth) {
+      const node = unwrap(expression);
+      if (!node || depth > maxWalkDepth) return null;
+      const next = (expression, env, fields) => serviceValue(expression, env, fields, depth + 1);
+      if (ts.isIdentifier(node)) {
+        const binding = sourceGraph.lookup(node.text, node);
+        if (binding?.kind === "param") {
+          const bound = env.get(binding.parameter);
+          if (bound?.expression) return next(bound.expression, bound.env, [...binding.trail, ...fields]);
+          return { node: binding.parameter, fields: [...binding.trail, ...fields], env };
+        }
+        if (
+          binding?.kind === "var" &&
+          binding.declaration.initializer &&
+          binding.declaration.parent.flags & ts.NodeFlags.Const
+        ) {
+          const projected = next(binding.declaration.initializer, env, [...binding.trail, ...fields]);
+          if (projected) return projected;
+          const initializer = unwrap(binding.declaration.initializer);
+          if (ts.isCallExpression(initializer)) {
+            const functions = sourceEvaluator.evaluate(initializer.expression, env).filter((value) => value.fn);
+            const opaque =
+              functions.length !== 1 ||
+              functions.some((value) => {
+                let returns = 0;
+                if (value.node.body)
+                  eachOwnNode(value.node.body, (node) => {
+                    if (ts.isReturnStatement(node)) returns++;
+                  });
+                return returns > 1;
+              });
+            if (opaque) return { node: binding.declaration, fields: [...binding.trail, ...fields], env };
+          }
+          return null;
+        }
+        if (binding?.kind === "var") return { node: binding.declaration, fields: [...binding.trail, ...fields], env };
+      }
+      if (ts.isPropertyAccessExpression(node)) return next(node.expression, env, [node.name.text, ...fields]);
+      if (ts.isObjectLiteralExpression(node) && fields.length) {
+        const [key, ...rest] = fields;
+        for (const property of [...node.properties].reverse()) {
+          if (ts.isSpreadAssignment(property)) {
+            if (lacksKey(property.expression, key)) continue;
+            const found = next(property.expression, env, fields);
+            if (found) return found;
+          } else if (property.name && sourceGraph.memberKey(property.name) === key)
+            return next(ts.isPropertyAssignment(property) ? property.initializer : property.name, env, rest);
+        }
+        return null;
+      }
+      if (ts.isCallExpression(node)) {
+        if (
+          !fields.length &&
+          (isPortCall(node) ||
+            sourceEvaluator.evaluate(node.expression, env).some((value) => value.fn && producesDecision(value.node)))
+        )
+          return { node, fields, env };
+        if (node.expression.getText() === "Object.freeze" && !sourceGraph.lookup("Object", node))
+          return next(node.arguments[0], env, fields);
+        const answers = [];
+        for (const value of sourceEvaluator.evaluate(node.expression, env).filter((value) => value.fn)) {
+          const inner = bindArguments(value, sourceEvaluator.expandArguments(node.arguments, env), env);
+          for (const result of serviceReturns(value.node, inner)) {
+            const answer = next(result.expression, inner, fields);
+            if (!answer) return null;
+            const guarded = result.guards.some((condition) => serviceDenial(condition, inner, answer));
+            answers.push({ ...answer, guarded: answer.guarded || guarded });
+          }
+        }
+        return answers.length && answers.every((answer) => sameServiceValue(answer, answers[0]))
+          ? { ...answers[0], guarded: answers.every((answer) => answer.guarded) }
+          : null;
+      }
+      return { node, fields, env };
+    }
+
+    const sameServiceValue = (left, right) =>
+      Boolean(left && right && left.node === right.node && left.fields.join(".") === right.fields.join("."));
+
+    // Only a throwing denial exit dominates an enforcer's returned decision. A name,
+    // annotation or unused guard is not proof. Fold command discriminants at the actual call.
+    function serviceReturns(fn, env) {
+      const returns = [];
+      const walk = (node, guards) => {
+        if (!node) return true;
+        if (ts.isReturnStatement(node)) {
+          if (node.expression) returns.push({ expression: node.expression, guards });
+          return false;
+        }
+        if (ts.isThrowStatement(node)) return false;
+        if (ts.isIfStatement(node)) {
+          const folded = serviceCondition(node.expression, env);
+          if (folded) return walk(folded.value ? node.thenStatement : node.elseStatement, guards);
+          const left = walk(node.thenStatement, guards),
+            right = walk(node.elseStatement, guards);
+          return left || right;
+        }
+        if (ts.isBlock(node)) {
+          const preceding = [...guards];
+          for (const statement of node.statements) {
+            if (!walk(statement, [...preceding])) return false;
+            if (ts.isIfStatement(statement)) {
+              const branch = statement.thenStatement;
+              if (
+                ts.isThrowStatement(branch) ||
+                (ts.isBlock(branch) && branch.statements.length === 1 && ts.isThrowStatement(branch.statements[0]))
+              )
+                preceding.push(statement.expression);
+            }
+          }
+        }
+        return true;
+      };
+      if (fn.body && ts.isBlock(fn.body)) walk(fn.body, []);
+      else if (fn.body) returns.push({ expression: fn.body, guards: [] });
+      return returns;
+    }
+
+    function serviceCondition(expression, env) {
+      const folded = sourceEvaluator.fold(expression, env);
+      if (folded) return folded;
+      const node = unwrap(expression);
+      if (!ts.isBinaryExpression(node)) return null;
+      const operator = node.operatorToken.kind;
+      if ([ts.SyntaxKind.BarBarToken, ts.SyntaxKind.AmpersandAmpersandToken].includes(operator)) {
+        const left = serviceCondition(node.left, env),
+          right = serviceCondition(node.right, env);
+        if (operator === ts.SyntaxKind.BarBarToken) {
+          if (left?.value || right?.value) return { value: true };
+          return left && right ? { value: false } : null;
+        }
+        if ((left && !left.value) || (right && !right.value)) return { value: false };
+        return left && right ? { value: true } : null;
+      }
+      const left = serviceValue(node.left, env),
+        right = serviceValue(node.right, env);
+      if (
+        !left ||
+        !right ||
+        left.fields.length ||
+        right.fields.length ||
+        !ts.isStringLiteralLike(left.node) ||
+        !ts.isStringLiteralLike(right.node)
+      )
+        return null;
+      const equal = left.node.text === right.node.text;
+      return operator === ts.SyntaxKind.EqualsEqualsEqualsToken
+        ? { value: equal }
+        : operator === ts.SyntaxKind.ExclamationEqualsEqualsToken
+          ? { value: !equal }
+          : null;
+    }
+
+    function serviceDenial(expression, env, decision) {
+      const node = unwrap(expression);
+      if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.BarBarToken)
+        return serviceDenial(node.left, env, decision) || serviceDenial(node.right, env, decision);
+      return (
+        ts.isBinaryExpression(node) &&
+        node.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken &&
+        comparesField(node, "outcome", ts.SyntaxKind.ExclamationEqualsEqualsToken, "allowed") &&
+        sameServiceValue(serviceValue(unwrap(node.left).expression, env), decision)
+      );
+    }
+
+    function serviceContinuation(value, env) {
+      const sites = new Map(),
+        fn = value.node;
+      let progress = -1,
+        failure = "no command/proof service invocation";
+      const describe = (value) => (value ? `${where(value.node)}:${value.fields.join(".")}` : "unresolved");
+      const reject = (node, stage, reason) => {
+        if (stage > progress) {
+          progress = stage;
+          failure = `${where(node)}: ${reason}`;
+        }
+      };
+      if (!fn.body) return { sites, failure };
+      let changed = false;
+      eachOwnNode(fn.body, (node) => {
+        if (
+          (ts.isBinaryExpression(node) &&
+            node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+            node.operatorToken.kind <= ts.SyntaxKind.LastAssignment) ||
+          ((ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
+            [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(node.operator))
+        )
+          changed = true;
+      });
+      if (changed) return { sites, failure: "callback mutates its bindings" };
+      const ownFunction = (node) => {
+        for (let parent = node.parent; parent; parent = parent.parent) if (isFunctionNode(parent)) return parent;
+      };
+      eachOwnNode(fn.body, (node) => {
+        if (!ts.isCallExpression(node) || node.arguments.length < 2) return;
+        const [command, proof] = node.arguments,
+          decision = serviceValue(proof, env, ["authorizationDecision"]),
+          actor = serviceValue(command, env, ["actor"]),
+          proofActor = serviceValue(proof, env, ["actorBinding"]),
+          boundActor = serviceValue(proof, env, ["actor", "principal"]);
+        if (!decision) return reject(node, 0, "service proof has no resolved decision");
+        let inlineGuard = false;
+        for (let child = node; child.parent && child !== fn.body; child = child.parent) {
+          if (!ts.isBlock(child.parent)) continue;
+          for (const statement of child.parent.statements) {
+            if (statement === child) break;
+            if (!ts.isIfStatement(statement)) continue;
+            const branch = statement.thenStatement;
+            if (
+              (ts.isThrowStatement(branch) ||
+                (ts.isBlock(branch) && branch.statements.length === 1 && ts.isThrowStatement(branch.statements[0]))) &&
+              serviceDenial(statement.expression, env, decision)
+            )
+              inlineGuard = true;
+          }
+        }
+        if (!decision.guarded && !inlineGuard)
+          return reject(node, 1, "service proof decision has no throwing allowed-decision enforcer");
+        if (!ts.isCallExpression(decision.node) || ownFunction(decision.node) !== fn || decision.node.pos >= node.pos)
+          return reject(node, 2, "decision is not independently produced before this service call in the callback");
+        if (decision.guarded && !sameServiceValue(actor, proofActor))
+          return reject(
+            node,
+            3,
+            `command and service proof actors do not resolve to the same principal (${describe(actor)} / ${describe(proofActor)})`,
+          );
+        const subject = decisionSubject(decision.node, decision.env),
+          input = decision.node.arguments[0],
+          authorizedActor = serviceValue(input, decision.env, ["binding", "actor", "principal"]),
+          revision = serviceValue(input, decision.env, ["revision"]);
+        const declared = (facts.constants.actionDeclarations ?? []).some((action) => action.kind === subject.kind);
+        if (subject.kind !== descriptor.kind && (decision.guarded || !declared))
+          return reject(node, 4, "own Port decision does not name this canonical action");
+        const principal = decision.guarded ? serviceValue(command, env, ["actor", "principal"]) : boundActor;
+        if (!sameServiceValue(principal, authorizedActor))
+          return reject(
+            node,
+            5,
+            `own Port and command actors do not resolve to the same principal (${describe(principal)} / ${describe(authorizedActor)})`,
+          );
+        if (!revision || revision.fields.length) return reject(node, 6, "own Port has no resolved revision input");
+        let cut = unwrap(revision.node);
+        if (
+          ts.isBinaryExpression(cut) &&
+          cut.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken &&
+          unwrap(cut.right).kind === ts.SyntaxKind.NumericLiteral &&
+          unwrap(cut.right).text === "0"
+        )
+          cut = unwrap(cut.left);
+        if (!ts.isPropertyAccessExpression(cut) || cut.name.text !== "revision")
+          return reject(node, 7, "own Port revision is not a fresh head revision");
+        const read = unwrap(cut.expression);
+        if (!ts.isCallExpression(read) || ownFunction(read) !== fn || !callsMember(read, cutMembers, cutCalls))
+          return reject(node, 8, "head revision is not read from the canonical store in this callback");
+        sites.set(node, subject.kind);
+      });
+      return { sites, failure };
+    }
+
     function invokeCallback(parameter, value, call, env, state, sourceAuthority) {
       // Grouped per guard frame: a non-durable branch of another command is not this route's bypass.
-      const group = `${frameKeys.get(env) ?? 0}`,
+      const group = sourceFrameKey(graph, parameter.parent, env),
         frames = guardCalls.get(parameter) ?? new Map(),
         calls = frames.get(group) ?? { routed: routedFrame(env), calls: [] };
       calls.calls.push({ authorized: state.authorized, at: where(call), carried: false, parameter });
@@ -994,6 +1298,7 @@ export function makeAuthorizationTracer(graph, anchors) {
       guardCalls.set(parameter, frames);
       const next = bindArguments(value, evaluator.expandArguments(call.arguments, env), env),
         inner = clone(state);
+      inner.writerTurn ||= Boolean(writerQueue && parameter.parent === writerQueue);
       inner.sourceCovered ||= Boolean(sourceAuthority);
       if (state.authorized) {
         const carried = value.node.parameters.filter(
@@ -1010,6 +1315,29 @@ export function makeAuthorizationTracer(graph, anchors) {
             report.authorized.push(
               `${where(value.node)}: ${label(state.decisionKind)} decision flows into the effect callback`,
             );
+        }
+      }
+      // CH1 / CEO Option 2: retain the carrier rule. An independently authorized service
+      // instead certifies only the exact command/proof call reached in this writer turn.
+      if (
+        state.authorized &&
+        inner.writerTurn &&
+        inner.writerFenced &&
+        !calls.calls.at(-1).carried &&
+        decisionCallback(parameter)
+      ) {
+        const { sites, failure } = serviceContinuation(value, next);
+        calls.calls.at(-1).selfAuthorized = sites.size > 0;
+        calls.calls.at(-1).selfFailure = failure;
+        // This certificate answers only for its service invocation. The outer principal's
+        // authority cannot cover earlier calls or any other effect in the callback.
+        if (sites.size) {
+          inner.authorized = false;
+          inner.effect = false;
+          inner.sourceCovered = false;
+          inner.decisionKind = null;
+          inner.tainted.clear();
+          inner.serviceSites = sites;
         }
       }
       walkFunction(value, next, inner);
@@ -1156,40 +1484,8 @@ export function makeAuthorizationTracer(graph, anchors) {
       Object.assign(state, merged);
     }
 
-    // A walk is reused only for the same function under the same bindings: a parameter is keyed
-    // by its request provenance or by its expression and the binding frame's own parameter shape
-    // (one level of calling context), so a closure bound under the request and the same closure
-    // bound under an unrelated caller are separate walks without unbounded context growth.
-    function parameterShape(value, env, withFrames) {
-      return value.node.parameters
-        .map((parameter) => {
-          const bound = env.get(parameter);
-          if (!bound) return "-";
-          if (bound.root) return "request";
-          if (bound.rest)
-            return `rest:[${bound.rest
-              .map((entry) => {
-                const tag = evaluator.provenance(entry.expression, entry.env) ?? "";
-                return `${tag}:${entry.expression.pos}:${graph.fileOf(entry.expression)}`;
-              })
-              .join("|")}]`;
-          const tag = evaluator.provenance(bound.expression, bound.env) ?? "",
-            site = `${tag}:${bound.expression.pos}:${graph.fileOf(bound.expression)}`;
-          return withFrames ? `${site}@${frameKeys.get(bound.env) ?? 0}` : site;
-        })
-        .join(",");
-    }
-
-    function signature(value, env, state) {
-      return `${state.authorized ? 1 : 0}${state.effect ? 1 : 0}${state.sourceCovered ? 1 : 0}${state.local ? 1 : 0}${state.sessioned.size > 0 ? 1 : 0}|${frameKeys.get(value.env) ?? 0}|${parameterShape(value, env, true)}`;
-    }
-
-    function internFrame(env, value) {
-      // The captured frame is part of the identity: closures nest lexically, so this stays bounded.
-      const text = `${value.node.pos}:${graph.fileOf(value.node)}|${frameKeys.get(value.env) ?? 0}|${parameterShape(value, env, false)}`;
-      if (!frameIds.has(text)) frameIds.set(text, frameIds.size + 1);
-      frameKeys.set(env, frameIds.get(text));
-    }
+    const authorityShape = (state) =>
+      `${state.authorized ? 1 : 0}${state.effect ? 1 : 0}${state.sourceCovered ? 1 : 0}${state.local ? 1 : 0}${state.sessioned.size > 0 ? 1 : 0}:${state.writerTurn ? 1 : 0}${state.writerFenced ? 1 : 0}:${state.decisionKind?.kind ?? ""}:${state.decisionKind?.routed ? 1 : 0}:${[...(state.serviceSites ?? [])].map(([node, kind]) => `${sourceSite(graph, node)}=${kind}`).join(",")}`;
 
     function walkFunction(value, env, state) {
       const fn = value.node,
@@ -1200,13 +1496,17 @@ export function makeAuthorizationTracer(graph, anchors) {
           localReturn: false,
           refusal: false,
         };
-      if (!fn.body || stack.includes(fn) || stack.length > maxWalkDepth) return none;
-      const key = signature(value, env, state);
+      if (!fn.body || stack.length > maxWalkDepth) return none;
+      // Resolve forwarded aliases and retain the source walk's bounded lexical context.
+      // One identity handles both reuse and in-progress cycles: a fresh Map is not a new
+      // callback, and the same expression can carry another caller's callback.
+      const key = `${authorityShape(state)}|${sourceFrameKey(graph, fn, env)}`;
       const seen = memo.get(fn) ?? new Map();
+      // The in-progress entry terminates the same frame. Another callback binding may
+      // re-enter this function and acquire its own authority, as queued continuations do.
       if (seen.has(key)) return seen.get(key);
       seen.set(key, none);
       memo.set(fn, seen);
-      internFrame(env, value);
       stack.push(fn);
       const frame = { returns: [] };
       if (ts.isBlock(fn.body)) {
@@ -1257,8 +1557,10 @@ export function makeAuthorizationTracer(graph, anchors) {
         for (const call of calls.filter((entry) => decisionCallback(entry.parameter)))
           if (!call.authorized)
             report.violations.push(`${call.at}: the effect callback runs before the authorization denial exit`);
-          else if (!call.carried)
-            report.violations.push(`${call.at}: the effect callback runs without the authorization decision`);
+          else if (!call.carried && !call.selfAuthorized)
+            report.violations.push(
+              `${call.at}: the effect callback runs without the authorization decision${call.selfFailure ? ` (${call.selfFailure})` : ""}`,
+            );
       }
     return report;
   }

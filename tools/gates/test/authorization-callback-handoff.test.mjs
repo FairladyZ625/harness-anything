@@ -156,6 +156,164 @@ function entry(request: { transportKind: string }) {
     .sources.get(sourceSite(graph, effect));
 }
 
+function traceQueuedReentry(invocation, recursive = false) {
+  const file = "packages/daemon/src/reentry.ts";
+  const { rootDir } = makeRepo({
+    [file]: `const store = { append() {} };
+function effect() { store.append(); }
+function entry(request: { transportKind: string }) {
+function queue(request, phase, callback) {
+  if (phase === "write") {
+    if (request.transportKind !== "unix-socket") return;
+    callback();
+  } else ${recursive ? "queue(request, phase, callback)" : "callback()"};
+}
+${invocation}
+}`,
+  });
+  const graph = buildFlowGraph(rootDir),
+    statements = graph.modules.get(file).sourceFile.statements,
+    site = sourceSite(graph, statements[1].body.statements[0].expression);
+  let phaseLookups = 0;
+  const traced = {
+    ...graph,
+    lookup(name, node) {
+      if (name === "phase" && ts.isBinaryExpression(node.parent)) phaseLookups++;
+      return graph.lookup(name, node);
+    },
+  };
+  const result = makeAuthorizationTracer(traced, {
+    ports: [],
+    entries: [statements.at(-1)],
+    constants: {},
+    functions: {},
+  })
+    .traceDescriptor({
+      method: "demo",
+      kind: "demo",
+      commandClass: "repo-write",
+      localTransport: true,
+      sources: [{ id: "effect", site }],
+    })
+    .sources.get(site);
+  return { ...result, phaseLookups };
+}
+
+// CH1: preparation may re-enter the queue with another callback. Only the actual
+// write frame's denial exit certifies that callback; an active function alone is no cycle.
+test("a new queued callback frame can acquire its own authority", () => {
+  const result = traceQueuedReentry('queue(request, "prepare", () => queue(request, "write", effect));');
+  assert.equal(result.seen && result.ok, true);
+});
+
+test("a replaced queued callback does not certify the unused source", () => {
+  const result = traceQueuedReentry('queue(request, "prepare", () => queue(request, "write", () => {}));');
+  assert.equal(result.seen, false);
+});
+
+test("an unguarded queue frame still rejects a source certified by a reentrant queue", () => {
+  const result = traceQueuedReentry(
+    'queue(request, "prepare", () => queue(request, "write", effect)); queue(request, "prepare", effect);',
+  );
+  assert.equal(result.seen, true);
+  assert.equal(result.ok, false);
+});
+
+test("the same recursive queue frame terminates without certifying an uncalled source", () => {
+  const result = traceQueuedReentry('queue(request, "prepare", effect);', true);
+  assert.equal(result.seen, false);
+  assert.ok(result.phaseLookups <= 8, `same queue frame expanded ${result.phaseLookups} phase lookups`);
+});
+
+function tracePackageBridge({ detached = false, bypass = false } = {}) {
+  const file = "packages/daemon/src/bridge-callback.ts";
+  const { rootDir } = makeRepo({
+    "packages/storage/src/bridge.ts": `import { effect } from "../../daemon/src/bridge-callback.ts";
+export function invoke(request, callback) { callback(); ${bypass ? "effect(request);" : ""} }`,
+    [file]: `import { invoke } from "../../storage/src/bridge.ts";
+const store = { append() {} };
+export function effect(request) { store.append(); }
+function entry(request: { transportKind: string }) {
+  invoke(request, () => {
+    if (request.transportKind !== "unix-socket") return;
+    ${detached ? "" : "effect(request);"}
+  });
+}`,
+  });
+  const graph = buildFlowGraph(rootDir),
+    statements = graph.modules.get(file).sourceFile.statements,
+    site = sourceSite(graph, statements[2].body.statements[0].expression);
+  return makeAuthorizationTracer(graph, { ports: [], entries: [statements.at(-1)], constants: {}, functions: {} })
+    .traceDescriptor({
+      method: "demo",
+      kind: "demo",
+      commandClass: "repo-write",
+      localTransport: true,
+      sources: [{ id: "effect", site }],
+    })
+    .sources.get(site);
+}
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: a package boundary can invoke daemon
+// callbacks that establish their own authority. Reachability alone cannot judge that path.
+test("a package callback's own denial exit certifies its actual effect", () => {
+  const result = tracePackageBridge();
+  assert.equal(result.seen && result.ok, true);
+});
+
+test("a package bridge cannot borrow its guarded callback's authority for another call", () => {
+  const result = tracePackageBridge({ bypass: true });
+  assert.equal(result.seen, true);
+  assert.equal(result.ok, false);
+});
+
+test("a package bridge with a detached callback does not reach the effect", () => {
+  assert.equal(tracePackageBridge({ detached: true }).seen, false);
+});
+
+function traceReusedForwarder(invocation) {
+  const file = "packages/daemon/src/forwarder.ts";
+  const { rootDir } = makeRepo({
+    [file]: `const store = { append() {} };
+function effect(request) { store.append(); }
+function invoke(execute) { execute(); }
+function queue(work) { invoke(() => work()); }
+function forward(work) { queue(work); }
+function entry(request: { transportKind: string }) {
+  const guarded = () => {
+    if (request.transportKind !== "unix-socket") return;
+    effect(request);
+  };
+  ${invocation}
+}`,
+  });
+  const graph = buildFlowGraph(rootDir),
+    statements = graph.modules.get(file).sourceFile.statements,
+    site = sourceSite(graph, statements[1].body.statements[0].expression);
+  return makeAuthorizationTracer(graph, { ports: [], entries: [statements.at(-1)], constants: {}, functions: {} })
+    .traceDescriptor({
+      method: "demo",
+      kind: "demo",
+      commandClass: "repo-write",
+      localTransport: true,
+      sources: [{ id: "effect", site }],
+    })
+    .sources.get(site);
+}
+
+// The queue expression is reused, but its forwarded callback is a different value.
+// Both cache reuse and cycle detection must retain the original caller's binding.
+test("a reused forwarder still invokes its later guarded callback", () => {
+  const result = traceReusedForwarder("forward(() => {}); forward(guarded);");
+  assert.equal(result.seen && result.ok, true);
+});
+
+test("a reused forwarder cannot reuse another caller's authorization", () => {
+  const result = traceReusedForwarder("forward(guarded); forward(() => effect(request));");
+  assert.equal(result.seen, true);
+  assert.equal(result.ok, false);
+});
+
 // dec_7E44897ECDCAEF2B92EC66A260/CH1: a passed callback supplies source evidence only
 // when invocation preserves its actual argument frame, including rest/spread forwarding.
 test("an invoked ordinary object callback retains local authority", () => {

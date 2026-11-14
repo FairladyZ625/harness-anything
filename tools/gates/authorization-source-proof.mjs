@@ -1739,28 +1739,8 @@ function reachesSource(graph, entry, node, options = {}) {
   return processSourceSites(graph, entry, { ...options, targets: [target] }).has(target);
 }
 
-const sourceWalks = new WeakMap();
-
-export function processSourceSites(
-  graph,
-  entry,
-  {
-    evaluator = makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true }),
-    env = new Map(),
-    targets = [],
-  } = {},
-) {
-  targets = [...targets];
-  const requestedSites = new Set(targets);
-  // Evaluator facts and source bindings are immutable within a descriptor. Cache only a frame's
-  // direct sites/edges, never its transitive result or the authority that reached it. Traversal
-  // remains per caller, so cycles and early target exits cannot poison later callers' evidence.
-  const graphs = sourceWalks.get(evaluator) ?? new WeakMap();
-  sourceWalks.set(evaluator, graphs);
-  const frames = graphs.get(graph) ?? new Map();
-  graphs.set(graph, frames);
-  const seen = new Set(),
-    sites = new Set();
+/** Bounded lexical/caller identity shared by source and policy cycle detection. */
+export function sourceFrameKey(graph, fn, env) {
   const argumentSite = (argument) => {
     let bound = argument;
     // Parameter bindings point into older caller frames, so forwarding aliases terminate at
@@ -1797,12 +1777,35 @@ export function processSourceSites(
         : "";
   // One lexical caller frame distinguishes a reused expression bound to different callbacks.
   // This is bounded calling context, not recursive serialization of the environment chain.
-  const bindingShape = (fn, env) =>
-    lexicalBindings(fn, env)
-      .map((bound) => `${argumentSite(bound)}@[${callerShape(bound)}]`)
-      .join("|");
+  return lexicalBindings(fn, env)
+    .map((bound) => `${argumentSite(bound)}@[${callerShape(bound)}]`)
+    .join("|");
+}
+
+const sourceWalks = new WeakMap();
+
+export function processSourceSites(
+  graph,
+  entry,
+  {
+    evaluator = makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true }),
+    env = new Map(),
+    targets = [],
+  } = {},
+) {
+  targets = [...targets];
+  const requestedSites = new Set(targets);
+  // Evaluator facts and source bindings are immutable within a descriptor. Cache only a frame's
+  // direct sites/edges, never its transitive result or the authority that reached it. Traversal
+  // remains per caller, so cycles and early target exits cannot poison later callers' evidence.
+  const graphs = sourceWalks.get(evaluator) ?? new WeakMap();
+  sourceWalks.set(evaluator, graphs);
+  const frames = graphs.get(graph) ?? new Map();
+  graphs.set(graph, frames);
+  const seen = new Set(),
+    sites = new Set();
   function frameFor(fn, env) {
-    const key = bindingShape(fn, env),
+    const key = sourceFrameKey(graph, fn, env),
       contexts = frames.get(fn) ?? new Map();
     frames.set(fn, contexts);
     if (!contexts.has(key)) contexts.set(key, { fn, env, sites: new Set(), edges: null });
@@ -1817,7 +1820,15 @@ export function processSourceSites(
         arguments: args,
       });
     function visit(node) {
-      if (isFunctionNode(node)) return;
+      if (isFunctionNode(node)) return true;
+      if (ts.isBlock(node) || ts.isSourceFile(node)) {
+        for (const statement of node.statements) if (!visit(statement)) return false;
+        return true;
+      }
+      if (ts.isReturnStatement(node) || ts.isThrowStatement(node)) {
+        if (node.expression) visit(node.expression);
+        return false;
+      }
       if (ts.isIfStatement(node) || ts.isConditionalExpression(node)) {
         const condition = ts.isIfStatement(node) ? node.expression : node.condition;
         visit(condition);
@@ -1825,12 +1836,13 @@ export function processSourceSites(
         const left = ts.isIfStatement(node) ? node.thenStatement : node.whenTrue;
         const right = ts.isIfStatement(node) ? node.elseStatement : node.whenFalse;
         if (folded) {
-          if (folded.value ? left : right) visit(folded.value ? left : right);
-        } else {
-          visit(left);
-          if (right) visit(right);
+          const selected = folded.value ? left : right;
+          return selected ? visit(selected) : true;
         }
-        return;
+        // Unknown branches both remain reachable; only two exits terminate the next statement.
+        const leftContinues = visit(left),
+          rightContinues = right ? visit(right) : true;
+        return leftContinues || rightContinues;
       }
       if (ts.isNewExpression(node) && node.expression.getText() === "Promise" && !graph.lookup("Promise", node))
         for (const argument of node.arguments ?? [])
@@ -1848,7 +1860,12 @@ export function processSourceSites(
           for (const arg of node.arguments)
             for (const value of evaluator.evaluate(arg, env).filter((value) => value.fn)) linkFrame(value);
       }
-      ts.forEachChild(node, visit);
+      // A child's exit cannot skip siblings in an enclosing loop/try/switch. Keep those
+      // constructs conservative; sequential blocks and branches handle their own exits above.
+      ts.forEachChild(node, (child) => {
+        visit(child);
+      });
+      return true;
     }
     if (fn.body) visit(fn.body);
   }
