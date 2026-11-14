@@ -170,14 +170,14 @@ export function AwaitsAnswerPanel({
   );
 }
 
-function AnswerForm({
+export function AnswerForm({
   repoId,
   row,
   onClose,
 }: {
   readonly repoId: string;
   readonly row: Extract<AwaitsPanelSubject, { mode: "answer" }>["row"];
-  readonly onClose: () => void;
+  readonly onClose?: () => void;
 }) {
   const queryClient = useQueryClient(),
     { feedback, submit } = useAwaitsAnswer(repoId),
@@ -290,13 +290,13 @@ function AnswerForm({
             testId="awaits-answer-refresh"
             onClick={() => {
               void queryClient.invalidateQueries({ queryKey: agendaQueryKeys.read(repoId) });
-              onClose();
+              onClose?.();
             }}
           >
             {t("components.awaitsAnswer.refresh")}
           </Button>
         )}
-        {done && (
+        {done && onClose && (
           <Button variant="ghost" size="sm" onClick={onClose} testId="awaits-answer-close-done">
             {t("components.awaitsAnswer.close")}
           </Button>

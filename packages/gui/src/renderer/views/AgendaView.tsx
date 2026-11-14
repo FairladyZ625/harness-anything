@@ -9,6 +9,7 @@ import { SegCtl } from "../components/primitives/SegCtl.tsx";
 import { SegBar } from "../components/primitives/SegBar.tsx";
 import { BoundedContent } from "../components/primitives/BoundedContent.tsx";
 import { EntityRefLink } from "../components/EntityRefLink.tsx";
+import { AnswerForm } from "../components/AwaitsAnswerPanel.tsx";
 import { TitleText } from "../components/primitives/TitleText.tsx";
 import { agendaRowsOf } from "../model/agenda-rows.ts";
 import { agendaWorkbenchOf, type AgendaWorkbenchFilter } from "../model/agenda-workbench.ts";
@@ -18,7 +19,6 @@ import { adaptProjectionRows } from "../task-adapter.ts";
 import { useTasksQuery, useWorkIndexQuery } from "../task-data.ts";
 import { WorkGraphTab } from "./workspace/WorkGraphTab.tsx";
 import { AgendaAttention } from "./agenda/AgendaAttention.tsx";
-import { AgendaInboxAnswer } from "./agenda/AgendaInboxCard.tsx";
 import { AgendaOutboxCard } from "./agenda/AgendaOutboxCard.tsx";
 import { AgendaItemStatus, AgendaWorkbenchQueue } from "./agenda/AgendaWorkbenchQueue.tsx";
 
@@ -286,11 +286,7 @@ function AgendaWorkbench({ repoId, agenda, agendaError, onNavigateEntity }: Agen
                           </BoundedContent>
                         )}
                         {selected.asks.map((ask) => (
-                          <AgendaInboxAnswer
-                            key={`${ask.relationId}:${ask.relationRevision}`}
-                            repoId={repoId}
-                            row={ask}
-                          />
+                          <AnswerForm key={`${ask.relationId}:${ask.relationRevision}`} repoId={repoId} row={ask} />
                         ))}
                       </>
                     )}

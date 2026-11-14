@@ -354,7 +354,7 @@ describe("议程页(标准 §2.4 列表页)", () => {
     expect(card?.textContent).toMatch(/\d+ (分钟|小时|天)前开始等待/u);
     expect(card?.textContent).toContain("提案 task/task_x");
     expect(card?.textContent).toContain("has review changes to resolve.");
-    expect(card?.querySelector('[data-testid="agenda-answer-comment"]')).not.toBeNull();
+    expect(card?.querySelector('[data-testid="awaits-answer-comment"]')).not.toBeNull();
     expect(document.body.querySelector('[data-testid="awaits-answer-panel"]')).toBeNull();
     expect(opened).toEqual([]);
 

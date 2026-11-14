@@ -331,7 +331,7 @@ describe("Agenda unified Inbox / Outbox workbench", () => {
     input(search, "j");
     expect(search.value).toBe("j");
     input(search, "");
-    const reply = find<HTMLTextAreaElement>("agenda-answer-comment");
+    const reply = find<HTMLTextAreaElement>("awaits-answer-comment");
     key("j", reply);
     expect(selected()).toBe("a");
     for (const tag of ["select", "input", "textarea"]) {
@@ -368,9 +368,9 @@ describe("Agenda unified Inbox / Outbox workbench", () => {
     });
     const invalidate = vi.spyOn(client, "invalidateQueries");
     render(agenda({ awaitingYou: [ask("answer")] }));
-    expect(find<HTMLButtonElement>("agenda-answer-submit").disabled).toBe(true);
-    input(find<HTMLTextAreaElement>("agenda-answer-comment"), "  Keep the API  ");
-    click("agenda-answer-submit");
+    expect(find<HTMLButtonElement>("awaits-answer-submit").disabled).toBe(true);
+    input(find<HTMLTextAreaElement>("awaits-answer-comment"), "  Keep the API  ");
+    click("awaits-answer-submit");
     await settle(() =>
       expect(retire).toHaveBeenCalledExactlyOnceWith({
         repoId: "repo",
@@ -380,21 +380,40 @@ describe("Agenda unified Inbox / Outbox workbench", () => {
       }),
     );
     expect(invalidate).toHaveBeenCalledWith({ queryKey: agendaQueryKeys.read("repo") });
-    await settle(() => expect(find("agenda-answer-feedback").getAttribute("data-state")).toBe("success"));
+    await settle(() => expect(find("awaits-answer-feedback").getAttribute("data-state")).toBe("success"));
+    expect(host.querySelector('[data-testid="awaits-answer-close-done"]')).toBeNull();
+  });
+
+  it("refreshes a conflicted inline answer without closing the card or assuming a panel callback", async () => {
+    vi.spyOn(harnessClient, "retireRelation").mockResolvedValue({
+      ok: false,
+      opId: "op-conflict",
+      outcome: "op_rejected",
+      code: "revision_conflict",
+    });
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    render(agenda({ awaitingYou: [ask("conflict")] }));
+    input(find<HTMLTextAreaElement>("awaits-answer-comment"), "Keep the API");
+    click("awaits-answer-submit");
+    await settle(() => expect(find("awaits-answer-feedback").getAttribute("data-state")).toBe("conflict"));
+    invalidate.mockClear();
+    click("awaits-answer-refresh");
+    expect(invalidate).toHaveBeenCalledExactlyOnceWith({ queryKey: agendaQueryKeys.read("repo") });
+    expect(selected()).toBe("conflict");
   });
 
   it("prefills consent choices without silently submitting, exposes rejection feedback, and resets per item", async () => {
     const retire = vi.spyOn(harnessClient, "retireRelation").mockRejectedValue(new Error("answer refused"));
     render(agenda({ awaitingYou: [ask("a", { askKind: "consent" }), ask("b", { askKind: "consent" })] }));
-    click("agenda-answer-choice-agree");
+    click("awaits-answer-choice-agree");
     expect(retire).not.toHaveBeenCalled();
-    expect(find<HTMLButtonElement>("agenda-answer-submit").disabled).toBe(false);
-    click("agenda-answer-submit");
-    await settle(() => expect(find("agenda-answer-feedback").textContent).toContain("answer refused"));
-    expect(find("agenda-answer-feedback").getAttribute("data-state")).toBe("error");
+    expect(find<HTMLButtonElement>("awaits-answer-submit").disabled).toBe(false);
+    click("awaits-answer-submit");
+    await settle(() => expect(find("awaits-answer-feedback").textContent).toContain("answer refused"));
+    expect(find("awaits-answer-feedback").getAttribute("data-state")).toBe("error");
     key("j");
     expect(selected()).toBe("b");
-    expect(find<HTMLButtonElement>("agenda-answer-submit").disabled).toBe(true);
+    expect(find<HTMLButtonElement>("awaits-answer-submit").disabled).toBe(true);
   });
 
   it("loads exactly one delivery/document pair for twenty Outbox tasks and renders actual Explainer", async () => {
@@ -604,7 +623,7 @@ describe("Agenda unified Inbox / Outbox workbench", () => {
     );
     expect(selected()).toBe("dec_native");
     expect(host.querySelectorAll('[data-testid="agenda-row-dec_native"]')).toHaveLength(1);
-    expect(find("agenda-current-card").querySelectorAll("form")).toHaveLength(2);
+    expect(find("agenda-current-card").querySelectorAll('[data-testid="awaits-approval-card"]')).toHaveLength(2);
     expect(find("agenda-current-card").textContent).toContain("177");
     expect(find("work-graph-wiring").getAttribute("data-work-root")).toBe("work_native");
     click("agenda-card-open");
