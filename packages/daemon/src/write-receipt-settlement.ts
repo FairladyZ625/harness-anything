@@ -7,6 +7,7 @@ import {
   type TaskProjection,
   type WriteReceipt,
   type WriteReceiptDraft,
+  type DaemonRepoMode,
 } from "@harness-anything/kernel";
 import type { ReceiptAcceptanceFields } from "@harness-anything/kernel/internal/domain/receipt-acceptance.ts";
 import type { RepoTaskAction, TaskCreateReceipt } from "./repo-cell-types.ts";
@@ -29,7 +30,7 @@ const ledgerFreeActions = new Set(
  * that immediately replaces task_plan.md merges against the settled baseline.
  */
 export async function settleWriteReceipt(
-  context: { readonly store: CanonicalEventStore; readonly projection: TaskProjection },
+  context: { readonly mode: DaemonRepoMode; readonly store: CanonicalEventStore; readonly projection: TaskProjection },
   action: RepoTaskAction,
   receipt: WriteReceipt,
   signal?: AbortSignal,
@@ -38,6 +39,7 @@ export async function settleWriteReceipt(
   // even at the same canonical revision: node policy changes never append canonical retirements.
   if (
     action.kind === "settings-update" &&
+    context.mode !== "remote-edge" &&
     action.taskMaterializationPolicy !== undefined &&
     (receipt.outcome === "applied" || receipt.outcome === "no_changes")
   ) {
@@ -67,15 +69,7 @@ export async function settleWriteReceipt(
     receipt.effects?.length === 1 &&
     receipt.effects[0] === "settings-local/locale_changed";
   if (localSettingsOnly || ledgerFreeActions.has(action.kind)) {
-    const { proof: _committedProof, ...local } = receipt;
-    if (action.kind === "doc-materialize" && receipt.outcome === "pending")
-      return {
-        ...local,
-        guidance: [...(local.guidance ?? []), { kind: "run-command", args: { command: "ha doc status" } }],
-      };
-    return receipt.outcome === "applied" || receipt.outcome === "no_changes"
-      ? { ...local, status: "settled_no_write" }
-      : local;
+    return settleHostLocalReceipt(action, receipt);
   }
   if (
     !canonicalSettlementActions.has(action.kind) &&
@@ -107,6 +101,18 @@ export function attachWriteReceiptAcceptance<R extends WriteReceiptDraft>(
     attachReceiptAcceptance(receipt, context.store, context.projection),
     context.store,
   );
+}
+
+export function settleHostLocalReceipt(action: RepoTaskAction, receipt: WriteReceipt): WriteReceipt {
+  const { proof: _committedProof, ...local } = receipt;
+  if (action.kind === "doc-materialize" && receipt.outcome === "pending")
+    return {
+      ...local,
+      guidance: [...(local.guidance ?? []), { kind: "run-command", args: { command: "ha doc status" } }],
+    };
+  return receipt.outcome === "applied" || receipt.outcome === "no_changes"
+    ? { ...local, status: "settled_no_write" }
+    : local;
 }
 
 function relationWorktreeSettlement<R extends WriteReceiptDraft & ReceiptAcceptanceFields>(

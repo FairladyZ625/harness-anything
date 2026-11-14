@@ -193,7 +193,7 @@ test("dispatched task-package lookup keeps SQL row access independent of unrelat
   );
 });
 
-test("legacy materialization marker without a base does not classify center differences as local edits", async (t) => {
+test("a marker without a base preserves differing local bytes and reports them as candidates", async (t) => {
   const fixture = await makeFixture(1);
   t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
   const localPath = path.join(fixture.workspaceRoot, "harness/tasks/task-scale/artifacts/doc-0.md");
@@ -211,12 +211,12 @@ test("legacy materialization marker without a base does not classify center diff
   );
   assert.deepEqual(
     scan.changes.map(({ path: logical }) => logical),
-    ["tasks/task-scale/artifacts/local-only.md"],
+    ["tasks/task-scale/artifacts/doc-0.md", "tasks/task-scale/artifacts/local-only.md"],
   );
-  assert.deepEqual(scan.cleanPaths, ["tasks/task-scale/artifacts/doc-0.md"]);
+  assert.deepEqual(scan.cleanPaths, []);
   const applied = applyFleetMirrorCut(fixture.viewRoot, fixture.repoId, fixture.workspaceRoot, "pull");
-  assert.deepEqual(applied.dirtyPaths, []);
-  assert.equal(readFileSync(localPath, "utf8"), "# document 0\n");
+  assert.deepEqual(applied.dirtyPaths, ["tasks/task-scale/artifacts/doc-0.md"]);
+  assert.equal(readFileSync(localPath, "utf8"), "legacy local bytes\n");
 });
 
 test("an unmarked worktree does not report unmaterialized center documents as deletions", async (t) => {

@@ -20,6 +20,17 @@ export function TaskMaterializationControl({ repoId, taskId }: { readonly repoId
     }),
     state = read.data?.materializationState,
     missing = state === "skipped_by_node_policy" || state === "dematerialized_terminal",
+    materialize = useMutation({
+      mutationFn: async () => {
+        const request = { repoId, taskId },
+          receipt = readGuiActionResult(await invoke("repo.task.materialize", request, "materializeTask"));
+        if (!receipt.ok) throw new Error(localErrorHint(receipt, "Task materialization failed."));
+        return receipt;
+      },
+      onSuccess: async () => {
+        await cache.invalidateQueries({ queryKey: ["tasks", repoId, taskId] });
+      },
+    }),
     availability = useQuery({
       queryKey: ["entity-actions", repoId, taskId],
       queryFn: async () => {
@@ -37,33 +48,52 @@ export function TaskMaterializationControl({ repoId, taskId }: { readonly repoId
         if (!("subjects" in result)) throw daemonBridgeError(result, "Task action availability failed.");
         return result;
       },
-      enabled: missing,
+      enabled: missing || materialize.data?.outcome === "pending",
       retry: guiInteractionPolicy.defaultValue.retry,
     }),
-    action = availability.data?.subjects[0]?.actions.find(({ action }) => action.id === "materialize"),
-    materialize = useMutation({
-      mutationFn: async () => {
-        const request = { repoId, taskId },
-          receipt = readGuiActionResult(await invoke("repo.task.materialize", request, "materializeTask"));
-        if (!receipt.ok) throw new Error(localErrorHint(receipt, "Task materialization failed."));
-        return receipt;
-      },
-      onSuccess: async () => {
-        await cache.invalidateQueries({ queryKey: ["tasks", repoId, taskId] });
-      },
-    });
-  if (!missing) return null;
+    action = availability.data?.subjects[0]?.actions.find(({ action }) => action.id === "materialize");
+  const pending = materialize.data?.outcome === "pending";
+  if (!missing && !pending) return null;
   return (
     <span className="flex flex-wrap items-center gap-2" data-testid="task-materialization-control">
-      <StatusTag tone="neutral" label={t(`views.taskDetailView.${state}`)} />
+      <StatusTag
+        tone="neutral"
+        label={
+          pending
+            ? t("views.settingsView.localFilesPending")
+            : t(
+                state === "dematerialized_terminal"
+                  ? "views.taskDetailView.dematerialized_terminal"
+                  : "views.taskDetailView.skipped_by_node_policy",
+              )
+        }
+      />
       <Button
         testId="task-materialize"
         disabled={action?.available !== true || materialize.isPending}
         tip={action?.nextActions.join("\n")}
         onClick={() => materialize.mutate()}
       >
-        {t(materialize.isPending ? "views.taskDetailView.materializing" : "views.taskDetailView.materialize")}
+        {t(
+          materialize.isPending
+            ? "views.taskDetailView.materializing"
+            : pending
+              ? "views.settingsView.retryLocalFiles"
+              : "views.taskDetailView.materialize",
+        )}
       </Button>
+      {pending && (
+        <span role="status" className="flex flex-col gap-1 ui-meta text-status-blocked">
+          {materialize.data?.warnings?.map((warning) => (
+            <span key={warning}>{warning}</span>
+          ))}
+          {materialize.data?.guidance
+            ?.filter((entry) => entry.kind === "run-command" && typeof entry.args.command === "string")
+            .map((entry) => (
+              <code key={String(entry.args.command)}>{String(entry.args.command)}</code>
+            ))}
+        </span>
+      )}
       {(materialize.error || availability.error) && (
         <span role="alert">{(materialize.error || availability.error)?.message}</span>
       )}

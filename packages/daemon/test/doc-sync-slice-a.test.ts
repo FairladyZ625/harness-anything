@@ -1136,6 +1136,8 @@ test("an authored branch advanced outside the daemon remains an ancestor of the 
     }),
     binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   try {
+    // The external advance starts after bootstrap publication, not concurrently with its index lock.
+    await cell.settlePendingMaterialization("fixture bootstrap before external branch advance");
     write(rootDir, "context/notes.md", "# Notes\n");
     git(rootDir, "add", "harness/context/notes.md");
     git(rootDir, "commit", "-qm", "external advance");

@@ -18,9 +18,11 @@ afterEach(() => {
   resetGuiTransportForTest();
 });
 
-async function mount(available: boolean | null, locale: "en-US" | "zh-CN" = "zh-CN", failed = false) {
+async function mount(available: boolean | null, locale: "en-US" | "zh-CN" = "zh-CN", failed = false, pending = false) {
   setActiveLocale(locale);
   resetGuiTransportForTest();
+  let materialized = false;
+  let attempts = 0;
   const request = vi.fn(async (method: string) => {
     if (method === "showTask")
       return {
@@ -29,7 +31,11 @@ async function mount(available: boolean | null, locale: "en-US" | "zh-CN" = "zh-
         outcome: "applied",
         command: "task-show",
         opId: "show",
-        evidence: JSON.stringify({ reworkTargets: [], task: {}, materializationState: "skipped_by_node_policy" }),
+        evidence: JSON.stringify({
+          reworkTargets: [],
+          task: {},
+          materializationState: materialized ? "materialized" : "skipped_by_node_policy",
+        }),
       };
     if (method === "explainEntityActions")
       return {
@@ -42,15 +48,24 @@ async function mount(available: boolean | null, locale: "en-US" | "zh-CN" = "zh-
           },
         ],
       };
-    if (method === "materializeTask")
+    if (method === "materializeTask") {
+      materialized = pending;
+      attempts++;
       return {
         schema: "command-receipt/v2",
         ok: !failed,
-        outcome: failed ? "op_rejected" : "applied",
+        outcome: failed ? "op_rejected" : pending && attempts === 1 ? "pending" : "applied",
+        ...(pending && attempts === 1
+          ? {
+              warnings: ["Local materialization conflicts: context.md"],
+              guidance: [{ kind: "run-command", args: { command: "ha doc status" } }],
+            }
+          : {}),
         command: "doc-materialize",
         opId: "materialize",
         ...(failed ? { error: { code: "authorization_denied", hint: "Access revoked" } } : {}),
       };
+    }
     throw new Error(`Unexpected method: ${method}`);
   });
   Object.defineProperty(window, "harness", { configurable: true, value: { request } });
@@ -103,5 +118,25 @@ describe("Task materialization consumes authoritative availability", () => {
         expect(container.querySelector('[role="alert"]')?.textContent).toContain("Access revoked"),
       );
     });
+  });
+  it("keeps conflict feedback and retry visible after a partial restore materializes the task plan", async () => {
+    const { container, button, request } = await mount(true, "en-US", false, true);
+    await act(async () => {
+      await vi.waitFor(() => expect(button.disabled).toBe(false));
+      button.click();
+    });
+    await act(async () => {
+      await vi.waitFor(() => expect(container.textContent).toContain("Local files pending"));
+    });
+    expect(container.textContent).toContain("context.md");
+    expect(container.textContent).toContain("ha doc status");
+    const retry = container.querySelector<HTMLButtonElement>("button")!;
+    expect(retry.textContent).toContain("Retry materialization");
+    expect(retry.disabled).toBe(false);
+    await act(async () => retry.click());
+    await act(async () => {
+      await vi.waitFor(() => expect(container.querySelector("button")).toBeNull());
+    });
+    expect(request.mock.calls.filter(([method]) => method === "materializeTask")).toHaveLength(2);
   });
 });

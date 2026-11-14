@@ -259,6 +259,7 @@ export const nodeTaskMaterializationPolicy = {
     "packages/storage/test/postgres/terminal-materialization.integration.test.ts",
     "packages/daemon/test/task-documents-list.integration.test.ts",
     "packages/daemon/test/node-materialization-settings.integration.test.ts",
+    "packages/daemon/test/fleet-node-materialization.integration.test.ts",
   ],
   sources: [
     "policy:packages/kernel:packages/kernel/src/domain/task-wip-policy.ts#taskIncludedByNodeMaterializationPolicy:673356004ac1c02b75205dd3c6783a0c",

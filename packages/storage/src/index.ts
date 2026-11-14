@@ -6,6 +6,7 @@ export {
   resolveStorageBackend,
   unsupportedStorageBackendError,
   readNodeMaterializationDocuments,
+  requireTaskMaterializationMetadata,
 } from "./storage-backend.ts";
 export type {
   PGliteStorageBackendConfig,

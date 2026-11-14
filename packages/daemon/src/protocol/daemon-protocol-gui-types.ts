@@ -1188,6 +1188,8 @@ export type DaemonGuiActionResult = JsonObject & {
   readonly command: string;
   readonly outcome: WriteReceiptOutcome;
   readonly opId: string;
+  readonly warnings?: import("@harness-anything/kernel").WriteReceipt["warnings"];
+  readonly guidance?: import("@harness-anything/kernel").WriteReceipt["guidance"];
 };
 
 export type DaemonGuiActionMethod = (typeof daemonGuiActionMethods)[number]["method"];

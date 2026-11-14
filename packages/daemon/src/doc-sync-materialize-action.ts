@@ -1,5 +1,5 @@
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
-import { stableStringify } from "@harness-anything/kernel";
+import { stableStringify, type CanonicalEventStore } from "@harness-anything/kernel";
 import { touch } from "./doc-sync-details.ts";
 import { docSyncError, hasExactDocSyncActionFields, proof, rejectDocSyncAction } from "./doc-sync-files.ts";
 import { workspacePathOf } from "./doc-sync-settlement.ts";
@@ -11,7 +11,16 @@ import type { DocSettlementReceipt, Input } from "./doc-sync-command-actions.ts"
  * `all` runs the previewed whole-closure pass. Every confirmed run reports each settled path and,
  * where the overwritten local bytes were kept, the conflict copy beside it.
  */
-export function runDocMaterialize(input: Input): DocSettlementReceipt {
+type MaterializeInput = Pick<Input, "action" | "rootDir" | "workspaceCoordinate"> & {
+  readonly projection: Pick<Input["projection"], "read" | "readDocuments">;
+  readonly store: Pick<CanonicalEventStore, "materialize" | "currentCut"> & {
+    readonly readHead: () => { readonly revision: number } | null;
+    readonly followerStatus: () => {
+      readonly worktree: Pick<ReturnType<CanonicalEventStore["followerStatus"]>["worktree"], "status">;
+    };
+  };
+};
+export function runDocMaterialize(input: MaterializeInput): DocSettlementReceipt {
   const paths = materializePaths(input),
     workspacePath = workspacePathOf(input);
   const result =
@@ -80,6 +89,7 @@ export function runDocMaterialize(input: Input): DocSettlementReceipt {
     revision,
     acceptance: null,
     evidence: `doc-materialize:${stableStringify({ settlements, conflicts })}`,
+    ...(conflicts.length > 0 ? { warnings: [`Local materialization conflicts: ${conflicts.join(", ")}`] } : {}),
     visibility: "center",
     proof: proof(revision, revision, true, visible),
     ...(paths !== undefined && settlements.length > 0
@@ -99,7 +109,7 @@ export function runDocMaterialize(input: Input): DocSettlementReceipt {
 }
 
 /** undefined = preview (bare), null = whole cut (--all), otherwise the explicit --path selection. */
-function materializePaths(input: Input): readonly string[] | null | undefined {
+function materializePaths(input: MaterializeInput): readonly string[] | null | undefined {
   const action = input.action;
   if (typeof action.taskId === "string") {
     const taskFields = Object.hasOwn(action, "paths") ? ["kind", "paths", "taskId"] : ["kind", "taskId"];

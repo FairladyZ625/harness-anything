@@ -2200,5 +2200,7 @@
   "views.taskDetailView.materialized": "Materialized locally",
   "views.taskDetailView.materialize": "Materialize locally",
   "views.taskDetailView.materializing": "Materializing…",
-  "views.settingsView.applyOnNode": "Apply on this node"
+  "views.settingsView.applyOnNode": "Apply on this node",
+  "views.settingsView.localFilesPending": "Local files pending",
+  "views.settingsView.retryLocalFiles": "Retry materialization"
 }

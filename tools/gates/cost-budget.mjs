@@ -255,6 +255,9 @@ async function canonicalWriteActions(rootDir) {
     );
   if (!Array.isArray(actionDeclarations) || !Array.isArray(artifactActionIngressKinds))
     throw new Error(`${declarationPath}: action declarations and artifact ingress must be arrays`);
+  const hostLocalActions = new Set(
+    actionDeclarations.filter(({ residency }) => residency?.scope === "host-local").map(({ kind }) => kind),
+  );
   return [
     ...new Set([
       ...actionDeclarations
@@ -266,7 +269,7 @@ async function canonicalWriteActions(rootDir) {
       ...entityKindContracts.flatMap(({ residency, actionCatalog }) =>
         Object.values(residency).includes("ledger")
           ? (actionCatalog?.actions ?? []).flatMap(({ execution }) =>
-              execution && !execution.read ? [execution.ingress] : [],
+              execution && !execution.read && !hostLocalActions.has(execution.ingress) ? [execution.ingress] : [],
             )
           : [],
       ),

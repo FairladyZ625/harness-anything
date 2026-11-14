@@ -305,6 +305,36 @@ export function RepositorySettingsPanel({
         {settingsMutation.error ? (
           <div className="px-3 py-2 ui-meta text-danger">{String(settingsMutation.error)}</div>
         ) : null}
+        {settingsMutation.data?.outcome === "pending" ? (
+          <div
+            role="status"
+            data-testid="settings-materialization-pending"
+            className="flex flex-col gap-2 px-3 py-2 ui-meta text-status-blocked"
+          >
+            <span>{t("views.settingsView.localFilesPending")}</span>
+            {settingsMutation.data.warnings?.map((warning) => (
+              <span key={warning}>{warning}</span>
+            ))}
+            {settingsMutation.data.guidance
+              ?.filter((entry) => entry.kind === "run-command" && typeof entry.args.command === "string")
+              .map((entry) => (
+                <code key={String(entry.args.command)}>{String(entry.args.command)}</code>
+              ))}
+            <Button
+              testId="settings-materialization-retry"
+              disabled={settingsMutation.isPending}
+              onClick={() => {
+                if (settingsMutation.variables)
+                  settingsMutation.mutate({
+                    ...settingsMutation.variables,
+                    expectedVersion: settingsQuery.data?.revision,
+                  });
+              }}
+            >
+              {t("views.settingsView.retryLocalFiles")}
+            </Button>
+          </div>
+        ) : null}
       </Section>
       {groups.length === 0 ? (
         <Section variant="panel" title={t("views.settingsView.sectionRepository")}>

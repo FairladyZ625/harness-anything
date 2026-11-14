@@ -3,6 +3,8 @@ import {
   defineCenterForwardWriteCommand,
   cliInput,
   defineLedgerWriteCommand,
+  defineCliCommand,
+  nodeLocalWriteCommandTopology,
   workspacePathFormat,
 } from "@harness-anything/preset/internal/preset-command-contract";
 
@@ -146,7 +148,8 @@ export const docFactProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCliCommand({
+    ...nodeLocalWriteCommandTopology,
     id: "doc-materialize",
     phase: "DocSync-B",
     path: ["doc", "materialize"],

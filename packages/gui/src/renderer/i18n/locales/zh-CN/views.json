@@ -2200,5 +2200,7 @@
   "views.taskDetailView.materialized": "已落盘到本机",
   "views.taskDetailView.materialize": "物化到本地",
   "views.taskDetailView.materializing": "正在物化…",
-  "views.settingsView.applyOnNode": "应用到本机"
+  "views.settingsView.applyOnNode": "应用到本机",
+  "views.settingsView.localFilesPending": "本机文件尚未对齐",
+  "views.settingsView.retryLocalFiles": "重试物化"
 }
