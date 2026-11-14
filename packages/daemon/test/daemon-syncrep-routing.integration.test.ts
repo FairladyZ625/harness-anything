@@ -10,6 +10,7 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { fixtureFence, settleSettingsEvent } from "./repo-settings.fixture.ts";
 import { policyTestCenter, provisionPolicyTestRepository, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import type { RepoWriterRequestV1 } from "../src/repo-writer-protocol.ts";
+import { REPO_WRITER_QUEUE_LIMIT } from "../src/writer-request-queue.ts";
 
 async function synchronous(fixture: Awaited<ReturnType<typeof pgRuntimeFixture>>, enabled: boolean) {
   console.log("S3_GUC", "alter", enabled);
@@ -178,11 +179,41 @@ test(
         )
       ).rows[0]!.n;
       assert.equal(cancelledRows, 0);
+      const controllers = Array.from({ length: REPO_WRITER_QUEUE_LIMIT }, () => new AbortController());
+      const waiting = controllers.map((controller, i) =>
+        assert.rejects(
+          cell.run(
+            { kind: "task-create", taskId: `task-s3-capacity-${i}`, title: "never dispatched" },
+            binding,
+            controller.signal,
+          ),
+          { name: "AbortError" },
+        ),
+      );
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      const overloadedAt = performance.now();
+      await assert.rejects(
+        cell.run({ kind: "task-create", taskId: "task-s3-overloaded", title: "overloaded" }, binding),
+        { code: "write_overloaded", data: { retryable: true } },
+      );
+      const overloadMs = performance.now() - overloadedAt;
+      assert.equal(requests.length, beforeQueue);
+      for (const controller of controllers) controller.abort();
+      await Promise.all(waiting);
+      assert.equal(
+        (
+          await fixture.adminPool.query(
+            "SELECT count(*)::int AS n FROM ha_events WHERE event_json LIKE '%task-s3-capacity-%' OR event_json LIKE '%task-s3-overloaded%'",
+          )
+        ).rows[0]!.n,
+        0,
+      );
       const detachAt = performance.now();
       abort.abort();
       const detached = (await inflight) as { outcome: string; opId: string };
       assert.equal(detached.outcome, "indeterminate", JSON.stringify(detached));
       assert.ok(detached.opId);
+      assert.equal(detached.opId, attemptedOpId);
       const detachMs = performance.now() - detachAt;
       assert.equal(terminateCalls, 0);
       assert.ok(
@@ -206,6 +237,8 @@ test(
         JSON.stringify({
           readMs,
           cancelMs,
+          overloadMs,
+          queueLimit: REPO_WRITER_QUEUE_LIMIT,
           detachMs,
           cancelledRows,
           blockedPid: blocked[0]!.pid,

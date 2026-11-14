@@ -4,10 +4,10 @@ import type { OntologyPolicyDeclaration } from "./ontology-source.ts";
 export const writerLifecyclePolicy = {
   id: "writer-idle-retirement",
   ownerRef: "host",
-  unit: "milliseconds / indexed rows",
+  unit: "milliseconds / indexed rows / pending requests",
   bounds:
-    "Retire after 30000ms without admitted work; inspect one active dispatch row; cap the young generation at 8 MiB without capping the old generation.",
-  defaultValue: { idleTimeoutMs: 30_000, activeProbeLimit: 1, maxYoungGenerationSizeMb: 8 },
+    "Retire after 30000ms without admitted work; inspect one active dispatch row; cap the young generation at 8 MiB without capping the old generation; admit at most 64 pending requests behind one in-flight write.",
+  defaultValue: { idleTimeoutMs: 30_000, activeProbeLimit: 1, maxYoungGenerationSizeMb: 8, queueLimit: 64 },
   version: 1,
   scope: "daemon process repository writer lifecycle",
   reason:
@@ -15,6 +15,9 @@ export const writerLifecyclePolicy = {
   fixtures: [
     "packages/daemon/test/writer-supervisor-idle.test.ts",
     "packages/daemon/test/writer-supervisor-memory.integration.test.ts",
+    "packages/daemon/test/writer-syncrep-admission.test.ts",
+    "packages/daemon/test/daemon-syncrep-routing.integration.test.ts",
+    "packages/daemon/test/daemon-write-cas.integration.test.ts",
   ],
   sources: [
     {
@@ -25,6 +28,11 @@ export const writerLifecyclePolicy = {
     {
       candidateId:
         "policy:packages/kernel:packages/kernel/src/domain/writer-lifecycle-policy.ts#writerLifecyclePolicy.defaultValue.activeProbeLimit:b08728d69483af7cc532562c05460881",
+      route: "daemon:bin",
+    },
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/writer-lifecycle-policy.ts#writerLifecyclePolicy.defaultValue.queueLimit:4d7faaaf2caf75e6a2cc456d9d240666",
       route: "daemon:bin",
     },
     {

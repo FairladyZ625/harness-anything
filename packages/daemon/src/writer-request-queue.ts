@@ -1,4 +1,6 @@
-export const REPO_WRITER_QUEUE_LIMIT = 64;
+import { writerLifecyclePolicy } from "@harness-anything/kernel/internal/domain/writer-lifecycle-policy.ts";
+
+export const REPO_WRITER_QUEUE_LIMIT = writerLifecyclePolicy.defaultValue.queueLimit;
 
 interface Slot {
   readonly state: Int32Array;
