@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type { TestContext } from "node:test";
+import { setImmediate } from "node:timers/promises";
 import { fleetReplicationFixture, replicationRepoId } from "../../fleet-replication.fixture.ts";
 import { fleetHostWriterOptions } from "../../fleet-store.fixture.ts";
 import { cutProbe } from "./probe.ts";
@@ -46,15 +47,26 @@ export async function runLifecycle(t: TestContext, schedule: Lifecycle): Promise
       () => null,
       (error: Error) => error,
     );
-    const second = await wait("snapshot-dispatched", (e) => e.requestId !== snapshot.requestId);
+    const deadline = performance.now() + 30_000;
+    while ((f.host.status().repos.find((r) => r.repoId === replicationRepoId)?.queueDepth ?? 0) < 2) {
+      assert.ok(performance.now() < deadline, "the queued snapshot must enter host admission");
+      await setImmediate();
+    }
+    const abortedAt = performance.now();
     queuedController.abort();
-    await wait("cancel-received", (e) => e.requestId === second.requestId);
+    const rejected = await queued,
+      elapsedMs = performance.now() - abortedAt;
+    assert.equal(rejected?.name, "AbortError");
+    assert.ok(elapsedMs < 100, `queued cancellation took ${elapsedMs}ms`);
+    assert.equal(f.host.status().repos.find((r) => r.repoId === replicationRepoId)?.queueDepth, 1);
+    assert.equal(entries.filter((e) => e.event === "snapshot-dispatched").length, 1);
+    assert.equal(
+      entries.some((e) => e.event === "cancel-received"),
+      false,
+    );
+    record("queued-backup-cancelled-at-host", { elapsedMs, snapshotRequestId: snapshot.requestId });
     release();
     assert.equal((await first).error, null);
-    const rejected = await queued;
-    assert.equal(rejected?.name, "AbortError");
-    const receipt = await wait("snapshot-receipt", (e) => e.requestId === second.requestId);
-    assert.equal(receipt.queueHead?.requestId, snapshot.requestId);
     assert.equal(
       entries.filter((e) => e.event === "backup-created").length,
       1,

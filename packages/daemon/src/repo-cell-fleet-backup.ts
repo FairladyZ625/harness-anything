@@ -22,7 +22,12 @@ export function makeRepoCellFleetBackup(
         signal?.throwIfAborted();
         if (cell.state !== "attached") throw cell.cellCodedError("repo_unavailable", cell.latched());
         assertWriterEpochFenceDescriptor(request.writerEpochFence);
-        const source = openFleetStorage({ rootDir: cell.rootDir, repoId: cell.input.repoId, storage });
+        const source = openFleetStorage({
+          rootDir: cell.rootDir,
+          repoId: cell.input.repoId,
+          storage,
+          deferReader: true,
+        });
         try {
           return await source.startBackup(request.directory, cell.projection.path, signal);
         } finally {

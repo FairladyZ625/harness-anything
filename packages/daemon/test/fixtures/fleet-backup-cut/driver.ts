@@ -5,6 +5,7 @@ import path from "node:path";
 import tls from "node:tls";
 import type { TestContext } from "node:test";
 import { DatabaseSync } from "node:sqlite";
+import { setImmediate } from "node:timers/promises";
 import { fleetReplicationFixture, replicationRepoId } from "../../fleet-replication.fixture.ts";
 import { catchUpReplica } from "../../replica-catch-up.fixture.ts";
 import { readReplicaGeneration } from "../../../src/fleet/replica-generation.ts";
@@ -143,13 +144,21 @@ export async function runCut(t: TestContext, schedule: Schedule): Promise<void> 
     const created = await wait("backup-created");
     if (created.parentThreadId === 0) await writing;
     else {
-      // A source fix can move pinning under the existing writer. Release on dispatch into that
-      // owner, then verify its completed receipt names the preceding queue head below. No clock
-      // or absence of a receipt is used to claim the write was blocked.
-      const dispatched = await wait("write-dispatched");
-      assert.equal(dispatched.targetThreadId, created.parentThreadId);
-      await wait("write-received", (e) => e.requestId === dispatched.requestId);
-      record("write-dispatched-to-backup-owner");
+      // The snapshot owns the exclusive slot. New writes stay at the host, so waiting for a
+      // worker receipt before releasing this barrier would deadlock the admission contract.
+      const snapshot = await wait("snapshot-dispatched"),
+        deadline = performance.now() + 30_000;
+      let depth: number;
+      while ((depth = f.host.status().repos.find((r) => r.repoId === replicationRepoId)?.queueDepth ?? 0) < 2) {
+        assert.ok(performance.now() < deadline, "the concurrent write must enter host admission");
+        await setImmediate();
+      }
+      assert.equal(snapshot.targetThreadId, created.parentThreadId);
+      assert.equal(
+        entries.some((e) => e.event === "write-dispatched"),
+        false,
+      );
+      record("write-admitted-at-host", { snapshotRequestId: snapshot.requestId, depth });
     }
   }
   release();
@@ -191,14 +200,17 @@ export async function runCut(t: TestContext, schedule: Schedule): Promise<void> 
       "receiver sent its applied ACK",
     );
     if (schedule === "between-selects") {
-      const writer = await wait("writer-receipt");
-      const snapshot = await wait("snapshot-dispatched");
+      const admitted = await wait("write-admitted-at-host"),
+        dispatched = await wait("write-dispatched"),
+        snapshot = await wait("snapshot-dispatched");
       assert.equal(
-        writer.queueHead?.requestId,
+        admitted.snapshotRequestId,
         snapshot.requestId,
         "the write waited behind this exact snapshot request",
       );
-      assert.equal(writer.queueHead?.command, "replication-snapshot");
+      assert.equal(dispatched.targetThreadId, snapshot.targetThreadId);
+      assert.ok(admitted.order < entries.find((e) => e.event === "release-requested")!.order);
+      assert.ok(entries.find((e) => e.event === "pinned")!.order < dispatched.order);
       assert.ok(
         entries.find((e) => e.event === "pinned")!.order < entries.find((e) => e.event === "write-receipt")!.order,
       );

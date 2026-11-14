@@ -194,6 +194,8 @@ export function openFleetStorage(input: {
   readonly rootDir: string;
   readonly repoId: string;
   readonly storage?: DaemonStorageConfig;
+  /** Backup-only callers need no query worker; ordinary readers initialize before they are exposed. */
+  readonly deferReader?: boolean;
 }) {
   const storage = input.storage;
   if (storage?.backend === "postgres" || storage?.backend === "pglite") {
@@ -204,6 +206,7 @@ export function openFleetStorage(input: {
         repoId: input.repoId,
         requireRuntimeRole: true,
       }));
+    if (!input.deferReader) reader();
     return {
       replicationPosition: () => reader().replication("head") as ReplicationPosition,
       replicationCommits: (after: ReplicationPosition, limit: number) =>

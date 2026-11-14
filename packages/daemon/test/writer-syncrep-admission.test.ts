@@ -195,7 +195,9 @@ test("C6a: host abort wins once, sends cancellation, and keeps the slot through 
 test("C6a: close terminates a stuck rollback only after abort wins and the full grace elapses", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const { supervisor, worker } = await open({ rollbackGraceMs: 5_000 });
-  const first = assert.rejects(supervisor.request("run", { opId: "stuck-rollback" }), { code: "daemon_closing" });
+  const first = assert.rejects(supervisor.request("run", { opId: "stuck-rollback" }), {
+    code: "writer_rollback_timeout",
+  });
   await worker.posted.promise;
   const state = worker.writes[0]!.writeRequest!.state;
   const closing = supervisor.close();
@@ -348,5 +350,26 @@ test("staged admission counts all dispatched preparation even without an exclusi
   for (const request of worker.writes) worker.receipt(request.requestId);
   await Promise.all(results);
   await turn();
+  await supervisor.close();
+});
+
+test("cancelling an out-of-slot operation preserves its cleanup failure receipt", async () => {
+  const { supervisor, worker } = await open({}, input, true),
+    abort = new AbortController(),
+    result = assert.rejects(supervisor.request("fleetBackup", {}, undefined, abort.signal), {
+      message: "archive worker cleanup failed",
+      code: "archive_cleanup_failed",
+    });
+  await worker.posted.promise;
+  abort.abort();
+  await turn();
+  assert.equal(worker.cancels.length, 1);
+  worker.emit("message", {
+    schema: "harness-repo-writer-receipt/v1",
+    requestId: worker.writes[0]!.requestId,
+    outcome: "error",
+    error: { name: "Error", message: "archive worker cleanup failed", code: "archive_cleanup_failed" },
+  });
+  await result;
   await supervisor.close();
 });

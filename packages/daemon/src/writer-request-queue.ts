@@ -78,7 +78,7 @@ export function createWriterRequestQueue(options: {
         .run(request)
         .then(
           (value) => (request.cancelled !== undefined ? request.reject(request.cancelled) : request.resolve(value)),
-          (error: unknown) => request.reject(request.cancelled !== undefined ? request.cancelled : error),
+          (error: unknown) => request.reject(error),
         )
         .finally(() => {
           request.cleanup();

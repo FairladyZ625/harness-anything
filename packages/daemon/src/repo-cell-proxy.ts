@@ -387,7 +387,7 @@ export async function openRepoCellProxy(
       if (closed || !writerAttached(supervisor.status())) throw cellCodedError("repo_unavailable", latched());
       configureWriterEpochStorage(request.writerEpochFence, input.storage);
       assertWriterEpochFenceDescriptor(request.writerEpochFence);
-      const source = openFleetStorage(input);
+      const source = openFleetStorage({ ...input, deferReader: true });
       try {
         const backup = await source.startBackup(request.directory, "", signal);
         return await backup.complete;
