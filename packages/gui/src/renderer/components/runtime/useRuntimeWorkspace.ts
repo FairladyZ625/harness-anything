@@ -3,7 +3,7 @@ import { guiInteractionPolicy } from "../../../api/renderer-dto.ts";
 import { useEffect, useState } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
-import type { AgentDeclarationV1, SquadDeclarationV1 } from "@harness-anything/daemon/protocol";
+import type { AgentDeclarationV1, SquadDeclarationV1, TerminalControlReceipt } from "@harness-anything/daemon/protocol";
 import { successfulAgentRuntimeResult } from "@harness-anything/daemon/protocol";
 import { agentEntityClient, type EntitySaveResult } from "../../agent-entity-client.ts";
 import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client.ts";
@@ -125,7 +125,7 @@ function useRuntimeChannel(repoId: string, refresh?: () => Promise<unknown>) {
     [feedback, setFeedback] = useState<string | null>(null),
     [error, setError] = useState<string | null>(null),
     [settlement, setSettlement] = useState<RuntimeSpawnSettlement | null>(null);
-  const run = async (label: string, action: () => Promise<unknown>, reread = true): Promise<unknown> => {
+  const run = async <T>(label: string, action: () => Promise<T>, reread = true): Promise<T | null> => {
     if (busy) return null;
     setBusy(true);
     setError(null);
@@ -703,6 +703,7 @@ export function useProviderWorkspace(repoId: string, requestedInstanceId: string
         false,
       );
       if (!created) return null;
+      let authReceipt: TerminalControlReceipt | null = null;
       if (input.authMode === "subscription") {
         const probed =
           input.credentialSource === "instance"
@@ -713,7 +714,7 @@ export function useProviderWorkspace(repoId: string, requestedInstanceId: string
                 false,
               );
         if (input.credentialSource === "instance" || subscriptionCreationNeedsLogin(input, probed))
-          await channel.run(
+          authReceipt = await channel.run(
             t("agentRuntime.opSignIn"),
             () => runtimeInstanceClient.auth(repoId, input.instanceId, "login"),
             false,
@@ -721,7 +722,7 @@ export function useProviderWorkspace(repoId: string, requestedInstanceId: string
       }
       await client.invalidateQueries({ queryKey: runtimeInstanceCatalogQueryKey });
       await client.invalidateQueries({ queryKey: ["runtime-control", repoId] });
-      return created;
+      return { created, authReceipt };
     },
     updateInstance: (input: RuntimeInstanceUpdateInput) =>
       channel.run(t("agentRuntime.opInstanceUpdated"), () => runtimeInstanceClient.update(input, repoId)),
@@ -739,7 +740,7 @@ export function useProviderWorkspace(repoId: string, requestedInstanceId: string
       channel.run(t("agentRuntime.opInstanceDeleted"), () => runtimeInstanceClient.delete(instanceId, repoId)),
     validateInstance: (instanceId: string) =>
       channel.run(t("agentRuntime.opAuthChecked"), () => runtimeInstanceClient.probe(instanceId, repoId)),
-    authInstance: (instanceId: string, action: "login" | "logout") =>
+    authInstance: (instanceId: string, action: "login" | "logout"): Promise<TerminalControlReceipt | null> =>
       action === "logout"
         ? channel.run(
             t("agentRuntime.opSignOut"),

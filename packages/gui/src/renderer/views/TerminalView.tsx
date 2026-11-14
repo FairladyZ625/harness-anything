@@ -77,6 +77,12 @@ interface Props {
   readonly openUrl?: (uri: string) => void;
   /** 从 task 详情「打开终端」进来:进页即按该 task 建一个绑定会话;requestId 防 StrictMode 双跑。 */
   readonly launchTask?: TerminalLaunchTask | null;
+  readonly attachSession?: TerminalAttachSession | null;
+  readonly onSessionExit?: (sessionId: string) => void;
+}
+export interface TerminalAttachSession {
+  readonly requestId: string;
+  readonly sessionId: string;
 }
 export interface TerminalLaunchTask {
   readonly requestId: string;
@@ -107,6 +113,8 @@ export function TerminalView({
   tasks,
   repoRoot,
   launchTask = null,
+  attachSession = null,
+  onSessionExit,
   onNavigateEntity,
   onOpenDocument,
   openUrl,
@@ -130,6 +138,9 @@ export function TerminalView({
   repoRootRef.current = repoRoot;
   onNavigateEntityRef.current = onNavigateEntity;
   onOpenDocumentRef.current = onOpenDocument;
+  const onSessionExitRef = useRef(onSessionExit);
+  onSessionExitRef.current = onSessionExit;
+  const exitedSessions = useRef(new Set<string>());
   const ackSeq = useRef(new Map<string, number>()),
     inflight = useRef(new Map<string, Promise<void>>());
   const initialised = useRef(new Set<string>());
@@ -169,6 +180,8 @@ export function TerminalView({
     const current = [...tabsRef.current];
     for (const stop of stops.current.values()) stop();
     stops.current.clear();
+    tabsRef.current = [];
+    groupsRef.current = [];
     setTabs([]);
     setGroups([]);
     setActiveGroupId(null);
@@ -187,6 +200,7 @@ export function TerminalView({
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      initialised.current = new Set<string>();
       void releaseTabs(repoIdRef.current);
     };
   }, [releaseTabs]);
@@ -211,7 +225,11 @@ export function TerminalView({
       });
       setError(null);
       try {
-        const stop = terminalClient.attach(repoId, row.sessionId, afterSeq, (value) =>
+        const stop = terminalClient.attach(repoId, row.sessionId, afterSeq, (value) => {
+          if (!isInitial(value) && value.kind === "exit" && !exitedSessions.current.has(row.sessionId)) {
+            exitedSessions.current.add(row.sessionId);
+            onSessionExitRef.current?.(row.sessionId);
+          }
           setTabs((current) =>
             current.map((tab) => {
               if (tab.sessionId !== row.sessionId) return tab;
@@ -223,8 +241,8 @@ export function TerminalView({
                 notice: value.status === "gap" ? t("terminal.view.replayGap") : tab.notice,
               };
             }),
-          ),
-        );
+          );
+        });
         stops.current.set(row.sessionId, stop);
       } catch (cause) {
         consumeKnownError(cause);
@@ -238,6 +256,7 @@ export function TerminalView({
   const placeSession = useCallback((sessionId: string, placement: Placement) => {
     const existing = paneOfSession(groupsRef.current, sessionId);
     if (existing) {
+      gridApi.current?.getPanel(existing.panelId)?.api.setActive();
       setActiveGroupId(existing.groupId);
       setFocusedPanelId(existing.panelId);
       return;
@@ -344,10 +363,47 @@ export function TerminalView({
       }
       return;
     }
+    if (attachSession) return; // Explicit session requests are resolved after layout restoration.
     const restored = mostRecentAttachableTerminal(sessions.data.sessions);
     if (restored) attach(restored, 0);
     else if (!launchTask) void start(false); // 带 launchTask 进页时由它建绑定会话,不再另开一个未绑定的。
-  }, [attach, attachStream, launchTask, repoId, sessions.data, sessions.isSuccess, start]);
+  }, [attach, attachSession, attachStream, launchTask, repoId, sessions.data, sessions.isSuccess, start]);
+
+  const [attachedRequestId, setAttachedRequestId] = useState<string | null>(null);
+  useEffect(() => {
+    if (
+      !attachSession ||
+      !sessions.isSuccess ||
+      !initialised.current.has(repoId) ||
+      attachedRequestId === attachSession.requestId
+    )
+      return;
+    let cancelled = false;
+    void terminalClient
+      .list(repoId)
+      .then((listed) => {
+        if (cancelled || !mountedRef.current || repoIdRef.current !== repoId) return;
+        const row = listed.sessions.find((item) => item.sessionId === attachSession.sessionId);
+        if (!row) throw new Error(t("terminal.view.spawnMissing"));
+        setAttachedRequestId(attachSession.requestId);
+        queryClient.setQueryData(terminalQueryKeys.sessions(repoId), listed);
+        // Exited sessions can replay their transcript too. A fast auth command may have
+        // finished between the receipt and navigation, so still deliver its completion.
+        if (!stops.current.has(row.sessionId)) attachStream(row, 0);
+        placeSession(row.sessionId, { kind: "group" });
+        if (row.status === "exited" && !exitedSessions.current.has(row.sessionId)) {
+          exitedSessions.current.add(row.sessionId);
+          onSessionExitRef.current?.(row.sessionId);
+        }
+      })
+      .catch((cause: unknown) => {
+        consumeKnownError(cause);
+        if (!cancelled) setError(message(cause));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [attachedRequestId, attachSession, attachStream, placeSession, queryClient, repoId, sessions.isSuccess]);
 
   const create = (event: FormEvent) => {
     event.preventDefault();
@@ -530,6 +586,7 @@ export function TerminalView({
     () => ({
       session: (sessionId) => tabs.find((tab) => tab.sessionId === sessionId) ?? null,
       focusedPanelId,
+      focusRequestId: attachedRequestId,
       confirmSessionId: confirmId,
       setConfirmSessionId: setConfirmId,
       onInput: send,
@@ -543,6 +600,7 @@ export function TerminalView({
       openUrl: openUrl ?? null,
     }),
     [
+      attachedRequestId,
       closePane,
       confirmId,
       focusPane,
@@ -600,6 +658,11 @@ export function TerminalView({
                 grid={activeGroup.grid}
                 onApiReady={(api) => {
                   gridApi.current = api;
+                  const target = attachSession && paneOfSession(groupsRef.current, attachSession.sessionId);
+                  if (target && target.groupId === activeGroup.groupId) {
+                    api?.getPanel(target.panelId)?.api.setActive();
+                    setFocusedPanelId(target.panelId);
+                  }
                 }}
                 onLayoutChange={(grid) => applyGrid(activeGroup.groupId, grid)}
                 onActivePaneChange={(panelId) => {
