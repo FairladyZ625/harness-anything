@@ -526,7 +526,11 @@ export function upgradePresetSnapshot(
     taskReady = projected.status === "ready";
   if (!projected.snapshot.task || !projected.packagePath || !taskReady)
     throw cell.cellCodedError("content_not_ready", `Task ${taskId} is not ready for preset upgrade.`);
-  const contract = cell.projection.readDocument(`${projected.packagePath}/task-contract.json`),
+  const contractPath = `${projected.packagePath}/task-contract.json`,
+    activeContract = cell.projection.readDocument(contractPath),
+    contract = activeContract.document
+      ? activeContract
+      : (cell.projection.readDocumentHistory?.(contractPath) ?? activeContract),
     contractReady = contract.status === "ready";
   if (!contract.document || !contractReady)
     throw cell.cellCodedError("content_not_ready", `Task ${taskId} contract is not ready for preset upgrade.`);

@@ -201,12 +201,13 @@ export function followerDirectories(
   ledger: ReturnType<typeof resolveLedgerGitLayout>,
   events: readonly CanonicalEventV1[],
   files: readonly (PublicationWrite | PublicationDelete)[] = [],
+  directoryClaims: readonly NonNullable<ReturnType<typeof canonicalOwnedDirectories>>[] = events.flatMap(
+    (event) => canonicalOwnedDirectories(event) ?? [],
+  ),
 ): FollowerDirectorySettlement {
   const declaredByOwner = new Map<string, readonly string[]>(),
     retiredByOwner = new Map<string, readonly string[]>();
-  for (const event of events) {
-    const owned = canonicalOwnedDirectories(event);
-    if (!owned) continue;
+  for (const owned of directoryClaims) {
     declaredByOwner.set(owned.ownerRef, owned.directories);
     retiredByOwner.set(owned.ownerRef, owned.retirements);
   }

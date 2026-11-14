@@ -105,6 +105,7 @@ test("attach migration registry covers each retired historical field and is idem
       "submission.delivery-facts",
       "review.finding.category",
       "task.packageDisposition",
+      "sqlite.entity-directory-working-set",
     ],
   );
   assert.deepEqual(
@@ -340,6 +341,12 @@ test("terminal working-set projection upgrade is registered without rewriting ca
     "Projection.materialization_hold",
   ]);
   assert.equal(conclusion?.kind === "read-conclusion" && conclusion.attachRequired, false);
+  const directory = attachMigrationRegistry.find((entry) => entry.name === "sqlite.entity-directory-working-set");
+  assert.equal(directory?.kind === "read-conclusion" && directory.attachRequired, false);
+  assert.deepEqual(directory?.fields, [
+    "entity_declaration_head.directory_json",
+    "attach_migration_scan_meta.entity-directory-working-set/v1",
+  ]);
   const { store, events } = fakeStore([]);
   assert.deepEqual(applyAttachMigrations({ store }).applied, []);
   assert.deepEqual(events, [], "derived-index upgrade appends no event");

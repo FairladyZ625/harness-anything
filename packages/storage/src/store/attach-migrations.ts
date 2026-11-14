@@ -293,6 +293,16 @@ export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = 
       "Local maintenance markers commit with the recovered descriptors; cold rebuild derives the same history.",
   },
   ...historicalReadConclusions,
+  {
+    kind: "read-conclusion",
+    name: "sqlite.entity-directory-working-set",
+    fields: ["entity_declaration_head.directory_json", "attach_migration_scan_meta.entity-directory-working-set/v1"],
+    attachRequired: false,
+    conclusion:
+      "SQLite writer open expands the existing declaration index with latest owned directory sets and " +
+      "retirement candidates. Its resumable 64-event catch-up preserves canonical bytes; follower cold " +
+      "materialization reads only the partial working-set index, including blocked directory retirements.",
+  },
 ]);
 
 const registeredRetiredFields = new Set(

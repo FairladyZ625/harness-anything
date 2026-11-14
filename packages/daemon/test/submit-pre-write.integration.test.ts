@@ -12,7 +12,7 @@ function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
-async function preparationFixture(t: test.TestContext, phase: "fetch" | "risk") {
+async function preparationFixture(t: test.TestContext, phase: "fetch" | "risk", submitted = false) {
   const f = await fixture(false, false, false, true, false, {
     autoSubmit: false,
     openCell: async (input) => {
@@ -89,6 +89,14 @@ async function preparationFixture(t: test.TestContext, phase: "fetch" | "risk") 
     "## Summary\nPrepared delivery.\n## Verification\nPromise barriers.\n" +
       "## Residual Risk\nNone.\n## Same Mechanism Elsewhere\nQueue external reads.\n",
   );
+  if (submitted) {
+    const manifestPath = path.join(f.root, "tools", "task-risk-manifest.json"),
+      manifest = readFileSync(manifestPath, "utf8");
+    writeFileSync(manifestPath, JSON.stringify({ schema: "task-risk-manifest/v1", scripts: [] }));
+    const receipt = await f.run({ kind: "task-submit", taskId, executionId });
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    writeFileSync(manifestPath, manifest);
+  }
   return { f, worktree, entered, release, baseSha, headSha, file, captured };
 }
 
@@ -155,9 +163,41 @@ for (const [phase, mode] of [
   });
 }
 
-for (const drift of ["head", "default-ref", "path-reviewers", "lease"] as const) {
+test("review dispatch diagnostics can settle while a submission is prepared", { timeout: 20_000 }, async (t) => {
+  const { f, entered, release } = await preparationFixture(t, "risk", true),
+    submitting = f.run({ kind: "task-submit", taskId, executionId });
+  try {
+    await entered.promise;
+    const changed = await f.run({
+      kind: "task-amend",
+      taskId,
+      patches: [
+        {
+          field: "reviewDispatchFailure",
+          value: JSON.stringify({
+            executionId,
+            dispatchKey: "review-diagnostic",
+            code: "runtime_spawn_failed",
+            message: "Reviewer runtime unavailable.",
+            failedAt: new Date().toISOString(),
+          }),
+        },
+      ],
+    });
+    assert.equal(changed.outcome, "applied", JSON.stringify(changed));
+    release.resolve();
+    const receipt = await submitting;
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+  } finally {
+    release.resolve();
+    await submitting;
+  }
+});
+
+for (const drift of ["head", "default-ref", "path-reviewers", "task-title", "lease"] as const) {
   test(`a changed ${drift} rejects prepared submission before accepting documents`, { timeout: 20_000 }, async (t) => {
-    const { f, worktree, entered, release, headSha } = await preparationFixture(t, "risk"),
+    const { f, worktree, entered, release, headSha } = await preparationFixture(t, "risk", drift === "task-title"),
+      priorSubmissions = f.events().filter((event) => event.type === "execution_submitted").length,
       submitting = f.run({ kind: "task-submit", taskId, executionId });
     try {
       await entered.promise;
@@ -178,6 +218,13 @@ for (const drift of ["head", "default-ref", "path-reviewers", "lease"] as const)
             principal,
           );
         assert.equal(changed.outcome, "applied", JSON.stringify(changed));
+      } else if (drift === "task-title") {
+        const changed = await f.run({
+          kind: "task-amend",
+          taskId,
+          patches: [{ field: "title", value: "Changed during preparation" }],
+        });
+        assert.equal(changed.outcome, "applied", JSON.stringify(changed));
       } else {
         assert.equal((await f.run({ kind: "task-release", taskId })).outcome, "applied");
       }
@@ -185,10 +232,7 @@ for (const drift of ["head", "default-ref", "path-reviewers", "lease"] as const)
       release.resolve();
       const receipt = await submitting;
       assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
-      assert.equal(
-        f.events().some((event) => event.type === "execution_submitted"),
-        false,
-      );
+      assert.equal(f.events().filter((event) => event.type === "execution_submitted").length, priorSubmissions);
       assert.equal(f.events().filter((event) => event.type === "documents_written").length, before);
       if (drift !== "lease")
         assert.match(String(receipt.rejectionExplanation), /changed during submission preparation; retry/u);

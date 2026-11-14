@@ -40,6 +40,7 @@ console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, o
       centerInstallation = { ...installation, installationId: "forwarding-codex-forward-center" };
     const credentials = new Map<string, string>();
     const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, false, {
+      storage: { "forward-center": { nodeTaskMaterializationPolicy: "include_done" } },
       runtimeDiscover: async () => [installation, centerInstallation],
       runtimeLaunch: (prepared) => {
         const repoId = String(prepared.env.HARNESS_DAEMON_REPO_ID),

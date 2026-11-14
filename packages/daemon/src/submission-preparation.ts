@@ -86,7 +86,8 @@ export async function prepareTaskSubmission(
   const taskInputs = (current: Snapshot) => {
       const execution = current.executions.find((execution) => execution.executionId === admission.executionId);
       return stableStringify({
-        task: current.task,
+        // Review dispatch diagnostics can settle asynchronously after submission; they do not change its cut.
+        task: current.task ? { ...current.task, reviewDispatchFailure: undefined } : current.task,
         execution: execution && isNativeExecution(execution) ? execution.deliveryBaseline : undefined,
       });
     },

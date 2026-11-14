@@ -81,6 +81,7 @@ type DispatchQueries = Pick<
   | "read"
   | "readTaskIndex"
   | "readDocument"
+  | "readDocumentHistory"
   | "readRuntimeSession"
   | "readRuntimeSessionEventsByType"
   | "readRuntimeDispatchesByTaskExecution"
@@ -843,7 +844,10 @@ function canonicalDispatchRow(
     resultRef,
     exitCode,
     ...(documentPath && document ? { dispatchPath: documentPath } : {}),
-    ...(reportPath && projection.readDocument(reportPath).document ? { reportPath } : {}),
+    ...(reportPath &&
+    (projection.readDocument(reportPath).document ?? projection.readDocumentHistory?.(reportPath).document)
+      ? { reportPath }
+      : {}),
     ...(annotations.length > 0
       ? {
           advisories: annotations.flatMap((entry) =>

@@ -152,7 +152,15 @@ export function makeEntityActionCatalogExecutor(input: {
       if (action.kind === "decision-validate") {
         const rootDir = input.rootDir,
           layout = rootDir ? resolveHarnessLayout(rootDir) : null,
-          validation = validateDecisionPackages(action, decisions, input.projection);
+          // Package consistency inspects canonical bytes, including terminal history.
+          // The ordinary projection keeps active-only reads for materialization decisions.
+          validation = validateDecisionPackages(action, decisions, {
+            ...input.projection,
+            readDocument: (path) => {
+              const active = input.projection.readDocument(path);
+              return active.document ? active : (input.projection.readDocumentHistory?.(path) ?? active);
+            },
+          });
         return readReceipt("decision-validate", {
           ...validation,
           rows: rootDir
@@ -791,7 +799,8 @@ function compileDraft(
   if (read.watermark !== read.sourceRevision)
     reject("content_not_ready", `Decision ${draft.event.decisionId} is pending.`);
   const path = `decisions/decision-${draft.event.decisionId}/decision.md`,
-    document = projection.readDocument(path);
+    active = projection.readDocument(path),
+    document = active.document ? active : (projection.readDocumentHistory?.(path) ?? active);
   if (document.watermark !== document.sourceRevision)
     reject("content_not_ready", `Decision document ${path} is pending.`);
   if (draft.event.type !== "decision_proposed" && !document.document)

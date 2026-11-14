@@ -149,7 +149,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     assertAuthorizedReplacements(
       {
         eventExists: (opId) => sqlite.event(opId) !== null,
-        documentHead: sqlite.documentHead,
+        documentHead: (target) => sqlite.documentHead(target, true),
         readContentObject: sqlite.readContentObject,
         local: (target) => {
           const node = localGitWorktreeSettlement.readNode(`${authoredRoot}/${target}`);
@@ -329,7 +329,13 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
         conflicts: [],
       };
     }
-    const closure = closureFiles(materializeContext(), accepted, from),
+    const closure = closureFiles(
+        materializeContext(),
+        accepted,
+        from,
+        [],
+        !restoreMissing && worktreeRevision === accepted.revision && verifiedRevision === accepted.revision,
+      ),
       files = [...closure.files, ...legacy],
       baseline = new Map(captureGitBaseline(currentLedger.rootDir, parent, files));
     if (restoreMissing || worktreeRevision !== verifiedRevision) {
@@ -378,7 +384,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       files,
       baseline,
       commit,
-      followerDirectories(currentLedger, closure.events, files),
+      followerDirectories(currentLedger, closure.events, files, from === 0 ? sqlite.directoryClaims() : undefined),
       restoreMissing,
     );
     const skipped = new Set(settled.conflicts);

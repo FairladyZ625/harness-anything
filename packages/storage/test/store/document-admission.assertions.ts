@@ -203,4 +203,45 @@ export async function assertDocumentAdmission(input: {
     "revision_conflict",
     /destination changed after conflict classification/u,
   );
+
+  const acceptedState = reduceDecisionDocument(reduceDecisionDocument(null, proposed.event), accepted.event),
+    retired = compileDecisionWrite({
+      event: {
+        ...draft,
+        type: "decision_retired",
+        eventId: "terminal-decision",
+        opId: "terminal-decision",
+        workspaceRevision: 10,
+        payload: { reason: "Outcome met" },
+      },
+      currentDecision: acceptedState,
+      currentDocument: { blobSha256: accepted.event.payload.decisionDocumentClaim.sha256, body: accepted.body },
+      currentRelations: [],
+      decisionReviewRequirement: "off",
+    });
+  await append(retired);
+  const repinned = compileDecisionWrite({
+      event: {
+        ...draft,
+        type: "decision_repinned",
+        eventId: "terminal-repin",
+        opId: "terminal-repin",
+        workspaceRevision: 11,
+        payload: { migrationEvidence: "task/task-evidence/terminal-repin" },
+      },
+      currentDecision: reduceDecisionDocument(acceptedState, retired.event),
+      currentDocument: { blobSha256: retired.event.payload.decisionDocumentClaim.sha256, body: retired.body },
+      currentRelations: [],
+      decisionReviewRequirement: "off",
+    }),
+    staleTerminal = {
+      ...repinned.event,
+      payload: { ...repinned.event.payload, baseDocumentSha256: proposed.event.payload.decisionDocumentClaim.sha256 },
+    };
+  await refused(
+    { ...repinned, event: staleTerminal, plan: decisionWritePlan(staleTerminal) },
+    "revision_conflict",
+    /document base changed/u,
+  );
+  await append(repinned);
 }

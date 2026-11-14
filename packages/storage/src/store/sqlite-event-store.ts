@@ -4,6 +4,7 @@ import {
   applySqliteDeclarationIndex,
   backfillSqliteDeclarationIndex,
   readSqliteEntityDeclarations,
+  readSqliteDirectoryClaims,
 } from "./sqlite-entity-declarations.ts";
 import type {
   SqliteWriterFence,
@@ -303,6 +304,8 @@ function openSqliteEventStoreInternal(
       throw error;
     }
   };
+  // Expand/catch up declaration columns before event-query backfill can apply entity events.
+  if (!options.readOnly) backfillSqliteDeclarationIndex(query, transaction);
   if (!options.readOnly)
     transaction(() => {
       const iterate: SqliteRowIterator = function* (sql, values = []) {
@@ -321,7 +324,6 @@ function openSqliteEventStoreInternal(
       backfillEventQueryRefs(query, iterate, options.onOpenProgress);
     });
   if (!options.readOnly) {
-    backfillSqliteDeclarationIndex(query, transaction);
     ensureEventQueryIndexes(query);
   }
   // All lease mutations share the store's transaction and the same repository ownership boundary.
@@ -571,6 +573,13 @@ function openSqliteEventStoreInternal(
     eventById: (eventId) =>
       readEvent(query, "json_extract(event_json, '$.eventId')", eventId, "ORDER BY revision LIMIT 1"),
     eventAtRevision: (revision) => readEvent(query, "revision", revision),
+    firstEntityEvent: (ref) => {
+      const row = query(
+        "SELECT e.event_json FROM event_query_entity r JOIN event e ON e.revision=r.revision WHERE r.ref=? ORDER BY r.revision LIMIT 1",
+        [ref],
+      ).at(0);
+      return row ? (JSON.parse(String(row.event_json)) as CanonicalEventV1) : null;
+    },
     eventIdentity: (opId) => readEventIdentity(query, "op_id", opId),
     headIdentity: () =>
       eventIdentityFromRow(
@@ -579,7 +588,9 @@ function openSqliteEventStoreInternal(
         ).at(0),
       ),
     eventIdentityAtRevision: (revision) => readEventIdentity(query, "revision", revision),
-    documentHead: (documentPath) => readDocumentHead(query, documentPath),
+    documentHead: (documentPath, includeTerminalPreimage) =>
+      readDocumentHead(query, documentPath, includeTerminalPreimage),
+    directoryClaims: () => readSqliteDirectoryClaims(query),
     documentHeads: () =>
       query("SELECT path, sha256, size, node_kind FROM document_head ORDER BY path").map((row) => ({
         path: String(row.path),
@@ -922,10 +933,24 @@ function backfillDocumentHeads(query: SqliteQuery, iterate: SqliteRowIterator, o
   updateDocumentHeadWatermark(query, head);
   onProgress?.({ applied: count, total });
 }
-function readDocumentHead(query: SqliteQuery, documentPath: string): SqliteDocumentHead | "retired" | undefined {
-  const row = query("SELECT sha256, size, node_kind FROM document_head WHERE path=?", [documentPath]).at(0);
+function readDocumentHead(
+  query: SqliteQuery,
+  documentPath: string,
+  includeTerminalPreimage = false,
+): SqliteDocumentHead | "retired" | undefined {
+  const row = query("SELECT sha256, size, node_kind, revision FROM document_head WHERE path=?", [documentPath]).at(0);
   if (!row) return undefined;
-  if (row.sha256 === null) return "retired";
+  if (row.sha256 === null) {
+    if (includeTerminalPreimage) {
+      // A terminal Decision both claims its latest bytes and leaves the working set. Its
+      // exact accepting event still owns the replacement base; an older blob cannot authorize it.
+      const accepted = query("SELECT event_json FROM event WHERE revision=?", [Number(row.revision)]).at(0),
+        event = accepted ? (JSON.parse(String(accepted.event_json)) as CanonicalEventV1) : null,
+        claim = event?.schema === "decision-event/v1" ? event.payload.decisionDocumentClaim : undefined;
+      if (claim?.path === documentPath) return { sha256: claim.sha256, size: claim.size, nodeKind: "file" };
+    }
+    return "retired";
+  }
   return {
     sha256: String(row.sha256),
     size: Number(row.size),

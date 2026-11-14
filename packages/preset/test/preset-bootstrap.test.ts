@@ -313,7 +313,7 @@ test("standard and work bootstrap compile one exact canonical birth and rebuild 
     const restored = store.materialize();
     assert.deepEqual(
       restored.settlements.map(({ path: settledPath, action }) => [settledPath, action]),
-      standard.documents.map(({ path: settledPath }) => [settledPath, "restore"]),
+      standard.documents.map(({ path: settledPath }) => [settledPath, "restore"]).sort(),
     );
     assert.equal(store.read().revision, 1);
     for (const document of standard.documents)

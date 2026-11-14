@@ -63,6 +63,7 @@ interface ProjectionPort {
   readonly readDocument: (path: string) => {
     readonly document: { readonly path: string; readonly body: string; readonly blobSha256: string } | null;
   };
+  readonly readDocumentHistory?: ProjectionPort["readDocument"];
   readonly readTaskOperation: (opId: string) => { readonly event: TaskEventV1; readonly watermark: number } | null;
   readonly currentLease: (taskId: string, now?: string) => Lease | null;
   readonly reserveLease: (lease: Lease, now: string) => Lease;
@@ -165,7 +166,8 @@ export function makeTaskLifecycleService(options: {
         snapshot: transition.snapshot,
         packagePath: current.packagePath,
         currentDocuments: paths.flatMap((path) => {
-          const document = options.projection.readDocument(path).document;
+          const document =
+            options.projection.readDocument(path).document ?? options.projection.readDocumentHistory?.(path).document;
           return document ? [document] : [];
         }),
       });

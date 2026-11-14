@@ -838,7 +838,8 @@ export function declareExecutionExecutor(
       snapshot: declaration.snapshot,
       packagePath: current.packagePath,
       currentDocuments: paths.flatMap((target) => {
-        const document = cell.projection.readDocument(target).document;
+        const document =
+          cell.projection.readDocument(target).document ?? cell.projection.readDocumentHistory?.(target).document;
         return document ? [document] : [];
       }),
       completionContext: readCompletionContext(
@@ -911,7 +912,8 @@ export function annotateExecution(
       snapshot: annotation.snapshot,
       packagePath: current.packagePath,
       currentDocuments: paths.flatMap((target) => {
-        const document = cell.projection.readDocument(target).document;
+        const document =
+          cell.projection.readDocument(target).document ?? cell.projection.readDocumentHistory?.(target).document;
         return document ? [document] : [];
       }),
       completionContext: readCompletionContext(

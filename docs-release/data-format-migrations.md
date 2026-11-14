@@ -88,6 +88,17 @@ current projection working set and never scans events from revision zero. Verify
 copy by comparing every archived Fact descriptor before and after cold rebuild, including readable
 content blobs; a generic Task read or a successful cold rebuild alone does not prove warm upgrade.
 
+## SQLite empty-directory working set
+
+SQLite's existing declaration index also gains nullable `directory_json` and an
+`entity-directory-working-set/v1` watermark in the existing `attach_migration_scan_meta` table. Writer open adds missing columns and catches up in
+transactions of at most 64 events; the directory rows and watermark commit together.
+Reopening resumes after the last committed page, including a gap left by a previous
+writer. Canonical events and blobs are unchanged. Cold document materialization reads
+the partial directory index, restores declared empty directories, and retries named
+retirements without deleting directories the entity never owned. This SQLite follower
+repair does not change the PostgreSQL directory contract.
+
 ## Stale local-root residue has one classifier
 
 `ha doctor health` reports `local-root-residue` when a repository renamed `layout.localRoot` and the

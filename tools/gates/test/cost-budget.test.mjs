@@ -313,6 +313,9 @@ test("G1 operation names are exactly the committed baseline's operations, the li
   assert.deepEqual(G1_OPERATION_NAMES, Object.keys(committed.writeCostScaling.baseline));
   assert.ok(G1_OPERATION_NAMES.includes("agenda"));
   assert.ok(Object.isFrozen(G1_OPERATION_NAMES));
+  const coverage = committed.writeCostScaling.actionCoverage,
+    actions = [...Object.keys(coverage.measured), ...coverage.notApplicable.flatMap((entry) => entry.actions)];
+  assert.equal(new Set(actions).size, actions.length, "production coverage must classify each action exactly once");
 });
 
 test("G38 requires every canonical write action to have a measured operation or a reason", async (t) => {
@@ -368,6 +371,10 @@ test("coverage cannot bind another action's probe or exempt an action without a 
   writeFileSync(budgetPath, JSON.stringify(budget));
   await assert.rejects(evaluateG1WriteCostScaling({ rootDir, measured }), /no matching production measurement/u);
   budget.writeCostScaling.actionCoverage.measured["op-a"].measurements = ["op-a:ledger-events"];
+  budget.writeCostScaling.actionCoverage.notApplicable[0].actions.push("op-a");
+  writeFileSync(budgetPath, JSON.stringify(budget));
+  await assert.rejects(evaluateG1WriteCostScaling({ rootDir, measured }), /duplicates action op-a/u);
+  budget.writeCostScaling.actionCoverage.notApplicable[0].actions.pop();
   budget.writeCostScaling.actionCoverage.notApplicable[0].reason = "   ";
   writeFileSync(budgetPath, JSON.stringify(budget));
   await assert.rejects(evaluateG1WriteCostScaling({ rootDir, measured }), /reason is required/u);

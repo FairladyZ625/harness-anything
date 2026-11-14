@@ -803,7 +803,7 @@ export function initializeTerminalMaterialization(
     );
   }
   const historyKey = "terminal-materialization-history-v1";
-  if (!readBlob || queryRows(db, "SELECT 1 FROM projection_maintenance WHERE key=?", historyKey).length) return;
+  if (queryRows(db, "SELECT 1 FROM projection_maintenance WHERE key=?", historyKey).length) return;
   const missing = queryRows<{ fact_id: string; workspace_revision: number }>(
     db,
     `SELECT fact_id,workspace_revision FROM fact WHERE json_extract(row_json,'$.archived')=1
@@ -811,8 +811,9 @@ export function initializeTerminalMaterialization(
       AND NOT EXISTS (SELECT 1 FROM document_history WHERE path='facts/'||fact.fact_id||'.md')`,
   );
   const pending = new Map<string, { events: readonly PersistedCanonicalEventV1[]; resolved: boolean }>();
+  if (!readBlob && missing.length) return;
   const restore = (factId: string, preimage: NonNullable<ReturnType<typeof archivedFactDocumentPreimage>>) => {
-    const bytes = readBlob(preimage.document.blobSha256);
+    const bytes = readBlob?.(preimage.document.blobSha256);
     if (!bytes) throw new Error(`projection document blob ${preimage.document.blobSha256} is unavailable`);
     upsertActiveDocument(db, preimage.document.path, preimage.retiredAt, {
       ...preimage.document,

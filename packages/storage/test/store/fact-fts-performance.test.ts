@@ -22,6 +22,9 @@ test("100k Fact FTS exact searches stay indexed with p95 below 10ms", (context) 
     createRelationGraphProjectionTables(db);
     createFactProjectionTables(db);
     createDecisionProjectionTables(db);
+    db.exec(
+      "CREATE TABLE document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL)",
+    );
     const insertFact = db.prepare(
       "INSERT INTO fact(task_id, fact_id, ref, statement, evidence_source, observed_at, confidence, memory_class, op_id, workspace_revision, row_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
@@ -168,6 +171,9 @@ test("fact liveness lookup stays stable as unrelated active edges grow", (contex
     try {
       createRelationGraphProjectionTables(db);
       createFactProjectionTables(db);
+      db.exec(
+        "CREATE TABLE document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL)",
+      );
       db.prepare(
         "INSERT INTO fact(task_id, fact_id, ref, statement, evidence_source, observed_at, confidence, memory_class, op_id, workspace_revision, row_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       ).run(

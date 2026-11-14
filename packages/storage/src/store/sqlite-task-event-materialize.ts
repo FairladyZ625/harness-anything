@@ -149,6 +149,7 @@ export function closureFiles(
   accepted: LedgerCutIdentity,
   from: number,
   includePolicySkippedPaths: readonly string[] = [],
+  skipUnchanged = false,
 ): { readonly events: readonly CanonicalEventV1[]; readonly files: readonly (PublicationWrite | PublicationDelete)[] } {
   const pending = from === 0 ? [] : readPendingEvents(context.sqlite, from);
   // Creation owns a new planned package, included by both disk-enabled node policies.
@@ -173,8 +174,8 @@ export function closureFiles(
       ),
     };
   const currentLedger = context.ledger(),
-    previouslyMaterializedManagedPaths =
-      context.readMaterializationDocuments && from === 0
+    existingPaths =
+      (context.readMaterializationDocuments && from === 0) || skipUnchanged
         ? localGitObjectRefStore
             .listTree(
               currentLedger.rootDir,
@@ -182,7 +183,11 @@ export function closureFiles(
               [ledgerGitPath(currentLedger, "").replace(/\/$/u, "") || "."],
             )
             .map(({ target }) => ledgerAuthoredPath(currentLedger, target))
-            .filter((path) => projectionManagedPath(path) && context.sqlite.documentHead(path) !== undefined)
+        : [],
+    unchangedPaths = new Set(skipUnchanged ? existingPaths : []),
+    previouslyMaterializedManagedPaths =
+      context.readMaterializationDocuments && from === 0
+        ? existingPaths.filter((path) => projectionManagedPath(path) && context.sqlite.documentHead(path) !== undefined)
         : [];
   const projectionDocuments = context.readMaterializationDocuments?.(
     includePolicySkippedPaths,
@@ -225,34 +230,48 @@ export function closureFiles(
           .filter(({ path }) => !indexed.has(path))
           .map(({ path }) => ({ path, sha256: null, size: null, nodeKind: null })),
       ];
-    return {
-      events,
-      files: followerFilesFromDocumentHeads(
-        context.ledger(),
-        heads,
-        context.readContent,
-        accepted,
-        context.sqlite.metadata().generation,
-      ),
-    };
+    const files = followerFilesFromDocumentHeads(
+      context.ledger(),
+      heads.filter((head) => head.sha256 === null || !unchangedPaths.has(head.path)),
+      context.readContent,
+      accepted,
+      context.sqlite.metadata().generation,
+    );
+    return { events: from === 0 ? bootstrapBaselineEvents(context, files) : events, files };
   }
   if (from === 0) {
-    return {
-      events: [],
-      files: followerFilesFromDocumentHeads(
-        context.ledger(),
-        context.sqlite.documentHeads(),
-        context.readContent,
-        accepted,
-        context.sqlite.metadata().generation,
-      ),
-    };
+    const files = followerFilesFromDocumentHeads(
+      context.ledger(),
+      context.sqlite.documentHeads().filter((head) => head.sha256 === null || !unchangedPaths.has(head.path)),
+      context.readContent,
+      accepted,
+      context.sqlite.metadata().generation,
+    );
+    return { events: bootstrapBaselineEvents(context, files), files };
   }
   const events = pending;
   return {
     events,
     files: followerFiles(context.ledger(), events, context.readContent, accepted, context.sqlite.metadata().generation),
   };
+}
+
+/** Birth preimages are one indexed point per current Task, not a replay of its history. */
+function bootstrapBaselineEvents(
+  context: MaterializeStoreContext,
+  files: readonly (PublicationWrite | PublicationDelete)[],
+): readonly CanonicalEventV1[] {
+  const tasks = new Set(
+    files.flatMap((file) =>
+      "target" in file && /\/task-contract\.json$/u.test(file.target)
+        ? [(JSON.parse(String(file.body)) as { taskId: string }).taskId]
+        : [],
+    ),
+  );
+  return [...tasks].flatMap((taskId) => {
+    const event = context.sqlite.firstEntityEvent(`task/${taskId}`);
+    return event && isTaskBootstrapEvent(event) ? [event] : [];
+  });
 }
 
 export function projectionManagedPath(path: string): boolean {
