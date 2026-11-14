@@ -65,8 +65,9 @@ for (const kind of owners)
   partitionedTest(`${kind} reaches its canonical business source`, () => {
     const result = audit(repoRoot, [kind]),
       source = effects.find((entry) => entry.route === kind),
-      row = result.sourceRows.find((entry) => entry.id === source.candidateId);
-    assert.equal(result.rows.find((entry) => entry.id === kind)?.ok, true);
+      row = result.sourceRows.find((entry) => entry.id === source.candidateId),
+      owner = result.rows.find((entry) => entry.id === kind);
+    assert.equal(owner?.ok, true, JSON.stringify({ owner, source: row }));
     assert.equal(row?.ok, true, JSON.stringify(row));
     assert.deepEqual(result.findings, []);
   });

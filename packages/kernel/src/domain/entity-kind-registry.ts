@@ -1161,6 +1161,12 @@ const daemonTodoPolicy = daemonDomainPolicy("todo", daemonTodoPolicySources, [
   "packages/daemon/test/todo.integration.test.ts",
 ]);
 
+const runtimeInstanceKindContract = createRuntimeInstanceKindContract({
+  typeFields: entityTypeContractFields("runtime-instance"),
+  actionCatalog: runtimeInstanceActionCatalog,
+  noSdkExposure,
+});
+
 // prettier-ignore
 export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActions([
   {
@@ -1564,12 +1570,8 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     sdkExposure: noSdkExposure,
   },
   {
-    ...createRuntimeInstanceKindContract({
-      typeFields: entityTypeContractFields("runtime-instance"),
-      actionCatalog: runtimeInstanceActionCatalog,
-      noSdkExposure,
-    }),
-    policies: [daemonRuntimeInstancePolicy],
+    ...runtimeInstanceKindContract,
+    policies: [...(runtimeInstanceKindContract.policies ?? []), daemonRuntimeInstancePolicy],
   },
   {
     kind: "schedule",
