@@ -492,6 +492,208 @@ export const daemonRuntimeContractPolicy = {
     "policy:packages/daemon:packages/daemon/src/terminal-host.ts#resolveTerminalCwd:701e772aacb1529ca0cef3a5e777bea7",
   ].map((candidateId) => ({ candidateId, route: "daemonRuntimeContractPolicy" })),
 } as const satisfies OntologyPolicyDeclaration;
+/** dec_7E44897ECDCAEF2B92EC66A260/CH1: exact daemon source contracts.
+ * Source identities pin existing literals and predicates; registering them changes no runtime default.
+ * Layout offsets and codec branches are documented as contracts, rather than execution quotas.
+ */
+export const daemonOntologyPolicies = [
+  {
+    id: "daemon-package-smoke",
+    ownerRef: "host",
+    unit: "milliseconds",
+    bounds: "180000ms per smoke subprocess; the smoke owns a temporary install and never rewrites daemon dist.",
+    defaultValue: 180_000,
+    version: 1,
+    scope: "Package smoke subprocess deadline",
+    reason: "Declare the existing daemon contract and retain its exact source identity and effective values.",
+    fixtures: ["packages/daemon/test/daemon-singleton-import.test.ts"],
+    sources: [
+      "policy:packages/daemon:packages/daemon/scripts/smoke-package.mjs#run.result.timeout:9c32b30bdeba0030d3ff37caa2a7fc12",
+    ].map((candidateId) => ({ candidateId, route: "daemon-package-smoke" })),
+  },
+  {
+    id: "daemon-diagnostics-buffer",
+    ownerRef: "host",
+    unit: "milliseconds / slots / header indices / attempts",
+    bounds:
+      "Slow threshold is 1000ms; default operation table holds 2048 slots; CAPACITY=2 is its header word index, not a quota. Snapshot reads try four times. Table capacity is a positive integer; completion ring capacity is a positive power of two and full rings advance the read cursor.",
+    defaultValue: { slowThresholdMs: 1_000, operationSlots: 2_048, capacityHeaderIndex: 2, snapshotAttempts: 4 },
+    version: 1,
+    scope: "Daemon diagnostics shared-memory layout and budgets",
+    reason: "Declare the existing daemon contract and retain its exact source identity and effective values.",
+    fixtures: [
+      "packages/daemon/test/daemon-operation-table.test.ts",
+      "packages/daemon/test/daemon-trace-completions.test.ts",
+    ],
+    sources: [
+      "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonOntologyPolicies.defaultValue.slowThresholdMs:f00ee56b0de9fccd61e6896f1f6f2072",
+      "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonOntologyPolicies.defaultValue.capacityHeaderIndex:ea96feed817ce13e42bd6ff79130e161",
+      "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonOntologyPolicies.defaultValue.snapshotAttempts:8fe0e1aa658e46d65b7ad60e16771400",
+      "policy:packages/daemon:packages/daemon/src/daemon-diagnostics-worker.ts#slowThresholdMs:2eae2919d84a2352377d1b717d2cc46a",
+      "policy:packages/daemon:packages/daemon/src/daemon-operation-table.ts#DEFAULT_CAPACITY:f06515fa26d35d6f487ce04a148bb125",
+      "policy:packages/daemon:packages/daemon/src/daemon-operation-table.ts#CAPACITY:fb7692404226747a9da8a42e8d52ddb0",
+      "policy:packages/daemon:packages/daemon/src/daemon-operation-table.ts#createDaemonOperationTable:0641e88b67067ebd2a42f95a7b7a5abc",
+      "policy:packages/daemon:packages/daemon/src/daemon-operation-table.ts#readDaemonOperationTable.snapshot.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
+      "policy:packages/daemon:packages/daemon/src/daemon-trace-completions.ts#createDaemonTraceCompletions:f11022be9b3fb8981420f5f1328d623e",
+      "policy:packages/daemon:packages/daemon/src/daemon-trace-completions.ts#createDaemonTraceCompletions.record:12a57aee8a576cc92fd785cd9bae630a",
+    ].map((candidateId) => ({ candidateId, route: "daemon-diagnostics-buffer" })),
+  },
+  {
+    id: "daemon-host-read-contract",
+    ownerRef: "host",
+    unit: "rows / admission result",
+    bounds:
+      "Assignment lookup requests 500 rows and runtime dispatch lookup requests 16. Local-transport rejection is rethrown when repository mode admission also rejects.",
+    defaultValue: { assignmentRows: 500, dispatchRows: 16 },
+    version: 1,
+    scope: "Daemon repository admission and bounded host reads",
+    reason: "Declare the existing daemon contract and retain its exact source identity and effective values.",
+    fixtures: ["packages/daemon/test/dispatch-read.test.ts"],
+    sources: [
+      "policy:packages/daemon:packages/daemon/src/daemon-host-repository-api.ts#createDaemonHostRepositoryApi.run:0c848150e377f2b703bc7be75db2a054",
+      "policy:packages/daemon:packages/daemon/src/daemon-host-repository-api.ts#createDaemonHostRepositoryApi.read.readAssignments.limit:566e0d0917d2d5e10ead25ab3a9e3260",
+      "policy:packages/daemon:packages/daemon/src/daemon-host-runtime-api.ts#createDaemonHostRuntimeApi.awaitRuntimeSessions.readTaskDispatches.limit:59b808dd28f84b2428b29085f84105eb",
+    ].map((candidateId) => ({ candidateId, route: "daemon-host-read-contract" })),
+  },
+  {
+    id: "daemon-singleton-contract",
+    ownerRef: "host",
+    unit: "attempts / ownership witnesses",
+    bounds:
+      "Autostart and singleton acquisition each try eight times; PID reads try four. Existing ownership returns incumbent with socket or lock witness; acquisition alone returns a release handle.",
+    defaultValue: { acquisitionAttempts: 8, holderReadAttempts: 4 },
+    version: 1,
+    scope: "Daemon singleton ownership and lock retries",
+    reason: "Declare the existing daemon contract and retain its exact source identity and effective values.",
+    fixtures: ["packages/daemon/test/daemon-singleton.test.ts"],
+    sources: [
+      "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonOntologyPolicies.defaultValue.acquisitionAttempts:28f2e8b8f72b8c3ef025cbae256450a7",
+      "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonOntologyPolicies.defaultValue.holderReadAttempts:1c855f5cd080ff5758018d5c04d2235a",
+      "policy:packages/daemon:packages/daemon/src/daemon-singleton.ts#acquireDaemonAutostartFlight.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
+      "policy:packages/daemon:packages/daemon/src/daemon-singleton.ts#acquireDaemonSingleton.claim:5a56d33779a6786b6d9ebbf529ca1d8a",
+      "policy:packages/daemon:packages/daemon/src/daemon-singleton.ts#acquireDaemonSingleton.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
+      "policy:packages/daemon:packages/daemon/src/daemon-singleton.ts#acquireDaemonSingleton.claim:5a56d33779a6786b6d9ebbf529ca1d8a:2",
+      "policy:packages/daemon:packages/daemon/src/daemon-singleton.ts#acquireDaemonSingleton.claim:5a56d33779a6786b6d9ebbf529ca1d8a:3",
+      "policy:packages/daemon:packages/daemon/src/daemon-singleton.ts#acquireDaemonSingleton.claim:8e514fb2d6e666fa4029a79f35a89817",
+      "policy:packages/daemon:packages/daemon/src/daemon-singleton.ts#readHolderPid.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
+    ].map((candidateId) => ({ candidateId, route: "daemon-singleton-contract" })),
+  },
+  {
+    id: "daemon-dispatch-observation",
+    ownerRef: "host",
+    unit: "activity predicates / configured retention",
+    bounds:
+      "Use a positive finite caller stall threshold or the existing dispatch-silence policy. Existing provider-unreachable evidence marks stalled. Emit causal claim context only for nonempty claims. Pruning is disabled only when both retention budgets are nonpositive; otherwise apply the configured positive day and byte budgets. Attempt outcomes use their typed decoder.",
+    defaultValue: null,
+    version: 1,
+    scope: "Dispatch activity, causal context and stream retention",
+    reason: "Declare the existing daemon contract and retain its exact source identity and effective values.",
+    fixtures: [
+      "packages/daemon/test/dispatch-activity.test.ts",
+      "packages/daemon/test/dispatch-causal-context.test.ts",
+      "packages/daemon/test/dispatch-stream-archive.test.ts",
+    ],
+    sources: [
+      "policy:packages/daemon:packages/daemon/src/dispatch-activity.ts#providerConnectionFailure.thresholdMs:f7f624118fa56249f686952c889a0602",
+      "policy:packages/daemon:packages/daemon/src/dispatch-activity.ts#dispatchActivityStatus:f61d1af63fd918d73e452f2dbf65383d",
+      "policy:packages/daemon:packages/daemon/src/dispatch-causal-context.ts#assembleTaskCausalContext:46c0ff1bd820097d4a9d69af8ffb9751",
+      "policy:packages/daemon:packages/daemon/src/dispatch-stream-archive.ts#pruneDispatchStreamArchive:829f90656a01b1725598e915545ac02e",
+      "policy:packages/daemon:packages/daemon/src/dispatch-stream-archive.ts#pruneDispatchStreamArchive:84aac1970970cde3a835b8346d806982",
+      "policy:packages/daemon:packages/daemon/src/dispatch-stream-archive.ts#pruneDispatchStreamArchive:7934a5b66caa7afe6a5b81ac12fc0d78",
+      "policy:packages/daemon:packages/daemon/src/dispatch-stream.ts#summarizeDispatch:6e124703bf4468485d1443d658aeaeb4",
+    ].map((candidateId) => ({ candidateId, route: "daemon-dispatch-observation" })),
+  },
+  {
+    id: "migration-import-source-contract",
+    ownerRef: "host",
+    unit: "counter / substrate / schema discriminators",
+    bounds:
+      "Authored migrated counts start at zero. Historical execution decoding requires the exact execution/v2 shape and matching task reference. Archived file/url/text locators retain repository-path/uri/opaque substrates. Fact-rekey restatements require matching canonical migration markers; riskTierFlowVersion retains only version 1.",
+    defaultValue: null,
+    version: 1,
+    scope: "Migration import historical source codecs",
+    reason: "Declare the existing daemon contract and retain its exact source identity and effective values.",
+    fixtures: [
+      "packages/daemon/test/migration-import-restatement-oracle.test.ts",
+      "packages/daemon/test/migration-import-witness-replay.integration.test.ts",
+    ],
+    sources: [
+      "policy:packages/daemon:packages/daemon/src/migration-import-authored-audit.ts#auditAuthoredCoverage.counts.migrated:67b819ef7002c5c2137c2f8dfa269636",
+      "policy:packages/daemon:packages/daemon/src/migration-import-legacy.ts#decodeLegacyExecution:dbfda3e2d5a5e3ccbec829b82e1a905f",
+      "policy:packages/daemon:packages/daemon/src/migration-import-legacy.ts#archivedLocator.substrate:08d5574b2f4394429204f835f53c2d46",
+      "policy:packages/daemon:packages/daemon/src/migration-import-legacy.ts#archivedLocator.substrate:ef9e2b6c19108d9152d9c840fdb49fb2",
+      "policy:packages/daemon:packages/daemon/src/migration-import-legacy.ts#archivedLocator.substrate:6b878bc37bcc2cfbe856cb2eaa3d993b",
+      "policy:packages/daemon:packages/daemon/src/migration-import-legacy.ts#archivedLocator:068190dfba94e6d11fe51dcece99631b",
+      "policy:packages/daemon:packages/daemon/src/migration-import-legacy.ts#archivedLocator:92fcc9a4f41d0a522750dc879c4bb230",
+      "policy:packages/daemon:packages/daemon/src/migration-import-relations.ts#readMigrationOperationRestatements:877c5cf36ea865c665a0e6a9bb504129",
+      "policy:packages/daemon:packages/daemon/src/migration-import-task-restatement.ts#compileContract.riskTierFlowVersion:1572faa522cd6274807a74e420a874db",
+    ].map((candidateId) => ({ candidateId, route: "migration-import-source-contract" })),
+  },
+  {
+    id: "daemon-node-auto-claim-contract",
+    ownerRef: "host",
+    unit: "concurrent tasks / source map / lease phase",
+    bounds:
+      "Default concurrency is one and accepted concurrency is a safe integer from one to 64. Allowed sources must be a non-array object. Auto-claim adapters read and configure the existing node policy; lease keys exist only for held leases.",
+    defaultValue: null,
+    version: 1,
+    scope: "Node auto-claim adapter, admission and lease fence",
+    reason: "Declare the existing daemon contract and retain its exact source identity and effective values.",
+    fixtures: [
+      "packages/daemon/test/node-auto-claim.test.ts",
+      "packages/daemon/test/node-auto-claim.integration.test.ts",
+    ],
+    sources: [
+      "policy:packages/daemon:packages/daemon/src/daemon-host-open.ts#openDaemonHost.system.nodeAutoClaim:51f78f409b8b597100e3bc2e115bacbf",
+      "policy:packages/daemon:packages/daemon/src/node-auto-claim-config.ts#DEFAULT_NODE_AUTO_CLAIM_POLICY.maxConcurrent:55893483e94f26e9a40480da84f22398",
+      "policy:packages/daemon:packages/daemon/src/node-auto-claim-config.ts#parseNodeAutoClaimPolicy:4c5d1d8ddfb84ac9d53e3bfa6b6ea243",
+      "policy:packages/daemon:packages/daemon/src/node-auto-claim-config.ts#parseNodeAutoClaimPolicy:c73687012810ace7541932012e7ed48b",
+      "policy:packages/daemon:packages/daemon/src/node-auto-claim.ts#nodeAutoClaimLeaseKey:1c9c2861df38cbd46689ea4343986b31",
+    ].map((candidateId) => ({ candidateId, route: "daemon-node-auto-claim-contract" })),
+  },
+  {
+    id: "daemon-jsonl-tail-contract",
+    ownerRef: "host",
+    unit: "attempts / bytes / rows / offsets",
+    bounds:
+      "History and follow retry a changed snapshot once, for two total attempts. Exhausted scan budgets terminate history or an advanced follow page; page size, zero offset, zero row limit and nonpositive byte budgets retain their existing early exits.",
+    defaultValue: { snapshotReadAttempts: 2 },
+    version: 1,
+    scope: "JSONL history and follow snapshot budgets",
+    reason: "Declare the existing daemon contract and retain its exact source identity and effective values.",
+    fixtures: ["packages/daemon/test/observe-jsonl-tail.integration.test.ts"],
+    sources: [
+      "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonOntologyPolicies.defaultValue.snapshotReadAttempts:0a3532572dd468dc2bfc5b0a4cedeba5",
+      "policy:packages/daemon:packages/daemon/src/observe-jsonl-tail.ts#readJsonlHistory.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
+      "policy:packages/daemon:packages/daemon/src/observe-jsonl-tail.ts#readJsonlHistory:d9d302f005b1271a51275c55d18127c8",
+      "policy:packages/daemon:packages/daemon/src/observe-jsonl-tail.ts#readJsonlHistory:4bfbdb47163cd2aa2d1946ada5aca264",
+      "policy:packages/daemon:packages/daemon/src/observe-jsonl-tail.ts#readJsonlHistory:5c9007e9ea6d8cb21b61f369a900e141",
+      "policy:packages/daemon:packages/daemon/src/observe-jsonl-tail.ts#readJsonlFollow.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
+      "policy:packages/daemon:packages/daemon/src/observe-jsonl-tail.ts#readJsonlFollow:d9d302f005b1271a51275c55d18127c8",
+      "policy:packages/daemon:packages/daemon/src/observe-jsonl-tail.ts#readJsonlFollow:ca3edadb4d15cfc88edd75fda31f9d04",
+      "policy:packages/daemon:packages/daemon/src/observe-jsonl-tail.ts#readJsonlFollow:5c9007e9ea6d8cb21b61f369a900e141",
+      "policy:packages/daemon:packages/daemon/src/observe-jsonl-tail.ts#scanFileBackward:931cb1c2063ef1f0836d8dbb0cb1b5a9",
+    ].map((candidateId) => ({ candidateId, route: "daemon-jsonl-tail-contract" })),
+  },
+  {
+    id: "daemon-redaction-presentation",
+    ownerRef: "host",
+    unit: "retained secrets / displayed candidates",
+    bounds:
+      "Retain at most 64 explicitly registered secret values. Ambiguous ID-prefix diagnostics list at most eight candidates. These limits do not change identity resolution or authorization.",
+    defaultValue: { registeredSecretLimit: 64, listedCandidateLimit: 8 },
+    version: 1,
+    scope: "Local secret redaction and ambiguous-ID presentation bounds",
+    reason: "Declare the existing daemon contract and retain its exact source identity and effective values.",
+    fixtures: ["packages/daemon/test/secret-scrub.test.ts"],
+    sources: [
+      "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonOntologyPolicies.defaultValue.registeredSecretLimit:aea15967ed20690a8bfac65674dc2e51",
+      "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonOntologyPolicies.defaultValue.listedCandidateLimit:8311111e152679d06d8b3dab39bae60f",
+      "policy:packages/daemon:packages/daemon/src/secret-scrub.ts#registeredSecretLimit:81b02dea67bf5e84564b93f8e0ced5f7",
+      "policy:packages/daemon:packages/daemon/src/unique-id-prefix.ts#listedCandidateLimit:2bf28bfe8543a8df7f8d15e63091b108",
+    ].map((candidateId) => ({ candidateId, route: "daemon-redaction-presentation" })),
+  },
+] as const satisfies readonly OntologyPolicyDeclaration[];
 
 // dec_7E44897ECDCAEF2B92EC66A260/CH1: host-wide action catalog vocabulary and read budgets declared by the kernel.
 export const hostKernelPolicies = [
