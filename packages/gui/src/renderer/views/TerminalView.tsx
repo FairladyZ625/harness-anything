@@ -255,6 +255,7 @@ export function TerminalView({
   const placeSession = useCallback((sessionId: string, placement: Placement) => {
     const existing = paneOfSession(groupsRef.current, sessionId);
     if (existing) {
+      gridApi.current?.getPanel(existing.panelId)?.api.setActive();
       setActiveGroupId(existing.groupId);
       setFocusedPanelId(existing.panelId);
       return;
@@ -370,13 +371,13 @@ export function TerminalView({
     else if (!launchTask) void start(false); // 带 launchTask 进页时由它建绑定会话,不再另开一个未绑定的。
   }, [attach, attachSession, attachStream, launchTask, repoId, sessions.data, sessions.isSuccess, start]);
 
-  const attachedRequest = useRef<string | null>(null);
+  const [attachedRequestId, setAttachedRequestId] = useState<string | null>(null);
   useEffect(() => {
     if (
       !attachSession ||
       !sessions.isSuccess ||
       initialisedRepo.current !== repoId ||
-      attachedRequest.current === attachSession.requestId
+      attachedRequestId === attachSession.requestId
     )
       return;
     let cancelled = false;
@@ -386,7 +387,7 @@ export function TerminalView({
         if (cancelled || !mountedRef.current || repoIdRef.current !== repoId) return;
         const row = listed.sessions.find((item) => item.sessionId === attachSession.sessionId);
         if (!row) throw new Error(t("terminal.view.spawnMissing"));
-        attachedRequest.current = attachSession.requestId;
+        setAttachedRequestId(attachSession.requestId);
         queryClient.setQueryData(terminalQueryKeys.sessions(repoId), listed);
         // Exited sessions can replay their transcript too. A fast auth command may have
         // finished between the receipt and navigation, so still deliver its completion.
@@ -404,13 +405,7 @@ export function TerminalView({
     return () => {
       cancelled = true;
     };
-  }, [attachSession, attachStream, placeSession, queryClient, repoId, sessions.isSuccess]);
-
-  useEffect(() => {
-    if (!focusedPanelId) return;
-    gridApi.current?.getPanel(focusedPanelId)?.api.setActive();
-    focusPaneInput(regionRef.current, focusedPanelId);
-  }, [activeGroupId, focusedPanelId]);
+  }, [attachedRequestId, attachSession, attachStream, placeSession, queryClient, repoId, sessions.isSuccess]);
 
   const create = (event: FormEvent) => {
     event.preventDefault();
@@ -593,6 +588,7 @@ export function TerminalView({
     () => ({
       session: (sessionId) => tabs.find((tab) => tab.sessionId === sessionId) ?? null,
       focusedPanelId,
+      focusRequestId: attachedRequestId,
       confirmSessionId: confirmId,
       setConfirmSessionId: setConfirmId,
       onInput: send,
@@ -606,6 +602,7 @@ export function TerminalView({
       openUrl: openUrl ?? null,
     }),
     [
+      attachedRequestId,
       closePane,
       confirmId,
       focusPane,

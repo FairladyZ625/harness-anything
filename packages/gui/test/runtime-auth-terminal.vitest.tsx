@@ -20,9 +20,19 @@ import type {
 // Keep the real App, ProvidersView, TerminalRoute, TerminalView and dockview. Only xterm's canvas
 // is replaced; focus and text input still cross the real pane actions and terminal client.
 vi.mock("../src/renderer/components/terminal/TerminalPane.tsx", () => ({
-  TerminalPane: ({ onInput }: { onInput: (text: string) => void }) => {
+  TerminalPane: ({
+    onInput,
+    focused,
+    focusRequestId,
+  }: {
+    onInput: (text: string) => void;
+    focused: boolean;
+    focusRequestId: string | null;
+  }) => {
     const ref = useRef<HTMLTextAreaElement>(null);
-    useEffect(() => ref.current?.focus(), []);
+    useEffect(() => {
+      if (focused) ref.current?.focus();
+    }, [focused, focusRequestId]);
     return createElement("textarea", {
       ref,
       className: "xterm-helper-textarea",
@@ -257,8 +267,8 @@ async function mount(
       {
         groupId: "old-group",
         seeds: [
-          { panelId: "old-pane", sessionId: "old" },
           ...(existingAuthPane ? [{ panelId: "auth-pane", sessionId }] : []),
+          { panelId: "old-pane", sessionId: "old" },
         ],
         grid: null,
       },
