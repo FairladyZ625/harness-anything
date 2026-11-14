@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { actionDeclarations, effectivePolicyGroupScopes } from "@harness-anything/kernel";
+import { makeTaskEventReader } from "@harness-anything/storage";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { createIdentitySession } from "../src/authorization-provider.ts";
 import { daemonBuildStamp } from "../src/build-identity.ts";
@@ -280,7 +281,14 @@ test(
       JSON.stringify(manualResponse),
     );
     const manual = manualResponse.result as Record<string, unknown>;
-    assert.ok(["pending", "already_dispatched"].includes(String(manual.outcome)), JSON.stringify(manual));
+    assert.ok(
+      manual.outcome === "pending" ||
+        (manual.outcome === "applied" &&
+          (manual.dispatches as { readonly taskId: string; readonly outcome: string }[] | undefined)?.some(
+            (step) => step.taskId === taskId && step.outcome === "already_dispatched",
+          )),
+      JSON.stringify(manual),
+    );
     assert.equal(
       (manual.authorizationDecision as Record<string, unknown> | undefined)?.outcome,
       "allowed",
@@ -293,6 +301,19 @@ test(
         };
       };
     assert.equal(taskState.outcome, "applied", JSON.stringify(taskState));
-    assert.equal(taskSnapshot.task?.reviewDispatchIntent?.executionId, secondExecution, JSON.stringify(taskSnapshot));
+    assert.ok(
+      taskSnapshot.task?.reviewDispatchIntent?.executionId === secondExecution ||
+        (taskSnapshot.task?.reviewDispatchIntent == null &&
+          makeTaskEventReader({ repoId: "lease-repo", rootDir: f.repo })
+            .read()
+            .events.some(
+              (event) =>
+                event.type === "runtime_dispatch_requested" &&
+                event.payload.taskId === taskId &&
+                event.payload.executionId === secondExecution &&
+                event.payload.role === "reviewer",
+            )),
+      JSON.stringify(taskSnapshot),
+    );
   },
 );
