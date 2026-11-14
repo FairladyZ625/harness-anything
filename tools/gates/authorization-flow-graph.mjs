@@ -103,7 +103,9 @@ function declareStatements(statements, bindings) {
   for (const statement of statements) {
     if (ts.isVariableStatement(statement))
       for (const declaration of statement.declarationList.declarations)
-        bindingNames(declaration.name, (name, trail) => bindings.set(name, { kind: "var", declaration, trail }));
+        bindingNames(declaration.name, (name, trail) =>
+          bindings.set(name, { kind: "var", declaration, trail, moduleScoped: ts.isSourceFile(statement.parent) }),
+        );
     else if (ts.isFunctionDeclaration(statement) && statement.name)
       bindings.set(statement.name.text, { kind: "fn", node: statement });
     else if (ts.isClassDeclaration(statement) && statement.name)
@@ -449,28 +451,61 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
   }
 }
 
-/** An environment maps a parameter node to the argument expression evaluated in its caller's env. */
+/**
+ * An environment maps a parameter node to the argument expression evaluated in its caller's env.
+ * Callers inside the evaluator pass argument records so a rest binding can retain the original
+ * expression frame while it is forwarded through another spread call.
+ */
 export function bindArguments(fn, args, callerEnv, env = fn.env) {
-  const next = new Map(env);
+  const next = new Map(env),
+    entries = args.map((argument) =>
+      argument?.flowArgument ? argument : { flowArgument: true, expression: argument, env: callerEnv },
+    );
   fn.node.parameters.forEach((parameter, index) => {
-    if (parameter.dotDotDotToken) return;
-    const expression = args[index] ?? parameter.initializer;
-    if (expression) next.set(parameter, { expression, env: args[index] ? callerEnv : fn.env });
+    if (parameter.dotDotDotToken) {
+      next.set(parameter, { rest: entries.slice(index), env: callerEnv });
+      return;
+    }
+    const argument = entries[index],
+      expression = argument?.expression ?? parameter.initializer;
+    if (expression)
+      next.set(parameter, {
+        expression,
+        env: argument ? argument.env : fn.env,
+      });
   });
   return next;
 }
 
 export function makeEvaluator(graph, facts) {
   const unknown = { unknown: true },
+    moduleEnv = new Map(),
     memberCache = new Map(),
     contextFree = new Map(),
     assignments = new Map(),
-    provenanceCache = new WeakMap();
+    writeReferences = new WeakMap(),
+    provenanceCache = new WeakMap(),
+    objectQueries = new WeakMap(),
+    foldQueries = new WeakMap();
+
+  // Like provenance, these pure queries use immutable argument frames. A shared field
+  // expression is one subproblem per frame and remaining depth, not a fresh receiver walk.
+  function cachedQuery(cache, expression, env, depth, calculate) {
+    const expressions = cache.get(env) ?? new WeakMap();
+    cache.set(env, expressions);
+    const byDepth = expressions.get(expression) ?? new Map();
+    expressions.set(expression, byDepth);
+    if (byDepth.has(depth)) return byDepth.get(depth);
+    byDepth.set(depth, null);
+    const result = calculate(expression, env, depth);
+    byDepth.set(depth, result);
+    return result;
+  }
 
   function evaluateBinding(binding, name, env, depth) {
     // A nested declaration closes over its enclosing frame; a module-level one over nothing.
     if (binding.kind === "fn")
-      return [{ fn: true, node: binding.node, env: ts.isSourceFile(binding.node.parent) ? new Map() : env }];
+      return [{ fn: true, node: binding.node, env: ts.isSourceFile(binding.node.parent) ? moduleEnv : env }];
     if (binding.kind === "class") return [{ classNode: binding.node, env }];
     if (binding.kind === "opaque") return [unknown];
     if (binding.kind === "import") {
@@ -486,10 +521,14 @@ export function makeEvaluator(graph, facts) {
     if (binding.kind === "param") {
       const bound = env.get(binding.parameter);
       if (!bound) return [unknown];
-      return bound.root ? [bound] : project(evaluate(bound.expression, bound.env, depth + 1), trail, depth);
+      if (bound.rest) return [{ rest: true, arguments: bound.rest, env: bound.env }];
+      // Following the caller's parameter frame is not another nested expression.
+      return bound.root ? [bound] : project(evaluate(bound.expression, bound.env, depth), trail, depth);
     }
     const initializer = binding.declaration.initializer;
-    return initializer ? project(evaluate(initializer, env, depth + 1), trail, depth) : [unknown];
+    return initializer
+      ? project(evaluate(initializer, binding.moduleScoped ? moduleEnv : env, depth + 1), trail, depth)
+      : [unknown];
   }
 
   function project(values, trail, depth) {
@@ -529,12 +568,36 @@ export function makeEvaluator(graph, facts) {
     return [unknown];
   }
 
+  /** A dynamic key on a closed object can reach every authored member of that object. */
+  function allMembersOf(value, depth) {
+    if (!value.object) return [unknown];
+    const members = [];
+    for (const property of value.object.properties) {
+      if (ts.isSpreadAssignment(property)) {
+        const spread = evaluate(property.expression, value.env, depth + 1);
+        for (const entry of spread) members.push(...(entry.object ? allMembersOf(entry, depth + 1) : [unknown]));
+        continue;
+      }
+      if (!property.name) {
+        members.push(unknown);
+        continue;
+      }
+      if (ts.isPropertyAssignment(property)) members.push(...evaluate(property.initializer, value.env, depth + 1));
+      else if (ts.isShorthandPropertyAssignment(property))
+        members.push(...evaluate(property.name, value.env, depth + 1));
+      else members.push({ fn: true, node: property, env: value.env });
+    }
+    return members.length > 0 ? distinct(members) : [unknown];
+  }
+
   /** Name-indexed fallback for injected context objects; every candidate must itself resolve. */
   function memberCandidates(key, depth, access) {
     const signatures = access ? graph.memberSignature(access) : null,
       cacheKey = signatures ? [...signatures][0] : key;
     if (facts.strictMembers && !signatures) return [unknown];
-    if (memberCache.has(cacheKey)) return memberCache.get(cacheKey);
+    const byDepth = memberCache.get(cacheKey) ?? new Map();
+    if (byDepth.has(depth)) return byDepth.get(depth);
+    memberCache.set(cacheKey, byDepth);
     const all = graph.members.get(key) ?? [];
     if (all.length === 0) return [{ external: key }];
     // A typed receiver reaches only the implementations of its own interface member; an
@@ -547,7 +610,7 @@ export function makeEvaluator(graph, facts) {
       entries = signatures ? typed : all;
     // A typed member whose implementation lives outside the traced packages is an external call.
     if (entries.length === 0) return [{ external: key }];
-    memberCache.set(cacheKey, [unknown]);
+    byDepth.set(depth, [unknown]);
     const values = distinct(
       entries.flatMap(({ value }) =>
         isFunctionNode(value)
@@ -555,7 +618,7 @@ export function makeEvaluator(graph, facts) {
           : evaluate(value, new Map(), depth + 1).filter((entry) => entry.fn || entry.broken),
       ),
     );
-    memberCache.set(cacheKey, values);
+    byDepth.set(depth, values);
     return values;
   }
 
@@ -576,13 +639,14 @@ export function makeEvaluator(graph, facts) {
 
   function evaluate(expression, env, depth = 0) {
     if (depth > maxEvaluationDepth) return [unknown];
-    // Context-free evaluations are pure in the node, so each is computed once.
+    // The remaining nesting budget is an input: a deep unknown cannot answer a shallow query.
     if (env.size === 0 && expression) {
-      const cached = contextFree.get(expression);
-      if (cached) return cached;
-      contextFree.set(expression, [unknown]);
+      const byDepth = contextFree.get(expression) ?? new Map();
+      contextFree.set(expression, byDepth);
+      if (byDepth.has(depth)) return byDepth.get(depth);
+      byDepth.set(depth, [unknown]);
       const values = evaluateNode(expression, env, depth);
-      contextFree.set(expression, values);
+      byDepth.set(depth, values);
       return values;
     }
     return evaluateNode(expression, env, depth);
@@ -613,13 +677,31 @@ export function makeEvaluator(graph, facts) {
     if (
       ts.isBinaryExpression(node) &&
       [ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.BarBarToken].includes(node.operatorToken.kind)
-    )
-      return [...evaluate(node.left, env, depth + 1), ...evaluate(node.right, env, depth + 1)];
-    if (ts.isPropertyAccessExpression(node)) {
-      const key = memberName(node.name),
-        receivers = evaluate(node.expression, env, depth + 1),
+    ) {
+      const left = evaluate(node.left, env, depth + 1);
+      if (definitelyTruthyReference(node.left, env, depth + 1)) return left;
+      return [...left, ...evaluate(node.right, env, depth + 1)];
+    }
+    if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+      const key = ts.isPropertyAccessExpression(node)
+        ? memberName(node.name)
+        : (() => {
+            const argument = node.argumentExpression,
+              folded = argument && fold(argument, env, depth + 1);
+            return folded && (typeof folded.value === "string" || typeof folded.value === "number")
+              ? String(folded.value)
+              : null;
+          })();
+      // Policy dispatch must select the request's actual member. Only source reachability
+      // may conservatively enumerate the authored alternatives of an unknown key.
+      if (key === null && !facts.strictMembers) return [unknown];
+      const receivers = evaluate(node.expression, env, depth + 1),
         direct = receivers.flatMap((value) =>
-          value.object || value.classNode || value.module ? memberOf(value, key, depth + 1) : [],
+          value.object || value.classNode || value.module
+            ? key === null && value.object
+              ? allMembersOf(value, depth + 1)
+              : memberOf(value, key, depth + 1)
+            : [],
         );
       const known = direct.filter((value) => !value.unknown),
         opaque = receivers.some((value) => value.unknown || value.broken || value.fn),
@@ -636,6 +718,7 @@ export function makeEvaluator(graph, facts) {
 
   function evaluateCall(node, env, depth) {
     const callee = unwrap(node.expression);
+    const argumentsForBinding = expandArguments(node.arguments, env, depth + 1);
     // A dynamic import of a traced module is that module's namespace, like a static import.
     if (callee.kind === ts.SyntaxKind.ImportKeyword) {
       const [specifier] = node.arguments;
@@ -655,12 +738,23 @@ export function makeEvaluator(graph, facts) {
     return distinct(
       evaluate(callee, env, depth + 1).flatMap((value) =>
         value.fn
-          ? returnValues(value, bindArguments(value, node.arguments, env), depth + 1)
+          ? returnValues(value, bindArguments(value, argumentsForBinding, env), depth + 1)
           : value.broken
             ? [value]
             : [unknown],
       ),
     );
+  }
+
+  /** Expand a spread of a traced rest parameter while retaining each argument's source frame. */
+  function expandArguments(args, env, depth = 0) {
+    return args.flatMap((argument) => {
+      if (!ts.isSpreadElement(argument)) return [{ flowArgument: true, expression: argument, env }];
+      const values = evaluate(argument.expression, env, depth + 1),
+        rest = values.filter((value) => value.rest);
+      if (rest.length > 0 && rest.length === values.length) return rest.flatMap((value) => value.arguments);
+      return [{ flowArgument: true, expression: argument, env }];
+    });
   }
 
   /** The values `fn` can return on branches that survive folding under the current facts. */
@@ -709,9 +803,10 @@ export function makeEvaluator(graph, facts) {
       if (!bound) return null;
       if (bound.root)
         return binding.trail.length === 1 && binding.trail[0] ? requestField(binding.trail[0], "request") : null;
+      if (bound.rest) return null;
       if (binding.trail.length === 1 && binding.trail[0])
-        return fieldOf(bound.expression, binding.trail[0], bound.env, depth + 1);
-      return binding.trail.length === 0 ? fold(bound.expression, bound.env, depth + 1) : null;
+        return fieldOf(bound.expression, binding.trail[0], bound.env, depth);
+      return binding.trail.length === 0 ? fold(bound.expression, bound.env, depth) : null;
     }
     if (binding.kind === "import") {
       if (binding.from === facts.authorityModule && Object.hasOwn(facts.constants, binding.exported))
@@ -725,9 +820,14 @@ export function makeEvaluator(graph, facts) {
     }
     if (binding.kind !== "var" || !binding.declaration.initializer) return null;
     if (binding.trail.length === 1 && binding.trail[0])
-      return fieldOf(binding.declaration.initializer, binding.trail[0], env, depth + 1);
+      return fieldOf(
+        binding.declaration.initializer,
+        binding.trail[0],
+        binding.moduleScoped ? moduleEnv : env,
+        depth + 1,
+      );
     if (binding.trail.length > 0 || !(binding.declaration.parent.flags & ts.NodeFlags.Const)) return null;
-    return fold(binding.declaration.initializer, env, depth + 1);
+    return fold(binding.declaration.initializer, binding.moduleScoped ? moduleEnv : env, depth + 1);
   }
 
   /**
@@ -741,10 +841,12 @@ export function makeEvaluator(graph, facts) {
     if (!node) return null;
     const cache = provenanceCache.get(env) ?? new Map();
     provenanceCache.set(env, cache);
-    if (cache.has(node)) return cache.get(node);
-    cache.set(node, null);
+    const byDepth = cache.get(node) ?? new Map();
+    cache.set(node, byDepth);
+    if (byDepth.has(depth)) return byDepth.get(depth);
+    byDepth.set(depth, null);
     const tag = provenanceOf(node, env, depth);
-    cache.set(node, tag);
+    byDepth.set(depth, tag);
     return tag;
   }
 
@@ -755,19 +857,28 @@ export function makeEvaluator(graph, facts) {
         const bound = env.get(binding.parameter);
         if (!bound) return null;
         if (bound.root) return "request";
+        if (bound.rest) return null;
         return provenance(bound.expression, bound.env, depth + 1);
       }
       if (binding?.kind !== "var") return null;
       const values = binding.declaration.initializer
         ? [binding.declaration.initializer]
         : assignedValues(binding.declaration);
-      const tags = values.map((value) => provenance(value, env, depth + 1));
+      const tags = values.map((value) => provenance(value, binding.moduleScoped ? moduleEnv : env, depth + 1));
       const tag = tags.includes("action") ? "action" : tags.includes("request") ? "request" : null;
       return tag;
     }
-    // A field keeps its owner's provenance: `resolution.action` is still the action.
-    if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node))
-      return provenance(node.expression, env, depth + 1);
+    // A resolved command may be exposed as `resolution.action`. Other fields carry request
+    // data, not the command discriminant: `contract.target.kind` must not borrow action.kind.
+    if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+      const tag = provenance(node.expression, env, depth + 1);
+      const key = ts.isPropertyAccessExpression(node)
+        ? node.name.text
+        : ts.isStringLiteralLike(unwrap(node.argumentExpression))
+          ? unwrap(node.argumentExpression).text
+          : null;
+      return tag === "action" && key !== "action" ? "request" : tag;
+    }
     if (ts.isCallExpression(node))
       return node.arguments.some((argument) => provenance(argument, env, depth + 1)) ? "action" : null;
     // Text and choices computed from request data are request data.
@@ -796,6 +907,70 @@ export function makeEvaluator(graph, facts) {
   }
 
   const fromRequest = (expression, env) => provenance(expression, env) !== null;
+
+  // Object/function literals are truthy. Follow only immutable aliases and parameters with
+  // no writes; unknown or reassigned inputs must retain both coalescing alternatives.
+  function definitelyTruthyReference(expression, env, depth) {
+    const node = unwrap(expression);
+    if (!node || depth > maxEvaluationDepth) return false;
+    if (
+      ts.isObjectLiteralExpression(node) ||
+      ts.isArrayLiteralExpression(node) ||
+      ts.isArrowFunction(node) ||
+      ts.isFunctionExpression(node)
+    )
+      return true;
+    if (!ts.isIdentifier(node)) return false;
+    const binding = graph.lookup(node.text, node);
+    if (binding?.kind === "param") {
+      const bound = env.get(binding.parameter);
+      return Boolean(
+        bound?.expression &&
+          !bound.rest &&
+          !hasWrites(binding.parameter) &&
+          definitelyTruthyReference(bound.expression, bound.env, depth + 1),
+      );
+    }
+    if (binding?.kind === "var" && binding.trail.length === 0 && binding.declaration.parent.flags & ts.NodeFlags.Const)
+      return definitelyTruthyReference(
+        binding.declaration.initializer,
+        binding.moduleScoped ? moduleEnv : env,
+        depth + 1,
+      );
+    return binding?.kind === "fn" && !hasWrites(binding.node);
+  }
+
+  function hasWrites(declaration) {
+    if (writeReferences.has(declaration)) return writeReferences.get(declaration);
+    let scope = declaration.parent,
+      found = false;
+    while (scope && !isFunctionNode(scope) && !ts.isSourceFile(scope)) scope = scope.parent;
+    if (scope)
+      (function visit(node) {
+        const target =
+          ts.isBinaryExpression(node) &&
+          node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+          node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+            ? node.left
+            : (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
+                [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(node.operator)
+              ? node.operand
+              : ts.isForOfStatement(node) || ts.isForInStatement(node)
+                ? node.initializer
+                : null;
+        if (target)
+          (function reference(node) {
+            if (ts.isIdentifier(node)) {
+              const binding = graph.lookup(node.text, node);
+              if ((binding?.declaration ?? binding?.parameter ?? binding?.node) === declaration) found = true;
+            }
+            if (!found) ts.forEachChild(node, reference);
+          })(target);
+        if (!found) ts.forEachChild(node, visit);
+      })(scope);
+    writeReferences.set(declaration, found);
+    return found;
+  }
 
   /** Values assigned to a `let` declared without an initializer, within its declaring function. */
   function assignedValues(declaration) {
@@ -828,6 +1003,10 @@ export function makeEvaluator(graph, facts) {
   function objectLiteralsOf(expression, env, depth = 0) {
     const node = unwrap(expression);
     if (!node || depth > maxEvaluationDepth) return null;
+    return cachedQuery(objectQueries, node, env, depth, objectLiteralsQuery);
+  }
+
+  function objectLiteralsQuery(node, env, depth) {
     if (ts.isObjectLiteralExpression(node)) return [{ object: node, env }];
     if (ts.isConditionalExpression(node)) {
       const folded = fold(node.condition, env, depth + 1);
@@ -846,7 +1025,7 @@ export function makeEvaluator(graph, facts) {
       const callees = evaluate(node.expression, env, depth + 1);
       if (callees.length === 0 || !callees.every((value) => value.fn && value.node.body)) return null;
       const results = callees.flatMap((value) => {
-        const callEnv = bindArguments(value, node.arguments, env);
+        const callEnv = bindArguments(value, expandArguments(node.arguments, env, depth + 1), env);
         return returnExpressions(value.node).map((result) => objectLiteralsOf(result, callEnv, depth + 1));
       });
       return results.length && results.every(Boolean) ? results.flat() : null;
@@ -858,12 +1037,15 @@ export function makeEvaluator(graph, facts) {
       sourceEnv = env;
     if (binding?.kind === "param") {
       const bound = env.get(binding.parameter);
-      if (!bound?.expression) return null;
+      if (!bound?.expression || bound.rest) return null;
       source = bound.expression;
       sourceEnv = bound.env;
-    } else if (binding?.kind === "var" && binding.declaration.initializer) source = binding.declaration.initializer;
+    } else if (binding?.kind === "var" && binding.declaration.initializer) {
+      source = binding.declaration.initializer;
+      sourceEnv = binding.moduleScoped ? moduleEnv : env;
+    }
     if (!source || trail.length > 1) return null;
-    const owners = objectLiteralsOf(source, sourceEnv, depth + 1);
+    const owners = objectLiteralsOf(source, sourceEnv, depth + (binding?.kind === "param" ? 0 : 1));
     if (!owners || trail.length === 0 || trail[0] === "...") return owners;
     const fields = owners.map((owner) => fieldLiterals(owner, trail[0], depth + 1));
     return fields.every(Boolean) ? fields.flat() : null;
@@ -1044,7 +1226,8 @@ export function makeEvaluator(graph, facts) {
             ? body.statements[0].expression
             : null
           : body;
-      if (result) return fold(result, bindArguments(value, node.arguments, env), depth + 1);
+      if (result)
+        return fold(result, bindArguments(value, expandArguments(node.arguments, env, depth + 1), env), depth + 1);
     }
     return null;
   }
@@ -1067,6 +1250,10 @@ export function makeEvaluator(graph, facts) {
     if (!node) return null;
     const constant = literal(node);
     if (constant) return constant;
+    return cachedQuery(foldQueries, node, env, depth, foldQuery);
+  }
+
+  function foldQuery(node, env, depth) {
     if (ts.isIdentifier(node)) return foldIdentifier(node, env, depth);
     if (ts.isPropertyAccessExpression(node)) return foldProperty(node, env, depth);
     if (ts.isTemplateExpression(node)) {
@@ -1137,5 +1324,5 @@ export function makeEvaluator(graph, facts) {
     return null;
   }
 
-  return { evaluate, fold, returnValues, fromRequest, provenance };
+  return { evaluate, fold, returnValues, fromRequest, provenance, expandArguments };
 }

@@ -265,7 +265,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
           : [`${descriptor.method} is not a read method, so the daemon may act for this command`],
         violations: [],
       };
-    const trace = tracer.traceDescriptor({
+    const traceInput = {
       method: descriptor.method,
       kind,
       commandClass: descriptor.commandClass,
@@ -273,15 +273,28 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       localTransport: authority === "local-transport",
       ownSession: authority === "own-session",
       canonicalCut: !nonCanonical.has(kind),
-      // Host-only sources cannot use this trace, and a verified migration callback already
-      // has independent evidence. Both still pass through the final route/source checks below.
-      sources: sourceTargets(action, descriptor.id).filter((source) => {
-        const node = witnesses.get(source.id);
-        return !(
-          hostServiceEntryRequired(graph, node, action) || migrationServiceEntryEvidence(graph, node, source, action)
-        );
-      }),
+    };
+    const owner = tracer.traceDescriptor(traceInput);
+    const ownerEvidence =
+      authority === "local-transport" ? owner.local : authority === "own-session" ? owner.session : owner.authorized;
+    // Host-only sources require the independent scoped proof below. Verified migration
+    // callbacks still require this descriptor's owning authorization route at final judgment.
+    const targets = sourceTargets(action, descriptor.id).filter((source) => {
+      const node = witnesses.get(source.id);
+      return !(
+        hostServiceEntryRequired(graph, node, action) || migrationServiceEntryEvidence(graph, node, source, action)
+      );
     });
+    // CH1 source ownership requires the route's authority first. A failed owner cannot
+    // acquire a certificate by searching deeper implementation callbacks. Leave its effects
+    // unproven; valid owners still run the complete guarded/unguarded source trace.
+    const trace =
+      targets.length > 0 &&
+      ownerEvidence.length > 0 &&
+      declarationViolations.length === 0 &&
+      owner.violations.length === 0
+        ? tracer.traceDescriptor({ ...traceInput, sources: targets })
+        : owner;
     for (const source of trace.sources.values()) sourceResults.set(source.id, source);
     const evidence =
         authority === "local-transport" ? trace.local : authority === "own-session" ? trace.session : trace.authorized,

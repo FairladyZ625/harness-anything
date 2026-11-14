@@ -928,3 +928,51 @@ export const scheduleOccurrencePolicy = {
     "policy:packages/kernel:packages/kernel/src/domain/schedule-action-contract.ts#matchingClaim:abab1710689c6107ab2c50e8a3fc9da2",
   ].map((candidateId) => ({ candidateId, route: "schedule occurrence claim" })),
 } as const satisfies OntologyPolicyDeclaration;
+// Source identities and values for daemon policy declarations registered by EntityKindContract.
+export const daemonSchedulePolicySources = [
+  [
+    "policy:packages/daemon:packages/daemon/src/reckoning-agenda-read.ts#AGENDA_RUN_LIMIT:0a5b7f02484398ad468c2d831a290fdc",
+    "packages/daemon/src/reckoning-agenda-read.ts#AGENDA_RUN_LIMIT",
+    "const AGENDA_RUN_LIMIT = 16;",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/schedule-action-runtime.ts#dispatchClaimedReceipt:47ca5217d1e958314b90744b347066c7",
+    "packages/daemon/src/schedule-action-runtime.ts#dispatchClaimedReceipt",
+    'if (claimed.outcome !== "applied" || !schedule || !active) return claimed;',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/schedule-builtin-executor.ts#defaultLedgerBackupRetention:72a824870528a1725dbf348944c51f4b",
+    "packages/daemon/src/schedule-builtin-executor.ts#defaultLedgerBackupRetention",
+    "export const defaultLedgerBackupRetention: LedgerBackupRetentionPolicyV1 = { keepDays: 3, keepMonthly: true };",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/schedule-occurrence-workspace.ts#publishedBranchFetchTimeoutMs:75f55ae19adcda463242f739672c74d3",
+    "packages/daemon/src/schedule-occurrence-workspace.ts#publishedBranchFetchTimeoutMs",
+    "const publishedBranchFetchTimeoutMs = 30_000;",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/schedule-runs-read.ts#readScheduleRuns:9a23bb02dd4259dae64d2bcca65f6fad",
+    "packages/daemon/src/schedule-runs-read.ts#readScheduleRuns",
+    "if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200)",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/schedule-runtime-outcome.ts#scheduleOutcomeFromRuntime:2a9ab13fcbd83e77b10c4770abdfc672",
+    "packages/daemon/src/schedule-runtime-outcome.ts#scheduleOutcomeFromRuntime",
+    'if (runtimeOutcome !== "succeeded") return runtimeOutcome === "stopped" ? "unknown" : runtimeOutcome;',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/schedule-runtime-outcome.ts#scheduleOutcomeFromRuntime:feb9fad9365a815f7f186c7f8e100650",
+    "packages/daemon/src/schedule-runtime-outcome.ts#scheduleOutcomeFromRuntime",
+    'if (runtimeOutcome !== "succeeded") return runtimeOutcome === "stopped" ? "unknown" : runtimeOutcome;',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/schedule-scheduler.ts#HUMAN_BLOCK_RETRY_MS:92965c5ace2b459d9fd1e652e9c7097d",
+    "packages/daemon/src/schedule-scheduler.ts#HUMAN_BLOCK_RETRY_MS",
+    "const HUMAN_BLOCK_RETRY_MS = 60_000;",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/schedule-scheduler.ts#makeScheduleScheduler.evaluationPlan:b0b574674e9ec0b8a2731c555984e56c",
+    "packages/daemon/src/schedule-scheduler.ts#makeScheduleScheduler.evaluationPlan",
+    "if (",
+  ],
+] as const;

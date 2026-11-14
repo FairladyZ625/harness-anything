@@ -91,13 +91,6 @@ const nullish = (expression) => {
   );
 };
 
-let fileOf = (node) => node.getSourceFile().fileName;
-
-function where(node) {
-  const source = node.getSourceFile();
-  return `${fileOf(node)}:${source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1}`;
-}
-
 function parameterUsed(parameter, fn) {
   const names = new Set();
   (function collect(name) {
@@ -113,7 +106,10 @@ function parameterUsed(parameter, fn) {
 }
 
 export function makeAuthorizationTracer(graph, anchors) {
-  fileOf = graph.fileOf;
+  const where = (node) => {
+    const source = node.getSourceFile();
+    return `${graph.fileOf(node)}:${source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1}`;
+  };
   const neutral = makeEvaluator(graph, { constants: {}, functions: {} }),
     producerCache = new Map(),
     predicateCache = new Map();
@@ -353,15 +349,17 @@ export function makeAuthorizationTracer(graph, anchors) {
   const portReaching = new Map();
   function reachesPort(fn, depth) {
     if (!fn.body || depth > 3) return false;
-    if (portReaching.has(fn)) return portReaching.get(fn);
-    portReaching.set(fn, false);
+    const byDepth = portReaching.get(fn) ?? new Map();
+    portReaching.set(fn, byDepth);
+    if (byDepth.has(depth)) return byDepth.get(depth);
+    byDepth.set(depth, false);
     let found = false;
     eachOwnNode(fn.body, (node) => {
       if (!found && ts.isCallExpression(node))
         found =
           isPortCall(node) || resolvedFunctions(unwrap(node.expression)).some((inner) => reachesPort(inner, depth + 1));
     });
-    portReaching.set(fn, found);
+    byDepth.set(depth, found);
     return found;
   }
 
@@ -479,7 +477,11 @@ export function makeAuthorizationTracer(graph, anchors) {
         let inner = null;
         eachOwnNode(value.node.body, (node) => {
           if (inner === null && ts.isCallExpression(node) && node !== call && decisionCall(node, new Set()))
-            inner = decisionSubject(node, bindArguments(value, call.arguments, env), depth + 1);
+            inner = decisionSubject(
+              node,
+              bindArguments(value, evaluator.expandArguments(call.arguments, env), env),
+              depth + 1,
+            );
         });
         if (inner?.routed || (carried && inner?.kind)) return { kind: kind ?? inner.kind, routed: true };
         evaluatedKind ??= inner?.kind ?? null;
@@ -604,7 +606,7 @@ export function makeAuthorizationTracer(graph, anchors) {
       for (const value of evaluator.evaluate(callee, env)) {
         if (!value.fn || !value.node.body || seen.has(value.node)) continue;
         seen.add(value.node);
-        const inner = bindArguments(value, call.arguments, env),
+        const inner = bindArguments(value, evaluator.expandArguments(call.arguments, env), env),
           returns = [];
         if (ts.isBlock(value.node.body))
           eachOwnNode(value.node.body, (node) => {
@@ -757,7 +759,12 @@ export function makeAuthorizationTracer(graph, anchors) {
         visit(callee.expression, env, state);
         const [resolved] = node.arguments;
         for (const value of resolved ? evaluator.evaluate(resolved, env) : [])
-          if (value.fn) walkFunction(value, bindArguments(value, [callee.expression], env), clone(state));
+          if (value.fn)
+            walkFunction(
+              value,
+              bindArguments(value, evaluator.expandArguments([callee.expression], env), env),
+              clone(state),
+            );
         return;
       }
       if (ts.isPropertyAccessExpression(callee) && ["catch", "finally"].includes(callee.name.text))
@@ -788,39 +795,65 @@ export function makeAuthorizationTracer(graph, anchors) {
         target.ok &&= Boolean(allowed);
         target.evidence.push(evidence);
       };
-      const sourceFunctions = descriptor.sources?.length
-        ? sourceEvaluator.evaluate(callee, env).filter((value) => value.fn)
-        : [];
-      const declaredCallee = descriptor.sources?.length && sourceGraph.callDeclaration(node);
+      // Once this call cannot improve any source certificate, even resolving its full-graph
+      // callees is redundant. Unguarded calls still challenge previously authorized sources.
+      const sourceRequired =
+        descriptor.sources?.length &&
+        [...report.sources.values()].some((source) => !source.seen || (!sourceAuthority && source.ok));
+      const sourceFunctions = sourceRequired ? sourceEvaluator.evaluate(callee, env).filter((value) => value.fn) : [];
+      const declaredCallee = sourceRequired && sourceGraph.callDeclaration(node);
       if (
         isFunctionNode(declaredCallee) &&
         declaredCallee.body &&
         !sourceFunctions.some((value) => value.node === declaredCallee)
       )
         sourceFunctions.push({ node: declaredCallee, env: new Map() });
-      if (descriptor.sources?.length)
-        for (const value of sourceFunctions) {
-          const boundary = !graph.modules.has(graph.fileOf(value.node));
-          if (
-            (!sourceAuthority && !boundary) ||
-            (sourceAuthority && [...report.sources.values()].every((source) => source.seen && source.ok))
-          )
-            continue;
-          // Each callee and captured frame owns its reachability. A call-site-only cache can
-          // reuse another callback's sources when this node runs under different bindings.
-          const sites = processSourceSites(sourceGraph, value.node, {
-            evaluator: sourceEvaluator,
-            env: bindArguments(value, node.arguments, env),
-            targets: report.sources.keys(),
-          });
-          for (const [site, target] of report.sources)
-            if (sites.has(site))
-              observe(
-                target,
-                sourceAuthority,
-                `${where(node)}: ${sourceAuthority ? "owner authority" : "unguarded call"} reaches ${site} through its actual callee`,
-              );
-        }
+      // Defer positive discovery to callees the policy walk will actually enter below.
+      // This issues no certificate: missed sources still need the full-graph fallback. Unguarded calls
+      // must still challenge every previously authorized source through the full graph.
+      const policyWalks =
+        sourceRequired && sourceAuthority
+          ? new Set(
+              functions
+                .filter(
+                  (value) =>
+                    !stack.includes(value.node) &&
+                    stack.length <= maxWalkDepth &&
+                    !allowPredicate(value.node) &&
+                    !producesDecision(value.node) &&
+                    ((boundParameter?.kind === "param" && env.get(boundParameter.parameter)?.expression) ||
+                      shouldDescend(value, node, env, state)),
+                )
+                .map((value) => value.node),
+            )
+          : null;
+      const deferredSources = [];
+      function proveSourceCallee(value) {
+        const boundary = !graph.modules.has(graph.fileOf(value.node));
+        // Rejection is irreversible; another authorized call cannot repair a bypass. For an
+        // authorized call only unseen sources remain; an unguarded call must still challenge
+        // any source previously seen only with authority.
+        const pendingSources = [...report.sources].filter(
+          ([, source]) => !source.seen || (!sourceAuthority && source.ok),
+        );
+        if ((!sourceAuthority && !boundary) || pendingSources.length === 0) return;
+        const sites = processSourceSites(sourceGraph, value.node, {
+          evaluator: sourceEvaluator,
+          env: bindArguments(value, sourceEvaluator.expandArguments(node.arguments, env), env),
+          targets: pendingSources.map(([site]) => site),
+        });
+        for (const [site, target] of pendingSources)
+          if (sites.has(site))
+            observe(
+              target,
+              sourceAuthority,
+              `${where(node)}: ${sourceAuthority ? "owner authority" : "unguarded call"} reaches ${site} through its actual callee`,
+            );
+      }
+      for (const value of sourceFunctions) {
+        if (policyWalks?.has(value.node) && graph.modules.has(graph.fileOf(value.node))) deferredSources.push(value);
+        else proveSourceCallee(value);
+      }
       if (state.authorized && node.arguments.some((argument) => spends(argument, state.tainted, 0)))
         state.consumed = true;
       // A declared own-session route hands the effect the request and, as a separate input, the
@@ -867,10 +900,14 @@ export function makeAuthorizationTracer(graph, anchors) {
         }
         if (producesDecision(value.node)) {
           // A producer that itself exits on denial is an enforcer: what follows it is authorized.
-          const outcome = walkFunction(value, bindArguments(value, node.arguments, env), {
-            ...newState(),
-            effect: state.effect,
-          });
+          const outcome = walkFunction(
+            value,
+            bindArguments(value, evaluator.expandArguments(node.arguments, env), env),
+            {
+              ...newState(),
+              effect: state.effect,
+            },
+          );
           if (outcome.authorizedReturn) {
             enforcedSubject = decisionSubject(node, env);
             checkCut(node, env, enforcedSubject);
@@ -890,7 +927,11 @@ export function makeAuthorizationTracer(graph, anchors) {
         inner.sourceCovered ||= Boolean(sourceAuthority);
         inner.authorized = false;
         inner.consumed = false;
-        const outcome = walkFunction(value, bindArguments(value, node.arguments, env), inner);
+        const outcome = walkFunction(
+          value,
+          bindArguments(value, evaluator.expandArguments(node.arguments, env), env),
+          inner,
+        );
         walked.push(outcome);
         if (!outcome.authorizedReturn) allAuthorized = false;
         else {
@@ -898,6 +939,9 @@ export function makeAuthorizationTracer(graph, anchors) {
           if (outcome.consumedReturn) state.consumed = true;
         }
       }
+      // A policy callee may not descend to every source. Preserve the full-graph fallback
+      // for anything it did not prove, using this call's original authority and argument frame.
+      for (const value of deferredSources) proveSourceCallee(value);
       if (walked.length > 0 && walked.length === functions.length) {
         // A callee that returns only past its own local-transport exit leaves this frame local.
         if (walked.every((outcome) => outcome.localReturn)) state.local = true;
@@ -930,7 +974,13 @@ export function makeAuthorizationTracer(graph, anchors) {
     /** A frame is on the traced route when one of its bindings carries the request. */
     function routedFrame(env) {
       for (const bound of env.values())
-        if (bound.root || evaluator.provenance(bound.expression, bound.env)) return true;
+        if (
+          bound.root ||
+          (bound.rest
+            ? bound.rest.some((entry) => evaluator.provenance(entry.expression, entry.env))
+            : evaluator.provenance(bound.expression, bound.env))
+        )
+          return true;
       return false;
     }
 
@@ -942,7 +992,7 @@ export function makeAuthorizationTracer(graph, anchors) {
       calls.calls.push({ authorized: state.authorized, at: where(call), carried: false, parameter });
       frames.set(group, calls);
       guardCalls.set(parameter, frames);
-      const next = bindArguments(value, call.arguments, env),
+      const next = bindArguments(value, evaluator.expandArguments(call.arguments, env), env),
         inner = clone(state);
       inner.sourceCovered ||= Boolean(sourceAuthority);
       if (state.authorized) {
@@ -1116,6 +1166,13 @@ export function makeAuthorizationTracer(graph, anchors) {
           const bound = env.get(parameter);
           if (!bound) return "-";
           if (bound.root) return "request";
+          if (bound.rest)
+            return `rest:[${bound.rest
+              .map((entry) => {
+                const tag = evaluator.provenance(entry.expression, entry.env) ?? "";
+                return `${tag}:${entry.expression.pos}:${graph.fileOf(entry.expression)}`;
+              })
+              .join("|")}]`;
           const tag = evaluator.provenance(bound.expression, bound.env) ?? "",
             site = `${tag}:${bound.expression.pos}:${graph.fileOf(bound.expression)}`;
           return withFrames ? `${site}@${frameKeys.get(bound.env) ?? 0}` : site;
