@@ -830,6 +830,8 @@
   "agentRuntime.credentialSource": "Subscription account",
   "agentRuntime.credentialOperator": "Host account",
   "agentRuntime.credentialInstance": "Independent account",
+  "agentRuntime.credentialResetWarning": "Saving this change will delete this instance's saved sign-in. You will need to sign in again to use the independent account.",
+  "agentRuntime.confirmCredentialReset": "Delete saved sign-in and save",
   "agentRuntime.tier": "Priority tier",
   "agentRuntime.refreshAccount": "Refresh models & quota",
   "agentRuntime.selectionStrategy": "Same-tier scheduling",

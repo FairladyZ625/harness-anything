@@ -432,11 +432,18 @@ function ProviderEditor({
   const [draft, setDraft] = useState<RuntimeInstanceEditFormState>(() =>
       runtimeInstanceEditForm(instance, independentCredentialsSupported),
     ),
-    [customModelOpen, setCustomModelOpen] = useState(false);
+    [customModelOpen, setCustomModelOpen] = useState(false),
+    [confirmAccountChange, setConfirmAccountChange] = useState(false);
   const witnessed = installations.filter((installation) => installation.kindId === instance.kindId),
     installation = witnessed.find((entry) => entry.installationId === draft.installationId),
-    ready = runtimeInstanceEditReady(draft);
-  const patch = (value: Partial<RuntimeInstanceEditFormState>) => setDraft((current) => ({ ...current, ...value }));
+    ready = runtimeInstanceEditReady(draft),
+    removesIndependentSignIn =
+      instance.credentialSource === "instance" &&
+      (draft.credentialSource !== instance.credentialSource || draft.installationId !== instance.installationId);
+  const patch = (value: Partial<RuntimeInstanceEditFormState>) => {
+    setConfirmAccountChange(false);
+    setDraft((current) => ({ ...current, ...value }));
+  };
   const setModels = (models: readonly string[]) =>
     setDraft((current) => ({ ...current, models, defaultModel: runtimeDefaultModel(models, current.defaultModel) }));
   return (
@@ -444,6 +451,10 @@ function ProviderEditor({
       data-testid="runtime-provider-editor"
       onSubmit={(event) => {
         event.preventDefault();
+        if (removesIndependentSignIn && !confirmAccountChange) {
+          setConfirmAccountChange(true);
+          return;
+        }
         const payload = buildRuntimeInstanceUpdatePayload(instance.instanceId, draft);
         patch({ apiKey: "" });
         void onUpdate(payload).then((receipt) => {
@@ -591,13 +602,27 @@ function ProviderEditor({
           </div>
         )}
       </div>
+      {removesIndependentSignIn && (
+        <p role="alert" data-testid="runtime-provider-credential-warning" className="mt-2 ui-meta text-danger">
+          {t("agentRuntime.credentialResetWarning")}
+        </p>
+      )}
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <span className="flex-1" />
         <Button testId="runtime-provider-cancel" onClick={onCancel}>
           {t("agentRuntime.cancel")}
         </Button>
-        <Button type="submit" variant="primary" testId="runtime-provider-save" disabled={busy || !ready}>
-          {t("agentRuntime.saveProvider")}
+        <Button
+          type="submit"
+          variant={removesIndependentSignIn && confirmAccountChange ? "danger" : "primary"}
+          testId="runtime-provider-save"
+          disabled={busy || !ready}
+        >
+          {t(
+            removesIndependentSignIn && confirmAccountChange
+              ? "agentRuntime.confirmCredentialReset"
+              : "agentRuntime.saveProvider",
+          )}
         </Button>
       </div>
     </form>

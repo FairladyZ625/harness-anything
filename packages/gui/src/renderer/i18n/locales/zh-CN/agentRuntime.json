@@ -830,6 +830,8 @@
   "agentRuntime.credentialSource": "订阅账号",
   "agentRuntime.credentialOperator": "宿主主号",
   "agentRuntime.credentialInstance": "独立账号",
+  "agentRuntime.credentialResetWarning": "保存此更改会删除该实例已保存的登录凭证。再次使用独立账号时需要重新登录。",
+  "agentRuntime.confirmCredentialReset": "删除登录凭证并保存",
   "agentRuntime.tier": "优先级层",
   "agentRuntime.refreshAccount": "刷新模型与额度",
   "agentRuntime.selectionStrategy": "同层调度",
