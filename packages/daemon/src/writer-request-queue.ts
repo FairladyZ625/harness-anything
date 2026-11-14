@@ -23,6 +23,9 @@ interface Request {
   cancel: (reason: unknown) => void;
   cancelled?: unknown;
   dispatched: boolean;
+  queuedTurns: number;
+  detached: boolean;
+  enteredTurn: boolean;
 }
 
 /** Admission bounds whole RPCs; the exclusive slot covers only their database write turns. */
@@ -33,7 +36,7 @@ export function createWriterRequestQueue(options: {
   readonly syncRepDrainGraceMs?: number;
   readonly requestTimeoutMs?: number;
   readonly terminateAborted: (error: Error) => Promise<void>;
-  readonly warn?: (warning: { event: string; repoId: string; opId: string }) => void;
+  readonly warn?: (warning: { event: string; repoId: string; opId: string; code?: string }) => void;
 }) {
   const pendingQueue: Request[] = [],
     requests = new Map<string, Request>(),
@@ -42,6 +45,11 @@ export function createWriterRequestQueue(options: {
     closed = false,
     sequence = 0;
   const takeSlot = (requestId?: string): WriteSlot => {
+    const request = requestId ? requests.get(requestId) : undefined;
+    if (request) {
+      request.queuedTurns = Math.max(0, request.queuedTurns - 1);
+      request.enteredTurn = true;
+    }
     const state = new Int32Array(new SharedArrayBuffer(12)),
       id = (sequence = (sequence + 1) | 0);
     Atomics.store(state, 2, id);
@@ -78,7 +86,19 @@ export function createWriterRequestQueue(options: {
         .run(request)
         .then(
           (value) => (request.cancelled !== undefined ? request.reject(request.cancelled) : request.resolve(value)),
-          (error: unknown) => request.reject(error),
+          (error: unknown) => {
+            const cancelled =
+              request.cancelled !== undefined &&
+              (sameCancellation(error, request.cancelled) || errorCode(error) === "write_aborted_pre_commit");
+            if (request.detached && !cancelled)
+              (options.warn ?? ((warning) => console.warn(JSON.stringify(warning))))({
+                event: "writer_detached_request_failed",
+                repoId: options.repoId,
+                opId: request.opId,
+                code: errorCode(error) ?? "writer_request_failed",
+              });
+            request.reject(cancelled ? request.cancelled : error);
+          },
         )
         .finally(() => {
           request.cleanup();
@@ -95,6 +115,7 @@ export function createWriterRequestQueue(options: {
     const request = slot.requestId ? requests.get(slot.requestId) : undefined;
     if (previous === 1) {
       // Neither the underlying connection nor the exclusive turn belongs to this caller anymore.
+      if (request) request.detached = true;
       request?.resolve({
         outcome: "indeterminate",
         code: "publication_indeterminate",
@@ -137,6 +158,9 @@ export function createWriterRequestQueue(options: {
           request: Request = {
             requestId,
             dispatched: false,
+            queuedTurns: 0,
+            detached: false,
+            enteredTurn: false,
             opId,
             staged,
             run,
@@ -169,7 +193,11 @@ export function createWriterRequestQueue(options: {
               }
               if (activeWriteSlot?.requestId === requestId) cancelSlot(activeWriteSlot, reason);
               else {
-                // Veto later write turns now; the caller still owns its preparation's cleanup receipt.
+                // A queued turn owns no database work. Its raw RPC remains bounded until cleanup.
+                if (!request.enteredTurn || request.queuedTurns > 0) {
+                  request.detached = true;
+                  reject(reason);
+                }
                 request.abort.abort(reason);
                 for (const waiter of slotQueue.filter((entry) => entry.requestId === requestId)) {
                   slotQueue.splice(slotQueue.indexOf(waiter), 1);
@@ -183,6 +211,16 @@ export function createWriterRequestQueue(options: {
         signal?.addEventListener("abort", onAbort, { once: true });
         pump();
       });
+    },
+    queued: (requestId: string) => {
+      const request = requests.get(requestId);
+      if (!request) return;
+      request.queuedTurns++;
+      // Cancellation can arrive before the worker's queue notification reaches the host.
+      if (request.cancelled !== undefined && activeWriteSlot?.requestId !== requestId) {
+        request.detached = true;
+        request.reject(request.cancelled);
+      }
     },
     acquire: (requestId?: string): Promise<WriteSlot> => {
       if (closed && options.abortInFlightOnClose !== false)
@@ -241,6 +279,23 @@ export function createWriterRequestQueue(options: {
       return drained;
     },
   };
+}
+
+function errorCode(error: unknown): string | undefined {
+  return error !== null && typeof error === "object" && "code" in error && typeof error.code === "string"
+    ? error.code
+    : undefined;
+}
+
+function sameCancellation(error: unknown, reason: unknown): boolean {
+  return (
+    error === reason ||
+    (error instanceof Error &&
+      reason instanceof Error &&
+      error.name === reason.name &&
+      error.message === reason.message &&
+      errorCode(error) === errorCode(reason))
+  );
 }
 
 function queueError(code: string, message: string, retryable = false): Error {

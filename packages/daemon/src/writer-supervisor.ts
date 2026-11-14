@@ -88,7 +88,7 @@ export async function openWriterSupervisor(
     readonly rollbackGraceMs?: number;
     readonly syncRepDrainGraceMs?: number;
     readonly requestTimeoutMs?: number;
-    readonly onWarning?: (warning: { event: string; repoId: string; opId: string }) => void;
+    readonly onWarning?: (warning: { event: string; repoId: string; opId: string; code?: string }) => void;
     readonly onAttachStatus?: (status: RepoCellStatus) => void;
     readonly onPublishedStatus?: (status: RepoCellStatus) => void;
   } = {},
@@ -651,6 +651,9 @@ export async function openWriterSupervisor(
 
   async function capabilityValue(call: RepoWriterCapabilityCallV1): Promise<unknown> {
     switch (call.capability) {
+      case "writeQueued":
+        writes.queued((call.payload as { requestId: string }).requestId);
+        return;
       case "acquireWriteSlot": {
         const slot = await writes.acquire((call.payload as { requestId?: string }).requestId);
         return { state: slot.state, id: slot.id };

@@ -209,6 +209,7 @@ export type RepoWriterCapabilityName =
   | "lifecycle"
   | "fleetBaseBackupTrace"
   | "writeOperation"
+  | "writeQueued"
   | "acquireWriteSlot"
   | "releaseWriteSlot";
 

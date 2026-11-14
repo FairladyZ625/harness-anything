@@ -17,7 +17,6 @@ export const writerLifecyclePolicy = {
     "packages/daemon/test/writer-supervisor-memory.integration.test.ts",
     "packages/daemon/test/writer-syncrep-admission.test.ts",
     "packages/daemon/test/daemon-syncrep-routing.integration.test.ts",
-    "packages/daemon/test/daemon-write-cas.integration.test.ts",
   ],
   sources: [
     {

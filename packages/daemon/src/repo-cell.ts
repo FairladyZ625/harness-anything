@@ -305,9 +305,13 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
 
 /** The worker binds the host-owned slot to every exclusive turn, including later publications. */
 type RepoCellWriteSlot = <T>(work: () => T | PromiseLike<T>) => Promise<T>;
-const writeSlotContext = new AsyncLocalStorage<RepoCellWriteSlot>();
-export function withRepoCellWriteSlot<T>(slot: RepoCellWriteSlot, operation: () => Promise<T>): Promise<T> {
-  return writeSlotContext.run(slot, operation);
+const writeSlotContext = new AsyncLocalStorage<{ slot: RepoCellWriteSlot; queued?: () => void }>();
+export function withRepoCellWriteSlot<T>(
+  slot: RepoCellWriteSlot,
+  operation: () => Promise<T>,
+  queued?: () => void,
+): Promise<T> {
+  return writeSlotContext.run({ slot, queued }, operation);
 }
 
 export function chainRepoCellWrite<T>(
@@ -329,7 +333,9 @@ export function chainRepoCellWrite<T>(
   if (entry !== null && options !== undefined) options.queue.waiting.push(entry);
   // One event-loop turn between serialized writes, so timers and I/O are not starved by a write backlog.
   const turn = tail.then(() => new Promise<void>((resolve) => setImmediate(resolve)));
-  const writeSlot: RepoCellWriteSlot = writeSlotContext.getStore() ?? (async (work) => await work());
+  const context = writeSlotContext.getStore();
+  context?.queued?.();
+  const writeSlot: RepoCellWriteSlot = context?.slot ?? (async (work) => await work());
   return turn
     .then(() => {
       options?.onDequeued?.();

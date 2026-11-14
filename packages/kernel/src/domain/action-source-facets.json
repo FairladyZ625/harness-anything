@@ -7948,11 +7948,6 @@
         "role": "support"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker:8440c69dc1101c79ebefafbc5363d9fc",
-        "route": "daemon-local-state",
-        "role": "support"
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker.handleRequest:c8e44ae0e78006f274b215ee46db21c7",
         "route": "daemon-local-state",
         "role": "support"
@@ -11969,7 +11964,7 @@
         "port": "node_modules/@types/node/async_hooks.d.ts#async_hooks.AsyncLocalStorage.run"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker:4ce0013fe6bcf9dda77fb9c1a509faee",
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker:056315cbd3f53337f7ef9942bba1922c",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/worker_threads.d.ts#worker_threads.MessagePort.on"
@@ -12049,7 +12044,7 @@
         "port": "packages/daemon/src/repo-read-runtime.ts#makeRepoReadRuntime.run"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell.ts#withRepoCellWriteSlot:ad940c706f680778ce3823e090ce05c7",
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell.ts#withRepoCellWriteSlot:7a2f654012437d7a9e01383407de6558",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/async_hooks.d.ts#async_hooks.AsyncLocalStorage.run"
@@ -12071,6 +12066,12 @@
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker:d5a4b320a250cc1b12a0adebfe473710",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
       }
     ],
     "technical": true

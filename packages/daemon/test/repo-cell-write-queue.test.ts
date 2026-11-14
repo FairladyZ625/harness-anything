@@ -4,6 +4,23 @@ import test from "node:test";
 import { chainRepoCellWrite, withRepoCellWriteSlot } from "../src/repo-cell.ts";
 import type { RepoCellQueueObservation, RepoCellWriteQueueState } from "../src/repo-cell-types.ts";
 
+test("queue admission is reported before the preceding write releases its turn", async () => {
+  const head = Promise.withResolvers<void>(),
+    events: string[] = [];
+  const pending = withRepoCellWriteSlot(
+    async (work) => {
+      events.push("acquired");
+      return await work();
+    },
+    async () => await chainRepoCellWrite(head.promise, () => events.push("work")),
+    () => events.push("queued"),
+  );
+  assert.deepEqual(events, ["queued"]);
+  head.resolve();
+  await pending;
+  assert.deepEqual(events, ["queued", "acquired", "work"]);
+});
+
 test("a second write starts only after the first queued write settles", async () => {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {

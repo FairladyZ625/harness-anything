@@ -275,6 +275,7 @@ test("staged preparation abort vetoes late DB work and retains ownership through
   await worker.posted.promise;
   const requestId = worker.writes[0]!.requestId;
   abort.abort();
+  assert.equal(await Promise.race([result.then(() => true), turn().then(() => false)]), true);
   assert.deepEqual(worker.cancels, [requestId]);
   const acquired = await worker.capability("acquireWriteSlot", { requestId });
   assert.equal(acquired.outcome, "error");
@@ -285,6 +286,135 @@ test("staged preparation abort vetoes late DB work and retains ownership through
   await turn();
   await supervisor.close();
 });
+
+test("C3: a pre-dispatched queued turn cancels before another request leaves SyncRep", async () => {
+  const { supervisor, worker } = await open({}, input, true),
+    abort = new AbortController(),
+    first = supervisor.request("run", { opId: "sync-rep" }),
+    second = supervisor.request("run", { opId: "pre-dispatched" }, undefined, abort.signal),
+    cancelled = assert.rejects(second, { name: "AbortError" });
+  await turn();
+  const [head, waiting] = worker.writes;
+  assert.equal(worker.writes.length, 2);
+  // The real seam reports queue admission before waiting for the preceding turn.
+  await worker.capability("writeQueued", { requestId: waiting!.requestId });
+  const slot = (await worker.capability("acquireWriteSlot", { requestId: head!.requestId })).value as {
+    state: Int32Array;
+    id: number;
+  };
+  assert.equal(Atomics.compareExchange(slot.state, 1, 0, 1), 0);
+  try {
+    abort.abort();
+    assert.equal(
+      await Promise.race([cancelled.then(() => "cancelled"), turn().then(() => "still waiting")]),
+      "cancelled",
+      "cancellation must settle without releasing the SyncRep barrier",
+    );
+    assert.equal(supervisor.status().queueDepth, 2, "the bounded owner retains both raw receipts");
+    assert.equal(worker.terminated, 0);
+    const late = await worker.capability("acquireWriteSlot", { requestId: waiting!.requestId });
+    assert.equal(late.outcome, "error", "a cancelled turn never reaches work, even after a late acquire");
+  } finally {
+    await worker.capability("releaseWriteSlot", { slotId: slot.id });
+    worker.receipt(head!.requestId);
+    worker.receipt(waiting!.requestId);
+    await Promise.all([first, cancelled]);
+    await turn();
+    assert.equal(supervisor.status().queueDepth, 0);
+    await supervisor.close();
+  }
+});
+
+test("C3: cancellation preceding the queue notification still settles behind SyncRep", async () => {
+  const { supervisor, worker } = await open({}, input, true),
+    first = supervisor.request("run", {}),
+    abort = new AbortController(),
+    second = assert.rejects(supervisor.request("run", {}, undefined, abort.signal), { name: "AbortError" });
+  await turn();
+  const [head, waiting] = worker.writes,
+    slot = (await worker.capability("acquireWriteSlot", { requestId: head!.requestId })).value as {
+      state: Int32Array;
+      id: number;
+    };
+  Atomics.compareExchange(slot.state, 1, 0, 1);
+  abort.abort();
+  await worker.capability("writeQueued", { requestId: waiting!.requestId });
+  assert.equal(await Promise.race([second.then(() => true), turn().then(() => false)]), true);
+  const late = await worker.capability("acquireWriteSlot", { requestId: waiting!.requestId });
+  assert.equal(late.outcome, "error");
+  assert.equal(worker.terminated, 0);
+  await worker.capability("releaseWriteSlot", { slotId: slot.id });
+  worker.receipt(head!.requestId);
+  worker.receipt(waiting!.requestId);
+  await Promise.all([first, second]);
+  await supervisor.close();
+});
+
+test("C3: a later queued turn retains cancellation after an earlier turn releases its slot", async () => {
+  const { supervisor, worker } = await open({}, input, true),
+    abort = new AbortController(),
+    result = assert.rejects(supervisor.request("run", {}, undefined, abort.signal), { name: "AbortError" });
+  await worker.posted.promise;
+  const requestId = worker.writes[0]!.requestId;
+  await worker.capability("writeQueued", { requestId });
+  await worker.capability("writeQueued", { requestId });
+  const slot = (await worker.capability("acquireWriteSlot", { requestId })).value as { id: number };
+  await worker.capability("releaseWriteSlot", { slotId: slot.id });
+  abort.abort();
+  assert.equal(await Promise.race([result.then(() => true), turn().then(() => false)]), true);
+  assert.equal((await worker.capability("acquireWriteSlot", { requestId })).outcome, "error");
+  worker.receipt(requestId);
+  await result;
+  await supervisor.close();
+});
+
+test("detached queue cleanup retains admission and reports unexpected failure with its own code", async () => {
+  const warnings: unknown[] = [],
+    { supervisor, worker } = await open({ onWarning: (warning) => warnings.push(warning) }, input, true),
+    abort = new AbortController(),
+    result = assert.rejects(supervisor.request("run", { opId: "queued-cleanup" }, undefined, abort.signal), {
+      name: "AbortError",
+    });
+  await worker.posted.promise;
+  const requestId = worker.writes[0]!.requestId;
+  await worker.capability("writeQueued", { requestId });
+  abort.abort();
+  await result;
+  assert.equal(supervisor.status().queueDepth, 1);
+  worker.emit("message", {
+    schema: "harness-repo-writer-receipt/v1",
+    requestId,
+    outcome: "error",
+    error: { name: "Error", message: "private worker detail", code: "cleanup_failed" },
+  });
+  await turn();
+  assert.equal(supervisor.status().queueDepth, 0);
+  assert.deepEqual(warnings, [
+    { event: "writer_detached_request_failed", repoId: input.repoId, opId: "queued-cleanup", code: "cleanup_failed" },
+  ]);
+  await supervisor.close();
+});
+
+for (const code of ["write_aborted_pre_commit", "unexpected_sql_failure"])
+  test(`pre-commit cancellation distinguishes its rollback acknowledgement from ${code}`, async () => {
+    const { supervisor, worker } = await open(),
+      abort = new AbortController(),
+      reason = Object.assign(new Error("caller cancelled"), { code: "caller_cancelled" }),
+      result = assert.rejects(supervisor.request("run", {}, undefined, abort.signal), {
+        code: code === "write_aborted_pre_commit" ? reason.code : code,
+      });
+    await worker.posted.promise;
+    abort.abort(reason);
+    worker.emit("message", {
+      schema: "harness-repo-writer-receipt/v1",
+      requestId: worker.writes[0]!.requestId,
+      outcome: "error",
+      error: { name: "Error", message: "database result", code },
+    });
+    await result;
+    assert.equal(worker.terminated, 0);
+    await supervisor.close();
+  });
 
 test("staged slot waiters are FIFO and each exclusive turn owns fresh absorbing phase state", async () => {
   const { supervisor, worker } = await open({}, input, true);
@@ -347,9 +477,16 @@ test("staged admission counts all dispatched preparation even without an exclusi
   await assert.rejects(supervisor.request("run", {}), { code: "write_overloaded", data: { retryable: true } });
   abort.abort();
   assert.equal(supervisor.status().queueDepth, 64);
+  await assert.rejects(supervisor.request("run", {}), { code: "write_overloaded", data: { retryable: true } });
   for (const request of worker.writes) worker.receipt(request.requestId);
   await Promise.all(results);
   await turn();
+  const next = supervisor.request("run", {}),
+    admitted = assert.doesNotReject(next);
+  await turn();
+  assert.equal(worker.writes.length, 65, "raw receipt cleanup returns admission capacity");
+  worker.receipt(worker.writes.at(-1)!.requestId);
+  await admitted;
   await supervisor.close();
 });
 
@@ -361,6 +498,10 @@ test("cancelling an out-of-slot operation preserves its cleanup failure receipt"
       code: "archive_cleanup_failed",
     });
   await worker.posted.promise;
+  const slot = (await worker.capability("acquireWriteSlot", { requestId: worker.writes[0]!.requestId })).value as {
+    id: number;
+  };
+  await worker.capability("releaseWriteSlot", { slotId: slot.id });
   abort.abort();
   await turn();
   assert.equal(worker.cancels.length, 1);

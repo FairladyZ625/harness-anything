@@ -73,7 +73,7 @@ async function startRepoWriterWorker(): Promise<void> {
     >(),
     runtimeProcesses = new Map<string, RuntimeProcessListeners>(),
     activeRequests = new Map<string, AbortController>(),
-    activeStoreRequests = new Set<Promise<void>>(),
+    pendingRequests = new Set<Promise<void>>(),
     activePresets = new Set<string>(),
     requestContext = new AsyncLocalStorage<string>(),
     fleetBackupRequestContext = new AsyncLocalStorage<string>(),
@@ -133,7 +133,11 @@ async function startRepoWriterWorker(): Promise<void> {
     }
     if (isWriterRequest(message)) {
       const handle = () =>
-        withRepoCellWriteSlot(runWriteTurn, () => requestContext.run(message.requestId, () => handleRequest(message)));
+        withRepoCellWriteSlot(
+          runWriteTurn,
+          () => requestContext.run(message.requestId, () => handleRequest(message)),
+          queueWriteTurn,
+        );
       const operation = message.writeRequest
         ? withStorageWriteRequest(
             {
@@ -143,11 +147,11 @@ async function startRepoWriterWorker(): Promise<void> {
             handle,
           )
         : handle();
-      if (message.method === "canonicalStore") {
-        activeStoreRequests.add(operation);
-        void operation.finally(() => activeStoreRequests.delete(operation));
-      }
-    } else if (isWriterControl(message)) void withRepoCellWriteSlot(runWriteTurn, () => handleControl(message));
+      // Caller cancellation can settle before preparation or a queued turn cleans up.
+      pendingRequests.add(operation);
+      void operation.finally(() => pendingRequests.delete(operation));
+    } else if (isWriterControl(message))
+      void withRepoCellWriteSlot(runWriteTurn, () => handleControl(message), queueWriteTurn);
   });
 
   try {
@@ -385,6 +389,11 @@ async function startRepoWriterWorker(): Promise<void> {
     }
   }
 
+  function queueWriteTurn(): void {
+    const requestId = requestContext.getStore();
+    if (requestId && activeRequests.has(requestId)) notify("writeQueued", { requestId });
+  }
+
   async function handleRequest(request: RepoWriterRequestV1): Promise<void> {
     const abort = new AbortController(),
       startedAtMs = monotonicMs();
@@ -566,7 +575,7 @@ async function startRepoWriterWorker(): Promise<void> {
       if (control.command === "drain") {
         draining = true;
         for (const request of activeRequests.values()) request.abort();
-        await Promise.all(activeStoreRequests);
+        await Promise.all(pendingRequests);
         await cell?.settlePendingMaterialization("writer shutdown");
         await cell?.close();
         cell = null;
