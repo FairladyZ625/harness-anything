@@ -1,5 +1,5 @@
 import { publicPublication } from "./repo-cell-receipts.ts";
-import { attachReceiptAcceptance } from "@harness-anything/kernel";
+import { attachWriteReceiptAcceptance } from "./write-receipt-settlement.ts";
 import { nodeMaterializationPolicyForMode } from "@harness-anything/kernel/internal/domain/task-wip-policy.ts";
 import { readRuntimeCanAttach } from "./agent-runtime-read.ts";
 import { taskListQueryFromPayload } from "./repo-query-payload.ts";
@@ -319,7 +319,9 @@ export function makeRepoReadRuntime(
           })
         : context.store,
       settled =
-        action.kind === "receipt-show" ? attachReceiptAcceptance(receipt, receiptStore, context.projection) : receipt;
+        action.kind === "receipt-show"
+          ? attachWriteReceiptAcceptance({ store: receiptStore, projection: context.projection }, action, receipt)
+          : receipt;
     return context.withHumanSummary(frame(settled)) as Awaited<ReturnType<RepoCell["run"]>>;
   };
   const runReadAtCut = (projection: TaskProjectionQueries, action: RepoTaskAction, binding: RepoCellBinding) => {

@@ -7926,12 +7926,6 @@
         "port": "packages/daemon/src/repo-cell.ts#remove"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell.ts#chainRepoCellWrite:1bf1a85c4aacea32a818272521107e2c:2",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/daemon/src/repo-cell.ts#remove"
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-read-pool.ts#stop:f4f67a0092ae65b768463d9ff4bc7057",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -11975,46 +11969,40 @@
         "port": "node_modules/@types/node/async_hooks.d.ts#async_hooks.AsyncLocalStorage.run"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker:344b06b2344477c3dc2be505d51760d0",
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker:4ce0013fe6bcf9dda77fb9c1a509faee",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/worker_threads.d.ts#worker_threads.MessagePort.on"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/writer-request-queue.ts#createWriterRequestQueue.pump:9f792c3d7ec9128971da9d7c4750721e",
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-request-queue.ts#createWriterRequestQueue.pump:4a63a334683adb3ac07d023e3552f4d0",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "packages/daemon/src/writer-request-queue.ts#Slot.run"
+        "port": "packages/daemon/src/writer-request-queue.ts#Request.run"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/writer-request-queue.ts#createWriterRequestQueue.request.onAbort:a0502a24edb55ec9ec4270f61c164324",
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-request-queue.ts#createWriterRequestQueue.request.onAbort:687836ffef8dae4926d515d40b5786a5",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "packages/daemon/src/writer-request-queue.ts#Slot.cancel"
+        "port": "packages/daemon/src/writer-request-queue.ts#Request.cancel"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/writer-request-queue.ts#createWriterRequestQueue.request.slot.markDispatched:71b674cd63a3745f05ee4ac1cd4c6206",
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-request-queue.ts#createWriterRequestQueue.request.request.markDispatched:1d5dedb1c3951d5eae6ac7a9243edf63",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "packages/daemon/src/writer-request-queue.ts#Slot.cancel"
+        "port": "packages/daemon/src/writer-request-queue.ts#Request.cancel"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/writer-request-queue.ts#createWriterRequestQueue.request.slot.markDispatched:9eb8d3e43a2de584ee9f2191d9561195",
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-request-queue.ts#createWriterRequestQueue.request.request.markDispatched:f3a1a8d6a8b236c9265f72d1ee0bbcb4",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/timers.d.ts#timers.global.setTimeout"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/writer-request-queue.ts#createWriterRequestQueue.close:b76c0aa0b94c622c05d3cfa6f66e3669",
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-request-queue.ts#createWriterRequestQueue.close:fe9c42051a922789eac4dc6213f160d4",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "packages/daemon/src/writer-request-queue.ts#Slot.cancel"
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/writer-request-queue.ts#createWriterRequestQueue.close:b76c0aa0b94c622c05d3cfa6f66e3669:2",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/daemon/src/writer-request-queue.ts#Slot.cancel"
+        "port": "packages/daemon/src/writer-request-queue.ts#Request.cancel"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/writer-request-queue.ts#queueError:c6e3ef20ab1e44dd47021d577c3818c4",
@@ -12059,6 +12047,30 @@
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/repo-read-runtime.ts#makeRepoReadRuntime.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell.ts#withRepoCellWriteSlot:ad940c706f680778ce3823e090ce05c7",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/async_hooks.d.ts#async_hooks.AsyncLocalStorage.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker.handle:e259bf80e2cce67177b2be7da76b7baf",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/async_hooks.d.ts#async_hooks.AsyncLocalStorage.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-request-queue.ts#createWriterRequestQueue.pump:2952d612d18d7a65f47b48537c44b11a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-request-queue.ts#createWriterRequestQueue.request.request.cancel:4a8319b7c29e90c97ad46139ce616c8a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
       }
     ],
     "technical": true

@@ -111,6 +111,8 @@ export interface RepoWriterStatusV1 {
   readonly protocolVersion: typeof REPO_WRITER_PROTOCOL_VERSION;
   readonly kind: "ready" | "cut" | "status" | "attach-progress" | "closed";
   readonly status?: RepoCellStatus;
+  /** This worker acquires the host slot at the exclusive RepoCell write seam. */
+  readonly stagedWriteSlot?: boolean;
   readonly bootstrapReceipt?: unknown;
   readonly ledgerCut?: ReturnType<import("./repo-cell-types.ts").ReplicaCutSource["ledgerCut"]>;
   readonly error?: SerializedWriterErrorV1;
@@ -206,7 +208,9 @@ export type RepoWriterCapabilityName =
   | "attemptTerminal"
   | "lifecycle"
   | "fleetBaseBackupTrace"
-  | "writeOperation";
+  | "writeOperation"
+  | "acquireWriteSlot"
+  | "releaseWriteSlot";
 
 export type RuntimeInstanceSchedulingCall =
   | { readonly operation: "snapshot" }

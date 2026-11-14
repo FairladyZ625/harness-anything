@@ -94,7 +94,8 @@ export async function openWriterSupervisor(
   } = {},
 ): Promise<WriterSupervisor> {
   const instanceScheduling = input.runtimeInstanceDispatchState ?? createRuntimeInstanceDispatchState();
-  let writerGeneration = 0,
+  let stagedWriteSlot = false,
+    writerGeneration = 0,
     users = 0,
     retiring = false,
     idleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -146,7 +147,7 @@ export async function openWriterSupervisor(
 
   const writes = createWriterRequestQueue({
     repoId: input.repoId,
-    abortInFlightOnClose: daemonWriterSupportsCommitPhase(input.storage),
+    abortInFlightOnClose: options.canonicalStore !== undefined || daemonWriterSupportsCommitPhase(input.storage),
     rollbackGraceMs: options.rollbackGraceMs,
     syncRepDrainGraceMs: options.syncRepDrainGraceMs,
     requestTimeoutMs: options.requestTimeoutMs,
@@ -169,13 +170,15 @@ export async function openWriterSupervisor(
   opened = true;
   armIdle();
 
-  const supervisor: WriterSupervisor = {
+  const supervisor = {
     request: async <T>(
       method: RepoWriterRequestV1["method"],
       payload: unknown,
-      binding?: RepoCellBinding,
-      signal?: AbortSignal,
-    ) => {
+      binding: RepoCellBinding | undefined,
+      signal: AbortSignal | undefined,
+      requestId: string,
+      markDispatched: () => void,
+    ): Promise<T> => {
       const publishFleetBackupTrace =
         method === "fleetBackup"
           ? AsyncResource.bind((message: RepoWriterFleetBaseBackupTraceV1) => {
@@ -201,8 +204,7 @@ export async function openWriterSupervisor(
       if (signal?.aborted) throw abortError(signal);
       const storeAbort = method === "canonicalStore" ? new AbortController() : undefined,
         operation = captureDaemonOperation();
-      const requestId = randomUUID(),
-        serializedBinding = binding ? serializableRepoCellBinding(binding) : undefined,
+      const serializedBinding = binding ? serializableRepoCellBinding(binding) : undefined,
         request: RepoWriterRequestV1 = {
           schema: "harness-repo-writer-request/v1",
           protocolVersion: REPO_WRITER_PROTOCOL_VERSION,
@@ -211,7 +213,9 @@ export async function openWriterSupervisor(
           payload,
           ...(serializedBinding ? { binding: serializedBinding } : {}),
           writerEpoch: serializedBinding?.writerEpochFence ?? null,
-          ...(writes.active() ? { writeRequest: { state: writes.active()!.state, id: writes.active()!.id } } : {}),
+          ...(writes.active()?.requestId === requestId
+            ? { writeRequest: { state: writes.active()!.state, id: writes.active()!.id } }
+            : {}),
         };
       status = { ...status, queueDepth: (status.queueDepth ?? 0) + 1 };
       return await new Promise<T>((resolve, reject) => {
@@ -242,7 +246,7 @@ export async function openWriterSupervisor(
             method === "presetRun" && (payload as { action: { kind: string } }).action.kind === "preset-run-start",
         });
         try {
-          writes.active()?.markDispatched();
+          markDispatched();
           worker!.postMessage(request);
           if (signal?.aborted) cancel();
         } catch (error) {
@@ -256,7 +260,7 @@ export async function openWriterSupervisor(
         }
       });
     },
-    control: async (command) => {
+    control: async (command: Exclude<RepoWriterControlV1["command"], "hibernate">) => {
       users++;
       clearTimeout(idleTimer);
       try {
@@ -302,10 +306,20 @@ export async function openWriterSupervisor(
       try {
         const opId = (payload as { opId?: string } | null)?.opId ?? `op_${randomUUID()}`;
         return await writes.request<T>(
+          randomUUID(),
           opId,
           signal,
+          stagedWriteSlot && method !== "canonicalStore",
           AsyncResource.bind(
-            (slot) => supervisor.request<T>(method, payload, binding, slot.abort.signal),
+            (admitted) =>
+              supervisor.request<T>(
+                method,
+                payload,
+                binding,
+                admitted.abort.signal,
+                admitted.requestId,
+                admitted.markDispatched,
+              ),
             "harness-repo-writer-request",
           ),
         );
@@ -418,6 +432,7 @@ export async function openWriterSupervisor(
           status = { ...status, queueDepth: Math.max(0, (status.queueDepth ?? 1) - 1) };
           if (message.outcome === "ok") operation.resolve(message.value);
           else operation.reject(deserializeWriterError(message.error!));
+          armIdle();
           return;
         }
         if (isStatus(message)) {
@@ -455,6 +470,7 @@ export async function openWriterSupervisor(
             input.onBootstrap?.(message.bootstrapReceipt as never);
           }
           if (message.kind === "ready") {
+            stagedWriteSlot = message.stagedWriteSlot === true;
             restartAttempt = 0;
             settled = true;
             clearTimeout(readyWatchdog);
@@ -496,7 +512,10 @@ export async function openWriterSupervisor(
           reject(error);
         }
         closeFleetBackupTrace();
-        if (expectedExits.has(candidate)) return;
+        if (expectedExits.has(candidate)) {
+          writes.workerExited(error);
+          return;
+        }
         failActive(error);
         if (!closed) {
           status = {
@@ -515,6 +534,7 @@ export async function openWriterSupervisor(
             timer.unref?.();
           });
         }
+        writes.workerExited(error);
       });
     });
   }
@@ -631,9 +651,17 @@ export async function openWriterSupervisor(
 
   async function capabilityValue(call: RepoWriterCapabilityCallV1): Promise<unknown> {
     switch (call.capability) {
+      case "acquireWriteSlot": {
+        const slot = await writes.acquire((call.payload as { requestId?: string }).requestId);
+        return { state: slot.state, id: slot.id };
+      }
+      case "releaseWriteSlot":
+        writes.release((call.payload as { slotId: number }).slotId);
+        return;
       case "writeOperation": {
-        const { requestId, opId } = call.payload as { requestId: string; opId: string };
-        if (pending.has(requestId) && writes.active()) writes.active()!.opId = opId;
+        const { requestId, slotId, opId } = call.payload as { requestId?: string; slotId?: number; opId: string };
+        const slot = writes.active();
+        if (slot && (slotId === undefined ? slot.requestId === requestId : slot.id === slotId)) slot.opId = opId;
         return;
       }
       case "canonicalStore": {

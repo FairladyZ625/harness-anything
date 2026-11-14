@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { readRuntimeAttemptChain } from "./runtime-attempt-read.ts";
 import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { makeTaskLifecycleService } from "@harness-anything/application/internal/task-lifecycle-service";
@@ -302,6 +303,13 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
   }
 }
 
+/** The worker binds the host-owned slot to every exclusive turn, including later publications. */
+type RepoCellWriteSlot = <T>(work: () => T | PromiseLike<T>) => Promise<T>;
+const writeSlotContext = new AsyncLocalStorage<RepoCellWriteSlot>();
+export function withRepoCellWriteSlot<T>(slot: RepoCellWriteSlot, operation: () => Promise<T>): Promise<T> {
+  return writeSlotContext.run(slot, operation);
+}
+
 export function chainRepoCellWrite<T>(
   tail: Promise<void>,
   work: () => T | PromiseLike<T>,
@@ -309,6 +317,7 @@ export function chainRepoCellWrite<T>(
     readonly queue: RepoCellWriteQueueState;
     readonly label: RepoCellWriteQueueLabel;
     readonly observation?: RepoCellQueueObservation;
+    readonly onDequeued?: () => void;
   },
 ): Promise<T> {
   const entry: RepoCellWriteQueueEntry | null =
@@ -320,17 +329,17 @@ export function chainRepoCellWrite<T>(
   if (entry !== null && options !== undefined) options.queue.waiting.push(entry);
   // One event-loop turn between serialized writes, so timers and I/O are not starved by a write backlog.
   const turn = tail.then(() => new Promise<void>((resolve) => setImmediate(resolve)));
-  return turn.then(() => {
-    if (options === undefined || entry === null) return work();
-    entry.startedAtMs = options.queue.nowMs();
-    // A synchronous throw would skip the finally and leave a settled turn as the head forever.
-    try {
-      return Promise.resolve(work()).finally(() => remove(entry, options.queue));
-    } catch (error) {
-      remove(entry, options.queue);
-      throw error;
-    }
-  });
+  const writeSlot: RepoCellWriteSlot = writeSlotContext.getStore() ?? (async (work) => await work());
+  return turn
+    .then(() => {
+      options?.onDequeued?.();
+      if (entry !== null && options !== undefined) entry.startedAtMs = options.queue.nowMs();
+      return writeSlot(work);
+    })
+    .finally(() => {
+      // Slot acquisition can reject an aborted request without ever invoking work().
+      if (entry !== null && options !== undefined) remove(entry, options.queue);
+    });
 }
 
 function remove(entry: RepoCellWriteQueueEntry, queue: RepoCellWriteQueueState): void {

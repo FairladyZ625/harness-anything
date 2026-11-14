@@ -7,6 +7,7 @@ import { consumeKnownError } from "@harness-anything/kernel";
 import { fleetBaseBackupTrace, withStorageWriteRequest } from "@harness-anything/storage";
 import type { RepoCellOpenInput } from "./repo-cell-open.ts";
 import { openRepoWriterCell } from "./repo-cell-open.ts";
+import { withRepoCellWriteSlot } from "./repo-cell.ts";
 import type {
   RepoCellAttachProgress,
   RepoCellBinding,
@@ -74,6 +75,7 @@ async function startRepoWriterWorker(): Promise<void> {
     activeRequests = new Map<string, AbortController>(),
     activeStoreRequests = new Set<Promise<void>>(),
     activePresets = new Set<string>(),
+    requestContext = new AsyncLocalStorage<string>(),
     fleetBackupRequestContext = new AsyncLocalStorage<string>(),
     fleetBackupSpans = new WeakMap<object, string>();
   let draining = false;
@@ -130,20 +132,22 @@ async function startRepoWriterWorker(): Promise<void> {
       return;
     }
     if (isWriterRequest(message)) {
+      const handle = () =>
+        withRepoCellWriteSlot(runWriteTurn, () => requestContext.run(message.requestId, () => handleRequest(message)));
       const operation = message.writeRequest
         ? withStorageWriteRequest(
             {
               ...message.writeRequest,
               onOperation: (opId) => void syncCapability("writeOperation", { requestId: message.requestId, opId }),
             },
-            () => handleRequest(message),
+            handle,
           )
-        : handleRequest(message);
+        : handle();
       if (message.method === "canonicalStore") {
         activeStoreRequests.add(operation);
         void operation.finally(() => activeStoreRequests.delete(operation));
       }
-    } else if (isWriterControl(message)) void handleControl(message);
+    } else if (isWriterControl(message)) void withRepoCellWriteSlot(runWriteTurn, () => handleControl(message));
   });
 
   try {
@@ -308,10 +312,13 @@ async function startRepoWriterWorker(): Promise<void> {
         recordLifecycle: (record) => notify("lifecycle", record),
       };
     if (config.defaultWriterEpochFence) configureWriterEpochStorage(config.defaultWriterEpochFence, config.storage);
-    cell = await openRepoWriterCell(input, { close: async () => undefined } as never);
+    cell = await withRepoCellWriteSlot(runWriteTurn, () =>
+      openRepoWriterCell(input, { close: async () => undefined } as never),
+    );
     const readyStatus = cell.status();
     postStatus({
       kind: "ready",
+      stagedWriteSlot: true,
       status: readyStatus,
       ...completedLedgerCut(readyStatus),
       ...(cell.bootstrapReceipt ? { bootstrapReceipt: cell.bootstrapReceipt } : {}),
@@ -357,6 +364,25 @@ async function startRepoWriterWorker(): Promise<void> {
       materialization: null,
       attach,
     };
+  }
+
+  async function runWriteTurn<T>(work: () => T | PromiseLike<T>): Promise<T> {
+    const enclosingRequestId = requestContext.getStore(),
+      requestId = enclosingRequestId && activeRequests.has(enclosingRequestId) ? enclosingRequestId : undefined,
+      slot = (await asyncCapability("acquireWriteSlot", { requestId })) as NonNullable<
+        RepoWriterRequestV1["writeRequest"]
+      >;
+    try {
+      return await withStorageWriteRequest(
+        {
+          ...slot,
+          onOperation: (opId) => void syncCapability("writeOperation", { requestId, slotId: slot.id, opId }),
+        },
+        async () => await work(),
+      );
+    } finally {
+      notify("releaseWriteSlot", { slotId: slot.id });
+    }
   }
 
   async function handleRequest(request: RepoWriterRequestV1): Promise<void> {
@@ -541,6 +567,7 @@ async function startRepoWriterWorker(): Promise<void> {
         draining = true;
         for (const request of activeRequests.values()) request.abort();
         await Promise.all(activeStoreRequests);
+        await cell?.settlePendingMaterialization("writer shutdown");
         await cell?.close();
         cell = null;
         closeWriterEpochFenceDescriptors();

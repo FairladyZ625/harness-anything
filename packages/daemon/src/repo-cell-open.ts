@@ -393,8 +393,6 @@ export async function openRepoWriterCell(
     const pending = chainRepoCellWrite(
       tail,
       async () => {
-        queueDepth -= 1;
-        input.onQueueDepthChange?.(queueDepth);
         // Runtime terminal work (exit publication, Schedule settlement) queued here must survive the
         // latched window: the durable SQLite ledger still accepts appends while Git publication and
         // projection recovery run behind them, and the writer-epoch fence rejects appends whose epoch
@@ -402,7 +400,14 @@ export async function openRepoWriterCell(
         if (state !== "closed")
           await recoveryWork.queued(() => (binding ? withWriterEpochBinding(binding, work) : work()));
       },
-      { queue: writeQueue, label: { command: "runtime-settlement", requestId: null } },
+      {
+        queue: writeQueue,
+        label: { command: "runtime-settlement", requestId: null },
+        onDequeued: () => {
+          queueDepth -= 1;
+          input.onQueueDepthChange?.(queueDepth);
+        },
+      },
     ).finally(() => {
       releaseAuthorization?.();
       input.onQueueDepthChange?.(queueDepth);
@@ -423,8 +428,6 @@ export async function openRepoWriterCell(
     const pending = chainRepoCellWrite(
       tail,
       async () => {
-        queueDepth -= 1;
-        input.onQueueDepthChange?.(queueDepth);
         if (request.kind === "backup")
           return backupRepo({
             rootDir,
@@ -441,6 +444,10 @@ export async function openRepoWriterCell(
       {
         queue: writeQueue,
         label: queueObservation?.label ?? { command: "ledger-backup", requestId: null },
+        onDequeued: () => {
+          queueDepth -= 1;
+          input.onQueueDepthChange?.(queueDepth);
+        },
         ...(queueObservation ? { observation: queueObservation } : {}),
       },
     ).finally(() => input.onQueueDepthChange?.(queueDepth));

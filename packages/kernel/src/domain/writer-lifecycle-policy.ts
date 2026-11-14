@@ -6,7 +6,7 @@ export const writerLifecyclePolicy = {
   ownerRef: "host",
   unit: "milliseconds / indexed rows / pending requests",
   bounds:
-    "Retire after 30000ms without admitted work; inspect one active dispatch row; cap the young generation at 8 MiB without capping the old generation; admit at most 64 pending requests behind one in-flight write.",
+    "Retire after 30000ms without admitted work; inspect one active dispatch row; cap the young generation at 8 MiB without capping the old generation; admit at most 64 unsettled requests including dispatched preparation and one exclusive database write turn.",
   defaultValue: { idleTimeoutMs: 30_000, activeProbeLimit: 1, maxYoungGenerationSizeMb: 8, queueLimit: 64 },
   version: 1,
   scope: "daemon process repository writer lifecycle",

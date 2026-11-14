@@ -179,7 +179,7 @@ test(
         )
       ).rows[0]!.n;
       assert.equal(cancelledRows, 0);
-      const controllers = Array.from({ length: REPO_WRITER_QUEUE_LIMIT }, () => new AbortController());
+      const controllers = Array.from({ length: REPO_WRITER_QUEUE_LIMIT - 1 }, () => new AbortController());
       const waiting = controllers.map((controller, i) =>
         assert.rejects(
           cell.run(

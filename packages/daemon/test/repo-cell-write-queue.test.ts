@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chainRepoCellWrite } from "../src/repo-cell.ts";
+import { chainRepoCellWrite, withRepoCellWriteSlot } from "../src/repo-cell.ts";
 import type { RepoCellQueueObservation, RepoCellWriteQueueState } from "../src/repo-cell-types.ts";
 
 test("a second write starts only after the first queued write settles", async () => {
@@ -189,4 +189,67 @@ test("a synchronous throw removes its turn so the next waiter names the real hea
   release();
   await Promise.all([blocking, waiting]);
   assert.equal(queue.waiting.length, 0);
+});
+
+test("a rejected host slot dequeues once, removes its head, and never invokes database work", async () => {
+  const queue: RepoCellWriteQueueState = { waiting: [], nowMs: () => 0 };
+  let dequeued = 0,
+    effects = 0;
+  const abort = new DOMException("cancelled before write turn", "AbortError");
+  await assert.rejects(
+    withRepoCellWriteSlot(
+      async () => {
+        throw abort;
+      },
+      () =>
+        chainRepoCellWrite(
+          Promise.resolve(),
+          () => {
+            effects++;
+          },
+          {
+            queue,
+            label: { command: "task-create", requestId: "aborted" },
+            onDequeued: () => {
+              dequeued++;
+            },
+          },
+        ),
+    ),
+    { name: "AbortError" },
+  );
+  assert.equal(effects, 0);
+  assert.equal(dequeued, 1);
+  assert.deepEqual(queue.waiting, []);
+  await chainRepoCellWrite(Promise.resolve(), () => {
+    effects++;
+  });
+  assert.equal(effects, 1, "the next independent turn must still run");
+});
+
+test("host slot context remains scoped to its RepoCell and releases before external continuation", async () => {
+  const order: string[] = [];
+  const continuation = Promise.withResolvers<void>();
+  const turnDone = Promise.withResolvers<void>();
+  const first = withRepoCellWriteSlot(
+    async (work) => {
+      order.push("acquire");
+      try {
+        return await work();
+      } finally {
+        order.push("release");
+      }
+    },
+    async () => {
+      await chainRepoCellWrite(Promise.resolve(), () => order.push("write"));
+      turnDone.resolve();
+      await continuation.promise;
+      order.push("continuation");
+    },
+  );
+  await turnDone.promise;
+  await chainRepoCellWrite(Promise.resolve(), () => order.push("independent-cell"));
+  assert.deepEqual(order, ["acquire", "write", "release", "independent-cell"]);
+  continuation.resolve();
+  await first;
 });

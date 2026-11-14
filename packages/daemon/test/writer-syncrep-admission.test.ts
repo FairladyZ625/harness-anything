@@ -6,7 +6,13 @@ import type { Worker } from "node:worker_threads";
 import { openWriterSupervisor } from "../src/writer-supervisor.ts";
 import { REPO_WRITER_QUEUE_LIMIT } from "../src/writer-request-queue.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import type { RepoWriterRequestV1, RepoWriterControlV1, RepoWriterCancelV1 } from "../src/repo-writer-protocol.ts";
+import type {
+  RepoWriterRequestV1,
+  RepoWriterControlV1,
+  RepoWriterCancelV1,
+  RepoWriterCapabilityCallV1,
+  RepoWriterCapabilityResultV1,
+} from "../src/repo-writer-protocol.ts";
 
 const input = {
   repoId: workspaceId("syncrep-admission"),
@@ -23,8 +29,18 @@ class HeldWriter extends EventEmitter {
   cancels: string[] = [];
   terminated = 0;
   posted = Promise.withResolvers<void>();
-  postMessage(message: RepoWriterRequestV1 | RepoWriterControlV1 | RepoWriterCancelV1) {
-    if (message.schema === "harness-repo-writer-control/v1") this.receipt(message.requestId, null);
+  capabilities = new Map<string, PromiseWithResolvers<RepoWriterCapabilityResultV1>>();
+  capability(capability: RepoWriterCapabilityCallV1["capability"], payload: unknown) {
+    const callId = `call-${this.capabilities.size}`,
+      done = Promise.withResolvers<RepoWriterCapabilityResultV1>();
+    this.capabilities.set(callId, done);
+    this.emit("message", { schema: "harness-repo-writer-capability-call/v1", callId, capability, payload });
+    return done.promise;
+  }
+  postMessage(message: RepoWriterRequestV1 | RepoWriterControlV1 | RepoWriterCancelV1 | RepoWriterCapabilityResultV1) {
+    if (message.schema === "harness-repo-writer-capability-result/v1")
+      this.capabilities.get(message.callId)!.resolve(message);
+    else if (message.schema === "harness-repo-writer-control/v1") this.receipt(message.requestId, null);
     else if (message.schema === "harness-repo-writer-cancel/v1") this.cancels.push(message.requestId);
     else {
       this.writes.push(message);
@@ -44,12 +60,14 @@ class HeldWriter extends EventEmitter {
 async function open(
   options: Parameters<typeof openWriterSupervisor>[1] = {},
   config: Parameters<typeof openWriterSupervisor>[0] = input,
+  stagedWriteSlot = false,
 ) {
   const worker = new HeldWriter();
   const opening = openWriterSupervisor(config, { ...options, createWorker: () => worker as unknown as Worker });
   worker.emit("message", {
     schema: "harness-repo-writer-status/v1",
     kind: "ready",
+    stagedWriteSlot,
     status: { ...input, state: "attached", generation: 1, queueDepth: 0 },
   });
   return { supervisor: await opening, worker };
@@ -70,7 +88,7 @@ test("C3/C4: queued abort removes admission immediately and overload never enter
   await cancelled;
   const cancelMs = performance.now() - before;
   assert.equal(worker.writes.length, 1, "a queued cancellation must have zero worker/database effects");
-  const aborts = Array.from({ length: REPO_WRITER_QUEUE_LIMIT }, () => new AbortController());
+  const aborts = Array.from({ length: REPO_WRITER_QUEUE_LIMIT - 1 }, () => new AbortController());
   const waiting = aborts.map((controller, i) =>
     supervisor.request("run", { opId: `queued-${i}` }, undefined, controller.signal),
   );
@@ -81,7 +99,7 @@ test("C3/C4: queued abort removes admission immediately and overload never enter
     data: { retryable: true },
   });
   const overloadMs = performance.now() - atLimit;
-  assert.equal(supervisor.status().queueDepth, 65);
+  assert.equal(supervisor.status().queueDepth, 64);
   assert.equal(worker.writes.length, 1);
   for (const controller of aborts) controller.abort();
   worker.receipt(worker.writes[0]!.requestId);
@@ -205,4 +223,130 @@ test("SQLite close drains its active batch without treating an absent PG phase a
   await queued;
   await closing;
   assert.equal(worker.terminated, 1, "retirement follows the batch receipt and drain");
+});
+
+test("staged turns keep preparation concurrent, hold detached SyncRep, and release before RPC continuation", async () => {
+  const { supervisor, worker } = await open({}, input, true);
+  const abort = new AbortController();
+  const first = supervisor.request("run", { opId: "Attempt_X" }, undefined, abort.signal);
+  await worker.posted.promise;
+  worker.posted = Promise.withResolvers<void>();
+  const preparation = supervisor.request("spawnRuntime", {});
+  await worker.posted.promise;
+  assert.equal(worker.writes.length, 2, "external preparation does not occupy the DB slot");
+  assert.equal(worker.writes[0]!.writeRequest, undefined);
+  const acquired = await worker.capability("acquireWriteSlot", { requestId: worker.writes[0]!.requestId });
+  assert.equal(acquired.outcome, "ok");
+  const slot = acquired.value as { state: Int32Array; id: number };
+  assert.equal(slot.state.byteLength, 12);
+  assert.equal(Atomics.compareExchange(slot.state, 1, 0, 1), 0);
+  const waiting = supervisor.request("run", { opId: "next" });
+  abort.abort();
+  assert.deepEqual(await first, {
+    outcome: "indeterminate",
+    code: "publication_indeterminate",
+    opId: "Attempt_X",
+    origin: "daemon",
+  });
+  await turn();
+  assert.equal(worker.writes.length, 2);
+  assert.equal(worker.terminated, 0);
+  assert.equal(worker.cancels.length, 0);
+  // The real work() has now returned, but its RPC's external continuation remains blocked.
+  worker.posted = Promise.withResolvers<void>();
+  await worker.capability("releaseWriteSlot", { slotId: slot.id });
+  await worker.posted.promise;
+  assert.equal(worker.writes.length, 3);
+  assert.equal(Atomics.load(slot.state, 1), 1, "release never resets a committed phase");
+  worker.receipt(worker.writes[2]!.requestId);
+  await waiting;
+  worker.receipt(worker.writes[0]!.requestId);
+  worker.receipt(worker.writes[1]!.requestId);
+  await preparation;
+  await supervisor.close();
+});
+
+test("staged preparation abort vetoes late DB work and retains ownership through its cleanup receipt", async () => {
+  const { supervisor, worker } = await open({}, input, true);
+  const abort = new AbortController();
+  const result = assert.rejects(supervisor.request("run", {}, undefined, abort.signal), { name: "AbortError" });
+  await worker.posted.promise;
+  const requestId = worker.writes[0]!.requestId;
+  abort.abort();
+  assert.deepEqual(worker.cancels, [requestId]);
+  const acquired = await worker.capability("acquireWriteSlot", { requestId });
+  assert.equal(acquired.outcome, "error");
+  assert.equal(acquired.error!.name, "AbortError");
+  assert.equal(supervisor.status().queueDepth, 1, "preparation remains counted until its raw receipt");
+  worker.receipt(requestId);
+  await result;
+  await turn();
+  await supervisor.close();
+});
+
+test("staged slot waiters are FIFO and each exclusive turn owns fresh absorbing phase state", async () => {
+  const { supervisor, worker } = await open({}, input, true);
+  const first = supervisor.request("run", {});
+  await worker.posted.promise;
+  const requestId = worker.writes[0]!.requestId;
+  const acquired = await worker.capability("acquireWriteSlot", { requestId });
+  const slot = acquired.value as { state: Int32Array; id: number };
+  const next = worker.capability("acquireWriteSlot", {});
+  let started = false;
+  void next.then(() => {
+    started = true;
+  });
+  await turn();
+  assert.equal(started, false);
+  assert.equal(Atomics.compareExchange(slot.state, 1, 0, 1), 0);
+  await worker.capability("releaseWriteSlot", { slotId: slot.id });
+  const backgroundSlot = (await next).value as { state: Int32Array; id: number };
+  assert.notEqual(backgroundSlot.state.buffer, slot.state.buffer);
+  assert.equal(backgroundSlot.state[1], 0);
+  assert.equal(slot.state[1], 1);
+  await worker.capability("releaseWriteSlot", { slotId: backgroundSlot.id });
+  worker.receipt(requestId);
+  await first;
+  await supervisor.close();
+});
+
+test("staged pre-commit abort keeps its turn until rollback and never dispatches the queued RPC", async () => {
+  const { supervisor, worker } = await open({}, input, true);
+  const abort = new AbortController();
+  const result = assert.rejects(supervisor.request("run", {}, undefined, abort.signal), { name: "AbortError" });
+  await worker.posted.promise;
+  const requestId = worker.writes[0]!.requestId;
+  const slot = (await worker.capability("acquireWriteSlot", { requestId })).value as { state: Int32Array; id: number };
+  const waiting = supervisor.request("run", {});
+  abort.abort();
+  assert.equal(Atomics.compareExchange(slot.state, 1, 0, 1), -1);
+  assert.equal(worker.terminated, 0);
+  await turn();
+  assert.equal(worker.writes.length, 1);
+  worker.posted = Promise.withResolvers<void>();
+  await worker.capability("releaseWriteSlot", { slotId: slot.id });
+  await worker.posted.promise;
+  assert.equal(worker.writes.length, 2);
+  worker.receipt(requestId);
+  await result;
+  worker.receipt(worker.writes[1]!.requestId);
+  await waiting;
+  await supervisor.close();
+});
+
+test("staged admission counts all dispatched preparation even without an exclusive write slot", async () => {
+  const { supervisor, worker } = await open({}, input, true);
+  const abort = new AbortController();
+  const results = Array.from({ length: REPO_WRITER_QUEUE_LIMIT }, () =>
+    assert.rejects(supervisor.request("run", {}, undefined, abort.signal), { name: "AbortError" }),
+  );
+  await turn();
+  assert.equal(worker.writes.length, 64);
+  await assert.rejects(supervisor.request("run", {}), { code: "write_overloaded", data: { retryable: true } });
+  abort.abort();
+  assert.equal(supervisor.status().queueDepth, 64);
+  for (const request of worker.writes) worker.receipt(request.requestId);
+  await Promise.all(results);
+  await turn();
+  await supervisor.close();
 });

@@ -44,7 +44,6 @@ export function enqueueRuntimePublication(
   const pending = chainRepoCellWrite(
     context.tail,
     async () => {
-      context.queueDepth -= 1;
       const rescueLatch = mayRescueInfrastructureLatch(context, commandKind, policyAction, binding);
       if (context.state !== "attached" && !rescueLatch) await context.attemptRecovery();
       const queuedAdmission = admitRepoMode(context.mode, command, binding.source);
@@ -95,6 +94,9 @@ export function enqueueRuntimePublication(
     },
     {
       queue: context.writeQueue,
+      onDequeued: () => {
+        context.queueDepth -= 1;
+      },
       label: queueObservation?.label ?? { command: commandKind, requestId: null },
       ...(queueObservation ? { observation: queueObservation } : {}),
     },
