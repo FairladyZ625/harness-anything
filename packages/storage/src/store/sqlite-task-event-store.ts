@@ -94,6 +94,7 @@ export interface SqliteTaskEventStoreOptions {
   readonly readMaterializationDocuments?: (
     includePolicySkippedPaths?: readonly string[],
     afterRevision?: number,
+    expectedRevision?: number,
   ) => readonly MaterializationDocumentDescriptor[] | null;
 }
 
@@ -308,7 +309,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       worktreeRevision = settledWorktreeRevision ?? physicalWorktreeRevision(currentLedger, sqlite),
       // A generation converted before the index followed Git can still index pre-SQLite paths; an open repairs it.
       legacy = settledWorktreeRevision === null ? legacyRetirements(currentLedger, null) : [],
-      from = restoreMissing ? 0 : Math.min(verifiedRevision, worktreeRevision);
+      from = restoreMissing || settledWorktreeRevision === null ? 0 : Math.min(verifiedRevision, worktreeRevision);
     certified = { commit: parent, revision: verifiedRevision };
     // The manifest binds the canonical cut, not this node's policy; re-evaluate the local working set once per open.
     if (from === accepted.revision && legacy.length === 0 && settledWorktreeRevision !== null) {
@@ -370,18 +371,10 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       worktree: pendingFollower("worktree settlement has not verified the Git cut").worktree,
     };
     localGitWorktreeSettlement.index(currentLedger.rootDir, files, false, options.withAppendFence);
-    // Incremental publication owns changed canonical bytes. An unrelated local edit/deletion
-    // is not a conflict for this cut; explicit materialization still inspects the whole set.
-    const worktreeFiles =
-      !restoreMissing && from > 0 && worktreeRevision === verifiedRevision
-        ? files.filter(
-            (file) => settledFingerprint(file) !== baseline.get("target" in file ? file.target : file.delete),
-          )
-        : files;
     const settled = settleFollowerWorktree(
       latestAppendLayout ?? resolveHarnessLayout(input),
       currentLedger,
-      worktreeFiles,
+      files,
       baseline,
       commit,
       followerDirectories(currentLedger, closure.events, files),

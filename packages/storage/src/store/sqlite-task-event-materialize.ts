@@ -42,6 +42,7 @@ export interface MaterializeStoreContext {
   readonly readMaterializationDocuments?: (
     includePolicySkippedPaths?: readonly string[],
     afterRevision?: number,
+    expectedRevision?: number,
   ) =>
     | readonly {
         readonly path: string;
@@ -93,9 +94,11 @@ export function planFollowerSettlement(
   }
   const eligible = files.filter((file) => {
     const target = "target" in file ? file.target : file.delete,
-      current = worktreeFingerprint(localGitWorktreeSettlement.readNode(`${currentLedger.rootDir}/${target}`));
+      settled = settledFingerprint(file);
+    if (!restoreMissing && baseline.get(target) === settled) return false;
+    const current = worktreeFingerprint(localGitWorktreeSettlement.readNode(`${currentLedger.rootDir}/${target}`));
     if (current === "missing" && (restoreMissing || !permitted.has(target))) permitted.set(target, "missing");
-    if (current === settledFingerprint(file)) return false;
+    if (current === settled) return false;
     if (current === permitted.get(target)) {
       if (current === "missing") missing.add(target);
       return true;
@@ -145,9 +148,28 @@ export function closureFiles(
   from: number,
   includePolicySkippedPaths: readonly string[] = [],
 ): { readonly events: readonly CanonicalEventV1[]; readonly files: readonly (PublicationWrite | PublicationDelete)[] } {
+  const pending = from === 0 ? [] : readPendingEvents(context.sqlite, from);
+  // Creation owns a new planned package, included by both disk-enabled node policies.
+  // The append boundary already validates its claims; no prior terminal owner can be released.
+  if (
+    from > 0 &&
+    pending.length &&
+    pending.every((event) => isTaskBootstrapEvent(event) || (isTaskEvent(event) && event.type === "task_created"))
+  )
+    return {
+      events: pending,
+      files: followerFiles(
+        context.ledger(),
+        pending,
+        context.readContent,
+        accepted,
+        context.sqlite.metadata().generation,
+      ),
+    };
   const projectionDocuments = context.readMaterializationDocuments?.(
     includePolicySkippedPaths,
     from > 0 ? from : undefined,
+    accepted.revision,
   );
   if (context.readMaterializationDocuments && projectionDocuments === null)
     throw new TaskEventStoreError(
@@ -155,7 +177,7 @@ export function closureFiles(
       "materialization projection has not reached the accepted cut",
     );
   if (projectionDocuments !== undefined && projectionDocuments !== null) {
-    const events = from === 0 ? [] : readPendingEvents(context.sqlite, from),
+    const events = pending,
       indexed = new Map(
         projectionDocuments.map((document) => [
           document.path,
@@ -218,7 +240,7 @@ export function closureFiles(
       ),
     };
   }
-  const events = readPendingEvents(context.sqlite, from);
+  const events = pending;
   return {
     events,
     files: followerFiles(context.ledger(), events, context.readContent, accepted, context.sqlite.metadata().generation),

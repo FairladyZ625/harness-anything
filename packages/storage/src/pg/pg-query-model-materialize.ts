@@ -574,7 +574,7 @@ async function settlePgMaterializationCandidates(
       prefix = `${row.package_path}/`;
     }
     const subtree = state.kind !== "fact";
-    if (active)
+    if (active && (terminal || (state.kind === "task" && state.state === "done")))
       await client.query(
         `UPDATE ha_projection_values SET workspace_revision=$6 WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
         AND model='document' AND owner_id='' AND (entity_id=$4 OR (entity_id COLLATE "C">=$4 AND entity_id COLLATE "C"<$5)) AND workspace_revision<$6`,
@@ -634,7 +634,10 @@ export async function initializePgTerminalMaterialization(
         AND d.model IN ('document','document-history') AND d.entity_id='facts/'||f.fact_id||'.md')`,
     [scope.tenantId, scope.projectId, scope.policyEpoch],
   );
-  const pending = new Map<string, { factId: string; readers: string[]; events: PersistedCanonicalEventV1[] }>();
+  const pending = new Map<
+    string,
+    { factId: string; readers: string[]; events: PersistedCanonicalEventV1[]; resolved: boolean }
+  >();
   const restore = async (
     factId: string,
     readers: string[],
@@ -675,11 +678,13 @@ export async function initializePgTerminalMaterialization(
       factId: row.fact_id,
       readers: row.readers,
       events: events.filter((event) => event.type === "fact_archived"),
+      resolved: false,
     });
   }
 
-  let before = revision + 1;
-  while (pending.size) {
+  let before = revision + 1,
+    remaining = pending.size;
+  while (remaining) {
     const page = await client.query<{ event_json: string; revision: string }>(
       `SELECT event_json,revision FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
         AND revision<$4 ORDER BY revision DESC LIMIT 64`,
@@ -690,23 +695,29 @@ export async function initializePgTerminalMaterialization(
       const event = JSON.parse(row.event_json) as PersistedCanonicalEventV1;
       for (const claim of [
         ...canonicalDocumentClaims(event),
-        ...(event.schema === "fact-event/v1" && event.payload.supersededFactsDocumentClaim
+        ...(isFactEvent(event) && event.payload.supersededFactsDocumentClaim
           ? [event.payload.supersededFactsDocumentClaim]
           : []),
       ]) {
         const target = pending.get(claim.path);
-        if (!target) continue;
+        if (!target || target.resolved) continue;
         const preimage = archivedFactDocumentPreimage([...target.events, event], target.factId);
         if (preimage) {
           await restore(target.factId, target.readers, preimage);
-          pending.delete(claim.path);
+          target.resolved = true;
+          remaining--;
         }
       }
     }
     before = Number(page.rows.at(-1)!.revision);
   }
-  if (pending.size)
-    throw new Error(`archived Fact document descriptors unavailable: ${[...pending.keys()].join(", ")}`);
+  if (remaining)
+    throw new Error(
+      `archived Fact document descriptors unavailable: ${[...pending]
+        .filter(([, target]) => !target.resolved)
+        .map(([path]) => path)
+        .join(", ")}`,
+    );
   await putPgProjectionValue(client, scope, "materialization-index", "history-v1", "", revision, { version: 1 });
 }
 

@@ -1,3 +1,4 @@
+import { compileEntityDocumentRematerialization } from "@harness-anything/kernel/internal/domain/entity-document-event.ts";
 import assert from "node:assert/strict";
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { compileFactWrite, compileFactArchiveWrite } from "@harness-anything/kernel/internal/domain/fact-event.ts";
@@ -53,49 +54,34 @@ export function archivedFactUpgradeHistory(): readonly CanonicalWriteBundle[] {
       },
     }),
     second = compileFactWrite({ event: { ...fact(5), factId: "F-00000011" } });
-  const body = `${second.body}\nAccepted generic edit before archive.\n`,
-    candidate = { sha256: sha256Text(body), size: Buffer.byteLength(body), mediaType: "text/markdown" },
-    edited: DocEventV1 = {
-      schema: "doc-event/v1",
-      type: "documents_written",
-      eventId: "event-6",
+  const body = `${second.body}\nAccepted entity document refresh before archive.\n`,
+    edited = compileEntityDocumentRematerialization({
       opId: "op-6",
-      workspaceRevision: 6,
+      entityRefs: [`fact/${second.event.factId}`],
+      updates: [
+        {
+          path: second.path,
+          body,
+          mediaType: "text/markdown",
+          policyId: second.event.payload.factsDocumentClaim!.policyId,
+        },
+      ],
+      rationale: "legacy document refresh without a Fact event",
       actor,
       source: "local",
       occurredAt: "2026-08-13T00:00:00.000Z",
-      payload: {
-        executionId: null,
-        baseLedgerSha: ledgerCommitSha("archived-fact-upgrade", "a".repeat(40)),
-        changes: [
-          {
-            path: second.path as DocumentState["path"],
-            baseBlobSha256: second.event.payload.factsDocumentClaim!.sha256,
-            candidate,
-            policyId: second.event.payload.factsDocumentClaim!.policyId!,
-            regionProofs: [],
-          },
-        ],
-      },
-    },
+      workspaceRevision: 6,
+    }),
     archived = compileFactArchiveWrite({
       event: {
         ...fact(7),
         factId: second.event.factId,
         type: "fact_archived",
-        payload: { ...fact(7).payload, archiveReason: "after generic edit" },
+        payload: { ...fact(7).payload, archiveReason: "after generic refresh" },
       },
-      retiredDocumentSha256: candidate.sha256,
+      retiredDocumentSha256: edited.event.payload.documentClaims[0]!.sha256,
     });
-  return [
-    first,
-    archive(2, first),
-    restored,
-    archive(4, restored),
-    second,
-    { event: edited, plan: docSyncWritePlan(edited), blobs: [{ ...candidate, body }] },
-    archived,
-  ];
+  return [first, archive(2, first), restored, archive(4, restored), second, edited, archived];
 }
 
 /** One event/claim contract, executed by real SQLite and PostgreSQL-dialect accepting stores. */

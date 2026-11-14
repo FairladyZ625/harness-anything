@@ -8,6 +8,7 @@ import {
   applyAttachMigrations,
   makeTaskEventStore,
   makeTaskProjection,
+  makeTaskProjectionReader,
   ProjectionIdentityMismatchError,
 } from "@harness-anything/storage";
 import {
@@ -16,6 +17,7 @@ import {
   consumeKnownError,
   type DaemonRepoMode,
   type TaskProjectionQueries,
+  type TaskProjectionReader,
 } from "@harness-anything/kernel";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
@@ -103,17 +105,29 @@ export interface RepoCellCore {
 }
 
 export async function initializeRepoCell(context: RepoCellCoreInput): Promise<RepoCellCore> {
-  let projection: ReturnType<typeof makeTaskProjection> | null = null;
-  const readMaterializationDocuments = (includePolicySkippedPaths: readonly string[] = [], afterRevision?: number) => {
+  let projection: ReturnType<typeof makeTaskProjection> | null = null,
+    materializationReader: TaskProjectionReader | null = null;
+  const readMaterializationDocuments = (
+    includePolicySkippedPaths: readonly string[] = [],
+    afterRevision?: number,
+    expectedRevision?: number,
+  ) => {
     if (!projection) return null;
-    const cut = projection.readCut();
-    if (cut.status !== "ready" || cut.watermark !== cut.sourceRevision) return null;
-    return readNodeMaterializationDocuments(
-      projection,
-      context.input.storage?.nodeTaskMaterializationPolicy ?? "include_done",
-      includePolicySkippedPaths,
-      afterRevision,
-    );
+    materializationReader ??= makeTaskProjectionReader({
+      rootDir: context.rootDir,
+      projectionPath: projection.path,
+      now: context.now,
+    });
+    return materializationReader.withSession((q) => {
+      const cut = q.readCut();
+      if (cut.status !== "ready" || cut.watermark !== (expectedRevision ?? cut.sourceRevision)) return null;
+      return readNodeMaterializationDocuments(
+        q,
+        context.input.storage?.nodeTaskMaterializationPolicy ?? "include_done",
+        includePolicySkippedPaths,
+        afterRevision,
+      );
+    });
   };
   prepareDaemonRepoStorage({
     rootDir: context.rootDir,
@@ -194,6 +208,14 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
           watermark: progress.watermark,
         }),
     });
+    const closeProjection = projection.close;
+    projection = {
+      ...projection,
+      close: () => {
+        materializationReader?.close();
+        closeProjection();
+      },
+    };
     // Attach advances one bounded, complete projection cut. Serving reads never mutates L2; future
     // writer events remain the authority and apply through the normal single-writer path.
     try {

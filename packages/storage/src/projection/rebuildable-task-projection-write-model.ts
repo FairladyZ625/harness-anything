@@ -6,6 +6,7 @@ import { emptyTaskLifecycleSnapshot } from "@harness-anything/kernel/internal/do
 import { currentTaskForWrite } from "@harness-anything/kernel/internal/domain/task.ts";
 import {
   docByteLength,
+  isFactEvent,
   type DocumentState,
   type PersistedCanonicalEventV1,
 } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
@@ -318,7 +319,7 @@ function settleTerminalMaterialization(db: DatabaseSync, candidates: readonly st
             "SELECT 1 FROM relation_edge WHERE relation_type='supersedes-fact' AND target_ref=? AND state='active' LIMIT 1",
             ref,
           ).length > 0;
-      if (row) settleDocumentPrefix(db, `facts/${fact}.md`, revision, !terminal || held(ref), false);
+      if (row) settleDocumentPrefix(db, `facts/${fact}.md`, revision, !terminal || held(ref), false, !!terminal);
     } else if (decision) {
       const state = queryRows<{ readonly state: string }>(
         db,
@@ -331,6 +332,8 @@ function settleTerminalMaterialization(db: DatabaseSync, candidates: readonly st
           `decisions/decision-${decision}/`,
           revision,
           !(terminalDecisionMaterializationStates as readonly string[]).includes(state.state) || held(ref),
+          true,
+          (terminalDecisionMaterializationStates as readonly string[]).includes(state.state),
         );
     } else if (taskId) {
       const task = readSnapshot(db, taskId).task,
@@ -341,6 +344,8 @@ function settleTerminalMaterialization(db: DatabaseSync, candidates: readonly st
           `${packagePath}/`,
           revision,
           (task.status !== "cancelled" && task.packageDisposition !== "archived") || held(ref),
+          true,
+          ["done", "cancelled"].includes(task.status) || task.packageDisposition === "archived",
         );
       }
     }
@@ -354,8 +359,9 @@ function settleDocumentPrefix(
   revision: number,
   active: boolean,
   subtree = true,
+  refreshActive = false,
 ): void {
-  if (active)
+  if (active && refreshActive)
     runSql(
       db,
       `UPDATE document SET workspace_revision=? WHERE ${subtree ? "path>=? AND path<?" : "path=?"} AND workspace_revision<?`,
@@ -804,11 +810,11 @@ export function initializeTerminalMaterialization(
       AND NOT EXISTS (SELECT 1 FROM document WHERE path='facts/'||fact.fact_id||'.md')
       AND NOT EXISTS (SELECT 1 FROM document_history WHERE path='facts/'||fact.fact_id||'.md')`,
   );
-  const pending = new Map<string, readonly PersistedCanonicalEventV1[]>();
+  const pending = new Map<string, { events: readonly PersistedCanonicalEventV1[]; resolved: boolean }>();
   const restore = (factId: string, preimage: NonNullable<ReturnType<typeof archivedFactDocumentPreimage>>) => {
     const bytes = readBlob(preimage.document.blobSha256);
     if (!bytes) throw new Error(`projection document blob ${preimage.document.blobSha256} is unavailable`);
-    upsertActiveDocument(db, preimage.document.path, preimage.document.workspaceRevision, {
+    upsertActiveDocument(db, preimage.document.path, preimage.retiredAt, {
       ...preimage.document,
       body: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
     });
@@ -823,14 +829,15 @@ export function initializeTerminalMaterialization(
       `fact/${row.fact_id}`,
       row.workspace_revision,
     ).map(({ event_json }) => JSON.parse(event_json) as PersistedCanonicalEventV1);
-    pending.set(
-      `facts/${row.fact_id}.md`,
-      events.filter((event) => event.type === "fact_archived"),
-    );
+    pending.set(`facts/${row.fact_id}.md`, {
+      events: events.filter((event) => event.type === "fact_archived"),
+      resolved: false,
+    });
   }
   // Legacy imports and generic document writes have no Fact entity ref. Resolve these only
   // once during upgrade, in revision order, without replaying reducers or buffering history.
-  if (pending.size) {
+  let remaining = pending.size;
+  if (remaining) {
     for (const row of prepareQuery(
       db,
       "SELECT event_json FROM event_index ORDER BY workspace_revision DESC",
@@ -838,24 +845,30 @@ export function initializeTerminalMaterialization(
       const event = JSON.parse(String(row.event_json)) as PersistedCanonicalEventV1;
       for (const claim of [
         ...canonicalDocumentClaims(event),
-        ...(event.schema === "fact-event/v1" && event.payload.supersededFactsDocumentClaim
+        ...(isFactEvent(event) && event.payload.supersededFactsDocumentClaim
           ? [event.payload.supersededFactsDocumentClaim]
           : []),
       ]) {
-        const history = pending.get(claim.path);
-        if (!history) continue;
+        const target = pending.get(claim.path);
+        if (!target || target.resolved) continue;
         const factId = claim.path.slice(6, -3),
-          preimage = archivedFactDocumentPreimage([...history, event], factId);
+          preimage = archivedFactDocumentPreimage([...target.events, event], factId);
         if (preimage) {
           restore(factId, preimage);
-          pending.delete(claim.path);
+          target.resolved = true;
+          remaining--;
         }
       }
-      if (!pending.size) break;
+      if (!remaining) break;
     }
   }
-  if (pending.size)
-    throw new Error(`archived Fact document descriptors unavailable: ${[...pending.keys()].join(", ")}`);
+  if (remaining)
+    throw new Error(
+      `archived Fact document descriptors unavailable: ${[...pending]
+        .filter(([, target]) => !target.resolved)
+        .map(([path]) => path)
+        .join(", ")}`,
+    );
   runSql(
     db,
     "INSERT INTO projection_maintenance(key,completed_at) VALUES (?,strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
