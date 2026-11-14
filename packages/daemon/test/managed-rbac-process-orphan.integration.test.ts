@@ -285,6 +285,7 @@ test(
       orphan = await launchOrphan(managed);
       const orphanPid = orphan.pid;
       await managedService.service.start();
+      await orphan.waitClosed;
       assert.equal(
         orphan.closed,
         true,

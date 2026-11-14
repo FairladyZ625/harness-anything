@@ -39,8 +39,6 @@ for (const { embedded, readOnly } of [
             );
           if (sql.includes("SELECT backfill_cursor,backfill_complete FROM ha_relation_cycle_count"))
             return { rows: [{ backfill_cursor: null, backfill_complete: true }], rowCount: 1 };
-          if (sql.includes("SELECT count(*)::integer AS processed FROM filled"))
-            return { rows: [{ processed: 0 }], rowCount: 1 };
           if (/^\s*SELECT value FROM ha_projection_values/u.test(sql) && !waiting) {
             waiting = true;
             observed();
@@ -95,15 +93,15 @@ for (const { embedded, readOnly } of [
         assert.equal(closed, false, "close returned while its query still owned the connection");
         assert.equal(
           releases,
-          readOnly ? 1 : 3,
-          "only initialization and the two committed maintenance pages have released clients",
+          readOnly ? 1 : 2,
+          "only initialization and standalone maintenance have released clients",
         );
         unblock();
         const [reply] = await result;
         assert.equal(reply.error, undefined);
         assert.equal(reply.result, null);
         await closing;
-        assert.equal(releases, readOnly ? 2 : 4);
+        assert.equal(releases, readOnly ? 2 : 3);
         assert.equal(checkedOut, false);
       } finally {
         unblock();

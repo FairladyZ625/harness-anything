@@ -224,6 +224,8 @@
   "packages/daemon/test/fleet-writer-epoch.integration.test.ts": 10400,
   "packages/daemon/test/fresh-repo-default-review.integration.test.ts": 8000,
   "packages/daemon/test/g1-write-cost-scaling.integration.test.ts": 41100,
+  "packages/daemon/test/g38-relation-bounded.integration.test.mjs": 148000,
+  "packages/daemon/test/g38-relation-graph-bounded.integration.test.mjs": 117000,
   "packages/daemon/test/generation-two-content.integration.test.ts": 6700,
   "packages/daemon/test/git-path-admission.integration.test.ts": 12800,
   "packages/daemon/test/graph-view.integration.test.ts": 7900,

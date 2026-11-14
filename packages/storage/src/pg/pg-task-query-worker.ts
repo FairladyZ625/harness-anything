@@ -69,10 +69,11 @@ if (!isMainThread && parentPort && typeof data?.connectionString === "string") {
       ? new Pool({ connectionString: data.authorityConnectionString, max: 1 })
       : null,
     session = startWorker({ ...data, requestPort: parentPort }, pool, authority);
-  process.on("uncaughtExceptionMonitor", session.fail);
+  process.on("uncaughtExceptionMonitor", (error) => session.fail(error, true));
   process.on("exit", (code) =>
     session.fail(
       Object.assign(new Error(`PostgreSQL task query worker exited (${code})`), { code: "pg_query_worker_exited" }),
+      true,
     ),
   );
 }
@@ -97,7 +98,7 @@ function startWorker(
       operation: () => Promise<Result>,
     ) => Promise<Result>;
   } = {},
-): { readonly close: () => Promise<void>; readonly fail: (error: Error) => void } {
+): { readonly close: () => Promise<void>; readonly fail: (error: Error, processExiting?: boolean) => void } {
   const ownsPools = options.ownsPools !== false,
     epochs = options.epochs ?? (authorityPool ? pgEpochTransactions(authorityPool) : null);
   const backend = createPgStorageBackend({
@@ -113,6 +114,7 @@ function startWorker(
   });
   let source: ReturnType<typeof createPgTaskProjectionSource> | null = null,
     sessionClient: PoolClient | null = null;
+  let readerIndexBackfill: Promise<void> | undefined, readerIndexPid: number | undefined;
   const pending = new Set<Promise<void>>();
   let queryNow: string | undefined;
   let stopped = false;
@@ -124,27 +126,41 @@ function startWorker(
     Atomics.notify(target, 0);
   };
 
-  const fail = (error: Error) => {
+  const cancelReaderIndexBackfill = async () => {
+    if (readerIndexPid !== undefined) await pool.query("SELECT pg_cancel_backend($1)", [readerIndexPid]);
+    await readerIndexBackfill;
+  };
+
+  const fail = (error: Error, processExiting = false) => {
     if (stopped) return;
     stopped = true;
-    input.responsePort.postMessage({ id: -1, fatal: true, error: serializeError(error) });
-    for (const target of [input.ready, input.state]) {
-      Atomics.store(target, 0, -1);
-      Atomics.notify(target, 0);
-    }
+    const publishFailure = () => {
+      input.responsePort.postMessage({ id: -1, fatal: true, error: serializeError(error) });
+      for (const target of [input.ready, input.state]) {
+        Atomics.store(target, 0, -1);
+        Atomics.notify(target, 0);
+      }
+      input.responsePort.close();
+      input.requestPort.close();
+      options.onFailure?.(error);
+    };
     // Destroy the checked-out client before draining the pool; no transaction can be
     // reused after an asynchronous connection error.
     if (sessionClient) options.readSessions?.end(sessionClient);
     sessionClient?.release(error);
     sessionClient = null;
-    if (ownsPools) void pool.end();
-    input.responsePort.close();
-    input.requestPort.close();
-    options.onFailure?.(error);
+    const cleanup = cancelReaderIndexBackfill().finally(() => (ownsPools ? pool.end() : undefined));
+    // A fatal reply makes the caller terminate this thread. Finish maintenance
+    // cancellation first; a process already exiting can only notify synchronously.
+    if (readerIndexBackfill && processExiting !== true) void cleanup.finally(publishFailure).catch(consumeKnownError);
+    else {
+      publishFailure();
+      void cleanup.catch(consumeKnownError);
+    }
   };
   if (ownsPools) {
-    pool.on("error", fail);
-    authorityPool?.on("error", fail);
+    pool.on("error", (error) => fail(error));
+    authorityPool?.on("error", (error) => fail(error));
   }
 
   const initialize = async () => {
@@ -173,14 +189,6 @@ function startWorker(
     // transaction must skip writes; ordinary opens still prepare their scoped cache.
     if (!borrowedReadOnly) {
       for (;;) {
-        const processed = await withPostgresTransaction(
-          pool,
-          (client) => backfillPgRelationReaderIndexPage(client, input.scope),
-          input.scope,
-        );
-        if (processed === 0) break;
-      }
-      for (;;) {
         const page = await withPostgresTransaction(
           pool,
           (cycleClient) => maintainPgRelationCycleAuditPage(cycleClient, input.scope),
@@ -197,6 +205,7 @@ function startWorker(
       ownsPool: false,
       now: () => queryNow ?? new Date().toISOString(),
     });
+    return ownsPools && !borrowedReadOnly;
   };
 
   const sessionPool = () =>
@@ -227,6 +236,9 @@ function startWorker(
   let closing: Promise<void> | undefined;
   const closeResources = () =>
     (closing ??= (async () => {
+      // Disconnecting a socket does not interrupt a server-side row-lock wait.
+      // Cancel our own maintenance query, then wait for its rollback and release.
+      await cancelReaderIndexBackfill();
       await Promise.all(pending);
       await finishSession("ROLLBACK");
       await epochs?.close();
@@ -489,9 +501,32 @@ function startWorker(
   };
 
   void initialize().then(
-    () => {
+    (backfillReaderKeys) => {
       if (stopped) return;
       respond(0, input.ready, null);
+      // Native maintenance belongs to this worker. Embedded storage completed its
+      // expansion before opening the shared owner; borrowed snapshots remain read-only.
+      if (backfillReaderKeys)
+        readerIndexBackfill = (async () => {
+          while (!stopped && !closing) {
+            const processed = await withPostgresTransaction(
+              pool,
+              async (client) => {
+                if (stopped || closing) return 0;
+                readerIndexPid = (await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0]!.pid;
+                if (stopped || closing) return 0;
+                return backfillPgRelationReaderIndexPage(client, input.scope);
+              },
+              input.scope,
+            ).finally(() => {
+              readerIndexPid = undefined;
+            });
+            if (processed === 0) return;
+          }
+        })().catch((error: unknown) => {
+          if (stopped || closing) consumeKnownError(error);
+          else fail(error instanceof Error ? error : new Error(String(error)));
+        });
       input.requestPort.on("message", (request: PgQueryWorkerRequest) => {
         const operation = handle(request);
         if (request.op !== "close") pending.add(operation);

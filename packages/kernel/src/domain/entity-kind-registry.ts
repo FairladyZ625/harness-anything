@@ -9,6 +9,7 @@ import {
   daemonCliPresentationContractPolicy,
   daemonLifecycleObservationContractPolicy,
   daemonAuthorizationReceiptContractPolicy,
+  daemonOntologyPolicies,
 } from "./cli-operational-policy.ts";
 import { presetExecutionPolicy, taskRemoteEdgePolicy } from "./preset-execution-policy.ts";
 import {
@@ -1545,6 +1546,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
       storageReplayPolicy,
       canonicalContractDecodePolicy,
       ...hostKernelPolicies,
+      ...daemonOntologyPolicies,
       storageScopePolicy,
       runtimeReleasePolicy,
       supplyChainReleasePolicy,

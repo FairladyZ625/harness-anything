@@ -34,6 +34,13 @@ const document = (rows) =>
 function audit(candidates, options = {}) {
   return auditOntologyClosure({ candidates, baseline: [], previous: [], snapshot: empty, ...options });
 }
+const assertEmpty = (rows, message) => assert.deepEqual(rows, [], message);
+function assertRegistered(rows, message) {
+  assertEmpty(
+    rows.filter((row) => row.status !== "registered"),
+    message,
+  );
+}
 function registered(candidates) {
   const sources = (category) =>
     candidates.filter((row) => row.category === category).map((row) => ({ candidateId: row.id, route: row.kind }));
@@ -110,16 +117,56 @@ test("the full repository passes the classified closure gate", (t) => {
     `full-source closure: files=${result.filesScanned}, totals=${JSON.stringify(result.totals)}, durationMs=${result.durationMs}`,
   );
 });
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: all 49 host/migration/observation files stay closed.
+test("daemon host migration and observation slice has zero frozen ontology debt", () => {
+  const scope =
+    /^packages\/daemon\/(?:scripts\/(?:copy-assets|smoke-package)\.mjs|src\/(?:bin|conn-log|daemon-diagnostics(?:-worker)?|daemon-host-(?:control-api|open|recovery|registry|repository-api|runtime-api|writer-epoch)|daemon-operation(?:-table)?|daemon-singleton|daemon-trace-(?:buckets|completions)|dispatch-(?:activity|causal-context|read|stream(?:-archive|-lines)?)|edge-replica-doctor|gui-catalog|lifecycle-log|migration-import(?:-(?:authored-audit|backfill|dispositions|entities|legacy|oracle-rebuild|projection-restatement|relations|run|task-restatement|tasks))?|node-auto-(?:claim-config|claim|dispatch)|observe-(?:jsonl-tail|tail)|probe-log-sink|projection-readiness|request-log|secret-scrub|unique-id-prefix)\.ts)$/u;
+  const baseline = loadGateAllowlist("ontology-closure", { report: false }).candidates;
+  assertEmpty(baseline.filter((row) => scope.test(row.path)));
+  const result = evaluateOntologyClosure({ rootDir: repoRoot, base: "HEAD" });
+  const classified = result.classified.filter((row) => scope.test(row.file));
+  assert.equal(new Set(classified.map((row) => row.file)).size, 49);
+  assert.equal(classified.filter((row) => row.category === "action").length, 181);
+  assert.equal(classified.filter((row) => row.category === "policy").length, 52);
+  assertRegistered(classified); // 50 retired policy rows plus two policies already registered on main.
+  assertEmpty(result.findings.filter((row) => scope.test(row.file)));
+  for (const [symbol, owner] of [
+    ["runMigrationImport", "migrate-import"],
+    ["createDaemonHostRuntimeApi.terminalAction", "terminal-"],
+    ["openDaemonHost.autoDispatchLoop.spawn", "runtime-run"],
+  ]) {
+    const effects = classified.filter((row) => row.category === "action" && row.symbol === symbol);
+    assert.ok(
+      effects.some((row) => row.declarationRef.startsWith(`action:${owner}`)),
+      symbol,
+    );
+  }
 
+  const snapshot = loadOntologyClosureSnapshot(repoRoot);
+  for (const [file, from, to, category] of [
+    ["daemon-operation-table.ts", "table full", "table capacity", "ACTION"],
+    ["secret-scrub.ts", "registeredSecretLimit = 64", "registeredSecretLimit = 65", "POLICY"],
+  ]) {
+    const target = `packages/daemon/src/${file}`,
+      source = readFileSync(path.join(repoRoot, target), "utf8");
+    assert.notEqual(source.replace(from, to), source, target);
+    assert.deepEqual(audit(scanOntologyText(target, source), { snapshot }).findings, [], target);
+    assert.ok(
+      audit(scanOntologyText(target, source.replace(from, to)), { snapshot }).findings.some(
+        (row) => row.code === `ONTOLOGY_${category}_UNDECLARED`,
+      ),
+      target,
+    );
+  }
+});
 // dec_7E44897ECDCAEF2B92EC66A260 / S3d: retired debt cannot return to the leaf packages.
 // dec_7E44897ECDCAEF2B92EC66A260/CH1: application, builtin and DSH have no remaining migration debt.
 test("application, builtin authorization and DSH remain closed in every ontology category", () => {
   const result = evaluateOntologyClosure({ rootDir: repoRoot, base: "HEAD" });
   const baseline = loadGateAllowlist("ontology-closure", { report: false }).candidates;
   for (const owner of ["packages/application", "packages/authorization-builtin", "packages/dsh-plugin"]) {
-    assert.deepEqual(
+    assertEmpty(
       baseline.filter((row) => row.owner === owner),
-      [],
       owner,
     );
     for (const category of ["action", "judgment", "policy"]) {
@@ -127,11 +174,7 @@ test("application, builtin authorization and DSH remain closed in every ontology
         (row) => row.category === category && row.file.startsWith(`${owner}/`),
       );
       assert.ok(candidates.length > 0, `${owner}/${category}`);
-      assert.deepEqual(
-        candidates.filter((row) => row.status !== "registered"),
-        [],
-        `${owner}/${category}`,
-      );
+      assertRegistered(candidates, `${owner}/${category}`);
     }
   }
 });
@@ -145,9 +188,8 @@ test("all authorization packages stay at zero ontology migration debt", () => {
   );
   const result = evaluateOntologyClosure({ rootDir: repoRoot, base: "HEAD" });
   for (const owner of ["packages/authorization-keycloak", "packages/authorization-keycloak-gui"]) {
-    assert.deepEqual(
+    assertEmpty(
       baseline.filter((row) => row.owner === owner),
-      [],
       owner,
     );
     const candidates = result.classified.filter((row) => row.file.startsWith(`${owner}/`));
@@ -155,11 +197,7 @@ test("all authorization packages stay at zero ontology migration debt", () => {
       candidates.some((row) => row.category === "action"),
       owner,
     );
-    assert.deepEqual(
-      candidates.filter((row) => row.status !== "registered"),
-      [],
-      owner,
-    );
+    assertRegistered(candidates, owner);
   }
   const policies = loadOntologyClosureSnapshot(repoRoot).kinds.flatMap((kind) => kind.policies ?? []);
   for (const owner of ["packages/authorization-keycloak", "packages/authorization-keycloak-gui"])
@@ -172,7 +210,6 @@ test("all authorization packages stay at zero ontology migration debt", () => {
     [],
   );
 });
-
 // dec_7E44897ECDCAEF2B92EC66A260/CH1: daemon protocol, client, transport, access and Fleet closure is shrink-only.
 test("daemon protocol and Fleet boundary remains at zero ontology migration debt", () => {
   const baseline = loadGateAllowlist("ontology-closure", { report: false }).candidates;
@@ -196,7 +233,6 @@ test("daemon protocol and Fleet boundary remains at zero ontology migration debt
     "every daemon boundary action and policy candidate must resolve to its shared declaration",
   );
 });
-
 // dec_7E44897ECDCAEF2B92EC66A260/CH1: reject a changed default and a neighboring effect, not just a path.
 test("daemon boundary registrations reject changed policies and undeclared actions", () => {
   const snapshot = loadOntologyClosureSnapshot(repoRoot);
@@ -363,11 +399,7 @@ test("packages/kernel stays at zero ontology baseline and every kernel candidate
       (row) => row.category === category && row.file.startsWith("packages/kernel/"),
     );
     assert.ok(candidates.length > 0, category);
-    assert.deepEqual(
-      candidates.filter((row) => row.status !== "registered"),
-      [],
-      category,
-    );
+    assertRegistered(candidates, category);
   }
   assert.deepEqual(
     result.findings.filter((row) => row.file?.startsWith("packages/kernel/")),

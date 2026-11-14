@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Client } from "pg";
 import { DatabaseSync } from "node:sqlite";
 import { createPgTaskProjectionSource } from "../../src/pg/pg-task-source.ts";
 import { createPgTaskQueryReader } from "../../src/pg/pg-task-query-reader.ts";
@@ -67,8 +68,49 @@ function capture(operation) {
     return { error: error.message };
   }
 }
-test("postgres production open completes reader-key expansion independently for each scope", async () => {
+async function observeReaderIndexCommits(f, relationIds) {
+  const listener = new Client({ connectionString: f.managementConnectionString }),
+    seen = new Set(),
+    waiting = new Map();
+  await listener.connect();
+  let failure;
+  const notified = ({ payload }) => {
+      seen.add(payload);
+      waiting.get(payload)?.resolve();
+      waiting.delete(payload);
+    },
+    failed = (error) => {
+      failure = error;
+      for (const waiter of waiting.values()) waiter.reject(error);
+      waiting.clear();
+    };
+  listener.on("notification", notified);
+  listener.on("error", failed);
+  await listener.query("LISTEN ha_test_reader_index_commit");
+  await f.adminPool.query(`CREATE FUNCTION ha_test_reader_index_commit() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN PERFORM pg_notify('ha_test_reader_index_commit', NEW.tenant_id || ':' || NEW.relation_id); RETURN NEW; END $$;
+    CREATE TRIGGER ha_test_reader_index_commit AFTER UPDATE ON ha_relations FOR EACH ROW
+    WHEN (OLD.reader_index_version=0 AND NEW.reader_index_version=1 AND NEW.relation_id IN
+      (${relationIds.map((id) => "'" + id.replaceAll("'", "''") + "'").join(",")}))
+    EXECUTE FUNCTION ha_test_reader_index_commit()`);
+  return {
+    wait: (tenantId, relationId) => {
+      const key = `${tenantId}:${relationId}`;
+      if (failure) return Promise.reject(failure);
+      if (seen.has(key)) return Promise.resolve();
+      return new Promise((resolve, reject) => waiting.set(key, { resolve, reject }));
+    },
+    close: async () => {
+      await listener.query("UNLISTEN ha_test_reader_index_commit");
+      listener.removeListener("notification", notified);
+      listener.removeListener("error", failed);
+      await listener.end();
+    },
+  };
+}
+test("postgres production readers serve each scope while its reader-key expansion completes", async () => {
   const f = await fixture("postgres");
+  let commits;
   try {
     await f.adminPool.query("DROP TRIGGER ha_relation_reader_index_mark ON ha_relations");
     await f.adminPool.query("DROP TRIGGER ha_relation_reader_index_sync ON ha_relations");
@@ -81,6 +123,7 @@ test("postgres production open completes reader-key expansion independently for 
     } finally {
       client.release();
     }
+    commits = await observeReaderIndexCommits(f, ["legacy-129"]);
     for (const tenantId of [scope.tenantId, "second-scope"]) {
       const reader = createPgTaskQueryReader({
         connectionString: f.connectionString,
@@ -89,6 +132,10 @@ test("postgres production open completes reader-key expansion independently for 
         repoId: "bounded",
       });
       try {
+        assert.deepEqual(ids(reader.withSession((queries) => queries.readRelationQuery({ limit: 1 })).rows), [
+          "legacy-000",
+        ]);
+        await commits.wait(tenantId, "legacy-129");
         assert.equal(
           (
             await f.adminPool.query(
@@ -97,11 +144,8 @@ test("postgres production open completes reader-key expansion independently for 
             )
           ).rows[0].n,
           0,
-          "production startup must commit the expansion before handing off this scope",
+          "a committed completion notification certifies the scoped expansion",
         );
-        assert.deepEqual(ids(reader.withSession((queries) => queries.readRelationQuery({ limit: 1 })).rows), [
-          "legacy-000",
-        ]);
         if (tenantId === scope.tenantId)
           assert.equal(
             (
@@ -117,9 +161,115 @@ test("postgres production open completes reader-key expansion independently for 
       }
     }
   } finally {
+    await commits?.close();
     await f.close();
   }
 });
+for (const interruption of ["close", "failure"])
+  test(`postgres readers stay available while committed reader-key backfill is interrupted by ${interruption} and resumed`, async () => {
+    const f = await fixture("postgres"),
+      readers = [];
+    let locker, commits;
+    try {
+      await f.adminPool.query("DROP TRIGGER ha_relation_reader_index_mark ON ha_relations");
+      await f.adminPool.query("DROP TRIGGER ha_relation_reader_index_sync ON ha_relations");
+      for (let i = 0; i < 130; i++)
+        await edge(f.adminPool, `locked-${String(i).padStart(3, "0")}`, "task/old", `task/${i}`);
+      const client = await f.adminPool.connect();
+      try {
+        await ensurePgProjectionSchema(client, { indexBuild: "isolated" });
+      } finally {
+        client.release();
+      }
+      commits = await observeReaderIndexCommits(f, ["locked-063", "locked-129"]);
+      locker = new Client({ connectionString: f.managementConnectionString });
+      await locker.connect();
+      await locker.query("BEGIN");
+      await locker.query("SELECT 1 FROM ha_relations WHERE relation_id='locked-064' FOR UPDATE");
+      // The lock remains held through both real opens and the first worker's close.
+      // Commit notifications select the intermediate states; no test timer releases it.
+      for (let i = 0; i < 2; i++) {
+        const url = new URL(f.connectionString);
+        url.searchParams.set("application_name", `p4-backfill-${i}`);
+        const reader = createPgTaskQueryReader({
+          connectionString: url.href,
+          requireRuntimeRole: true,
+          scope,
+          repoId: "bounded",
+        });
+        readers.push(reader);
+        const first = reader.withSession((queries) => queries.readRelationQuery({ limit: 64 }));
+        assert.equal(first.rows.length, 64);
+        assert.deepEqual(
+          ids(
+            reader.withSession((queries) => queries.readRelationQuery({ limit: 1, cursor: first.page.nextCursor }))
+              .rows,
+          ),
+          ["locked-064"],
+          "the previous query must reach past the partially populated key index",
+        );
+        await commits.wait(scope.tenantId, "locked-063");
+      }
+      assert.equal(
+        (await f.adminPool.query("SELECT count(*)::integer AS n FROM ha_relations WHERE reader_index_version=0"))
+          .rows[0].n,
+        66,
+        "the first 64-row page commits independently of the blocked remainder",
+      );
+      const interrupted = readers.shift();
+      if (interruption === "failure") {
+        assert.deepEqual(
+          (
+            await f.adminPool.query(
+              "SELECT pg_terminate_backend(pid) AS terminated FROM pg_stat_activity WHERE application_name='p4-backfill-0' AND state='idle'",
+            )
+          ).rows,
+          [{ terminated: true }],
+        );
+        assert.throws(
+          () => interrupted.withSession((queries) => queries.readRelationQuery({ limit: 1 })),
+          (error) => error.code === "57P01",
+        );
+      }
+      interrupted.close();
+      assert.deepEqual(
+        (
+          await f.adminPool.query(
+            "SELECT pid,state,wait_event_type FROM pg_stat_activity WHERE application_name='p4-backfill-0' AND xact_start IS NOT NULL",
+          )
+        ).rows,
+        [],
+        "interrupting a native worker cancels and rolls back its blocked maintenance transaction before notifying its caller",
+      );
+      assert.deepEqual(ids(readers[0].withSession((queries) => queries.readRelationQuery({ limit: 1 })).rows), [
+        "locked-000",
+      ]);
+      await locker.query("ROLLBACK");
+      await locker.end();
+      locker = undefined;
+      await commits.wait(scope.tenantId, "locked-129");
+      assert.equal(
+        (await f.adminPool.query("SELECT count(*)::integer AS n FROM ha_relations WHERE reader_index_version=0"))
+          .rows[0].n,
+        0,
+        "the remaining worker resumes committed progress after unlock",
+      );
+      assert.deepEqual(ids(readers[0].withSession((queries) => queries.readRelationQuery({ limit: 1 })).rows), [
+        "locked-000",
+      ]);
+    } finally {
+      try {
+        for (const reader of readers) reader.close();
+      } finally {
+        if (locker) {
+          await locker.query("ROLLBACK");
+          await locker.end();
+        }
+        await commits?.close();
+        await f.close();
+      }
+    }
+  });
 async function captureAsync(operation) {
   try {
     return { ids: ids((await operation()).rows) };
