@@ -10,6 +10,12 @@ let frame: RepoReadPayload;
 /** Executed by the existing worker request handler, with its shared receipt/error boundary. */
 export async function executeRepoReadRequest(request: RepoWriterRequestV1): Promise<unknown> {
   frame = request.payload as RepoReadPayload;
+  if (frame.method === "close") {
+    await runtime?.close();
+    runtime = null;
+    configKey = null;
+    return;
+  }
   const key = JSON.stringify(frame.config);
   if (key !== configKey) {
     await runtime?.close();

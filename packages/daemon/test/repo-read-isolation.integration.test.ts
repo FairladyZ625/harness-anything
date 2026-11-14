@@ -13,7 +13,7 @@ import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts"
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { initIngressRepo, rpc } from "./fixtures/runtime-ingress.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
-import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
+import { registerBootstrappedDaemonRepo, settleSettingsEvent } from "./repo-settings.fixture.ts";
 
 async function waitStarted(barrier: Int32Array, count: number): Promise<void> {
   for (let observed = Atomics.load(barrier, 1); observed < count; observed = Atomics.load(barrier, 1))
@@ -136,23 +136,63 @@ function p99(values: readonly number[]): number {
 
 test("read clients without a physical worker context reuse workers across repository owners", async () => {
   let workers = 0;
+  const factory = () => {
+    workers++;
+    return new Worker(
+      `const {parentPort} = require('node:worker_threads');
+      parentPort.postMessage({schema: 'harness-repo-writer-status/v1', protocolVersion: 1, kind: 'attach-progress'});
+      parentPort.on('message', request => parentPort.postMessage({
+        requestId: request.requestId, outcome: 'ok', value: request.payload.config.repoId
+      }));`,
+      { eval: true },
+    );
+  };
   const clients = ["one", "two"].map((repoId) =>
-    openRepoReadClient({ repoId: repoId as never, rootDir: "/unused" as never, ownerId: repoId }, () => {
-      workers++;
-      return new Worker(
-        `const {parentPort} = require('node:worker_threads');
-        parentPort.postMessage({schema: 'harness-repo-writer-status/v1', protocolVersion: 1, kind: 'attach-progress'});
-        parentPort.on('message', request => parentPort.postMessage({
-          requestId: request.requestId, outcome: 'ok', value: request.payload.config.repoId
-        }));`,
-        { eval: true },
-      );
-    }),
+    openRepoReadClient({ repoId: repoId as never, rootDir: "/unused" as never, ownerId: repoId }, factory),
   );
   try {
     for (let n = 0; n < 6; n++) assert.equal(await clients[n % 2]!.request("probe", []), n % 2 === 0 ? "one" : "two");
     assert.equal(workers, 1, "alternating owners must not cold-start a worker for every read");
   } finally {
     await Promise.all(clients.map((client) => client.close()));
+  }
+});
+
+test("closing a real reader releases SQLite handles before reusing its isolate at the same root", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-reader-release-")),
+    repoId = "reader-release",
+    handles = new Int32Array(new SharedArrayBuffer(8)),
+    workers: Worker[] = [];
+  initIngressRepo(root, process.getuid?.() ?? 0);
+  await settleSettingsEvent({ repoId, rootDir: root });
+  const input = { repoId: repoId as never, rootDir: root as never, ownerId: "release-test" },
+    factory: import("../src/repo-read-pool.ts").RepoReadWorkerFactory = (_url, options) => {
+      const worker = new Worker(new URL("./fixtures/read-handle-worker.ts", import.meta.url), {
+        ...options,
+        workerData: { ...options.workerData, handles: handles.buffer },
+      });
+      workers.push(worker);
+      return worker;
+    };
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const client = openRepoReadClient(input, factory);
+      try {
+        assert.ok(await client.request("readEventWitness", [1]));
+        // This operation also opens the lazy canonical-event reader.
+        await client.request("observeTail", [{ afterRevision: 0 }]);
+        assert.ok(Atomics.load(handles, 0) > Atomics.load(handles, 1), "the real read must open a connection");
+      } finally {
+        await client.close();
+      }
+      assert.equal(Atomics.load(handles, 0), Atomics.load(handles, 1), "close resolves after native handles close");
+      assert.equal(workers.length, 1, "the next client at the same root reuses the isolate");
+      assert.ok(workers[0]!.threadId > 0, "the worker remains alive after releasing its connections");
+    }
+    rmSync(root, { recursive: true, force: true });
+    t.diagnostic(`native reader handles opened=${Atomics.load(handles, 0)} closed=${Atomics.load(handles, 1)}`);
+  } finally {
+    await Promise.all(workers.map((worker) => worker.terminate()));
+    rmSync(root, { recursive: true, force: true });
   }
 });
