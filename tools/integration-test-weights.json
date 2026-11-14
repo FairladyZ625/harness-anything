@@ -35,6 +35,7 @@
   "packages/cli/test/runtime-instance-auth-cli.integration.test.ts": 18600,
   "packages/cli/test/runtime-instance-cli.integration.test.ts": 11400,
   "packages/cli/test/runtime-relay-read-cli.integration.test.ts": 22100,
+  "packages/cli/test/runtime-wait-reconnect.integration.test.ts": 96500,
   "packages/cli/test/session-identity-cli.integration.test.ts": 12600,
   "packages/cli/test/sqlite-ledger-reconcile.integration.test.ts": 27600,
   "packages/cli/test/squad-resident-leader-scenario-1.integration.test.ts": 114100,
@@ -90,6 +91,8 @@
   "packages/daemon/test/daemon-host-recovery-attach-budget.test.ts": 30700,
   "packages/daemon/test/daemon-host-recovery.test.ts": 103900,
   "packages/daemon/test/daemon-owner-death.integration.test.ts": 3900,
+  "packages/daemon/test/daemon-package.integration.test.mjs": 141000,
+  "packages/daemon/test/daemon-resident-readoption.integration.test.ts": 105100,
   "packages/daemon/test/daemon-service-start-timeout.integration.test.ts": 1200,
   "packages/daemon/test/daemon-singleton.test.ts": 300,
   "packages/daemon/test/daemon-startup-progress.integration.test.ts": 6700,
@@ -230,6 +233,7 @@
   "packages/daemon/test/oidc-edge-login-trust.integration.test.ts": 1400,
   "packages/daemon/test/people-actions.integration.test.ts": 2300,
   "packages/daemon/test/person-action.integration.test.ts": 4200,
+  "packages/daemon/test/pg-fleet.integration.test.ts": 128400,
   "packages/daemon/test/pg-repo-cell.integration.test.ts": 16100,
   "packages/daemon/test/pg-task-read-cost.integration.test.mjs": 1400,
   "packages/daemon/test/pglite-repo-cell.integration.test.ts": 1700,
@@ -513,5 +517,6 @@
   "tools/stress/fleet/scale-seed-2.integration.test.mjs": 500,
   "tools/stress/fleet/scale-seed-3.integration.test.mjs": 700,
   "tools/stress/release-installation.integration.test.mjs": 1200,
-  "tools/stress/storage-campaign.integration.test.mjs": 82900
+  "tools/stress/storage-campaign.integration.test.mjs": 82900,
+  "tools/stress/storage-matrix.integration.test.mjs": 112300
 }
