@@ -159,7 +159,8 @@ export function closureFiles(
       previouslyMaterializedManagedPaths = localGitObjectRefStore
         .listTree(context.ledger().rootDir, parent, [managedRoot])
         .map(({ target }) => ledgerAuthoredPath(context.ledger(), target))
-        .filter(projectionManagedPath),
+        // Bootstrap Git prose has not entered the canonical document projection yet.
+        .filter((path) => projectionManagedPath(path) && context.sqlite.documentHead(path) !== undefined),
       staleManagedHeads = previouslyMaterializedManagedPaths
         .filter((path) => !indexed.has(path))
         .map((path) => ({ path, sha256: null, size: null, nodeKind: null })),

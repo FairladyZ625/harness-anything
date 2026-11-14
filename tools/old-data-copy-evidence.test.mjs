@@ -310,6 +310,12 @@ test("one command: snapshot, isolated daemon attach, reads, cold rebuild, receip
     assert.equal(receipt.reads.events[0].schema, "settings-event/v1");
     assert.equal(receipt.coldRebuild.watermark, 1);
     assert.equal(receipt.coldRebuild.sourceRevision, 1);
+    assert.deepEqual(receipt.archivedFactHistory, {
+      warmCount: 0,
+      coldCount: 0,
+      equal: true,
+      allContentReadable: true,
+    });
     assert.match(receipt.coldRebuild.stateDigest, /^sha256:[0-9a-f]{64}$/u);
     assert.ok(receipt.coldRebuild.elapsedMs >= 0);
     if (existsSync("/usr/bin/time"))

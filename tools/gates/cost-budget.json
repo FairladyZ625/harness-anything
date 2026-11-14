@@ -469,12 +469,6 @@
           "measurements": [
             "relation-unrelate:materialization-degree"
           ]
-        },
-        "doc-materialize": {
-          "measurements": [
-            "doc-materialize:cold-history",
-            "doc-materialize:none-history"
-          ]
         }
       },
       "notApplicable": [

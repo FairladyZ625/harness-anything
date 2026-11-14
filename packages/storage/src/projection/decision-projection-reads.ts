@@ -96,7 +96,7 @@ export function readDecisionRows(
       decision.provenance_json,
       decision.workspace_revision,
       ${bodyColumn} AS body_document_json,
-      document.value_json AS active_body_document_json,
+      document.path AS active_document_path,
       COALESCE((
         SELECT json_group_array(
           json_object('kind', kind, 'option_id', option_id, 'text', text, 'rationale', rationale)
@@ -187,7 +187,7 @@ interface DecisionCollectionRecord extends ProjectionSqlRow {
   readonly provenance_json: string;
   readonly workspace_revision: number;
   readonly body_document_json: string | null;
-  readonly active_body_document_json: string | null;
+  readonly active_document_path: string | null;
   readonly options_json: string;
   readonly claims_json: string;
   readonly consents_json: string;
@@ -301,7 +301,7 @@ function decisionMaterializationState(
   row: DecisionCollectionRecord,
 ): "materialized" | "dematerialized_terminal" {
   if (!["rejected", "superseded", "outcome_retired"].includes(row.state)) return "materialized";
-  if (row.active_body_document_json !== null) return "materialized";
+  if (row.active_document_path !== null) return "materialized";
   const relations = queryRows<{
     readonly source_ref: string;
     readonly target_ref: string;

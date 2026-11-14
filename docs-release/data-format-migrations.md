@@ -47,6 +47,43 @@ Declaration conversion writes a new file and never overwrites the input or accep
 
 Historical samples live in `packages/preset/fixtures/completion-migration/`. Guidance tests and isolated integration tests cover the old decoder failure, explicit CLI migration, active catalog/resolution, preserved source bytes, idempotence, rejected unknown formats, and repository acceptance/reopen. They run through the existing tier manifest; no additional CI gate or compatibility reader is introduced.
 
+## Terminal document working-set projection
+
+The attach registry records `projection.terminal-materialization` as a read conclusion. Accepted
+Fact, Decision, Task and Relation events and their content blobs are unchanged; no event migration
+or new conversion command is needed. SQLite stays at projection schema 38. PostgreSQL keeps its
+existing projection generation. The additive `document_history` and relation-hold indexes separate
+retained content from the current working set. Node policy filters only local follower output and
+never appends a document retirement to shared history.
+
+Stop older writers before opening the repository with the new build. The existing projection-open
+path classifies current rows once (`terminal-materialization-v1` in SQLite and
+`materialization-index/v1` in PostgreSQL). Older archive handlers deleted the Fact descriptor,
+so classification alone is insufficient: the history step also finds archived Facts missing from
+both document indexes, seeks only their indexed entity events, and restores the exact retirement
+preimage descriptor and original blob. It handles re-archive after unarchive and keeps current
+descriptors intact. SQLite records `terminal-materialization-history-v1`; PostgreSQL records
+`materialization-index/history-v1`, scoped to tenant, project and policy epoch. Both backends commit
+the recovered rows and completion marker in the same existing projection transaction. Interruption
+rolls back that transaction; reopening retries it. Reopening a completed upgrade is an indexed marker
+lookup, not an event-history replay. A missing retained descriptor/blob fails the open rather than
+marking an incomplete recovery done.
+
+The current/previous binary window applies to immutable event/blob formats: previous builds can
+still read the ledger and ignore the additive derived tables. There must be one active writer;
+do not alternate old and new writers against a completed working-set cache. If rollback requires
+the previous writer, preserve the canonical ledger/blobs and rebuild the disposable projection
+with `ha daemon projection rebuild` before returning to the new writer. A rollback that
+only reads needs no conversion. New `nodeTaskMaterializationPolicy` configuration must be removed
+before using a previous binary that does not recognize it.
+
+Cold projection rebuild derives the same active/history document set directly from accepted
+history, and remains the recovery route for a missing cache. This one-time projection upgrade and
+explicit full rebuild are distinct from `doc materialize`: document materialization reads the
+current projection working set and never scans events from revision zero. Verify a real old-data
+copy by comparing every archived Fact descriptor before and after cold rebuild, including readable
+content blobs; a generic Task read or a successful cold rebuild alone does not prove warm upgrade.
+
 ## Stale local-root residue has one classifier
 
 `ha doctor health` reports `local-root-residue` when a repository renamed `layout.localRoot` and the

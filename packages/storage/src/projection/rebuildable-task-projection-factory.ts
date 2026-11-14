@@ -1,5 +1,7 @@
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { projectionCatchUpLimit } from "./catch-up-limit.ts";
+import { initializeTerminalMaterialization } from "./rebuildable-task-projection-write-model.ts";
+import { transaction } from "./rebuildable-task-projection-sql.ts";
 import { createSqlTaskQueryReader } from "../pg/sql-task-query-reader.ts";
 import { makePgTaskProjection } from "../pg/pg-task-projection.ts";
 import { resolveHarnessLayout } from "@harness-anything/kernel/internal/layout/index.ts";
@@ -166,7 +168,12 @@ export function makeTaskProjection(
     readHead = options.eventStore.readHead;
   if (localRuntimeStateFileSystem.exists(projectionPath)) {
     try {
-      withDatabase(projectionPath, readHead, () => undefined, options.onValidationProgress);
+      withDatabase(
+        projectionPath,
+        readHead,
+        (db) => transaction(db, () => initializeTerminalMaterialization(db, options.eventStore.readContentBlob)),
+        options.onValidationProgress,
+      );
     } catch (error) {
       if (error instanceof ProjectionSchemaMismatchError && error.observed < taskProjectionSchemaVersion) {
         consumeKnownError(error);

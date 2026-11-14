@@ -2,6 +2,7 @@ import { isCiRunObservationEvent } from "../domain/ci-run-observation-event.ts";
 import { isAgentRuntimeEvent, runtimeEventContentClaims } from "../domain/agent-runtime.ts";
 import { RAW_ARTIFACT_POLICY_ID } from "../domain/artifact-text-classification.ts";
 import type { FactEventV1 } from "../domain/fact-event.ts";
+import { docByteLength, type DocumentState } from "../domain/doc-sync.contract.ts";
 import { isRelationEvent, type RelationEventV1 } from "../domain/relation-event.ts";
 import { isEntityDeclarationEvent, isEntityEvent, ownedContentForDeclarationEvent } from "../domain/entity-event.ts";
 import {
@@ -30,6 +31,38 @@ import { isTaskBootstrapEvent, taskBootstrapClaims } from "../domain/task-bootst
 import { isTaskProgressEvent } from "../domain/task-progress-event.ts";
 import { isSnapshotUpgradeEvent, snapshotUpgradeClaims } from "../domain/task-snapshot-upgrade-store-seam.ts";
 import { terminalDecisionMaterializationStates } from "../domain/entity-relation.ts";
+
+/** Recover the retained preimage descriptor from one Fact's indexed history, newest first. */
+export function archivedFactDocumentPreimage(
+  events: readonly PersistedCanonicalEventV1[],
+  factId: string,
+): { readonly document: Omit<DocumentState, "body">; readonly retiredAt: number } | null {
+  const archived = events.find(
+    (event) => isFactEvent(event) && event.factId === factId && event.type === "fact_archived",
+  );
+  if (!archived || !isFactEvent(archived)) return null;
+  const retirement = archived.payload.factsDocumentRetirement;
+  if (!retirement) return null;
+  for (const event of events) {
+    if (event.workspaceRevision >= archived.workspaceRevision || !isFactEvent(event)) continue;
+    const claim = [event.payload.factsDocumentClaim, event.payload.supersededFactsDocumentClaim].find(
+      (claim) => claim?.path === retirement.path && claim.sha256 === retirement.sha256,
+    );
+    if (claim)
+      return {
+        retiredAt: archived.workspaceRevision,
+        document: {
+          path: claim.path as DocumentState["path"],
+          blobSha256: claim.sha256,
+          size: docByteLength(claim.size),
+          mediaType: claim.mediaType,
+          policyId: claim.policyId,
+          workspaceRevision: event.workspaceRevision,
+        },
+      };
+  }
+  return null;
+}
 
 // Canonical document claim extraction plus flat-to-sharded layout auditing.
 export function canonicalDocumentClaims(event: PersistedCanonicalEventV1): readonly {

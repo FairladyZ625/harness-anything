@@ -580,13 +580,16 @@ export function readDocumentRows(
   if (page?.afterPath !== undefined) values.push(page.afterPath);
   if (page !== undefined) values.push(checkedPageLimit(page.limit) + 1);
   const tables = page?.includeHistory ? ["document", "document_history"] : ["document"],
-    source = `(${tables
-      .flatMap((table) =>
-        page?.excludeTaskPackages
-          ? [`SELECT * FROM ${table} WHERE path < 'tasks/'`, `SELECT * FROM ${table} WHERE path >= 'tasks0'`]
-          : [`SELECT * FROM ${table}`],
-      )
-      .join(" UNION ALL ")})`;
+    source =
+      !page?.includeHistory && !page?.excludeTaskPackages
+        ? "document"
+        : `(${tables
+            .flatMap((table) =>
+              page?.excludeTaskPackages
+                ? [`SELECT * FROM ${table} WHERE path < 'tasks/'`, `SELECT * FROM ${table} WHERE path >= 'tasks0'`]
+                : [`SELECT * FROM ${table}`],
+            )
+            .join(" UNION ALL ")})`;
   return queryRows(
     db,
     "SELECT path, json_extract(value_json, '$.blobSha256') AS blob_sha256, " +

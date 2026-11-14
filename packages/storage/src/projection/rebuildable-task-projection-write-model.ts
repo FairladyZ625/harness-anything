@@ -35,6 +35,7 @@ import { canonicalJson, queryRows, runSql } from "./rebuildable-task-projection-
 import { projectInterpretedEntityValue } from "./rebuildable-task-projection-entities.ts";
 import { readRuntimeSession, readSnapshot } from "./rebuildable-task-projection-runtime.ts";
 import { applyRelationProjectionEvent } from "./relation-entity-projection.ts";
+import { archivedFactDocumentPreimage } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "@harness-anything/kernel";
 
@@ -763,19 +764,57 @@ function hasTaskSnapshot(db: DatabaseSync, taskId: string): boolean {
 }
 
 /** One projection-only upgrade: classify existing current rows, never replay event history. */
-export function initializeTerminalMaterialization(db: DatabaseSync): void {
+export function initializeTerminalMaterialization(
+  db: DatabaseSync,
+  readBlob?: EventStreamPort["readContentBlob"],
+): void {
   const key = "terminal-materialization-v1";
-  if (queryRows(db, "SELECT 1 FROM projection_maintenance WHERE key=?", key).length) return;
-  const refs = queryRows<{ ref: string }>(
+  if (!queryRows(db, "SELECT 1 FROM projection_maintenance WHERE key=?", key).length) {
+    const refs = queryRows<{ ref: string }>(
+      db,
+      "SELECT 'fact/'||fact_id AS ref FROM fact UNION ALL SELECT 'decision/'||decision_id FROM decision UNION ALL SELECT 'task/'||task_id FROM task_snapshot",
+    ).map(({ ref }) => ref);
+    const candidates = refreshMaterializationHolds(db, refs);
+    const revision = Number(
+      queryRows(db, "SELECT watermark FROM projection_meta WHERE singleton=1")[0]?.watermark ?? 0,
+    );
+    settleTerminalMaterialization(db, candidates, revision);
+    runSql(
+      db,
+      "INSERT INTO projection_maintenance(key,completed_at) VALUES (?,strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
+      key,
+    );
+  }
+  const historyKey = "terminal-materialization-history-v1";
+  if (!readBlob || queryRows(db, "SELECT 1 FROM projection_maintenance WHERE key=?", historyKey).length) return;
+  const missing = queryRows<{ fact_id: string; workspace_revision: number }>(
     db,
-    "SELECT 'fact/'||fact_id AS ref FROM fact UNION ALL SELECT 'decision/'||decision_id FROM decision UNION ALL SELECT 'task/'||task_id FROM task_snapshot",
-  ).map(({ ref }) => ref);
-  const candidates = refreshMaterializationHolds(db, refs);
-  const revision = Number(queryRows(db, "SELECT watermark FROM projection_meta WHERE singleton=1")[0]?.watermark ?? 0);
-  settleTerminalMaterialization(db, candidates, revision);
+    `SELECT fact_id,workspace_revision FROM fact WHERE json_extract(row_json,'$.archived')=1
+      AND NOT EXISTS (SELECT 1 FROM document WHERE path='facts/'||fact.fact_id||'.md')
+      AND NOT EXISTS (SELECT 1 FROM document_history WHERE path='facts/'||fact.fact_id||'.md')`,
+  );
+  for (const row of missing) {
+    const events = queryRows<{ event_json: string }>(
+        db,
+        `SELECT e.event_json FROM event_summary_entity_ref AS r JOIN event_index AS e USING(workspace_revision)
+          WHERE r.entity_ref=? AND r.workspace_revision<=? ORDER BY r.workspace_revision DESC`,
+        `fact/${row.fact_id}`,
+        row.workspace_revision,
+      ).map(({ event_json }) => JSON.parse(event_json) as PersistedCanonicalEventV1),
+      preimage = archivedFactDocumentPreimage(events, row.fact_id);
+    if (!preimage) throw new Error(`archived Fact ${row.fact_id} has no retained document descriptor`);
+    const bytes = readBlob(preimage.document.blobSha256);
+    if (!bytes) throw new Error(`projection document blob ${preimage.document.blobSha256} is unavailable`);
+    upsertActiveDocument(db, preimage.document.path, preimage.document.workspaceRevision, {
+      ...preimage.document,
+      body: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+    });
+    if (!factMaterializationHeld(db, `fact/${row.fact_id}`, "archived"))
+      archiveDocument(db, preimage.document.path, preimage.retiredAt);
+  }
   runSql(
     db,
     "INSERT INTO projection_maintenance(key,completed_at) VALUES (?,strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
-    key,
+    historyKey,
   );
 }

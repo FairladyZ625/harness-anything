@@ -31,6 +31,31 @@ import {
 import type { FactProjectionRow } from "@harness-anything/kernel";
 import { fact, proposal, taskCreated, actor } from "./store/relation-graph-projection.fixtures.ts";
 
+/** Accepted history whose schema-38 archive handler deleted the document descriptor. */
+export function archivedFactUpgradeHistory(): readonly CanonicalWriteBundle[] {
+  const first = compileFactWrite({ event: { ...fact(1), factId: "F-00000010" } }),
+    archive = (revision: number, recorded: typeof first) =>
+      compileFactArchiveWrite({
+        event: {
+          ...fact(revision),
+          factId: recorded.event.factId,
+          type: "fact_archived",
+          payload: { ...fact(revision).payload, archiveReason: "historical archive" },
+        },
+        retiredDocumentSha256: recorded.event.payload.factsDocumentClaim!.sha256,
+      }),
+    restored = compileFactWrite({
+      event: {
+        ...fact(3),
+        factId: first.event.factId,
+        type: "fact_unarchived",
+        payload: { ...fact(3).payload, archiveReason: "historical restore" },
+      },
+    }),
+    second = compileFactWrite({ event: { ...fact(5), factId: "F-00000011" } });
+  return [first, archive(2, first), restored, archive(4, restored), second, archive(6, second)];
+}
+
 /** One event/claim contract, executed by real SQLite and PostgreSQL-dialect accepting stores. */
 export async function assertTerminalMaterialization(input: {
   readonly append: (bundle: CanonicalWriteBundle) => void | Promise<unknown>;

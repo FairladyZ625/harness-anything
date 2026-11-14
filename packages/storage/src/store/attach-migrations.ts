@@ -282,6 +282,16 @@ export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = 
     fields: ["Vertical.completion.closeoutDefaults.codeDoc"],
     matches: readRetiredVerticalCloseoutCodeDoc,
   },
+  {
+    kind: "read-conclusion",
+    name: "projection.terminal-materialization",
+    fields: ["Projection.document", "Projection.document_history", "Projection.materialization_hold"],
+    attachRequired: false,
+    conclusion:
+      "Canonical events and content blobs remain byte-identical. Projection open classifies the " +
+      "working set and restores missing archived Fact preimages through indexed entity history. " +
+      "Local maintenance markers commit with the recovered descriptors; cold rebuild derives the same history.",
+  },
   ...historicalReadConclusions,
 ]);
 

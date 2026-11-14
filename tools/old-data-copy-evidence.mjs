@@ -800,6 +800,22 @@ try {
     record("task-dispatches", { count: dispatches.length ?? dispatchRows.length });
   }
   record("event-read", store.queryEvents({ limit: 3 }).map((event) => ({ schema: event.schema, type: event.type, revision: event.workspaceRevision })));
+  const archivedFactDocuments = () => {
+    const db = new DatabaseSync(layout.taskProjectionPath, { readOnly: true });
+    try {
+      return db.prepare("SELECT fact_id FROM fact WHERE json_extract(row_json,'$.archived')=1 ORDER BY fact_id").all().map(({ fact_id }) => {
+        const target = "facts/" + fact_id + ".md";
+        const document = projection.readDocument(target).document ?? projection.readDocumentHistory(target).document;
+        if (!document) throw new Error("warm/cold archived Fact descriptor is missing: " + target);
+        const bytes = store.readContentBlob(document.blobSha256);
+        if (!bytes || bytes.byteLength !== document.size || new TextDecoder("utf-8", { fatal: true }).decode(bytes) !== document.body)
+          throw new Error("archived Fact content is unreadable: " + target);
+        return [target,document.blobSha256,document.size,document.mediaType,document.policyId,document.workspaceRevision];
+      });
+    } finally { db.close(); }
+  };
+  const warmArchivedFacts = archivedFactDocuments();
+  record("archived-fact-warm-read", { count: warmArchivedFacts.length, allContentReadable: true });
   const startedAt = Date.now();
   const rebuilt = projection.rebuild();
   const sourceRevision = store.readHead()?.revision ?? 0;
@@ -812,6 +828,10 @@ try {
   });
   const after = projection.readTaskIndex({ limit: 5 });
   record("post-rebuild-task-index", { count: (after.rows ?? []).length, watermark: rebuilt.watermark });
+  const coldArchivedFacts = archivedFactDocuments();
+  if (JSON.stringify(warmArchivedFacts) !== JSON.stringify(coldArchivedFacts))
+    throw new Error("warm upgrade and cold rebuild disagree on archived Fact descriptors");
+  record("archived-fact-warm-cold", { warmCount: warmArchivedFacts.length, coldCount: coldArchivedFacts.length, equal: true, allContentReadable: true });
   const quoteIdentifier = (value) => '"' + value.replaceAll('"', '""') + '"';
   const countRows = (db, table) => Number(db.prepare("SELECT COUNT(*) AS count FROM " + quoteIdentifier(table)).get().count);
   const ledgerDb = new DatabaseSync(path.join(layout.localRoot, "store/generations/3/ledger.sqlite"), { readOnly: true });
@@ -1133,6 +1153,7 @@ export async function main(argv, session = {}) {
       events: byStep.get("event-read")?.value ?? null,
     };
     receipt.coldRebuild = byStep.get("cold-rebuild-receipt")?.value ?? null;
+    receipt.archivedFactHistory = byStep.get("archived-fact-warm-cold")?.value ?? null;
     receipt.census = {
       ledger: byStep.get("persisted-census-ledger")?.value ?? null,
       projections: byStep.get("persisted-census-projections")?.value ?? null,
@@ -1163,6 +1184,7 @@ export async function main(argv, session = {}) {
       receipt.failures.length === 0 &&
       receipt.attach?.outcome === "terminal-record" &&
       receipt.attach?.record?.event === "repo_attach_completed" &&
+      receipt.archivedFactHistory?.equal === true &&
       rebuild !== null &&
       rebuild.watermark === rebuild.sourceRevision;
     receipt.copy.sourceRevision = receipt.reads.storeHead?.revision ?? rebuild?.sourceRevision ?? null;

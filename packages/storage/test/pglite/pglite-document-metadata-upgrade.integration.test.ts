@@ -53,7 +53,9 @@ pgliteIntegrationSuite("PGlite v5 document metadata upgrade", () => {
       backend = await createPGliteStorageBackend(input);
       assert.equal((await backend.projection.readDocuments("")).documents.length, 133);
       assert.deepEqual(
-        (await backend.projection.readDocuments("", { excludeTaskPackages: true })).documents.map(({ path }) => path),
+        (await backend.projection.readDocuments("", { limit: 500, excludeTaskPackages: true })).documents.map(
+          ({ path }) => path,
+        ),
         [
           ...Array.from({ length: 130 }, (_, id) => `docs/${id}.md`),
           "context/architecture.md",

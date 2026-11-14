@@ -46,6 +46,7 @@ import {
   type InterpretedEntityProjection,
 } from "@harness-anything/kernel/internal/domain/entity-kind-projection.ts";
 import {
+  archivedFactDocumentPreimage,
   canonicalDocumentClaims,
   canonicalDocumentRetirements,
 } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
@@ -606,17 +607,63 @@ export async function initializePgTerminalMaterialization(
   scope: PgProjectionScope,
   revision: number,
 ): Promise<void> {
-  if (await getPgProjectionValue(client, scope, "materialization-index", "v1")) return;
-  const rows = await client.query<{ ref: string }>(
-    `SELECT 'fact/'||fact_id AS ref FROM ha_facts WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+  if (!(await getPgProjectionValue(client, scope, "materialization-index", "v1"))) {
+    const rows = await client.query<{ ref: string }>(
+      `SELECT 'fact/'||fact_id AS ref FROM ha_facts WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
       UNION ALL SELECT 'decision/'||decision_id FROM ha_decisions WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
       UNION ALL SELECT 'task/'||task_id FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3`,
+      [scope.tenantId, scope.projectId, scope.policyEpoch],
+    );
+    const refs = rows.rows.map(({ ref }) => ref),
+      candidates = await refreshPgMaterializationHolds(client, scope, refs, revision);
+    await settlePgMaterializationCandidates(client, scope, candidates, revision);
+    await putPgProjectionValue(client, scope, "materialization-index", "v1", "", revision, { version: 1 });
+  }
+  if (await getPgProjectionValue(client, scope, "materialization-index", "history-v1")) return;
+  const missing = await client.query<{ fact_id: string; workspace_revision: string; readers: string[] }>(
+    `SELECT f.fact_id,f.workspace_revision,f.readers FROM ha_facts AS f
+      WHERE f.tenant_id=$1 AND f.project_id=$2 AND f.policy_epoch=$3 AND f.value->>'archived'='true'
+      AND NOT EXISTS (SELECT 1 FROM ha_projection_values AS d WHERE d.tenant_id=f.tenant_id
+        AND d.project_id=f.project_id AND d.policy_epoch=f.policy_epoch AND d.owner_id=''
+        AND d.model IN ('document','document-history') AND d.entity_id='facts/'||f.fact_id||'.md')`,
     [scope.tenantId, scope.projectId, scope.policyEpoch],
   );
-  const refs = rows.rows.map(({ ref }) => ref),
-    candidates = await refreshPgMaterializationHolds(client, scope, refs, revision);
-  await settlePgMaterializationCandidates(client, scope, candidates, revision);
-  await putPgProjectionValue(client, scope, "materialization-index", "v1", "", revision, { version: 1 });
+  for (const row of missing.rows) {
+    const history = await client.query<{ event_json: string }>(
+        `SELECT e.event_json FROM ha_event_entity_refs AS r JOIN ha_events AS e
+          ON e.tenant_id=r.tenant_id AND e.project_id=r.project_id AND e.repo_id=r.repo_id AND e.revision=r.revision
+          WHERE r.tenant_id=$1 AND r.project_id=$2 AND r.policy_epoch=$3 AND r.entity_ref=$4 AND r.revision<=$5
+          ORDER BY r.revision DESC`,
+        [scope.tenantId, scope.projectId, scope.policyEpoch, `fact/${row.fact_id}`, row.workspace_revision],
+      ),
+      preimage = archivedFactDocumentPreimage(
+        history.rows.map(({ event_json }) => JSON.parse(event_json) as PersistedCanonicalEventV1),
+        row.fact_id,
+      );
+    if (!preimage) throw new Error(`archived Fact ${row.fact_id} has no retained document descriptor`);
+    const blob = await client.query<{ body: Buffer }>(
+      "SELECT body FROM ha_content_blobs WHERE tenant_id=$1 AND project_id=$2 AND sha256=$3",
+      [scope.tenantId, scope.projectId, preimage.document.blobSha256],
+    );
+    if (!blob.rows[0]) throw new Error(`projection document blob ${preimage.document.blobSha256} is unavailable`);
+    const held = await client.query(
+      "SELECT 1 FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model='materialization-hold' AND owner_id=$4 LIMIT 1",
+      [scope.tenantId, scope.projectId, scope.policyEpoch, `fact/${row.fact_id}`],
+    );
+    await putPgProjectionValue(
+      client,
+      { ...scope, readers: row.readers },
+      held.rows.length ? "document" : "document-history",
+      preimage.document.path,
+      "",
+      preimage.retiredAt,
+      {
+        ...preimage.document,
+        body: new TextDecoder("utf-8", { fatal: true }).decode(blob.rows[0].body),
+      },
+    );
+  }
+  await putPgProjectionValue(client, scope, "materialization-index", "history-v1", "", revision, { version: 1 });
 }
 
 function documentClaimForPath(

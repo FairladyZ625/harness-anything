@@ -59,7 +59,14 @@ export async function readPgDecisionRows(
     for (const { entity_id, model, value } of documents.rows) {
       if (model === "document-history" && activePaths.has(entity_id)) continue;
       const document = JSON.parse(value) as NonNullable<DecisionProjectionRow["body"]>;
-      bodyByPath.set(entity_id, { ...document, body: decisionDocumentProse(document.body) });
+      bodyByPath.set(entity_id, {
+        path: document.path,
+        blobSha256: document.blobSha256,
+        size: document.size,
+        mediaType: document.mediaType,
+        workspaceRevision: document.workspaceRevision,
+        body: decisionDocumentProse(document.body),
+      });
     }
   const relationsByOwner = new Map<string, EntityRelationRecord[]>();
   for (const { value: relation } of relations.rows) {

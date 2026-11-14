@@ -368,10 +368,18 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       worktree: pendingFollower("worktree settlement has not verified the Git cut").worktree,
     };
     localGitWorktreeSettlement.index(currentLedger.rootDir, files, false, options.withAppendFence);
+    // Incremental publication owns changed canonical bytes. An unrelated local edit/deletion
+    // is not a conflict for this cut; explicit materialization still inspects the whole set.
+    const worktreeFiles =
+      !restoreMissing && from > 0 && worktreeRevision === verifiedRevision
+        ? files.filter(
+            (file) => settledFingerprint(file) !== baseline.get("target" in file ? file.target : file.delete),
+          )
+        : files;
     const settled = settleFollowerWorktree(
       latestAppendLayout ?? resolveHarnessLayout(input),
       currentLedger,
-      files,
+      worktreeFiles,
       baseline,
       commit,
       followerDirectories(currentLedger, closure.events, files),
