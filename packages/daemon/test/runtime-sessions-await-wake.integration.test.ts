@@ -58,6 +58,7 @@ test("a parked sessions.await does not re-read settlement for provider activity 
       terminate: () => undefined,
     }),
   });
+  await host.attachmentsSettled();
   const settlementReads = { count: 0 },
     read = host.read.bind(host);
   host.read = ((...args: Parameters<typeof host.read>) => {
