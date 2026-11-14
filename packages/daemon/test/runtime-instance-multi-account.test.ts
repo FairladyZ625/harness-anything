@@ -11,6 +11,14 @@ import { openDaemonRuntimePorts } from "../src/daemon-runtime-ports.ts";
 import { codedAs } from "./agent-runtime-instance-environment.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
+const agyArgumentBoundary = `
+  const args = process.argv.slice(2);
+  if (args[0] !== "acp" && (args.includes("--gemini-dir") || args.includes("--app-data-dir"))) {
+    console.error("Error: flags provided but not defined: -gemini-dir");
+    process.exit(1);
+  }
+`;
+
 const agyInstallation: RuntimeInstallationWitness = {
   installationId: "agy-installation",
   kindId: "agy",
@@ -101,7 +109,7 @@ test("switching an enforced operator account to instance credentials detaches sh
   writeFileSync(operatorCredential, "operator-account", { mode: 0o600 });
   writeProviderExecutable(
     path.join(bin, "agy"),
-    `const args = process.argv.slice(2); if (args[0] === "models") console.log("gemini-4-hydrogen-low\\tmodel"); else if (args[0] === "-p") console.log(JSON.stringify({ command: { data: { groups: [{ buckets: [{ remaining_fraction: 1, reset_time: "2026-11-15T12:00:00.000Z" }] }] } } }));`,
+    `${agyArgumentBoundary} if (args[0] === "models") console.log("gemini-4-hydrogen-low\\tmodel"); else if (args[0] === "-p") console.log(JSON.stringify({ command: { data: { groups: [{ buckets: [{ remaining_fraction: 1, reset_time: "2026-11-15T12:00:00.000Z" }] }] } } }));`,
   );
   try {
     const store = openRuntimeInstanceStore({
@@ -202,7 +210,7 @@ test("AGY login, catalog and quota probes, and launch use the same bound install
     second = { ...agyInstallation, installationId: "agy-second", executablePath: secondPath };
   mkdirSync(bin, { recursive: true });
   const stub = (installationId: string) =>
-    `const fs = require("node:fs"); const args = process.argv.slice(2); fs.appendFileSync(${JSON.stringify(trace)}, JSON.stringify({ installationId: ${JSON.stringify(installationId)}, args }) + "\\n"); if (args[0] === "models") console.log("gemini-4-hydrogen-low\\tmodel"); else if (args[0] === "-p") console.log(JSON.stringify({ command: { data: { groups: [{ buckets: [{ remaining_fraction: 1, reset_time: "2026-11-15T12:00:00.000Z" }] }] } } }));`;
+    `const fs = require("node:fs"); ${agyArgumentBoundary} fs.appendFileSync(${JSON.stringify(trace)}, JSON.stringify({ installationId: ${JSON.stringify(installationId)}, args, home: process.env.HOME }) + "\\n"); if (args[0] === "models") console.log("gemini-4-hydrogen-low\\tmodel"); else if (args[0] === "-p") console.log(JSON.stringify({ command: { data: { groups: [{ buckets: [{ remaining_fraction: 1, reset_time: "2026-11-15T12:00:00.000Z" }] }] } } }));`;
   writeProviderExecutable(firstPath, stub(first.installationId));
   writeProviderExecutable(secondPath, stub(second.installationId));
   try {
@@ -234,14 +242,26 @@ test("AGY login, catalog and quota probes, and launch use the same bound install
     const executions = readFileSync(trace, "utf8")
       .trim()
       .split("\n")
-      .map((line) => JSON.parse(line) as { readonly installationId: string; readonly args: readonly string[] });
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            readonly installationId: string;
+            readonly args: readonly string[];
+            readonly home: string;
+          },
+      );
     assert.deepEqual(
-      executions.map(({ installationId, args }) => [installationId, args[0], args[1]]),
+      executions.map(({ installationId, args }) => [installationId, args]),
       [
-        [second.installationId, "models", "--gemini-dir"],
-        [second.installationId, "-p", "/quota"],
-        [second.installationId, "models", "--gemini-dir"],
+        [second.installationId, ["models"]],
+        [second.installationId, ["-p", "/quota", "--output-format", "json"]],
+        [second.installationId, ["models"]],
       ],
+    );
+    assert.ok(
+      executions.every(
+        ({ home }) => home === path.join(userRoot, "runtime-instances", "agy-bound-installation", "home"),
+      ),
     );
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
@@ -294,7 +314,7 @@ test("a delayed AGY quota result cannot update health after the account cut chan
   mkdirSync(bin, { recursive: true });
   writeProviderExecutable(
     path.join(bin, "agy"),
-    `const fs = require("node:fs"); const args = process.argv.slice(2); if (args[0] === "models") console.log("gemini-4-hydrogen-low\\tmodel"); else if (args[0] === "-p") { fs.writeFileSync(${JSON.stringify(quotaStarted)}, "started"); while (!fs.existsSync(${JSON.stringify(quotaRelease)})) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10); } console.log(JSON.stringify({ command: { data: { groups: [{ buckets: [{ remaining_fraction: 0, reset_time: "2026-11-15T12:00:00.000Z" }] }] } } })); }`,
+    `const fs = require("node:fs"); ${agyArgumentBoundary} if (args[0] === "models") console.log("gemini-4-hydrogen-low\\tmodel"); else if (args[0] === "-p") { fs.writeFileSync(${JSON.stringify(quotaStarted)}, "started"); while (!fs.existsSync(${JSON.stringify(quotaRelease)})) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10); } console.log(JSON.stringify({ command: { data: { groups: [{ buckets: [{ remaining_fraction: 0, reset_time: "2026-11-15T12:00:00.000Z" }] }] } } })); }`,
   );
   try {
     const store = openRuntimeInstanceStore({
@@ -346,9 +366,12 @@ test("a delayed launch model probe cannot publish readiness or return an old acc
   mkdirSync(bin, { recursive: true });
   writeProviderExecutable(
     firstPath,
-    `const fs = require("node:fs"); const args = process.argv.slice(2); if (args[0] === "models") { fs.writeFileSync(${JSON.stringify(modelProbeStarted)}, "started"); while (!fs.existsSync(${JSON.stringify(modelProbeRelease)})) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10); } console.log("gemini-4-hydrogen-low\\tmodel"); } else if (args[0] === "-p") console.log(JSON.stringify({ command: { data: { groups: [{ buckets: [{ remaining_fraction: 1, reset_time: "2026-11-15T12:00:00.000Z" }] }] } } }));`,
+    `const fs = require("node:fs"); ${agyArgumentBoundary} if (args[0] === "models") { fs.writeFileSync(${JSON.stringify(modelProbeStarted)}, "started"); while (!fs.existsSync(${JSON.stringify(modelProbeRelease)})) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10); } console.log("gemini-4-hydrogen-low\\tmodel"); } else if (args[0] === "-p") console.log(JSON.stringify({ command: { data: { groups: [{ buckets: [{ remaining_fraction: 1, reset_time: "2026-11-15T12:00:00.000Z" }] }] } } }));`,
   );
-  writeProviderExecutable(secondPath, `if (process.argv[2] === "models") console.log("gemini-4-carbon-low\\tmodel");`);
+  writeProviderExecutable(
+    secondPath,
+    `${agyArgumentBoundary} if (args[0] === "models") console.log("gemini-4-carbon-low\\tmodel");`,
+  );
   try {
     const store = openRuntimeInstanceStore({
       userRoot,
@@ -494,7 +517,7 @@ test("AGY account probes persist separate model catalogs and quota cooldowns per
   writeFileSync(trace, "");
   writeProviderExecutable(
     path.join(bin, "agy"),
-    `const fs = require("node:fs"); const args = process.argv.slice(2); const home = process.env.HOME ?? ""; const ultra = home.includes("agy-ultra"); const geminiDir = args[args.indexOf("--gemini-dir") + 1]; const appDataDir = args[args.indexOf("--app-data-dir") + 1]; if (geminiDir !== home + "/.gemini" || appDataDir !== geminiDir + "/antigravity-cli") process.exit(31); fs.appendFileSync(${JSON.stringify(trace)}, JSON.stringify({ home, args }) + "\\n"); if (args[0] === "models") { const prefix = ultra ? "carbon" : "hydrogen"; const count = ultra ? 22 : 18; console.log(Array.from({ length: count }, (_, i) => (i === 0 ? "gemini-4-" + prefix + "-low" : "gemini-4-" + prefix + "-fixture-" + i) + "\\tmodel").join("\\n")); } else if (args[0] === "-p" && args[1] === "/quota") { console.log(JSON.stringify({ command: { data: { groups: [{ buckets: [{ remaining_fraction: ultra ? 0 : 0.35, reset_time: ${JSON.stringify(resetAt)} }] }] } } })); } else if (args[0] !== "acp") process.exit(32);\n`,
+    `const fs = require("node:fs"); ${agyArgumentBoundary} const home = process.env.HOME ?? ""; const ultra = home.includes("agy-ultra"); const geminiDir = args[args.indexOf("--gemini-dir") + 1]; const appDataDir = args[args.indexOf("--app-data-dir") + 1]; if (args[0] === "acp" && (geminiDir !== home + "/.gemini" || appDataDir !== geminiDir + "/antigravity-cli")) process.exit(31); fs.appendFileSync(${JSON.stringify(trace)}, JSON.stringify({ home, args }) + "\\n"); if (args[0] === "models") { const prefix = ultra ? "carbon" : "hydrogen"; const count = ultra ? 22 : 18; console.log(Array.from({ length: count }, (_, i) => (i === 0 ? "gemini-4-" + prefix + "-low" : "gemini-4-" + prefix + "-fixture-" + i) + "\\tmodel").join("\\n")); } else if (args[0] === "-p" && args[1] === "/quota") { console.log(JSON.stringify({ command: { data: { groups: [{ buckets: [{ remaining_fraction: ultra ? 0 : 0.35, reset_time: ${JSON.stringify(resetAt)} }] }] } } })); } else if (args[0] !== "acp") process.exit(32);\n`,
   );
   try {
     const store = openRuntimeInstanceStore({
@@ -569,7 +592,14 @@ test("AGY account probes persist separate model catalogs and quota cooldowns per
       .split("\n")
       .map((line) => JSON.parse(line) as { readonly home: string; readonly args: readonly string[] });
     assert.equal(traceRows.length, 4);
-    assert.ok(traceRows.every(({ home, args }) => args.includes("--gemini-dir") && home.includes("runtime-instances")));
+    assert.deepEqual(
+      traceRows.map(({ home }) => home).sort(),
+      ["agy-ultra", "agy-ultra", "agy-pro", "agy-pro"]
+        .map((instanceId) => path.join(userRoot, "runtime-instances", instanceId, "home"))
+        .sort(),
+    );
+    for (const { args } of traceRows)
+      assert.deepEqual(args, args[0] === "models" ? ["models"] : ["-p", "/quota", "--output-format", "json"]);
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }

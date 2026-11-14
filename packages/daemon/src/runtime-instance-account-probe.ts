@@ -35,9 +35,8 @@ export function createRuntimeInstanceAccountProbe(
         const probe = declaration.auth.accountModelProbe;
         if (probe === undefined) return null;
         if (probe.kind !== "command") return probeSessionModelCatalog(platform, input, probe.kind, signal, timeoutMs);
-        const args = [...probe.args];
-        appendAgyAccountDirectories(input.kindId, input.env, args);
-        const output = await runExecutable(platform, input.executablePath, args, {
+        if (input.kindId === "agy") agyAccountHome(input.env);
+        const output = await runExecutable(platform, input.executablePath, probe.args, {
             env: input.env,
             timeoutMs,
             captureOutput: true,
@@ -59,13 +58,13 @@ export function createRuntimeInstanceAccountProbe(
       const timeoutMs = runtimeKindForId("agy").auth.subscriptionProbeTimeoutMs,
         signal = probeSignal(input.signal, timeoutMs);
       return runBounded(signal, async () => {
-        const args = ["-p", "/quota", "--output-format", "json"];
-        appendAgyAccountDirectories("agy", input.env, args);
-        const result = await runExecutableResult(platform, input.executablePath, args, {
-          env: input.env,
-          timeoutMs,
-          signal,
-        });
+        agyAccountHome(input.env);
+        const result = await runExecutableResult(
+          platform,
+          input.executablePath,
+          ["-p", "/quota", "--output-format", "json"],
+          { env: input.env, timeoutMs, signal },
+        );
         if (result.exitCode !== 0)
           throw runtimeInstanceError(
             "runtime_quota_probe_failed",
@@ -111,10 +110,14 @@ export function quotaResetTime(output: string): string | undefined {
 
 export function appendAgyAccountDirectories(kindId: RuntimeInstanceKind, env: NodeJS.ProcessEnv, args: string[]): void {
   if (kindId !== "agy") return;
+  const geminiDirectory = path.join(agyAccountHome(env), runtimeKindForId("agy").executable.configDirectory);
+  args.push("--gemini-dir", geminiDirectory, "--app-data-dir", path.join(geminiDirectory, "antigravity-cli"));
+}
+
+function agyAccountHome(env: NodeJS.ProcessEnv): string {
   const home = env.HOME ?? env.USERPROFILE;
   if (!home) throw runtimeInstanceError("runtime_auth_probe_failed", "AGY account probe could not determine its HOME.");
-  const geminiDirectory = path.join(home, runtimeKindForId("agy").executable.configDirectory);
-  args.push("--gemini-dir", geminiDirectory, "--app-data-dir", path.join(geminiDirectory, "antigravity-cli"));
+  return home;
 }
 
 function resetTimestamp(value: unknown): { readonly value: string; readonly time: number } | undefined {

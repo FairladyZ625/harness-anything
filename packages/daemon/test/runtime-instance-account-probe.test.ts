@@ -18,8 +18,11 @@ test("AGY account model probes are bounded and abort while waiting for a slot", 
       const fs = require("node:fs");
       const home = process.env.HOME ?? "";
       const args = process.argv.slice(2);
+      if (args[0] !== "acp" && (args.includes("--gemini-dir") || args.includes("--app-data-dir"))) {
+        console.error("Error: flags provided but not defined: -gemini-dir");
+        process.exit(1);
+      }
       if (args[0] !== "models") process.exit(31);
-      if (args[args.indexOf("--gemini-dir") + 1] !== home + "/.gemini") process.exit(32);
       fs.appendFileSync(process.env.PROBE_TRACE, JSON.stringify({ kind: "start", home }) + "\\n");
       setTimeout(() => {
         fs.appendFileSync(process.env.PROBE_TRACE, JSON.stringify({ kind: "end", home }) + "\\n");
@@ -55,6 +58,47 @@ test("AGY account model probes are bounded and abort while waiting for a slot", 
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("AGY models and quota use HOME or USERPROFILE without ACP directory flags", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-account-home-")),
+    resetAt = "2026-11-16T04:05:06.000Z",
+    agy = writeProviderExecutable(
+      path.join(root, "agy"),
+      `
+        const args = process.argv.slice(2);
+        if (args[0] !== "acp" && (args.includes("--gemini-dir") || args.includes("--app-data-dir"))) {
+          console.error("Error: flags provided but not defined: -gemini-dir");
+          process.exit(1);
+        }
+        if ((process.env.HOME ?? process.env.USERPROFILE) !== process.env.EXPECTED_HOME) process.exit(31);
+        if (args[0] === "models") console.log("gemini-4-hydrogen-low\\tmodel");
+        else if (JSON.stringify(args) === JSON.stringify(["-p", "/quota", "--output-format", "json"]))
+          console.log(JSON.stringify({ command: { data: { groups: [{ buckets: [{ remaining_fraction: 0, reset_time: ${JSON.stringify(resetAt)} }] }] } } }));
+        else process.exit(32);
+      `,
+    );
+  try {
+    const probe = createRuntimeInstanceAccountProbe(process.platform);
+    for (const variable of ["HOME", "USERPROFILE"] as const) {
+      const home = path.join(root, variable, "home"),
+        input = { executablePath: agy, env: { [variable]: home, EXPECTED_HOME: home } };
+      const catalog = await probe.probeModels({ ...input, kindId: "agy" });
+      assert.deepEqual(catalog?.models, ["gemini-4-hydrogen-low"]);
+      assert.equal(await probe.probeAgyQuota(input), resetAt);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("AGY models and quota reject a missing account HOME before launching the CLI", async () => {
+  const probe = createRuntimeInstanceAccountProbe(process.platform),
+    input = { executablePath: "/must-not-launch/agy", env: {} },
+    missingHome = (error: unknown) =>
+      error instanceof Error && "code" in error && error.code === "runtime_auth_probe_failed";
+  await assert.rejects(probe.probeModels({ ...input, kindId: "agy" }), missingHome);
+  await assert.rejects(probe.probeAgyQuota(input), missingHome);
 });
 
 test("AGY quota parsing selects the latest reset among exhausted buckets", () => {
