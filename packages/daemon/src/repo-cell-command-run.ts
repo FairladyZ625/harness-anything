@@ -409,31 +409,6 @@ export function makeRepoCellCommandRunner(
             continueReturn &&
             "outcome" in receipt &&
             receipt.outcome === "applied" &&
-            ["task-review-execution", "task-rework"].includes(action.kind)
-          ) {
-            const event = context.store.readTaskEvent(receipt.opId);
-            if (event)
-              return (await continueReviewRework(
-                context.extracted,
-                event,
-                binding,
-                receipt,
-                async (work) => (await enqueuePublication(work, undefined, false)) as WriteReceiptDraft,
-                action.kind === "task-rework"
-                  ? {
-                      ...(typeof action.agentId === "string" ? { agentId: action.agentId } : {}),
-                      ...(typeof action.runtimeInstanceId === "string"
-                        ? { runtimeInstanceId: action.runtimeInstanceId }
-                        : {}),
-                      ...(typeof action.model === "string" ? { model: action.model } : {}),
-                    }
-                  : undefined,
-              )) as WriteReceipt;
-          }
-          if (
-            continueReturn &&
-            "outcome" in receipt &&
-            receipt.outcome === "applied" &&
             (action.kind === "task-submit" || action.kind === "task-settle")
           )
             return (await continueSubmittedTask(
@@ -514,6 +489,37 @@ export function makeRepoCellCommandRunner(
       return enqueuePublication((authorizationDecision) =>
         context.executeAction(action, { ...binding, authorizationDecision }),
       );
+    // Publication has released its queue slot before a return dispatch starts. Its writes
+    // re-enter the same helper without recursively continuing their own receipts.
+    const continueReview = async (
+      receipt: WriteReceipt | SquadControlResult,
+    ): Promise<WriteReceipt | SquadControlResult> => {
+      if (
+        "outcome" in receipt &&
+        receipt.outcome === "applied" &&
+        ["task-review-execution", "task-rework"].includes(action.kind)
+      ) {
+        const event = context.store.readTaskEvent(receipt.opId);
+        if (event)
+          return (await continueReviewRework(
+            context.extracted,
+            event,
+            binding,
+            receipt,
+            async (work) => (await enqueuePublication(work, undefined, false)) as WriteReceiptDraft,
+            action.kind === "task-rework"
+              ? {
+                  ...(typeof action.agentId === "string" ? { agentId: action.agentId } : {}),
+                  ...(typeof action.runtimeInstanceId === "string"
+                    ? { runtimeInstanceId: action.runtimeInstanceId }
+                    : {}),
+                  ...(typeof action.model === "string" ? { model: action.model } : {}),
+                }
+              : undefined,
+          )) as WriteReceipt;
+      }
+      return receipt;
+    };
     const externalRead: ReturnType<typeof readBeforeWriteQueue> =
       (action.kind === "task-complete" || action.kind === "task-witness-run") && typeof action.taskId === "string"
         ? authorizeAtCurrentCut()!.then(async (authorization) => {
@@ -559,12 +565,13 @@ export function makeRepoCellCommandRunner(
                 publish.ingest!(authorizationDecision ? { ...binding, authorizationDecision } : binding)),
           ),
         )
+        .then(continueReview)
         .catch(async (error) =>
           failAction(context, action, binding, error, durable ? await authorizeAtCurrentCut()! : undefined),
         );
     return enqueuePublication((authorizationDecision) =>
       context.executeAction(action, authorizationDecision ? { ...binding, authorizationDecision } : binding),
-    );
+    ).then(continueReview);
   };
   const enqueueCommand = run;
   return async (

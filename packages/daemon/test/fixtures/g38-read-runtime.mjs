@@ -27,7 +27,6 @@ export async function createReadFixtureRuntime({ projection, store, rootDir }, n
     };
   let settings,
     executor,
-    actions,
     knownTaskIds = null;
   const context = createRepoCellActionContext({
     input,
@@ -37,7 +36,7 @@ export async function createReadFixtureRuntime({ projection, store, rootDir }, n
     getProjection: () => projection,
     getStore: () => store,
     getEntityActionExecutor: () => executor,
-    getEntityActionRuntimes: () => actions,
+    entityActionRuntimes: {},
     getService: unsupportedWrite,
     getSettings: () => settings.read(),
     getRecovery: () => ({ status: "ready" }),
@@ -64,7 +63,7 @@ export async function createReadFixtureRuntime({ projection, store, rootDir }, n
     sessionIdentity: unsupportedWrite,
     readSettings: () => settings.readRepository(),
   });
-  actions = {
+  const actions = {
     entity: {
       agent: makeAgentActionRuntime(context),
       squad: makeSquadActionRuntime(context),
@@ -73,6 +72,7 @@ export async function createReadFixtureRuntime({ projection, store, rootDir }, n
       schedule: makeScheduleActionRuntime(context, () => settings.read().worktree),
     },
   };
+  Object.assign(context, { entityActionRuntimes: actions });
   const runtimeStream = makeAgentRuntimeStreamHub({
     readSession: (id) => projection.readRuntimeSession(id),
     canAttach: (session) => {
