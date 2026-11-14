@@ -44,13 +44,10 @@ test(
     const fence = fixtureFence(repoId, rootDir, join(fixture.root, "epochs"), storage);
     await settleSettingsEvent({ repoId, rootDir, storage, writerEpochFence: fence });
     console.log("S3_STAGE", "seeded");
-    t.signal.addEventListener(
-      "abort",
-      () => {
-        void synchronous(fixture, false);
-      },
-      { once: true },
-    );
+    const releaseSyncRepOnAbort = () => {
+      void synchronous(fixture, false);
+    };
+    t.signal.addEventListener("abort", releaseSyncRepOnAbort, { once: true });
     const binding = withPolicyGroup(
       {
         actor: { principal: { personId: "person-1" }, executor: null },
@@ -221,6 +218,7 @@ test(
         }),
       );
     } finally {
+      t.signal.removeEventListener("abort", releaseSyncRepOnAbort);
       await synchronous(fixture, false);
       await inflight;
       await cell.close();
