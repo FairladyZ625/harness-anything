@@ -34,7 +34,7 @@ let partitionTestOrdinal = 0;
 // Explicit partitions spread the mutation cases across four workers. New cases must
 // update this map; their measured durations are recorded by the test runner.
 const authorizationTestPartitionAssignments = [
-  4, 2, 4, 3, 1, 2, 4, 1, 2, 2, 3, 4, 1, 3, 1, 4, 3, 2, 3, 3, 4, 1, 1, 2, 3, 4, 1, 2, 1, 3, 1, 4, 2,
+  4, 2, 4, 3, 1, 2, 4, 1, 2, 2, 3, 4, 1, 3, 1, 4, 3, 2, 3, 3, 4, 1, 1, 2, 3, 4, 1, 2, 1, 3, 1, 4, 2, 1, 4,
 ];
 function partitionedTest(name, testFn) {
   const ordinal = partitionTestOrdinal++;
@@ -1128,4 +1128,64 @@ partitionedTest("an independently proven migration callback still requires its o
   assert.ok(rejected.findings.some((finding) => finding.includes(rejected.sourceRows[0].id)));
   restore();
   assert.equal(inspect(dir).sourceRows[0].ok, true);
+});
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: a green descriptor cannot repair a mismatched host scope.
+partitionedTest("host sources fail when admission checks another repository or authentication context", (t) => {
+  const { selectedInputs, only } = selectedSourceWitnesses([
+    "e4658bef15e769118f6f44bbdb3feb35",
+    "5d4b654eeb40831ab2116e6b60b4aacc",
+  ]);
+  const inspect = (root) => {
+    const result = auditDurableActionAuthorization(root, selectedInputs, { only });
+    assert.equal(result.rows.find((row) => row.id === "runtime-run").ok, true);
+    assert.equal(result.sourceRows.length, 2);
+    return result.sourceRows;
+  };
+  assert.ok(inspect(repoRoot).every((row) => row.ok));
+  const dir = sourceCopy(t);
+  for (const [file, topology] of [
+    ["daemon-host-runtime-api.ts", 'commandDescriptorForAction("runtime-run")'],
+    ["daemon-host-control-api.ts", "ledgerWriteCommandTopology"],
+  ]) {
+    for (const replacement of [
+      `"another-repository", ${topology}, auth`,
+      `repoId, ${topology}, { ...auth, nodePrincipal: undefined }`,
+    ]) {
+      const member =
+          file === "daemon-host-runtime-api.ts"
+            ? "runtimeIngress: async (repoId, action, auth)"
+            : "issueRuntimeWitness: async (repoId, runtimeSessionId, auth)",
+        prefix = `${member} => {\n      `;
+      const restore = edit(
+        dir,
+        `packages/daemon/src/${file}`,
+        prefix + `context.requireHostMode(repoId, ${topology}, auth);`,
+        prefix + `context.requireHostMode(${replacement});`,
+      );
+      assert.equal(inspect(dir).filter((row) => !row.ok).length, 1);
+      restore();
+    }
+  }
+  assert.ok(inspect(dir).every((row) => row.ok));
+});
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: entry callback arguments must actually reach the source.
+partitionedTest("migration sources fail when both entry paths replace addFact with an unused callback", (t) => {
+  const { selectedInputs, only } = selectedSourceWitnesses(["87c6fe90a713fc3ebb2c99fc3b53de3c"]);
+  const inspect = (root) => {
+    const result = auditDurableActionAuthorization(root, selectedInputs, { only });
+    assert.equal(result.rows.find((row) => row.id === "migrate-import").ok, true);
+    assert.equal(result.sourceRows.length, 1);
+    return result.sourceRows[0];
+  };
+  assert.equal(inspect(repoRoot).ok, true);
+  const dir = sourceCopy(t),
+    file = "packages/daemon/src/migration-import.ts";
+  const first = edit(dir, file, "}, addFact);", "}, () => undefined);");
+  const second = edit(dir, file, "        addFact,\n      );", "        () => undefined,\n      );");
+  assert.equal(inspect(dir).ok, false);
+  second();
+  first();
+  assert.equal(inspect(dir).ok, true);
 });

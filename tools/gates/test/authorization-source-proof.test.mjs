@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { cpSync, mkdirSync, readFileSync, readdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import test from "node:test";
+import nodeTest from "node:test";
 import ts from "typescript";
 import { buildFlowGraph } from "../authorization-flow-graph.mjs";
 import {
@@ -23,6 +23,16 @@ import {
 import { scanOntologyText } from "../ontology-closure-scan.mjs";
 import { makeRepo, replaceSourceOnce } from "./helpers.mjs";
 import { loadAuthorizationInputs } from "../ontology-durable-action-authorization.mjs";
+import { testOrdinalInPartition } from "../../node-test-runner-lib.mjs";
+
+// Reuse the runner's bounded partitioning: whole-file server execution exceeded its heap.
+const partitionValue = process.env.HARNESS_TEST_PARTITION;
+let testOrdinal = 0;
+function partitionedTest(name, testFn) {
+  if (!testOrdinalInPartition(testOrdinal++, partitionValue)) return;
+  nodeTest(name, testFn);
+}
+const test = partitionedTest;
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 const file = "packages/demo/scripts/copy-assets.mjs";
@@ -148,6 +158,40 @@ ignore(() => rmSync("/tmp/unused"));`);
   const [invoked, unused] = [...nodes.values()].filter((node) => node.expression.getText() === "rmSync");
   assert.equal(sites.has(sourceSite(graph, invoked)), true);
   assert.equal(sites.has(sourceSite(graph, unused)), false);
+  for (const [call, expected] of [
+    [invoked, true],
+    [unused, false],
+  ]) {
+    let callback = call.parent;
+    while (!ts.isArrowFunction(callback)) callback = callback.parent;
+    const target = sourceSite(graph, callback);
+    assert.equal(
+      processSourceSites(graph, processEntry(graph, { file, script: "build" }, "package-script"), {
+        targets: [target],
+      }).has(target),
+      expected,
+    );
+  }
+  for (const callback of ["work", "() => undefined"]) {
+    const targetFile = "packages/demo/src/callbacks.ts",
+      { graph } = fixture('import { run } from "../src/callbacks.js"; run();', undefined, {
+        [targetFile]: `import { rmSync } from "node:fs";
+export function work() { rmSync("/tmp/work"); }
+function invoke(callback: typeof work) { callback(); }
+export function run() { invoke(${callback}); }`,
+      }),
+      target = graph.modules
+        .get(targetFile)
+        .sourceFile.statements.find((node) => ts.isFunctionDeclaration(node) && node.name.text === "work"),
+      site = sourceSite(graph, target);
+    assert.equal(
+      processSourceSites(graph, processEntry(graph, { file, script: "build" }, "package-script"), {
+        targets: [site],
+      }).has(site),
+      callback === "work",
+      "typed callbacks follow the supplied function, not the type declaration's body",
+    );
+  }
 });
 
 test("stdio authority names only the real Node process streams, never a shadowed receiver", () => {
@@ -1462,6 +1506,18 @@ test("migration callback proof requires its invoked binding and a green owning r
       "stage: (bundle) => undefined",
     ],
     [
+      "f68abf5f098fbd135b616c70ef93c661",
+      "packages/daemon/src/migration-import.ts",
+      "stagePrepared: staged.accept",
+      "stagePrepared: () => undefined",
+    ],
+    [
+      "f68abf5f098fbd135b616c70ef93c661",
+      "packages/daemon/src/migration-import.ts",
+      'if (property === "append")',
+      'if (false && property === "append")',
+    ],
+    [
       "87c6fe90a713fc3ebb2c99fc3b53de3c",
       "packages/daemon/src/migration-import.ts",
       "matchesRestatedFact(context, row, mappedTaskId, occurredAt, event)",
@@ -1727,4 +1783,94 @@ test("a typed authority service must actually invoke the registered lifecycle ca
     hostServiceEntryEvidence(graph, node, source, action, { id: action.kind, kind: action.kind, ok: true }),
     null,
   );
+});
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: the host guard must authorize the effect's own scope.
+test("host authority binds repository and authentication to the ingress and witness issuer", async () => {
+  const inputs = await loadAuthorizationInputs(repoRoot),
+    action = inputs.constants.actionDeclarations.find((entry) => entry.kind === "runtime-run"),
+    route = { id: action.kind, kind: action.kind, ok: true };
+  for (const [id, file, member, topology] of [
+    [
+      "e4658bef15e769118f6f44bbdb3feb35",
+      "daemon-host-runtime-api.ts",
+      "runtimeIngress",
+      'commandDescriptorForAction("runtime-run")',
+    ],
+    [
+      "5d4b654eeb40831ab2116e6b60b4aacc",
+      "daemon-host-control-api.ts",
+      "issueRuntimeWitness",
+      "ledgerWriteCommandTopology",
+    ],
+  ]) {
+    const source = action.ontology.sources.find((entry) => entry.candidateId.endsWith(id)),
+      target = `packages/daemon/src/${file}`,
+      original = buildFlowGraph(repoRoot, { sourceFiles: [target] }),
+      node = sourceWitnesses(original, [source]).get(source.candidateId),
+      text = readFileSync(path.join(repoRoot, target), "utf8"),
+      start = text.indexOf(`    ${member}: async (`),
+      body = text.slice(start, text.indexOf("\n    },", start) + "\n    },".length),
+      guard = `context.requireHostMode(repoId, ${topology}, auth);`;
+    assert.ok(start >= 0 && body.includes(guard));
+    assert.ok(hostServiceEntryEvidence(original, node, source, action, route));
+    const cases = [
+      [guard, `context.requireHostMode("another-repository", ${topology}, auth);`],
+      [guard, `context.requireHostMode(repoId, ${topology}, { ...auth, nodePrincipal: undefined });`],
+      [
+        "context.requiredCell(context.cells, context.warming, context.unavailable, repoId)",
+        'context.requiredCell(context.cells, context.warming, context.unavailable, "another-repository")',
+      ],
+      ["cell.status().rootDir, auth", "cell.status().rootDir, { ...auth, nodePrincipal: undefined }"],
+      ["cell.status().rootDir, auth", '"/another-repository", auth'],
+      [guard, guard + '\n      repoId = "another-repository";'],
+    ];
+    if (member === "runtimeIngress") cases.push(["auth, undefined, repoId)", 'auth, undefined, "another-repository")']);
+    else {
+      cases.push(["source: serverBinding.source", 'source: "local"']);
+      cases.push([
+        guard,
+        `if (auth.nodePrincipal) return context.requiredCell(context.cells, context.warming, context.unavailable, repoId).runtime.issueWitnessToken(runtimeSessionId, { principalId: "another-person", source: "local" });\n      ${guard}`,
+      ]);
+    }
+    for (const [from, to] of cases) {
+      const graph = mutatedDaemonGraph(source, target, body, replaceSourceOnce(body, from, to, target)),
+        witness = sourceWitnesses(graph, [source]).get(source.candidateId);
+      assert.ok(witness);
+      assert.equal(hostServiceEntryEvidence(graph, witness, source, action, route), null, to);
+    }
+  }
+});
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: an unpassed callback body cannot own a migration source.
+test("restatement authority starts at the migration entry's actual callback arguments", async () => {
+  const inputs = await loadAuthorizationInputs(repoRoot),
+    action = inputs.constants.actionDeclarations.find((entry) => entry.kind === "migrate-import"),
+    source = action.ontology.sources.find((entry) => entry.candidateId.endsWith("87c6fe90a713fc3ebb2c99fc3b53de3c")),
+    descriptor = inputs.descriptors.find((entry) => entry.id === "migrate-import"),
+    route = { id: action.kind, kind: action.kind, ok: true },
+    file = "packages/daemon/src/migration-import.ts",
+    original = readFileSync(path.join(repoRoot, file), "utf8");
+  for (const callback of ["() => undefined", "(context, row) => { const unused = () => addFact(context, row); }"]) {
+    const detached = replaceSourceOnce(
+        replaceSourceOnce(original, "}, addFact);", `}, ${callback});`, file),
+        "        addFact,\n      );",
+        `        ${callback},\n      );`,
+        file,
+      ),
+      graph = mutatedDaemonGraph(source, file, original, detached),
+      witness = sourceWitnesses(graph, [source]).get(source.candidateId);
+    assert.match(detached, /function addFact\(context:/u);
+    assert.ok(witness);
+    assert.equal(delegatedServiceEntryEvidence(graph, witness, source, action, descriptor, route, undefined), null);
+  }
+  const graph = mutatedDaemonGraph(
+      source,
+      "packages/daemon/src/migration-import-run.ts",
+      "return addFactImpl(extracted, row);",
+      "return undefined;",
+    ),
+    witness = sourceWitnesses(graph, [source]).get(source.candidateId);
+  assert.ok(witness);
+  assert.equal(delegatedServiceEntryEvidence(graph, witness, source, action, descriptor, route, undefined), null);
 });

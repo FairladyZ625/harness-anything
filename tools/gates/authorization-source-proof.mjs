@@ -911,32 +911,13 @@ function dominatingCall(fn, source, name, predicate = () => true) {
     index = statement && fn.body.statements.indexOf(statement);
   if (!statement || index < 0) return null;
   for (const previous of fn.body.statements.slice(0, index)) {
-    if (
-      !terminatesBeforeEffect(previous) &&
-      callsInStatement(previous).some(
-        (call) => callNamed(call, name) && predicate(call) && !controlFlowUnsafe(fn, call),
-      )
-    )
-      return previous;
+    if (terminatesBeforeEffect(previous)) continue;
+    const match = callsInStatement(previous).find(
+      (call) => callNamed(call, name) && predicate(call) && !controlFlowUnsafe(fn, call),
+    );
+    if (match) return match;
   }
   return null;
-}
-
-function orderedCalls(fn, names, predicates = []) {
-  if (!fn?.body || !ts.isBlock(fn.body)) return false;
-  let index = 0;
-  for (const statement of fn.body.statements) {
-    if (controlFlowUnsafe(fn, statement)) return false;
-    const match = callsInStatement(statement).find(
-      (call) =>
-        !controlFlowUnsafe(fn, call) &&
-        callNamed(call, names[index]) &&
-        (predicates[index] ? predicates[index](call) : true),
-    );
-    if (match) index += 1;
-    if (index === names.length) return true;
-  }
-  return false;
 }
 
 /** Reachability follows evaluated callback bindings; nested uncalled functions are not visited. */
@@ -962,7 +943,164 @@ function resolvedMemberCall(graph, call, file, owner, name) {
   );
 }
 
-/** A host API callback is an entry only when the daemon registers its typed host member. */
+/** References are symbol-bound; only immutable local aliases may preserve an entry value. */
+function referenceBinding(graph, expression, seen = new Set()) {
+  const node = unwrap(expression);
+  if (!node || !ts.isIdentifier(node) || seen.has(node)) return null;
+  seen.add(node);
+  const binding = graph.lookup(node.text, node);
+  if (!binding || binding.trail?.length) return null;
+  if (binding.kind === "param") return binding.parameter;
+  if (binding.kind !== "var" || !(binding.declaration.parent.flags & ts.NodeFlags.Const)) return null;
+  const initial = unwrap(binding.declaration.initializer);
+  return initial && ts.isIdentifier(initial) ? referenceBinding(graph, initial, seen) : binding.declaration;
+}
+
+function memberBase(expression, fields) {
+  let node = unwrap(expression);
+  for (const field of [...fields].reverse()) {
+    if (!node || !ts.isPropertyAccessExpression(node) || node.name.text !== field || node.questionDotToken) return null;
+    node = unwrap(node.expression);
+  }
+  return node;
+}
+
+const sameReference = (graph, expression, binding) =>
+  Boolean(binding && referenceBinding(graph, expression) === binding);
+const callReceiver = (call, name) =>
+  call && ts.isCallExpression(call) && !call.questionDotToken && memberBase(call.expression, [name]);
+
+function contextCall(graph, call, fn, name) {
+  return sameReference(graph, callReceiver(call, name), functionAncestor(fn)?.parameters[0]);
+}
+
+function localBefore(fn, declaration, source) {
+  if (!declaration || !source || !fn?.body || !ts.isBlock(fn.body)) return false;
+  const statement = declaration && statementOf(fn, declaration),
+    target = statementOf(fn, source);
+  return Boolean(
+    statement &&
+      target &&
+      functionAncestor(declaration) === fn &&
+      fn.body.statements.indexOf(statement) < fn.body.statements.indexOf(target) &&
+      !controlFlowUnsafe(fn, declaration),
+  );
+}
+
+function scopedCell(graph, receiver, fn, source) {
+  const cell = referenceBinding(graph, receiver),
+    call = cell && unwrap(cell.initializer),
+    context = functionAncestor(fn)?.parameters[0];
+  return localBefore(fn, cell, source) &&
+    contextCall(graph, call, fn, "requiredCell") &&
+    call.arguments.length === 4 &&
+    ["cells", "warming", "unavailable"].every((field, index) =>
+      sameReference(graph, memberBase(call.arguments[index], [field]), context),
+    ) &&
+    sameReference(graph, call.arguments[3], fn.parameters[0])
+    ? cell
+    : null;
+}
+
+function cellRoot(graph, expression, cell) {
+  const status = memberBase(expression, ["rootDir"]);
+  return Boolean(
+    status &&
+      ts.isCallExpression(status) &&
+      status.arguments.length === 0 &&
+      sameReference(graph, callReceiver(status, "status"), cell),
+  );
+}
+
+function scopedBinding(graph, expression, fn, cell, writer) {
+  const call = unwrap(expression);
+  return (
+    contextCall(graph, call, fn, "binding") &&
+    cellRoot(graph, call.arguments[0], cell) &&
+    sameReference(graph, call.arguments[1], fn.parameters[2]) &&
+    (writer
+      ? call.arguments.length === 4 && sameReference(graph, call.arguments[3], fn.parameters[0])
+      : call.arguments.length === 2)
+  );
+}
+
+function scopedHostGuard(graph, call, fn) {
+  return (
+    contextCall(graph, call, fn, "requireHostMode") &&
+    call.arguments.length === 3 &&
+    resolvedMemberCall(
+      graph,
+      call,
+      "packages/daemon/src/daemon-host-context.ts",
+      "DaemonHostApiContext",
+      "requireHostMode",
+    ) &&
+    sameReference(graph, call.arguments[0], fn.parameters[0]) &&
+    runtimeHostModeArgument(graph, call.arguments[1]) &&
+    sameReference(graph, call.arguments[2], fn.parameters[2])
+  );
+}
+
+/** A guard and a later use cannot share the same binding after that binding is overwritten. */
+function stableScope(graph, fn, locals) {
+  const roots = [...fn.parameters, ...locals];
+  let changed = false;
+  function visit(node) {
+    if (changed) return;
+    const write =
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+        ? node.left
+        : (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
+            [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(node.operator)
+          ? node.operand
+          : null;
+    if (write) {
+      let root = unwrap(write);
+      while (ts.isPropertyAccessExpression(root) || ts.isElementAccessExpression(root)) root = unwrap(root.expression);
+      changed = roots.includes(referenceBinding(graph, root));
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(fn.body);
+  return !changed;
+}
+
+function scopedWitnessIssuer(graph, fn) {
+  if (!fn || !isFunctionNode(fn) || !ts.isBlock(fn.body)) return false;
+  const statement = fn.body.statements.at(-1),
+    token = statement && ts.isReturnStatement(statement) && unwrap(statement.expression),
+    cell = scopedCell(graph, memberBase(callReceiver(token, "issueWitnessToken"), ["runtime"]), fn, token),
+    identity = token && ts.isCallExpression(token) && unwrap(token.arguments[1]),
+    principal = identity && ts.isObjectLiteralExpression(identity) && property(identity, "principalId"),
+    source = identity && ts.isObjectLiteralExpression(identity) && property(identity, "source"),
+    binding =
+      source && ts.isPropertyAssignment(source) && referenceBinding(graph, memberBase(source.initializer, ["source"]));
+  return Boolean(
+    cell &&
+      binding &&
+      returnExpressions(fn).length === 1 &&
+      identity.properties.length === 2 &&
+      principal &&
+      ts.isPropertyAssignment(principal) &&
+      resolvedMemberCall(
+        graph,
+        token,
+        "packages/daemon/src/agent-runtime-stream.ts",
+        "AgentRuntimeStreamHub",
+        "issueWitnessToken",
+      ) &&
+      sameReference(graph, token.arguments[0], fn.parameters[1]) &&
+      sameReference(graph, memberBase(principal.initializer, ["actor", "principal", "personId"]), binding) &&
+      localBefore(fn, binding, token) &&
+      scopedBinding(graph, binding.initializer, fn, cell, false) &&
+      dominatingCall(fn, token, "requireHostMode", (call) => scopedHostGuard(graph, call, fn)) &&
+      stableScope(graph, fn, [cell, binding]),
+  );
+}
+
+/** Host entry evidence binds admission and the actual effect to one repository/authentication scope. */
 export function hostServiceEntryEvidence(graph, node, source, action, route) {
   if (!route?.ok || route.kind !== action.kind || route.id !== source.route || source.role !== "effect") return null;
   if (action.kind === "rbac-bootstrap") return hostRbacServiceEvidence(graph, node);
@@ -971,67 +1109,60 @@ export function hostServiceEntryEvidence(graph, node, source, action, route) {
   if (forwarded) return forwarded;
   const entry = hostApiFactory(graph, node);
   if (!entry) return null;
+  const fn = entry.fn;
   if (entry.name === "runtimeIngress") {
-    const guarded = dominatingCall(
-      entry.fn,
-      node,
-      "requireHostMode",
-      (call) =>
-        resolvedMemberCall(
-          graph,
-          call,
-          "packages/daemon/src/daemon-host-context.ts",
-          "DaemonHostApiContext",
-          "requireHostMode",
-        ) && call.arguments.some((argument) => runtimeHostModeArgument(graph, argument)),
-    );
-    const ingress = dominatingCall(entry.fn, node, "runtimeIngress", (call) =>
-      portMemberCall(graph, call, "packages/daemon/src/repo-cell-types.ts", "RepoCell", "runtimeIngress"),
-    );
-    return guarded && ingress
-      ? [`${entry.name}: registered DaemonHost entry requires runtime-run host mode and applies RepoCell ingress first`]
+    const ingress = dominatingCall(fn, node, "runtimeIngress", (call) =>
+        portMemberCall(graph, call, "packages/daemon/src/repo-cell-types.ts", "RepoCell", "runtimeIngress"),
+      ),
+      cell = scopedCell(graph, callReceiver(ingress, "runtimeIngress"), fn, ingress),
+      receipt = referenceBinding(graph, memberBase(node.arguments[1], ["event"])),
+      executor = callReceiver(node, "settle");
+    return cell &&
+      receipt &&
+      unwrap(receipt.initializer) === ingress &&
+      localBefore(fn, receipt, node) &&
+      sameReference(graph, ingress.arguments[0], fn.parameters[1]) &&
+      scopedBinding(graph, ingress.arguments[1], fn, cell, true) &&
+      dominatingCall(fn, ingress, "requireHostMode", (call) => scopedHostGuard(graph, call, fn)) &&
+      contextCall(graph, executor, fn, "decisionPointExecutorFor") &&
+      sameReference(graph, executor.arguments[0], fn.parameters[0]) &&
+      cellRoot(graph, executor.arguments[1], cell) &&
+      sameReference(graph, node.arguments[0], cell) &&
+      stableScope(graph, fn, [cell, receipt])
+      ? [
+          "runtimeIngress: host admission, RepoCell ingress binding and settlement share the entry repository/authentication",
+        ]
       : null;
   }
   if (entry.name === "publishRuntimeWitness") {
     const issuer = property(entry.object, "issueRuntimeWitness"),
-      issuerFn = issuer && ts.isPropertyAssignment(issuer) ? unwrap(issuer.initializer) : null,
-      witness = property(entry.object, "publishRuntimeWitness");
-    return witness === entry.fn.parent &&
+      issuerFn = issuer && ts.isPropertyAssignment(issuer) && unwrap(issuer.initializer),
+      cell = scopedCell(graph, memberBase(callReceiver(node, "publish"), ["runtime"]), fn, node),
+      witness = referenceBinding(graph, memberBase(node.arguments[0], ["runtimeSessionId"])),
+      bind = witness && unwrap(witness.initializer);
+    return cell &&
+      localBefore(fn, witness, node) &&
+      sameReference(graph, memberBase(callReceiver(bind, "bindWitness"), ["runtime"]), cell) &&
+      sameReference(graph, bind.arguments[0], fn.parameters[1]) &&
+      sameReference(graph, node.arguments[1], fn.parameters[2]) &&
       portMemberCall(graph, node, "packages/daemon/src/agent-runtime-stream.ts", "AgentRuntimeStreamHub", "publish") &&
-      dominatingCall(entry.fn, node, "bindWitness", (call) =>
-        portMemberCall(
-          graph,
-          call,
-          "packages/daemon/src/agent-runtime-stream.ts",
-          "AgentRuntimeStreamHub",
-          "bindWitness",
-        ),
+      dominatingCall(
+        fn,
+        node,
+        "bindWitness",
+        (call) =>
+          call === bind &&
+          portMemberCall(
+            graph,
+            call,
+            "packages/daemon/src/agent-runtime-stream.ts",
+            "AgentRuntimeStreamHub",
+            "bindWitness",
+          ),
       ) &&
-      issuerFn &&
-      isFunctionNode(issuerFn) &&
-      orderedCalls(
-        issuerFn,
-        ["requireHostMode", "issueWitnessToken"],
-        [
-          (call) =>
-            resolvedMemberCall(
-              graph,
-              call,
-              "packages/daemon/src/daemon-host-context.ts",
-              "DaemonHostApiContext",
-              "requireHostMode",
-            ) && call.arguments.some((argument) => runtimeHostModeArgument(graph, argument)),
-          (call) =>
-            resolvedMemberCall(
-              graph,
-              call,
-              "packages/daemon/src/agent-runtime-stream.ts",
-              "AgentRuntimeStreamHub",
-              "issueWitnessToken",
-            ),
-        ],
-      )
-      ? ["publishRuntimeWitness: registered DaemonHost entry binds a token issued after runtime host-mode admission"]
+      scopedWitnessIssuer(graph, issuerFn) &&
+      stableScope(graph, fn, [cell, witness])
+      ? ["publishRuntimeWitness: a scoped issuer and the same repository's bound token own the published session"]
       : null;
   }
   return null;
@@ -1117,7 +1248,7 @@ function returnedPropertyFunction(fn, name) {
  * Proxy, so the proof follows the actual `get(..., "append") -> returned callback` shape instead
  * of accepting a same-named call in an unrelated nested function.
  */
-function boundPropertyCall(graph, fn, bindingName, propertyName, factoryName) {
+function boundPropertyCall(graph, fn, bindingName, propertyName, factory, entry) {
   let declaration = null,
     proxy = null;
   (function findBinding(node) {
@@ -1128,8 +1259,7 @@ function boundPropertyCall(graph, fn, bindingName, propertyName, factoryName) {
       ts.isIdentifier(node.name) &&
       node.name.text === bindingName &&
       ts.isCallExpression(unwrap(node.initializer)) &&
-      ts.isIdentifier(unwrap(node.initializer.expression)) &&
-      unwrap(node.initializer.expression).text === factoryName
+      graph.callDeclaration(unwrap(node.initializer)) === factory
     )
       declaration = node;
     if (
@@ -1145,32 +1275,45 @@ function boundPropertyCall(graph, fn, bindingName, propertyName, factoryName) {
   if (!declaration || !proxy) return false;
   const proxyCall = unwrap(proxy.initializer),
     handler = proxyCall.arguments[1] && unwrap(proxyCall.arguments[1]);
-  if (!ts.isNewExpression(proxyCall) || !ts.isObjectLiteralExpression(handler)) return false;
+  if (
+    !ts.isNewExpression(proxyCall) ||
+    !ts.isObjectLiteralExpression(handler) ||
+    graph.lookup("Proxy", proxyCall.expression)
+  )
+    return false;
   const getter = handler.properties.find(
     (entry) =>
       (ts.isMethodDeclaration(entry) || ts.isPropertyAssignment(entry)) && entry.name && entry.name.getText() === "get",
   );
   const getterFn = getter && ts.isPropertyAssignment(getter) ? unwrap(getter.initializer) : getter;
   if (!getterFn || !isFunctionNode(getterFn)) return false;
-  let appendCallback = null;
-  (function findAppend(node) {
-    if (appendCallback || (isFunctionNode(node) && node !== getterFn)) return;
-    if (ts.isIfStatement(node) && node.expression.getText().includes('property === "append"')) {
-      const branch = node.thenStatement;
-      (function findReturn(current) {
-        if (appendCallback || (isFunctionNode(current) && current !== branch)) return;
-        if (ts.isReturnStatement(current)) {
-          const value = unwrap(current.expression);
-          if (isFunctionNode(value)) appendCallback = value;
-          return;
-        }
-        ts.forEachChild(current, findReturn);
-      })(branch);
-      return;
-    }
-    ts.forEachChild(node, findAppend);
-  })(getterFn.body);
-  if (!appendCallback) return false;
+  // Only the real Proxy property parameter can select the append callback. Earlier
+  // selectors must be disjoint literal keys, so none can swallow this property first.
+  const selector = (statement) => {
+    if (!ts.isIfStatement(statement) || statement.elseStatement) return null;
+    const condition = unwrap(statement.expression);
+    return ts.isBinaryExpression(condition) &&
+      condition.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken &&
+      sameReference(graph, condition.left, getterFn.parameters[1]) &&
+      ts.isStringLiteralLike(unwrap(condition.right))
+      ? unwrap(condition.right).text
+      : null;
+  };
+  const statements = getterFn.body?.statements,
+    index = statements?.findIndex((statement) => selector(statement) === "append"),
+    branch = index >= 0 && statements[index].thenStatement,
+    appendCallback = branch && ts.isReturnStatement(branch) && unwrap(branch.expression),
+    accept = returnedPropertyFunction(fn, "accept"),
+    append = accept && unwrap(accept.body);
+  if (
+    !(index >= 0) ||
+    statements.slice(0, index).some((statement) => selector(statement) === null) ||
+    !appendCallback ||
+    !isFunctionNode(appendCallback) ||
+    !sameReference(graph, callReceiver(append, "append"), proxy) ||
+    !reachesSource(graph, entry, append)
+  )
+    return false;
   let found = false;
   (function visit(node) {
     if (found || isFunctionNode(node)) return;
@@ -1373,7 +1516,7 @@ export function migrationServiceEntryEvidence(graph, node, source, action) {
       reachableCall(graph, view, "createMigrationPlanningWorkspace") &&
       callback &&
       reachesSource(graph, callback, node) &&
-      boundPropertyCall(graph, view, "workspace", "stage", "createMigrationPlanningWorkspace")
+      boundPropertyCall(graph, view, "workspace", "stage", factory, run)
       ? [
           "migrate-import: staged authored document I/O is reached through the registered planning workspace stage callback",
         ]
@@ -1381,8 +1524,10 @@ export function migrationServiceEntryEvidence(graph, node, source, action) {
   }
   if (fn.name?.getText() === "matchesRestatedFact" && file === importFile) {
     const addFact = functionNamed(graph, importFile, "addFact");
-    return addFact && reachesSource(graph, addFact, node)
-      ? ["migrate-import: restatement document claim is reached through addFact's registered existing-entity verifier"]
+    return addFact && reachesSource(graph, run, addFact) && reachesSource(graph, addFact, node)
+      ? [
+          "migrate-import: the registered migration entry reaches the restatement claim through its actual callback arguments",
+        ]
       : null;
   }
   return null;
@@ -1641,6 +1786,15 @@ export function processSourceSites(graph, entry, options = {}) {
     if (!fn.body || frames.has(key) || remainingCount === 0) return;
     frames.add(key);
     seen.set(fn, frames);
+    // A function endpoint is witnessed only when the evaluated call actually enters it.
+    // This proves callback binding without folding the callback's data-dependent result.
+    const entrySite = isFunctionNode(fn) && sourceSite(graph, fn);
+    if (entrySite && targetLookup?.[entrySite] && !witnessedTargets[entrySite]) {
+      sites.add(entrySite);
+      witnessedTargets[entrySite] = true;
+      remainingCount -= 1;
+      if (remainingCount === 0) return;
+    }
     function visit(node) {
       if (remainingCount === 0 || isFunctionNode(node)) return;
       if (ts.isIfStatement(node) || ts.isConditionalExpression(node)) {
@@ -1675,7 +1829,9 @@ export function processSourceSites(graph, entry, options = {}) {
         const declared = graph.callDeclaration(node);
         for (const value of values.filter((value) => value.fn))
           walk(value.node, bindArguments(value, node.arguments, env));
-        if (isFunctionNode(declared) && declared.body && !values.some((value) => value.node === declared))
+        // A typeof callback signature can name another function's body. Prefer the
+        // supplied function value; only an unresolved callable needs declaration fallback.
+        if (isFunctionNode(declared) && declared.body && !values.some((value) => value.fn))
           walk(declared, bindArguments({ node: declared, env: new Map() }, node.arguments, env));
         if (values.some((value) => value.external !== undefined))
           for (const arg of node.arguments)
