@@ -1,6 +1,6 @@
 import type { TaskRow } from "../model/types.ts";
 import type { AppLocation } from "../navigation/viewHistory.ts";
-import { TerminalView, type TerminalLaunchTask } from "./TerminalView.tsx";
+import { TerminalView, type TerminalLaunchTask, type TerminalAttachSession } from "./TerminalView.tsx";
 
 /**
  * App 外壳里终端页的接线面(自 App.tsx 按职责拆出):只做 props 适配——任务行裁剪成
@@ -12,6 +12,8 @@ export function TerminalRoute({
   repoRoot,
   tasks,
   launchTask,
+  attachSession,
+  onSessionExit,
   navigate,
   onNavigateEntity,
   onOpenDocument,
@@ -21,6 +23,8 @@ export function TerminalRoute({
   readonly repoRoot: string | null;
   readonly tasks: readonly TaskRow[];
   readonly launchTask: TerminalLaunchTask | null;
+  readonly attachSession?: TerminalAttachSession | null;
+  readonly onSessionExit?: (sessionId: string) => void;
   readonly navigate: (fields: Partial<AppLocation>) => void;
   readonly onNavigateEntity: (ref: string) => void;
   readonly onOpenDocument: (path: string) => void;
@@ -38,6 +42,8 @@ export function TerminalRoute({
       }))}
       repoRoot={repoRoot}
       launchTask={launchTask}
+      attachSession={attachSession}
+      onSessionExit={onSessionExit}
       onNavigateEntity={onNavigateEntity}
       onOpenDocument={onOpenDocument}
       openUrl={(uri) =>

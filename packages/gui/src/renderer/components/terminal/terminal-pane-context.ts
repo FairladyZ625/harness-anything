@@ -15,6 +15,7 @@ export type TerminalSplitDirection = "left" | "right" | "above" | "below";
 export interface TerminalPaneActions {
   readonly session: (sessionId: string) => TerminalTab | null;
   readonly focusedPanelId: string | null;
+  readonly focusRequestId: string | null;
   readonly confirmSessionId: string | null;
   readonly setConfirmSessionId: (sessionId: string | null) => void;
   readonly onInput: (sessionId: string, utf8: string) => void;

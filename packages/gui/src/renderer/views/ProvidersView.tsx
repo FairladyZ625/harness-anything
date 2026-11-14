@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import type { DecisionProviderRecord } from "@harness-anything/daemon/protocol";
+import type { DecisionProviderRecord, TerminalControlReceipt } from "@harness-anything/daemon/protocol";
 import { isAvailableAgentEntityRow } from "../agent-entity-client.ts";
 import { t } from "../i18n/index.tsx";
 import { ActionError } from "../components/runtime/ActionError.tsx";
@@ -39,6 +39,7 @@ export interface ProvidersViewProps {
   readonly onSelectEntity: (ref: string) => void;
   /** 窄容器返回键:全局导航弹栈(App 注入,与顶栏后退/侧键同一条路径)。 */
   readonly onBack: () => void;
+  readonly onOpenAuthTerminal?: (instanceId: string, sessionId: string) => void;
 }
 
 /** 页头插槽:主动作(检查器开关)由工作区实况派生,页面/面板各自决定要不要装。 */
@@ -85,6 +86,7 @@ export function ProvidersWorkspace({
   focusedEntityRef,
   onSelectEntity,
   onBack,
+  onOpenAuthTerminal,
   renderHeader,
 }: ProvidersViewProps & {
   /** 页面组合的页头渲染;工作台面板不传(面板标签即标题)。 */
@@ -107,6 +109,9 @@ export function ProvidersWorkspace({
   useEffect(() => setDecisionSelection(null), [focusedEntityRef]);
   const decisionProviders = decisionCatalog.data ?? [];
   const workspace = useProviderWorkspace(repoId, refId);
+  const openAuthTerminal = (instanceId: string, receipt: TerminalControlReceipt | null) => {
+    if (receipt?.outcome === "applied" && receipt.sessionId) onOpenAuthTerminal?.(instanceId, receipt.sessionId);
+  };
   const settings = useSettingsQuery(repoId),
     settingsMutation = useSettingsMutation(repoId);
   const [dialog, setDialog] = useState(false),
@@ -300,7 +305,11 @@ export function ProvidersWorkspace({
                 actionError={workspace.error}
                 onSelectAgent={(agentId) => onSelectEntity(`agent/${agentId}`)}
                 onSelectRuntime={(instanceId) => onSelectEntity(`provider/${instanceId}`)}
-                onAuth={(action) => void workspace.authInstance(instance.instanceId, action)}
+                onAuth={(action) => {
+                  void workspace
+                    .authInstance(instance.instanceId, action)
+                    .then((receipt) => openAuthTerminal(instance.instanceId, receipt));
+                }}
                 onValidate={() => void workspace.validateInstance(instance.instanceId)}
                 onSetEnabled={(enabled) => {
                   void workspace.setInstanceEnabled(instance.instanceId, enabled).then((result) => {
@@ -361,11 +370,12 @@ export function ProvidersWorkspace({
         actionError={workspace.error}
         onCancel={() => setDialog(false)}
         onCreate={(input) => {
-          void workspace.createInstance(input).then((created) => {
-            if (created) {
+          void workspace.createInstance(input).then((result) => {
+            if (result) {
               setDialog(false);
               updateProjectAllowedInstances(input.instanceId, true);
               onSelectEntity(`provider/${input.instanceId}`);
+              openAuthTerminal(input.instanceId, result.authReceipt);
             }
           });
         }}

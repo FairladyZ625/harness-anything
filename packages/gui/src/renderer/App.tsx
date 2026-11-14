@@ -67,6 +67,8 @@ import { SessionsView } from "./views/SessionsView.tsx";
 import { SchedulesView } from "./views/SchedulesView.tsx";
 import { ArtifactsView } from "./views/ArtifactsView.tsx";
 import { AgentSquadView } from "./views/AgentSquadView.tsx";
+import { useRuntimeAuthTerminal } from "./useRuntimeAuthTerminal.ts";
+import { ActionError } from "./components/runtime/ActionError.tsx";
 import { ProvidersView } from "./views/ProvidersView.tsx";
 import { TokenUsageView } from "./views/TokenUsageView.tsx";
 import { useTaskActions } from "./task-actions.ts";
@@ -277,6 +279,7 @@ function AppShell() {
   const collaborationSummary = activeRepo === undefined ? null : collaborationSummaryOf(projectTasks);
   /** task 详情「打开终端」→ 终端页进页即建绑定会话;requestId 让同一请求只消费一次。 */
   const [terminalLaunch, setTerminalLaunch] = useState<TerminalLaunchTask | null>(null);
+  const runtimeAuthTerminal = useRuntimeAuthTerminal(projectId, view);
   // 预览抽屉点开的收口记录(execution/review/…):一次性聚焦意图,随任务详情
   // 消费;离开该任务的详情位即清空,不滞留成下次打开的隐性初始页签。
   const [recordFocus, setRecordFocus] = useState<{ taskId: string; recordRef: string } | null>(null);
@@ -648,6 +651,7 @@ function AppShell() {
             <div className="content-viewport flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
               {/* The account recovery surface must stay reachable when a business read failed:
                   a ledger-level unavailable state elsewhere must not swallow its sign-in entry. */}
+              {runtimeAuthTerminal.error && <ActionError>{runtimeAuthTerminal.error}</ActionError>}
               {mainSurface === "account" ? (
                 <IdentityAccessView
                   key={activeRepoId ?? "local"}
@@ -1028,6 +1032,11 @@ function AppShell() {
                   focusedEntityRef={focusedEntityRef}
                   onSelectEntity={selectRuntimeEntity}
                   onBack={() => (canBack ? back() : updateLocation({ focusedEntityRef: null }))}
+                  onOpenAuthTerminal={(instanceId, sessionId) => {
+                    setTerminalLaunch(null);
+                    runtimeAuthTerminal.open(instanceId, sessionId);
+                    goto("terminal");
+                  }}
                 />
               ) : view === "tokenUsage" ? (
                 <TokenUsageView
@@ -1045,6 +1054,8 @@ function AppShell() {
                   daemonGeneration={activeRepo?.generation ?? null}
                   tasks={projectTasks}
                   launchTask={terminalLaunch}
+                  attachSession={runtimeAuthTerminal.attachSession}
+                  onSessionExit={runtimeAuthTerminal.onSessionExit}
                   repoRoot={activeRepo?.canonicalRoot ?? null}
                   navigate={navigate}
                   onNavigateEntity={navigateToEntity}

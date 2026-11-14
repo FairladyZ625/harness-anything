@@ -30,6 +30,8 @@ export function TerminalPane({
   output,
   outputBytes,
   interactive,
+  focused,
+  focusRequestId,
   onInput,
   onFit,
   openUrl,
@@ -39,6 +41,8 @@ export function TerminalPane({
   readonly output: string;
   readonly outputBytes: number;
   readonly interactive: boolean;
+  readonly focused: boolean;
+  readonly focusRequestId: string | null;
   readonly onInput: (utf8: string) => void;
   readonly onFit: (cols: number, rows: number) => void;
   readonly openUrl: ((uri: string) => void) | null;
@@ -143,7 +147,6 @@ export function TerminalPane({
     const observer = new ResizeObserver(scheduleFit);
     observer.observe(host);
     scheduleFit();
-    terminal.focus();
 
     return () => {
       observer.disconnect();
@@ -159,6 +162,10 @@ export function TerminalPane({
       writtenRef.current = 0;
     };
   }, []);
+
+  useEffect(() => {
+    if (focused) terminalRef.current?.focus();
+  }, [focused, focusRequestId]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

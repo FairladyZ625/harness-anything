@@ -7,6 +7,7 @@ import type { ITerminalAddon, ITerminalOptions } from "@xterm/xterm";
 
 const xterm = vi.hoisted(() => ({
   loaded: [] as string[],
+  focus: vi.fn(),
   lastOptions: null as Record<string, unknown> | null,
   keyHandler: null as ((event: KeyboardEvent) => boolean) | null,
   selection: "",
@@ -40,7 +41,9 @@ vi.mock("@xterm/xterm", async (importOriginal) => {
       onSelectionChange() {
         return { dispose() {} };
       }
-      focus() {}
+      focus() {
+        xterm.focus();
+      }
       reset() {}
       write() {}
     },
@@ -100,6 +103,7 @@ let container: HTMLElement;
 let root: Root;
 
 beforeEach(() => {
+  xterm.focus.mockClear();
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   xterm.loaded = [];
   xterm.keyHandler = null;
@@ -116,12 +120,14 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function mount() {
+function mount(focused = true, focusRequestId: string | null = null) {
   act(() =>
     root.render(
       createElement(TerminalPane, {
         output: "",
         interactive: true,
+        focused,
+        focusRequestId,
         onInput: () => undefined,
         onFit: () => undefined,
         openUrl: null,
@@ -133,6 +139,16 @@ function mount() {
 }
 
 describe("TerminalPane addon lifecycle (W4a)", () => {
+  it("focuses only the selected pane, including a selection change after mounting", () => {
+    mount(false);
+    expect(xterm.focus).not.toHaveBeenCalled();
+    mount(true);
+    expect(xterm.focus).toHaveBeenCalledTimes(1);
+    mount(true, "request-again");
+    expect(xterm.focus).toHaveBeenCalledTimes(2);
+    mount(false);
+    expect(xterm.focus).toHaveBeenCalledTimes(2);
+  });
   it("loads Unicode 11, serialization and search for every terminal pane", () => {
     mount();
     expect(xterm.loaded).toEqual(["fit", "unicode11", "serialize", "search", "web-links"]);

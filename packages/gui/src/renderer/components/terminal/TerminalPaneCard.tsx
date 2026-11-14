@@ -132,7 +132,7 @@ export function TerminalPaneCard(props: IDockviewPanelProps<{ readonly sessionId
         {tab && <TerminateControls tab={tab} />}
       </div>
       {tab ? (
-        <LivePane tab={tab} onSelectionChange={setSelection} />
+        <LivePane tab={tab} focused={focused} onSelectionChange={setSelection} />
       ) : (
         <DeadPane panelId={panelId} sessionId={sessionId} />
       )}
@@ -142,9 +142,11 @@ export function TerminalPaneCard(props: IDockviewPanelProps<{ readonly sessionId
 
 function LivePane({
   tab,
+  focused,
   onSelectionChange,
 }: {
   readonly tab: TerminalTab;
+  readonly focused: boolean;
   readonly onSelectionChange: (text: string) => void;
 }) {
   const actions = useTerminalPaneActions();
@@ -171,6 +173,8 @@ function LivePane({
             output={tab.output}
             outputBytes={tab.outputBytes}
             interactive={interactive}
+            focused={focused}
+            focusRequestId={actions.focusRequestId}
             openUrl={actions.openUrl}
             onOpenLink={(match, text) => actions.openLink(match, text, tab.cwd)}
             onSelectionChange={onSelectionChange}
