@@ -64,6 +64,13 @@ export async function adoptRuntimes(
   const owner = dispatchOwnerForNode(context.input.runtimeNode?.nodeId),
     candidates = new Map<string, DispatchLifecycleView>(),
     streamHeaders = readDispatchStreamHeaders(context.input.rootDir);
+  const registerCandidate = (view: DispatchLifecycleView): void => {
+    const { runtimeSessionId, instanceId, stopProof } = view.attempt;
+    candidates.set(runtimeSessionId, view);
+    if (context.exiting.has(runtimeSessionId)) return;
+    if (stopProof === "proven_stopped") context.dispatchState?.deactivate(runtimeSessionId);
+    else context.dispatchState?.activate(runtimeSessionId, instanceId);
+  };
   const instanceIds = context.input.runtimeInstances?.().map(({ instanceId }) => instanceId) ?? [],
     active = await Promise.all(
       [...new Set([...instanceIds, ...streamHeaders.map(({ instanceId }) => instanceId)])].map((instanceId) =>
@@ -76,8 +83,7 @@ export async function adoptRuntimes(
     );
   const activeViews = active.flat();
   for (const view of activeViews)
-    if (view.attempt.fence.verified && view.attempt.fence.owner === owner)
-      candidates.set(view.attempt.runtimeSessionId, view);
+    if (view.attempt.fence.verified && view.attempt.fence.owner === owner) registerCandidate(view);
   const activeDispatchIds = new Set(activeViews.map(({ attempt }) => attempt.dispatchId)),
     terminalHeaders = new Map(
       streamHeaders
@@ -99,7 +105,7 @@ export async function adoptRuntimes(
         view.attempt.fence.verified &&
         view.attempt.fence.owner === owner
       )
-        candidates.set(view.attempt.runtimeSessionId, view);
+        registerCandidate(view);
     }
   }
   let pending = recoveries.get(context);
@@ -384,12 +390,12 @@ async function restoreRuntime(
       `Runtime ${active.runtimeSessionId} is missing from its dispatch lifecycle after observation.`,
     );
   if (observedAttempt.policy.attemptSettled) {
-    context.dispatchState?.deactivate(active.runtimeSessionId);
+    if (observedAttempt.attempt.stopProof === "proven_stopped")
+      context.dispatchState?.deactivate(active.runtimeSessionId);
     active.process.release?.();
     return true;
   }
   context.processes.set(active.runtimeSessionId, active);
-  context.dispatchState?.activate(active.runtimeSessionId, active.instanceId);
   if (observedAttempt.attempt.process === "alive") {
     if (active.spendCapExceeded) await context.enforceSpendCap(active);
     else if (fullStream) attachAdoptedObservations(context, active);

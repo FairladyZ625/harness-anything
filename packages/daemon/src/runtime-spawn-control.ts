@@ -118,8 +118,10 @@ export async function cancelRuntime(
     await context.publishExit(active, null);
     return context.controlReceipt(opId, runtimeSessionId);
   }
-  if (attempt?.policy.attemptSettled || attempt?.attempt.stopProof === "proven_stopped")
+  if (attempt?.policy.attemptSettled || attempt?.attempt.stopProof === "proven_stopped") {
+    if (attempt.attempt.stopProof === "proven_stopped") context.dispatchState?.deactivate(runtimeSessionId);
     return context.controlReceipt(opId, runtimeSessionId, "already-exited");
+  }
   // Missing control transport does not prove the process tree stopped.
   if (attempt && attempt.attempt.outcome === null) {
     const instanceId = matchingHeader?.instanceId ?? canonicalDispatch?.instanceId;
@@ -184,6 +186,7 @@ export async function cancelRuntime(
         `Owner process group ${String(processGroupPid ?? "unknown")} could not be proven stopped.${processGroupRecoveryHint()}`,
       );
     }
+    context.dispatchState?.deactivate(runtimeSessionId);
     if (typeof instanceId === "string") {
       const failure = context.input.reclaimRuntimeTempDirectory?.(instanceId, runtimeSessionId) ?? null;
       if (failure)

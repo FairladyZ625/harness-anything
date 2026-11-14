@@ -83,6 +83,7 @@ import {
   launchExitNotification,
   launchNative,
   launchRuntimeProcess,
+  isRuntimeProcessStartRejected,
   requiredRuntimeProjection,
   requiredRuntimeStore,
 } from "./runtime-spawn-process.ts";
@@ -935,6 +936,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     }
     const streamStartedAt = input.now();
     let process: RuntimeProcess | undefined;
+    let launchMayBeRunning = false;
     let active: ActiveRuntime | undefined = undefined;
     let resumeObservation: ResumeProcessObservation | undefined;
     let stream: DispatchStreamWriter | undefined;
@@ -1078,6 +1080,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           console.error(`[review-worktree] ${newDispatchId} could not be reclaimed: ${reviewCleanupFailure.message}`);
       }
       if (process && !(await runtimeProcessTreeStopped(input.rootDir, newDispatchId, process))) return;
+      if (!process && launchMayBeRunning) return;
       dispatchState.deactivate(runtimeSessionId);
       // A lost receipt (including credential issuance after commit) does not undo admission.
       // Center reads must be ready; an unavailable read preserves the stream and claim for recovery.
@@ -1222,7 +1225,18 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         },
       };
       return launchRuntimeProcess(
-        (...args) => (process = launch(...args)),
+        (...args) => {
+          // Reserve before crossing the launcher port: another repository may dispatch while
+          // the host starts the process or the provider is still confirming a resumed session.
+          dispatchState.activate(runtimeSessionId, definition.instanceId);
+          launchMayBeRunning = true;
+          try {
+            return (process = launch(...args));
+          } catch (error) {
+            if (isRuntimeProcessStartRejected(error)) launchMayBeRunning = false;
+            throw error;
+          }
+        },
         workerLaunch,
         {
           rootDir: input.rootDir,
@@ -1324,7 +1338,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       resumeProviderSessionId: providerSessionId ?? null,
     });
     processes.set(runtimeSessionId, active);
-    dispatchState.activate(runtimeSessionId, active.instanceId);
     input.recordLifecycle?.({
       event: "runtime_spawn",
       runtimeSessionId,

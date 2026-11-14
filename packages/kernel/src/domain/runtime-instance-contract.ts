@@ -96,9 +96,9 @@ export const runtimeInstanceAccountJudgments = [
 const runtimeInstanceSchedulingPolicy = {
   id: "runtime-instance-scheduling",
   ownerRef: "runtime-instance",
-  unit: "priority tier and same-tier strategy",
+  unit: "priority tier, same-tier strategy and node-local activity",
   bounds:
-    "Tier is an integer 1..9 (default 1), lower first after local model and health admission. Agent selectionStrategy overrides repository selectionStrategy (default sticky). Sticky prefers the first idle instance; lru minimizes this node's active handle count across all repository/Fleet runtime owners, then O(1) node-local dispatch sequence. Repository lifecycle rows and dispatch history are never a node load census. Explicit pins and resumed sessions retain instance affinity. Model catalog exact/case-insensitive spelling resolves launch compatibility within an admitted pool.",
+    "Tier is an integer 1..9 (default 1), lower first after local model and health admission. Agent selectionStrategy overrides repository selectionStrategy (default sticky). Sticky prefers the first idle instance; lru minimizes this node's starting, active and unproven-stop attempt count across all repository/Fleet runtime owners, then O(1) node-local dispatch sequence. Selection never queries repository lifecycle or dispatch history for load. Recovery seeds existing bounded, owner-fenced local candidates before session/auth I/O. Activity is removed only for proven_stopped or explicit no-process start rejection; settlement alone does not prove a process stopped. Explicit pins and resumed sessions retain instance affinity. Model catalog exact/case-insensitive spelling resolves launch compatibility within an admitted pool.",
   defaultValue: { tier: 1, selectionStrategy: "sticky" },
   version: 1,
   scope: "RuntimeInstance, Agent scheduling configuration and dispatch receipts",
@@ -107,9 +107,14 @@ const runtimeInstanceSchedulingPolicy = {
     "packages/daemon/test/runtime-tier-selection.test.ts",
     "packages/daemon/test/runtime-tier-store.integration.test.ts",
     "packages/daemon/test/runtime-node-load.integration.test.ts",
+    "packages/daemon/test/runtime-node-load-resume.integration.test.ts",
+    "packages/daemon/test/runtime-spawn-ownership.test.ts",
     "packages/cli/test/runtime-scheduling-command.test.ts",
   ],
   sources: [
+    "policy:packages/daemon:packages/daemon/src/runtime-spawn-adoption.ts#restoreRuntime:9a0e6b07a57082633ca0700fd2858b72",
+    "policy:packages/daemon:packages/daemon/src/runtime-spawn-control.ts#cancelRuntime:e24c7b6e0a3bb22504cd1592af1366a0",
+    "policy:packages/daemon:packages/daemon/src/runtime-spawn-control.ts#cancelRuntime:a22f56098e090c4d5670656446639576",
     "policy:packages/kernel:packages/kernel/src/domain/runtime-instance-contract.ts#runtimeInstanceSchedulingPolicy.defaultValue.tier:821bfe01a65244f10d540222f09916f6",
     "policy:packages/kernel:packages/kernel/src/domain/runtime-instance-contract.ts#runtimeInstanceSchedulingPolicy.defaultValue.selectionStrategy:a1358bf6095dc99e7266a6ad3a0ba520",
     "policy:packages/daemon:packages/daemon/src/agent-entities.ts#prepareAgentEntityInstall:c886eed6aa5d25854112e316ac7c5d46",

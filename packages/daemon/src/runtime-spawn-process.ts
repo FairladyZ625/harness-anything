@@ -114,7 +114,7 @@ export async function launchRuntimeProcess(
   }
 }
 
-function isRuntimeProcessStartRejected(error: unknown): error is RuntimeProcessStartRejected {
+export function isRuntimeProcessStartRejected(error: unknown): error is RuntimeProcessStartRejected {
   const data = error instanceof Error && "data" in error ? error.data : null;
   return (
     error instanceof RuntimeProcessStartRejected ||
