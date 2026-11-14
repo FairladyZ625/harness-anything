@@ -133,6 +133,7 @@ async function materializeProjectionEvent(
   client: PoolClient,
   scope: PgProjectionScope,
   input: PgProjectionEventInput,
+  terminalMembershipReady = false,
 ): Promise<PgProjectionMaterializationReceipt> {
   await initializePgDecisionReadStatus(client, scope);
   const event = normalizeHistoricalEvent(input.event),
@@ -170,7 +171,7 @@ async function materializeProjectionEvent(
   }
   await projectPgDispatchLifecycle(client, scope, event);
   await storeEmbeddedRelations(client, scope, event, tables);
-  await initializePgTerminalMaterialization(client, scope, revision);
+  if (!terminalMembershipReady) await initializePgTerminalMaterialization(client, scope, revision);
   await materializePgQueryModels(client, scope, { ...input, event }, snapshot);
   const searchOwners = new Set<string>();
   if (isDecisionEvent(event)) searchOwners.add(event.decisionId);
@@ -213,15 +214,23 @@ export async function materializePgProjectionEvents(
     await rebuildPgProjection(client, scope, replay);
     return;
   }
+  // Upgrade membership once in the accepting transaction; each event below still
+  // settles its lifecycle/relation neighborhood against the current projection.
+  await initializePgTerminalMaterialization(client, scope, input.events[0]?.workspaceRevision ?? input.revision);
   const artifacts = new Map<string, import("./pg-artifact-timeline.ts").PgArtifactTimelineEntry | null>();
   for (const event of input.events)
-    await materializeProjectionEvent(client, scope, {
-      event,
-      sourceRevision: event.workspaceRevision,
-      sourceHeadRevision: input.revision,
-      readContentBlob,
-      artifacts,
-    });
+    await materializeProjectionEvent(
+      client,
+      scope,
+      {
+        event,
+        sourceRevision: event.workspaceRevision,
+        sourceHeadRevision: input.revision,
+        readContentBlob,
+        artifacts,
+      },
+      true,
+    );
   await flushPgArtifactDocuments(
     client,
     scope,
