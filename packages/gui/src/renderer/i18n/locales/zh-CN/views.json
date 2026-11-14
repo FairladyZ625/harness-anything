@@ -2188,5 +2188,17 @@
   "views.agenda.gatesEmpty": "无门禁",
   "views.agenda.filesEmpty": "无文件变更",
   "views.agenda.deliverySince": "交付于 {age}",
-  "views.agenda.tasksPending": "任务读取中…"
+  "views.agenda.tasksPending": "任务读取中…",
+  "views.settingsView.taskMaterializationPolicyLabel": "本机任务文档",
+  "views.settingsView.taskMaterializationPolicyDescription": "本机落盘的任务文档范围。",
+  "views.settingsView.taskMaterializationPolicyEffect": "立即对齐本机受管文档，不影响其它节点。",
+  "views.settingsView.enum.taskMaterializationPolicy.none": "不自动落盘",
+  "views.settingsView.enum.taskMaterializationPolicy.in_flight": "仅在途任务",
+  "views.settingsView.enum.taskMaterializationPolicy.include_done": "包含已完成任务",
+  "views.taskDetailView.skipped_by_node_policy": "本机未落盘",
+  "views.taskDetailView.dematerialized_terminal": "终态文档已退盘",
+  "views.taskDetailView.materialized": "已落盘到本机",
+  "views.taskDetailView.materialize": "物化到本地",
+  "views.taskDetailView.materializing": "正在物化…",
+  "views.settingsView.applyOnNode": "应用到本机"
 }

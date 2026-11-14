@@ -96,6 +96,7 @@ export interface SqliteTaskEventStoreOptions {
     afterRevision?: number,
     expectedRevision?: number,
     previouslyMaterializedPaths?: readonly string[],
+    reconcileNodePolicy?: boolean,
   ) => readonly MaterializationDocumentDescriptor[] | null;
 }
 
@@ -284,7 +285,11 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
    * worktree against what it last held. `restoreMissing` (materialize) settles the whole closure instead; `preview`
    * runs that same whole-closure read and reports the plan without writing anything.
    */
-  const publishFollower = (restoreMissing = false, preview = false): MaterializationReceipt => {
+  const publishFollower = (
+    restoreMissing = false,
+    preview = false,
+    reconcileNodePolicy = false,
+  ): MaterializationReceipt => {
     const accepted = cut();
     if (options.storage?.nodeTaskMaterializationPolicy === "none" && !restoreMissing) {
       follower = {
@@ -335,6 +340,8 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
         from,
         [],
         !restoreMissing && worktreeRevision === accepted.revision && verifiedRevision === accepted.revision,
+        reconcileNodePolicy,
+        reconcileNodePolicy && options.storage?.nodeTaskMaterializationPolicy === "none",
       ),
       files = [...closure.files, ...legacy],
       baseline = new Map(captureGitBaseline(currentLedger.rootDir, parent, files));
@@ -434,7 +441,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     publish: (request) =>
       request?.paths && !request.preview
         ? restoreRequestedDocuments(materializeContext(), request.paths)
-        : publishFollower(request !== undefined, request?.preview),
+        : publishFollower(request !== undefined, request?.preview, request?.reconcileNodePolicy),
     revision: sqlite.revision,
     checkpoint: () => follower.git.cut?.revision ?? 0,
     onHealthChange: options.onMaterializationHealthChange,

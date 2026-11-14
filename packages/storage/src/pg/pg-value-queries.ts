@@ -83,9 +83,9 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
       model = page?.includeHistory ? "model IN ('document','document-history')" : "model='document'",
       readersPredicate = "(cardinality($4::text[])=0 OR readers && $4::text[])",
       taskExcluded = page?.excludeTaskPackages
-        ? `SELECT entity_id, document_metadata, workspace_revision, model FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${model} AND owner_id='' AND ${range} AND ${readersPredicate} AND entity_id COLLATE "C" < 'tasks/'
+        ? `SELECT entity_id, document_metadata, workspace_revision, model FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${model} AND owner_id='' AND ${range} AND ${readersPredicate} AND entity_id COLLATE "C" < 'tasks/task_'
            UNION ALL
-           SELECT entity_id, document_metadata, workspace_revision, model FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${model} AND owner_id='' AND ${range} AND ${readersPredicate} AND entity_id COLLATE "C" >= 'tasks0'`
+           SELECT entity_id, document_metadata, workspace_revision, model FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${model} AND owner_id='' AND ${range} AND ${readersPredicate} AND entity_id COLLATE "C" >= 'tasks/task\`'`
         : `SELECT entity_id, document_metadata, workspace_revision, model FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${model} AND owner_id='' AND ${range} AND ${readersPredicate}`,
       result = await client.query<{ value: string | null; model: string }>(
         `SELECT document_metadata AS value,model FROM (${taskExcluded}) AS materialized_documents

@@ -393,6 +393,7 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
       "preset-upgrade",
       "assign",
       "unassign",
+      "materialize",
       "pin",
       "unpin",
     ],

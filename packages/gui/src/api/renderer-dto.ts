@@ -1,3 +1,4 @@
+export type { CanonicalMaterializationState } from "@harness-anything/kernel";
 export {
   gateMappingDrafts,
   validateGateMappingDraftRows,

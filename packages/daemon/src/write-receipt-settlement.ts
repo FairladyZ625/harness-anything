@@ -16,8 +16,12 @@ const canonicalSettlementActions = new Set(
     .filter(({ receiptSettlement }) => receiptSettlement === "canonical-acceptance")
     .map(({ kind }) => kind),
 );
-// These actions write local files (the preset store, a distill candidate), never the ledger.
-const ledgerFreeActions = new Set(["preset-install", "preset-seed", "preset-uninstall", "distill-candidate"]);
+// Host-local effects do not claim canonical acceptance; their residency is declared by Ontology.
+const ledgerFreeActions = new Set(
+  actionDeclarations
+    .filter(({ receiptSettlement, residency }) => receiptSettlement === "none" && residency.scope === "host-local")
+    .map(({ kind }) => kind),
+);
 
 /**
  * Settlement tail of RepoCell.run: attach SQLite acceptance to durable write receipts, honor
@@ -30,13 +34,49 @@ export async function settleWriteReceipt(
   receipt: WriteReceipt,
   signal?: AbortSignal,
 ): Promise<WriteReceipt> {
+  // The local setting is already authorized and persisted. Reconcile outside the writer queue,
+  // even at the same canonical revision: node policy changes never append canonical retirements.
+  if (
+    action.kind === "settings-update" &&
+    action.taskMaterializationPolicy !== undefined &&
+    (receipt.outcome === "applied" || receipt.outcome === "no_changes")
+  ) {
+    await context.store.settlePendingMaterialization?.("node materialization policy update");
+    const materialized = context.store.materialize({ reconcileNodePolicy: true });
+    if (materialized.conflicts.length)
+      receipt = {
+        ...receipt,
+        outcome: "pending",
+        status: "unknown",
+        guidance: [
+          ...(receipt.guidance ?? []),
+          {
+            kind: "run-command",
+            args: { command: `ha settings update --task-materialization-policy ${action.taskMaterializationPolicy}` },
+          },
+        ],
+        warnings: [
+          ...(receipt.warnings ?? []),
+          `Local materialization conflicts: ${materialized.conflicts.join(", ")}`,
+        ],
+      };
+  }
   // A locale-only settings update writes this machine's preference file, never the ledger.
   const localSettingsOnly =
     action.kind === "settings-update" &&
     receipt.effects?.length === 1 &&
     receipt.effects[0] === "settings-local/locale_changed";
-  if (localSettingsOnly || ledgerFreeActions.has(action.kind))
-    return receipt.outcome === "applied" ? { ...receipt, status: "settled_no_write" } : receipt;
+  if (localSettingsOnly || ledgerFreeActions.has(action.kind)) {
+    const { proof: _committedProof, ...local } = receipt;
+    if (action.kind === "doc-materialize" && receipt.outcome === "pending")
+      return {
+        ...local,
+        guidance: [...(local.guidance ?? []), { kind: "run-command", args: { command: "ha doc status" } }],
+      };
+    return receipt.outcome === "applied" || receipt.outcome === "no_changes"
+      ? { ...local, status: "settled_no_write" }
+      : local;
+  }
   if (
     !canonicalSettlementActions.has(action.kind) &&
     !isArtifactActionIngressKind(action.kind) &&

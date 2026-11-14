@@ -106,8 +106,14 @@ export function makePgCanonicalEventStore(
         throw new TaskEventStoreError("materialization_failed", "No authored tree is configured for this repository");
       return { status: "visible", commitSha: null, settlements: [], conflicts: [] };
     }
+    const preserveExistingOnly =
+      request?.reconcileNodePolicy && options.storage.nodeTaskMaterializationPolicy === "none";
     const requirePreviousPaths = (paths: readonly string[]) => {
-      if (paths.some((path) => path.startsWith("tasks/") && path.split("/").length > 2))
+      if (preserveExistingOnly) {
+        const prior = new Set(paths);
+        for (const path of entries.keys()) if (!prior.has(path)) entries.delete(path);
+      }
+      if (paths.some((path) => path.startsWith("tasks/task_") && path.split("/").length > 2))
         reader.withSession((q) => requireTaskMaterializationMetadata(q, paths));
     };
     const layout = resolveHarnessLayout(rootInput),
@@ -116,7 +122,7 @@ export function makePgCanonicalEventStore(
           ? reader.withSession((q) =>
               readNodeMaterializationDocuments(
                 q,
-                options.storage.nodeTaskMaterializationPolicy ?? "include_done",
+                preserveExistingOnly ? "in_flight" : (options.storage.nodeTaskMaterializationPolicy ?? "include_done"),
                 request?.paths,
               ),
             )
@@ -188,7 +194,7 @@ export function makePgCanonicalEventStore(
             : certifiedFollowerRevision(ledger, parent, checkpointSource),
         files = followerFilesForNodePolicy({
           ledger,
-          documents,
+          documents: preserveExistingOnly ? documents.filter(({ path }) => entries.has(path)) : documents,
           parent,
           readContent: readContentBlob,
           requirePreviousPaths,

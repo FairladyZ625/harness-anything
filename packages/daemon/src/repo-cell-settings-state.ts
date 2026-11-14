@@ -120,26 +120,39 @@ export function readRepositorySettings(projection: Pick<TaskProjectionQueries, "
   return projected;
 }
 
+/** Read the machine preference file once; absent fields inherit this node's configured role. */
+export function readLocalState(
+  rootDir: string,
+  defaultPolicy = INITIAL_SETTINGS_V1.nodeTaskMaterializationPolicy,
+): { readonly value: LocalSettingsV1; readonly valid: boolean } {
+  const localPath = resolveHarnessLayout(rootDir).settingsLocalPath,
+    fallback = localSettings({ ...INITIAL_SETTINGS_V1, nodeTaskMaterializationPolicy: defaultPolicy });
+  if (!existsSync(localPath)) return { value: fallback, valid: false };
+  try {
+    const stored = JSON.parse(readFileSync(localPath, "utf8")),
+      parsed = parseLocalSettings(stored);
+    if (parsed)
+      return {
+        value: Object.hasOwn(stored, "nodeTaskMaterializationPolicy")
+          ? parsed
+          : { ...parsed, nodeTaskMaterializationPolicy: defaultPolicy },
+        valid: Object.hasOwn(stored, "nodeTaskMaterializationPolicy"),
+      };
+  } catch (error) {
+    consumeKnownError(error);
+    // A malformed preference file remains repairable through the existing local settings update.
+  }
+  return { value: fallback, valid: false };
+}
+
 export function makeRepoCellSettingsState(cell: RepoCellActionContext): RepoCellSettingsState {
   // Machine-local preferences live under this repository's own local root, never a literal `.harness`.
   const localPath = resolveHarnessLayout(cell.rootDir).settingsLocalPath;
 
   const readRepository = (): RepositorySettingsV1 => readRepositorySettings(cell.projection);
 
-  const readLocalState = (): { readonly value: LocalSettingsV1; readonly valid: boolean } => {
-    const fallback = localSettings(INITIAL_SETTINGS_V1);
-    if (!existsSync(localPath)) return { value: fallback, valid: false };
-    try {
-      const parsed = parseLocalSettings(JSON.parse(readFileSync(localPath, "utf8")));
-      if (parsed) return { value: parsed, valid: true };
-    } catch (error) {
-      consumeKnownError(error);
-      // The read boundary stays available while an invalid local preference is repaired by an update.
-    }
-    return { value: fallback, valid: false };
-  };
-
-  const readLocal = (): LocalSettingsV1 => readLocalState().value;
+  const localState = () => readLocalState(cell.rootDir, cell.input.nodeTaskMaterializationPolicy);
+  const readLocal = (): LocalSettingsV1 => localState().value;
 
   // The local file's own schema marker is not part of the merged view; every local field is.
   const read = (): SettingsV1 => {
@@ -148,7 +161,7 @@ export function makeRepoCellSettingsState(cell: RepoCellActionContext): RepoCell
   };
 
   const writeLocal = (value: LocalSettingsV1): boolean => {
-    const current = readLocalState();
+    const current = localState();
     if (current.valid && stableStringify(current.value) === stableStringify(value)) return false;
     writeFileDurably(localPath, serializeLocalSettings(value), 0o600);
     return true;
@@ -213,7 +226,13 @@ export function makeRepoCellSettingsState(cell: RepoCellActionContext): RepoCell
       );
     // The defaults file belongs to the machine that just ran `ha init`, and never to a later mint.
     if (authority.kind === "repo-bootstrap" && !existsSync(localPath))
-      writeLocal(localSettings(initialization.settings));
+      writeLocal(
+        localSettings({
+          ...initialization.settings,
+          nodeTaskMaterializationPolicy:
+            cell.input.nodeTaskMaterializationPolicy ?? initialization.settings.nodeTaskMaterializationPolicy,
+        }),
+      );
     return appended;
   };
 

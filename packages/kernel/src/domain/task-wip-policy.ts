@@ -233,7 +233,7 @@ export const taskExecutionWipPolicy = {
   ].map((candidateId) => ({ candidateId, route: "admitTaskExecutionWip" })),
 } as const satisfies OntologyPolicyDeclaration;
 
-const nodeTaskMaterializationPolicies = Object.freeze(["none", "in_flight", "include_done"] as const);
+export const nodeTaskMaterializationPolicies = Object.freeze(["none", "in_flight", "include_done"] as const);
 export type NodeTaskMaterializationPolicy = (typeof nodeTaskMaterializationPolicies)[number];
 
 export function normalizeNodeTaskMaterializationPolicy(value: unknown): NodeTaskMaterializationPolicy {
@@ -258,9 +258,14 @@ export const nodeTaskMaterializationPolicy = {
     "packages/storage/test/store/terminal-materialization.integration.test.ts",
     "packages/storage/test/postgres/terminal-materialization.integration.test.ts",
     "packages/daemon/test/task-documents-list.integration.test.ts",
+    "packages/daemon/test/node-materialization-settings.integration.test.ts",
   ],
   sources: [
     "policy:packages/kernel:packages/kernel/src/domain/task-wip-policy.ts#taskIncludedByNodeMaterializationPolicy:673356004ac1c02b75205dd3c6783a0c",
+    "policy:packages/daemon:packages/daemon/src/repo-cell.ts#initializeRepoCell.readMaterializationDocuments:9a714b70cf67f888ae307125343c97fa",
+    "policy:packages/daemon:packages/daemon/src/settings-action-runtime.ts#makeSettingsActionRuntime:8e1d8434a580108b635c966467bd1b7a",
+    "policy:packages/daemon:packages/daemon/src/write-receipt-settlement.ts#settleWriteReceipt.materialized.reconcileNodePolicy:c5013c8bee363a83b667529a7565ec7e",
+    "policy:packages/daemon:packages/daemon/src/write-receipt-settlement.ts#settleWriteReceipt:c7f1eceaf2bbadd19ebc65b967407425",
     "policy:packages/daemon:packages/daemon/src/doc-sync-candidate-scanner.ts#scanDocCandidates.scanOne:27054bed81347e56f9081d7397c65e4a",
     "policy:packages/daemon:packages/daemon/src/doc-sync-reads.ts#readAction.materializationState:71a3d721091e8253a10a63913edca6d1",
     "policy:packages/daemon:packages/daemon/src/entity-action-catalog-executor.ts#withNodeMaterializationState:daf168a4166c963e3e6de1d64c76c6fb",

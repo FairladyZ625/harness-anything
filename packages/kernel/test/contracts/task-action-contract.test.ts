@@ -75,6 +75,7 @@ test("all public Task writes are complete executable Action contracts", () => {
       "preset-upgrade",
       "assign",
       "unassign",
+      "materialize",
       "pin",
       "unpin",
     ],
@@ -85,11 +86,21 @@ test("all public Task writes are complete executable Action contracts", () => {
     assert.equal(action.target.kind, "task");
     assert.equal(
       action.input.schema,
-      action.id === "assign" || action.id === "unassign" || action.id === "pin" || action.id === "unpin"
+      action.id === "assign" ||
+        action.id === "unassign" ||
+        action.id === "pin" ||
+        action.id === "unpin" ||
+        action.id === "materialize"
         ? "entity-action-input/v1"
         : "entity-action-input/v2",
     );
-    assert.ok(action.criteria.length >= 1, action.id);
+    // Host-local document restoration adds no Task lifecycle readiness judgment.
+    if (action.id === "materialize") {
+      assert.deepEqual(action.criteria, []);
+      assert.equal(action.execution?.ingress, "doc-materialize");
+      assert.equal(action.policy.action, "doc-materialize");
+      assert.equal(taskActionUsage(action, "task-1"), "ha doc materialize --task task-1");
+    } else assert.ok(action.criteria.length >= 1, action.id);
     assert.deepEqual(Object.keys(action.concurrency), concurrencyFields);
     assert.ok(["execution", "task", "entity"].includes(String(action.concurrency.artifactOwnership.owner)), action.id);
     assert.ok(
@@ -161,6 +172,7 @@ test("all public Task writes are complete executable Action contracts", () => {
     "preset-upgrade",
     "assign",
     "unassign",
+    "materialize",
     "pin",
     "unpin",
   ]);

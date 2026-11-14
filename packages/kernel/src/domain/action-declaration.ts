@@ -421,7 +421,7 @@ export const actionDeclarations = Object.freeze([
   declare("doc-conflict-discard-local", "repo-write", hostResidency),
   canonical("doc-conflict-overwrite-center", "document/conflict-overwrite-center", "repo-write"),
   canonical("doc-conflict-resolve", "document/conflict-resolve", "repo-write"),
-  declare("doc-materialize", "repo-write", hostResidency),
+  declare("doc-materialize", "repo-write", hostResidency, { catalogId: "task/materialize" }),
   canonical("doc-retire", "document/retire", "repo-write"),
   canonical("doc-submit", "document/submit", "repo-write"),
   // entity-import/update/archive/delete have no static declaration: each compiled Artifact kind

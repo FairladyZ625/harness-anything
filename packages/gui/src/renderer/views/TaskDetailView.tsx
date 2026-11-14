@@ -1,3 +1,4 @@
+import { TaskMaterializationControl } from "../components/taskDetail/TaskMaterializationControl.tsx";
 import { TabPanel } from "../components/primitives/EntryBoundary.tsx";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, CaretRight, ChatCircleDots, PushPin, TerminalWindow } from "@phosphor-icons/react";
@@ -272,6 +273,7 @@ export function TaskDetailView({
           </h1>
           <span className="flex shrink-0 items-center gap-2 whitespace-nowrap">
             <StatusTag status={task.coordinationStatus} />
+            {!external && <TaskMaterializationControl repoId={task.projectId} taskId={task.taskId} />}
             <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />
           </span>
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">

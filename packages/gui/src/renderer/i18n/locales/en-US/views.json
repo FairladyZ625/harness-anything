@@ -2188,5 +2188,17 @@
   "views.agenda.gatesEmpty": "No gates",
   "views.agenda.filesEmpty": "No file changes",
   "views.agenda.deliverySince": "Delivered {age}",
-  "views.agenda.tasksPending": "Loading tasks…"
+  "views.agenda.tasksPending": "Loading tasks…",
+  "views.settingsView.taskMaterializationPolicyLabel": "Task documents on this node",
+  "views.settingsView.taskMaterializationPolicyDescription": "Task documents materialized on this node.",
+  "views.settingsView.taskMaterializationPolicyEffect": "Reconcile this node's managed documents immediately without changing other nodes.",
+  "views.settingsView.enum.taskMaterializationPolicy.none": "No automatic materialization",
+  "views.settingsView.enum.taskMaterializationPolicy.in_flight": "In-flight tasks",
+  "views.settingsView.enum.taskMaterializationPolicy.include_done": "Include completed tasks",
+  "views.taskDetailView.skipped_by_node_policy": "Not on this node",
+  "views.taskDetailView.dematerialized_terminal": "Archived documents",
+  "views.taskDetailView.materialized": "Materialized locally",
+  "views.taskDetailView.materialize": "Materialize locally",
+  "views.taskDetailView.materializing": "Materializing…",
+  "views.settingsView.applyOnNode": "Apply on this node"
 }

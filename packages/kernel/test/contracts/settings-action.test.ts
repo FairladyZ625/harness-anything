@@ -148,6 +148,7 @@ test("one temporary declaration reaches update, YAML read/write, CLI help metada
   assert.deepEqual(settingsFieldPresentationFromDeclarations([temporary]), [
     {
       field: "temporaryContractLimit",
+      ownership: "repository",
       group: "capacity-agenda",
       effect: "Contract-only effect sentence used to prove declaration propagation.",
       defaultValue: 7,
@@ -700,4 +701,22 @@ test("path reviewers default to no additional review, and none clears them", () 
   if (cleared.kind !== "settings" || cleared.result.kind !== "event") throw new Error("missing cleared settings event");
   assert.deepEqual(cleared.result.bundle.event.payload.settings.review, { pathReviewers: [] });
   assert.doesNotMatch(cleared.result.bundle.blobs[0].body, /^  review:/mu);
+});
+
+test("node materialization policy is declared local and derived into closed action fields", () => {
+  const field = SETTINGS_FIELD_DECLARATIONS.find(({ path }) => path[0] === "nodeTaskMaterializationPolicy")!;
+  assert.equal(field.ownership, "local");
+  assert.deepEqual(field.allowedValues, ["none", "in_flight", "include_done"]);
+  assert.deepEqual(
+    settingsUpdateInputFields.find(({ field }) => field === "taskMaterializationPolicy")?.enum,
+    field.allowedValues,
+  );
+  const local = SETTINGS_DECLARATION_RUNTIME.applyLocalAction({}, { taskMaterializationPolicy: "in_flight" })!;
+  assert.equal(local.nodeTaskMaterializationPolicy, "in_flight");
+  assert.throws(
+    () => SETTINGS_DECLARATION_RUNTIME.applyLocalAction({}, { taskMaterializationPolicy: "all" }),
+    /taskMaterializationPolicy/u,
+  );
+  const written = SETTINGS_DECLARATION_RUNTIME.writeRepository(documentBody, { ...current, ...local });
+  assert.doesNotMatch(written, /nodeTaskMaterializationPolicy|in_flight/u);
 });

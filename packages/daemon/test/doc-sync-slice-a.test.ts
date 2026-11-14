@@ -1,4 +1,8 @@
 // harness-test-tier: integration
+import {
+  makeDaemonCommandReceipt,
+  validateDaemonGuiCommandReceipt,
+} from "../src/protocol/daemon-protocol-validate-results.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -1014,7 +1018,8 @@ test("materialize reports an already settled SQLite follower without inventing a
       firstReport = materializeReport(first.evidence);
     assert.equal(first.outcome, "applied", JSON.stringify(first));
     assert.equal(first.acceptance, null);
-    assert.equal(first.proof?.worktreeVisible, true);
+    assert.equal(first.status, "settled_no_write");
+    assert.equal(first.proof, undefined, "host effects do not claim committed proof");
     assert.deepEqual(firstReport.settlements, []);
     assert.deepEqual(firstReport.conflicts, []);
     assert.equal(existsSync(taskRoot), true);
@@ -1026,7 +1031,8 @@ test("materialize reports an already settled SQLite follower without inventing a
       secondReport = materializeReport(second.evidence);
     assert.equal(second.outcome, "applied", JSON.stringify(second));
     assert.equal(second.acceptance, null);
-    assert.equal(second.proof?.worktreeVisible, true);
+    assert.equal(second.status, "settled_no_write");
+    assert.equal(second.proof, undefined);
     assert.equal(second.opId, first.opId);
     assert.deepEqual(secondReport.settlements, []);
     assert.deepEqual(secondReport.conflicts, []);
@@ -1079,7 +1085,9 @@ test("the SQLite worktree follower preserves a caller edit and recovers from its
     const conflicted = await cell.run({ kind: "doc-materialize", paths: [] }, binding);
     assert.equal(conflicted.outcome, "pending");
     assert.equal(conflicted.acceptance, null);
-    assert.equal(conflicted.proof?.worktreeVisible, false);
+    assert.equal(conflicted.proof, undefined);
+    assert.deepEqual(validateDaemonGuiCommandReceipt(makeDaemonCommandReceipt("doc-materialize", conflicted)), []);
+    assert.ok(materializeReport(conflicted.evidence).conflicts.some((path) => path.endsWith(logical)));
     assert.equal(readFileSync(path.join(rootDir, "harness", logical), "utf8"), local);
 
     rmSync(path.join(rootDir, "harness", logical));
@@ -1106,7 +1114,8 @@ test("the SQLite worktree follower preserves a caller edit and recovers from its
     const retried = await cell.run({ kind: "doc-materialize", paths: [], all: true }, binding);
     assert.equal(retried.acceptance, null);
     assert.equal(retried.outcome, "applied");
-    assert.equal(retried.proof?.worktreeVisible, true);
+    assert.equal(retried.status, "settled_no_write");
+    assert.equal(retried.proof, undefined);
     const worktreeSettled = await waitForWorktree(cell, submitted);
     assert.equal(worktreeSettled.worktree.state, "verified");
     assert.equal(worktreeSettled.proof?.worktreeVisible, true);

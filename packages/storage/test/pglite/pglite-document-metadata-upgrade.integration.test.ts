@@ -36,7 +36,7 @@ pgliteIntegrationSuite("PGlite v5 document metadata upgrade", () => {
               policyId: "document/v1",
               workspaceRevision: 0,
             });
-          for (const path of ["context/architecture.md", "tasks/task-old/task_plan.md", "tasks0/kept.md"])
+          for (const path of ["context/architecture.md", "tasks/task_old/task_plan.md", "tasks0/kept.md"])
             await v5PutDocument(client, scope, {
               path,
               body: "materialization range",

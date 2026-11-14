@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { INITIAL_SETTINGS_V1, localSettings, type LocalSettingsV1 } from "@harness-anything/kernel";
+import { nodeMaterializationStorage } from "../src/node-materialization-settings.ts";
 import { makeRepoCellSettingsState } from "../src/repo-cell-settings-state.ts";
 
 function settingsStateFor(rootDir: string, appended: { count: number } = { count: 0 }) {
@@ -49,6 +50,7 @@ test("local state stays local and does not append a settings event", () => {
     assert.equal(existsSync(localPath), true);
     assert.deepEqual(JSON.parse(readFileSync(localPath, "utf8")), {
       schema: "settings-local/v1",
+      nodeTaskMaterializationPolicy: "include_done",
       locale: "zh-CN",
       gui: { connectTimeoutMs: 2000, requestTimeoutMs: 30000 },
     });
@@ -90,5 +92,30 @@ test("a gui deadline update keeps the machine's current locale and takes effect 
     assert.equal(settings.writeLocal(raised), false);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("role defaults survive old preference files and local policy updates reach live configurations only on this node", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settings-policy-")),
+    other = mkdtempSync(path.join(tmpdir(), "ha-settings-policy-other-"));
+  try {
+    mkdirSync(path.join(rootDir, ".harness"));
+    writeFileSync(
+      path.join(rootDir, ".harness/settings.local.json"),
+      JSON.stringify({ schema: "settings-local/v1", locale: "zh-CN" }),
+    );
+    const center = nodeMaterializationStorage({ rootDir, mode: "remote-center" }),
+      edge = nodeMaterializationStorage({ rootDir, mode: "remote-edge" }),
+      otherNode = nodeMaterializationStorage({ rootDir: other, mode: "remote-edge" });
+    assert.equal(center.nodeTaskMaterializationPolicy, "none");
+    assert.equal(edge.nodeTaskMaterializationPolicy, "in_flight");
+    const settings = settingsStateFor(rootDir);
+    settings.writeLocal({ ...settings.readLocal(), nodeTaskMaterializationPolicy: "include_done" });
+    assert.equal(edge.nodeTaskMaterializationPolicy, "include_done");
+    assert.equal(center.nodeTaskMaterializationPolicy, "include_done");
+    assert.equal(otherNode.nodeTaskMaterializationPolicy, "in_flight");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+    rmSync(other, { recursive: true, force: true });
   }
 });

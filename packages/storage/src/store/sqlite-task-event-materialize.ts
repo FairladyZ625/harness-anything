@@ -45,6 +45,7 @@ export interface MaterializeStoreContext {
     afterRevision?: number,
     expectedRevision?: number,
     previouslyMaterializedPaths?: readonly string[],
+    reconcileNodePolicy?: boolean,
   ) =>
     | readonly {
         readonly path: string;
@@ -150,6 +151,8 @@ export function closureFiles(
   from: number,
   includePolicySkippedPaths: readonly string[] = [],
   skipUnchanged = false,
+  reconcileNodePolicy = false,
+  preserveExistingOnly = false,
 ): { readonly events: readonly CanonicalEventV1[]; readonly files: readonly (PublicationWrite | PublicationDelete)[] } {
   const pending = from === 0 ? [] : readPendingEvents(context.sqlite, from);
   // Creation owns a new planned package, included by both disk-enabled node policies.
@@ -194,6 +197,7 @@ export function closureFiles(
     from > 0 ? from : undefined,
     accepted.revision,
     previouslyMaterializedManagedPaths,
+    reconcileNodePolicy,
   );
   if (context.readMaterializationDocuments && projectionDocuments === null)
     throw new TaskEventStoreError(
@@ -202,15 +206,18 @@ export function closureFiles(
     );
   if (projectionDocuments !== undefined && projectionDocuments !== null) {
     const events = pending,
+      previousPaths = new Set(previouslyMaterializedManagedPaths),
       indexed = new Map(
-        projectionDocuments.map((document) => [
-          document.path,
-          {
-            sha256: document.retired ? null : document.blobSha256,
-            size: document.retired ? null : document.size,
-            nodeKind: "file" as const,
-          },
-        ]),
+        projectionDocuments
+          .filter((document) => !preserveExistingOnly || previousPaths.has(document.path))
+          .map((document) => [
+            document.path,
+            {
+              sha256: document.retired ? null : document.blobSha256,
+              size: document.retired ? null : document.size,
+              nodeKind: "file" as const,
+            },
+          ]),
       ),
       staleManagedHeads = previouslyMaterializedManagedPaths
         .filter((path) => !indexed.has(path))

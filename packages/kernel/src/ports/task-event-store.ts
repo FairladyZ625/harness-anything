@@ -119,6 +119,8 @@ export interface MaterializationReceipt {
   readonly conflicts: readonly string[];
 }
 export interface MaterializationRequest {
+  /** Settings settlement: prune skipped done packages; none preserves the existing in-flight/context tree. */
+  readonly reconcileNodePolicy?: boolean;
   /** Restrict the restore to these authored document paths; omitted settles the whole closure. */
   readonly paths?: readonly string[];
   /** Report what a whole-closure settlement would touch without changing any file. */

@@ -21,6 +21,7 @@ export type CommandInterceptionRule = NonNullable<
 
 /** 契约字段描述,形状对齐 daemon catalog snapshot 的 settingsFields 行。 */
 export interface SettingsFieldDescriptor {
+  readonly ownership?: "repository" | "local";
   readonly field: string;
   readonly description?: string;
   readonly type: string;
@@ -63,6 +64,7 @@ export type SettingsFieldWidget =
   | "text";
 
 export interface SettingsFieldRow {
+  readonly ownership: "repository" | "local";
   readonly field: string;
   readonly description: string | null;
   readonly widget: SettingsFieldWidget;
@@ -110,6 +112,7 @@ function settingsFieldRow(
 ): SettingsFieldRow {
   return {
     field: descriptor.field,
+    ownership: descriptor.ownership ?? "repository",
     description: descriptor.description ?? null,
     widget,
     options,

@@ -244,6 +244,12 @@
     "owner": "repository",
     "sources": [
       {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/taskDetail/TaskMaterializationControl.tsx#TaskMaterializationControl.availability.queryFn.result:f97ef35e052e77a11f385f5807ca5aa7",
+        "route": "repository-read",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      },
+      {
         "candidateId": "action:packages/cli:packages/cli/src/cli-input-codec.ts#invalid:b52c09437e1988d52bedf9e24aa699f7",
         "route": "repository-read",
         "role": "support"
@@ -5558,6 +5564,12 @@
       }
     },
     "sources": [
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.publishConfirmedFollower.requirePreviousPaths:833067ea90b76f3ef0eaedda135f5fb8",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/runtime-instance-selection.ts#createRuntimeInstanceDispatchState.deactivate:09fe6f9969c5b6e690a47d9ac2fb188a",
         "route": "daemon-local-state",
@@ -12185,6 +12197,12 @@
   "doc-materialize": {
     "owner": "document",
     "sources": [
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/taskDetail/TaskMaterializationControl.tsx#TaskMaterializationControl.materialize.mutationFn.receipt:f34d53abf0f68551819e035cc88a16d1",
+        "route": "task.materialize",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/doc-sync-materialize-action.ts#runDocMaterialize:7c03e74857c479aa3e6a14e60dc37d6e",
         "route": "doc-materialize",

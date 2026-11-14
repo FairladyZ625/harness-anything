@@ -88,6 +88,9 @@ async function mountSettings(mode: SystemRepoRow["mode"]) {
       reviewReturnBudget: 2,
       closeoutReview: false,
       locale: "en-US",
+      taskMaterializationPolicy: "include_done",
+      guiConnectTimeoutMs: 2_000,
+      guiRequestTimeoutMs: 30_000,
     },
     revision: 1,
     lastChanged: "initial",
@@ -166,7 +169,14 @@ describe("settings distinguish machine preferences from repository governance", 
     ).filter((control) => {
       const testId = control.dataset.testid;
       return (
-        testId !== "settings-search" && testId !== "settings-advanced-toggle" && !testId?.startsWith("settings-tab-")
+        ![
+          "settings-taskMaterializationPolicy-select",
+          "settings-guiConnectTimeoutMs-input",
+          "settings-guiRequestTimeoutMs-input",
+        ].includes(testId ?? "") &&
+        testId !== "settings-search" &&
+        testId !== "settings-advanced-toggle" &&
+        !testId?.startsWith("settings-tab-")
       );
     });
     expect(editControls.length).toBeGreaterThan(3);
@@ -231,6 +241,33 @@ describe("settings distinguish machine preferences from repository governance", 
       expect(localStorage.getItem("harness-locale")).toBe("zh-CN");
       expect(updateCalls).toEqual([]);
       expect(container.textContent).not.toContain("fetch failed");
+    },
+  );
+
+  it.each(["local", "remote-edge"] as const)(
+    "derives the local materialization selector and submits only its change (%s)",
+    async (mode) => {
+      const { container, updateCalls } = await mountSettings(mode);
+      const control = container.querySelector<HTMLSelectElement>(
+        '[data-testid="settings-taskMaterializationPolicy-select"]',
+      )!;
+      expect(control.disabled).toBe(false);
+      expect(Array.from(control.options).map((option) => option.value)).toEqual(["none", "in_flight", "include_done"]);
+      await act(async () => {
+        control.value = "in_flight";
+        control.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      const save = container.querySelector<HTMLButtonElement>('[data-testid="settings-repository-save"]')!;
+      expect(save.disabled).toBe(false);
+      await act(async () => save.click());
+      expect(updateCalls).toEqual([
+        {
+          repoId: REPO_ID,
+          expectedVersion: 1,
+          taskMaterializationPolicy: "in_flight",
+          idempotencyKey: expect.any(String),
+        },
+      ]);
     },
   );
 
