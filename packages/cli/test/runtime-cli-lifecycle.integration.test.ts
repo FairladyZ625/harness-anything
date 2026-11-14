@@ -81,7 +81,7 @@ test(
   "parked runtime awaits omit the repo-read response deadline at the transport seam",
   { timeout: 300_000 },
   async (context) => {
-    const { root, env } = createRuntimeFixture(context);
+    const { root, env } = createRuntimeFixture(context, true);
     const deadlines: unknown[] = [];
     const captureDeadline =
       <Args extends unknown[], Result>(_request: (...args: Args) => Promise<Result>) =>
@@ -121,8 +121,8 @@ test(
   "Task dispatch rejects an incomplete plan then automatically acquires its lease",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context);
-    installIdentities(fixture.parent, fixture.root, fixture.env);
+    const fixture = createRuntimeFixture(context, true);
+    installIdentities(fixture.parent, fixture.root, fixture.env, true);
     const { root, env } = fixture;
     const taskId = "task-runtime-automatic-lease";
     const automaticTaskId = `${taskId}-automatic`;
@@ -194,8 +194,8 @@ test(
 );
 
 const cancellationResumeTest = async (context: TestContext) => {
-  const fixture = createRuntimeFixture(context);
-  installIdentities(fixture.parent, fixture.root, fixture.env);
+  const fixture = createRuntimeFixture(context, true);
+  installIdentities(fixture.parent, fixture.root, fixture.env, true);
   const { parent, root, env, userRoot, daemonId } = fixture;
   const { taskId, executionId, packagePath, artifactRoot } = seedTask(root, env, "cancel-resume");
   const workerRelative = ".worktrees/resume-worker",
@@ -376,8 +376,8 @@ test(
   "rejected task resume stream cleanup follows the observed lease stop proof",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context);
-    installIdentities(fixture.parent, fixture.root, fixture.env);
+    const fixture = createRuntimeFixture(context, true);
+    installIdentities(fixture.parent, fixture.root, fixture.env, true);
     const { root, env } = fixture,
       { taskId, executionId } = seedTask(root, env, "rejected-resume-stop-proof");
     run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
@@ -455,7 +455,7 @@ test(
   "Detached runtime results are retrieved from another CLI process over a reused connection",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context);
+    const fixture = createRuntimeFixture(context, true);
     const { root, env, userRoot, daemonId } = fixture;
     const detachedProcess = runMaybe(root, env, [
         "runtime",
@@ -501,7 +501,7 @@ test(
   "Daemon request contracts receive executor attribution only on declared surfaces",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context);
+    const fixture = createRuntimeFixture(context, true);
     const { root, env } = fixture;
     const { taskId, executionId } = seedTask(root, env, "executor");
     run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
@@ -548,7 +548,7 @@ test(
   "CLI installs identities, updates squads and assembles wildcard worker prompts",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context);
+    const fixture = createRuntimeFixture(context, true);
     const { parent, root, env } = fixture;
     const { squadSource } = installIdentities(parent, root, env);
     const agents = JSON.parse(String(run(root, env, ["agent", "list"]).evidence)) as { agents: Array<{ id: string }> },
@@ -628,8 +628,8 @@ test(
   "Concurrent fact writes preserve runtime progress attribution and task wait artifacts",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context);
-    installIdentities(fixture.parent, fixture.root, fixture.env);
+    const fixture = createRuntimeFixture(context, true);
+    installIdentities(fixture.parent, fixture.root, fixture.env, true);
     const { root, env } = fixture;
     const { taskId, executionId, packagePath } = seedTask(root, env, "progress");
     run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
@@ -724,7 +724,7 @@ test(
   "A detached runtime worker survives daemon restart and remains cancellable",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context);
+    const fixture = createRuntimeFixture(context, true);
     const { root, env } = fixture;
     const restartDetached = run(root, env, ["runtime", "run", "cli-worker", "--prompt", "hold", "--detach"]),
       restartSessionId = String(restartDetached.runtimeSessionId),
@@ -768,7 +768,7 @@ test(
   "Read-only dispatch contracts and closed batch and wire payloads are enforced",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context);
+    const fixture = createRuntimeFixture(context, true);
     const { root, env } = fixture;
     const { taskId, executionId } = seedTask(root, env, "validation");
     run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
@@ -909,8 +909,8 @@ for (const afterResult of [false, true])
       skip: process.platform === "win32" ? "requires POSIX SIGKILL kill point semantics" : false,
     },
     async (context) => {
-      const { parent, root, env, version } = createRuntimeFixture(context);
-      installIdentities(parent, root, env);
+      const { parent, root, env, version } = createRuntimeFixture(context, true);
+      installIdentities(parent, root, env, true);
       const pidPath = path.join(parent, "lost-provider.pid");
       writeProviderExecutable(
         path.join(parent, "bin", "codex"),
