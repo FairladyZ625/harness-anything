@@ -390,5 +390,18 @@
   "components.taskReturnDialog.resumeSession": "Resume session",
   "components.taskReturnDialog.freshWorker": "Fresh worker",
   "components.taskReturnDialog.cancel": "Cancel",
-  "components.taskReturnDialog.diffReview": "Code change notes"
+  "components.taskReturnDialog.diffReview": "Code change notes",
+  "components.taskJourney.controlLane": "Control & gates",
+  "components.taskJourney.workerLane": "Worker rounds",
+  "components.taskJourney.creation": "Created",
+  "components.taskJourney.execution": "Execution",
+  "components.taskJourney.review": "Review",
+  "components.taskJourney.waitingReview": "Awaiting review",
+  "components.taskJourney.inspector": "Node inspector",
+  "components.taskJourney.openSession": "Open session",
+  "components.taskJourney.openRecord": "Open record",
+  "components.taskJourney.rawRecords": "Raw records · {count}",
+  "components.taskJourney.readError": "Dispatch read failed: {message}",
+  "components.taskJourney.blocked": "Blocked",
+  "components.taskJourney.roundCount": "{count} rounds"
 }

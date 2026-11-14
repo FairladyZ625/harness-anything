@@ -390,5 +390,18 @@
   "components.taskReturnDialog.resumeSession": "续跑原会话",
   "components.taskReturnDialog.freshWorker": "全新 Worker",
   "components.taskReturnDialog.cancel": "取消",
-  "components.taskReturnDialog.diffReview": "代码变更批注"
+  "components.taskReturnDialog.diffReview": "代码变更批注",
+  "components.taskJourney.controlLane": "指挥与门禁",
+  "components.taskJourney.workerLane": "执行轮次",
+  "components.taskJourney.creation": "立项",
+  "components.taskJourney.execution": "执行",
+  "components.taskJourney.review": "评审",
+  "components.taskJourney.waitingReview": "待裁决",
+  "components.taskJourney.inspector": "节点详情",
+  "components.taskJourney.openSession": "打开会话",
+  "components.taskJourney.openRecord": "打开记录",
+  "components.taskJourney.rawRecords": "原始记录 · {count}",
+  "components.taskJourney.readError": "派工读取失败：{message}",
+  "components.taskJourney.blocked": "阻塞",
+  "components.taskJourney.roundCount": "{count} 轮"
 }

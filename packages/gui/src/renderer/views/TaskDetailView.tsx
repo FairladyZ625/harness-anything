@@ -555,13 +555,22 @@ export function TaskDetailView({
                 </div>
               ),
             },
-            ...((task.events ?? []).length > 0
+            ...((task.events ?? []).length > 0 ||
+            (task.blockers ?? []).length > 0 ||
+            task.activeExecutionId !== undefined
               ? [
                   {
                     id: "timeline",
                     title: t("components.pageRegions.timeline"),
                     testId: "task-progress-timeline",
-                    content: <TaskTimelineRegion task={task} onOpenRecord={openCloseoutRecord} />,
+                    content: (
+                      <TaskTimelineRegion
+                        task={task}
+                        onOpenRecord={openCloseoutRecord}
+                        onNavigateEntity={onNavigateEntity}
+                        onOpenSession={openSession}
+                      />
+                    ),
                   },
                 ]
               : []),

@@ -1,3 +1,5 @@
+import { TaskJourneyGraph } from "./TaskJourneyGraph.tsx";
+import { buildTaskJourney } from "../../model/task-journey.ts";
 import { DispatchAdvisories } from "./DispatchAdvisories.tsx";
 import { useMemo } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -145,19 +147,53 @@ export function TaskOverviewTab({
   );
 }
 
-/** 页级停靠区域:任务详情第三块(文件|正文|时间线),内容与概况页签同一份 TaskEventDigest。 */
+/** Task journey shares the dispatch tab cache; the complete audit remains in the DOM. */
 export function TaskTimelineRegion({
   task,
   onOpenRecord,
+  onNavigateEntity,
+  onOpenSession,
 }: {
   readonly task: TaskRow;
-  /** 时间线引用对象(execution/review/…)的打开出口:落收口页签对应记录行。 */
   readonly onOpenRecord?: (recordRef: string) => void;
+  readonly onNavigateEntity?: (ref: string) => void;
+  readonly onOpenSession?: (runtimeSessionId: string) => void;
 }) {
   const events = task.events ?? [];
+  const dispatches = useQuery({
+    queryKey: runtimeQueryKeys.dispatches(task.projectId, task.taskId),
+    queryFn: () => readAllTaskDispatches({ repoId: task.projectId, taskId: task.taskId }),
+    staleTime: 4_000,
+  });
+  const journey = useMemo(
+    () => buildTaskJourney({ task, dispatches: dispatches.data?.dispatches ?? [] }),
+    [task, dispatches.data],
+  );
   return (
-    <Region title={t("components.pageRegions.timeline")} big={events.length} padded footer="生命周期记录，按天归并">
-      <TaskEventDigest events={events} onOpenRecord={onOpenRecord} />
+    <Region
+      title={t("components.pageRegions.timeline")}
+      big={t("components.taskJourney.roundCount", {
+        count: journey.nodes.filter((node) => node.lane === "worker").length,
+      })}
+      padded
+    >
+      <TaskJourneyGraph
+        journey={journey}
+        onNavigateEntity={onNavigateEntity}
+        onOpenSession={onOpenSession}
+        onOpenRecord={onOpenRecord}
+      />
+      {dispatches.isError && (
+        <p role="alert" className="ui-meta text-danger">
+          {t("components.taskJourney.readError", { message: dispatches.error.message })}
+        </p>
+      )}
+      <details className="border-t border-border py-2">
+        <summary className="cursor-pointer ui-meta text-text-muted">
+          {t("components.taskJourney.rawRecords", { count: events.length })}
+        </summary>
+        <TaskEventDigest events={events} onOpenRecord={onOpenRecord} />
+      </details>
     </Region>
   );
 }
