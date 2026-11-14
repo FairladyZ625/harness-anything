@@ -14,7 +14,7 @@ interface RuntimeAuthRequest extends TerminalAttachSession {
 export function useRuntimeAuthTerminal(repoId: string, view: string) {
   const client = useQueryClient();
   const [request, setRequest] = useState<RuntimeAuthRequest | null>(null);
-  const refreshing = useRef(new Set<string>());
+  const refreshing = useRef<string | null>(null);
   const { mutate, reset, error } = useMutation({
     mutationFn: async ({
       target,
@@ -41,13 +41,13 @@ export function useRuntimeAuthTerminal(repoId: string, view: string) {
       if (refreshed) setRequest((current) => (current?.requestId === target.requestId ? null : current));
     },
     onSettled: (_data, _error, { target }) => {
-      refreshing.current.delete(target.requestId);
+      if (refreshing.current === target.requestId) refreshing.current = null;
     },
   });
   const refresh = useCallback(
     (target: RuntimeAuthRequest, requireSuccessfulExit: boolean) => {
-      if (refreshing.current.has(target.requestId)) return;
-      refreshing.current.add(target.requestId);
+      if (refreshing.current === target.requestId) return;
+      refreshing.current = target.requestId;
       mutate({ target, requireSuccessfulExit });
     },
     [mutate],

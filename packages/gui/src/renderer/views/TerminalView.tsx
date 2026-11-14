@@ -143,7 +143,7 @@ export function TerminalView({
   const exitedSessions = useRef(new Set<string>());
   const ackSeq = useRef(new Map<string, number>()),
     inflight = useRef(new Map<string, Promise<void>>());
-  const initialised = useRef(new Set<string>());
+  const initialisedRepo = useRef<string | null>(null);
   const [error, setError] = useState<string | null>(null),
     [confirmId, setConfirmId] = useState<string | null>(null);
   const [preferences, setPreferences] = useState<TerminalPreferences>(() =>
@@ -171,7 +171,7 @@ export function TerminalView({
   }, [preferences]);
   // 布局只在该仓已完成一次恢复之后才回写,否则切仓瞬间的空布局会覆盖新仓的存档。
   useEffect(() => {
-    if (repoId === "unselected" || !initialised.current.has(repoId)) return;
+    if (repoId === "unselected" || initialisedRepo.current !== repoId) return;
     writeTerminalLayout(window.localStorage, repoId, { activeGroupId, groups });
   }, [activeGroupId, groups, repoId]);
 
@@ -182,7 +182,7 @@ export function TerminalView({
     stops.current.clear();
     tabsRef.current = [];
     groupsRef.current = [];
-    initialised.current.delete(detachRepoId);
+    initialisedRepo.current = null;
     setTabs([]);
     setGroups([]);
     setActiveGroupId(null);
@@ -210,7 +210,6 @@ export function TerminalView({
     if (repoIdRef.current === repoId) return;
     const previous = repoIdRef.current;
     repoIdRef.current = repoId;
-    initialised.current.delete(previous);
     void releaseTabs(previous);
   }, [repoId, releaseTabs]);
 
@@ -348,9 +347,12 @@ export function TerminalView({
   // 存档里的会话逐个 re-attach;没有存档时退回 W0 的「附加最近会话 / 新建」。
   useEffect(() => {
     const shouldSkip =
-      repoId === "unselected" || !sessions.isSuccess || groupsRef.current.length > 0 || initialised.current.has(repoId);
+      repoId === "unselected" ||
+      !sessions.isSuccess ||
+      groupsRef.current.length > 0 ||
+      initialisedRepo.current === repoId;
     if (shouldSkip) return;
-    initialised.current.add(repoId);
+    initialisedRepo.current = repoId;
     const stored = readTerminalLayout(window.localStorage, repoId);
     if (stored.groups.length > 0) {
       setGroups(stored.groups);
@@ -373,7 +375,7 @@ export function TerminalView({
     if (
       !attachSession ||
       !sessions.isSuccess ||
-      !initialised.current.has(repoId) ||
+      initialisedRepo.current !== repoId ||
       attachedRequest.current === attachSession.requestId
     )
       return;
