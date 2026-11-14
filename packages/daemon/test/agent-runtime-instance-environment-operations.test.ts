@@ -246,6 +246,8 @@ test("persisted schema v2 records normalize permission and isolation fields once
         models: ["gpt-5.6-sol"],
         defaultModel: "gpt-5.6-sol",
         enabled: true,
+        // dec_DA1602487428A58E8B446ECE38/CH3: persisted instances acquire the default tier.
+        tier: 1,
         credentialSource: "operator",
         permissionMode: "bypass",
         isolationState: "operator-environment",
@@ -266,6 +268,7 @@ test("persisted schema v2 records normalize permission and isolation fields once
         models: ["claude-fable-5"],
         defaultModel: "claude-fable-5",
         enabled: true,
+        tier: 1,
         credentialSource: "operator",
         permissionMode: "bypass",
         isolationState: "operator-environment",

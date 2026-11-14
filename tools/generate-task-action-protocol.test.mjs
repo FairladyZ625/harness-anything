@@ -79,6 +79,8 @@ test("Task Action transport has one current build-time projection", async () => 
       "worktreeSetupStepTimeoutMs",
       "taskAssignmentTtlMs",
       "fleetClaimScope",
+      // dec_DA1602487428A58E8B446ECE38/CH3 adds user-selected same-tier scheduling.
+      "runtimeSelectionStrategy",
       "runtimeAllowedInstances",
       "runtimeCommandInterceptions",
       "runtimeAgentSkills",
