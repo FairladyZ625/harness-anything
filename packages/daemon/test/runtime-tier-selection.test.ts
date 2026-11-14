@@ -4,7 +4,11 @@ import { lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
 import test from "node:test";
 import type { RuntimeInstanceSummary } from "../src/agent-runtime-instances.ts";
 import { prepareRuntimeInstance, resolveRuntimeInstanceCandidates } from "../src/runtime-spawn-mission.ts";
-import { agentRuntimeAmbiguityWarning, selectedRuntimeInstance } from "../src/runtime-instance-selection.ts";
+import {
+  agentRuntimeAmbiguityWarning,
+  selectedRuntimeInstance,
+  createRuntimeInstanceDispatchState,
+} from "../src/runtime-instance-selection.ts";
 
 const instance = (instanceId: string, tier: number, models = ["Hydrogen"]): RuntimeInstanceSummary =>
   ({
@@ -31,9 +35,59 @@ const input = (instances: readonly RuntimeInstanceSummary[]) => ({
   agent,
   instances,
   sessions: [],
-  capacity: [],
   allowedInstanceIds: instances.map((row) => row.instanceId),
   now,
+});
+
+for (const selectionStrategy of ["sticky", "lru"] as const) {
+  test(`F1: ${selectionStrategy} ignores a remote node's same-named instance load`, () => {
+    const remote = lifecycleReadForSync([
+      { runtimeSessionId: "remote-a", dispatchId: "remote-a", instanceId: "pro-a", owner: "node:remote" },
+    ])({ by: "active", limit: 100 });
+    assert.equal(remote.status, "ready");
+    if (remote.status !== "ready") throw new Error("fixture not ready");
+    const localState = createRuntimeInstanceDispatchState(),
+      remoteState = createRuntimeInstanceDispatchState();
+    remoteState.activate("remote-a", "pro-a");
+    assert.equal(remoteState.readActiveLoads().get("pro-a"), 1);
+    assert.equal(localState.readActiveLoads().size, 0);
+    const request = {
+      ...input([instance("pro-a", 1), instance("pro-b", 1)]),
+      selectionStrategy,
+      capacity: remote.rows,
+      dispatchState: localState,
+    };
+    assert.equal(resolveRuntimeInstanceCandidates(request)[0], "pro-a");
+  });
+}
+
+test("F1: node-local activation is idempotent and releases only the settled attempt", async () => {
+  const state = createRuntimeInstanceDispatchState(),
+    activate = (runtimeSessionId: string, instanceId: string) => state.activate(runtimeSessionId, instanceId);
+  activate("x-a", "pro-a");
+  activate("y-b", "pro-b");
+  assert.deepEqual(
+    [...state.readActiveLoads()],
+    [
+      ["pro-a", 1],
+      ["pro-b", 1],
+    ],
+  );
+  activate("adopted-a", "pro-a");
+  activate("adopted-a", "pro-a");
+  assert.equal(state.readActiveLoads().get("pro-a"), 2);
+  state.deactivate("x-a");
+  assert.equal(state.readActiveLoads().get("pro-a"), 1);
+  state.deactivate("adopted-a");
+  assert.equal(state.readActiveLoads().has("pro-a"), false);
+  const preview = await prepareRuntimeInstance(
+    { ...input([instance("pro-b", 1), instance("pro-a", 1)]), dispatchState: state, dryRun: true },
+    async (id) => id,
+  );
+  assert.equal(preview.instanceId, "pro-a");
+  assert.equal(state.lastDispatchedAt.size, 0, "a preview reads local load without changing recency");
+  state.deactivate("y-b");
+  assert.equal(state.readActiveLoads().size, 0);
 });
 
 test("CH3: tier precedes static preference; cooling the Pro pool spills into compatible Ultra", () => {
@@ -75,6 +129,7 @@ for (const strategy of ["sticky", "lru"] as const) {
     const lastDispatchedAt = new Map<string, number>();
     let sequence = 0;
     const dispatchState = {
+      ...createRuntimeInstanceDispatchState(),
       lastDispatchedAt,
       recordDispatch: (id: string) => {
         lastDispatchedAt.set(id, ++sequence);
@@ -129,6 +184,7 @@ test("CH3: Agent strategy overrides repository strategy and LRU recency wins ove
     selectionStrategy: "sticky" as const,
     agent: { ...agent, selectionStrategy: "lru" as const, preferredInstances: ["pro-a"] },
     dispatchState: {
+      ...createRuntimeInstanceDispatchState(),
       lastDispatchedAt: new Map([
         ["pro-a", 2],
         ["pro-b", 1],
@@ -147,6 +203,7 @@ test("CH3: concurrent preparations see the previous selection before its provide
     ...input([instance("pro-a", 1), instance("pro-b", 1)]),
     selectionStrategy: "lru" as const,
     dispatchState: {
+      ...createRuntimeInstanceDispatchState(),
       lastDispatchedAt,
       recordDispatch: (id: string) => {
         lastDispatchedAt.set(id, ++sequence);
@@ -175,11 +232,13 @@ for (const selectionStrategy of ["sticky", "lru"] as const) {
     ])({ by: "active", limit: 100 });
     assert.equal(capacity.status, "ready");
     if (capacity.status !== "ready") throw new Error("fixture not ready");
+    const dispatchState = createRuntimeInstanceDispatchState();
+    for (const { attempt } of capacity.rows) dispatchState.activate(attempt.runtimeSessionId, attempt.instanceId);
+    dispatchState.recordDispatch("pro-b");
     const request = {
       ...input([instance("pro-a", 1), instance("pro-b", 1)]),
       selectionStrategy,
-      capacity: capacity.rows,
-      dispatchState: { lastDispatchedAt: new Map([["pro-b", 100]]), recordDispatch: () => {} },
+      dispatchState,
     };
     if (selectionStrategy === "lru") assert.equal(resolveRuntimeInstanceCandidates(request)[0], "pro-b");
     assert.equal(

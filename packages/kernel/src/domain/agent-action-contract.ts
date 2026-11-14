@@ -1,4 +1,4 @@
-import { runtimeSelectionStrategies } from "./agent-runtime.ts";
+import { runtimeSelectionStrategies } from "./runtime-instance-scheduling.ts";
 import { parseAgentDeclarationV1, requiredPreparedText, type AgentDeclarationV1 } from "./agent-squad-schema.ts";
 import type {
   EntityActionContract,

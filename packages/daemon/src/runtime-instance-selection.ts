@@ -1,16 +1,28 @@
 import type {
   RuntimeInstanceDispatchState,
   RuntimeSelectionStrategy,
-} from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
+} from "@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts";
 
-/** Shared by all repository spawners on this node. O(instances) memory, O(1) per selection. */
+/** Node-local transient state. Mutations are O(1); load reads visit only currently active attempts. */
 export function createRuntimeInstanceDispatchState(): RuntimeInstanceDispatchState {
-  const lastDispatchedAt = new Map<string, number>();
+  const lastDispatchedAt = new Map<string, number>(),
+    activeInstances = new Map<string, string>();
   let sequence = 0;
   return {
     lastDispatchedAt,
     recordDispatch: (instanceId) => {
       lastDispatchedAt.set(instanceId, ++sequence);
+    },
+    activate: (runtimeSessionId, instanceId) => {
+      activeInstances.set(runtimeSessionId, instanceId);
+    },
+    deactivate: (runtimeSessionId) => {
+      activeInstances.delete(runtimeSessionId);
+    },
+    readActiveLoads: () => {
+      const loads = new Map<string, number>();
+      for (const instanceId of activeInstances.values()) loads.set(instanceId, (loads.get(instanceId) ?? 0) + 1);
+      return loads;
     },
   };
 }

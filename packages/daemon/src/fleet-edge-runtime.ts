@@ -96,7 +96,7 @@ export interface FleetEdgeRuntimeRequest {
 }
 type FleetRuntimeLocation = Omit<FleetEdgeRuntimeRequest["payload"], "method" | "action">;
 type RuntimePorts = {
-  readonly runtimeInstanceDispatchState?: RuntimeStatus.RuntimeInstanceDispatchState;
+  readonly runtimeInstanceDispatchState?: import("@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts").RuntimeInstanceDispatchState;
   readonly runtimeProviderHealth?: import("./runtime-provider-health.ts").RuntimeProviderHealthStore;
   readonly runtimeInstances: () => readonly RuntimeInstanceSummary[];
   readonly prepareRuntimeLaunch: (instanceId: string, request: RuntimeLaunchRequest) => Promise<PreparedRuntimeLaunch>;

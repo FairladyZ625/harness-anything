@@ -1,4 +1,4 @@
-import { runtimeSelectionStrategies } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
+import { runtimeSelectionStrategies } from "@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts";
 import { entityNonEmpty, entitySlug } from "@harness-anything/kernel";
 import { runtimeEffortValues } from "@harness-anything/kernel/runtime-effort";
 import { EntitySchemaContractError } from "@harness-anything/kernel";

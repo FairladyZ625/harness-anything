@@ -7,7 +7,7 @@ import {
   type EntityDocumentJsonSchema,
 } from "./entity-json-schema.ts";
 import { runtimeEffortValues, type RuntimeEffort } from "./runtime-effort.ts";
-import { runtimeSelectionStrategies, type RuntimeSelectionStrategy } from "./agent-runtime.ts";
+import { runtimeSelectionStrategies, type RuntimeSelectionStrategy } from "./runtime-instance-scheduling.ts";
 import type { OntologyPolicyDeclaration } from "./ontology-source.ts";
 
 export { runtimeEffortValues, type RuntimeEffort };

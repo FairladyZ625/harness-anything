@@ -384,10 +384,12 @@ async function restoreRuntime(
       `Runtime ${active.runtimeSessionId} is missing from its dispatch lifecycle after observation.`,
     );
   if (observedAttempt.policy.attemptSettled) {
+    context.dispatchState?.deactivate(active.runtimeSessionId);
     active.process.release?.();
     return true;
   }
   context.processes.set(active.runtimeSessionId, active);
+  context.dispatchState?.activate(active.runtimeSessionId, active.instanceId);
   if (observedAttempt.attempt.process === "alive") {
     if (active.spendCapExceeded) await context.enforceSpendCap(active);
     else if (fullStream) attachAdoptedObservations(context, active);

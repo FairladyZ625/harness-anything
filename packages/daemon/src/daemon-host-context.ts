@@ -31,7 +31,7 @@ export interface DaemonPoint extends JsonObject {
 }
 
 export interface DaemonRuntimePorts {
-  readonly runtimeInstanceDispatchState?: import("@harness-anything/kernel/internal/domain/agent-runtime.ts").RuntimeInstanceDispatchState;
+  readonly runtimeInstanceDispatchState?: import("@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts").RuntimeInstanceDispatchState;
   readonly runtimeInstances: () => readonly RuntimeInstanceSummary[];
   readonly runtimeProviderHealth: RuntimeProviderHealthStore;
   readonly prepareRuntimeLaunch: ReturnType<typeof openRuntimeInstanceStore>["prepareLaunch"];

@@ -1,5 +1,5 @@
 import { agentRuntimeSessionGroupStatusWords } from "@harness-anything/kernel/internal/domain/client-view-status.ts";
-import { validRuntimeInstanceTier } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
+import { validRuntimeInstanceTier } from "@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts";
 import type { RuntimeLiveness } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import type { DispatchAttemptOutcome } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 import type { LeasePhase } from "@harness-anything/kernel/internal/domain/execution.ts";

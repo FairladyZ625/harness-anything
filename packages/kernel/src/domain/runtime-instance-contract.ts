@@ -98,7 +98,7 @@ const runtimeInstanceSchedulingPolicy = {
   ownerRef: "runtime-instance",
   unit: "priority tier and same-tier strategy",
   bounds:
-    "Tier is an integer 1..9 (default 1), lower first after local model and health admission. Agent selectionStrategy overrides repository selectionStrategy (default sticky). Sticky prefers the first idle instance; lru minimizes active load then O(1) node-local dispatch sequence, with no history scan. Explicit pins and resumed sessions retain instance affinity. Model catalog exact/case-insensitive spelling resolves launch compatibility within an admitted pool.",
+    "Tier is an integer 1..9 (default 1), lower first after local model and health admission. Agent selectionStrategy overrides repository selectionStrategy (default sticky). Sticky prefers the first idle instance; lru minimizes this node's active handle count across all repository/Fleet runtime owners, then O(1) node-local dispatch sequence. Repository lifecycle rows and dispatch history are never a node load census. Explicit pins and resumed sessions retain instance affinity. Model catalog exact/case-insensitive spelling resolves launch compatibility within an admitted pool.",
   defaultValue: { tier: 1, selectionStrategy: "sticky" },
   version: 1,
   scope: "RuntimeInstance, Agent scheduling configuration and dispatch receipts",
@@ -106,6 +106,7 @@ const runtimeInstanceSchedulingPolicy = {
   fixtures: [
     "packages/daemon/test/runtime-tier-selection.test.ts",
     "packages/daemon/test/runtime-tier-store.integration.test.ts",
+    "packages/daemon/test/runtime-node-load.integration.test.ts",
     "packages/cli/test/runtime-scheduling-command.test.ts",
   ],
   sources: [

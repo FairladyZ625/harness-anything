@@ -10,6 +10,7 @@ import {
   agentRuntimeAmbiguityWarning,
   runtimeInstanceModel,
   selectedRuntimeInstance,
+  createRuntimeInstanceDispatchState,
 } from "../src/runtime-instance-selection.ts";
 
 function prepareRuntimeInstance<T>(
@@ -26,7 +27,10 @@ function prepareRuntimeInstance<T>(
   });
   const capacity = dispatchLifecycleReadOf(() => events)({ by: "active", limit: 100 });
   assert.equal(capacity.status, "ready");
-  return prepare({ ...input, capacity: capacity.status === "ready" ? capacity.rows : [] }, launch);
+  const dispatchState = input.dispatchState ?? createRuntimeInstanceDispatchState();
+  for (const [index, { attempt, policy }] of (capacity.status === "ready" ? capacity.rows : []).entries())
+    if (policy.capacity !== "released") dispatchState.activate(String(index), attempt.instanceId);
+  return prepare({ ...input, dispatchState }, launch);
 }
 
 const instance = (
@@ -276,7 +280,7 @@ test("prepare spreads live load across instances of one declared runtime row", a
   assert.deepEqual(attempts, ["codex-b"]);
 });
 
-test("prepare spreads load using liveness supplied by the dispatch lifecycle", async () => {
+test("prepare spreads load using this node's active handles", async () => {
   const attempts: string[] = [],
     sessions = [
       {

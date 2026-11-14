@@ -38,6 +38,7 @@ export interface RepoWriterBootstrapV1 {
     readonly defaultWriterEpochFence?: NonNullable<RepoCellBinding["writerEpochFence"]>;
   };
   readonly capabilities: {
+    readonly runtimeInstanceScheduling?: boolean;
     /** Only an injected (test) clock crosses threads; a production writer reads its own clock. */
     readonly canonicalStore?: boolean;
     readonly now: boolean;
@@ -183,6 +184,7 @@ export type RepoWriterCapabilityName =
   | "killpoint"
   | "shouldStop"
   | "runtimeInstances"
+  | "runtimeInstanceScheduling"
   | "keycloakCenter"
   | "keycloakSession"
   | "currentAccessToken"
@@ -203,6 +205,16 @@ export type RepoWriterCapabilityName =
   | "attemptTerminal"
   | "lifecycle"
   | "fleetBaseBackupTrace";
+
+export type RuntimeInstanceSchedulingCall =
+  | { readonly operation: "snapshot" }
+  | { readonly operation: "record"; readonly instanceId: string }
+  | { readonly operation: "activate"; readonly runtimeSessionId: string; readonly instanceId: string }
+  | { readonly operation: "deactivate"; readonly runtimeSessionId: string }
+  | {
+      readonly operation: "select";
+      readonly input: import("./runtime-spawn-mission.ts").RuntimeInstanceSelectionRequest;
+    };
 
 export interface RepoWriterFleetBaseBackupTraceV1 {
   readonly requestId: string;

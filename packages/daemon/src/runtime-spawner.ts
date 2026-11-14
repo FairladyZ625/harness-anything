@@ -221,6 +221,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   };
   const spawnAttempt = releaseFailedTaskClaim(spawnClaimAttempt);
   const extracted: RuntimeSpawnerContext = {
+    dispatchState,
     closed: () => fallbackClosed,
     input,
     requiredRuntimeStore,
@@ -480,7 +481,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         taskPackageRoot,
       );
     const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
-      [localRuntimeSessions, runtimeInstances, allowedInstanceIds, providerHealth, capacity] =
+      [localRuntimeSessions, runtimeInstances, allowedInstanceIds, providerHealth] =
         await resolveRuntimeDispatchResources(input, input.remote, projection!, providerSessionId ?? undefined),
       { squad, delegatedBy, agent, resolvedSkills, preset } = resolveDispatchAgent(
         input,
@@ -559,9 +560,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           instances: runtimeInstances,
           allowedInstanceIds,
           sessions: localRuntimeSessions,
-          capacity,
           selectionStrategy: input.readSettings?.().runtime.selectionStrategy,
-          ...(dryRun ? {} : { dispatchState }),
+          dispatchState,
+          dryRun,
+          selectRuntimeInstance: input.selectRuntimeInstance,
           health: providerHealth,
           now: input.now(),
         },
@@ -1076,6 +1078,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           console.error(`[review-worktree] ${newDispatchId} could not be reclaimed: ${reviewCleanupFailure.message}`);
       }
       if (process && !(await runtimeProcessTreeStopped(input.rootDir, newDispatchId, process))) return;
+      dispatchState.deactivate(runtimeSessionId);
       // A lost receipt (including credential issuance after commit) does not undo admission.
       // Center reads must be ready; an unavailable read preserves the stream and claim for recovery.
       const observed =
@@ -1321,6 +1324,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       resumeProviderSessionId: providerSessionId ?? null,
     });
     processes.set(runtimeSessionId, active);
+    dispatchState.activate(runtimeSessionId, active.instanceId);
     input.recordLifecycle?.({
       event: "runtime_spawn",
       runtimeSessionId,

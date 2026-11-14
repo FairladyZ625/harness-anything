@@ -1,4 +1,4 @@
-import { runtimeSelectionStrategies } from "./agent-runtime.ts";
+import { runtimeSelectionStrategies } from "./runtime-instance-scheduling.ts";
 import type { CommandInterception } from "./command-interceptions.ts";
 import type { EntityActionInputField } from "./entity-kind-registry.ts";
 import type { GateWitnessMappingV1 } from "./completion-contract.ts";

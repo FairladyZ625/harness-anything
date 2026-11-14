@@ -171,6 +171,37 @@ async function startRepoWriterWorker(): Promise<void> {
         ...(bootstrap.capabilities.runtimeInstances
           ? { runtimeInstances: () => syncCapability("runtimeInstances", null) }
           : {}),
+        ...(bootstrap.capabilities.runtimeInstanceScheduling
+          ? {
+              runtimeInstanceDispatchState: {
+                get lastDispatchedAt() {
+                  return new Map(
+                    syncCapability<{ recency: [string, number][] }>("runtimeInstanceScheduling", {
+                      operation: "snapshot",
+                    }).recency,
+                  );
+                },
+                recordDispatch: (instanceId: string) => {
+                  syncCapability("runtimeInstanceScheduling", { operation: "record", instanceId });
+                },
+                activate: (runtimeSessionId: string, instanceId: string) => {
+                  syncCapability("runtimeInstanceScheduling", { operation: "activate", runtimeSessionId, instanceId });
+                },
+                deactivate: (runtimeSessionId: string) => {
+                  syncCapability("runtimeInstanceScheduling", { operation: "deactivate", runtimeSessionId });
+                },
+                readActiveLoads: () =>
+                  new Map(
+                    syncCapability<{ loads: [string, number][] }>("runtimeInstanceScheduling", {
+                      operation: "snapshot",
+                    }).loads,
+                  ),
+              },
+              selectRuntimeInstance: (
+                selection: import("./runtime-spawn-mission.ts").RuntimeInstanceSelectionRequest,
+              ) => syncCapability<string[]>("runtimeInstanceScheduling", { operation: "select", input: selection }),
+            }
+          : {}),
         ...(bootstrap.capabilities.keycloakSession
           ? {
               keycloakSession: (rootDir: string) =>

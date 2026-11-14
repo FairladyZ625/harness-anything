@@ -84,16 +84,6 @@ export interface SessionIdentityResolver {
 }
 export type RuntimeWebSearchMode = "disabled" | "cached" | "live";
 export type RuntimeMcpPolicy = "disabled" | "inherit";
-export const runtimeSelectionStrategies = ["sticky", "lru"] as const;
-export type RuntimeSelectionStrategy = (typeof runtimeSelectionStrategies)[number];
-/** Node-local dispatch ordering, reset at daemon restart; never reconstructed from history. */
-export interface RuntimeInstanceDispatchState {
-  readonly lastDispatchedAt: ReadonlyMap<string, number>;
-  readonly recordDispatch: (instanceId: string) => void;
-}
-export function validRuntimeInstanceTier(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 9;
-}
 export interface AgentDefinitionSnapshot {
   readonly schema: "agent-definition-snapshot/v1";
   readonly configVersion: 1;

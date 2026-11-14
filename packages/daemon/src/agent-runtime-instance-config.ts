@@ -28,7 +28,7 @@ export {
   unavailable,
 } from "./agent-runtime-instance-values.ts";
 import { runtimeIsolationState, runtimeMcpPolicy, runtimePermissionMode } from "./runtime-permissions.ts";
-import { validRuntimeInstanceTier } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
+import { validRuntimeInstanceTier } from "@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts";
 import { agentRuntimeModelSpelling } from "./agent-runtime-contract.ts";
 import {
   isRuntimeKindId,
