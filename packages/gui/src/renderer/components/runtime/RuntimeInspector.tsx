@@ -133,6 +133,16 @@ function RuntimeFacts({
         <KVRow name="auth">
           {instance.authMode} · {instance.authState}
         </KVRow>
+        <KVRow name={t("agentRuntime.tier")}>{instance.tier ?? 1}</KVRow>
+        {instance.authMode === "subscription" && (
+          <KVRow name={t("agentRuntime.credentialSource")}>
+            {t(
+              instance.credentialSource === "instance"
+                ? "agentRuntime.credentialInstance"
+                : "agentRuntime.credentialOperator",
+            )}
+          </KVRow>
+        )}
         <KVRow name="enabled">{String(instance.enabled)}</KVRow>
         <KVRow name="isolation">{instance.isolationState}</KVRow>
         <KVRow name="permission">{instance.permissionMode ?? t("agentRuntime.providerDefault")}</KVRow>

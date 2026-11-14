@@ -11,7 +11,12 @@ import {
   type RuntimeAuthMode,
   type RuntimeKindId,
 } from "./runtime-provider-planes.ts";
-import { runtimeEffortField, runtimeKindForId, runtimePermissionMode } from "@harness-anything/daemon/protocol";
+import {
+  validRuntimeInstanceTier,
+  runtimeEffortField,
+  runtimeKindForId,
+  runtimePermissionMode,
+} from "@harness-anything/daemon/protocol";
 
 type RuntimeWebSearchMode = NonNullable<RuntimeInstanceUpdateInput["webSearch"]>;
 
@@ -34,6 +39,8 @@ export type CreateInstanceFormState = {
   readonly mcpPolicy?: "disabled" | "inherit";
   readonly isolation: "enforced" | "operator-environment";
   readonly credentialSource?: "operator" | "instance";
+  readonly independentCredentialsSupported?: boolean;
+  readonly tier?: number;
   readonly webSearch?: RuntimeWebSearchMode;
 };
 export type RuntimeInstanceEditFormState = {
@@ -45,6 +52,8 @@ export type RuntimeInstanceEditFormState = {
   readonly mcpPolicy?: CreateInstanceFormState["mcpPolicy"];
   readonly isolation: CreateInstanceFormState["isolation"];
   readonly credentialSource?: CreateInstanceFormState["credentialSource"];
+  readonly independentCredentialsSupported?: boolean;
+  readonly tier?: number;
   readonly webSearch?: RuntimeWebSearchMode;
   readonly name: string;
   readonly installationId: string;
@@ -75,11 +84,18 @@ export function buildRuntimeInstanceCreatePayload(
   installationId: string,
   detected: DetectedModels = {},
 ): RuntimeInstanceCreateInput {
-  const customModels = runtimeCustomModels(form.model),
+  if (!runtimeAccessFormReady(form)) throw new Error("Invalid runtime account source, isolation or tier.");
+  const independent = form.authMode === "subscription" && form.credentialSource === "instance",
+    customModels = runtimeCustomModels(form.model),
     overrideModels = runtimeModels(form.models ?? [], customModels),
-    models = overrideModels.length ? overrideModels : [...(detected.models ?? [])],
-    defaultModel =
-      form.models !== undefined
+    models = independent
+      ? []
+      : form.models !== undefined || customModels.length
+        ? overrideModels
+        : [...(detected.models ?? [])],
+    defaultModel = independent
+      ? undefined
+      : form.models !== undefined
         ? runtimeDefaultModel(overrideModels, overrideModels[0]) || detected.defaultModel
         : customModels.length
           ? undefined
@@ -90,9 +106,11 @@ export function buildRuntimeInstanceCreatePayload(
       installationId,
       providerId: form.providerId.trim(),
       models,
+      ...(independent ? { enabled: false } : {}),
       ...(defaultModel ? { defaultModel } : {}),
     },
     baseUrl = form.baseUrl.trim();
+  if (!independent && !models.length) throw new Error("Select at least one runtime model.");
   const declaration = runtimeKindForId(form.kindId);
   if (!declaration.auth.modes.some((mode) => mode === form.authMode))
     throw new Error(`${form.kindId} runtime instances do not support ${form.authMode} authentication.`);
@@ -118,11 +136,15 @@ export function buildRuntimeInstanceCreatePayload(
     ...(declaration.capabilities.mcp === "supported" && form.mcpPolicy ? { mcpPolicy: form.mcpPolicy } : {}),
     ...(planeAllowsIsolation(form.kindId) ? { isolationState: form.isolation } : {}),
     ...(form.credentialSource !== undefined ? { credentialSource: form.credentialSource } : {}),
+    ...(form.tier !== undefined ? { tier: form.tier } : {}),
     [form.kindId]: configuration,
   };
 }
 
-export function runtimeInstanceEditForm(instance: RuntimeInstanceSummary): RuntimeInstanceEditFormState {
+export function runtimeInstanceEditForm(
+  instance: RuntimeInstanceSummary,
+  independentCredentialsSupported = false,
+): RuntimeInstanceEditFormState {
   const editable = planeAllowsBaseUrl(instance.kindId, instance.authMode),
     fastEditable = "fast" in runtimeKindForId(instance.kindId).configuration.fields,
     effortField = runtimeEffortField(instance.kindId);
@@ -141,6 +163,8 @@ export function runtimeInstanceEditForm(instance: RuntimeInstanceSummary): Runti
         : undefined,
     isolation: instance.isolationState,
     credentialSource: instance.credentialSource,
+    independentCredentialsSupported,
+    tier: instance.tier ?? 1,
     webSearch: runtimeKindForId(instance.kindId).configuration.webSearch
       ? ((instance.configuration.webSearch as RuntimeWebSearchMode | undefined) ??
         runtimeKindForId(instance.kindId).configuration.webSearch!.defaultMode)
@@ -210,6 +234,7 @@ export function buildRuntimeInstanceUpdatePayload(
   instanceId: string,
   form: RuntimeInstanceEditFormState,
 ): RuntimeInstanceUpdateInput {
+  if (!runtimeAccessFormReady(form)) throw new Error("Invalid runtime account source, isolation or tier.");
   const models = runtimeInstanceEditModels(form),
     defaultModel = runtimeDefaultModel(models, form.defaultModel);
   if (!form.name.trim() || !form.installationId.trim() || !defaultModel)
@@ -229,6 +254,7 @@ export function buildRuntimeInstanceUpdatePayload(
       : {}),
     ...(planeAllowsIsolation(form.kindId) ? { isolationState: form.isolation } : {}),
     ...(form.credentialSource !== undefined ? { credentialSource: form.credentialSource } : {}),
+    ...(form.tier !== undefined ? { tier: form.tier } : {}),
     ...(form.webSearch !== undefined && runtimeKindForId(form.kindId).configuration.webSearch
       ? { webSearch: form.webSearch }
       : {}),
@@ -277,6 +303,8 @@ export function applyRuntimeKind(
     permissionMode: defaults.permissionMode,
     mcpPolicy: declaration.capabilities.mcp === "supported" ? "disabled" : undefined,
     isolation,
+    credentialSource: "operator",
+    independentCredentialsSupported: false,
   };
 }
 
@@ -299,6 +327,7 @@ export function applyRuntimeAuthMode(
     baseUrl: planeAllowsBaseUrl(form.kindId, authMode) ? form.baseUrl : "",
     webSearch: runtimeWebSearchRestriction({ ...form, authMode }) ? "disabled" : form.webSearch,
     isolation,
+    credentialSource: authMode === "api-key" ? "operator" : form.credentialSource,
   };
 }
 
@@ -312,7 +341,9 @@ export function runtimeInstanceFormReady(
     Boolean(installationId) &&
     form.instanceId.trim() !== "" &&
     form.name.trim() !== "" &&
-    (selectedModels.length > 0 || (Boolean(detected.defaultModel) && Boolean(detected.models?.length))) &&
+    ((form.authMode === "subscription" && form.credentialSource === "instance") ||
+      selectedModels.length > 0 ||
+      (form.models === undefined && Boolean(detected.defaultModel) && Boolean(detected.models?.length))) &&
     (form.authMode !== "api-key" || form.apiKey.trim() !== "") &&
     (form.authMode !== "api-key" ||
       !runtimeProviderPlane(form.kindId).apiKeyIsolation ||
@@ -341,9 +372,17 @@ function runtimeAccessFormReady(form: {
   readonly wireApi: string;
   readonly isolation: CreateInstanceFormState["isolation"];
   readonly webSearch?: RuntimeWebSearchMode;
+  readonly credentialSource?: "operator" | "instance";
+  readonly independentCredentialsSupported?: boolean;
+  readonly tier?: number;
 }): boolean {
   const plane = runtimeProviderPlane(form.kindId);
   return (
+    validRuntimeInstanceTier(form.tier ?? 1) &&
+    (form.credentialSource !== "instance" ||
+      (form.authMode === "subscription" &&
+        form.independentCredentialsSupported === true &&
+        form.isolation === "enforced")) &&
     (form.authMode !== "api-key" || !plane.apiKeyIsolation || form.isolation === plane.apiKeyIsolation) &&
     (form.authMode !== "subscription" ||
       !plane.subscriptionIsolation ||

@@ -626,6 +626,7 @@ export const runtimeInstanceMethods = Object.freeze([
           installationId: "string?",
           providerId: "string",
           models: "array",
+          enabled: "boolean?",
           defaultModel: "string?",
           permissionMode: "string?",
           mcpPolicy: "string?",

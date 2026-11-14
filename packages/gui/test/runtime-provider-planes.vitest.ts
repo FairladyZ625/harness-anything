@@ -113,11 +113,21 @@ describe("provider edit form", () => {
     ).toMatchObject({ isolationState: "operator-environment" });
   });
   it("preserves credential source through create and edit payloads", () => {
-    expect(buildRuntimeInstanceCreatePayload({ ...form, credentialSource: "instance" }, "install")).toMatchObject({
+    expect(
+      buildRuntimeInstanceCreatePayload(
+        { ...form, credentialSource: "instance", isolation: "enforced", independentCredentialsSupported: true },
+        "install",
+      ),
+    ).toMatchObject({
       credentialSource: "instance",
     });
 
-    const instance = runtimeInstanceEditForm({ ...apiCodex, credentialSource: "instance" });
+    // dec_DA1602487428A58E8B446ECE38 CH1: independent credentials belong to subscription auth.
+    const instance = runtimeInstanceEditForm(
+      { ...apiCodex, authMode: "subscription", credentialSource: "instance" },
+      true,
+    );
+    expect(() => buildRuntimeInstanceUpdatePayload("codex-edit", { ...instance, authMode: "api-key" })).toThrow();
     expect(instance.credentialSource).toBe("instance");
     expect(buildRuntimeInstanceUpdatePayload("codex-edit", instance)).toMatchObject({
       credentialSource: "instance",
@@ -805,5 +815,24 @@ describe("native search availability follows the existing write boundary", () =>
       applyRuntimeAuthMode({ ...codex, authMode: "api-key", baseUrl: "https://gateway.example/v1" }, "subscription")
         .webSearch,
     ).toBe("disabled");
+  });
+});
+
+describe("connected daemon account capability projection", () => {
+  it("projects only verified provider/platform pairs and the client preserves the daemon answer", async () => {
+    for (const platform of ["darwin", "linux"] as const) {
+      const userRoot = mkdtempSync(path.join(tmpdir(), "ha-gui-account-capability-"));
+      try {
+        const store = openRuntimeInstanceStore({ userRoot, platform, discover: () => [] });
+        const receipt = await store.command({ kind: "runtime-instance-list", all: true });
+        const kinds = (receipt as unknown as { subscriptionIsolationKinds: readonly string[] })
+          .subscriptionIsolationKinds;
+        expect(kinds.includes("agy")).toBe(platform === "darwin");
+        expect(kinds.includes("agy-acp")).toBe(platform === "darwin");
+        expect(kinds).not.toContain("cursor");
+      } finally {
+        rmSync(userRoot, { recursive: true, force: true });
+      }
+    }
   });
 });

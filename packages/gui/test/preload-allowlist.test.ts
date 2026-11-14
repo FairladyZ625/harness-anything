@@ -1,4 +1,5 @@
 // harness-test-tier: contract
+import { parseAgentDeclarationV1 } from "@harness-anything/kernel/internal/domain/agent-squad-schema.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
@@ -682,9 +683,10 @@ test("runtime create rejection names an unknown field and the allowed expectatio
 
 test("runtime create rejection names invalid models and the expected shape", () => {
   const payload = buildRuntimeInstanceCreatePayload(runtimeCreateForm, "claude-install");
+  // dec_DA1602487428A58E8B446ECE38/CH2 adds only the disabled independent bootstrap exception.
   assert.throws(
     () => assertPreloadPayload("createRuntimeInstance", { ...payload, models: [] }),
-    /models.*non-empty array.*non-blank strings/u,
+    /models.*non-blank strings.*disabled independent subscription/u,
   );
 });
 
@@ -765,7 +767,14 @@ test("runtime update accepts exactly the fields the registry declares", () => {
 test("runtime create and update validate credential source values", () => {
   const payload = buildRuntimeInstanceCreatePayload(runtimeCreateForm, "claude-install");
   assert.equal(assertPreloadPayload("createRuntimeInstance", { ...payload, credentialSource: "operator" }), true);
-  assert.equal(assertPreloadPayload("createRuntimeInstance", { ...payload, credentialSource: "instance" }), true);
+  assert.equal(
+    assertPreloadPayload("createRuntimeInstance", {
+      ...payload,
+      credentialSource: "instance",
+      isolationState: "enforced",
+    }),
+    true,
+  );
   assert.throws(
     () => assertPreloadPayload("createRuntimeInstance", { ...payload, credentialSource: "shared" }),
     /credentialSource.*operator or instance/u,
@@ -885,5 +894,105 @@ test("Decisions Provider credentials cross preload only as a top-level API key",
         unexpected: true,
       }),
     /unexpected fields/u,
+  );
+});
+
+test("multi-account tier bounds and read-only account catalog are enforced at preload", () => {
+  const payload = buildRuntimeInstanceCreatePayload(runtimeCreateForm, "claude-install");
+  // dec_DA1602487428A58E8B446ECE38/CH2: bootstrap before choosing observed account models.
+  const bootstrap = {
+    ...payload,
+    models: [],
+    defaultModel: undefined,
+    enabled: false,
+    credentialSource: "instance",
+    isolationState: "enforced",
+  };
+  assert.equal(assertPreloadPayload("createRuntimeInstance", bootstrap), true);
+  for (const invalid of [
+    { enabled: true },
+    { enabled: "false" },
+    { credentialSource: "operator" },
+    { authMode: "api-key", apiKey: "test-key" },
+    { defaultModel: "invented-model" },
+  ])
+    assert.throws(() => assertPreloadPayload("createRuntimeInstance", { ...bootstrap, ...invalid }));
+  for (const tier of [1, 9]) {
+    assert.equal(assertPreloadPayload("createRuntimeInstance", { ...payload, tier }), true);
+    assert.equal(assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", tier }), true);
+  }
+  for (const tier of [0, 10, 1.5, "2", null]) {
+    assert.throws(() => assertPreloadPayload("createRuntimeInstance", { ...payload, tier }), /tier/u);
+    assert.throws(() => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", tier }), /invalid/u);
+  }
+  assert.throws(
+    () => assertPreloadPayload("createRuntimeInstance", { ...payload, availableModels: ["other"] }),
+    /availableModels/u,
+  );
+  assert.throws(
+    () =>
+      assertPreloadPayload("createRuntimeInstance", {
+        ...payload,
+        kindId: "cursor",
+        claude: undefined,
+        cursor: {},
+        credentialSource: "instance",
+        isolationState: "enforced",
+      }),
+    /credentialSource/u,
+  );
+  for (const selectionStrategy of ["sticky", "lru"]) {
+    assert.equal(
+      assertPreloadPayload("saveAgent", {
+        repoId: "demo",
+        declaration: {
+          schema: "agent-declaration/v1",
+          id: "worker",
+          name: "Worker",
+          role: "worker",
+          instructions: "Work",
+          runtimes: [],
+          selectionStrategy,
+        },
+        expectedVersion: 0,
+      }),
+      true,
+    );
+  }
+});
+
+test("account action payloads and selection strategies fail closed", () => {
+  for (const method of ["signInRuntimeInstance", "signOutRuntimeInstance"]) {
+    assert.equal(
+      assertPreloadPayload(method, { repoId: "demo", instanceId: "agy-pro", idempotencyKey: "login-1" }),
+      true,
+    );
+    assert.throws(() => assertPreloadPayload(method, { repoId: "demo", instanceId: "agy-pro" }), /invalid/u);
+    assert.throws(
+      () =>
+        assertPreloadPayload(method, {
+          repoId: "demo",
+          instanceId: "agy-pro",
+          idempotencyKey: "login-1",
+          credentialSource: "instance",
+        }),
+      /invalid/u,
+    );
+  }
+  assert.equal(assertPreloadPayload("showRuntimeInstance", { instanceId: "agy-pro", probe: true }), true);
+  assert.throws(() => assertPreloadPayload("showRuntimeInstance", { instanceId: "agy-pro", probe: "yes" }), /invalid/u);
+  assert.throws(
+    // The declaration write boundary owns strategy validation; preload only transports this authored facet.
+    () =>
+      parseAgentDeclarationV1({
+        schema: "agent-declaration/v1",
+        id: "worker",
+        name: "Worker",
+        role: "worker",
+        instructions: "Work",
+        runtimes: [],
+        selectionStrategy: "round-robin",
+      }),
+    /selectionStrategy/u,
   );
 });

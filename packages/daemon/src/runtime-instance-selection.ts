@@ -1,3 +1,4 @@
+import { runtimeInstanceDispatchModels } from "@harness-anything/kernel/internal/domain/runtime-instance-contract.ts";
 import type {
   RuntimeInstanceDispatchState,
   RuntimeSelectionStrategy,
@@ -84,9 +85,10 @@ export function runtimeInstanceModel(
 ): string | null {
   const instance = instances.find((row) => row.instanceId === instanceId);
   if (instance === undefined) return requested ?? null;
-  return requested === undefined
-    ? instance.defaultModel
-    : (agentRuntimeModelResolution(instance.models, requested)?.model ?? null);
+  return (
+    agentRuntimeModelResolution(runtimeInstanceDispatchModels(instance), requested ?? instance.defaultModel)?.model ??
+    null
+  );
 }
 
 function declaredModelFor(input: RuntimeInstanceRankInput, instance: RuntimeInstanceSummary): string | undefined {
@@ -106,7 +108,10 @@ export function runtimeInstanceRank(input: RuntimeInstanceRankInput, instanceId:
     tier: instance?.tier ?? 1,
     rowIndex: rowIndex === -1 ? runtimes.length : rowIndex,
     preferenceIndex: preferenceIndex === -1 ? Number.MAX_SAFE_INTEGER : preferenceIndex,
-    modelTier: instance === undefined ? 3 : agentRuntimeModelTier(instance.models, declaredModelFor(input, instance)),
+    modelTier:
+      instance === undefined
+        ? 3
+        : agentRuntimeModelTier(runtimeInstanceDispatchModels(instance), declaredModelFor(input, instance)),
   };
 }
 
@@ -141,7 +146,7 @@ export function selectedRuntimeInstance(input: {
     launchModel = runtimeInstanceModel(input.instances, input.selected, declaredModel),
     preferred = input.agent?.preferredInstances ?? [],
     preferenceIndex = preferred.indexOf(input.selected),
-    tier = instance === undefined ? 3 : agentRuntimeModelTier(instance.models, declaredModel),
+    tier = instance === undefined ? 3 : agentRuntimeModelTier(runtimeInstanceDispatchModels(instance), declaredModel),
     // Whether the model tier actually separated this instance from a competing candidate that
     // shares its runtime row. Without this the receipt would credit `exact-model` on a node where
     // every compatible instance spells the model identically — a true but hollow explanation.
@@ -153,7 +158,7 @@ export function selectedRuntimeInstance(input: {
           other.instanceId !== instance.instanceId &&
           other.enabled &&
           other.kindId === instance.kindId &&
-          agentRuntimeModelTier(other.models, declaredModel) < tier,
+          agentRuntimeModelTier(runtimeInstanceDispatchModels(other), declaredModel) < tier,
       ),
     selection = (basis: RuntimeInstanceSelectionBasis, reason: string): RuntimeInstanceSelection => ({
       instanceId: input.selected,
@@ -218,6 +223,9 @@ export function compatibleRuntimeInstances(input: {
     readonly instanceId: string;
     readonly kindId: string;
     readonly models: readonly string[];
+    readonly availableModels?: readonly string[];
+    readonly credentialSource?: "operator" | "instance";
+    readonly defaultModel?: string;
     readonly enabled: boolean;
   }[];
 }): readonly string[] {
@@ -226,8 +234,9 @@ export function compatibleRuntimeInstances(input: {
     .filter((instance) => {
       if (!instance.enabled) return false;
       if (runtimes.length > 0 && !runtimes.some((target) => target.type === instance.kindId)) return false;
-      const target = runtimes.find((row) => row.type === instance.kindId);
-      return agentRuntimeModelTier(instance.models, target?.model) > 0;
+      const target = runtimes.find((row) => row.type === instance.kindId),
+        models = runtimeInstanceDispatchModels(instance);
+      return models.length > 0 && agentRuntimeModelTier(models, target?.model ?? instance.defaultModel) > 0;
     })
     .map((instance) => instance.instanceId)
     .sort((left, right) => left.localeCompare(right));
@@ -250,6 +259,9 @@ export function agentRuntimeAmbiguityWarning(input: {
     readonly instanceId: string;
     readonly kindId: string;
     readonly models: readonly string[];
+    readonly availableModels?: readonly string[];
+    readonly credentialSource?: "operator" | "instance";
+    readonly defaultModel?: string;
     readonly enabled: boolean;
   }[];
   readonly selected?: string;

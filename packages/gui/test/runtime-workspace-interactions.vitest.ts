@@ -1568,6 +1568,8 @@ describe("runtime entry split (W6 IA)", () => {
 
     expect(onUpdate).toHaveBeenCalledWith({
       instanceId: "provider-edit",
+      // dec_DA1602487428A58E8B446ECE38 CH3: legacy instances edit at the effective tier 1.
+      tier: 1,
       permissionMode: "bypass",
       mcpPolicy: "disabled",
       isolationState: "enforced",

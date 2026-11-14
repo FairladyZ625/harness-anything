@@ -58,17 +58,24 @@ for (const kindId of providers) {
       const homes: string[] = [];
       for (const suffix of ["one", "two"]) {
         const instanceId = `${kindId}-${suffix}`;
-        const created = store.command({
-          kind: "runtime-instance-create",
+        // dec_DA1602487428A58E8B446ECE38/CH2: this launch-isolation fixture represents an
+        // account whose catalog was already observed; authentication alone does not grant a model.
+        const created = store.create({
+          schemaVersion: 2,
           instanceId,
           name: instanceId,
           kindId,
           installationId: witness(kindId).installationId,
           providerId: declaration.defaultProviderId,
           models: ["test-model"],
-          authMode: "subscription",
+          availableModels: ["test-model"],
+          defaultModel: "test-model",
+          enabled: true,
+          isolationState: "enforced",
+          auth: { mode: "subscription" },
           credentialSource: "instance",
-        }).instance as Record<string, unknown>;
+          [kindId]: {},
+        });
         assert.equal(created.isolationState, "enforced");
         const login = store.prepareAuthCommand(instanceId, "login"),
           home = path.join(userRoot, "runtime-instances", instanceId, "home"),

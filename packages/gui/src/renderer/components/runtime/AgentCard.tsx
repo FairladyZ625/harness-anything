@@ -4,7 +4,11 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Eye } from "@phosphor-icons/react";
 import type { AgentDeclarationV1, AgentHostAccess, RuntimeEffort } from "@harness-anything/daemon/protocol";
 import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
-import { agentRuntimeKindMatches, runtimeEffortValues } from "@harness-anything/daemon/protocol";
+import {
+  agentRuntimeKindMatches,
+  runtimeEffortValues,
+  runtimeSelectionStrategies,
+} from "@harness-anything/daemon/protocol";
 import type {
   AgentEntityAvailableRow,
   AgentEntityDetail,
@@ -41,6 +45,7 @@ export type AgentDraft = {
   readonly instance: string;
   readonly permissionMode: AgentDeclarationV1["permissionMode"] | "";
   readonly mcpPolicy: NonNullable<AgentDeclarationV1["mcpPolicy"]> | "";
+  readonly selectionStrategy: NonNullable<AgentDeclarationV1["selectionStrategy"]> | "";
   /** Effective host access; a default-sourced value stays omitted on save until the user picks one. */
   readonly hostAccess: AgentHostAccess | null;
   readonly hostAccessExplicit: boolean;
@@ -60,6 +65,7 @@ export const agentDraftFrom = (detail: AgentEntityDetail): AgentDraft => ({
   instance: detail.instance ?? "",
   permissionMode: detail.permissionMode ?? "",
   mcpPolicy: detail.mcpPolicy ?? "",
+  selectionStrategy: detail.selectionStrategy ?? "",
   hostAccess: detail.hostAccess ?? null,
   hostAccessExplicit: detail.hostAccessSource === "declared",
 });
@@ -83,6 +89,7 @@ export function agentDeclarationFrom(id: string, draft: AgentDraft): AgentDeclar
     ...(draft.instance.trim() ? { instance: draft.instance.trim() } : {}),
     ...(draft.permissionMode ? { permissionMode: draft.permissionMode } : {}),
     ...(draft.mcpPolicy ? { mcpPolicy: draft.mcpPolicy } : {}),
+    ...(draft.selectionStrategy ? { selectionStrategy: draft.selectionStrategy } : {}),
     ...(draft.hostAccessExplicit && draft.hostAccess !== null ? { hostAccess: draft.hostAccess } : {}),
   } as AgentDeclarationV1;
 }
@@ -776,6 +783,26 @@ export function AgentCard({
             </Button>
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-2">
+            <label className="grid min-w-0 gap-0.5">
+              <span className="font-mono ui-micro text-text-faint">{t("agentRuntime.selectionStrategy")}</span>
+              <select
+                className="control"
+                aria-label={t("agentRuntime.selectionStrategy")}
+                data-testid="agent-selection-strategy"
+                value={draft.selectionStrategy}
+                disabled={busy}
+                onChange={(event) =>
+                  patch({ selectionStrategy: event.target.value as AgentDraft["selectionStrategy"] })
+                }
+              >
+                <option value="">{t("agentRuntime.selectionStrategyDefault")}</option>
+                {runtimeSelectionStrategies.map((strategy) => (
+                  <option key={strategy} value={strategy}>
+                    {t(`agentRuntime.selection_${strategy}`)}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="grid min-w-0 gap-0.5">
               <span className="font-mono ui-micro uppercase tracking-[0.08em] text-text-faint">
                 {t("agentRuntime.mcpPolicy")}

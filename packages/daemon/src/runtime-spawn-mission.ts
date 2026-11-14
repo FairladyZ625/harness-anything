@@ -1,3 +1,4 @@
+import { runtimeInstanceDispatchModels } from "@harness-anything/kernel/internal/domain/runtime-instance-contract.ts";
 import type {
   RuntimeInstanceDispatchState,
   RuntimeSelectionStrategy,
@@ -168,6 +169,10 @@ export function resolveRuntimeInstanceCandidates(input: {
   readonly health?: readonly RuntimeProviderHealth[];
   readonly now?: string;
 }): string[] {
+  input = {
+    ...input,
+    instances: input.instances.map((instance) => ({ ...instance, models: runtimeInstanceDispatchModels(instance) })),
+  };
   const configured = input.allowedInstanceIds !== undefined,
     allowed = input.allowedInstanceIds ?? [],
     allowedNames = allowed.length ? allowed.join(", ") : "none",
@@ -230,17 +235,15 @@ export function resolveRuntimeInstanceCandidates(input: {
         (pinned === undefined
           ? undefined
           : agentRuntimeTargetForKind(input.agent?.runtimes ?? [], pinned.kindId)?.model),
-      served =
-        pinned?.enabled === true && (pinnedModel === undefined || agentRuntimeModelMatches(pinned.models, pinnedModel));
+      served = pinned?.enabled === true && agentRuntimeModelMatches(pinned.models, pinnedModel ?? pinned.defaultModel);
     if (
       pinned?.enabled === true &&
-      pinnedModel !== undefined &&
-      !agentRuntimeModelMatches(pinned.models, pinnedModel) &&
+      !agentRuntimeModelMatches(pinned.models, pinnedModel ?? pinned.defaultModel) &&
       (input.explicitlyRequested === true || input.agent?.instance !== input.requested)
     )
       throw runtimeSpawnError(
         "invalid_runtime_model",
-        `Model ${pinnedModel} is not available on runtime instance ${input.requested}. ` +
+        `Model ${pinnedModel ?? pinned.defaultModel} is not available on runtime instance ${input.requested}. ` +
           `Supported models: ${pinned.models.join(", ")}. ` +
           "Use --model <supported-model> or run ha runtime instance list, then retry with --instance <instance-id>.",
       );
@@ -291,7 +294,7 @@ export function resolveRuntimeInstanceCandidates(input: {
         ? "runtime_instance_disabled"
         : healthBlocked
           ? `runtime_provider_unavailable (${providerHealth?.reason ?? "cooldown"}; recover at ${healthUntil})`
-          : model !== undefined && !agentRuntimeModelMatches(instance.models, model)
+          : !agentRuntimeModelMatches(instance.models, model ?? instance.defaultModel)
             ? `agent_model_unavailable (${model})`
             : instance.authReadiness.status !== "ready" && instance.authReadiness.code !== "runtime_auth_not_checked"
               ? `${instance.authReadiness.code}: ${instance.authReadiness.hint}`
@@ -310,7 +313,7 @@ export function resolveRuntimeInstanceCandidates(input: {
     ? typed.filter((instance) => agentRuntimeModelMatches(instance.models, declaredModel))
     : typed.filter((instance) => {
         const target = declaredTargets?.find((row) => row.type === instance.kindId);
-        return target?.model === undefined || agentRuntimeModelMatches(instance.models, target.model);
+        return agentRuntimeModelMatches(instance.models, target?.model ?? instance.defaultModel);
       });
   const targetSummary =
     declaredTargets === undefined ? (declaredType ?? "any") : agentRuntimeTargetSummary(declaredTargets);

@@ -826,5 +826,18 @@
   "agentRuntime.webSearchSubscriptionGateway": "自定义网关搜索需要 API Key 实例。",
   "agentRuntime.webSearchEndpointRequired": "设置自定义端点，或使用 openai Provider。",
   "agentRuntime.webSearchResponsesRequired": "自定义网关搜索需要 wire_api=responses。",
-  "agentRuntime.webSearchGatewayVerification": "保存时验证网关确实执行联网搜索，通过后启用。"
+  "agentRuntime.webSearchGatewayVerification": "保存时验证网关确实执行联网搜索，通过后启用。",
+  "agentRuntime.credentialSource": "订阅账号",
+  "agentRuntime.credentialOperator": "宿主主号",
+  "agentRuntime.credentialInstance": "独立账号",
+  "agentRuntime.credentialResetWarning": "保存此更改会删除该实例已保存的登录凭证。再次使用独立账号时需要重新登录。",
+  "agentRuntime.confirmCredentialReset": "删除登录凭证并保存",
+  "agentRuntime.tier": "优先级层",
+  "agentRuntime.refreshAccount": "刷新模型与额度",
+  "agentRuntime.selectionStrategy": "同层调度",
+  "agentRuntime.selectionStrategyDefault": "跟随仓库",
+  "agentRuntime.selection_sticky": "黏性复用",
+  "agentRuntime.selection_lru": "最久未用优先",
+  "agentRuntime.createAndSignIn": "创建并登录",
+  "agentRuntime.details": "详情"
 }
