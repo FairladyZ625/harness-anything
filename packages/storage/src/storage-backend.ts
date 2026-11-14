@@ -83,6 +83,7 @@ export function readNodeMaterializationDocuments(
   policy: NodeTaskMaterializationPolicy,
   forced: readonly string[] = [],
   afterRevision?: number,
+  previouslyMaterializedPaths: readonly string[] = [],
 ) {
   type Descriptor = ReturnType<typeof q.readDocuments>["documents"][number];
   const documents = new Map<string, Descriptor>();
@@ -106,16 +107,21 @@ export function readNodeMaterializationDocuments(
     if (policy === "none") return [];
     page("");
     const packages = new Map<string, string>();
-    for (const { path } of documents.values())
+    for (const { path, retired } of documents.values())
       if (path.startsWith("tasks/")) {
         const prefix = path.split("/").slice(0, 2).join("/");
         if (!packages.has(prefix)) {
           const id = q.taskIdForDocumentPath(path);
+          if (!id && !retired)
+            throw new TaskEventStoreError(
+              "publication_indeterminate",
+              `Task materialization metadata is unavailable for ${prefix}; rebuild the projection`,
+            );
           if (id) packages.set(prefix, id);
         }
       }
     const ids = [...packages.values()],
-      tasks = ids.length ? q.readTaskIndex({ taskIds: ids, activePackagesOnly: true }).rows : [],
+      tasks = ids.length ? q.readTaskIndex({ taskIds: ids }).rows : [],
       full = new Set(
         tasks.filter((task) => taskIncludedByNodeMaterializationPolicy(policy, task)).map((task) => task.taskId),
       ),
@@ -129,11 +135,18 @@ export function readNodeMaterializationDocuments(
         : [],
       sources = [...new Set(dependencies.map((row) => row.sourceRef.slice(5)))],
       active = new Set(
-        (sources.length ? q.readTaskStatuses(sources).rows : [])
-          .filter((row) => taskIncludedByNodeMaterializationPolicy("in_flight", { status: row.status ?? "" }))
+        (sources.length ? q.readTaskIndex({ taskIds: sources, activePackagesOnly: true }).rows : [])
+          .filter((row) => taskIncludedByNodeMaterializationPolicy("in_flight", row))
           .map((row) => `task/${row.taskId}`),
       ),
       held = new Set(dependencies.filter((row) => active.has(row.sourceRef)).map((row) => row.targetRef.slice(5)));
+    const knownIds = new Set(tasks.map((task) => task.taskId));
+    for (const [prefix, id] of packages)
+      if (!knownIds.has(id))
+        throw new TaskEventStoreError(
+          "publication_indeterminate",
+          `Task materialization metadata is unavailable for ${prefix}; rebuild the projection`,
+        );
     return [...documents.values()].map((document) => {
       const id = packages.get(document.path.split("/").slice(0, 2).join("/")),
         included =
@@ -145,6 +158,7 @@ export function readNodeMaterializationDocuments(
       return { ...document, retired: document.retired || !included };
     });
   }
+  requireTaskMaterializationMetadata(q, previouslyMaterializedPaths);
   if (policy !== "none") {
     page("", true);
     const tasks = replayTaskStatuses
@@ -176,4 +190,33 @@ export function readNodeMaterializationDocuments(
     if (document) documents.set(path, document);
   }
   return [...documents.values()].sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/** Partial Task caches cannot authorize pruning files a follower already owns. */
+export function requireTaskMaterializationMetadata(q: TaskProjectionQueries, paths: readonly string[]): void {
+  // A damaged/partial cache cannot authorize deleting an already materialized Task package.
+  // Validate only prior working-set roots, not the repository's completed Task history.
+  const priorRoots = new Map<string, string>();
+  for (const path of paths)
+    if (path.startsWith("tasks/") && path.split("/").length > 2) {
+      const prefix = path.split("/").slice(0, 2).join("/");
+      if (priorRoots.has(prefix)) continue;
+      const owner = q.taskIdForDocumentPath(path);
+      if (!owner)
+        throw new TaskEventStoreError(
+          "publication_indeterminate",
+          `Task materialization metadata is unavailable for ${prefix}; rebuild the projection`,
+        );
+      priorRoots.set(prefix, owner);
+    }
+  const priorIds = [...new Set(priorRoots.values())],
+    known = new Map(
+      (priorIds.length ? q.readTaskIndex({ taskIds: priorIds }).rows : []).map((row) => [row.taskId, row.packagePath]),
+    );
+  for (const [prefix, id] of priorRoots)
+    if (!known.get(id))
+      throw new TaskEventStoreError(
+        "publication_indeterminate",
+        `Task materialization metadata is unavailable for ${prefix}; rebuild the projection`,
+      );
 }

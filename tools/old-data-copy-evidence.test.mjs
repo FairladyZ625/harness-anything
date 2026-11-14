@@ -202,6 +202,10 @@ test("snapshot: the harness clone carries objects and config, not the authored t
       "tracked task packages are not checked out",
     );
     assert.equal(copyLayout(workspace).localRootRelative, ".harness", "the copied config still resolves the layout");
+    const witness = snapshot.steps.find((step) => step.item === "cache/task.sqlite")?.witness;
+    assert.ok(witness?.ino > 0, "the cache clone has an identity before attach");
+    assert.equal(witness?.schemaVersion, null, "an empty cache is distinct from an old warm projection");
+    assert.equal(witness?.missingArchivedDescriptors, 0);
     assert.equal(
       realpathSync(
         execFileSync("git", ["-C", copiedHarness, "rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim(),
@@ -316,6 +320,9 @@ test("one command: snapshot, isolated daemon attach, reads, cold rebuild, receip
       equal: true,
       allContentReadable: true,
     });
+    assert.equal(receipt.warmProjection.preserved, false, "cold attach cannot be reported as warm evidence");
+    assert.equal(receipt.warmProjection.before.schemaVersion, null);
+    assert.ok(receipt.warmProjection.after.ino > 0);
     assert.match(receipt.coldRebuild.stateDigest, /^sha256:[0-9a-f]{64}$/u);
     assert.ok(receipt.coldRebuild.elapsedMs >= 0);
     if (existsSync("/usr/bin/time"))

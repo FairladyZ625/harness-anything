@@ -94,7 +94,7 @@ test("PostgreSQL archived Facts survive warm upgrade and preserve cold history",
           await client.query("DELETE FROM ha_content_blobs WHERE tenant_id=$1 AND project_id=$2 AND sha256=$3", [
             scope.tenantId,
             scope.projectId,
-            expected[1]!.blobSha256,
+            expected[0]!.blobSha256,
           ]);
           await initializePgTerminalMaterialization(client, scope, revision);
         },

@@ -267,6 +267,7 @@ export const nodeTaskMaterializationPolicy = {
     "policy:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.publishFollower:f031ba7c2870177c6a56ba078eb715f4",
     "policy:packages/storage:packages/storage/src/storage-backend.ts#readNodeMaterializationDocuments:9c89aee9a882cdd6835efd2f47f68e6c",
     "policy:packages/storage:packages/storage/src/storage-backend.ts#readNodeMaterializationDocuments:556bd90fc717033e0511b5a53b769ad9",
+    "policy:packages/storage:packages/storage/src/store/sqlite-task-event-materialize.ts#closureFiles:547f324ddeef9152f3d4a35de9164673",
     "policy:packages/storage:packages/storage/src/store/sqlite-task-event-store.ts#makeSqliteTaskEventStore.publishFollower:818c0747c770edcbf5f44a7344ea6150",
   ].map((candidateId) => ({ candidateId, route: "nodeTaskMaterializationPolicy" })),
 } as const satisfies OntologyPolicyDeclaration;

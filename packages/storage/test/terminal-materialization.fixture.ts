@@ -81,7 +81,19 @@ export function archivedFactUpgradeHistory(): readonly CanonicalWriteBundle[] {
       },
       retiredDocumentSha256: edited.event.payload.documentClaims[0]!.sha256,
     });
-  return [first, archive(2, first), restored, archive(4, restored), second, edited, archived];
+  return [
+    first,
+    archive(2, first),
+    restored,
+    archive(4, restored),
+    second,
+    edited,
+    archived,
+    ...Array.from({ length: 70 }, (_, index) => {
+      const event = taskCreated(index + 8, `task-history-noise-${index}`);
+      return { event, plan: taskLifecycleWritePlan(event), blobs: [] };
+    }),
+  ];
 }
 
 /** One event/claim contract, executed by real SQLite and PostgreSQL-dialect accepting stores. */

@@ -95,6 +95,7 @@ export interface SqliteTaskEventStoreOptions {
     includePolicySkippedPaths?: readonly string[],
     afterRevision?: number,
     expectedRevision?: number,
+    previouslyMaterializedPaths?: readonly string[],
   ) => readonly MaterializationDocumentDescriptor[] | null;
 }
 

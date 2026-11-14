@@ -1,3 +1,7 @@
+import {
+  storageReadPolicy,
+  validateStorageReadWindow,
+} from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { assertPostgresStoreScope } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
 import { readPgEntityDeclarations } from "../pg/pg-entity-declarations.ts";
 import {
@@ -57,6 +61,7 @@ export type PostgresTaskEventStoreRequest =
       readonly query: import("@harness-anything/kernel/internal/ports/entity-declarations.ts").EntityDeclarationReadQuery;
     }
   | { readonly operation: "head" }
+  | { readonly operation: "document-paths"; readonly paths: readonly string[] }
   | { readonly operation: "prune"; readonly beforeSequence: number; readonly writerFence: PostgresWriterFence }
   | { readonly operation: "stream" }
   | { readonly operation: "batch"; readonly cursor: string | null; readonly maxItems: number }
@@ -72,6 +77,7 @@ export type PostgresTaskEventStoreRequest =
   | { readonly operation: "content-range"; readonly sha256: string; readonly offset: number; readonly maxBytes: number }
   | { readonly operation: "content-size"; readonly sha256: string };
 export type PostgresTaskEventStoreResult =
+  | readonly string[]
   | readonly import("@harness-anything/kernel/internal/ports/entity-declarations.ts").EntityDeclarationState[]
   | CanonicalEventAppendReceipt
   | CanonicalCommandOutcome
@@ -179,6 +185,22 @@ export function makePostgresTaskEventStore(options: PostgresTaskEventCapabilityO
         );
         return commandOutcome(result.outcome);
       }
+      case "document-paths":
+        if (!request.paths.length) return [];
+        if (!validateStorageReadWindow(request.paths.length, storageReadPolicy.defaultValue.pageSizes.standard))
+          throw new RangeError("document path query exceeds the storage read page size");
+        return withPostgresTransaction(
+          pool,
+          async (client) =>
+            (
+              await client.query<{ path: string }>(
+                "SELECT path FROM ha_document_heads WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND policy_epoch=$4 AND path=ANY($5::text[])",
+                [scope.tenantId, scope.projectId, repoId, scope.policyEpoch, request.paths],
+              )
+            ).rows.map((row) => row.path),
+          scope,
+          { isolationLevel: "repeatable read" },
+        );
       case "head":
         return readHead();
       case "entity-declarations":

@@ -388,7 +388,8 @@ async function snapshotCacheDatabase(sourceFile, targetFile, steps) {
   const recovered = await run(process.execPath, ["-e", CHECKPOINT_CLONE, targetFile], {
     cwd: path.dirname(targetFile),
   });
-  const healthy = recovered.status === 0 && (recovered.stdout ?? "").trim() === "ok";
+  const [check, witnessJson] = (recovered.stdout ?? "").trim().split("\n");
+  const healthy = recovered.status === 0 && check === "ok";
   if (healthy) {
     steps.push({
       item: path
@@ -396,6 +397,7 @@ async function snapshotCacheDatabase(sourceFile, targetFile, steps) {
         .split(path.sep)
         .join("/"),
       method: `${copyTreeMethod()} + checkpoint`,
+      witness: JSON.parse(witnessJson),
     });
     return;
   }
@@ -415,12 +417,26 @@ async function snapshotCacheDatabase(sourceFile, targetFile, steps) {
 
 const CHECKPOINT_CLONE = `
 const { DatabaseSync } = require("node:sqlite");
+const { statSync } = require("node:fs");
 const db = new DatabaseSync(process.argv[1]);
 try {
   db.exec("PRAGMA busy_timeout = 10000; PRAGMA wal_checkpoint(TRUNCATE)");
   const check = db.prepare("PRAGMA quick_check").get();
   if (String(check?.quick_check ?? "") !== "ok") throw new Error("quick_check: " + JSON.stringify(check));
+  const tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(row => row.name));
+  const identity = statSync(process.argv[1]);
+  const meta = tables.has("projection_meta") ? db.prepare("SELECT schema_version,watermark FROM projection_meta WHERE singleton=1").get() : null;
+  const archived = tables.has("fact") ? db.prepare("SELECT fact_id FROM fact WHERE json_extract(row_json,'$.archived')=1").all() : [];
+  const present = table => tables.has(table) ? db.prepare("SELECT 1 FROM " + table + " WHERE path=?") : null;
+  const active = present("document"), history = present("document_history");
+  const missing = archived.filter(row => {
+    const target = "facts/" + row.fact_id + ".md";
+    return !active?.get(target) && !history?.get(target);
+  }).length;
   console.log("ok");
+  console.log(JSON.stringify({ dev:identity.dev, ino:identity.ino, birthtimeMs:identity.birthtimeMs,
+    schemaVersion:meta?.schema_version ?? null, watermark:meta?.watermark ?? null,
+    archivedFactCount:archived.length, missingArchivedDescriptors:missing }));
 } finally { db.close(); }
 `;
 
@@ -764,7 +780,7 @@ function awaitDaemonDownSync(pid, timeoutMs = 15_000) {
 
 const DIRECT_RUNNER = String.raw`
 const { DatabaseSync } = await import("node:sqlite");
-const { appendFileSync } = await import("node:fs");
+const { appendFileSync, statSync } = await import("node:fs");
 const path = await import("node:path");
 const { pathToFileURL } = await import("node:url");
 const toUrl = (p) => pathToFileURL(path.resolve(p)).href;
@@ -815,7 +831,9 @@ try {
     } finally { db.close(); }
   };
   const warmArchivedFacts = archivedFactDocuments();
-  record("archived-fact-warm-read", { count: warmArchivedFacts.length, allContentReadable: true });
+  const identity = statSync(layout.taskProjectionPath);
+  record("archived-fact-warm-read", { count: warmArchivedFacts.length, allContentReadable: true,
+    projectionIdentity: { dev:identity.dev, ino:identity.ino, birthtimeMs:identity.birthtimeMs } });
   const startedAt = Date.now();
   const rebuilt = projection.rebuild();
   const sourceRevision = store.readHead()?.revision ?? 0;
@@ -1154,6 +1172,18 @@ export async function main(argv, session = {}) {
     };
     receipt.coldRebuild = byStep.get("cold-rebuild-receipt")?.value ?? null;
     receipt.archivedFactHistory = byStep.get("archived-fact-warm-cold")?.value ?? null;
+    const before =
+      receipt.copy.steps?.find((step) => step.item === "cache/task.sqlite" && step.witness)?.witness ?? null;
+    const after = byStep.get("archived-fact-warm-read")?.value?.projectionIdentity ?? null;
+    receipt.warmProjection = {
+      before,
+      after,
+      preserved:
+        !args.coldAttach &&
+        before !== null &&
+        after !== null &&
+        ["dev", "ino", "birthtimeMs"].every((key) => before[key] === after[key]),
+    };
     receipt.census = {
       ledger: byStep.get("persisted-census-ledger")?.value ?? null,
       projections: byStep.get("persisted-census-projections")?.value ?? null,

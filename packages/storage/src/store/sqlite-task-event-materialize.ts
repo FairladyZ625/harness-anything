@@ -1,3 +1,4 @@
+import { taskIncludedByNodeMaterializationPolicy } from "@harness-anything/kernel/internal/domain/task-wip-policy.ts";
 import { canonicalDocumentRetirements } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 import { TASK_PROGRESS_POLICY_ID } from "@harness-anything/kernel/internal/domain/task-progress-event.ts";
 import type { WriteFence } from "../durable-file.ts";
@@ -43,6 +44,7 @@ export interface MaterializeStoreContext {
     includePolicySkippedPaths?: readonly string[],
     afterRevision?: number,
     expectedRevision?: number,
+    previouslyMaterializedPaths?: readonly string[],
   ) =>
     | readonly {
         readonly path: string;
@@ -154,7 +156,11 @@ export function closureFiles(
   if (
     from > 0 &&
     pending.length &&
-    pending.every((event) => isTaskBootstrapEvent(event) || (isTaskEvent(event) && event.type === "task_created"))
+    pending.every(
+      (event) =>
+        (isTaskBootstrapEvent(event) || (isTaskEvent(event) && event.type === "task_created")) &&
+        taskIncludedByNodeMaterializationPolicy("in_flight", event.payload.task),
+    )
   )
     return {
       events: pending,
@@ -166,10 +172,23 @@ export function closureFiles(
         context.sqlite.metadata().generation,
       ),
     };
+  const currentLedger = context.ledger(),
+    previouslyMaterializedManagedPaths =
+      context.readMaterializationDocuments && from === 0
+        ? localGitObjectRefStore
+            .listTree(
+              currentLedger.rootDir,
+              localGitObjectRefStore.resolveCommit(currentLedger.rootDir, context.authoredRef()),
+              [ledgerGitPath(currentLedger, "").replace(/\/$/u, "") || "."],
+            )
+            .map(({ target }) => ledgerAuthoredPath(currentLedger, target))
+            .filter((path) => projectionManagedPath(path) && context.sqlite.documentHead(path) !== undefined)
+        : [];
   const projectionDocuments = context.readMaterializationDocuments?.(
     includePolicySkippedPaths,
     from > 0 ? from : undefined,
     accepted.revision,
+    previouslyMaterializedManagedPaths,
   );
   if (context.readMaterializationDocuments && projectionDocuments === null)
     throw new TaskEventStoreError(
@@ -188,17 +207,6 @@ export function closureFiles(
           },
         ]),
       ),
-      parent =
-        from === 0 ? localGitObjectRefStore.resolveCommit(context.ledger().rootDir, context.authoredRef()) : null,
-      managedRoot = ledgerGitPath(context.ledger(), "").replace(/\/$/u, "") || ".",
-      previouslyMaterializedManagedPaths =
-        from > 0
-          ? []
-          : localGitObjectRefStore
-              .listTree(context.ledger().rootDir, parent!, [managedRoot])
-              .map(({ target }) => ledgerAuthoredPath(context.ledger(), target))
-              // Bootstrap Git prose has not entered the canonical document projection yet.
-              .filter((path) => projectionManagedPath(path) && context.sqlite.documentHead(path) !== undefined),
       staleManagedHeads = previouslyMaterializedManagedPaths
         .filter((path) => !indexed.has(path))
         .map((path) => ({ path, sha256: null, size: null, nodeKind: null })),

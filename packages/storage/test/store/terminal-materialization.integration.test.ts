@@ -83,7 +83,7 @@ test("SQLite schema-38 archived Facts survive warm upgrade and match cold histor
       } finally {
         db.close();
       }
-      const unavailable = expected[1]!.blobSha256;
+      const unavailable = expected[0]!.blobSha256;
       assert.throws(
         () =>
           makeTaskProjection({

@@ -111,6 +111,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
     includePolicySkippedPaths: readonly string[] = [],
     afterRevision?: number,
     expectedRevision?: number,
+    previouslyMaterializedPaths?: readonly string[],
   ) => {
     if (!projection) return null;
     materializationReader ??= makeTaskProjectionReader({
@@ -126,6 +127,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
         context.input.storage?.nodeTaskMaterializationPolicy ?? "include_done",
         includePolicySkippedPaths,
         afterRevision,
+        previouslyMaterializedPaths,
       );
     });
   };

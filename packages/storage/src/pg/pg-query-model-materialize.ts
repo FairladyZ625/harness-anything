@@ -682,13 +682,14 @@ export async function initializePgTerminalMaterialization(
     });
   }
 
-  let before = revision + 1,
+  let before = revision,
+    afterRepo = "",
     remaining = pending.size;
   while (remaining) {
-    const page = await client.query<{ event_json: string; revision: string }>(
-      `SELECT event_json,revision FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
-        AND revision<$4 ORDER BY revision DESC LIMIT 64`,
-      [scope.tenantId, scope.projectId, scope.policyEpoch, before],
+    const page = await client.query<{ event_json: string; revision: string; repo_id: string }>(
+      `SELECT event_json,revision,repo_id FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+        AND (revision<$4 OR (revision=$4 AND repo_id>$5)) ORDER BY revision DESC,repo_id ASC LIMIT 64`,
+      [scope.tenantId, scope.projectId, scope.policyEpoch, before, afterRepo],
     );
     if (!page.rows.length) break;
     for (const row of page.rows) {
@@ -710,6 +711,7 @@ export async function initializePgTerminalMaterialization(
       }
     }
     before = Number(page.rows.at(-1)!.revision);
+    afterRepo = page.rows.at(-1)!.repo_id;
   }
   if (remaining)
     throw new Error(
