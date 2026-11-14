@@ -19,7 +19,10 @@ export function nodeMaterializationStorage(
       const stat = statSync(localPath, { bigint: true, throwIfNoEntry: false }),
         key = stat ? `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}` : "absent";
       if (cached?.key !== key)
-        cached = { key, policy: readLocalState(input.rootDir, fallback).value.nodeTaskMaterializationPolicy };
+        cached = {
+          key,
+          policy: readLocalState(input.rootDir, fallback, localPath).value.nodeTaskMaterializationPolicy,
+        };
       return cached.policy;
     },
   };

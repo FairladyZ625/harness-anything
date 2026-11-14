@@ -124,9 +124,9 @@ export function readRepositorySettings(projection: Pick<TaskProjectionQueries, "
 export function readLocalState(
   rootDir: string,
   defaultPolicy = INITIAL_SETTINGS_V1.nodeTaskMaterializationPolicy,
+  localPath = resolveHarnessLayout(rootDir).settingsLocalPath,
 ): { readonly value: LocalSettingsV1; readonly valid: boolean } {
-  const localPath = resolveHarnessLayout(rootDir).settingsLocalPath,
-    fallback = localSettings({ ...INITIAL_SETTINGS_V1, nodeTaskMaterializationPolicy: defaultPolicy });
+  const fallback = localSettings({ ...INITIAL_SETTINGS_V1, nodeTaskMaterializationPolicy: defaultPolicy });
   if (!existsSync(localPath)) return { value: fallback, valid: false };
   try {
     const stored = JSON.parse(readFileSync(localPath, "utf8")),
@@ -151,7 +151,7 @@ export function makeRepoCellSettingsState(cell: RepoCellActionContext): RepoCell
 
   const readRepository = (): RepositorySettingsV1 => readRepositorySettings(cell.projection);
 
-  const localState = () => readLocalState(cell.rootDir, cell.input.nodeTaskMaterializationPolicy);
+  const localState = () => readLocalState(cell.rootDir, cell.input.nodeTaskMaterializationPolicy, localPath);
   const readLocal = (): LocalSettingsV1 => localState().value;
 
   // The local file's own schema marker is not part of the merged view; every local field is.
