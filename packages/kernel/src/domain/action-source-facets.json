@@ -5559,6 +5559,16 @@
     },
     "sources": [
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-instance-selection.ts#createRuntimeInstanceDispatchState.deactivate:09fe6f9969c5b6e690a47d9ac2fb188a",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.capabilityValue:bcae1ce2f389664bdbcd1bd01db73401",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
         "candidateId": "action:packages/kernel:packages/kernel/src/daemon/registry.ts#writeDaemonRegistry:3693aa0a954e4b5a4374158a526edc94",
         "route": "daemon:bin",
         "role": "effect"

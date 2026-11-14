@@ -14,6 +14,8 @@ import type { DispatchLifecycleQuery } from "@harness-anything/kernel";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import type { RuntimeBinding } from "../src/runtime-spawn-types.ts";
 import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
+import { createRuntimeInstanceDispatchState } from "../src/runtime-instance-selection.ts";
+import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 
 const owner = { nodeId: "node-one" };
 const binding = (source: RuntimeBinding["source"]): RuntimeBinding => ({
@@ -29,6 +31,115 @@ test("local spawner owns only local dispatches on restart", () => {
   assert.equal(ownedByRuntimeSpawner(binding("local"), undefined), true);
   assert.equal(ownedByRuntimeSpawner(binding({ kind: "node", ...owner }), undefined), false);
 });
+
+test("F2: recovery counts local attempts before asynchronous session reads and retains unproven failures", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-recovery-load-")),
+    child = fixtureRuntimeProcess(t),
+    dispatchState = createRuntimeInstanceDispatchState(),
+    entered = Promise.withResolvers<void>(),
+    release = Promise.withResolvers<void>();
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const lifecycle = lifecycleReadFor([
+      { runtimeSessionId: "local-resume", dispatchId: "local-dispatch", instanceId: "local-a", process: "alive" },
+      {
+        runtimeSessionId: "foreign-resume",
+        dispatchId: "foreign-dispatch",
+        instanceId: "foreign-b",
+        owner: "node:other",
+        process: "alive",
+      },
+    ]),
+    context = {
+      dispatchState,
+      input: {
+        rootDir,
+        runtimeInstances: () => [{ instanceId: "local-a" }, { instanceId: "foreign-b" }],
+        remote: {
+          readDispatchLifecycle: async (query: DispatchLifecycleQuery) => lifecycle(query),
+          readRuntimeSession: async () => {
+            entered.resolve();
+            await release.promise;
+            throw new Error("injected session recovery read failure");
+          },
+        },
+      },
+      processes: new Map(),
+      exiting: new Set(),
+      runtimeSpawnError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+    } as unknown as RuntimeSpawnerContext;
+  const recovery = adoptRuntimes(context);
+  try {
+    await entered.promise;
+    assert.equal(process.kill(child.pid, 0), true);
+    assert.deepEqual(
+      [...dispatchState.readActiveLoads()],
+      [["local-a", 1]],
+      "recovery must count before awaiting session/authorization I/O and exclude foreign owners",
+    );
+  } finally {
+    release.resolve();
+    const outcomes = await recovery;
+    assert.equal(outcomes[0]?.outcome, "failed");
+  }
+  assert.deepEqual(
+    [...dispatchState.readActiveLoads()],
+    [["local-a", 1]],
+    "a failed recovery without stop proof retains node load",
+  );
+});
+
+for (const alreadyProven of [true, false])
+  test(`F2: owner cancellation clears handleless node load once stop is proven (alreadyProven=${alreadyProven})`, async (t) => {
+    const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-handleless-load-")),
+      runtimeSessionId = "handleless-local",
+      dispatchState = createRuntimeInstanceDispatchState(),
+      published: string[] = [],
+      ownerBinding = binding("local");
+    t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+    dispatchState.activate(runtimeSessionId, "local-a");
+    const context = {
+      dispatchState,
+      input: {
+        rootDir,
+        repoId: "handleless-load",
+        now: () => "2026-11-14T00:00:00.000Z",
+        remote: {
+          readDispatchLifecycle: lifecycleReadFor([
+            {
+              runtimeSessionId,
+              dispatchId: "handleless-dispatch",
+              instanceId: "local-a",
+              process: alreadyProven ? "exited" : "unknown",
+              stopProof: alreadyProven ? "proven_stopped" : "unproven",
+            },
+          ]),
+          readRuntimeDispatch: async () => ({
+            ...ownerBinding,
+            instanceId: "local-a",
+            payload: { dispatchId: "handleless-dispatch" },
+            processGroupPid: 2_147_483_647,
+          }),
+        },
+      },
+      processes: new Map(),
+      exiting: new Set(),
+      publishRuntimeEvent: async (type: string) => {
+        published.push(type);
+        return {};
+      },
+      controlReceipt: (_opId: string, _sessionId: string, detail: string) => ({ detail }),
+    } as unknown as RuntimeSpawnerContext;
+    await cancelRuntime(context, { runtimeSessionId }, ownerBinding);
+    assert.equal(
+      dispatchState.readActiveLoads().size,
+      0,
+      "a missing handle does not prevent releasing proven-stopped load",
+    );
+    assert.deepEqual(
+      published,
+      alreadyProven ? [] : ["runtime_session_exited", "runtime_session_cancelled", "runtime_session_outcome_observed"],
+    );
+  });
 
 for (const source of ["local", { kind: "node", nodeId: "request-origin" }] as const) {
   test(`local recovery replays an exited DeepSeek host's terminal stream (source=${typeof source === "string" ? source : "node"})`, async (t) => {

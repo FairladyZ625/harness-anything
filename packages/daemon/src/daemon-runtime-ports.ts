@@ -3,6 +3,7 @@ import type { DaemonRuntimePorts } from "./daemon-host-context.ts";
 
 type RuntimeInstances = Pick<
   ReturnType<typeof openRuntimeInstanceStore>,
+  | "runtimeInstanceDispatchState"
   | "listPublic"
   | "prepareLaunch"
   | "prepareCloudRelay"
@@ -16,6 +17,7 @@ type RuntimeInstances = Pick<
 export function openDaemonRuntimePorts(input: { readonly instances: RuntimeInstances }): DaemonRuntimePorts {
   return {
     runtimeInstances: input.instances.listPublic,
+    runtimeInstanceDispatchState: input.instances.runtimeInstanceDispatchState,
     runtimeProviderHealth: input.instances.runtimeProviderHealth,
     prepareRuntimeLaunch: input.instances.prepareLaunch,
     prepareCloudRelay: input.instances.prepareCloudRelay,

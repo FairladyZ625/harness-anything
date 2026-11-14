@@ -8,6 +8,7 @@ import { readActiveDispatchLifecycleSync } from "../src/runtime-dispatch-admissi
 import { runtimeSpawnError } from "../src/runtime-spawn-errors.ts";
 import { requireCurrentExecutionScope } from "../src/runtime-execution-scope.ts";
 import { runtimeExecutionActor } from "../src/runtime-execution-credential.ts";
+import { createRuntimeInstanceDispatchState } from "../src/runtime-instance-selection.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 
 const principal = {
@@ -68,11 +69,13 @@ test("workspace ownership survives a stopped backoff attempt and active paginati
   assert.equal(liveDispatchIn(active, "/fixture/worktree-neighbour"), false);
 });
 
-test("capacity ranking and instance reuse follow reservations even when session summaries disagree", async () => {
+// dec_DA1602487428A58E8B446ECE38/CH3: scheduling is node-local; canonical admission still owns reservations.
+test("node load ranks instances while canonical lifecycle guards admission and session summaries stay irrelevant", async () => {
   const events = [lifecycleEvent("R", "reservation", { source: "local", instanceId: "a" })];
   const read = dispatchLifecycleReadOf(() => events);
+  const dispatchState = createRuntimeInstanceDispatchState();
+  dispatchState.activate("reservation", "a");
   const select = async () => {
-    const capacity = readActiveDispatchLifecycleSync(read, runtimeSpawnError);
     const instance = (instanceId: string) => ({
       instanceId,
       kindId: "codex",
@@ -89,7 +92,7 @@ test("capacity ranking and instance reuse follow reservations even when session 
         sessions: [
           { runtimeSessionId: "stale", instanceId: "b", liveness: "live", outcome: null, providerSessionId: null },
         ],
-        capacity,
+        dispatchState,
       },
       async (id) => id,
     );
@@ -101,5 +104,6 @@ test("capacity ranking and instance reuse follow reservations even when session 
     "a different group cannot exceed instance capacity",
   );
   events.push(lifecycleEvent("X", "reservation", { source: "local", instanceId: "a" }));
+  dispatchState.deactivate("reservation");
   assert.equal((await select()).instanceId, "a", "an accepted stop releases the same instance for reuse");
 });

@@ -96,6 +96,8 @@ export interface FleetEdgeRuntimeRequest {
 }
 type FleetRuntimeLocation = Omit<FleetEdgeRuntimeRequest["payload"], "method" | "action">;
 type RuntimePorts = {
+  readonly runtimeInstanceDispatchState?: import("@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts").RuntimeInstanceDispatchState;
+  readonly runtimeProviderHealth?: import("./runtime-provider-health.ts").RuntimeProviderHealthStore;
   readonly runtimeInstances: () => readonly RuntimeInstanceSummary[];
   readonly prepareRuntimeLaunch: (instanceId: string, request: RuntimeLaunchRequest) => Promise<PreparedRuntimeLaunch>;
   readonly prepareCloudRelay: NonNullable<Parameters<typeof makeRuntimeSpawner>[0]["prepareCloudRelay"]>;
@@ -942,6 +944,8 @@ export function openFleetEdgeRuntime(input: {
     now,
     readSettings,
     runtimeInstances: input.ports.runtimeInstances,
+    runtimeInstanceDispatchState: input.ports.runtimeInstanceDispatchState,
+    runtimeProviderHealth: input.ports.runtimeProviderHealth,
     prepareLaunch: input.ports.prepareRuntimeLaunch,
     prepareCloudRelay: input.ports.prepareCloudRelay,
     reclaimRuntimeTempDirectory: input.ports.reclaimRuntimeTempDirectory,

@@ -1,5 +1,9 @@
 // harness-test-tier: integration
-import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
+import {
+  waitForArrival,
+  waitForDurableCondition,
+  watchDirectoryArrival,
+} from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -106,6 +110,13 @@ for (const scenario of [
           payload: method === "repo.task.run" || method === "repo.task.read" ? { action } : payload,
         });
       };
+    // Socket readiness and machine-level instance creation do not imply repository recovery is complete.
+    await waitForDurableCondition(async () => {
+      const status = await rpc("daemon.status", {});
+      return (status.repos as { readonly repoId: string; readonly state: string }[]).some(
+        (repo) => repo.repoId === repoId && repo.state === "attached",
+      );
+    });
     const instance = await rpc("daemon.runtimeInstance.create", {
       payload: {
         instanceId: "codex-ask",

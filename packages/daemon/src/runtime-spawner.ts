@@ -21,7 +21,11 @@ import {
   type AuthorizationDecision,
 } from "@harness-anything/kernel";
 import { agentRuntimeModelSpelling, agentRuntimeTargetForKind } from "./agent-runtime-contract.ts";
-import { agentRuntimeAmbiguityWarning, selectedRuntimeInstance } from "./runtime-instance-selection.ts";
+import {
+  agentRuntimeAmbiguityWarning,
+  selectedRuntimeInstance,
+  createRuntimeInstanceDispatchState,
+} from "./runtime-instance-selection.ts";
 import { resolveDispatchAgent } from "./runtime-spawn-agent.ts";
 import { assertAgentDispatchable } from "./agent-entities.ts";
 import { sharedProviderDirectory } from "./agent-runtime-instance-storage.ts";
@@ -79,6 +83,7 @@ import {
   launchExitNotification,
   launchNative,
   launchRuntimeProcess,
+  isRuntimeProcessStartRejected,
   requiredRuntimeProjection,
   requiredRuntimeStore,
 } from "./runtime-spawn-process.ts";
@@ -165,6 +170,7 @@ function releaseFailedTaskClaim<Args extends unknown[]>(
 }
 
 export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
+  const dispatchState = input.runtimeInstanceDispatchState ?? createRuntimeInstanceDispatchState();
   const processes = new Map<string, ActiveRuntime>(),
     exiting = new Set<string>(),
     launch = input.launch ?? launchNative,
@@ -216,6 +222,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   };
   const spawnAttempt = releaseFailedTaskClaim(spawnClaimAttempt);
   const extracted: RuntimeSpawnerContext = {
+    dispatchState,
     closed: () => fallbackClosed,
     input,
     requiredRuntimeStore,
@@ -475,7 +482,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         taskPackageRoot,
       );
     const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
-      [localRuntimeSessions, runtimeInstances, allowedInstanceIds, providerHealth, capacity] =
+      [localRuntimeSessions, runtimeInstances, allowedInstanceIds, providerHealth] =
         await resolveRuntimeDispatchResources(input, input.remote, projection!, providerSessionId ?? undefined),
       { squad, delegatedBy, agent, resolvedSkills, preset } = resolveDispatchAgent(
         input,
@@ -554,7 +561,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           instances: runtimeInstances,
           allowedInstanceIds,
           sessions: localRuntimeSessions,
-          capacity,
+          selectionStrategy: input.readSettings?.().runtime.selectionStrategy,
+          dispatchState,
+          dryRun,
+          selectRuntimeInstance: input.selectRuntimeInstance,
           health: providerHealth,
           now: input.now(),
         },
@@ -833,6 +843,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         ...(model === undefined ? {} : { model }),
         instances: runtimeInstances,
         selected: runtimeInstanceId,
+        selectionStrategy: input.readSettings?.().runtime.selectionStrategy,
         ...(explicitRuntimeInstanceId === undefined ? {} : { explicitlyRequested: true }),
         ...(providerSessionId === null || providerSessionId === undefined ? {} : { resumedSession: true }),
       }),
@@ -925,6 +936,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     }
     const streamStartedAt = input.now();
     let process: RuntimeProcess | undefined;
+    let launchMayBeRunning = false;
     let active: ActiveRuntime | undefined = undefined;
     let resumeObservation: ResumeProcessObservation | undefined;
     let stream: DispatchStreamWriter | undefined;
@@ -1068,6 +1080,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           console.error(`[review-worktree] ${newDispatchId} could not be reclaimed: ${reviewCleanupFailure.message}`);
       }
       if (process && !(await runtimeProcessTreeStopped(input.rootDir, newDispatchId, process))) return;
+      if (!process && launchMayBeRunning) return;
+      dispatchState.deactivate(runtimeSessionId);
       // A lost receipt (including credential issuance after commit) does not undo admission.
       // Center reads must be ready; an unavailable read preserves the stream and claim for recovery.
       const observed =
@@ -1211,7 +1225,18 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         },
       };
       return launchRuntimeProcess(
-        (...args) => (process = launch(...args)),
+        (...args) => {
+          // Reserve before crossing the launcher port: another repository may dispatch while
+          // the host starts the process or the provider is still confirming a resumed session.
+          dispatchState.activate(runtimeSessionId, definition.instanceId);
+          launchMayBeRunning = true;
+          try {
+            return (process = launch(...args));
+          } catch (error) {
+            if (isRuntimeProcessStartRejected(error)) launchMayBeRunning = false;
+            throw error;
+          }
+        },
         workerLaunch,
         {
           rootDir: input.rootDir,
@@ -1351,6 +1376,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     const selectionFields = {
         runtimeSelection: {
           instanceId: runtimeSelection.instanceId,
+          tier: runtimeSelection.tier,
+          selectionStrategy: runtimeSelection.selectionStrategy,
           basis: runtimeSelection.basis,
           reason: runtimeSelection.reason,
           model: definition.model,
@@ -1366,6 +1393,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               agent,
               runtimeInstances,
               selected: runtimeSelection.instanceId,
+              selectionStrategy: input.readSettings?.().runtime.selectionStrategy,
             }),
       // A launch without the operator's GitHub login still runs; this is the one place the operator
       // learns the worker cannot publish before the credential error would arrive at `ha task push`.

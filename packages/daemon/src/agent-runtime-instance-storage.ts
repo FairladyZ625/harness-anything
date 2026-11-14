@@ -188,6 +188,7 @@ export function publicConfig(
     ...(config.availableModels === undefined ? {} : { availableModels: config.availableModels }),
     defaultModel: config.defaultModel,
     enabled: config.enabled,
+    tier: config.tier ?? 1,
     credentialSource: config.credentialSource,
     permissionMode: config.permissionMode ?? null,
     mcpPolicy: runtimeSupportsMcpPolicy(config.kindId) ? (config.mcpPolicy ?? "disabled") : null,

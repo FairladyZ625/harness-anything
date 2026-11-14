@@ -28,6 +28,7 @@ export {
   unavailable,
 } from "./agent-runtime-instance-values.ts";
 import { runtimeIsolationState, runtimeMcpPolicy, runtimePermissionMode } from "./runtime-permissions.ts";
+import { validRuntimeInstanceTier } from "@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts";
 import { agentRuntimeModelSpelling } from "./agent-runtime-contract.ts";
 import {
   isRuntimeKindId,
@@ -92,6 +93,7 @@ export function runtimeInstanceConfig(
           "availableModels",
           "defaultModel",
           "enabled",
+          "tier",
           "credentialSource",
           "permissionMode",
           "mcpPolicy",
@@ -134,6 +136,8 @@ export function runtimeInstanceConfig(
       "invalid_runtime_auth",
       `${value.kindId} runtime instances do not support ${String(value.auth.mode)} authentication.`,
     );
+  if (value.tier !== undefined && !validRuntimeInstanceTier(value.tier))
+    throw runtimeInstanceError("invalid_runtime_tier", "Runtime instance tier must be an integer from 1 to 9.");
   const models = legacy ? [requiredRuntimeInstanceText(value.model, "model")] : normalizeModels(value.models),
     defaultModel = legacy ? models[0]! : requiredRuntimeInstanceText(value.defaultModel, "defaultModel"),
     enabled = legacy ? true : requireBoolean(value.enabled, "enabled");
@@ -204,6 +208,7 @@ export function runtimeInstanceConfig(
     ...(availableModels === undefined ? {} : { availableModels }),
     defaultModel,
     enabled,
+    tier: value.tier ?? 1,
     credentialSource,
     ...(permissionMode ? { permissionMode } : {}),
     ...(mcpPolicy ? { mcpPolicy } : {}),

@@ -232,6 +232,13 @@ export const settingsFieldProtocolProjection = {
       enum: ["node", "reserved", "startable"],
     },
     {
+      field: "runtimeSelectionStrategy",
+      description: "Same-tier runtime instance scheduling strategy; Agent declarations may override it.",
+      type: "string",
+      required: false,
+      enum: ["sticky", "lru"],
+    },
+    {
       field: "runtimeAllowedInstances",
       description: "Runtime instance ids this repository may use from the machine-level instance catalog.",
       type: "string-array",
@@ -662,6 +669,15 @@ export const settingsFieldProtocolProjection = {
       name: "--fleet-claim-scope",
       kind: "single",
       enum: ["node", "reserved", "startable"],
+    },
+    {
+      field: "runtimeSelectionStrategy",
+      description: "Same-tier runtime instance scheduling strategy; Agent declarations may override it.",
+      group: "schedules-nodes",
+      effect: "Sticky reuses the first idle instance; lru balances active load then least-recent dispatch.",
+      name: "--runtime-selection-strategy",
+      kind: "single",
+      enum: ["sticky", "lru"],
     },
     {
       field: "runtimeAllowedInstances",

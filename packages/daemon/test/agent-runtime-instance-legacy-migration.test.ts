@@ -32,6 +32,8 @@ test("legacy runtime instance records migrate once to schema v2 on read", async 
       models: ["gpt-5.6-sol"],
       defaultModel: "gpt-5.6-sol",
       enabled: true,
+      // dec_DA1602487428A58E8B446ECE38/CH3: existing configurations default to tier 1.
+      tier: 1,
       credentialSource: "operator",
       permissionMode: "bypass",
       isolationState: "operator-environment",

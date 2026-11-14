@@ -1,4 +1,5 @@
 import { agentRuntimeSessionGroupStatusWords } from "@harness-anything/kernel/internal/domain/client-view-status.ts";
+import { validRuntimeInstanceTier } from "@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts";
 import type { RuntimeLiveness } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import type { DispatchAttemptOutcome } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 import type { LeasePhase } from "@harness-anything/kernel/internal/domain/execution.ts";
@@ -37,6 +38,8 @@ interface AgentRuntimeInstanceCommonDto {
   readonly availableModels?: readonly string[];
   readonly defaultModel: string;
   readonly enabled: boolean;
+  /** Optional only for previous-version peer DTOs; the node emits the effective default 1. */
+  readonly tier?: number;
   readonly credentialSource: "operator" | "instance";
   readonly permissionMode: "bypass" | "workspace-write" | "read-only" | null;
   readonly mcpPolicy?: "disabled" | "inherit" | null;
@@ -486,7 +489,7 @@ function validInstance(value: unknown): value is AgentRuntimeInstanceDto {
         "authReadiness",
         "isolationState",
       ],
-      ["availableModels", "hostingCredentialState", "mcpPolicy"],
+      ["availableModels", "hostingCredentialState", "mcpPolicy", "tier"],
     ) &&
     value.schemaVersion === 2 &&
     Array.isArray(value.models) &&
@@ -499,6 +502,7 @@ function validInstance(value: unknown): value is AgentRuntimeInstanceDto {
     typeof value.defaultModel === "string" &&
     value.models.includes(value.defaultModel) &&
     typeof value.enabled === "boolean" &&
+    (value.tier === undefined || validRuntimeInstanceTier(value.tier)) &&
     ["operator", "instance"].includes(String(value.credentialSource)) &&
     (value.permissionMode === null ||
       ["bypass", "workspace-write", "read-only"].includes(String(value.permissionMode))) &&

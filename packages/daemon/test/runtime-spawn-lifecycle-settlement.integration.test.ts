@@ -19,6 +19,7 @@ import {
   type WriterEpochFenceDescriptor,
 } from "@harness-anything/storage";
 import { launchExitNotification } from "../src/runtime-spawn.ts";
+import { RuntimeProcessStartRejected } from "../src/runtime-spawn-process.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
 function dispatchText(root: string, dispatchId: string): string {
@@ -117,7 +118,8 @@ test(
         runtimeLaunch: () => {
           if (failLaunch) {
             failLaunch = false;
-            throw new Error("injected provider launch failure");
+            // CH3 (dec_DA1602487428A58E8B446ECE38): the child is created only below this branch.
+            throw new RuntimeProcessStartRejected(new Error("injected provider launch failure"));
           }
           const child = spawn(
             process.execPath,

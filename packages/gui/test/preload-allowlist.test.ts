@@ -729,27 +729,31 @@ test("runtime update accepts exactly the fields the registry declares", () => {
     "models",
     "name",
     "permissionMode",
+    // dec_DA1602487428A58E8B446ECE38/CH3 adds the priority tier to runtime updates.
+    "tier",
     "webSearch",
   ]);
   for (const field of declared.filter((name) => name !== "instanceId")) {
     const sample: Record<string, unknown> =
-      field === "models"
-        ? { models: ["model-a"] }
-        : field === "enabled"
-          ? { enabled: true }
-          : field === "fast"
-            ? { fast: true }
-            : field === "permissionMode"
-              ? { permissionMode: "bypass" }
-              : field === "isolationState"
-                ? { isolationState: "enforced" }
-                : field === "credentialSource"
-                  ? { credentialSource: "operator" }
-                  : field === "mcpPolicy"
-                    ? { mcpPolicy: "disabled" }
-                    : field === "webSearch"
-                      ? { webSearch: "disabled" }
-                      : { [field]: "value" };
+      field === "tier"
+        ? { tier: 2 }
+        : field === "models"
+          ? { models: ["model-a"] }
+          : field === "enabled"
+            ? { enabled: true }
+            : field === "fast"
+              ? { fast: true }
+              : field === "permissionMode"
+                ? { permissionMode: "bypass" }
+                : field === "isolationState"
+                  ? { isolationState: "enforced" }
+                  : field === "credentialSource"
+                    ? { credentialSource: "operator" }
+                    : field === "mcpPolicy"
+                      ? { mcpPolicy: "disabled" }
+                      : field === "webSearch"
+                        ? { webSearch: "disabled" }
+                        : { [field]: "value" };
     assert.equal(
       assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", ...sample }),
       true,

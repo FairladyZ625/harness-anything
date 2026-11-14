@@ -692,6 +692,13 @@ export const agentProtocolCommands = Object.freeze([
     method: "repo.task.run",
     inputs: [
       cliInput(
+        "--selection-strategy",
+        "single",
+        false,
+        { code: "invalid_runtime_selection_strategy" },
+        { field: "selectionStrategy", pathKind: "non-path", enum: ["sticky", "lru"] },
+      ),
+      cliInput(
         "--source",
         "single",
         false,
@@ -742,6 +749,13 @@ export const agentProtocolCommands = Object.freeze([
     method: "repo.task.run",
     inputs: [
       cliInput(
+        "--selection-strategy",
+        "single",
+        false,
+        { code: "invalid_runtime_selection_strategy" },
+        { field: "selectionStrategy", pathKind: "non-path", enum: ["sticky", "lru"] },
+      ),
+      cliInput(
         "--source",
         "single",
         true,
@@ -770,7 +784,7 @@ export const agentProtocolCommands = Object.freeze([
     // CLI alias only: forwards to the canonical agent-install action by <agent-id> so
     // authorization, receipt rendering, and the Action inventory stay singular.
     actionKind: "agent-install",
-    actionConstraints: [["mcpPolicy", "clearMcpPolicy"]],
+    actionConstraints: [["mcpPolicy", "clearMcpPolicy", "selectionStrategy"]],
     phase: "Runtime-B",
     path: ["agent", "update", "<agent-id>"],
     summary:
@@ -779,6 +793,13 @@ export const agentProtocolCommands = Object.freeze([
     positional: "agentId",
     positionalInputs: [{ name: "<agent-id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [
+      cliInput(
+        "--selection-strategy",
+        "single",
+        false,
+        { code: "invalid_runtime_selection_strategy" },
+        { field: "selectionStrategy", pathKind: "non-path", enum: ["sticky", "lru"] },
+      ),
       cliInput(
         "--mcp-policy",
         "single",

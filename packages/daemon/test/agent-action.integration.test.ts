@@ -809,7 +809,7 @@ test("RepoCell fixtures preserve an unnamed local caller's missing authority", a
   }
 });
 
-test("an ambiguous agent install reports its warning on the receipt the operator reads", async () => {
+test("an explicit same-kind instance pool does not report an ambiguous Agent install", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-install-warning-"));
   initRepo(rootDir);
   // Two enabled instances of one kind, model spelled in different case: exactly the choice the
@@ -852,14 +852,8 @@ test("an ambiguous agent install reports its warning on the receipt the operator
       binding,
     );
     assert.equal(installed.outcome, "applied", JSON.stringify(installed));
-    // The report nests warnings where the human renderer cannot reach them; without lifting them
-    // to the receipt's own warnings channel `ha agent install` printed nothing at all.
-    assert.deepEqual(installed.warnings, [
-      "agent_runtime_instance_ambiguous: Agent unified-agent can dispatch to 2 enabled instances " +
-        "(ds-bailian, ds-harness-api) and does not name one; dispatch would fall back to runtime-row " +
-        "then repository allowed-instance order. Pin one with the `instance` field, or state an order " +
-        "with `preferredInstances`; run ha runtime instance list to see the enabled instances.",
-    ]);
+    // dec_DA1602487428A58E8B446ECE38/CH3 makes an enabled same-kind pool explicit intent.
+    assert.deepEqual(installed.warnings ?? [], []);
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

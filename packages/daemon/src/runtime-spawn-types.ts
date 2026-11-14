@@ -180,6 +180,7 @@ export type RuntimeAgent = {
   /** Ordered soft preference among the instances one runtimes row admits; unlike `instance` it
    *  never fails a dispatch when a preferred instance is unavailable on this node. */
   readonly preferredInstances?: readonly string[];
+  readonly selectionStrategy?: import("@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts").RuntimeSelectionStrategy;
   readonly permissionMode?: AgentPermissionMode;
   readonly mcpPolicy?: AgentMcpPolicy;
   readonly hostAccess?: AgentHostAccess;
@@ -465,6 +466,10 @@ export interface RuntimeSpawnerInput {
   readonly localRecoveryBinding?: () => Promise<RepoCellBinding>;
   readonly stream: Pick<AgentRuntimeStreamHub, "publish">;
   readonly now: () => string;
+  readonly runtimeInstanceDispatchState?: import("@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts").RuntimeInstanceDispatchState;
+  readonly selectRuntimeInstance?: (
+    input: import("./runtime-spawn-mission.ts").RuntimeInstanceSelectionRequest,
+  ) => readonly string[];
   readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
   readonly runtimeInstanceCapacities?: Readonly<Record<string, number>>;
   readonly runtimeProviderHealth?: RuntimeProviderHealthStore;
