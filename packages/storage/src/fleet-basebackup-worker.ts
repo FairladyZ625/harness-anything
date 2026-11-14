@@ -1,6 +1,4 @@
-import { preparePgBaseBackup } from "./postgres/pg-basebackup.ts";
-import { installStorageWorkerContext, type StorageWorkerContext } from "./storage-worker-context.ts";
-import { pgliteOwnerService } from "./pglite/owner-service.ts";
+import type { StorageWorkerContext } from "./storage-worker-context.ts";
 import { parentPort, workerData } from "node:worker_threads";
 import { backup, DatabaseSync } from "node:sqlite";
 import { createHash } from "node:crypto";
@@ -8,7 +6,6 @@ import { createReadStream, existsSync } from "node:fs";
 import { copyFile, mkdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import * as tar from "tar";
-import { contentClaims as replicationContentClaims } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 import type { PersistedCanonicalEventV1 } from "@harness-anything/kernel";
 import { syncFile, writeFileDurably } from "./durable-file.ts";
 import type {
@@ -20,11 +17,18 @@ import type {
 import { BASE_BACKUP_ARCHIVE_ROOT } from "./fleet-basebackup-layout.ts";
 
 const { storageContext, ...input } = workerData as BaseBackupInput & { readonly storageContext?: StorageWorkerContext };
-installStorageWorkerContext(storageContext);
+if (storageContext) {
+  const { installStorageWorkerContext } = await import("./storage-worker-context.ts");
+  installStorageWorkerContext(storageContext);
+}
 const sqlBackup = async () => {
   if (!("storage" in input)) throw new TypeError("SQL backup requires storage");
   const pinned = (metadata: BaseBackupMetadata) => parentPort!.postMessage({ kind: "pinned", metadata });
-  if (input.storage.backend === "postgres") return preparePgBaseBackup(input, pinned);
+  if (input.storage.backend === "postgres") {
+    const { preparePgBaseBackup } = await import("./postgres/pg-basebackup.ts");
+    return preparePgBaseBackup(input, pinned);
+  }
+  const { pgliteOwnerService } = await import("./pglite/owner-service.ts");
   const service = pgliteOwnerService(input.repoId, input.storage);
   try {
     return await service.call<BaseBackupMetadata>({ service: "backup", input }, pinned);
@@ -71,6 +75,9 @@ async function prepareSqliteBackup(input: SqliteBaseBackupInput): Promise<BaseBa
       projectionSchema: Number(projected.schema_version),
     };
     parentPort!.postMessage({ kind: "pinned", metadata });
+    const { contentClaims: replicationContentClaims } = await import(
+      "@harness-anything/kernel/internal/ports/canonical-document-claims.ts"
+    );
     const payload = path.join(input.directory, "payload"),
       store = path.join(payload, BASE_BACKUP_ARCHIVE_ROOT, "store", "generations", String(metadata.ledgerGeneration)),
       cache = path.join(payload, BASE_BACKUP_ARCHIVE_ROOT, "cache");

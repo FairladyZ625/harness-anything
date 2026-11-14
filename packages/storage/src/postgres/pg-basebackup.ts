@@ -1,10 +1,9 @@
-import { contentClaims } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 import type { PersistedCanonicalEventV1 } from "@harness-anything/kernel";
 import path from "node:path";
 import { mkdir } from "node:fs/promises";
-import { createPostgresPool, withPostgresTransaction } from "./transaction.ts";
-import { resolvePostgresEventStoreScope } from "../pg/backend.ts";
-import { pgReplicationHead, pgEventRows, pgOutcomes } from "./pg-replication.ts";
+import { createPostgresPool, resolveConfirmedRepoCut, withPostgresTransaction } from "./transaction.ts";
+import { resolvePostgresEventStoreScope } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
+import { TaskEventStoreError } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 import { writeFileDurably } from "../durable-file.ts";
 import { BASE_BACKUP_ARCHIVE_ROOT } from "../fleet-basebackup-layout.ts";
 import { taskProjectionSchemaVersion } from "../projection/projection-schema.ts";
@@ -37,7 +36,9 @@ export async function prepareSqlBaseBackup(
   return await withPostgresTransaction(
     pool,
     async (client) => {
-      const position = await pgReplicationHead(client, scope, input.repoId),
+      const cut = await resolveConfirmedRepoCut(client, scope, input.repoId);
+      if (!cut) throw new TaskEventStoreError("invalid_store", "repository has no canonical PG head");
+      const position = { history: cut.history, sequence: cut.confirmedSequence, revision: cut.confirmedRevision },
         metadata: BaseBackupMetadata = {
           schema: "fleet-basebackup/v3",
           repoId: input.repoId,
@@ -47,6 +48,9 @@ export async function prepareSqlBaseBackup(
           projectionSchema: taskProjectionSchemaVersion,
         };
       pinned(metadata);
+      // Export modules are only needed after the snapshot barrier has been released.
+      const { pgEventRows, pgOutcomes } = await import("./pg-replication.ts");
+      const { contentClaims } = await import("@harness-anything/kernel/internal/ports/canonical-document-claims.ts");
       const events = await pgEventRows(client, scope, input.repoId, 0, position.revision),
         outcomes = await pgOutcomes(client, scope, input.repoId, undefined, position.sequence),
         writer = (

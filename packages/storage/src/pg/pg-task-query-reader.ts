@@ -20,6 +20,10 @@ export interface PgTaskQueryReaderOptions {
   readonly path?: string;
   readonly startupTimeoutMs?: number;
   readonly queryTimeoutMs?: number;
+  readonly preCommitTimeoutMs?: number;
+  readonly rollbackGraceMs?: number;
+  /** Shared with the host cancellation owner; one request remains in flight until its response. */
+  readonly state?: Int32Array;
   readonly now?: () => string;
 }
 
@@ -94,13 +98,17 @@ export function createPgTaskQueryReader(
   options: PgTaskQueryReaderOptions | PgQueryConnectionOptions,
   connect?: PgQueryConnector,
 ): PgTaskQueryReader {
+  if (options.state && (options.state.length !== 3 || !(options.state.buffer instanceof SharedArrayBuffer)))
+    throw new TypeError("PostgreSQL request state must be a shared Int32Array[3]");
   const postgres = options as PgTaskQueryReaderOptions;
   const path = options.path ?? "postgres:task-projection",
     startupTimeoutMs = checkedTimeout(options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS, "startup"),
     queryTimeoutMs = checkedTimeout(options.queryTimeoutMs ?? DEFAULT_QUERY_TIMEOUT_MS, "query"),
+    preCommitTimeoutMs = checkedTimeout(options.preCommitTimeoutMs ?? queryTimeoutMs, "pre-commit"),
+    rollbackGraceMs = checkedTimeout(options.rollbackGraceMs ?? 5_000, "rollback grace"),
     { port1, port2 } = new MessageChannel(),
-    ready = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT)),
-    state = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT)),
+    ready = new Int32Array(new SharedArrayBuffer(12)),
+    state = options.state ?? new Int32Array(new SharedArrayBuffer(12)),
     worker: PgQueryEndpoint =
       connect?.({ ...options, path, ready, state, responsePort: port2, requestPort: port1 }) ??
       new Worker(new URL(`./pg-task-query-worker${extname(import.meta.filename)}`, import.meta.url), {
@@ -143,13 +151,15 @@ export function createPgTaskQueryReader(
   worker.unref();
   let startup: WorkerResponse;
   try {
-    startup = waitForWorker(ready, port1, 0, startupTimeoutMs, worker, "PostgreSQL task query worker failed to start");
+    startup = waitForWorker(ready, port1, 0, startupTimeoutMs, worker, "PostgreSQL task query worker failed to start", {
+      rollbackGraceMs,
+    });
   } catch (error) {
     port1.close();
     throw error;
   }
   if (startup.error) {
-    void worker.terminate();
+    if (Atomics.load(ready, 1) !== 1) void worker.terminate();
     port1.close();
     throw restoreError(startup.error);
   }
@@ -177,6 +187,13 @@ export function createPgTaskQueryReader(
     const id = ++requestId;
     // Never overwrite the worker's terminal (-1) signal between requests.
     Atomics.compareExchange(state, 0, 1, 0);
+    // The previous response has settled; no old cancellation may pass the new request's id fence.
+    Atomics.compareExchange(state, 1, Atomics.load(state, 1), 0);
+    Atomics.store(state, 2, id);
+    const write =
+      op === "canonical"
+        ? ["append", "reject", "prune"].includes((args![0] as PostgresTaskEventStoreRequest).operation)
+        : !["begin", "query", "end", "close", "replication"].includes(op);
     if (Atomics.load(state, 0) !== -1)
       worker.postMessage({
         id,
@@ -187,7 +204,15 @@ export function createPgTaskQueryReader(
       });
     let response: WorkerResponse;
     try {
-      response = waitForWorker(state, port1, id, queryTimeoutMs, worker, "PostgreSQL task query worker timed out");
+      response = waitForWorker(
+        state,
+        port1,
+        id,
+        write ? preCommitTimeoutMs : queryTimeoutMs,
+        worker,
+        "PostgreSQL task query worker timed out",
+        write ? { rollbackGraceMs } : undefined,
+      );
     } catch (error) {
       closed = true;
       port1.close();
@@ -197,7 +222,7 @@ export function createPgTaskQueryReader(
       lifecycleError = response.error ? restoreError(response.error) : undefined;
       closed = true;
       port1.close();
-      void worker.terminate();
+      if (Atomics.load(state, 1) !== 1) void worker.terminate();
     }
     if (response.error) throw restoreError(response.error);
     return response.result as Result;
@@ -284,22 +309,52 @@ function waitForWorker(
   waitMs: number,
   worker: PgQueryEndpoint,
   timeoutMessage: string,
+  write?: { readonly rollbackGraceMs: number },
 ): WorkerResponse {
-  if (Atomics.wait(state, 0, 0, waitMs) === "timed-out") {
+  const deadline = performance.now() + waitMs,
+    shared = state.length === 3;
+  let rollbackDeadline: number | undefined;
+  while (Atomics.load(state, 0) === 0) {
+    const phase = shared ? Atomics.load(state, 1) : 0;
+    if (phase === 1) {
+      // SyncRep may take arbitrarily long. The host can detach the caller, never the connection.
+      Atomics.wait(state, 0, 0, 1_000);
+      continue;
+    }
+    if (write && phase === -1) rollbackDeadline ??= performance.now() + write.rollbackGraceMs;
+    const remaining = (rollbackDeadline ?? deadline) - performance.now();
+    if (remaining > 0) {
+      Atomics.wait(state, 0, 0, remaining);
+      continue;
+    }
+    if (shared && rollbackDeadline === undefined) {
+      // A read can own cold-recovery maintenance. Win abort before terminating,
+      // or retain the connection if its physical commit won this exact race.
+      const previous = Atomics.compareExchange(state, 1, 0, -1);
+      if (previous === 1 || write) continue;
+    }
     void worker.terminate();
     throw Object.assign(new Error(timeoutMessage), { code: "pg_query_worker_timeout" });
   }
+  const committing = shared && Atomics.load(state, 1) === 1;
   let response: WorkerResponse | undefined;
   // Drain already delivered responses, giving a terminal failure precedence over a
   // successful response sent immediately before the connection died.
   for (let entry = receiveMessageOnPort(port); entry; entry = receiveMessageOnPort(port)) {
     response = entry.message as WorkerResponse;
-    if (response.fatal) return response;
+    if (response.fatal) {
+      if (committing && response.error)
+        return {
+          ...response,
+          error: { ...response.error, fields: { ...response.error.fields, code: "publication_indeterminate" } },
+        };
+      return response;
+    }
   }
   if (!response || response.id !== requestId) {
-    void worker.terminate();
+    if (!committing) void worker.terminate();
     throw Object.assign(new Error("PostgreSQL task query worker returned an invalid response"), {
-      code: "pg_query_worker_protocol_error",
+      code: committing ? "publication_indeterminate" : "pg_query_worker_protocol_error",
     });
   }
   return response;

@@ -19,7 +19,7 @@ import {
   type CanonicalEventSummary,
 } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
 import { isTaskEvent } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events.ts";
-import { withPostgresTransaction, type PostgresScopeClaims } from "../postgres/transaction.ts";
+import { resolveConfirmedRepoCut, withPostgresTransaction, type PostgresScopeClaims } from "../postgres/transaction.ts";
 import type { PgTaskProjectionSourceOptions, PgTaskProjectionSource, PgProjectionCut } from "./pg-task-source.ts";
 
 /** SQLite event_index keeps accepted bytes unless the registered reviewer-key transform changes a dispatch. */
@@ -480,8 +480,14 @@ export async function readCutInTransaction(
     [claims.tenantId, claims.projectId, repoId, claims.policyEpoch, readers],
   );
   const watermark = Number(result.rows[0]?.watermark ?? 0),
-    sourceRevision = Number(head.rows[0]?.revision ?? 0);
+    headRevision = Number(head.rows[0]?.revision ?? 0),
+    confirmed = head.rows[0]
+      ? await resolveConfirmedRepoCut(client, { ...claims, readers: [...readers] }, repoId)
+      : null,
+    sourceRevision = Math.min(headRevision, confirmed?.confirmedRevision ?? 0);
+  if (watermark > headRevision)
+    throw new Error(`projection watermark ${watermark} exceeds ledger head ${headRevision}`);
   if (watermark > sourceRevision)
-    throw new Error(`projection watermark ${watermark} exceeds ledger head ${sourceRevision}`);
+    throw Object.assign(new Error("sync_replication_unconfirmed"), { code: "sync_replication_unconfirmed" });
   return { status: watermark === sourceRevision ? "ready" : "pending", watermark, sourceRevision };
 }

@@ -1,6 +1,7 @@
 import type { Pool, PoolClient } from "pg";
 import { migrationWritable } from "../migration/types.ts";
 import { WriterEpochError, type WriterEpochLease } from "../writer-epoch-contract.ts";
+import { commitPostgresTransaction } from "./transaction.ts";
 
 export type PgEpochOperation = "acquire" | "current" | "floor" | "retire" | "begin" | "end";
 export interface PgEpochRequest {
@@ -20,18 +21,37 @@ export function pgEpochTransactions(pool: Pool) {
         if (!held) throw new WriterEpochError("writer_epoch_invalid", "No PG append fence is held");
         const client = held;
         held = null;
+        let committing = false,
+          releaseError: Error | undefined;
         try {
-          await client.query("COMMIT");
+          await commitPostgresTransaction(client, () => {
+            committing = true;
+          });
+        } catch (error) {
+          if (committing) releaseError = error instanceof Error ? error : new Error(String(error));
+          else {
+            try {
+              await client.query("ROLLBACK");
+            } catch (rollback) {
+              releaseError = new AggregateError([error, rollback], "PG append fence and rollback failed");
+              throw releaseError;
+            }
+          }
+          throw error;
         } finally {
-          client.release();
+          client.release(releaseError);
         }
         return null;
       }
       if (held) throw new WriterEpochError("writer_epoch_invalid", "A PG append fence is already held");
       const client = await pool.connect();
-      let retained = false;
+      let retained = false,
+        committing = false,
+        releaseError: Error | undefined;
       try {
         await client.query("BEGIN");
+        await client.query("SET LOCAL statement_timeout = 0");
+        await client.query("SET LOCAL transaction_timeout = 0");
         if (request.operation === "acquire")
           await client.query("INSERT INTO ha_repo_writer_epochs(repo_id) VALUES($1) ON CONFLICT DO NOTHING", [
             request.repoId,
@@ -91,20 +111,27 @@ export function pgEpochTransactions(pool: Pool) {
             [request.repoId, request.holderId],
           );
         }
-        await client.query("COMMIT");
+        await commitPostgresTransaction(client, () => {
+          committing = true;
+        });
         if (request.operation === "floor") return epoch;
         return holder && issuedAt
           ? { repoId: request.repoId, holderId: holder, epoch, version: epoch, issuedAt }
           : null;
       } catch (error) {
+        if (committing) {
+          releaseError = error instanceof Error ? error : new Error(String(error));
+          throw error;
+        }
         try {
           await client.query("ROLLBACK");
         } catch (rollback) {
-          throw new AggregateError([error, rollback], "PG writer epoch operation and rollback failed");
+          releaseError = new AggregateError([error, rollback], "PG writer epoch operation and rollback failed");
+          throw releaseError;
         }
         throw error;
       } finally {
-        if (!retained) client.release();
+        if (!retained) client.release(releaseError);
       }
     },
     async close() {

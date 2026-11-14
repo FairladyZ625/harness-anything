@@ -38,7 +38,11 @@ import { publishFollowerCut } from "../store/task-event-store-git-refs.ts";
 import { restoreCanonicalDocumentSelection } from "../store/sqlite-task-event-materialize.ts";
 import { createDurableFollowerPublisher } from "../store/durable-follower-publisher.ts";
 
-/** The existing PG worker bridge owns whole accepting transactions and the driver pool. */
+/**
+ * One handle belongs to the single writer. Its synchronous bridge can wait in SyncRep;
+ * concurrent reads must open independent product reader handles on another thread.
+ * The host retains the writer slot until the underlying response, even after caller detach.
+ */
 export function makePgCanonicalEventStore(
   options: PostgresTaskEventStoreOptions | PGliteTaskEventStoreOptions,
 ): CanonicalEventStore & { readonly pruneReplicationLog: (beforeSequence: number) => void } {
@@ -88,7 +92,7 @@ export function makePgCanonicalEventStore(
       commitSha: null,
       reason: "Git follower is not configured",
     };
-  const publishFollower = (
+  const publishConfirmedFollower = (
     request?: Parameters<CanonicalEventStore["materialize"]>[0],
   ): ReturnType<CanonicalEventStore["materialize"]> => {
     writable();
@@ -212,6 +216,18 @@ export function makePgCanonicalEventStore(
   };
   // Acceptance and follower publication are separate: this detached consumer always rereads the
   // current PG cut, so its failure cannot turn a committed append into an ambiguous write result.
+  const publishFollower: typeof publishConfirmedFollower = (request) => {
+    try {
+      return publishConfirmedFollower(request);
+    } catch (error) {
+      if (error instanceof Error && error.message === "sync_replication_unconfirmed") {
+        worktree = { ...worktree, status: "pending", reason: error.message };
+        git = { ...git, status: "pending", reason: error.message };
+      }
+      // The existing durable publisher owns retry/backoff; no tree or ref was mutated before the read cut.
+      throw error;
+    }
+  };
   const publisher = createDurableFollowerPublisher({
     publish: publishFollower,
     withFence: options.withAppendFence,

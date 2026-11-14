@@ -208,6 +208,7 @@ export async function executePostgresAppend(
       signal?.throwIfAborted();
       await client.query("SET LOCAL synchronous_commit = on");
       await client.query("SET LOCAL statement_timeout = 0");
+      await client.query("SET LOCAL transaction_timeout = 0");
       const prior = await readOutcome(client, scope, { repoId, opId });
       if (prior) return replayOutcome(client, scope, repoId, prior, intentDigest);
       await client.query(
@@ -418,7 +419,6 @@ export async function executePostgresAppend(
           confirmedSequence: Number(position.sequence),
         }),
       );
-      committing = true;
       return {
         outcome,
         head: {
@@ -437,6 +437,9 @@ export async function executePostgresAppend(
     scope,
     {
       rollbackOnly: (result) => result.replayed,
+      onCommitStarted: () => {
+        committing = true;
+      },
       onSyncRepInterrupted: (notice) => hooks.onSyncRepInterrupted?.({ ...notice, repoId, opId }),
     },
   ).catch((error: unknown) => {
