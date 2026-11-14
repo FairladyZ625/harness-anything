@@ -14,6 +14,8 @@ export interface RuntimeInstallationRow {
 export interface RuntimeInstanceCatalog {
   readonly instances: readonly RuntimeInstanceSummary[];
   readonly installations: readonly RuntimeInstallationRow[];
+  /** Verified kinds on the connected daemon, independent of the renderer platform. */
+  readonly subscriptionIsolationKinds?: readonly string[];
 }
 export type RuntimeInstanceUpdateInput = {
   readonly instanceId: string;
@@ -35,6 +37,7 @@ export type RuntimeInstanceUpdateInput = {
   readonly mcpPolicy?: "disabled" | "inherit";
   readonly isolationState?: DomainStatus.RuntimeIsolationState;
   readonly credentialSource?: "operator" | "instance";
+  readonly tier?: number;
   readonly fast?: boolean;
   readonly webSearch?: "disabled" | "cached" | "live";
   readonly clearFreeze?: boolean;
@@ -50,6 +53,7 @@ type RuntimeInstanceCreateCommon = {
   readonly mcpPolicy?: "disabled" | "inherit";
   readonly isolationState?: DomainStatus.RuntimeIsolationState;
   readonly credentialSource?: "operator" | "instance";
+  readonly tier?: number;
 };
 // Keys travel once through the trusted bridge to the selected daemon's native vault.
 export type RuntimeInstanceCreateInput = RuntimeInstanceCreateCommon & {
@@ -139,6 +143,7 @@ function runtimeInstanceCatalog(value: unknown): RuntimeInstanceCatalog {
   return {
     instances: value.instances as RuntimeInstanceSummary[],
     installations: value.installations as RuntimeInstallationRow[],
+    subscriptionIsolationKinds: (value.subscriptionIsolationKinds as readonly string[] | undefined) ?? [],
   };
 }
 function runtimeInstanceSummary(value: unknown): RuntimeInstanceSummary {

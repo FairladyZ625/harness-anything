@@ -826,5 +826,16 @@
   "agentRuntime.webSearchSubscriptionGateway": "Custom gateway search requires an API key instance.",
   "agentRuntime.webSearchEndpointRequired": "Set a custom base URL or use the openai provider.",
   "agentRuntime.webSearchResponsesRequired": "Custom gateway search requires wire_api=responses.",
-  "agentRuntime.webSearchGatewayVerification": "Saving enables search only after the gateway performs a verified web search."
+  "agentRuntime.webSearchGatewayVerification": "Saving enables search only after the gateway performs a verified web search.",
+  "agentRuntime.credentialSource": "Subscription account",
+  "agentRuntime.credentialOperator": "Host account",
+  "agentRuntime.credentialInstance": "Independent account",
+  "agentRuntime.tier": "Priority tier",
+  "agentRuntime.refreshAccount": "Refresh models & quota",
+  "agentRuntime.selectionStrategy": "Same-tier scheduling",
+  "agentRuntime.selectionStrategyDefault": "Repository default",
+  "agentRuntime.selection_sticky": "Sticky reuse",
+  "agentRuntime.selection_lru": "Least recently used",
+  "agentRuntime.createAndSignIn": "Create & sign in",
+  "agentRuntime.details": "Details"
 }

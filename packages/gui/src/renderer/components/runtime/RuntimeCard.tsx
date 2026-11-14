@@ -2,7 +2,7 @@ import { Toggle } from "../primitives/Toggle.tsx";
 import { Button } from "../primitives/Button.tsx";
 import { useEffect, useState } from "react";
 import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
-import { agentRuntimeKindMatches } from "@harness-anything/daemon/protocol";
+import { runtimeKindForId, agentRuntimeKindMatches } from "@harness-anything/daemon/protocol";
 import type { AgentEntityAvailableRow } from "../../agent-entity-client.ts";
 import type { RuntimeInstallationRow, RuntimeInstanceUpdateInput } from "../../runtime-instance-client.ts";
 import {
@@ -19,8 +19,9 @@ import {
   toggleRuntimeModel,
   type RuntimeInstanceEditFormState,
 } from "../../runtime-instance-form.ts";
-import { planeAllowsBaseUrl, planeUsesApiOverride, runtimeProviderPlane } from "../../runtime-provider-planes.ts";
+import { planeAllowsBaseUrl, runtimeProviderPlane } from "../../runtime-provider-planes.ts";
 import { t } from "../../i18n/index.tsx";
+import { formatTime } from "../../model/time.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { ActionError } from "./ActionError.tsx";
 import { Avatar, CapDot, Card, CardBody, CardHead, CardTitle, ChipZone, Hint, KindDot, Right } from "./parts.tsx";
@@ -36,6 +37,7 @@ import { ArrowDown, ArrowUp } from "@phosphor-icons/react";
 type Props = {
   readonly instance: RuntimeInstanceSummary;
   readonly installations: readonly RuntimeInstallationRow[];
+  readonly independentCredentialsSupported?: boolean;
   readonly agents: readonly AgentEntityAvailableRow[];
   readonly liveSessions: number;
   readonly busy: boolean;
@@ -71,6 +73,7 @@ type Props = {
 export function RuntimeCard({
   instance,
   installations,
+  independentCredentialsSupported = false,
   agents,
   liveSessions,
   busy,
@@ -104,13 +107,14 @@ export function RuntimeCard({
   useEffect(() => {
     setEditing(false);
   }, [instance.instanceId]);
-  const plane = runtimeProviderPlane(instance.kindId),
-    compatible = agents.filter((agent) => agentRuntimeKindMatches(agent.runtimes, instance.kindId));
+  const compatible = agents.filter((agent) => agentRuntimeKindMatches(agent.runtimes, instance.kindId));
   const apiMode = instance.authMode === "api-key",
     auth = runtimeAuthPresentation(instance, authProbeState),
     authText = runtimeAuthPresentationText(instance, auth);
-  const nativeAuthActions = !apiMode && instance.kindId !== "agy",
-    agyLoginPath = instance.kindId === "agy" && instance.authState === "unauthenticated";
+  const agyAccount =
+      instance.kindId === "agy" || runtimeKindForId(instance.kindId).executable.credentialCommand === "agy",
+    nativeAuthActions = !apiMode,
+    authBusy = busy || authProbeState?.state === "probing";
   return (
     <div data-testid={`runtime-card-${instance.instanceId}`}>
       {actionError ? <ActionError>{actionError}</ActionError> : null}
@@ -175,12 +179,25 @@ export function RuntimeCard({
               key={instance.instanceId}
               instance={instance}
               installations={installations}
+              independentCredentialsSupported={independentCredentialsSupported}
               busy={busy}
               onUpdate={onUpdate}
               onCancel={() => setEditing(false)}
             />
           ) : (
             <FieldGrid>
+              <Field label={t("agentRuntime.tier")} value={String(instance.tier ?? 1)} />
+              {instance.authMode === "subscription" && (
+                <Field
+                  label={t("agentRuntime.credentialSource")}
+                  value={t(
+                    instance.credentialSource === "instance"
+                      ? "agentRuntime.credentialInstance"
+                      : "agentRuntime.credentialOperator",
+                  )}
+                  mono={false}
+                />
+              )}
               <Field label="provider" value={instance.providerId} mono={false} />
               <Field label="default model" value={instance.defaultModel} />
               <Field label="models" value={instance.models.join(", ")} />
@@ -219,7 +236,11 @@ export function RuntimeCard({
               <Field label={t("agentRuntime.providerFailureReason")} value={providerHealth.reason ?? "-"} />
               <Field
                 label={t("agentRuntime.providerRecoverAt")}
-                value={providerHealth.frozenUntil ?? providerHealth.cooldownUntil ?? "-"}
+                value={
+                  formatTime(providerHealth.frozenUntil ?? providerHealth.cooldownUntil ?? "", {
+                    style: "date-time-seconds",
+                  }) ?? "-"
+                }
               />
             </FieldGrid>
             {providerHealth.frozen && onClearFreeze ? (
@@ -234,15 +255,6 @@ export function RuntimeCard({
       <Card testId="runtime-card-auth">
         <CardHead>
           <CardTitle>{t("agentRuntime.authTitle")}</CardTitle>
-          <Hint>
-            {t(
-              planeUsesApiOverride(instance.kindId)
-                ? "agentRuntime.authClaudePlane"
-                : plane.authShape === "separate"
-                  ? "agentRuntime.authCodexPlane"
-                  : "agentRuntime.authAgyPlane",
-            )}
-          </Hint>
           <Right>
             <CapDot state={auth.cap} tip={authText} />
           </Right>
@@ -257,36 +269,28 @@ export function RuntimeCard({
               />
               <Hint>{authText}</Hint>
               <span className="flex-1" />
-              <Button size="sm" disabled={busy} onClick={onValidate}>
-                {t("agentRuntime.checkAuth")}
+              <Button size="sm" testId="runtime-account-refresh" disabled={authBusy} onClick={onValidate}>
+                {t("agentRuntime.refreshAccount")}
               </Button>
               {nativeAuthActions && (
                 <>
-                  <Button size="sm" disabled={busy} onClick={() => onAuth("login")}>
+                  <Button size="sm" testId="runtime-account-login" disabled={authBusy} onClick={() => onAuth("login")}>
                     {t("agentRuntime.signIn")}
                   </Button>
-                  <Button size="sm" variant="ghost" disabled={busy} onClick={() => onAuth("logout")}>
-                    {t("agentRuntime.signOut")}
-                  </Button>
+                  {!agyAccount && (
+                    <Button size="sm" variant="ghost" disabled={authBusy} onClick={() => onAuth("logout")}>
+                      {t("agentRuntime.signOut")}
+                    </Button>
+                  )}
                 </>
               )}
-              {agyLoginPath && (
-                <Button size="sm" disabled={busy} onClick={() => onAuth("login")}>
-                  {t("agentRuntime.signIn")}
-                </Button>
-              )}
             </div>
-            {apiMode && <p className="mt-2 ui-micro text-text-faint">{t("agentRuntime.apiKeySealed")}</p>}
-            <p className="mt-2 ui-micro text-text-faint">
-              {t(
-                planeUsesApiOverride(instance.kindId)
-                  ? apiMode
-                    ? "agentRuntime.claudeApiOverrideOn"
-                    : "agentRuntime.claudeApiOverrideOff"
-                  : "agentRuntime.capabilityUnsupported",
-                { provider: instance.kindId, capability: t("agentRuntime.apiOverride") },
-              )}
-            </p>
+            {apiMode && (
+              <details className="mt-2 ui-micro text-text-faint">
+                <summary>{t("agentRuntime.apiKey")}</summary>
+                {t("agentRuntime.apiKeySealed")}
+              </details>
+            )}
           </div>
         </CardBody>
       </Card>
@@ -413,17 +417,21 @@ function configurationValue(value: unknown): string | null {
 function ProviderEditor({
   instance,
   installations,
+  independentCredentialsSupported = false,
   busy,
   onUpdate,
   onCancel,
 }: {
   readonly instance: RuntimeInstanceSummary;
   readonly installations: readonly RuntimeInstallationRow[];
+  readonly independentCredentialsSupported?: boolean;
   readonly busy: boolean;
   readonly onUpdate: (input: RuntimeInstanceUpdateInput) => Promise<unknown>;
   readonly onCancel: () => void;
 }) {
-  const [draft, setDraft] = useState<RuntimeInstanceEditFormState>(() => runtimeInstanceEditForm(instance)),
+  const [draft, setDraft] = useState<RuntimeInstanceEditFormState>(() =>
+      runtimeInstanceEditForm(instance, independentCredentialsSupported),
+    ),
     [customModelOpen, setCustomModelOpen] = useState(false);
   const witnessed = installations.filter((installation) => installation.kindId === instance.kindId),
     installation = witnessed.find((entry) => entry.installationId === draft.installationId),
@@ -443,7 +451,7 @@ function ProviderEditor({
         });
       }}
     >
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,215px),1fr))] gap-x-[18px] gap-y-2 [&>label]:min-w-0 [&_select]:min-w-0 [&_select]:w-full">
+      <div className="grid items-start grid-cols-[repeat(auto-fill,minmax(min(100%,215px),1fr))] gap-x-[18px] gap-y-2 [&>label]:min-w-0 [&_select]:min-w-0 [&_select]:w-full">
         <label className="grid gap-0.5">
           <span className="font-mono ui-micro uppercase tracking-[0.08em] text-text-faint">
             {t("agentRuntime.name")}
@@ -529,22 +537,16 @@ function ProviderEditor({
             onChange={(baseUrl) => patch({ baseUrl })}
             placeholder="https://api.third-party.example/v1"
           />
-          <span className="ui-micro text-text-faint">
-            {t(
-              planeAllowsBaseUrl(instance.kindId, instance.authMode)
-                ? "agentRuntime.baseUrlHint"
-                : "agentRuntime.capabilityUnsupported",
-              { provider: instance.kindId, capability: t("agentRuntime.baseUrl") },
-            )}
-          </span>
         </label>
         <RuntimeAccessFields value={draft} onChange={patch} testIdPrefix="runtime-provider" busy={busy} />
-        <label className="grid gap-0.5">
+        <div className="grid gap-0.5">
           <span className="font-mono ui-micro uppercase tracking-[0.08em] text-text-faint">
             {t("agentRuntime.model")}
           </span>
           <RuntimeModelEditor
-            availableModels={installation?.models ?? []}
+            availableModels={
+              instance.authMode === "subscription" ? (instance.availableModels ?? []) : (installation?.models ?? [])
+            }
             selectedModels={draft.models}
             customModel={draft.customModel}
             customModelOpen={customModelOpen}
@@ -562,7 +564,7 @@ function ProviderEditor({
             testIdPrefix="runtime-provider"
             keepOneModel
           />
-        </label>
+        </div>
         {draft.apiKeyEditable && (
           <div className="grid gap-1">
             <label className="inline-flex items-center gap-2 ui-micro text-text-muted">
@@ -590,7 +592,6 @@ function ProviderEditor({
         )}
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <Hint>{t("agentRuntime.providerEditHint")}</Hint>
         <span className="flex-1" />
         <Button testId="runtime-provider-cancel" onClick={onCancel}>
           {t("agentRuntime.cancel")}

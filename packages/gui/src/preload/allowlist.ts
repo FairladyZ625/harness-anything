@@ -10,6 +10,8 @@ import {
   isRuntimeMcpPolicy,
   runtimeKindForId,
   runtimeKindIds,
+  runtimeSubscriptionMultiAccountIsolation,
+  validRuntimeInstanceTier,
 } from "@harness-anything/daemon/protocol";
 export const HARNESS_PRELOAD_API = "harness";
 export type PreloadApiMethod =
@@ -48,6 +50,7 @@ const runtimeInstanceCreateFields = [
   "mcpPolicy",
   "isolationState",
   "credentialSource",
+  "tier",
   ...runtimeKindIds,
   "authMode",
   "apiKey",
@@ -298,6 +301,15 @@ function runtimeInstanceCreateProblem(value: unknown): string | undefined {
     return `field "isolationState" is not supported for ${value.kindId}.`;
   if (value.credentialSource !== undefined && !["operator", "instance"].includes(String(value.credentialSource)))
     return 'field "credentialSource" must be operator or instance.';
+  if (value.tier !== undefined && !validRuntimeInstanceTier(value.tier))
+    return 'field "tier" must be an integer from 1 to 9.';
+  if (
+    value.credentialSource === "instance" &&
+    (value.authMode !== "subscription" ||
+      !Object.keys(runtimeSubscriptionMultiAccountIsolation).some((pair) => pair.startsWith(`${value.kindId}@`)) ||
+      (value.isolationState !== undefined && value.isolationState !== "enforced"))
+  )
+    return 'field "credentialSource" requires supported independent subscription isolation.';
   if (value.kindId === "codex" && value.authMode === "api-key" && value.isolationState === "operator-environment")
     return 'field "isolationState" must be enforced for codex API-key auth.';
   if (value.authMode === "api-key" && (typeof value.apiKey !== "string" || value.apiKey.trim().length === 0))
@@ -346,6 +358,8 @@ function validRuntimeInstanceUpdate(value: unknown): boolean {
     typeof value.instanceId === "string" &&
     value.instanceId.length > 0 &&
     runtimeInstanceUpdateFields.some((field) => field !== "instanceId" && value[field] !== undefined) &&
+    (value.tier === undefined || validRuntimeInstanceTier(value.tier)) &&
+    !(value.credentialSource === "instance" && value.isolationState === "operator-environment") &&
     (value.enabled === undefined || typeof value.enabled === "boolean") &&
     (value.fast === undefined || typeof value.fast === "boolean") &&
     (value.effort === undefined || typeof value.effort === "string") &&

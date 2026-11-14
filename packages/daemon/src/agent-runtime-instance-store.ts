@@ -1137,6 +1137,9 @@ export function openRuntimeInstanceStore(input: {
           ...base,
           instances,
           installations,
+          subscriptionIsolationKinds: runtimeKindIds.filter((kindId) =>
+            supportsRuntimeSubscriptionMultiAccountIsolation(kindId, platform),
+          ),
           evidence: JSON.stringify({ instances, installations }),
           summary,
         };

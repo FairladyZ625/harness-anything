@@ -54,6 +54,7 @@ const emptyForm = (kindId: RuntimeKindId): CreateInstanceFormState => ({
   permissionMode: runtimePermissionMode(undefined, kindId),
   mcpPolicy: runtimeKindForId(kindId).capabilities.mcp === "supported" ? "disabled" : undefined,
   isolation: runtimeIsolationState(undefined, kindId),
+  credentialSource: "operator",
 });
 
 // Create controls follow each runtime kind's declared auth, endpoint, effort and config fields.
@@ -61,6 +62,7 @@ export function NewRuntimeDialog({
   open,
   installations,
   existingInstanceIds = [],
+  subscriptionIsolationKinds = [],
   busy,
   initialKind = "claude",
   actionError = null,
@@ -70,6 +72,7 @@ export function NewRuntimeDialog({
   readonly open: boolean;
   readonly installations: readonly RuntimeInstallationRow[];
   readonly existingInstanceIds?: readonly string[];
+  readonly subscriptionIsolationKinds?: readonly string[];
   readonly busy: boolean;
   readonly initialKind?: RuntimeKindId;
   /** 创建失败(如 id 冲突、daemon 拒绝)时的原因:就在创建按钮旁显示(标准 §2.5)。 */
@@ -95,8 +98,11 @@ export function NewRuntimeDialog({
     selectedModels = form.models ?? installation?.models ?? [],
     duplicate = form.instanceId.trim() !== "" && !runtimeInstanceIdAvailable(form.instanceId, existingInstanceIds),
     ready =
-      runtimeInstanceFormReady(form, installationId, installation) &&
-      runtimeInstanceIdAvailable(form.instanceId, existingInstanceIds);
+      runtimeInstanceFormReady(
+        { ...form, independentCredentialsSupported: subscriptionIsolationKinds.includes(form.kindId) },
+        installationId,
+        installation,
+      ) && runtimeInstanceIdAvailable(form.instanceId, existingInstanceIds);
   const setKind = (kindId: RuntimeKindId) => {
     setCustomModelOpen(false);
     setForm((current) =>
@@ -112,7 +118,6 @@ export function NewRuntimeDialog({
       open={open}
       testId="new-runtime-dialog"
       title={t("agentRuntime.newRuntimeTitle")}
-      hint={t("agentRuntime.newRuntimeHint")}
       onClose={onCancel}
       footer={
         <div className="flex items-center gap-2">
@@ -129,10 +134,26 @@ export function NewRuntimeDialog({
             loading={busy}
             disabled={!ready}
             onClick={() =>
-              onCreate(buildRuntimeInstanceCreatePayload({ ...form, installationId }, installationId, installation))
+              onCreate(
+                buildRuntimeInstanceCreatePayload(
+                  {
+                    ...form,
+                    installationId,
+                    independentCredentialsSupported: subscriptionIsolationKinds.includes(form.kindId),
+                  },
+                  installationId,
+                  installation,
+                ),
+              )
             }
           >
-            {t(apiOn ? "agentRuntime.createWithApiKey" : "agentRuntime.createSubscription")}
+            {t(
+              apiOn
+                ? "agentRuntime.createWithApiKey"
+                : form.credentialSource === "instance"
+                  ? "agentRuntime.createAndSignIn"
+                  : "agentRuntime.createSubscription",
+            )}
           </Button>
         </div>
       }
@@ -143,7 +164,11 @@ export function NewRuntimeDialog({
           label={t("agentRuntime.provider")}
           value={form.kindId}
           onChange={setKind}
-          options={RUNTIME_KIND_IDS.map((kindId) => ({ value: kindId, label: kindLabel(kindId) }))}
+          options={RUNTIME_KIND_IDS.map((kindId) => ({
+            value: kindId,
+            label: kindLabel(kindId),
+            testId: `new-runtime-kind-${kindId}`,
+          }))}
         />
         <KindDot kind={form.kindId} />
         <Hint>{t(`agentRuntime.plane_${form.kindId}` as never)}</Hint>
@@ -178,11 +203,26 @@ export function NewRuntimeDialog({
         ))
       )}
 
-      <h3 className="mt-3 mb-1.5 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">
-        {t("agentRuntime.callPath")}
-      </h3>
+      {plane.authModes.length > 1 && (
+        <h3 className="mt-3 mb-1.5 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">
+          {t("agentRuntime.callPath")}
+        </h3>
+      )}
       {plane.authShape === "subscription-only" && (
-        <p className="ui-micro text-text-faint">{t("agentRuntime.callPathAgy")}</p>
+        <details className="mt-2 ui-micro text-text-faint">
+          <summary>{t("agentRuntime.authModeSubscription")}</summary>
+          <p>{t("agentRuntime.callPathAgy")}</p>
+          <p>
+            {t("agentRuntime.capabilityUnsupported", {
+              provider: form.kindId,
+              capability: t("agentRuntime.apiOverride"),
+            })}
+          </p>
+          <span className="inline-flex items-center gap-2">
+            <Toggle checked={false} disabled label={t("agentRuntime.apiOverride")} onChange={() => undefined} />
+            {t("agentRuntime.apiOverride")}
+          </span>
+        </details>
       )}
       {plane.authShape === "separate" && (
         <div className="flex flex-wrap items-center gap-2">
@@ -198,7 +238,7 @@ export function NewRuntimeDialog({
           <Hint>{t("agentRuntime.callPathCodex")}</Hint>
         </div>
       )}
-      {plane.authShape !== "separate" && (
+      {planeUsesApiOverride(form.kindId) && (
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <Toggle
@@ -227,7 +267,7 @@ export function NewRuntimeDialog({
         </div>
       )}
 
-      <div className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(215px,1fr))] gap-x-[18px] gap-y-2">
+      <div className="mt-3 grid items-start grid-cols-[repeat(auto-fill,minmax(215px,1fr))] gap-x-[18px] gap-y-2">
         <Labelled label={t("agentRuntime.instanceId")}>
           <TextInput
             label={t("agentRuntime.instanceId")}
@@ -242,11 +282,18 @@ export function NewRuntimeDialog({
         <Labelled label={t("agentRuntime.name")}>
           <TextInput
             label={t("agentRuntime.name")}
+            testId="new-runtime-name"
             value={form.name}
             onChange={(name) => patch({ name })}
             placeholder={t("agentRuntime.namePlaceholder")}
           />
         </Labelled>
+        <RuntimeAccessFields
+          value={{ ...form, independentCredentialsSupported: subscriptionIsolationKinds.includes(form.kindId) }}
+          onChange={patch}
+          testIdPrefix="new-runtime"
+          busy={busy}
+        />
         <Labelled label="provider">
           <TextInput label="provider" mono value={form.providerId} onChange={(providerId) => patch({ providerId })} />
         </Labelled>
@@ -373,7 +420,6 @@ export function NewRuntimeDialog({
             </select>
           </Labelled>
         )}
-        <RuntimeAccessFields value={form} onChange={patch} testIdPrefix="new-runtime" busy={busy} />
       </div>
       {"httpHeaders" in runtimeKindForId(form.kindId).configuration.fields && apiOn && (
         <label className="mt-2 flex items-center gap-1.5 font-mono ui-micro uppercase text-text-faint">
@@ -404,7 +450,12 @@ function Labelled({
     <div className="grid min-w-0 gap-0.5">
       <span className="font-mono ui-micro uppercase tracking-[0.08em] text-text-faint">{label}</span>
       {children}
-      {hint && <span className="ui-micro text-text-faint">{hint}</span>}
+      {hint && (
+        <details className="ui-micro text-text-faint">
+          <summary>{t("agentRuntime.details")}</summary>
+          {hint}
+        </details>
+      )}
     </div>
   );
 }
