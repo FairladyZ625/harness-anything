@@ -5,7 +5,7 @@
     "paths": [
       {
         "value": "packages",
-        "ref": "task_01130d097481420c8d59e1fe08",
+        "ref": "task_2f953ccf18522e7a9535dd8dc3",
         "reason": "Existing directories are valid path-accounting targets."
       },
       {

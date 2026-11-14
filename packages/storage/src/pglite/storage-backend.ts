@@ -8,6 +8,7 @@ import { backfillPgDefaultEventSummaries, contractPgEventSummaryIndex } from "..
 import { ensurePgProjectionSchema } from "../pg/pg-projection-schema.ts";
 import { backfillPgArtifactDocuments } from "../pg/pg-artifact-timeline.ts";
 import { maintainPgRelationCycleAuditPage } from "../pg/pg-relation-cycle-audit.ts";
+import { backfillPgRelationReaderIndexPage } from "../pg/pg-relation-queries.ts";
 import { createPgStorageBackend, resolvePostgresEventStoreScope, type PgStorageBackend } from "../pg/backend.ts";
 import type { PGliteStorageBackendConfig } from "../storage-backend.ts";
 import { createPGliteStorage, type PGliteStorage, type PGliteStorageOptions } from "./transaction.ts";
@@ -87,6 +88,14 @@ async function initializeSchema(
     if (page.done) break;
   }
   // Commit each bounded expansion page before admitting readers of this embedded scope.
+  for (;;) {
+    const processed = await withPostgresTransaction(
+      pool,
+      (client) => backfillPgRelationReaderIndexPage(client, scope),
+      scope,
+    );
+    if (processed === 0) break;
+  }
   for (;;) {
     const processed = await withPostgresTransaction(
       pool,

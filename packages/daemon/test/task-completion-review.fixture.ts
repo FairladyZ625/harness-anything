@@ -5,8 +5,9 @@ import { readSubmissionArtifact } from "../src/submission-artifacts.ts";
 import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { after } from "node:test";
 import path from "node:path";
 import { makeTaskEventReader, openSqliteEventStore } from "@harness-anything/storage";
 import {
@@ -125,6 +126,27 @@ function boundWorktree(root: string): string {
   assert.ok(pathLine, `expected a task worktree for ${root}`);
   return path.resolve(pathLine.slice("worktree ".length));
 }
+// The immutable Git baseline has no worktrees, dependencies or open database handles.
+// Copy it into each independent scenario instead of spawning seven identical setup commands.
+let baseRepository: string | undefined;
+after(() => {
+  if (baseRepository) rmSync(baseRepository, { recursive: true, force: true });
+});
+function prepareRepository(root: string): void {
+  if (!baseRepository) {
+    baseRepository = mkdtempSync(path.join(tmpdir(), "ha-completion-base-"));
+    git(baseRepository, "init", "-q", "-b", "main");
+    git(baseRepository, "config", "user.name", "Completion Review Test");
+    git(baseRepository, "config", "user.email", "review@example.invalid");
+    git(baseRepository, "commit", "--allow-empty", "-qm", "test: base");
+    git(baseRepository, "update-ref", "refs/remotes/origin/main", git(baseRepository, "rev-parse", "HEAD"));
+    writeFileSync(path.join(baseRepository, "README.md"), "# Reviewed delivery\n");
+    git(baseRepository, "add", "README.md");
+    git(baseRepository, "commit", "-qm", "docs: fixture delivery");
+  }
+  cpSync(baseRepository, root, { recursive: true });
+}
+
 export async function fixture(
   failProvider: boolean | number = false,
   available = true,
@@ -184,14 +206,7 @@ export async function fixture(
       models: [row.model],
       defaultModel: row.model,
     }));
-  git(root, "init", "-q", "-b", "main");
-  git(root, "config", "user.name", "Completion Review Test");
-  git(root, "config", "user.email", "review@example.invalid");
-  git(root, "commit", "--allow-empty", "-qm", "test: base");
-  git(root, "update-ref", "refs/remotes/origin/main", git(root, "rev-parse", "HEAD"));
-  writeFileSync(path.join(root, "README.md"), "# Reviewed delivery\n");
-  git(root, "add", "README.md");
-  git(root, "commit", "-qm", "docs: fixture delivery");
+  prepareRepository(root);
   const launches: {
       prompt: string;
       instanceId: string;
@@ -343,7 +358,7 @@ export async function fixture(
           onExit: (listener) => {
             pending.exit = (code) => {
               pending.exit = undefined;
-              listener(code);
+              void runtime.terminateTree().then(() => listener(code));
             };
             if (remainingProviderFailures > 0) {
               remainingProviderFailures -= 1;

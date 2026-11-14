@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
+import { execFile, spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { promisify } from "node:util";
 import { workspaceDependencyClosure } from "../../../tools/smoke-cli-package.mjs";
 import { preparePackageExports, restorePackageExports } from "../../../tools/package-exports-lifecycle.mjs";
 
@@ -13,6 +14,22 @@ const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-package-"));
 const consumer = path.join(parent, "consumer");
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("HARNESS_")));
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+const execFileAsync = promisify(execFile);
+async function runAsync(command, args, cwd = repository) {
+  console.log(JSON.stringify({ command, args, cwd }));
+  const result = await execFileAsync(command, args, { cwd, env, encoding: "utf8", timeout: 180_000 });
+  process.stdout.write(result.stdout);
+  process.stderr.write(result.stderr);
+  console.log("exit=0");
+  return result.stdout;
+}
+// Finish every sibling before cleanup, including when a build or pack fails.
+async function wave(operations) {
+  const results = await Promise.allSettled(operations);
+  const failures = results.filter((result) => result.status === "rejected");
+  if (failures.length) throw new AggregateError(failures.map((result) => result.reason));
+  return results.map((result) => result.value);
+}
 function run(command, args, cwd = repository) {
   console.log(JSON.stringify({ command, args, cwd }));
   const result = spawnSync(command, args, { cwd, env, encoding: "utf8", timeout: 180_000 });
@@ -28,26 +45,37 @@ try {
   // Reuse npm ci's daemon build: rebuilding it would stop other tests' resident daemons.
   // Pack staged copies so published exports never replace the workspace's source exports.
   const daemonDistBuildId = readFileSync(path.join(repository, "packages/daemon/dist/build-id.txt"), "utf8");
-  const tarballs = workspaceDependencyClosure(repository, "@harness-anything/cli").map((name) => {
+  const packages = workspaceDependencyClosure(repository, "@harness-anything/cli").map((name) => {
     const directory = name.slice("@harness-anything/".length),
       source = path.join(repository, "packages", directory),
       stage = path.join(parent, directory),
       manifest = JSON.parse(readFileSync(path.join(source, "package.json"), "utf8"));
-    if (name !== "@harness-anything/daemon")
-      run(npm, ["run", manifest.scripts["build:publish"] ? "build:publish" : "build", "-w", name]);
-    mkdirSync(stage);
-    for (const file of new Set(["package.json", ...manifest.files]))
-      cpSync(path.join(source, file), path.join(stage, file), { recursive: true });
-    preparePackageExports(stage, process.pid);
-    try {
-      const [packed] = JSON.parse(
-        run(npm, ["pack", "--ignore-scripts", "--json", "--pack-destination", parent], stage),
-      );
-      return path.join(parent, packed.filename);
-    } finally {
-      restorePackageExports(stage);
-    }
+    return { name, source, stage, manifest };
   });
+  const build = ({ name, manifest }) =>
+    runAsync(npm, ["run", manifest.scripts["build:publish"] ? "build:publish" : "build", "-w", name]);
+  // Publish consumers resolve kernel declarations. Other builds write separate dist trees;
+  // daemon already has npm ci's build and must keep its resident-process build identity.
+  await build(packages.find(({ name }) => name === "@harness-anything/kernel"));
+  await wave(
+    packages.filter(({ name }) => !["@harness-anything/kernel", "@harness-anything/daemon"].includes(name)).map(build),
+  );
+  const tarballs = await wave(
+    packages.map(async ({ source, stage, manifest }) => {
+      mkdirSync(stage);
+      for (const file of new Set(["package.json", ...manifest.files]))
+        cpSync(path.join(source, file), path.join(stage, file), { recursive: true });
+      preparePackageExports(stage, process.pid);
+      try {
+        const [packed] = JSON.parse(
+          await runAsync(npm, ["pack", "--ignore-scripts", "--json", "--pack-destination", parent], stage),
+        );
+        return path.join(parent, packed.filename);
+      } finally {
+        restorePackageExports(stage);
+      }
+    }),
+  );
   assert.equal(
     readFileSync(path.join(repository, "packages/daemon/dist/build-id.txt"), "utf8"),
     daemonDistBuildId,

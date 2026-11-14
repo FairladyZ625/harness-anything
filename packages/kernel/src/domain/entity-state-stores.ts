@@ -219,6 +219,7 @@ const postgresProjectionTables = Object.freeze(
     "ha_decision_positions",
     "ha_facts",
     "ha_relations",
+    "ha_relation_reader_keys",
     "ha_agents",
     "ha_squads",
     "ha_projection_meta",

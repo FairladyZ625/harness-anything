@@ -14,6 +14,7 @@ import { artifactTimelineDdl } from "./pg-artifact-timeline.ts";
 import { documentMetadataDdl } from "./pg-document-metadata-migration.ts";
 import { relationFreshnessDdl } from "./pg-relation-freshness.ts";
 import { PG_RELATION_CYCLE_TABLES, relationCycleAuditDdl } from "./pg-relation-cycle-audit.ts";
+import { relationReaderIndexDdl } from "./pg-relation-queries.ts";
 import {
   POSTGRES_SCOPE_COLUMNS_SQL,
   POSTGRES_SCOPE_SCHEMA_CONTRACT,
@@ -29,6 +30,7 @@ export const PG_PROJECTION_TABLES = Object.freeze([
   "ha_decision_positions",
   "ha_facts",
   "ha_relations",
+  "ha_relation_reader_keys",
   "ha_agents",
   "ha_squads",
   "ha_projection_meta",
@@ -52,6 +54,7 @@ export const PG_PROJECTION_AUDIT_TABLES = Object.freeze(
       table !== "ha_runtime_unsettled" &&
       table !== "ha_event_summary_state" &&
       table !== "ha_relation_freshness_dirty" &&
+      table !== "ha_relation_reader_keys" &&
       !(PG_RELATION_CYCLE_TABLES as readonly string[]).includes(table),
   ),
 );
@@ -293,6 +296,7 @@ export function projectionDdl(): readonly string[] {
     )`,
     ...relationFreshnessDdl(),
     ...relationCycleAuditDdl(),
+    ...relationReaderIndexDdl(),
     ...entityDeclarationDdl,
     ...decisionSearchDdl(),
     ...decisionReadStatusDdl(),
