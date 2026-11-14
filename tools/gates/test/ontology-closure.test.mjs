@@ -1698,7 +1698,7 @@ test("dec_7E44897ECDCAEF2B92EC66A260/CH1: non-main packages/gui action candidate
     [],
   );
   const nonMainGuiActions = result.classified.filter((row) => row.category === "action" && isNonMainGuiPath(row.file));
-  assert.equal(nonMainGuiActions.length, 322);
+  assert.equal(nonMainGuiActions.length, 324);
   assert.deepEqual(
     nonMainGuiActions.filter((row) => row.status !== "registered"),
     [],
@@ -1716,6 +1716,14 @@ test("dec_7E44897ECDCAEF2B92EC66A260/CH1: non-main packages/gui action candidate
     assert.equal(matches.length, 1, `expected unique non-main GUI candidate for ${fragment}`);
     return matches[0].declarationRef;
   };
+  assert.equal(
+    declOf("TaskMaterializationControl.tsx#TaskMaterializationControl.materialize.mutationFn.receipt:"),
+    "action:doc-materialize",
+  );
+  assert.equal(
+    declOf("TaskMaterializationControl.tsx#TaskMaterializationControl.availability.queryFn.result:"),
+    "action:repository-read",
+  );
   assert.equal(declOf("api-client.ts#harnessClient.acceptDecision:"), "action:decision-accept");
   assert.equal(declOf("api-client.ts#harnessClient.submitTask:"), "action:task-submit");
   assert.equal(declOf("todos-client.ts#todosClient.add:"), "action:todo-add");

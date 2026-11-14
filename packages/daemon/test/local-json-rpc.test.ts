@@ -931,14 +931,20 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
         "descriptors, the authorization table, and the receipt settlement table",
     );
   }
-  // Standard GUI command receipts must carry committed acceptance. The daemon control bridge is a
-  // host-local long-running operation, and terminal control acts on the runtime host; each has a
-  // dedicated receipt schema rather than the canonical command receipt.
+  // Canonical GUI writes carry committed acceptance. Task materialization only settles host files;
+  // daemon control and terminal control use their dedicated host receipt schemas.
   for (const { method, actionKind } of daemonGuiActionMethods.filter(
     ({ method }) => method !== "daemon.gui.control.request" && !method.startsWith("repo.terminal."),
   )) {
     const declaration = actionDeclarations.find((candidate) => candidate.kind === actionKind);
-    if (declaration) assert.equal(declaration.receiptSettlement, "canonical-acceptance", method);
+    if (declaration) {
+      assert.equal(
+        declaration.receiptSettlement,
+        actionKind === "doc-materialize" ? "none" : "canonical-acceptance",
+        method,
+      );
+      if (actionKind === "doc-materialize") assert.equal(declaration.residency.scope, "host-local");
+    }
   }
   assert.equal(actionDeclarations.find(({ kind }) => kind === "daemon-control-request")?.receiptSettlement, "none");
   assert.equal(

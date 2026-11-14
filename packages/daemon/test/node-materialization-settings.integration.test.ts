@@ -10,6 +10,10 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 import {
+  INITIAL_SETTINGS_V1,
+  localSettings,
+  resolveHarnessLayout,
+  serializeLocalSettings,
   taskLifecycleWritePlan,
   compileEntityDocumentRematerialization,
   compileRelationCreatedEvent,
@@ -20,6 +24,7 @@ import { taskCreated, relation } from "../../storage/test/store/relation-graph-p
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell, seedSettingsEvent } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { nodeMaterializationStorage } from "../src/node-materialization-settings.ts";
 
 const actor = { principal: { personId: "materialization-owner" }, executor: null } as const;
 
@@ -198,6 +203,46 @@ test("local policy changes reconcile done packages without canonical writes and 
   } finally {
     await cell.close();
     await reader.drain();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a live storage policy observes independent preference replacements and deletion", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-live-node-policy-")),
+    rootDir = canonicalRoot(root),
+    localPath = resolveHarnessLayout(rootDir).settingsLocalPath,
+    storage = nodeMaterializationStorage({ rootDir, mode: "remote-edge" });
+  try {
+    assert.equal(storage.nodeTaskMaterializationPolicy, "in_flight");
+    for (const policy of ["none", "include_done", "in_flight"] as const) {
+      const body = serializeLocalSettings(
+        localSettings({ ...INITIAL_SETTINGS_V1, nodeTaskMaterializationPolicy: policy }),
+      );
+      execFileSync(process.execPath, [
+        "--input-type=module",
+        "-e",
+        `
+        import { mkdirSync, writeFileSync, renameSync, utimesSync } from "node:fs";
+        import path from "node:path";
+        const target = process.argv[1];
+        mkdirSync(path.dirname(target), { recursive: true });
+        writeFileSync(target + ".replacement", process.argv[2].padEnd(256));
+        renameSync(target + ".replacement", target);
+        utimesSync(target, 1, 1);
+      `,
+        localPath,
+        body,
+      ]);
+      assert.equal(
+        storage.nodeTaskMaterializationPolicy,
+        policy,
+        "same size and mtime must not hide a durable replacement",
+      );
+      assert.equal(storage.nodeTaskMaterializationPolicy, policy);
+    }
+    rmSync(localPath);
+    assert.equal(storage.nodeTaskMaterializationPolicy, "in_flight", "deletion restores this node's role default");
+  } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });

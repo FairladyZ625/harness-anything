@@ -1281,7 +1281,7 @@ test("GUI source-proof resolves omitted optional callbacks, concrete class metho
   );
 });
 
-test("all 197 live non-main GUI client sources and 110 daemon-local-state sources pass source proof and reject local evasion", async () => {
+test("all 199 live non-main GUI client sources and 110 daemon-local-state sources pass source proof and reject local evasion", async () => {
   const { loadAuthorizationInputs } = await import("../ontology-durable-action-authorization.mjs");
   const {
     clientEntryEvidence,
@@ -1302,8 +1302,8 @@ test("all 197 live non-main GUI client sources and 110 daemon-local-state source
   );
   const localState = inputs.constants.actionDeclarations.find((action) => action.kind === "daemon-local-state");
   const guiLocalSources = (localState?.ontology?.sources ?? []).filter((source) => isNonMainGui(source.candidateId));
-  assert.equal(guiClientPairs.length, 197);
-  assert.equal(new Set(guiClientPairs.map(({ action }) => action.kind)).size, 78);
+  assert.equal(guiClientPairs.length, 199);
+  assert.equal(new Set(guiClientPairs.map(({ action }) => action.kind)).size, 79);
   assert.equal(guiLocalSources.length, 110);
 
   const allSources = [...guiClientPairs.map(({ source }) => source), ...guiLocalSources];
