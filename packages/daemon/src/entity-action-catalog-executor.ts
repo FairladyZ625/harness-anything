@@ -152,15 +152,7 @@ export function makeEntityActionCatalogExecutor(input: {
       if (action.kind === "decision-validate") {
         const rootDir = input.rootDir,
           layout = rootDir ? resolveHarnessLayout(rootDir) : null,
-          // Package consistency inspects canonical bytes, including terminal history.
-          // The ordinary projection keeps active-only reads for materialization decisions.
-          validation = validateDecisionPackages(action, decisions, {
-            ...input.projection,
-            readDocument: (path) => {
-              const active = input.projection.readDocument(path);
-              return active.document ? active : (input.projection.readDocumentHistory?.(path) ?? active);
-            },
-          });
+          validation = validateDecisionPackages(action, decisions, input.projection);
         return readReceipt("decision-validate", {
           ...validation,
           rows: rootDir

@@ -203,7 +203,8 @@ function validateOne(
 ) {
   const errors: string[] = [],
     warnings: string[] = [],
-    document = projection.readDocument(decision.path).document,
+    document =
+      projection.readDocument(decision.path).document ?? projection.readDocumentHistory?.(decision.path).document,
     relations = edges
       .filter((edge) => edge.ownerRef === `decision/${decision.decisionId}`)
       .map((edge) => ({
