@@ -82,6 +82,7 @@ export async function publishExit(
         `Runtime process group ${String(active.process.pid)} has no stop proof.${processGroupRecoveryHint()}`,
       );
     stopProofPending = false;
+    context.dispatchState?.deactivate(active.runtimeSessionId);
     // Cancel holds the write queue: consume lines flushed by the complete tree stop before
     // settlement retires the runtime and drops its queued output callbacks.
     if (active.cancelRequested) await consumeDurableOutput(context, active);

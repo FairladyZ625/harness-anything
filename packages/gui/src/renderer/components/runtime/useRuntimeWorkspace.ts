@@ -602,6 +602,7 @@ export function useProviderWorkspace(repoId: string, requestedInstanceId: string
       const authFingerprint = [
         instance.installationId,
         instance.authMode,
+        instance.credentialSource,
         instance.isolationState,
         instance.authReadiness.status,
         instance.authReadiness.code ?? "",
@@ -622,11 +623,17 @@ export function useProviderWorkspace(repoId: string, requestedInstanceId: string
   });
   const instances = listedInstances.map((instance, index) => {
     const probed = authProbes[index]?.data;
-    // The machine catalog owns configuration fields (including enabled). A probe may only overlay
-    // authentication state; returning its older full instance used to erase optimistic writes.
-    return probed === undefined
+    // The catalog owns authored fields. Only a newer probe may overlay account observations;
+    // an older probe must not mask a manual refresh or a credential-source change.
+    return probed === undefined || (authProbes[index]?.dataUpdatedAt ?? 0) < machine.dataUpdatedAt
       ? instance
-      : { ...instance, authState: probed.authState, authReadiness: probed.authReadiness };
+      : {
+          ...instance,
+          authState: probed.authState,
+          authReadiness: probed.authReadiness,
+          availableModels: probed.availableModels,
+          providerHealth: probed.providerHealth,
+        };
   });
   const authProbeStates = new Map<string, RuntimeAuthProbeState>(
     listedInstances.map((instance, index) => {
@@ -697,12 +704,15 @@ export function useProviderWorkspace(repoId: string, requestedInstanceId: string
       );
       if (!created) return null;
       if (input.authMode === "subscription") {
-        const probed = await channel.run(
-          t("agentRuntime.opAuthChecked"),
-          () => runtimeInstanceClient.probe(input.instanceId, repoId),
-          false,
-        );
-        if (subscriptionCreationNeedsLogin(input, probed))
+        const probed =
+          input.credentialSource === "instance"
+            ? undefined
+            : await channel.run(
+                t("agentRuntime.opAuthChecked"),
+                () => runtimeInstanceClient.probe(input.instanceId, repoId),
+                false,
+              );
+        if (input.credentialSource === "instance" || subscriptionCreationNeedsLogin(input, probed))
           await channel.run(
             t("agentRuntime.opSignIn"),
             () => runtimeInstanceClient.auth(repoId, input.instanceId, "login"),

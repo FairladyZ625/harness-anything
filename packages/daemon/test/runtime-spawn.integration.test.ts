@@ -510,6 +510,12 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       binding,
     );
   }
+  const strategyUpdate = await cell.run(
+    { kind: "agent-install", agentId: "declared-model", selectionStrategy: "sticky" },
+    binding,
+  );
+  assert.equal(strategyUpdate.outcome, "applied", JSON.stringify(strategyUpdate));
+
   try {
     const inspected = await cell.run({ kind: "agent-inspect", agentId: "declared-model" }, binding);
     assert.deepEqual(
@@ -536,9 +542,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       binding,
     );
     assert.equal(launched?.definition.instanceId, "codex-agent-model");
-    // Two same-kind instances can serve this declaration and it names no preference, so the
-    // dispatch that had to choose says so on its own receipt instead of leaving the author to
-    // discover it from a later unexpected landing.
+    // dec_DA1602487428A58E8B446ECE38/CH3: an enabled same-kind pool is intentional.
     assert.deepEqual(
       {
         selection: (autoRouted.runtimeSelection as { readonly instanceId: string }).instanceId,
@@ -546,12 +550,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       },
       {
         selection: "codex-agent-model",
-        warnings: [
-          "Agent declared-model can dispatch to 2 enabled instances (codex-agent-model, " +
-            "codex-agent-model-b) and does not name one; this dispatch took codex-agent-model. " +
-            "Pin one with the `instance` field, or state an order with `preferredInstances`; run ha " +
-            "runtime instance list to see the enabled instances.",
-        ],
+        warnings: undefined,
       },
     );
     assert.deepEqual(validateDaemonGuiCommandReceipt(makeDaemonCommandReceipt("runtime-spawn", autoRouted)), []);
@@ -671,7 +670,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       (resolvedCase.runtimeSelection as { readonly reason: string }).reason,
       /Agent case-model declares model deepseek-v4\.1-flash, which resolves to Deepseek-V4\.1-Flash on instance codex-agent-model/u,
     );
-    const unavailableStarted = performance.now();
+    const launchedBeforeRejection = launched;
     await assert.rejects(
       cell.spawnRuntime(
         {
@@ -692,7 +691,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
         return true;
       },
     );
-    assert.ok(performance.now() - unavailableStarted < 1_000, "an incompatible explicit instance should fail quickly");
+    assert.equal(launched, launchedBeforeRejection, "an incompatible model must not launch a provider");
     const launchBeforeReadOnly = launched;
     await cell.spawnRuntime(
       {

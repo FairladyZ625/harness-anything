@@ -469,6 +469,13 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     method: "daemon.runtimeInstance.create",
     inputs: [
       cliInput(
+        "--tier",
+        "single",
+        false,
+        { code: "invalid_runtime_tier" },
+        { pathKind: "non-path", regex: "^[1-9]$", projection: "number" },
+      ),
+      cliInput(
         "--api-key-stdin",
         "boolean",
         false,
@@ -717,6 +724,13 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     ].join(""),
     method: "daemon.runtimeInstance.update",
     inputs: [
+      cliInput(
+        "--tier",
+        "single",
+        false,
+        { code: "invalid_runtime_tier" },
+        { pathKind: "non-path", regex: "^[1-9]$", projection: "number" },
+      ),
       cliInput("--api-key-stdin", "boolean", false, { code: "invalid_field" }, { conflictsWith: ["--api-key-file"] }),
       cliInput(
         "--api-key-file",

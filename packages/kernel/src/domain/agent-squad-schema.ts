@@ -7,6 +7,7 @@ import {
   type EntityDocumentJsonSchema,
 } from "./entity-json-schema.ts";
 import { runtimeEffortValues, type RuntimeEffort } from "./runtime-effort.ts";
+import { runtimeSelectionStrategies, type RuntimeSelectionStrategy } from "./runtime-instance-scheduling.ts";
 import type { OntologyPolicyDeclaration } from "./ontology-source.ts";
 
 export { runtimeEffortValues, type RuntimeEffort };
@@ -49,6 +50,7 @@ export interface AgentDeclarationV1 {
   /** Ordered soft preference among the instances one runtimes row admits; unlike `instance` it
    *  never fails a dispatch when a more preferred instance is unavailable on this node. */
   readonly preferredInstances?: readonly string[];
+  readonly selectionStrategy?: RuntimeSelectionStrategy;
   readonly permissionMode?: AgentPermissionMode;
   readonly mcpPolicy?: AgentMcpPolicy;
   readonly hostAccess?: AgentHostAccess;
@@ -127,6 +129,13 @@ export const AGENT_DECLARATION_V1_SCHEMA = Object.freeze({
         "x-error": "must be lowercase instance ids.",
       },
       "x-error": "must be an ordered array of unique lowercase instance ids.",
+    },
+    selectionStrategy: {
+      type: "string",
+      enum: runtimeSelectionStrategies,
+      description:
+        "Same-tier scheduling: sticky reuses the first idle instance; lru balances live load then dispatch recency.",
+      "x-error": "must be sticky or lru.",
     },
     permissionMode: {
       type: "string",

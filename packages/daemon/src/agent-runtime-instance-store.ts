@@ -1,3 +1,5 @@
+import { runtimeInstanceDispatchModels } from "@harness-anything/kernel/internal/domain/runtime-instance-contract.ts";
+import { createRuntimeInstanceDispatchState } from "./runtime-instance-selection.ts";
 import {
   commandInterceptionNeedsFiles,
   compileCommandInterceptionFiles,
@@ -148,6 +150,12 @@ export type RuntimeTempReclaimFailure = {
 type RuntimeSubscriptionProbeResult = {
   readonly readiness: RuntimeAuthReadiness;
   readonly availableModels?: readonly string[];
+  readonly modelCatalogReadiness?: RuntimeAuthReadiness;
+};
+type RuntimeAuthProbeSnapshot = {
+  readonly witnessed: readonly RuntimeInstallationWitness[];
+  readonly config: RuntimeInstanceConfig;
+  readonly signal?: AbortSignal;
 };
 
 export function openRuntimeInstanceStore(input: {
@@ -176,6 +184,7 @@ export function openRuntimeInstanceStore(input: {
    *  custom base URL needs. Production uses the process fetch. */
   readonly webSearchFetch?: typeof fetch;
 }) {
+  const dispatchState = createRuntimeInstanceDispatchState();
   const platform = input.platform ?? process.platform,
     providerHealth = input.providerHealth ?? openRuntimeProviderHealthStore(input.userRoot),
     accountProbe = createRuntimeInstanceAccountProbe(platform),
@@ -332,7 +341,7 @@ export function openRuntimeInstanceStore(input: {
   }
   function persistAvailableModels(
     config: RuntimeInstanceConfig,
-    models: readonly string[],
+    models: readonly string[] | undefined,
     cut: RuntimeInstanceAccountCut,
   ): RuntimeInstanceConfig {
     const current = currentAccountForCut(cut);
@@ -341,10 +350,13 @@ export function openRuntimeInstanceStore(input: {
         "runtime_instance_probe_stale",
         `Runtime instance ${config.instanceId} changed to a non-subscription account while its model probe was running.`,
       );
-    const availableModels = normalizeModels(models);
+    const availableModels = models === undefined ? undefined : normalizeModels(models);
     if (
-      current.availableModels?.length === availableModels.length &&
-      current.availableModels.every((model, index) => model === availableModels[index])
+      current.availableModels === availableModels ||
+      (current.availableModels !== undefined &&
+        availableModels !== undefined &&
+        current.availableModels.length === availableModels.length &&
+        current.availableModels.every((model, index) => model === availableModels[index]))
     )
       return current;
     const updated = runtimeInstanceConfig({ ...current, availableModels }, platform);
@@ -444,51 +456,64 @@ export function openRuntimeInstanceStore(input: {
     });
     return config;
   }
+  function authStatus(instanceId: string, snapshot?: RuntimeAuthProbeSnapshot): Promise<RuntimeAuthReadiness>;
+  function authStatus(
+    instanceId: string,
+    snapshot: RuntimeAuthProbeSnapshot,
+    observation: true,
+  ): Promise<RuntimeSubscriptionProbeResult>;
   async function authStatus(
     instanceId: string,
-    snapshot?: {
-      readonly witnessed: readonly RuntimeInstallationWitness[];
-      readonly config: RuntimeInstanceConfig;
-    },
-  ): Promise<RuntimeAuthReadiness> {
+    snapshot?: RuntimeAuthProbeSnapshot,
+    observation = false,
+  ): Promise<RuntimeAuthReadiness | RuntimeSubscriptionProbeResult> {
+    const observed = (state: RuntimeAuthReadiness, result?: RuntimeSubscriptionProbeResult) =>
+      observation ? { ...result, readiness: state } : state;
     const witnessed = snapshot?.witnessed ?? (await refreshInstallations()),
       config = snapshot?.config ?? readOne(instanceId, witnessed);
     if (!config)
       throw runtimeInstanceError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
-    const installation = witnessed.find(
-      (entry) => entry.installationId === config.installationId && entry.kindId === config.kindId,
-    );
+    const cut = accountCut(config),
+      installation = witnessed.find(
+        (entry) => entry.installationId === config.installationId && entry.kindId === config.kindId,
+      );
     if (!installation)
-      return rememberAuthReadiness(
-        config.instanceId,
-        unavailable("runtime_installation_not_found", missingInstallationHint(config, witnessed)),
+      return observed(
+        rememberAuthReadiness(
+          config.instanceId,
+          unavailable("runtime_installation_not_found", missingInstallationHint(config, witnessed)),
+        ),
       );
     // The provider's own version floor outranks authentication: a build that cannot honor
     // this kind's launch contract is not "ready with a valid login", and reporting it as
     // ready is what let a dispatch spend a spawn on it.
     const versionRefusal = runtimeVersionGate(installation.kindId, installation.version);
     if (versionRefusal)
-      return rememberAuthReadiness(config.instanceId, unavailable(versionRefusal.code, versionRefusal.hint));
+      return observed(rememberAuthReadiness(config.instanceId, unavailable(versionRefusal.code, versionRefusal.hint)));
     const webSearchRefusal = runtimeWebSearchVersionGate(config, installation.version);
     if (webSearchRefusal)
-      return rememberAuthReadiness(config.instanceId, unavailable(webSearchRefusal.code, webSearchRefusal.hint));
-    const modelSearchRefusal = runtimeWebSearchModelGate(config, selectRuntimeModel(config), installation);
+      return observed(
+        rememberAuthReadiness(config.instanceId, unavailable(webSearchRefusal.code, webSearchRefusal.hint)),
+      );
+    const modelSearchRefusal = runtimeWebSearchModelGate(config, config.defaultModel, installation);
     if (modelSearchRefusal)
-      return rememberAuthReadiness(config.instanceId, unavailable(modelSearchRefusal.code, modelSearchRefusal.hint));
+      return observed(
+        rememberAuthReadiness(config.instanceId, unavailable(modelSearchRefusal.code, modelSearchRefusal.hint)),
+      );
     const policyRefusal = await runtimeWebSearchPolicyConflict(config, managedPolicyTexts);
+    currentAccountForCut(cut);
     if (policyRefusal)
-      return rememberAuthReadiness(config.instanceId, unavailable(policyRefusal.code, policyRefusal.hint));
+      return observed(rememberAuthReadiness(config.instanceId, unavailable(policyRefusal.code, policyRefusal.hint)));
     if (config.isolationState === "enforced") ensureStateRoot(config);
     const env = authEnvironment(config);
     if (config.auth.mode === "subscription") {
       const probeStartedAt = nowIso(),
-        cut = accountCut(config),
         probeTarget =
           !input.subscriptionReady && isAgyAccountConfig(config)
             ? await currentAccountProbeTarget(config, witnessed)
             : undefined;
       const codexProbe =
-        !input.subscriptionReady && config.kindId === "codex"
+        !input.subscriptionReady && config.kindId === "codex" && config.models.length > 0
           ? {
               config,
               cwd: path.join(instancesRoot, config.instanceId),
@@ -512,12 +537,14 @@ export function openRuntimeInstanceStore(input: {
           config,
           witnessed,
           true,
+          snapshot?.signal,
         );
+        if (result.modelCatalogReadiness || result.availableModels?.length)
+          persistAvailableModels(config, result.availableModels, cut);
         if (result.readiness.status !== "ready") {
           currentAccountForCut(cut);
           return result;
         }
-        if (result.availableModels?.length) persistAvailableModels(config, result.availableModels, cut);
         if (probeTarget && !input.subscriptionReady) {
           const resetAt = await accountProbe.probeAgyQuota({
             executablePath: probeTarget.installation.executablePath,
@@ -539,21 +566,112 @@ export function openRuntimeInstanceStore(input: {
       // asynchronous provider operation so a concurrent update/delete cannot leave the old
       // account's readiness attached to a replacement instance with the same id.
       const current = currentAccountForCut(cut);
-      return rememberAuthReadiness(current.instanceId, result.readiness);
+      return observed(rememberAuthReadiness(current.instanceId, result.readiness), result);
     }
+    let state: RuntimeAuthReadiness;
     try {
       const secret = await resolveCredential(config.auth.credentialRef);
-      return rememberAuthReadiness(
-        config.instanceId,
-        secret ? available() : unavailable("runtime_credential_unavailable", credentialUnavailableHint),
-      );
+      state = secret ? available() : unavailable("runtime_credential_unavailable", credentialUnavailableHint);
     } catch (error) {
       consumeKnownError(error);
-      return rememberAuthReadiness(
-        config.instanceId,
-        unavailable("runtime_credential_unavailable", credentialHint(error)),
-      );
+      state = unavailable("runtime_credential_unavailable", credentialHint(error));
     }
+    const current = currentAccountForCut(cut);
+    return observed(rememberAuthReadiness(current.instanceId, state));
+  }
+  async function refreshAccount(
+    instanceId: string,
+    snapshot?: { readonly witnessed: readonly RuntimeInstallationWitness[]; readonly config: RuntimeInstanceConfig },
+    signal?: AbortSignal,
+  ): Promise<{ readonly readiness: RuntimeAuthReadiness; readonly modelCatalogReadiness: RuntimeAuthReadiness }> {
+    const witnessed = snapshot?.witnessed ?? (await refreshInstallations()),
+      config = snapshot?.config ?? readOne(instanceId, witnessed);
+    if (!config)
+      throw runtimeInstanceError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
+    const cut = accountCut(config),
+      observation = await authStatus(instanceId, { witnessed, config, signal }, true),
+      status = observation.readiness;
+    currentAccountForCut(cut);
+    if (observation.modelCatalogReadiness)
+      return { readiness: status, modelCatalogReadiness: observation.modelCatalogReadiness };
+    if (status.status !== "ready" || config.auth.mode !== "subscription")
+      return {
+        readiness: status,
+        modelCatalogReadiness: unavailable(
+          "runtime_model_catalog_not_probed",
+          "Account models were not probed because subscription authentication is unavailable.",
+        ),
+      };
+    if (isAgyAccountConfig(config)) return { readiness: status, modelCatalogReadiness: available("provider") };
+    const declaration = runtimeKindForId(config.kindId);
+    if (declaration.auth.accountModelProbe === undefined) {
+      persistAvailableModels(config, undefined, cut);
+      return {
+        readiness: status,
+        modelCatalogReadiness: unavailable(
+          "runtime_model_catalog_unsupported",
+          `${declaration.displayName} does not declare a verified account model catalog. Configured models are not an account entitlement observation.`,
+        ),
+      };
+    }
+    const installation = witnessed.find(
+      (entry) => entry.installationId === config.installationId && entry.kindId === config.kindId,
+    )!;
+    const outcome = await probeAccountCatalog(config, installation, authEnvironment(config), status, signal);
+    const current = currentAccountForCut(cut);
+    persistAvailableModels(config, outcome.availableModels, cut);
+    return {
+      readiness: rememberAuthReadiness(current.instanceId, outcome.readiness),
+      modelCatalogReadiness: outcome.modelCatalogReadiness!,
+    };
+  }
+  function probeAccountCatalog(
+    config: RuntimeInstanceConfig,
+    installation: RuntimeInstallationWitness,
+    env: NodeJS.ProcessEnv,
+    status: RuntimeAuthReadiness,
+    signal?: AbortSignal,
+  ): Promise<RuntimeSubscriptionProbeResult> {
+    return accountProbe
+      .probeModels({
+        kindId: config.kindId,
+        executablePath: installation.executablePath,
+        env,
+        signal,
+      })
+      .then(
+        (catalog) => ({
+          availableModels: catalog?.models,
+          readiness: status,
+          modelCatalogReadiness: catalog
+            ? available("provider")
+            : unavailable("runtime_model_catalog_empty", "The provider returned no account models."),
+        }),
+        (error: unknown) => {
+          const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+          const authFailure = code === "runtime_subscription_required" || code === "runtime_auth_probe_failed";
+          return {
+            availableModels: undefined,
+            readiness: authFailure
+              ? unavailable(
+                  code,
+                  code === "runtime_subscription_required"
+                    ? "ACP requires subscription sign-in for this instance."
+                    : "ACP authentication could not determine readiness. Retry the probe.",
+                )
+              : status,
+            modelCatalogReadiness: authFailure
+              ? unavailable(
+                  "runtime_model_catalog_not_probed",
+                  "Account models were not probed because ACP authentication is unavailable.",
+                )
+              : unavailable(
+                  "runtime_model_catalog_probe_failed",
+                  `Account model refresh failed${typeof error === "object" && error !== null && "status" in error && typeof error.status === "number" ? ` (exit ${error.status})` : ""}; authentication status is unchanged. Retry the model refresh.`,
+                ),
+          };
+        },
+      );
   }
   function prepareAuthCommand(instanceId: string, action: "login" | "logout"): PreparedRuntimeAuthCommand {
     const config = readOne(instanceId);
@@ -737,9 +855,29 @@ export function openRuntimeInstanceStore(input: {
       return launch;
     };
     if (config.auth.mode === "subscription") {
-      const probe = await probeSubscription(installation, env, config.isolationState, undefined, config, witnessed),
+      const probe = await probeSubscription(
+          installation,
+          env,
+          config.isolationState,
+          undefined,
+          config,
+          witnessed,
+          true,
+        ),
         readiness = rememberLaunchReadiness(probe.readiness);
       if (readiness.code !== null) throw runtimeInstanceError(readiness.code, readiness.hint!);
+      // Authentication keeps its own refusal code. Before returning any launch, admit the
+      // model against the current authored choices and the freshest account observation.
+      selectRuntimeModel(
+        {
+          ...config,
+          models: runtimeInstanceDispatchModels({
+            ...currentAccountForCut(launchCut),
+            ...(probe.availableModels === undefined ? {} : { availableModels: probe.availableModels }),
+          }),
+        },
+        model,
+      );
       return finishLaunch({
         definition,
         installation,
@@ -919,11 +1057,13 @@ export function openRuntimeInstanceStore(input: {
           action.authMode === "subscription"
             ? { mode: "subscription" as const }
             : { mode: "api-key" as const, credentialRef: action.credentialRef },
-        models = normalizeModels(action.models),
+        models = normalizeModels(action.models, true),
         defaultModel =
           action.defaultModel === undefined
-            ? models[0]!
-            : requiredRuntimeInstanceText(action.defaultModel, "defaultModel"),
+            ? (models[0] ?? "")
+            : models.length === 0 && action.defaultModel === ""
+              ? ""
+              : requiredRuntimeInstanceText(action.defaultModel, "defaultModel"),
         kindConfig = Object.fromEntries(
           runtimeKindIds
             .filter((candidate) => action[candidate] !== undefined || candidate === action.kindId)
@@ -938,7 +1078,8 @@ export function openRuntimeInstanceStore(input: {
           providerId: action.providerId,
           models,
           defaultModel,
-          enabled: true,
+          enabled: action.enabled === undefined ? true : requireBoolean(action.enabled, "enabled"),
+          ...(action.tier === undefined ? {} : { tier: action.tier }),
           ...(action.credentialSource !== undefined ? { credentialSource: action.credentialSource } : {}),
           ...(action.permissionMode !== undefined ? { permissionMode: action.permissionMode } : {}),
           ...(action.mcpPolicy !== undefined ? { mcpPolicy: action.mcpPolicy } : {}),
@@ -1019,6 +1160,9 @@ export function openRuntimeInstanceStore(input: {
           ...base,
           instances,
           installations,
+          subscriptionIsolationKinds: runtimeKindIds.filter((kindId) =>
+            supportsRuntimeSubscriptionMultiAccountIsolation(kindId, platform),
+          ),
           evidence: JSON.stringify({ instances, installations }),
           summary,
         };
@@ -1026,10 +1170,19 @@ export function openRuntimeInstanceStore(input: {
       if (probe)
         return Promise.all(
           configs.map(async (config) => {
-            const status = await authStatus(config.instanceId, { witnessed: live ?? [], config });
-            return publicConfig(readOne(config.instanceId) ?? config, status);
+            const cut = accountCut(config),
+              result = await refreshAccount(config.instanceId, { witnessed: live ?? [], config });
+            return {
+              instance: publicConfig(currentAccountForCut(cut), result.readiness),
+              modelCatalogReadiness: result.modelCatalogReadiness,
+            };
           }),
-        ).then(listed);
+        ).then((results) => ({
+          ...listed(results.map((result) => result.instance)),
+          modelCatalogReadiness: Object.fromEntries(
+            results.map((result) => [result.instance.instanceId, result.modelCatalogReadiness]),
+          ),
+        }));
       const instances = configs.map((config) => publicConfig(config, readiness.get(config.instanceId)));
       return listed(instances);
     }
@@ -1087,6 +1240,7 @@ export function openRuntimeInstanceStore(input: {
         !hasInstallation &&
         !hasModels &&
         !hasDefault &&
+        action.tier === undefined &&
         !hasEnabled &&
         !hasPermission &&
         !hasMcpPolicy &&
@@ -1130,10 +1284,14 @@ export function openRuntimeInstanceStore(input: {
       const installationId = hasInstallation
           ? requireWitnessedInstallation(current.kindId, action.installationId, input.discover()).installationId
           : current.installationId,
-        models = hasModels ? normalizeModels(action.models) : [...current.models],
+        models = hasModels ? normalizeModels(action.models, true) : [...current.models],
         defaultModel = hasDefault
-          ? requiredRuntimeInstanceText(action.defaultModel, "defaultModel")
-          : current.defaultModel,
+          ? models.length === 0 && action.defaultModel === ""
+            ? ""
+            : requiredRuntimeInstanceText(action.defaultModel, "defaultModel")
+          : models.length === 0
+            ? ""
+            : current.defaultModel,
         enabled = hasEnabled ? requireBoolean(action.enabled, "enabled") : current.enabled,
         // Base URL edit on the existing instance: a non-empty value replaces the current
         // endpoint (same secure validation as create); an explicit empty string clears it
@@ -1149,7 +1307,7 @@ export function openRuntimeInstanceStore(input: {
           effort,
           webSearch,
         );
-      if (!models.includes(defaultModel))
+      if (models.length > 0 && !models.includes(defaultModel))
         throw runtimeInstanceError(
           "invalid_runtime_model",
           `Default model ${defaultModel} is not in the instance model set. Supported models: ${models.join(", ")}.`,
@@ -1169,6 +1327,7 @@ export function openRuntimeInstanceStore(input: {
           models,
           defaultModel,
           enabled,
+          ...(action.tier === undefined ? {} : { tier: action.tier }),
           credentialSource,
           ...(hasPermission ? { permissionMode: action.permissionMode } : {}),
           ...(hasMcpPolicy
@@ -1185,7 +1344,19 @@ export function openRuntimeInstanceStore(input: {
         },
         platform,
       );
-      const accountChanged = accountIdentityChanged(current, updated);
+      const accountChanged = accountIdentityChanged(current, updated),
+        dispatchModels = runtimeInstanceDispatchModels(
+          accountChanged ? { ...updated, availableModels: undefined } : updated,
+        );
+      if (
+        hasEnabled &&
+        enabled &&
+        (!dispatchModels.includes(updated.defaultModel) || dispatchModels.length !== updated.models.length)
+      )
+        throw runtimeInstanceError(
+          "invalid_runtime_model",
+          "Select models observed for this account before enabling it.",
+        );
       ensureOperatorInstanceSlot(
         updated,
         read().filter((entry) => entry.instanceId !== current.instanceId),
@@ -1220,22 +1391,25 @@ export function openRuntimeInstanceStore(input: {
         config = readOne(instanceId, witnessed);
       if (!config)
         throw runtimeInstanceError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
-      if (action.probe === true)
-        return authStatus(instanceId, { witnessed: witnessed!, config }).then((status) => {
-          const instance = publicConfig(readOne(instanceId) ?? config, status);
+      if (action.probe === true) {
+        const cut = accountCut(config);
+        return refreshAccount(instanceId, { witnessed: witnessed!, config }).then((result) => {
+          const instance = publicConfig(currentAccountForCut(cut), result.readiness);
           return {
             ...base,
             instance,
-            evidence: JSON.stringify(instance),
-            summary: `runtime-instance-show: ${instanceId}\nmodels: ${instance.models.join(", ")}\navailableModels: ${instance.availableModels?.join(", ") ?? "(not probed)"}\ncredentialSource: ${instance.credentialSource}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}\nmcpPolicy: ${instance.mcpPolicy ?? "unsupported"}`,
+            modelCatalogReadiness: result.modelCatalogReadiness,
+            evidence: JSON.stringify({ ...instance, modelCatalogReadiness: result.modelCatalogReadiness }),
+            summary: `modelCatalog: ${result.modelCatalogReadiness.code ?? "ready"}${result.modelCatalogReadiness.hint ? ` · ${result.modelCatalogReadiness.hint}` : ""}\nruntime-instance-show: ${instanceId}\ntier: ${instance.tier}\nmodels: ${instance.models.join(", ")}\navailableModels: ${instance.availableModels?.join(", ") ?? "(not probed)"}\ncredentialSource: ${instance.credentialSource}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}\nmcpPolicy: ${instance.mcpPolicy ?? "unsupported"}`,
           };
         });
+      }
       const instance = publicConfig(config, readiness.get(config.instanceId));
       return {
         ...base,
         instance,
         evidence: JSON.stringify(instance),
-        summary: `runtime-instance-show: ${instanceId}\nmodels: ${instance.models.join(", ")}\navailableModels: ${instance.availableModels?.join(", ") ?? "(not probed)"}\ncredentialSource: ${instance.credentialSource}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}\nmcpPolicy: ${instance.mcpPolicy ?? "unsupported"}`,
+        summary: `runtime-instance-show: ${instanceId}\ntier: ${instance.tier}\nmodels: ${instance.models.join(", ")}\navailableModels: ${instance.availableModels?.join(", ") ?? "(not probed)"}\ncredentialSource: ${instance.credentialSource}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}\nmcpPolicy: ${instance.mcpPolicy ?? "unsupported"}`,
       };
     }
     if (kind === "runtime-instance-delete") {
@@ -1321,6 +1495,7 @@ export function openRuntimeInstanceStore(input: {
     read: readOne,
     delete: remove,
     authStatus,
+    refreshAccount,
     prepareAuthCommand,
     prepareLaunch,
     prepareCloudRelay,
@@ -1329,6 +1504,7 @@ export function openRuntimeInstanceStore(input: {
     reclaimSettledRuntimeTempDirectories,
     prepareDaemonGitEnvironment,
     runtimeProviderHealth: providerHealth,
+    runtimeInstanceDispatchState: dispatchState,
     refreshInstallations,
     recordedInstallations,
     command,
@@ -1471,7 +1647,7 @@ export function openRuntimeInstanceStore(input: {
     // Materialize non-secret defaults at creation. Each API-key launch atomically
     // publishes the current resolved bearer; metadata edits keep the previous
     // complete native config until that launch is ready.
-    if (config.kindId === "codex") {
+    if (config.kindId === "codex" || config.kindId === "codex-acp") {
       const configPath = path.join(provider, "config.toml");
       if (config.auth.mode === "subscription" || !existsSync(configPath))
         writeCodexConfig(configPath, config, undefined, undefined, platform);
@@ -1512,6 +1688,7 @@ export function openRuntimeInstanceStore(input: {
     config?: RuntimeInstanceConfig,
     witnessed: readonly RuntimeInstallationWitness[] = [],
     captureCatalog = false,
+    signal?: AbortSignal,
   ): Promise<RuntimeSubscriptionProbeResult> {
     try {
       if (input.subscriptionReady) return { readiness: await input.subscriptionReady({ installation, env }) };
@@ -1536,10 +1713,19 @@ export function openRuntimeInstanceStore(input: {
               ),
             };
       }
-      const readiness = await providerSubscriptionReadiness(
-        { installation, env, isolationState, ...(codexProbe ? { codexProbe } : {}) },
-        platform,
-      );
+      const target = config
+          ? await currentAccountProbeTarget(config, witnessed)
+          : { kindId: installation.kindId, installation },
+        readiness = await providerSubscriptionReadiness(
+          { installation: target.installation, env, isolationState, ...(codexProbe ? { codexProbe } : {}) },
+          platform,
+        );
+      if (
+        config &&
+        readiness.status === "ready" &&
+        runtimeKindForId(config.kindId).auth.accountModelProbe?.kind === "acp"
+      )
+        return probeAccountCatalog(config, installation, env, readiness, signal);
       return { readiness };
     } catch (error) {
       consumeKnownError(error);

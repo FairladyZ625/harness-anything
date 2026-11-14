@@ -10,6 +10,7 @@ import { isProviderFailureClassification } from "../src/runtime-fallback-contrac
 import { settleFallbackAttempt } from "../src/runtime-spawn-fallback.ts";
 import { failed } from "../src/repo-cell-settlement.ts";
 import { runtimeMissionName } from "../src/runtime-spawn-mission.ts";
+import { createRuntimeInstanceDispatchState } from "../src/runtime-instance-selection.ts";
 import { openDispatchStream } from "../src/dispatch-stream.ts";
 import { runtimeResultText } from "../src/runtime-spawn-settlement.ts";
 import { publishExit } from "./runtime-spawn-settlement.fixtures.ts";
@@ -92,6 +93,29 @@ test("a stalled dispatch is classified as dispatch_stalled, not a provider fault
   assert.equal(result.classification, "dispatch_stalled");
   assert.equal(isProviderFailureClassification(result.classification), false);
   assert.match(result.reason, /30,?000 ms/u);
+});
+
+test("F1: an exit without process-group stop proof retains node-local instance load", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-node-load-stop-proof-"));
+  try {
+    const runtime = tasklessSettlementRuntime(rootDir, "worker result"),
+      dispatchState = createRuntimeInstanceDispatchState();
+    Object.assign(runtime, { process: { ...runtime.process, pid: process.pid } });
+    dispatchState.activate(runtime.runtimeSessionId, runtime.instanceId);
+    const context = {
+      dispatchState,
+      exiting: new Set<string>(),
+      processes: new Map([[runtime.runtimeSessionId, runtime]]),
+      input: { rootDir },
+      runtimeSpawnError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+      publishRuntimeEvent: async () => assert.fail("unproven process groups cannot settle"),
+    } as unknown as RuntimeSpawnerContext;
+    await assert.rejects(publishExit(context, runtime, 0), { code: "runtime_process_group_unproven" });
+    assert.equal(dispatchState.readActiveLoads().get(runtime.instanceId), 1);
+    assert.equal(runtime.exitSettlement, undefined, "stop proof may be retried without losing node load");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
 });
 
 test("stalled settlement never enters the provider fallback chain", async () => {

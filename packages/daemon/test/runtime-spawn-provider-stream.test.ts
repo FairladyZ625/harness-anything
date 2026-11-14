@@ -1514,33 +1514,37 @@ test("durable drains wait for the first record while the worker runs, then consu
   }
 });
 
-test("durable drains do not wait when no process record shows the worker running", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-durable-no-wait-"));
-  try {
-    const dispatchId = "dispatch_f1a2b3c4d5e60718293a4b5c",
-      consumed: string[] = [],
-      context = {
-        input: { rootDir },
-        consumeLine: async (_active: unknown, line: string) => {
-          consumed.push(line);
-        },
-      };
-    openDispatchStream(rootDir, {
-      dispatchId,
-      taskId: null,
-      executionId: null,
-      runtimeSessionId: "runtime-durable-no-wait",
-      instanceId: "instance-1",
-      startedAt: "2026-09-12T00:00:00.000Z",
-    });
-    const startedAt = Date.now();
-    await consumeDurableOutput(context as never, { dispatchId, durableOutputCount: 0 } as never, 2_000);
-    assert.ok(Date.now() - startedAt < 1_000, "a stream without a running worker must not poll its budget away");
-    assert.deepEqual(consumed, []);
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
+test(
+  "durable drains do not wait when no process record shows the worker running",
+  { timeout: 20_000 },
+  async (context) => {
+    // No clock needs to advance for an absent worker: a regression that awaits a poll cannot finish.
+    context.mock.timers.enable({ apis: ["setTimeout"] });
+    const rootDir = mkdtempSync(path.join(tmpdir(), "ha-durable-no-wait-"));
+    try {
+      const dispatchId = "dispatch_f1a2b3c4d5e60718293a4b5c",
+        consumed: string[] = [],
+        context = {
+          input: { rootDir },
+          consumeLine: async (_active: unknown, line: string) => {
+            consumed.push(line);
+          },
+        };
+      openDispatchStream(rootDir, {
+        dispatchId,
+        taskId: null,
+        executionId: null,
+        runtimeSessionId: "runtime-durable-no-wait",
+        instanceId: "instance-1",
+        startedAt: "2026-09-12T00:00:00.000Z",
+      });
+      await consumeDurableOutput(context as never, { dispatchId, durableOutputCount: 0 } as never, 2_000);
+      assert.deepEqual(consumed, []);
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  },
+);
 
 test("Codex file_change frames expose completed absolute write paths", () => {
   const canonical = path.join(fixtureWorkspace, "packages/cli/src/index.ts"),

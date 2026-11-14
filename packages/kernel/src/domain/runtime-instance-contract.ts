@@ -1,7 +1,7 @@
 import { runtimeKindIds } from "./agent-runtime.ts";
 import type { EntityActionContract, EntityKindContract, EntitySdkExposure } from "./entity-kind-registry.ts";
 import { stateStoresForKind } from "./entity-state-stores.ts";
-import type { OntologyJudgmentDeclaration } from "./ontology-source.ts";
+import type { OntologyPolicyDeclaration, OntologyJudgmentDeclaration } from "./ontology-source.ts";
 
 interface RuntimeOperatorSubscriptionInstance {
   readonly instanceId: string;
@@ -67,7 +67,33 @@ export function runtimeInstanceAccountCutMatches(
   );
 }
 
+/** Authored dispatch choices and observed account entitlements have separate owners. */
+export function runtimeInstanceDispatchModels(instance: {
+  readonly models: readonly string[];
+  readonly availableModels?: readonly string[];
+  readonly credentialSource?: "operator" | "instance";
+}): readonly string[] {
+  if (instance.availableModels === undefined) return instance.credentialSource === "instance" ? [] : instance.models;
+  const available = new Set(instance.availableModels.map((model) => model.toLowerCase()));
+  return instance.models.filter((model) => available.has(model.toLowerCase()));
+}
+
 export const runtimeInstanceAccountJudgments = [
+  {
+    id: "runtime-instance-account-model-eligibility",
+    symbol: "packages/kernel/src/domain/runtime-instance-contract.ts#runtimeInstanceDispatchModels",
+    inputs: ["RuntimeInstance authored models, observed availableModels and credentialSource"],
+    output: "readonly string[]",
+    failureCodes: ["invalid_runtime_model"],
+    explain:
+      "dec_DA1602487428A58E8B446ECE38/CH2: dispatch uses the authored/observed model intersection. Independent accounts without an observation admit no models. Refresh never authors model choices. Empty independent accounts may be created disabled, signed in and probed before models are selected and enablement is requested.",
+    consumers: [
+      "packages/daemon/src/agent-runtime-instance-store.ts",
+      "packages/daemon/src/runtime-instance-selection.ts",
+      "packages/daemon/src/runtime-spawn-mission.ts",
+    ],
+    sources: [],
+  },
   {
     id: "operator-subscription-instance-uniqueness",
     symbol: "packages/kernel/src/domain/runtime-instance-contract.ts#findRuntimeOperatorSubscriptionConflict",
@@ -92,6 +118,47 @@ export const runtimeInstanceAccountJudgments = [
   },
 ] as const satisfies readonly OntologyJudgmentDeclaration[];
 
+/** dec_DA1602487428A58E8B446ECE38/CH3: orthogonal priority and same-tier scheduling. */
+const runtimeInstanceSchedulingPolicy = {
+  id: "runtime-instance-scheduling",
+  ownerRef: "runtime-instance",
+  unit: "priority tier, same-tier strategy and node-local activity",
+  bounds:
+    "Account model admission intersects authored choices with observed entitlements; unobserved independent accounts admit none. Empty authored choices are allowed only for disabled independent subscription bootstrap; observed catalogs stay non-empty. Tier is an integer 1..9 (default 1), lower first after local model and health admission. Agent selectionStrategy overrides repository selectionStrategy (default sticky). Sticky prefers the first idle instance; lru minimizes this node's starting, active and unproven-stop attempt count across all repository/Fleet runtime owners, then O(1) node-local dispatch sequence. Selection never queries repository lifecycle or dispatch history for load. Recovery seeds existing bounded, owner-fenced local candidates before session/auth I/O. Activity is removed only for proven_stopped or explicit no-process start rejection; settlement alone does not prove a process stopped. Explicit pins and resumed sessions retain instance affinity. Model catalog exact/case-insensitive spelling resolves launch compatibility within an admitted pool.",
+  defaultValue: { tier: 1, selectionStrategy: "sticky" },
+  version: 2,
+  scope: "RuntimeInstance, Agent scheduling configuration and dispatch receipts",
+  reason: "Keep model isolation, cross-tier spillover and user-selected scheduling on the existing dispatch path.",
+  fixtures: [
+    "packages/daemon/test/runtime-tier-selection.test.ts",
+    "packages/daemon/test/runtime-tier-store.integration.test.ts",
+    "packages/daemon/test/runtime-node-load.integration.test.ts",
+    "packages/daemon/test/runtime-node-load-resume.integration.test.ts",
+    "packages/daemon/test/runtime-spawn-ownership.test.ts",
+    "packages/cli/test/runtime-scheduling-command.test.ts",
+  ],
+  sources: [
+    "policy:packages/daemon:packages/daemon/src/agent-runtime-instance-config.ts#normalizeModels:d7c6d4ad981133616fc1646f440138f9",
+    "policy:packages/daemon:packages/daemon/src/runtime-spawn-adoption.ts#restoreRuntime:9a0e6b07a57082633ca0700fd2858b72",
+    "policy:packages/daemon:packages/daemon/src/runtime-spawn-control.ts#cancelRuntime:e24c7b6e0a3bb22504cd1592af1366a0",
+    "policy:packages/daemon:packages/daemon/src/runtime-spawn-control.ts#cancelRuntime:a22f56098e090c4d5670656446639576",
+    "policy:packages/kernel:packages/kernel/src/domain/runtime-instance-contract.ts#runtimeInstanceSchedulingPolicy.defaultValue.tier:821bfe01a65244f10d540222f09916f6",
+    "policy:packages/kernel:packages/kernel/src/domain/runtime-instance-contract.ts#runtimeInstanceSchedulingPolicy.defaultValue.selectionStrategy:a1358bf6095dc99e7266a6ad3a0ba520",
+    "policy:packages/daemon:packages/daemon/src/agent-entities.ts#prepareAgentEntityInstall:c886eed6aa5d25854112e316ac7c5d46",
+    "policy:packages/daemon:packages/daemon/src/agent-entities.ts#readAgentEntityDeclarationSource:caa2b93af60d561b44f2daf90459e33d",
+    "policy:packages/daemon:packages/daemon/src/agent-entities.ts#readAgentEntityDeclarationSource.withOverride:8d72fef5d37afb67c4fa9bea0ad08c5c",
+    "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-gui-actions.ts#runtimeInstanceMethods.params.payload.tier:acc03c13c18f8ae274913e40e4974761",
+    "policy:packages/daemon:packages/daemon/src/protocol/daemon-protocol-gui-actions.ts#runtimeInstanceMethods.params.payload.tier:acc03c13c18f8ae274913e40e4974761:2",
+    "policy:packages/daemon:packages/daemon/src/runtime-instance-selection.ts#selectedRuntimeInstance:d9cf1d8e11919da4fa3d563e8d4731fb",
+    "policy:packages/daemon:packages/daemon/src/runtime-instance-selection.ts#selectedRuntimeInstance:ff84d5a340b1c772396d64135e813469",
+    "policy:packages/daemon:packages/daemon/src/runtime-instance-selection.ts#selectedRuntimeInstance:59c9fa40bfeef57ba7414a47635803af",
+    "policy:packages/daemon:packages/daemon/src/runtime-spawn-mission.ts#resolveRuntimeInstanceCandidates:e8bf112f1d503e5bd007ed49bdff3654",
+    "policy:packages/daemon:packages/daemon/src/runtime-spawn-mission.ts#resolveRuntimeInstanceCandidates:56324b18ae7ab75ce5fcdcc8ab514a8f",
+    "policy:packages/kernel:packages/kernel/src/domain/agent-squad-schema.ts#AGENT_DECLARATION_V1_SCHEMA.properties.selectionStrategy:86b9a384d9a86765a572550bcfdc8817",
+    "policy:packages/kernel:packages/kernel/src/domain/runtime-instance-contract.ts#runtimeInstanceSchema.properties.tier:bc69ddc1fd8c37f9832f20846ad21031",
+  ].map((candidateId) => ({ candidateId, route: "runtime-instance scheduling" })),
+} as const satisfies OntologyPolicyDeclaration;
+
 export const runtimeInstanceSchema = Object.freeze({
   $schema: "https://json-schema.org/draft/2020-12/schema" as const,
   $id: "runtime-instance/v1",
@@ -101,6 +168,13 @@ export const runtimeInstanceSchema = Object.freeze({
     name: { type: "string" as const, minLength: 1, description: "Operator-facing instance name." },
     kindId: { type: "string" as const, enum: runtimeKindIds, description: "Built-in runtime adapter kind." },
     enabled: { type: "boolean" as const, description: "Whether this instance is enabled." },
+    tier: {
+      type: "integer" as const,
+      minimum: 1,
+      maximum: 9,
+      default: 1,
+      description: "Priority tier; lower tiers dispatch first.",
+    },
     credentialSource: {
       type: "string" as const,
       enum: ["operator", "instance"] as const,
@@ -168,6 +242,7 @@ export function createRuntimeInstanceKindContract(input: {
     kind: "runtime-instance",
     ...input.typeFields,
     judgments: runtimeInstanceAccountJudgments,
+    policies: [runtimeInstanceSchedulingPolicy],
     schema: runtimeInstanceSchema,
     relations: { directions: [], edges: [] },
     canonicalProjection: null,

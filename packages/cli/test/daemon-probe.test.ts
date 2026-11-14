@@ -21,7 +21,7 @@ import { currentDaemonProtocolVersion } from "@harness-anything/daemon/internal/
 import { createTimelineWriter, readProbeTimeline } from "../src/daemon/probe/probe-timeline.ts";
 import { createTriggerTracker, type TriggerSample } from "../src/daemon/probe/probe-trigger.ts";
 
-type FakeMode = "normal" | "slow" | "status-hang" | "hang";
+type FakeMode = "normal" | "status-hang" | "hang";
 
 interface FakeDaemon {
   readonly socketPath: string;
@@ -31,7 +31,9 @@ interface FakeDaemon {
   close: () => Promise<void>;
 }
 
-async function startFakeDaemon(options: { readonly advertiseStack?: boolean } = {}): Promise<FakeDaemon> {
+async function startFakeDaemon(
+  options: { readonly advertiseStack?: boolean; readonly onStatus?: () => void } = {},
+): Promise<FakeDaemon> {
   const dir = mkdtempSync(path.join(process.platform === "win32" ? tmpdir() : "/tmp", "ha-probe-socket-")),
     socketPath = path.join(dir, "daemon.sock"),
     requests: string[] = [],
@@ -61,6 +63,7 @@ async function startFakeDaemon(options: { readonly advertiseStack?: boolean } = 
           state,
           requests,
           advertised,
+          options.onStatus,
         );
       }
     });
@@ -93,6 +96,7 @@ function answer(
   state: { mode: FakeMode },
   requests: string[],
   advertised: readonly string[],
+  onStatus?: () => void,
 ): void {
   requests.push(request.method);
   if (state.mode === "hang") return;
@@ -101,17 +105,12 @@ function answer(
     return;
   }
   if (state.mode === "status-hang") return;
-  const delayMs = state.mode === "slow" ? 150 : 0;
-  setTimeout(() => {
-    if (!socket.destroyed)
-      reply(
-        socket,
-        request.id,
-        request.method === "daemon.diagnostics.stack"
-          ? { ok: true, frames: ["at main"] }
-          : { ok: true, summary: "fake" },
-      );
-  }, delayMs);
+  onStatus?.();
+  reply(
+    socket,
+    request.id,
+    request.method === "daemon.diagnostics.stack" ? { ok: true, frames: ["at main"] } : { ok: true, summary: "fake" },
+  );
 }
 
 function reply(socket: net.Socket, id: number, result: Record<string, unknown>): void {
@@ -252,18 +251,25 @@ test("linux CPU percent is a full-core ratio over elapsed seconds", async () => 
 });
 
 test("ping classifies a normal, slow, and unresponsive daemon", async (t) => {
-  const fake = await startFakeDaemon();
+  let clock = 0,
+    statusDurationMs = 0;
+  t.mock.method(Date, "now", () => clock);
+  const fake = await startFakeDaemon({
+    onStatus: () => {
+      clock += statusDurationMs;
+    },
+  });
   t.after(async () => fake.close());
-  const up = await pingDaemon(fake.socketPath, 1_000, 500);
+  const up = await pingDaemon(fake.socketPath, 20_000, 500);
   assert.equal(up.state, "up");
   assert.equal(up.helloOk, true);
   assert.equal(up.statusOk, true);
-  assert.ok(up.latencyMs < 500);
-  fake.setMode("slow");
-  const slow = await pingDaemon(fake.socketPath, 1_000, 50);
+  assert.equal(up.latencyMs, 0);
+  statusDurationMs = 150;
+  const slow = await pingDaemon(fake.socketPath, 20_000, 50);
   assert.equal(slow.state, "slow");
   assert.equal(slow.statusOk, true);
-  assert.ok((slow.statusMs ?? 0) >= 100);
+  assert.equal(slow.statusMs, 150);
   fake.setMode("hang");
   const down = await pingDaemon(fake.socketPath, 120, 500);
   assert.equal(down.state, "down");

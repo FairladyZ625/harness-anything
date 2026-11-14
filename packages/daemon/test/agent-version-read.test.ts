@@ -431,3 +431,35 @@ test("the version summary states real body measurements", () => {
     "instructions 6 B · 0 skills · 0 runtimes",
   );
 });
+
+test("scheduling strategy survives Agent update preparation and appears in canonical version diffs", () => {
+  const f = fixture([
+    declaration("same", { selectionStrategy: "sticky" }),
+    declaration("same", { selectionStrategy: "lru" }),
+  ]);
+  try {
+    const prepared = prepareAgentEntityInstall({
+      rootDir: f.rootDir,
+      entityStore: openEntityStore(f.rootDir),
+      action: { kind: "agent-install", agentId: "versioned", selectionStrategy: "sticky" },
+    });
+    assert.equal(prepared.declaration.selectionStrategy, "sticky");
+    assert.throws(
+      () =>
+        prepareAgentEntityInstall({
+          rootDir: f.rootDir,
+          entityStore: openEntityStore(f.rootDir),
+          action: { kind: "agent-install", agentId: "versioned", selectionStrategy: "random" },
+        }),
+      /selectionStrategy/u,
+    );
+    const diff = readAgentDiff(ports(f), { agentId: "versioned", from: f.revisions[0]!, to: f.revisions[1]! });
+    assert.deepEqual(diff.fields, [{ field: "selectionStrategy", kind: "changed", from: "sticky", to: "lru" }]);
+    assert.deepEqual(
+      validateAgentVersion(readAgentVersion(ports(f), { agentId: "versioned", revision: f.revisions[0]! })),
+      [],
+    );
+  } finally {
+    dispose(f);
+  }
+});

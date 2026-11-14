@@ -6,8 +6,15 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:f
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
+import { openDaemonJsonRpcClientAt, requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { daemonDiagnosticsEndpoint, localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
+import { waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
+
+// The fixture announces actual transport readiness. Only connect has a watchdog; response waits
+// follow JSON-RPC arrival and the enclosing node:test timeout is their hang guard.
+const connectWatchdogMs = 20_000;
+// The paired 16-worker/4-vCPU campaign exceeded the old 20s whole-test watchdog during
+// fixture cold start. This bounds a hung test; correctness still depends only on RPC/state arrival.
 
 async function fixture(mode: string) {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-diag-")),
@@ -47,19 +54,22 @@ async function fixture(mode: string) {
   };
 }
 async function diagnostic(endpoint: string) {
-  return requestDaemonJsonRpcAt(daemonDiagnosticsEndpoint(endpoint), "daemon.status", {}, 500, 1_000);
+  return requestDaemonJsonRpcAt(daemonDiagnosticsEndpoint(endpoint), "daemon.status", {}, connectWatchdogMs);
 }
 async function until(endpoint: string, predicate: (value: Record<string, unknown>) => boolean) {
-  for (;;) {
+  return waitForDurableValue(async () => {
     const value = await diagnostic(endpoint);
-    if (predicate(value)) return value;
-    await new Promise<void>((resolve) => setImmediate(resolve));
-  }
+    return predicate(value) ? value : null;
+  });
 }
 for (const mode of ["javascript", "native"]) {
-  test(`independent diagnostics records an in-flight ${mode} stall and recovery`, { timeout: 20_000 }, async () => {
+  test(`independent diagnostics records an in-flight ${mode} stall and recovery`, { timeout: 90_000 }, async () => {
     const f = await fixture(mode);
+    let client: Awaited<ReturnType<typeof openDaemonJsonRpcClientAt>> | undefined;
     try {
+      // Complete the real protocol handshake before arming fault injection: under contention its
+      // own authentication stall must not be mistaken for the status operation we intend to block.
+      client = await openDaemonJsonRpcClientAt(f.endpoint, connectWatchdogMs);
       const normal = await until(f.endpoint, (value) => value.metrics !== null);
       assert.equal(normal.state, "running");
       if (process.platform !== "win32")
@@ -67,27 +77,32 @@ for (const mode of ["javascript", "native"]) {
       const armed = f.message("armed");
       f.child.send("arm");
       await armed;
-      const request = requestDaemonJsonRpcAt(f.endpoint, "daemon.status", {}, 500, 5_000);
-      const stalled = await until(
-          f.endpoint,
-          (value) =>
-            value.stalled === true &&
-            (value.inFlight as { method: string; phase: string }[]).some(
-              (operation) => operation.method === "daemon.status" && operation.phase === mode,
+      const request = client.request("daemon.status", {});
+      const [, blockedOperation] = await Promise.all([
+        request,
+        (async () => {
+          const stalled = await until(
+              f.endpoint,
+              (value) =>
+                value.stalled === true &&
+                (value.inFlight as { method: string; phase: string }[]).some(
+                  (operation) => operation.method === "daemon.status" && operation.phase === mode,
+                ),
             ),
-        ),
-        inFlight = stalled.inFlight as { method: string; actor: string; phase: string }[];
-      console.log("stall evidence during request", mode, JSON.stringify(stalled));
-      assert.equal(inFlight.length, 1);
-      assert.equal(inFlight[0]!.method, "daemon.status");
-      assert.match(inFlight[0]!.actor, /^local-user-/u);
-      assert.equal(inFlight[0]!.phase, mode);
-      assert.equal(typeof stalled.rss, "number");
-      await assert.rejects(
-        requestDaemonJsonRpcAt(daemonDiagnosticsEndpoint(f.endpoint), "daemon.stop", {}, 500, 1_000),
-        /Read-only/u,
-      );
-      await request;
+            inFlight = stalled.inFlight as { id: string; method: string; actor: string; phase: string }[];
+          console.log("stall evidence during request", mode, JSON.stringify(stalled));
+          assert.equal(inFlight.length, 1);
+          assert.equal(inFlight[0]!.method, "daemon.status");
+          assert.match(inFlight[0]!.actor, /^local-user-/u);
+          assert.equal(inFlight[0]!.phase, mode);
+          assert.equal(typeof stalled.rss, "number");
+          await assert.rejects(
+            requestDaemonJsonRpcAt(daemonDiagnosticsEndpoint(f.endpoint), "daemon.stop", {}, connectWatchdogMs),
+            /Read-only/u,
+          );
+          return inFlight[0]!;
+        })(),
+      ]);
       const readRecords = () =>
         readdirSync(path.join(f.userRoot, "logs"))
           .filter((name) => name.includes("diagnostics"))
@@ -97,27 +112,34 @@ for (const mode of ["javascript", "native"]) {
               .slice(0, -1)
               .map((line) => JSON.parse(line)),
           );
+      const includesBlockedOperation = (record: Record<string, unknown>) =>
+        Array.isArray(record.inFlight) &&
+        record.inFlight.some((operation) => operation.id === blockedOperation.id && operation.phase === mode);
       const recovered = await until(f.endpoint, (value) => {
-        const record = (value.recentStalls as Record<string, unknown>[])[0];
+        const record = (value.recentStalls as Record<string, unknown>[]).find(includesBlockedOperation);
         return (
           (value.inFlight as unknown[]).length === 0 &&
           typeof record?.durationMs === "number" &&
           record.stackStatus !== "pending" &&
+          readRecords().some((row) => row.reason === "stall_ended" && includesBlockedOperation(row)) &&
           readRecords().some((row) => row.reason === "metrics" && row.metrics?.eventLoopDelayMs.max > 1_000)
         );
       });
       console.log("stack experiment", mode, JSON.stringify(recovered.recentStalls));
       const records = readRecords();
-      assert.ok(records.some((row) => row.reason === "stall_started" && row.inFlight[0]?.method === "daemon.status"));
-      assert.ok(records.some((row) => row.reason === "stall_ended" && row.durationMs >= 2_000));
+      assert.ok(records.some((row) => row.reason === "stall_started" && includesBlockedOperation(row)));
+      assert.ok(
+        records.some((row) => row.reason === "stall_ended" && includesBlockedOperation(row) && row.durationMs >= 2_000),
+      );
       assert.ok(records.some((row) => row.reason === "metrics" && row.metrics?.eventLoopDelayMs.max > 1_000));
     } finally {
+      client?.close();
       await f.close();
     }
   });
 }
 
-test("real daemon keeps independent status available while a shutdown item is held", { timeout: 20_000 }, async () => {
+test("real daemon keeps independent status available while a shutdown item is held", { timeout: 90_000 }, async () => {
   const f = await fixture("drain");
   try {
     const draining = f.message("draining");

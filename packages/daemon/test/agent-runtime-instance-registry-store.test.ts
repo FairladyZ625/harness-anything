@@ -123,6 +123,8 @@ test("machine runtime instance CRUD binds a witnessed installation and enforces 
       models: [config.model],
       defaultModel: config.model,
       enabled: true,
+      // dec_DA1602487428A58E8B446ECE38/CH3: CRUD emits the effective priority tier.
+      tier: 1,
       credentialSource: "operator" as const,
       permissionMode: "bypass" as const,
       isolationState: "enforced" as const,
@@ -478,6 +480,7 @@ test("runtime instance command receipts expose readiness metadata without creden
       models: ["gpt-5.6-sol"],
       defaultModel: "gpt-5.6-sol",
       enabled: true,
+      tier: 1,
       credentialSource: "operator",
       permissionMode: "bypass",
       mcpPolicy: "disabled",
@@ -519,7 +522,7 @@ test("runtime instance command receipts expose readiness metadata without creden
     assert.deepEqual(shown.instance, created.instance);
     assert.equal(
       shown.summary,
-      "runtime-instance-show: codex-safe\nmodels: gpt-5.6-sol\navailableModels: (not probed)\ncredentialSource: operator\nauth: not-checked\npermissionMode: bypass\nmcpPolicy: disabled",
+      "runtime-instance-show: codex-safe\ntier: 1\nmodels: gpt-5.6-sol\navailableModels: (not probed)\ncredentialSource: operator\nauth: not-checked\npermissionMode: bypass\nmcpPolicy: disabled",
     );
     for (const receipt of [created, listed, shown]) {
       assert.doesNotMatch(

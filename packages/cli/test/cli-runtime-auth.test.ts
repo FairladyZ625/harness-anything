@@ -76,6 +76,28 @@ test("failed login does not run an account probe", async () => {
   assert.equal(calls.length, 1);
 });
 
+test("every independent subscription login refreshes its own account through the shared probe", async (t) => {
+  for (const kindId of ["claude", "claude-acp", "codex", "codex-acp", "devin", "opencode", "minimax-code"])
+    await t.test(kindId, async () => {
+      const calls: ThinCommand[] = [];
+      const result = await runRuntimeAuthCommand(loginCommand(), () => undefined, {
+        runCommandThroughDaemon: async (command) => {
+          calls.push(command);
+          if (command.action.kind === "runtime-instance-login")
+            return { ok: true, sessionId: "terminal_login" } as JsonObject;
+          if (command.action.probe === true) return { ok: true, summary: "availableModels: test-model" } as JsonObject;
+          return { ok: true, instance: { kindId, credentialSource: "instance" } } as JsonObject;
+        },
+        relayRuntimeAuthTerminal: async () => 0,
+      });
+      assert.equal(calls.length, 3);
+      assert.equal(calls[2]?.action.probe, true);
+      assert.equal(calls[2]?.action.instanceId, loginCommand().action.instanceId);
+      assert.equal((result.accountProbe as JsonObject).ok, true);
+      assert.match(String(result.summary), /availableModels: test-model/u);
+    });
+});
+
 function loginCommand(): ThinCommand {
   return {
     id: "runtime-instance-login",

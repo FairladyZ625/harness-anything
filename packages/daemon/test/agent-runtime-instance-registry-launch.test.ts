@@ -1,5 +1,8 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import childProcess from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
+import { PassThrough } from "node:stream";
 import {
   chmodSync,
   existsSync,
@@ -214,35 +217,53 @@ test("model catalog discovery reads each account environment without a shared ca
   }
 });
 
-test("runtime installation probes are asynchronous and parallel across providers", async (context) => {
+test("runtime installation probes are asynchronous and parallel across providers", { timeout: 20_000 }, async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-async-discovery-")),
-    bin = path.join(root, "bin");
+    bin = path.join(root, "bin"),
+    probes: { readonly finish: () => void }[] = [];
+  // Control the process boundary, rather than making real children race their 5s probe deadline.
+  // The production queue, process port, candidate selection and result assembly still run.
+  t.mock.method(childProcess, "execFile", (command, args, options, callback) => {
+    // cmd.exe carries the version flag inside its final command-line argument.
+    const versionProbe = args.some((argument) => /(?:^|\s)--version$/u.test(argument));
+    const child = { stdin: new PassThrough(), exitCode: null as number | null, signalCode: null };
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      child.exitCode = 0;
+      callback(null, versionProbe ? `${path.basename(String(command))}-async\n` : "", "");
+    };
+    if (versionProbe) {
+      assert.equal(options.timeout, 5_000);
+      probes.push({ finish });
+    } else queueMicrotask(finish); // Model-catalog requests are not version-probe queue slots.
+    return child as childProcess.ChildProcess;
+  });
+  syncBuiltinESMExports();
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  });
   try {
     mkdirSync(bin);
     for (const kindId of ["codex", "claude", "agy"] as const)
-      writeProviderExecutable(
-        path.join(bin, kindId),
-        `const args = process.argv.slice(2); setTimeout(() => { if (args[0] === "--version") console.log("${kindId}-async"); else if ("${kindId}" === "codex") console.log(JSON.stringify({ models: [{ slug: "gpt-async" }] })); else if ("${kindId}" === "agy") console.log("gemini-async\\tGemini Async"); else console.log("aliases 'fable'"); }, 100);\n`,
-      );
-    let heartbeats = 0;
-    const heartbeat = setInterval(() => {
-        heartbeats += 1;
-      }, 5),
-      startedAt = Date.now();
-    try {
-      const rows = await discoverRuntimeInstallations({ env: { PATH: bin } });
-      assert.deepEqual(
-        rows.map(({ kindId }) => kindId),
-        ["agy", "claude", "codex"],
-      );
-    } finally {
-      clearInterval(heartbeat);
-    }
-    const durationMs = Date.now() - startedAt;
-    context.diagnostic(`runtime-discovery-duration-ms=${durationMs};heartbeats=${heartbeats}`);
-    assert.ok(heartbeats >= 10, `expected event-loop progress during discovery, observed ${heartbeats} heartbeats`);
-    assert.ok(durationMs < 1_600, `expected parallel provider probes, discovery took ${durationMs}ms`);
+      writeProviderExecutable(path.join(bin, kindId), "// probe output is controlled by the test\n");
+    const discovery = discoverRuntimeInstallations({ env: { PATH: bin } });
+    assert.equal(probes.length, 2, "two probes must start before either result is released");
+    // A paused parent cannot expire these probes: the fake process boundary owns completion.
+    probes[0]!.finish();
+    probes[1]!.finish();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(probes.length, 3, "completing probes must release a queue slot");
+    probes[2]!.finish();
+    const rows = await discovery;
+    assert.deepEqual(
+      rows.map(({ kindId }) => kindId),
+      ["agy", "claude", "codex"],
+    );
   } finally {
+    for (const probe of probes) probe.finish();
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -377,7 +398,7 @@ test("Codex sidecar launch materializes the complete non-secret provider config 
     if (process.platform !== "win32") assert.equal(statSync(codexConfig).mode & 0o777, 0o600);
     assert.equal(
       text,
-      `model_provider = "codex_local_access"\nmodel_reasoning_effort = "xhigh"\nallow_login_shell = false\n${process.platform === "win32" ? 'windows.sandbox = "unelevated"\n' : ""}\n[model_providers."codex_local_access"]\nname = "codex_local_access"\nbase_url = "http://127.0.0.1:1/v1"\nwire_api = "responses"\nrequires_openai_auth = true\nhttp_headers = { "X-Harness-Probe" = "present", "X-Static-Route" = "sidecar" }\nexperimental_bearer_token = "instance-secret"\n`,
+      `model_provider = "codex_local_access"\nmodel_reasoning_effort = "xhigh"\nallow_login_shell = false\ncli_auth_credentials_store = "file"\n${process.platform === "win32" ? 'windows.sandbox = "unelevated"\n' : ""}\n[model_providers."codex_local_access"]\nname = "codex_local_access"\nbase_url = "http://127.0.0.1:1/v1"\nwire_api = "responses"\nrequires_openai_auth = true\nhttp_headers = { "X-Harness-Probe" = "present", "X-Static-Route" = "sidecar" }\nexperimental_bearer_token = "instance-secret"\n`,
     );
     assert.match(text, /experimental_bearer_token = "instance-secret"/u);
     assert.doesNotMatch(JSON.stringify(launch), /instance-secret/u);
@@ -886,10 +907,14 @@ test("explicit launch resolves a case-insensitive declaration to the instance ca
 test("explicit launch rejects an unavailable model with an actionable instance hint", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-model-reject-"));
   try {
+    let credentialReads = 0;
     const store = openRuntimeInstanceStore({
       userRoot,
       discover: () => [observed],
-      resolveCredential: () => "instance-secret",
+      resolveCredential: () => {
+        credentialReads++;
+        return "instance-secret";
+      },
     });
     store.create({
       schemaVersion: 2,
@@ -903,7 +928,6 @@ test("explicit launch rejects an unavailable model with an actionable instance h
       enabled: true,
       auth: { mode: "api-key", credentialRef: "credential:v1:ds-bailian-empty-family" },
     });
-    const started = performance.now();
     await assert.rejects(
       store.prepareLaunch("ds-bailian-empty-family", {
         cwd: "/workspace/repo",
@@ -916,10 +940,7 @@ test("explicit launch rejects an unavailable model with an actionable instance h
         error.message.includes("Use --model <supported-model>") &&
         error.message.includes("--instance <instance-id>"),
     );
-    assert.ok(
-      performance.now() - started < 1_000,
-      "model rejection should happen before installation or credential work",
-    );
+    assert.equal(credentialReads, 0, "model rejection must happen before credential work");
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }

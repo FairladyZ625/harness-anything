@@ -10,6 +10,7 @@ import {
   agentRuntimeAmbiguityWarning,
   runtimeInstanceModel,
   selectedRuntimeInstance,
+  createRuntimeInstanceDispatchState,
 } from "../src/runtime-instance-selection.ts";
 
 function prepareRuntimeInstance<T>(
@@ -26,7 +27,10 @@ function prepareRuntimeInstance<T>(
   });
   const capacity = dispatchLifecycleReadOf(() => events)({ by: "active", limit: 100 });
   assert.equal(capacity.status, "ready");
-  return prepare({ ...input, capacity: capacity.status === "ready" ? capacity.rows : [] }, launch);
+  const dispatchState = input.dispatchState ?? createRuntimeInstanceDispatchState();
+  for (const [index, { attempt, policy }] of (capacity.status === "ready" ? capacity.rows : []).entries())
+    if (policy.capacity !== "released") dispatchState.activate(String(index), attempt.instanceId);
+  return prepare({ ...input, dispatchState }, launch);
 }
 
 const instance = (
@@ -276,7 +280,7 @@ test("prepare spreads live load across instances of one declared runtime row", a
   assert.deepEqual(attempts, ["codex-b"]);
 });
 
-test("prepare spreads load using liveness supplied by the dispatch lifecycle", async () => {
+test("prepare spreads load using this node's active handles", async () => {
   const attempts: string[] = [],
     sessions = [
       {
@@ -848,9 +852,9 @@ test("an explicit instance receipt records the declaration-to-catalog model reso
 test("ambiguity warns while a pin or an exhaustive preference stays silent", () => {
   const runtimeInstances = [
       { ...deepseekInstance("ds-bailian", ["deepseek-v4.1-flash"]) },
-      { ...deepseekInstance("ds-harness-api", ["Deepseek-V4.1-Flash"]) },
+      { ...deepseekInstance("ds-harness-api", ["Deepseek-V4.1-Flash"]), kindId: "codex" },
     ],
-    agent = deepseekReviewer(),
+    agent = { ...deepseekReviewer(), runtimes: [] },
     warning = agentRuntimeAmbiguityWarning({ agent, runtimeInstances });
   assert.equal(warning?.code, "agent_runtime_instance_ambiguous");
   assert.match(warning!.message, /ds-bailian, ds-harness-api|ds-harness-api, ds-bailian/u);
@@ -882,9 +886,9 @@ test("a tie on the model tier names the real deciding key instead of claiming th
 test("a dispatch-time ambiguity warning names the instance it took, not a hypothetical fallback", () => {
   const runtimeInstances = [
       { ...deepseekInstance("ds-bailian", ["deepseek-v4.1-flash"]) },
-      { ...deepseekInstance("ds-harness-api", ["Deepseek-V4.1-Flash"]) },
+      { ...deepseekInstance("ds-harness-api", ["Deepseek-V4.1-Flash"]), kindId: "codex" },
     ],
-    agent = deepseekReviewer(),
+    agent = { ...deepseekReviewer(), runtimes: [] },
     atDispatch = agentRuntimeAmbiguityWarning({ agent, runtimeInstances, selected: "ds-bailian" }),
     beforeDispatch = agentRuntimeAmbiguityWarning({ agent, runtimeInstances });
   assert.equal(atDispatch?.code, "agent_runtime_instance_ambiguous");

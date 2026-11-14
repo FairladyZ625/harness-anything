@@ -49,6 +49,14 @@ export interface AcpWorkerManifest {
 type JsonRpcId = number;
 type Append = (value: Readonly<Record<string, unknown>>) => void;
 
+class AcpRequestError extends Error {
+  readonly code: number | undefined;
+  constructor(message: string, code?: number) {
+    super(message);
+    this.code = code;
+  }
+}
+
 const cancelGraceMs = daemonRuntimePolicy.defaultValue.acp.cancelGraceMs;
 
 // Updates worth persisting. Agents emit plenty of configuration chatter
@@ -74,7 +82,17 @@ export function runAcpProviderSession(
   child: ChildProcess,
   manifest: AcpWorkerManifest,
   append: Append,
-): { readonly done: Promise<void>; readonly cancel: () => void; readonly steer: (prompt: string) => void } {
+  options: { readonly catalogOnly?: boolean } = {},
+): {
+  readonly done: Promise<void>;
+  readonly cancel: () => void;
+  readonly steer: (prompt: string) => void;
+  /** The protocol passed its auth stage; provider credential evidence is still separate. */
+  readonly authenticationComplete: boolean;
+  readonly failure: { readonly code?: number } | null;
+} {
+  let authenticationComplete = false;
+  let failure: { readonly code?: number } | null = null;
   let nextId: JsonRpcId = 1,
     buffer = "",
     // On resume the session id is known up front; tagging replayed history
@@ -145,6 +163,7 @@ export function runAcpProviderSession(
   const event = (frame: Record<string, unknown>): void =>
     append({ kind: "provider_event", event: scrubProviderValue(sessionId ? { sessionId, ...frame } : frame) });
   const fail = (error: unknown): void => {
+    failure = error instanceof AcpRequestError ? { code: error.code } : {};
     const message = error instanceof Error ? error.message : String(error);
     event({ type: "acp.error", message });
     try {
@@ -169,7 +188,12 @@ export function runAcpProviderSession(
       if (!entry) return;
       if (message.error !== undefined) {
         const rpcError = message.error as Record<string, unknown>;
-        entry.reject(new Error(String(rpcError.message ?? "ACP request failed")));
+        entry.reject(
+          new AcpRequestError(
+            String(rpcError.message ?? "ACP request failed"),
+            typeof rpcError.code === "number" ? rpcError.code : undefined,
+          ),
+        );
       } else entry.resolve(message.result);
       return;
     }
@@ -293,6 +317,7 @@ export function runAcpProviderSession(
         // methods fail closed on the agent side when nothing resolves.
         await request("authenticate", { methodId, _meta: { api_key: apiKey ?? "" } });
       }
+      authenticationComplete = true;
       const session = manifest.providerSessionId
         ? ((await request(acpResumeMethod(initialize) ?? notResumable(manifest.providerSessionId), {
             sessionId: manifest.providerSessionId,
@@ -315,6 +340,8 @@ export function runAcpProviderSession(
         ...(models.available.length ? { models: models.available } : {}),
         ...(models.current ? { currentModelId: models.current } : {}),
       });
+      // Account discovery uses the same authenticated handshake, without sending a turn.
+      if (options.catalogOnly) return;
       const requested = manifest.permissionMode,
         applied = requested ? pickAcpMode(requested, modes.available) : null;
       if (applied && applied !== modes.current)
@@ -450,7 +477,17 @@ export function runAcpProviderSession(
       }
     }
   })();
-  return { done, cancel, steer };
+  return {
+    done,
+    cancel,
+    steer,
+    get authenticationComplete() {
+      return authenticationComplete;
+    },
+    get failure() {
+      return failure;
+    },
+  };
 }
 
 interface AcpModes {

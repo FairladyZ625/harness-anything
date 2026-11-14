@@ -339,6 +339,8 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     assert.deepEqual(settingsBefore.settings, {
       // Provider scheduling fields project their repository-owned defaults.
       runtime: {
+        // dec_DA1602487428A58E8B446ECE38/CH3: repository strategy defaults to sticky.
+        selectionStrategy: "sticky",
         allowedInstances: [],
         commandInterceptions: [],
         agentSkills: [],

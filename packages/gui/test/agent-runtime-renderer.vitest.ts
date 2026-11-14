@@ -523,7 +523,8 @@ describe("agent runtime renderer", () => {
     expect(subscription).not.toMatch(/type="password"/u);
     for (const action of ["Sign in", "Sign out"]) expect(runtimeCard(instance)).not.toContain(action);
   });
-  it("offers AGY's terminal login path only after a probe reports unauthenticated", () => {
+  // dec_DA1602487428A58E8B446ECE38 CH1: an independent account may reauthenticate.
+  it("offers AGY login for both authentication states while refusing undeclared logout", () => {
     const authenticated = renderToStaticMarkup(
       createElement(RuntimeCard, {
         instance: { ...agyInstance, authState: "authenticated" },
@@ -564,7 +565,9 @@ describe("agent runtime renderer", () => {
         onSelfTest: async () => null,
       }),
     );
-    expect(buttonLabels(authenticated)).not.toContain("Sign in");
+    expect(buttonLabels(authenticated)).toContain("Sign in");
+    expect(buttonLabels(authenticated)).not.toContain("Sign out");
+    expect(buttonLabels(unauthenticated)).not.toContain("Sign out");
     expect(buttonLabels(unauthenticated)).toContain("Sign in");
   });
   it("keeps kind-specific runtime fields separated on the carrier card", () => {

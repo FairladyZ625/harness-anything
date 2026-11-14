@@ -290,6 +290,9 @@ export function ProvidersWorkspace({
               <RuntimeCard
                 instance={instance}
                 installations={installations}
+                independentCredentialsSupported={
+                  workspace.machine.data?.subscriptionIsolationKinds?.includes(instance.kindId) ?? false
+                }
                 authProbeState={workspace.authProbeStates.get(instance.instanceId)}
                 agents={(workspace.agents.data ?? []).filter(isAvailableAgentEntityRow)}
                 liveSessions={liveSessions}
@@ -353,6 +356,7 @@ export function ProvidersWorkspace({
         open={dialog}
         installations={installations}
         existingInstanceIds={instances.map((row) => row.instanceId)}
+        subscriptionIsolationKinds={workspace.machine.data?.subscriptionIsolationKinds ?? []}
         busy={workspace.busy}
         actionError={workspace.error}
         onCancel={() => setDialog(false)}

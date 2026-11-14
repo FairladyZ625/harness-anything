@@ -66,7 +66,8 @@ export async function runRuntimeAuthCommand(
         accountProbeError: "Could not inspect the runtime instance after sign-in.",
         summary: `${receipt.summary}\nCould not inspect the runtime instance after sign-in.`,
       };
-    if (instance.kindId !== "agy" && instance.kindId !== "agy-acp") return receipt;
+    if (instance.credentialSource !== "instance" && instance.kindId !== "agy" && instance.kindId !== "agy-acp")
+      return receipt;
 
     const accountProbe = await runCommand({
         ...showCommand,
@@ -76,8 +77,8 @@ export async function runRuntimeAuthCommand(
         typeof accountProbe.summary === "string"
           ? accountProbe.summary
           : accountProbe.ok === true
-            ? "AGY account probe finished."
-            : `AGY account probe failed (${String(accountProbe.code ?? "unknown")}).`;
+            ? "Account probe finished."
+            : `Account probe failed (${String(accountProbe.code ?? "unknown")}).`;
     return {
       ...receipt,
       accountProbe,
@@ -88,7 +89,7 @@ export async function runRuntimeAuthCommand(
     return {
       ...receipt,
       accountProbeError: detail,
-      summary: `${receipt.summary}\nAGY account probe could not complete: ${detail}`,
+      summary: `${receipt.summary}\nAccount probe could not complete: ${detail}`,
     };
   }
 }

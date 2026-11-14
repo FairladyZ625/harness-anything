@@ -21,6 +21,7 @@ import type { RuntimeInstanceSummary } from "../src/agent-runtime-instances.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/dispatch-stream.ts";
 import type { RuntimeProcess } from "../src/runtime-spawn-types.ts";
+import { RuntimeProcessStartRejected } from "../src/runtime-spawn-process.ts";
 import type { Snapshot } from "../src/repo-cell-types.ts";
 import {
   acceptedWorkDecision,
@@ -276,7 +277,10 @@ export async function fixture(
       },
       runtimeLaunch: (prepared, persistence): RuntimeProcess => {
         if (options.providerInputLimit !== undefined && prepared.prompt.length > options.providerInputLimit)
-          throw new Error(`input_too_large: ${prepared.prompt.length} > ${options.providerInputLimit}`);
+          // CH3 (dec_DA1602487428A58E8B446ECE38): this rejection creates no OS process.
+          throw new RuntimeProcessStartRejected(
+            new Error(`input_too_large: ${prepared.prompt.length} > ${options.providerInputLimit}`),
+          );
         const providerSessionId = prepared.args.includes("review-provider-session")
           ? "review-provider-session"
           : providerSessionStarted

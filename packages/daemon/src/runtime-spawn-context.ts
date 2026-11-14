@@ -49,6 +49,7 @@ export interface RuntimeEventPublication<T extends RuntimeEventType> {
 
 /** Closed composition contract shared by the runtime spawner's extracted helpers. */
 export interface RuntimeSpawnerContext {
+  readonly dispatchState?: import("@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts").RuntimeInstanceDispatchState;
   readonly closed?: () => boolean;
   readonly input: RuntimeSpawnerInput;
   readonly requiredRuntimeStore: typeof requiredRuntimeStore;

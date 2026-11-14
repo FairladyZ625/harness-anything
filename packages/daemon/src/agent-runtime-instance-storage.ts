@@ -188,6 +188,7 @@ export function publicConfig(
     ...(config.availableModels === undefined ? {} : { availableModels: config.availableModels }),
     defaultModel: config.defaultModel,
     enabled: config.enabled,
+    tier: config.tier ?? 1,
     credentialSource: config.credentialSource,
     permissionMode: config.permissionMode ?? null,
     mcpPolicy: runtimeSupportsMcpPolicy(config.kindId) ? (config.mcpPolicy ?? "disabled") : null,
@@ -343,6 +344,8 @@ export function writeCodexConfig(
       `model_provider = ${tomlString(config.providerId)}`,
       ...(effort ? [`model_reasoning_effort = ${tomlString(effort)}`] : []),
       "allow_login_shell = false",
+      // Bind authentication before login/app-server startup, including on macOS.
+      'cli_auth_credentials_store = "file"',
       // An isolated CODEX_HOME has no Windows sandbox selection. Codex rejects
       // restricted commands before process creation when that backend is disabled.
       // Restricted-token execution needs no host account or firewall provisioning.

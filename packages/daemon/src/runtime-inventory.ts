@@ -37,6 +37,15 @@ export const runtimeWebSearchModes = ["disabled", "cached", "live"] as const sat
 export const runtimeSubscriptionMultiAccountIsolation = Object.freeze({
   "agy@darwin": true,
   "agy-acp@darwin": true,
+  // dec_DA1602487428A58E8B446ECE38 CH1; native storage verified on macOS.
+  // Claude namespaces its keychain item by CLAUDE_CONFIG_DIR, with a file fallback.
+  "claude@darwin": true,
+  "claude-acp@darwin": true,
+  "codex@darwin": true,
+  "codex-acp@darwin": true,
+  "devin@darwin": true,
+  "opencode@darwin": true,
+  "minimax-code@darwin": true,
 } as const satisfies Readonly<Record<string, true>>);
 
 export function supportsRuntimeSubscriptionMultiAccountIsolation(kindId: string, platform: NodeJS.Platform): boolean {
@@ -111,6 +120,7 @@ function acpKind<K extends RuntimeKindId>(
     modes: readonly RuntimeAuthMode[];
     subscriptionProbe: RuntimeProviderDeclaration["auth"]["subscriptionProbe"];
     subscriptionProbeTimeoutMs: number;
+    accountModelProbe?: RuntimeProviderDeclaration["auth"]["accountModelProbe"];
     commands?: Readonly<Partial<Record<"login" | "logout", readonly string[]>>>;
     acpAuthMethod?: RuntimeAcpAuthMethod;
     acpCredentialKey?: string;
@@ -142,6 +152,7 @@ function acpKind<K extends RuntimeKindId>(
       subscriptionProbe: auth.subscriptionProbe,
       subscriptionProbeTimeoutMs: auth.subscriptionProbeTimeoutMs,
       endpoints: auth.endpoints ?? { baseUrl: "none" },
+      ...(auth.accountModelProbe ? { accountModelProbe: auth.accountModelProbe } : {}),
       ...(auth.commands ? { commands: auth.commands } : {}),
       ...(auth.acpAuthMethod ? { acpAuthMethod: auth.acpAuthMethod } : {}),
       ...(auth.acpCredentialKey ? { acpCredentialKey: auth.acpCredentialKey } : {}),
@@ -249,6 +260,7 @@ export const runtimeKinds = [
       publicDefaults: { effort: null, baseUrl: null, baseUrlConfigured: false },
     },
     auth: {
+      accountModelProbe: { kind: "claude-sdk" },
       shape: "api-override",
       modes: ["subscription", "api-key"],
       subscriptionProbe: ["auth", "status", "--json"],
@@ -395,6 +407,7 @@ export const runtimeKinds = [
       },
     },
     auth: {
+      accountModelProbe: { kind: "codex-app-server" },
       shape: "separate",
       modes: ["subscription", "api-key"],
       apiKeyIsolation: "enforced",
@@ -519,6 +532,7 @@ export const runtimeKinds = [
       // `agy models` boots a language server, resolves OAuth, then fetches the model
       // list: measured 5-22s end to end, so the probe budget must clear that tail.
       subscriptionProbe: ["models"],
+      accountModelProbe: { kind: "command", args: ["models"] },
       subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.modelListing,
       endpoints: { baseUrl: "none" },
       commands: { login: ["acp", "--login"] },
@@ -666,6 +680,7 @@ export const runtimeKinds = [
       // consumes is the windsurf_api_key entry in credentials.toml, so presence
       // of that key is the meaningful local readiness check.
       subscriptionProbe: { kind: "file-key" },
+      accountModelProbe: { kind: "command", args: ["models", "list", "--format", "json"] },
       subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
       acpCredentialKey: "windsurf_api_key",
       // ACP local binary: the key rides authenticate's _meta.api_key; no endpoint exists.
@@ -784,6 +799,7 @@ export const runtimeKinds = [
       // npm bin of @agentclientprotocol/codex-acp; wraps the codex CLI and
       // reuses its CODEX_HOME login.
       command: "codex-acp",
+      credentialCommand: "codex",
       configDirectory: ".codex",
       configHomeEnvironment: "CODEX_HOME",
       authFile: "auth.json",
@@ -799,13 +815,13 @@ export const runtimeKinds = [
       publicDefaults: { reasoningEffort: null },
     },
     auth: {
+      accountModelProbe: { kind: "acp" },
       shape: "separate",
       modes: ["subscription", "api-key"],
       apiKeyIsolation: "enforced",
-      // The wrapper has no login-status subcommand; version output is the
-      // weakest available presence probe. The ACP `authenticate` handshake is
-      // the authoritative check at launch time.
-      subscriptionProbe: ["--version"],
+      // Account operations use credentialCommand in this instance's CODEX_HOME.
+      subscriptionProbe: ["login", "status"],
+      commands: { login: ["login"], logout: ["logout"] },
       subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
       // Advertised methods are ["api-key", "chat-gpt"]; the ChatGPT login in
       // the linked auth.json answers "chat-gpt" with an empty api_key.
@@ -861,6 +877,7 @@ export const runtimeKinds = [
       // and reuses its CLAUDE_CONFIG_DIR credentials. The adapter advertises no
       // authMethods: the wrapped CLI authenticates from its own login.
       command: "claude-agent-acp",
+      credentialCommand: "claude",
       configDirectory: ".claude",
       configHomeEnvironment: "CLAUDE_CONFIG_DIR",
       authFile: ".credentials.json",
@@ -874,9 +891,11 @@ export const runtimeKinds = [
       publicDefaults: {},
     },
     auth: {
+      accountModelProbe: { kind: "acp" },
       shape: "subscription-only",
       modes: ["subscription"],
-      subscriptionProbe: ["--version"],
+      subscriptionProbe: ["auth", "status", "--json"],
+      commands: { login: ["auth", "login"], logout: ["auth", "logout"] },
       subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
       endpoints: { baseUrl: "none" },
     },
@@ -967,6 +986,7 @@ export const runtimeKinds = [
     ["acp"],
     ".minimax",
     {
+      accountModelProbe: { kind: "acp" },
       shape: "subscription-only",
       modes: ["subscription"],
       subscriptionProbe: {
@@ -1050,12 +1070,18 @@ export const runtimeKinds = [
       publicDefaults: {},
     },
     auth: {
+      accountModelProbe: { kind: "acp" },
       shape: "subscription-only",
       modes: ["subscription"],
-      subscriptionProbe: ["--version"],
+      subscriptionProbe: {
+        kind: "json-credential-map",
+        contentEnvironment: "OPENCODE_AUTH_CONTENT",
+        directoryEnvironment: "XDG_DATA_HOME",
+        directoryName: "opencode",
+      },
       subscriptionProbeTimeoutMs: daemonRuntimePolicy.defaultValue.runtime.subscriptionProbeTimeoutMs.standard,
-      // `opencode-login` consumes the linked auth.json and accepts an empty
-      // api_key; it is the only advertised method.
+      // 1.18.30's authenticate accepts this method without checking credentials.
+      // Auth.json supplies metadata; an ACP auth_required refusal overrides it.
       acpAuthMethod: "opencode-login",
       endpoints: { baseUrl: "none" },
     },

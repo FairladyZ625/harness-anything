@@ -3,7 +3,16 @@ import type { CreateInstanceFormState } from "../../runtime-instance-form.ts";
 import { runtimeProviderPlane, runtimeWebSearchRestriction } from "../../runtime-provider-planes.ts";
 import { t } from "../../i18n/index.tsx";
 
-type AccessValues = Pick<CreateInstanceFormState, "permissionMode" | "mcpPolicy" | "isolation" | "webSearch">;
+type AccessValues = Pick<
+  CreateInstanceFormState,
+  | "permissionMode"
+  | "mcpPolicy"
+  | "isolation"
+  | "webSearch"
+  | "credentialSource"
+  | "independentCredentialsSupported"
+  | "tier"
+>;
 /** One set of controls for new and existing providers; the daemon remains the write authority. */
 export function RuntimeAccessFields({
   value,
@@ -24,11 +33,54 @@ export function RuntimeAccessFields({
 }) {
   const declaration = runtimeKindForId(value.kindId),
     plane = runtimeProviderPlane(value.kindId),
-    lockedIsolation = value.authMode === "api-key" ? plane.apiKeyIsolation : plane.subscriptionIsolation,
+    lockedIsolation =
+      value.credentialSource === "instance"
+        ? "enforced"
+        : value.authMode === "api-key"
+          ? plane.apiKeyIsolation
+          : plane.subscriptionIsolation,
     search = declaration.configuration.webSearch,
     restriction = runtimeWebSearchRestriction(value);
   return (
     <>
+      {value.authMode === "subscription" && (
+        <label className="grid min-w-0 gap-0.5">
+          <span className="font-mono ui-micro text-text-faint">{t("agentRuntime.credentialSource")}</span>
+          <select
+            className="control"
+            aria-label={t("agentRuntime.credentialSource")}
+            data-testid={`${testIdPrefix}-credential-source`}
+            value={value.credentialSource ?? "operator"}
+            disabled={busy}
+            onChange={(event) => {
+              const credentialSource = event.target.value as AccessValues["credentialSource"];
+              onChange({ credentialSource, ...(credentialSource === "instance" ? { isolation: "enforced" } : {}) });
+            }}
+          >
+            <option value="operator">{t("agentRuntime.credentialOperator")}</option>
+            <option value="instance" disabled={!value.independentCredentialsSupported}>
+              {t("agentRuntime.credentialInstance")}
+            </option>
+          </select>
+        </label>
+      )}
+      <label className="grid min-w-0 gap-0.5">
+        <span className="font-mono ui-micro text-text-faint">{t("agentRuntime.tier")}</span>
+        <select
+          className="control"
+          aria-label={t("agentRuntime.tier")}
+          data-testid={`${testIdPrefix}-tier`}
+          value={value.tier ?? 1}
+          disabled={busy}
+          onChange={(event) => onChange({ tier: Number(event.target.value) })}
+        >
+          {Array.from({ length: 9 }, (_, i) => i + 1).map((tier) => (
+            <option key={tier} value={tier}>
+              {tier}
+            </option>
+          ))}
+        </select>
+      </label>
       {declaration.permissions.available && (
         <label className="grid min-w-0 gap-0.5">
           <span className="font-mono ui-micro text-text-faint">{t("agentRuntime.permissionMode")}</span>
@@ -65,7 +117,11 @@ export function RuntimeAccessFields({
       {declaration.isolation.states.length > 1 && (
         <label className="grid min-w-0 gap-0.5">
           <span className="font-mono ui-micro text-text-faint">
-            {t(lockedIsolation === "enforced" ? "agentRuntime.apiKeyIsolation" : "agentRuntime.isolation")}
+            {t(
+              value.authMode === "api-key" && lockedIsolation === "enforced"
+                ? "agentRuntime.apiKeyIsolation"
+                : "agentRuntime.isolation",
+            )}
           </span>
           <select
             className="control"

@@ -31,6 +31,9 @@ import {
 import { launchNative } from "./runtime-spawn-process.ts";
 import { captureDaemonOperation, type DaemonOperationHandle } from "./daemon-operation.ts";
 import type { RuntimeProcess } from "./runtime-spawn.ts";
+import { createRuntimeInstanceDispatchState } from "./runtime-instance-selection.ts";
+import { resolveRuntimeInstanceCandidates } from "./runtime-spawn-mission.ts";
+import type { RuntimeInstanceSchedulingCall } from "./repo-writer-protocol.ts";
 
 export interface WriterSupervisor {
   readonly request: <T>(
@@ -84,6 +87,7 @@ export async function openWriterSupervisor(
     readonly onPublishedStatus?: (status: RepoCellStatus) => void;
   } = {},
 ): Promise<WriterSupervisor> {
+  const instanceScheduling = input.runtimeInstanceDispatchState ?? createRuntimeInstanceDispatchState();
   let writerGeneration = 0,
     users = 0,
     retiring = false,
@@ -599,6 +603,31 @@ export async function openWriterSupervisor(
         return input.shouldStop!();
       case "runtimeInstances":
         return input.runtimeInstances!();
+      case "runtimeInstanceScheduling": {
+        const request = call.payload as RuntimeInstanceSchedulingCall;
+        switch (request.operation) {
+          case "snapshot":
+            return {
+              recency: [...instanceScheduling.lastDispatchedAt],
+              loads: [...instanceScheduling.readActiveLoads()],
+            };
+          case "record":
+            return instanceScheduling.recordDispatch(request.instanceId);
+          case "activate":
+            return instanceScheduling.activate(request.runtimeSessionId, request.instanceId);
+          case "deactivate":
+            return instanceScheduling.deactivate(request.runtimeSessionId);
+          case "select": {
+            const candidates = resolveRuntimeInstanceCandidates({
+              ...request.input,
+              dispatchState: instanceScheduling,
+            });
+            if (!request.input.dryRun && candidates[0]) instanceScheduling.recordDispatch(candidates[0]);
+            return candidates;
+          }
+        }
+        throw Object.assign(new Error("Unknown runtime instance scheduling operation."), { code: "invalid_command" });
+      }
       case "currentAccessToken": {
         const requestId = call.payload as string | null,
           resolver =
@@ -769,6 +798,7 @@ function bootstrapMessage(
       ...(input.defaultWriterEpochFence ? { defaultWriterEpochFence: input.defaultWriterEpochFence } : {}),
     },
     capabilities: {
+      runtimeInstanceScheduling: true,
       canonicalStore,
       now: input.now !== undefined,
       killpoint: input.killpoint !== undefined,

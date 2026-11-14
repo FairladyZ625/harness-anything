@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { RuntimeSpawnerInput } from "../src/runtime-spawn-types.ts";
 import { resolveRuntimeDispatchResources } from "../src/runtime-spawn-allowlist.ts";
-import { emptyDispatchLifecycleRead } from "./dispatch-lifecycle-read.fixtures.ts";
 
 test("remote dispatch resources do not require a local task projection", async () => {
   const resources = await resolveRuntimeDispatchResources(
@@ -12,9 +11,11 @@ test("remote dispatch resources do not require a local task projection", async (
     },
     {
       readRuntimeSessions: async () => [],
-      readDispatchLifecycle: emptyDispatchLifecycleRead,
+      readDispatchLifecycle: () => {
+        throw new Error("Repository lifecycle cannot be used as a node-local load census.");
+      },
     } as NonNullable<RuntimeSpawnerInput["remote"]>,
     null,
   );
-  assert.deepEqual(resources, [[], [], ["remote-instance"], [], []]);
+  assert.deepEqual(resources, [[], [], ["remote-instance"], []]);
 });

@@ -30,6 +30,7 @@ export interface RuntimeInstanceCommon {
   readonly availableModels?: readonly string[];
   readonly defaultModel: string;
   readonly enabled: boolean;
+  readonly tier?: number;
   readonly credentialSource: RuntimeCredentialSource;
   readonly permissionMode?: RuntimePermissionMode;
   readonly mcpPolicy?: RuntimeMcpPolicy;

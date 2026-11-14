@@ -3,6 +3,7 @@ import { fixtureDaemonHello } from "./fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import net from "node:net";
+import { once } from "node:events";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
@@ -166,7 +167,7 @@ test("the shutdown client keeps the pipe open until a delayed stop reply arrives
   }
 });
 
-test("transport stop stays bounded when an in-flight request never completes", async () => {
+test("transport stop closes the socket when an in-flight request never completes", { timeout: 20_000 }, async () => {
   const { endpoint, cleanup } = probeEndpoint("ha-transport-hang-");
   let handlerEntered: () => void = () => {};
   const entered = new Promise<void>((resolve) => {
@@ -184,11 +185,10 @@ test("transport stop stays bounded when an in-flight request never completes", a
     await new Promise<void>((resolve) => client.once("connect", resolve));
     client.write(`${JSON.stringify({ jsonrpc: "2.0", id: 8, method: "daemon.ping", params: {} })}\n`);
     await entered;
-    const startedAt = Date.now();
+    const closed = once(client, "close");
     await transport.stop();
-    const elapsedMs = Date.now() - startedAt;
-    assert.ok(elapsedMs < 30_000, `transport stop waited ${elapsedMs}ms on a request that never completes`);
-    client.destroy();
+    await closed;
+    assert.equal(client.destroyed, true);
   } finally {
     cleanup();
   }

@@ -1,6 +1,11 @@
+import { runtimeInstanceDispatchModels } from "@harness-anything/kernel/internal/domain/runtime-instance-contract.ts";
+import type {
+  RuntimeInstanceDispatchState,
+  RuntimeSelectionStrategy,
+} from "@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts";
 import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
-import type { AgentRole, DispatchLifecycleView, TaskLifecycleSnapshot, TaskProjection } from "@harness-anything/kernel";
+import type { AgentRole, TaskLifecycleSnapshot, TaskProjection } from "@harness-anything/kernel";
 import { consumeKnownError, documentWorkspacePath, resolveHarnessLayout } from "@harness-anything/kernel";
 import { projectedRepositorySettings } from "./repo-cell-settings-state.ts";
 import { agentRolePrompt } from "./agent-role-prompts.ts";
@@ -159,10 +164,15 @@ export function resolveRuntimeInstanceCandidates(input: {
   readonly allowedInstanceIds?: readonly string[];
   readonly instances: readonly RuntimeInstanceSummary[];
   readonly sessions: readonly RuntimeSessionSelection[];
-  readonly capacity?: readonly DispatchLifecycleView[];
+  readonly selectionStrategy?: RuntimeSelectionStrategy;
+  readonly dispatchState?: RuntimeInstanceDispatchState;
   readonly health?: readonly RuntimeProviderHealth[];
   readonly now?: string;
 }): string[] {
+  input = {
+    ...input,
+    instances: input.instances.map((instance) => ({ ...instance, models: runtimeInstanceDispatchModels(instance) })),
+  };
   const configured = input.allowedInstanceIds !== undefined,
     allowed = input.allowedInstanceIds ?? [],
     allowedNames = allowed.length ? allowed.join(", ") : "none",
@@ -225,17 +235,15 @@ export function resolveRuntimeInstanceCandidates(input: {
         (pinned === undefined
           ? undefined
           : agentRuntimeTargetForKind(input.agent?.runtimes ?? [], pinned.kindId)?.model),
-      served =
-        pinned?.enabled === true && (pinnedModel === undefined || agentRuntimeModelMatches(pinned.models, pinnedModel));
+      served = pinned?.enabled === true && agentRuntimeModelMatches(pinned.models, pinnedModel ?? pinned.defaultModel);
     if (
       pinned?.enabled === true &&
-      pinnedModel !== undefined &&
-      !agentRuntimeModelMatches(pinned.models, pinnedModel) &&
+      !agentRuntimeModelMatches(pinned.models, pinnedModel ?? pinned.defaultModel) &&
       (input.explicitlyRequested === true || input.agent?.instance !== input.requested)
     )
       throw runtimeSpawnError(
         "invalid_runtime_model",
-        `Model ${pinnedModel} is not available on runtime instance ${input.requested}. ` +
+        `Model ${pinnedModel ?? pinned.defaultModel} is not available on runtime instance ${input.requested}. ` +
           `Supported models: ${pinned.models.join(", ")}. ` +
           "Use --model <supported-model> or run ha runtime instance list, then retry with --instance <instance-id>.",
       );
@@ -286,7 +294,7 @@ export function resolveRuntimeInstanceCandidates(input: {
         ? "runtime_instance_disabled"
         : healthBlocked
           ? `runtime_provider_unavailable (${providerHealth?.reason ?? "cooldown"}; recover at ${healthUntil})`
-          : model !== undefined && !agentRuntimeModelMatches(instance.models, model)
+          : !agentRuntimeModelMatches(instance.models, model ?? instance.defaultModel)
             ? `agent_model_unavailable (${model})`
             : instance.authReadiness.status !== "ready" && instance.authReadiness.code !== "runtime_auth_not_checked"
               ? `${instance.authReadiness.code}: ${instance.authReadiness.hint}`
@@ -305,7 +313,7 @@ export function resolveRuntimeInstanceCandidates(input: {
     ? typed.filter((instance) => agentRuntimeModelMatches(instance.models, declaredModel))
     : typed.filter((instance) => {
         const target = declaredTargets?.find((row) => row.type === instance.kindId);
-        return target?.model === undefined || agentRuntimeModelMatches(instance.models, target.model);
+        return agentRuntimeModelMatches(instance.models, target?.model ?? instance.defaultModel);
       });
   const targetSummary =
     declaredTargets === undefined ? (declaredType ?? "any") : agentRuntimeTargetSummary(declaredTargets);
@@ -373,34 +381,54 @@ export function resolveRuntimeInstanceCandidates(input: {
         : `Compatible runtime instances exist for ${targetSummary}, but none are authentication-ready.`) + detail,
     );
   const allowedRank = new Map(allowed.map((instanceId, index) => [instanceId, index])),
-    load = new Map<string, number>();
-  for (const { attempt, policy } of input.capacity ?? [])
-    if (policy.capacity !== "released") load.set(attempt.instanceId, (load.get(attempt.instanceId) ?? 0) + 1);
+    load = input.dispatchState?.readActiveLoads() ?? new Map<string, number>();
+  const strategy = input.agent?.selectionStrategy ?? input.selectionStrategy ?? "sticky",
+    ranks = new Map(ready.map((instance) => [instance.instanceId, runtimeInstanceRank(input, instance.instanceId)]));
   return [...ready]
-    .sort(
-      (a, b) =>
-        compareRuntimeInstanceRank(
-          runtimeInstanceRank(input, a.instanceId),
-          runtimeInstanceRank(input, b.instanceId),
-        ) ||
-        (load.get(a.instanceId) ?? 0) - (load.get(b.instanceId) ?? 0) ||
-        (allowedRank.get(a.instanceId) ?? allowed.length) - (allowedRank.get(b.instanceId) ?? allowed.length),
-    )
+    .sort((a, b) => {
+      const left = ranks.get(a.instanceId)!,
+        right = ranks.get(b.instanceId)!,
+        leftLoad = load.get(a.instanceId) ?? 0,
+        rightLoad = load.get(b.instanceId) ?? 0;
+      return (
+        left.tier - right.tier ||
+        left.rowIndex - right.rowIndex ||
+        (strategy === "lru"
+          ? leftLoad - rightLoad ||
+            (input.dispatchState?.lastDispatchedAt.get(a.instanceId) ?? 0) -
+              (input.dispatchState?.lastDispatchedAt.get(b.instanceId) ?? 0)
+          : Number(leftLoad > 0) - Number(rightLoad > 0)) ||
+        compareRuntimeInstanceRank(left, right) ||
+        (strategy === "sticky" ? leftLoad - rightLoad : 0) ||
+        (allowedRank.get(a.instanceId) ?? allowed.length) - (allowedRank.get(b.instanceId) ?? allowed.length)
+      );
+    })
     .map((instance) => instance.instanceId);
 }
+
+export type RuntimeInstanceSelectionRequest = Omit<
+  Parameters<typeof resolveRuntimeInstanceCandidates>[0],
+  "dispatchState"
+> & { readonly dryRun?: boolean };
 
 /** Select before launch: machine availability can change after the instance definition was written. */
 export async function prepareRuntimeInstance<T>(
   input: Parameters<typeof resolveRuntimeInstanceCandidates>[0] & {
-    readonly capacity: readonly DispatchLifecycleView[];
+    readonly dryRun?: boolean;
+    readonly selectRuntimeInstance?: (input: RuntimeInstanceSelectionRequest) => readonly string[];
   },
   prepare: (instanceId: string) => Promise<T>,
 ): Promise<{ readonly instanceId: string; readonly launch: T }> {
+  const { dispatchState: _localState, selectRuntimeInstance, ...request } = input;
   const reasons: string[] = [],
     recoveryFailure: { error: unknown; count: number } = { error: null, count: 0 },
-    candidates = resolveRuntimeInstanceCandidates({ ...input, unavailableReasons: reasons });
+    candidates = selectRuntimeInstance
+      ? selectRuntimeInstance({ ...request, unavailableReasons: reasons })
+      : resolveRuntimeInstanceCandidates({ ...input, unavailableReasons: reasons });
   for (const instanceId of candidates) {
     try {
+      if (!input.dryRun && (!selectRuntimeInstance || instanceId !== candidates[0]))
+        input.dispatchState?.recordDispatch(instanceId);
       return { instanceId, launch: await prepare(instanceId) };
     } catch (error) {
       const code = (error as { readonly code?: string }).code;

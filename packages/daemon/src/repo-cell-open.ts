@@ -118,6 +118,8 @@ export interface RepoCellOpenInput {
   readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
   readonly keycloakCenter?: import("./transport/auth-context.ts").KeycloakCenterAuthority;
   readonly keycloakSession?: (rootDir: string) => Promise<RuntimeOperatorSession>;
+  readonly runtimeInstanceDispatchState?: import("@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts").RuntimeInstanceDispatchState;
+  readonly selectRuntimeInstance?: import("./runtime-spawn-types.ts").RuntimeSpawnerInput["selectRuntimeInstance"];
   readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
   /** Center-owned instance limits; edges cannot supply or override these in an admission payload. */
   readonly runtimeInstanceCapacities?: Readonly<Record<string, number>>;
@@ -503,6 +505,8 @@ export async function openRepoWriterCell(
         }
       : {}),
     runtimeInstances: input.runtimeInstances,
+    runtimeInstanceDispatchState: input.runtimeInstanceDispatchState,
+    selectRuntimeInstance: input.selectRuntimeInstance,
     runtimeInstanceCapacities: input.runtimeInstanceCapacities,
     runtimeProviderHealth: input.runtimeProviderHealth,
     keycloakCenter: input.keycloakCenter,

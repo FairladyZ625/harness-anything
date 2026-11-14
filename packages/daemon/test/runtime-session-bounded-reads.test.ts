@@ -5,6 +5,7 @@ import type { RuntimeSessionReadQuery, TaskProjection } from "@harness-anything/
 import { admitHandoffDispatch } from "../src/runtime-handoff-store.ts";
 import { assertNativeResumeNotExported } from "../src/runtime-resume-admission.ts";
 import { resolveRuntimeDispatchResources } from "../src/runtime-spawn-allowlist.ts";
+import { createRuntimeInstanceDispatchState } from "../src/runtime-instance-selection.ts";
 import type { RuntimeSessionSelection, RuntimeSpawnerInput } from "../src/runtime-spawn-types.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 
@@ -87,47 +88,58 @@ const projectionOf = (history: ReturnType<typeof sessionHistory>) =>
     getEntity: () => ({ value: { runtime: { allowedInstances: ["instance-a", "instance-b"] } } }),
   }) as unknown as TaskProjection;
 
-test("dispatch reads active lifecycle pages, not the 12,995-session history", async () => {
+// dec_DA1602487428A58E8B446ECE38/CH3: node-local load is not repository lifecycle/history.
+test("dispatch reads node-local handles and no repository lifecycle or 12,995-session history", async () => {
   const history = sessionHistory();
-  const [local, , allowed, , capacity] = await resolveRuntimeDispatchResources({}, undefined, projectionOf(history));
+  const active = new Map([
+      ["runtime-open-a", { instanceId: "instance-a" }],
+      ["runtime-open-b", { instanceId: "instance-b" }],
+      ["runtime-open-c", { instanceId: "instance-a" }],
+    ]),
+    state = createRuntimeInstanceDispatchState();
+  for (const [runtimeSessionId, { instanceId }] of active) state.activate(runtimeSessionId, instanceId);
+  const [local, , allowed] = await resolveRuntimeDispatchResources({}, undefined, projectionOf(history));
   assert.deepEqual(allowed, ["instance-a", "instance-b"]);
-  assert.deepEqual(
-    capacity.map(({ attempt }) => attempt.runtimeSessionId),
-    ["runtime-open-a", "runtime-open-b", "runtime-open-c"],
+  assert.deepEqual([...active.keys()], ["runtime-open-a", "runtime-open-b", "runtime-open-c"]);
+  assert.equal(
+    [...state.readActiveLoads().values()].reduce((sum, load) => sum + load, 0),
+    3,
   );
-  assert.equal(capacity.length, 3);
+  assert.deepEqual(
+    [...state.readActiveLoads()],
+    [
+      ["instance-a", 2],
+      ["instance-b", 1],
+    ],
+  );
   assert.deepEqual(local, [], "ordinary dispatch never needs session rows for its capacity ranking");
   assert.deepEqual(history.reads, []);
-  assert.deepEqual(history.lifecycleQueries, [{ by: "active", limit: 100 }]);
+  assert.deepEqual(history.lifecycleQueries, []);
 });
 
 test("a resume additionally point-reads its native session, settled or not, in id order", async () => {
   const history = sessionHistory();
-  const [local, , , , capacity] = await resolveRuntimeDispatchResources(
-    {},
-    undefined,
-    projectionOf(history),
-    "native-resumed",
-  );
-  // The named session query retains the same resume choice; capacity travels in its own receipt.
+  const resources = await resolveRuntimeDispatchResources({}, undefined, projectionOf(history), "native-resumed");
+  const [local] = resources;
+  // The named query retains the same resume choice without importing repository-scoped load.
   assert.deepEqual(
     local.map(({ runtimeSessionId }) => runtimeSessionId),
     ["runtime-open-c", "runtime-settled-00007"],
   );
   assert.equal(local.find((row) => row.providerSessionId === "native-resumed")?.runtimeSessionId, "runtime-open-c");
-  assert.equal(capacity.length, 3);
-  // The session point read contributes resume metadata; active load comes from the lifecycle view.
+  assert.equal(resources.length, 4);
+  // The point read contributes resume metadata; load comes from local runtime owners.
   assert.deepEqual(
     local.map(({ liveness }) => liveness),
     ["live", "exited"],
   );
   assert.deepEqual(history.reads, [{ query: { providerSessionId: "native-resumed" }, returned: 2 }]);
-  assert.deepEqual(history.lifecycleQueries, [{ by: "active", limit: 100 }]);
+  assert.deepEqual(history.lifecycleQueries, []);
 });
 
 test("remote dispatch sends the same bounded queries to its canonical read port", async () => {
   const history = sessionHistory();
-  const [local, , , , capacity] = await resolveRuntimeDispatchResources(
+  const resources = await resolveRuntimeDispatchResources(
     {},
     {
       readRuntimeSessions: async (query) => history.readRuntimeSessions(query),
@@ -136,13 +148,14 @@ test("remote dispatch sends the same bounded queries to its canonical read port"
     null,
     "native-resumed",
   );
+  const [local] = resources;
   assert.equal(local.length, 2);
-  assert.equal(capacity.length, 3);
+  assert.equal(resources.length, 4);
   assert.deepEqual(
     history.reads.map(({ query }) => query),
     [{ providerSessionId: "native-resumed" }],
   );
-  assert.deepEqual(history.lifecycleQueries, [{ by: "active", limit: 100 }]);
+  assert.deepEqual(history.lifecycleQueries, []);
 });
 
 test("native resume export checks read only the named provider session", () => {

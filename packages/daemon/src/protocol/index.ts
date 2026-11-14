@@ -154,3 +154,9 @@ export { validateHomeOverviewResult } from "../home/home-overview-validation.ts"
  * 终止信号、单调量与异常语义,分页策略不留在任何一个调用壳里复制。
  */
 export { cursorStep, type CursorPageReceipt } from "../paginated-read.ts";
+
+export { runtimeSubscriptionMultiAccountIsolation } from "../runtime-inventory.ts";
+export {
+  validRuntimeInstanceTier,
+  runtimeSelectionStrategies,
+} from "@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts";
