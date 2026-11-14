@@ -4,7 +4,7 @@ import { spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts"
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { requestLocalDaemonJsonRpc } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
@@ -115,7 +115,20 @@ export async function waitForRun(root: string, userRoot: string, runId: string, 
   }
   throw new Error(`run ${runId} did not reach ${phase}`);
 }
+// Copy only immutable Git seed bytes. Each scenario keeps its own repository, user root,
+// daemon startup and canonical settings seed; no database or running process is shared.
+let repositorySeed: string | undefined;
+after(() => {
+  if (repositorySeed) rmSync(repositorySeed, { recursive: true, force: true });
+});
 export function initialize(root: string): void {
+  if (!repositorySeed) {
+    repositorySeed = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-w3-seed-"));
+    initializeSeed(repositorySeed);
+  }
+  cpSync(repositorySeed, root, { recursive: true });
+}
+function initializeSeed(root: string): void {
   mkdirSync(path.join(root, "harness"), { recursive: true });
   writeFileSync(path.join(root, ".gitignore"), ".home/\n", "utf8");
   writeFileSync(path.join(root, "harness/harness.yaml"), "layout:\n  authoredRoot: harness\n", "utf8");
