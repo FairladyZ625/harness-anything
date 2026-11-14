@@ -127,6 +127,16 @@ function projection(
   } as TaskSnapshotProjectionRow;
 }
 
+const deliveryRow = (taskId: string): AgendaSuccess["awaitingAdjudication"][number] => ({
+  taskId,
+  title: `Agenda delivery ${taskId}`,
+  work: null,
+  pinned: false,
+  executionId: `exe_${taskId}`,
+  submittedAt: AT,
+  blockingAssessment: { taskId, state: "clear", label: "none", blockers: [], warnings: [] },
+});
+
 let root: Root;
 let host: HTMLDivElement;
 let client: QueryClient;
@@ -485,6 +495,69 @@ describe("Agenda unified Inbox / Outbox workbench", () => {
       [...host.querySelectorAll('[data-testid^="agenda-row-"]')].map((el) => el.getAttribute("data-testid")),
     ).toEqual(["agenda-row-submitted", "agenda-row-review", "agenda-row-recent"]);
     expect(find("agenda-delivery-tabs").textContent).not.toContain("说明");
+  });
+
+  it.each([
+    { status: "submitted", source: "receipt", completedAt: null },
+    { status: "submitted", source: "question", completedAt: null },
+    { status: "in_review", source: "review", completedAt: null },
+    { status: "done", source: "receipt", completedAt: AT },
+  ] as const)("keeps $status delivery reachable beside its $source item", async ({ status, source, completedAt }) => {
+    seedTasks([projection("delivery", status, completedAt)]);
+    const read = agenda({
+      awaitingYou: source === "question" ? [ask("question", { sourceRef: "task/delivery" })] : [],
+      underReview: source === "review" ? [deliveryRow("delivery")] : [],
+      answeredForYou:
+        source === "receipt"
+          ? [
+              {
+                ...ask("receipt", { sourceRef: "task/delivery" }),
+                answer: "Ship it",
+                answeredBy: "owner",
+                answeredAt: AT,
+              },
+            ]
+          : [],
+    });
+    render(read);
+    expect(harnessClient.getTaskDeliveryDiff).not.toHaveBeenCalled();
+    expect(harnessClient.getTaskDocuments).not.toHaveBeenCalled();
+    chip("出件验收");
+    expect(find("agenda-queue").querySelectorAll('[data-testid^="agenda-row-"]')).toHaveLength(1);
+    expect(selected()).toBe("delivery");
+    await settle(() => expect(find("agenda-delivery-summary").textContent).toContain("+2 / −1"));
+    expect(find("agenda-gate-summary").textContent).toContain("1 / 2");
+    expect(harnessClient.getTaskDeliveryDiff).toHaveBeenCalledExactlyOnceWith({ repoId: "repo", taskId: "delivery" });
+    expect(harnessClient.getTaskDocuments).toHaveBeenCalledExactlyOnceWith({ repoId: "repo", taskId: "delivery" });
+    chip(source === "question" ? "收件拍板" : "跟进与回执");
+    if (source === "receipt") {
+      const quiet = find<HTMLDetailsElement>("agenda-quiet-fyi");
+      expect(quiet.open).toBe(false);
+      expect(find("agenda-row-receipt").textContent).toContain("Ship it");
+    } else {
+      expect(selected()).toBe(source === "question" ? "question" : "delivery");
+      expect(host.querySelector('[data-testid="agenda-delivery-summary"]')).toBeNull();
+      if (source === "question") expect(find("awaits-answer-comment")).toBeTruthy();
+    }
+    expect(harnessClient.getTaskDeliveryDiff).toHaveBeenCalledTimes(1);
+    expect(harnessClient.getTaskDocuments).toHaveBeenCalledTimes(1);
+  });
+
+  it("retains one native adjudication card when task projection and an Inbox question reference the same task", async () => {
+    seedTasks([projection("delivery")]);
+    render(
+      agenda({
+        awaitingAdjudication: [deliveryRow("delivery")],
+        awaitingYou: [ask("question", { sourceRef: "task/delivery" })],
+      }),
+    );
+    expect(find("awaits-answer-comment")).toBeTruthy();
+    chip("出件验收");
+    expect(find("agenda-queue").querySelectorAll('[data-testid^="agenda-row-"]')).toHaveLength(1);
+    expect(find("agenda-current-card").textContent).toContain("Agenda delivery delivery");
+    await settle(() => expect(find("agenda-delivery-summary").textContent).toContain("+2 / −1"));
+    expect(harnessClient.getTaskDeliveryDiff).toHaveBeenCalledTimes(1);
+    expect(harnessClient.getTaskDocuments).toHaveBeenCalledTimes(1);
   });
 
   it("keeps answered receipts folded at the bottom and out of default Inbox and keyboard flow", () => {

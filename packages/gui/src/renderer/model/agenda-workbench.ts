@@ -71,11 +71,11 @@ export function agendaWorkbenchOf(
       workRootId: source?.workTaskId ?? (taskId === null ? null : workByTask.get(taskId)) ?? task?.workId ?? null,
     };
   });
-  // Existing agenda intent wins (restart/rework, adjudication, review follow-up); no duplicate task rows.
-  const represented = new Set(items.map((item) => item.taskId));
+  // Only an existing delivery card represents Outbox; other buckets retain their independent intents.
+  const outboxTaskIds = new Set(items.filter((item) => item.bucket === "outbox").map((item) => item.taskId));
   for (const projection of taskRead?.rows ?? []) {
     const task = taskById.get(projection.taskId);
-    if (!task || represented.has(task.taskId) || task.packageDisposition !== "active") continue;
+    if (!task || outboxTaskIds.has(task.taskId) || task.packageDisposition !== "active") continue;
     const completedAt = projection.completedAt === null ? NaN : Date.parse(projection.completedAt);
     const recent = completedAt <= now && completedAt >= now - RECENT_DELIVERY_MS;
     if (

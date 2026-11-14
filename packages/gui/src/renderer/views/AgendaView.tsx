@@ -265,7 +265,11 @@ function AgendaWorkbench({ repoId, agenda, agendaError, onNavigateEntity }: Agen
                     </header>
                     <AgendaAttention item={selected} />
                     {selected.row.target && (
-                      <EntityRefLink entityRef={selected.row.target} onNavigate={onNavigateEntity} />
+                      <EntityRefLink
+                        entityRef={selected.row.target}
+                        onNavigate={onNavigateEntity}
+                        className="self-start text-left font-mono ui-micro text-accent hover:underline"
+                      />
                     )}
                     {selected.row.since && (
                       <p className="font-mono ui-micro text-text-faint">
