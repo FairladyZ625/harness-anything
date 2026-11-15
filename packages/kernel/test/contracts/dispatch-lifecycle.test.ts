@@ -3,11 +3,14 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import type { AgentRuntimeEventV1 } from "../../src/domain/agent-runtime.ts";
+import { terminalDomainStatuses } from "../../src/domain/lifecycle-status.ts";
+import { taskEventTypes } from "../../src/domain/task-lifecycle-event.ts";
 import { submissionDigest } from "../../src/domain/submission-digest.ts";
 import {
   dispatchAdmissionBlocker,
   dispatchAdmissionRefusal,
   dispatchLifecycleAddress,
+  dispatchLifecycleTaskEventTypes,
   dispatchLifecycleTaskId,
   isDispatchLifecycleInput,
   taskLeaseAfter,
@@ -112,16 +115,25 @@ function fold(inputs: readonly (AgentRuntimeEventV1 | DispatchLifecycleInput)[])
           ? [address.attemptGroupId]
           : address.by === "session"
             ? [groupBySession.get(address.runtimeSessionId)]
-            : [...groups.values()]
-                .filter(
-                  (group) =>
-                    group.phase !== "closed" &&
-                    address.executionIds.includes(
-                      group.attempts.find(({ dispatchId }) => dispatchId === group.currentDispatchId)!.task
-                        ?.executionId ?? "",
-                    ),
-                )
-                .map(({ attemptGroupId }) => attemptGroupId);
+            : address.by === "task"
+              ? [...groups.values()]
+                  .filter(
+                    (group) =>
+                      group.phase !== "closed" &&
+                      group.attempts.find(({ dispatchId }) => dispatchId === group.currentDispatchId)!.task?.taskId ===
+                        address.taskId,
+                  )
+                  .map(({ attemptGroupId }) => attemptGroupId)
+              : [...groups.values()]
+                  .filter(
+                    (group) =>
+                      group.phase !== "closed" &&
+                      address.executionIds.includes(
+                        group.attempts.find(({ dispatchId }) => dispatchId === group.currentDispatchId)!.task
+                          ?.executionId ?? "",
+                      ),
+                  )
+                  .map(({ attemptGroupId }) => attemptGroupId);
     for (const groupId of groupIds) {
       const step = reduceDispatchLifecycle(
         groupId === undefined ? null : (groups.get(groupId) ?? null),
@@ -741,4 +753,219 @@ test("lifecycle summary preserves each immediate successor in a three-attempt gr
     ),
     ["summary-chain-successor-1", "summary-chain-successor-2", null],
   );
+});
+
+// Anti-regression gate for Issue #4632: terminal task transitions and execution retirements/replacements
+// must remain addressed in dispatchLifecycleTaskEventTypes and close stopped historical groups without
+// breaking capacity or stopProof invariants on live/unproven attempts.
+test("terminal task events and execution retirements close stopped non-running groups after lease release", () => {
+  const requiredTaskEventTypes = [
+    "execution_started",
+    "task_completion_generation_retired",
+    "task_completed",
+    "task_transitioned",
+    "task_superseded",
+  ] as const;
+  for (const type of requiredTaskEventTypes) {
+    assert.ok(
+      (taskEventTypes as readonly string[]).includes(type),
+      `expected canonical task event type ${type} in taskEventTypes`,
+    );
+    assert.ok(
+      (dispatchLifecycleTaskEventTypes as readonly string[]).includes(type),
+      `dispatchLifecycleTaskEventTypes must include ${type}`,
+    );
+  }
+
+  const baseTaskSnapshot = (taskId: string, status: string, extra: Record<string, unknown> = {}) => ({
+    taskId,
+    status,
+    pinned: false,
+    ...extra,
+  });
+
+  const closers = [
+    {
+      name: "task_completed with execution",
+      event: (taskId: string, exeId: string) =>
+        taskEvent("task_completed", taskId, {
+          task: baseTaskSnapshot(taskId, "done"),
+          execution: { ...execution(exeId), taskId, state: "accepted" },
+        }),
+    },
+    {
+      name: "task_completed without execution (siblingResolution)",
+      event: (taskId: string) =>
+        taskEvent("task_completed", taskId, {
+          task: baseTaskSnapshot(taskId, "done"),
+          siblingResolution: { sourceTaskId: "task-sibling", rationale: "merged", factRef: "fact:f1" },
+        }),
+    },
+    ...terminalDomainStatuses.map((status) => ({
+      name: `task_transitioned to terminal ${status}`,
+      event: (taskId: string) =>
+        taskEvent("task_transitioned", taskId, {
+          task: baseTaskSnapshot(taskId, status),
+          mutation: { command: "transition", reason: `transition to ${status}`, fields: ["status"] },
+        }),
+    })),
+    {
+      name: "task_superseded",
+      event: (taskId: string) =>
+        taskEvent("task_superseded", taskId, {
+          task: baseTaskSnapshot(taskId, "cancelled", {
+            packageDisposition: "archived",
+            supersededBy: "task-successor",
+          }),
+          mutation: { command: "supersede", reason: "superseded", fields: ["status", "supersededBy"] },
+        }),
+    },
+    {
+      name: "task_completion_generation_retired matching execution",
+      event: (taskId: string, exeId: string) =>
+        taskEvent("task_completion_generation_retired", taskId, {
+          task: baseTaskSnapshot(taskId, "active"),
+          execution: { ...execution(exeId), taskId, state: "abandoned" },
+          sourceGeneration: 1,
+        }),
+    },
+    {
+      name: "new execution_started replacing historical execution",
+      event: (taskId: string, exeId: string) =>
+        taskEvent("execution_started", taskId, {
+          execution: { ...execution(`${exeId}-next`), taskId, state: "running" },
+          lease: { version: 1 },
+        }),
+    },
+  ] as const;
+
+  for (const state of ["awaiting_ruling", "waiting_backoff", "settling_after_outcome"] as const) {
+    for (const [index, closer] of closers.entries()) {
+      const taskId = `task-close-${state}-${index}`,
+        exeId = `exe-close-${state}-${index}`,
+        groupId = `g-close-${state}-${index}`,
+        ids = {
+          dispatchId: `d-close-${state}-${index}`,
+          runtimeSessionId: `s-close-${state}-${index}`,
+          attemptGroupId: groupId,
+        },
+        outcomeToken: Token =
+          state === "waiting_backoff"
+            ? { t: "O", outcome: "failed", classification: "provider_fault", fallbackState: "scheduled" }
+            : { t: "O", outcome: "stopped", classification: "awaiting_ruling" };
+      const events: DispatchLifecycleInput[] = [
+        taskEvent("execution_started", taskId, { execution: execution(exeId), lease: { version: 1 } }),
+        runtimeEvent({ t: "R" }, ids, implementer(taskId, exeId)) as DispatchLifecycleInput,
+        runtimeEvent({ t: "S" }, ids),
+        runtimeEvent({ t: "X" }, ids),
+        runtimeEvent(outcomeToken, ids) as DispatchLifecycleInput,
+      ];
+      if (state !== "settling_after_outcome") {
+        events.push(
+          taskEvent("lease_released", taskId, { execution: execution(exeId), releasedLease: { version: 1 } }),
+        );
+      }
+      const beforeGroup = fold(events).groups.get(groupId)!;
+      assert.equal(
+        beforeGroup.phase,
+        state === "settling_after_outcome" ? "settling" : state,
+        `precondition for ${state} (${closer.name})`,
+      );
+
+      events.push(closer.event(taskId, exeId));
+      const afterGroup = fold(events).groups.get(groupId)!,
+        view = dispatchLifecycleView(afterGroup);
+      assert.deepEqual(
+        [
+          afterGroup.phase,
+          afterGroup.ruling,
+          afterGroup.successor,
+          afterGroup.attempts[0]?.stopProof,
+          view.policy.groupSettled,
+          view.policy.consentBlocked,
+          view.policy.fallbackPending,
+          view.policy.canResolveRuling,
+        ],
+        ["closed", null, { admissible: false, dueAt: null }, "proven_stopped", true, false, false, false],
+        `${state} must converge to closed on ${closer.name}`,
+      );
+    }
+  }
+
+  // Task-scoped dispatch with executionId: null must also close on terminal task events.
+  const noExeIds = { dispatchId: "d-no-exe", runtimeSessionId: "s-no-exe", attemptGroupId: "g-no-exe" };
+  const noExeEvents: DispatchLifecycleInput[] = [
+    runtimeEvent({ t: "R" }, noExeIds, {
+      dispatch: { taskId: "task-no-exe", role: "implementer" },
+    }) as DispatchLifecycleInput,
+    runtimeEvent({ t: "S" }, noExeIds),
+    runtimeEvent({ t: "X" }, noExeIds),
+    runtimeEvent({ t: "O", outcome: "stopped", classification: "awaiting_ruling" }, noExeIds) as DispatchLifecycleInput,
+    taskEvent("task_transitioned", "task-no-exe", {
+      task: baseTaskSnapshot("task-no-exe", "cancelled"),
+      mutation: { command: "transition", reason: "cancelled", fields: ["status"] },
+    }),
+  ];
+  assert.equal(fold(noExeEvents).groups.get("g-no-exe")!.phase, "closed");
+
+  // Non-terminal task_transitioned must leave waiting_backoff / awaiting_ruling open.
+  const nonTerminalIds = { dispatchId: "d-block", runtimeSessionId: "s-block", attemptGroupId: "g-block" };
+  const nonTerminalEvents: DispatchLifecycleInput[] = [
+    taskEvent("execution_started", "task-block", { execution: execution("exe-block"), lease: { version: 1 } }),
+    runtimeEvent({ t: "R" }, nonTerminalIds, implementer("task-block", "exe-block")) as DispatchLifecycleInput,
+    runtimeEvent({ t: "S" }, nonTerminalIds),
+    runtimeEvent({ t: "X" }, nonTerminalIds),
+    runtimeEvent(
+      { t: "O", outcome: "stopped", classification: "awaiting_ruling" },
+      nonTerminalIds,
+    ) as DispatchLifecycleInput,
+    taskEvent("lease_released", "task-block", { execution: execution("exe-block"), releasedLease: { version: 1 } }),
+    taskEvent("task_transitioned", "task-block", {
+      task: baseTaskSnapshot("task-block", "blocked"),
+      mutation: { command: "transition", reason: "blocked", fields: ["status"] },
+    }),
+  ];
+  assert.equal(fold(nonTerminalEvents).groups.get("g-block")!.phase, "awaiting_ruling");
+  assert.equal(
+    dispatchLifecycleAddress(nonTerminalEvents.at(-1)!, { taskLease: null }),
+    null,
+    "non-terminal task_transitioned without held lease requires zero group lookups",
+  );
+});
+
+test("running, starting, and unproven settling attempts preserve stopProof and capacity across task events", () => {
+  for (const activeKind of ["starting", "running", "settling_unproven"] as const) {
+    const taskId = `task-live-${activeKind}`,
+      exeId = `exe-live-${activeKind}`,
+      groupId = `g-live-${activeKind}`,
+      ids = { dispatchId: `d-live-${activeKind}`, runtimeSessionId: `s-live-${activeKind}`, attemptGroupId: groupId };
+    const events: DispatchLifecycleInput[] = [
+      taskEvent("execution_started", taskId, { execution: execution(exeId), lease: { version: 1 } }),
+      runtimeEvent({ t: "R" }, ids, implementer(taskId, exeId)) as DispatchLifecycleInput,
+    ];
+    if (activeKind !== "starting") events.push(runtimeEvent({ t: "S" }, ids));
+    if (activeKind === "settling_unproven") events.push(runtimeEvent({ t: "C" }, ids));
+    events.push(
+      taskEvent("lease_released", taskId, { execution: execution(exeId), releasedLease: { version: 1 } }),
+      taskEvent("task_transitioned", taskId, {
+        task: { taskId, status: "cancelled", pinned: false },
+        mutation: { command: "transition", reason: "cancelled", fields: ["status"] },
+      }),
+      taskEvent("task_completed", taskId, {
+        task: { taskId, status: "done", pinned: false },
+        siblingResolution: { sourceTaskId: "sib", rationale: "done", factRef: "fact:f2" },
+      }),
+    );
+    const group = fold(events).groups.get(groupId)!,
+      view = dispatchLifecycleView(group),
+      expectedPhase = activeKind === "settling_unproven" ? "settling" : activeKind;
+    assert.equal(group.phase, expectedPhase, `${activeKind} must never close prematurely`);
+    assert.equal(group.attempts[0]?.stopProof, "unproven", `${activeKind} must never forge stopProof`);
+    assert.notEqual(view.policy.capacity, "released", `${activeKind} must hold capacity reservation`);
+    assert.notEqual(view.policy.capacityDisposition, "free", `${activeKind} capacity disposition stays busy`);
+    assert.equal(
+      dispatchAdmissionBlocker([view], { instanceId: "instance-a", owner: "local", capacity: 1 })?.code,
+      "runtime_capacity_exhausted",
+    );
+  }
 });
