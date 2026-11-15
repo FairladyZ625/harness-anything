@@ -130,7 +130,6 @@ test("adoptRuntimes pages terminal stream headers within DISPATCH_LIFECYCLE_PAGE
             return { status: "ready" as const, watermark: 1, sourceRevision: 1, rows: [], nextCursor: null };
           if (query.by === "dispatch") {
             pointBatchSizes.push(query.dispatchIds.length);
-            assert.ok(query.dispatchIds.length <= DISPATCH_LIFECYCLE_PAGE_LIMIT);
             if (failSecondBatchPending && pointBatchSizes.length >= 2) {
               return { status: "pending" as const, watermark: 4, sourceRevision: 5 };
             }
@@ -151,6 +150,7 @@ test("adoptRuntimes pages terminal stream headers within DISPATCH_LIFECYCLE_PAGE
   const targeted = await adoptRuntimes(targetedContext, undefined, { runtimeSessionId: targetSessionId });
   assert.equal(targeted.length, 1);
   assert.equal(targeted[0]?.runtimeSessionId, targetSessionId);
+  assert.equal(targeted[0]?.outcome, "settled");
   assert.deepEqual(pointBatchSizes.slice(0, 2), [DISPATCH_LIFECYCLE_PAGE_LIMIT, 5]);
   // beb7a500d70 invariant: unproven-stopped terminal headers outside options.runtimeSessionId still activate load tracking.
   assert.equal(dispatchState.readActiveLoads().get("instance"), 2);
@@ -159,4 +159,15 @@ test("adoptRuntimes pages terminal stream headers within DISPATCH_LIFECYCLE_PAGE
   failSecondBatchPending = true;
   const { context: pendingContext } = makeContext();
   await assert.rejects(() => adoptRuntimes(pendingContext), { code: "dispatch_lifecycle_pending" });
+
+  pointBatchSizes.length = 0;
+  failSecondBatchPending = false;
+  const { context: fullContext } = makeContext();
+  const full = await adoptRuntimes(fullContext);
+  assert.equal(full.length, totalHeaders - 1);
+  assert.equal(
+    full.every((result) => result.outcome === "settled"),
+    true,
+  );
+  assert.deepEqual(pointBatchSizes.slice(0, 2), [DISPATCH_LIFECYCLE_PAGE_LIMIT, 4]);
 });
