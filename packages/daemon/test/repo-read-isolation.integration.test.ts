@@ -193,6 +193,22 @@ test("closing a real reader releases SQLite handles before reusing its isolate a
       assert.equal(workers.length, 1, "the next client at the same root reuses the isolate");
       assert.ok(workers[0]!.threadId > 0, "the worker remains alive after releasing its connections");
     }
+    const first = openRepoReadClient(input, factory),
+      second = openRepoReadClient(input, factory);
+    try {
+      assert.ok(await first.request("readEventWitness", [1]));
+      const closedBeforeHandoff = Atomics.load(handles, 1);
+      assert.ok(await second.request("readEventWitness", [1]));
+      assert.ok(
+        Atomics.load(handles, 1) > closedBeforeHandoff,
+        "a different client at the same root must release the previous client's native handles",
+      );
+      await first.close();
+      assert.equal(workers.length, 1, "same-root client handoff retains the compatible isolate");
+    } finally {
+      await Promise.all([first.close(), second.close()]);
+    }
+    assert.equal(Atomics.load(handles, 0), Atomics.load(handles, 1), "both clients drain every native handle");
     rmSync(root, { recursive: true, force: true });
     t.diagnostic(`native reader handles opened=${Atomics.load(handles, 0)} closed=${Atomics.load(handles, 1)}`);
     t.diagnostic(`reader first-query ms: cold=${timings[0]!.toFixed(1)} warm=${timings[1]!.toFixed(1)}`);

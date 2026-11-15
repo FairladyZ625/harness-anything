@@ -16,7 +16,7 @@ export async function executeRepoReadRequest(request: RepoWriterRequestV1): Prom
     configKey = null;
     return;
   }
-  const key = JSON.stringify(frame.config);
+  const key = JSON.stringify([frame.readerId, frame.config]);
   if (key !== configKey) {
     await runtime?.close();
     runtime = makeRepoReadRuntime({

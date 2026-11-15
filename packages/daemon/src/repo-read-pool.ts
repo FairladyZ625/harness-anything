@@ -75,6 +75,7 @@ const queue: Job[] = [];
 export function openRepoReadClient(input: RepoCellOpenInput, createWorker?: RepoReadWorkerFactory) {
   const owner: Owner = { slots: new Set() },
     outstanding = new Set<Promise<void>>(),
+    readerId = randomUUID(),
     config: RepoReadPayload["config"] = {
       repoId: input.repoId,
       rootDir: input.rootDir,
@@ -100,6 +101,7 @@ export function openRepoReadClient(input: RepoCellOpenInput, createWorker?: Repo
         replicaPin = replicaRoot ? replicaGenerationReaders(replicaRoot).acquire() : null;
       const payload: RepoReadPayload = {
         config,
+        readerId,
         method,
         args,
         now,
