@@ -23,8 +23,10 @@ async function synchronous(fixture: Awaited<ReturnType<typeof pgRuntimeFixture>>
   await fixture.adminPool.query("SELECT pg_reload_conf()");
   let observed = (await fixture.adminPool.query("SHOW synchronous_standby_names")).rows[0]!.synchronous_standby_names;
   console.log("S3_GUC", "observed", JSON.stringify(observed), enabled);
-  while (observed !== (enabled ? "*" : ""))
+  while (observed !== (enabled ? "*" : "")) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
     observed = (await fixture.adminPool.query("SHOW synchronous_standby_names")).rows[0]!.synchronous_standby_names;
+  }
 }
 
 test(
@@ -133,6 +135,7 @@ test(
             "SELECT pid,usename,left(query,100) AS query FROM pg_stat_activity WHERE wait_event='SyncRep' AND state='active'",
           )
         ).rows;
+        if (!blocked.length) await new Promise<void>((resolve) => setTimeout(resolve, 10));
       }
       console.log("S3_BLOCKED_OWNER", JSON.stringify(blocked));
       assert.equal(
@@ -422,6 +425,7 @@ test(
           "SELECT 1 FROM pg_stat_activity WHERE usename='ha_runtime' AND wait_event='SyncRep' AND state='active'",
         );
         if (waiting.rowCount) break;
+        await new Promise<void>((resolve) => setTimeout(resolve, 10));
       }
       const abortedAt = performance.now();
       abort.abort();

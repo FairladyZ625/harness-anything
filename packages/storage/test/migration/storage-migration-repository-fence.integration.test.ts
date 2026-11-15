@@ -101,6 +101,7 @@ test("real PostgreSQL repository migration fence covers new tuples", async (t) =
                       "SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND wait_event_type='Lock' AND query LIKE '%ha_repo_writer_epochs%FOR UPDATE%'",
                     );
                     blocked = locks.rows.length > 0;
+                    if (!finished && !blocked) await new Promise<void>((resolve) => setTimeout(resolve, 10));
                   }
                   assert.equal(
                     blocked,

@@ -41,6 +41,7 @@ async function strict(fixture: Awaited<ReturnType<typeof pgRuntimeFixture>>, ena
     (enabled ? "*" : "")
   ) {
     /* observable configuration barrier */
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
   }
 }
 async function blocked(fixture: Awaited<ReturnType<typeof pgRuntimeFixture>>) {
@@ -49,6 +50,7 @@ async function blocked(fixture: Awaited<ReturnType<typeof pgRuntimeFixture>>) {
       "SELECT pid,wait_event FROM pg_stat_activity WHERE usename='ha_runtime' AND wait_event='SyncRep' AND state='active'",
     );
     if (result.rows.length) return result.rows;
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
   }
 }
 const attempts = new Map<string, ReturnType<typeof bundle>>();

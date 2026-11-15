@@ -8,7 +8,7 @@ test("eight isolated CLI clients complete 24 lifecycle chains", async (context) 
   const fixtures = Array.from({ length: clientCount }, (_, index) => setup(index));
   const startedAt = Date.now();
   try {
-    for (const fixture of fixtures) await startClient(fixture);
+    await Promise.all(fixtures.map((fixture) => startClient(fixture)));
     const outcomes = await Promise.all(fixtures.map((fixture, index) => runClient(fixture, index)));
     const chains = outcomes.flat();
     assert.equal(chains.length, clientCount * chainsPerClient);
@@ -25,9 +25,14 @@ test("eight isolated CLI clients complete 24 lifecycle chains", async (context) 
       }),
     );
   } finally {
-    for (const fixture of fixtures) {
-      await stopClient(fixture);
-      rmSync(fixture.parent, { recursive: true, force: true });
-    }
+    await Promise.allSettled(
+      fixtures.map(async (fixture) => {
+        try {
+          await stopClient(fixture);
+        } finally {
+          rmSync(fixture.parent, { recursive: true, force: true });
+        }
+      }),
+    );
   }
 });
