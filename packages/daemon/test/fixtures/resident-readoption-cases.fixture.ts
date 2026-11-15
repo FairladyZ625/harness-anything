@@ -85,7 +85,7 @@ import fs from "node:fs"; import { execFile } from "node:child_process";
 fs.readFileSync(0, "utf8"); fs.writeFileSync(${JSON.stringify(providerPid)}, String(process.pid));
 console.log(JSON.stringify({type:"thread.started",thread_id:"resident-readopt"}));
 const env = {...process.env}; for (const k of ["HARNESS_ACTOR","HARNESS_EXECUTION_CREDENTIAL","HARNESS_DAEMON_ENDPOINT","HARNESS_DAEMON_RELAY","NODE_OPTIONS"]) delete env[k];
-function probe() { if (fs.existsSync(${JSON.stringify(release)})) return; execFile(process.execPath, [${JSON.stringify(path.resolve("packages/cli/src/index.ts"))}, "--root", ${JSON.stringify(rootDir)}, "--json", "daemon", "status", "--user-root", ${JSON.stringify(userRoot)}, "--daemon-id", ${JSON.stringify(repoId)}], {env}, (err, out) => { if (!err) { const target = out.includes('"loadedBuildId":"build-b"') ? ${JSON.stringify(cliAfter)} : ${JSON.stringify(cliBefore)}; if (!fs.existsSync(target)) { fs.writeFileSync(target + ".tmp", String(Date.now())); fs.renameSync(target + ".tmp", target); } } setImmediate(probe); }); }
+function probe() { if (fs.existsSync(${JSON.stringify(release)}) || fs.existsSync(${JSON.stringify(cliAfter)})) return; execFile(process.execPath, [${JSON.stringify(path.resolve("packages/cli/src/index.ts"))}, "--root", ${JSON.stringify(rootDir)}, "--json", "daemon", "status", "--user-root", ${JSON.stringify(userRoot)}, "--daemon-id", ${JSON.stringify(repoId)}], {env}, (err, out) => { if (!err) { const target = out.includes('"loadedBuildId":"build-b"') ? ${JSON.stringify(cliAfter)} : ${JSON.stringify(cliBefore)}; if (!fs.existsSync(target)) { fs.writeFileSync(target + ".tmp", String(Date.now())); fs.renameSync(target + ".tmp", target); } } if (!fs.existsSync(${JSON.stringify(release)}) && !fs.existsSync(${JSON.stringify(cliAfter)})) { setTimeout(probe, fs.existsSync(${JSON.stringify(cliBefore)}) ? 50 : 15).unref(); } }); }
 probe(); const timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(release)})) return; clearInterval(timer); console.log(JSON.stringify({type:"item.completed",item:{id:"message",type:"agent_message",text:"survived"}})); console.log(JSON.stringify({type:"turn.completed",usage:{input_tokens:1,output_tokens:1}})); }, 10);
 `,
         );
@@ -114,7 +114,10 @@ probe(); const timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(r
         createConvenienceLinks: false,
         runtimeInstances: [{ instanceId: "codex-resident-readopt", enabled: true }],
       });
-      cpSync(path.resolve("packages/daemon/dist"), dist, { recursive: true });
+      cpSync(path.resolve("packages/daemon/dist"), dist, {
+        recursive: true,
+        filter: (src) => !src.endsWith(".d.ts") && !src.endsWith(".d.ts.map") && !src.endsWith(".tsbuildinfo"),
+      });
       writeFileSync(marker, "build-a\n");
       const source = readFileSync(runtime, "utf8"),
         hooked = source.replace(
