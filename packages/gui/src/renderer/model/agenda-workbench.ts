@@ -63,7 +63,8 @@ export function agendaWorkbenchOf(
       key: `${row.group}:${row.id}`,
       row,
       bucket: row.group === "legacySubmitted" ? "outbox" : GROUP_BUCKET[row.group] === "attn" ? "inbox" : "follow",
-      quiet: row.group === "answered",
+      quiet:
+        row.group === "answered" || (task?.coordinationStatus === "done" && task.packageDisposition === "archived"),
       taskId,
       task,
       asks,
@@ -75,7 +76,13 @@ export function agendaWorkbenchOf(
   const outboxTaskIds = new Set(items.filter((item) => item.bucket === "outbox").map((item) => item.taskId));
   for (const projection of taskRead?.rows ?? []) {
     const task = taskById.get(projection.taskId);
-    if (!task || outboxTaskIds.has(task.taskId) || task.packageDisposition !== "active") continue;
+    if (
+      !task ||
+      outboxTaskIds.has(task.taskId) ||
+      (task.packageDisposition !== "active" &&
+        !(task.coordinationStatus === "done" && task.packageDisposition === "archived"))
+    )
+      continue;
     const completedAt = projection.completedAt === null ? NaN : Date.parse(projection.completedAt);
     const recent = completedAt <= now && completedAt >= now - RECENT_DELIVERY_MS;
     if (
@@ -89,7 +96,7 @@ export function agendaWorkbenchOf(
     items.push({
       key: `delivery:${task.taskId}`,
       bucket: "outbox",
-      quiet: false,
+      quiet: task.coordinationStatus === "done" && projection.placement.packageDisposition === "archived",
       taskId: task.taskId,
       task,
       asks: [],

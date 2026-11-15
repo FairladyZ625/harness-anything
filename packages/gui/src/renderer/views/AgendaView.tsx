@@ -12,13 +12,14 @@ import { EntityRefLink } from "../components/EntityRefLink.tsx";
 import { AnswerForm } from "../components/AwaitsAnswerPanel.tsx";
 import { TitleText } from "../components/primitives/TitleText.tsx";
 import { agendaRowsOf } from "../model/agenda-rows.ts";
-import { agendaWorkbenchOf, type AgendaWorkbenchFilter } from "../model/agenda-workbench.ts";
+import { agendaWorkbenchOf, type AgendaWorkbenchItem, type AgendaWorkbenchFilter } from "../model/agenda-workbench.ts";
 import { workIndexOf } from "../model/work-collections.ts";
 import { formatRelative } from "../model/time.ts";
 import { adaptProjectionRows } from "../task-adapter.ts";
 import { useTasksQuery, useWorkIndexQuery } from "../task-data.ts";
 import { AgendaEntityFocus } from "./agenda/AgendaEntityFocus.tsx";
 import { AgendaAttention } from "./agenda/AgendaAttention.tsx";
+import { AgendaInboxActions } from "./agenda/AgendaInboxActions.tsx";
 import { AgendaOutboxCard } from "./agenda/AgendaOutboxCard.tsx";
 import { AgendaItemStatus, AgendaWorkbenchQueue } from "./agenda/AgendaWorkbenchQueue.tsx";
 
@@ -39,7 +40,12 @@ function AgendaWorkbench({ repoId, agenda, agendaError, onNavigateEntity, onFocu
   const [filter, setFilter] = useState<AgendaWorkbenchFilter>("inbox");
   const [mode, setMode] = useState<"split" | "focus">("split");
   const [search, setSearch] = useState("");
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [selectedKey, setKey] = useState<string | null>(null);
+  const [retained, setRetained] = useState<AgendaWorkbenchItem | null>(null);
+  const setSelectedKey = (key: string | null) => {
+    setRetained(null);
+    setKey(key);
+  };
   const [quietOpen, setQuietOpen] = useState(false);
   const taskRead = useTasksQuery(repoId);
   const workRead = useWorkIndexQuery(repoId);
@@ -68,7 +74,16 @@ function AgendaWorkbench({ repoId, agenda, agendaError, onNavigateEntity, onFocu
     const quiet = visible.filter((item) => item.quiet);
     return { visible, queue, quiet, navigable: quietOpen ? [...queue, ...quiet] : queue };
   }, [items, query, filter, quietOpen]);
-  const selected = navigable.find((item) => item.key === selectedKey) ?? navigable[0];
+  const selected =
+    navigable.find((item) => item.key === selectedKey) ??
+    (retained?.key === selectedKey ? retained : undefined) ??
+    navigable[0];
+  const retain = () => {
+    if (selected) {
+      setKey(selected.key);
+      setRetained(selected);
+    }
+  };
   const index = selected ? navigable.indexOf(selected) : -1;
   const step = (delta: number) => {
     const next = navigable[Math.max(0, Math.min(navigable.length - 1, index + delta))];
@@ -119,7 +134,14 @@ function AgendaWorkbench({ repoId, agenda, agendaError, onNavigateEntity, onFocu
       />
       <div className="flex shrink-0 flex-wrap items-center gap-2 px-5 pb-3">
         <span data-testid="agenda-filter-chips">
-          <FilterChips chips={chips} value={filter} onChange={setFilter} />
+          <FilterChips
+            chips={chips}
+            value={filter}
+            onChange={(value) => {
+              setRetained(null);
+              setFilter(value);
+            }}
+          />
         </span>
         <input
           type="search"
@@ -280,18 +302,43 @@ function AgendaWorkbench({ repoId, agenda, agendaError, onNavigateEntity, onFocu
                       </p>
                     )}
                     {selected.bucket === "outbox" ? (
-                      <AgendaOutboxCard repoId={repoId} item={selected} />
+                      <AgendaOutboxCard
+                        repoId={repoId}
+                        item={selected}
+                        tasks={tasks}
+                        onRetain={retain}
+                        onNavigateEntity={onNavigateEntity}
+                      />
                     ) : (
                       <>
-                        {selected.asks.length === 0 && (
-                          <BoundedContent>
-                            <p className="whitespace-pre-wrap break-words ui-meta text-text-muted">
-                              {selected.row.hint}
-                            </p>
-                          </BoundedContent>
-                        )}
+                        {selected.asks.length === 0 &&
+                          !selected.row.ruling &&
+                          selected.row.group !== "restart" &&
+                          !(
+                            ["dispose", "judge"].includes(selected.row.group) &&
+                            selected.row.target?.startsWith("decision")
+                          ) && (
+                            <BoundedContent>
+                              <p className="whitespace-pre-wrap break-words ui-meta text-text-muted">
+                                {selected.row.hint}
+                              </p>
+                            </BoundedContent>
+                          )}
+                        <AgendaInboxActions
+                          repoId={repoId}
+                          item={selected}
+                          tasks={tasks}
+                          onRetain={retain}
+                          onNavigateEntity={onNavigateEntity}
+                        />
                         {selected.asks.map((ask) => (
-                          <AnswerForm key={`${ask.relationId}:${ask.relationRevision}`} repoId={repoId} row={ask} />
+                          <AnswerForm
+                            key={`${ask.relationId}:${ask.relationRevision}`}
+                            repoId={repoId}
+                            row={ask}
+                            onRetain={retain}
+                            onNavigateEntity={onNavigateEntity}
+                          />
                         ))}
                       </>
                     )}
