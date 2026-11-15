@@ -226,6 +226,15 @@ const reworkFields = Object.fromEntries(
 
 export const taskReworkGuiActions = Object.freeze([
   guiAction(
+    "task.materialize",
+    "repo.task.materialize",
+    "doc-materialize",
+    shape({ taskId: "string" }),
+    "materializeTask",
+    "/api/tasks/:taskId/materialize",
+    "repo-write",
+  ),
+  guiAction(
     "task.show",
     "repo.task.show",
     "task-show",

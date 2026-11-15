@@ -205,6 +205,19 @@ export function RepositorySettingsPanel({
     return haystack.includes(needle);
   };
 
+  const localChanged = groups.some((group) =>
+      group.rows.some(
+        (row) => row.ownership === "local" && !settingsValueEquals(draft[row.field], loadedValues?.[row.field]),
+      ),
+    ),
+    repositoryChanged =
+      gatesPayload !== undefined ||
+      groups.some((group) =>
+        group.rows.some(
+          (row) => row.ownership !== "local" && !settingsValueEquals(draft[row.field], loadedValues?.[row.field]),
+        ),
+      );
+
   if (repoId === null)
     return (
       <Section variant="panel" title={t("views.settingsView.sectionRepository")}>
@@ -233,22 +246,35 @@ export function RepositorySettingsPanel({
             testId="settings-repository-save"
             // 门映射草稿有未解决的非法组合时整表不让提交——约束在界面上表达,
             // 不靠提交后报错。
-            disabled={readOnly || settingsMutation.isPending || gateIssues.length > 0}
+            disabled={(readOnly && !localChanged) || settingsMutation.isPending || gateIssues.length > 0}
             onClick={() =>
               settingsMutation.mutate({
-                ...settingsPayloadFromDraft(draft, snapshot?.settingsFields ?? [], settingsQuery.data?.values),
+                ...settingsPayloadFromDraft(
+                  draft,
+                  (snapshot?.settingsFields ?? []).filter(
+                    (field) =>
+                      (!readOnly && (!localChanged || repositoryChanged)) ||
+                      (field.ownership === "local" &&
+                        !settingsValueEquals(draft[field.field], loadedValues?.[field.field])),
+                  ),
+                  settingsQuery.data?.values,
+                ),
                 // 乐观并发令牌:与写路径同源的 singleton 行修订;mutation 成功后缓存会被
                 // 回执修订立即顶新,连续两次提交不会带旧值。
                 expectedVersion: settingsQuery.data?.revision,
-                ...(gatesPayload !== undefined ? { gatesDraft: gatesPayload } : {}),
+                ...(!readOnly && gatesPayload !== undefined ? { gatesDraft: gatesPayload } : {}),
               })
             }
           >
-            {readOnly
+            {readOnly && !localChanged
               ? t("views.settingsView.repositoryReadOnly")
               : settingsMutation.isPending
                 ? t("views.settingsView.submitPending")
-                : t("views.settingsView.submitToRepository")}
+                : t(
+                    localChanged && !repositoryChanged
+                      ? "views.settingsView.applyOnNode"
+                      : "views.settingsView.submitToRepository",
+                  )}
           </Button>
         }
       >
@@ -278,6 +304,39 @@ export function RepositorySettingsPanel({
         ) : null}
         {settingsMutation.error ? (
           <div className="px-3 py-2 ui-meta text-danger">{String(settingsMutation.error)}</div>
+        ) : null}
+        {settingsMutation.data?.outcome === "pending" ? (
+          <div
+            role="status"
+            data-testid="settings-materialization-pending"
+            className="flex flex-col gap-2 px-3 py-2 ui-meta text-status-blocked"
+          >
+            <span>{t("views.settingsView.localFilesPending")}</span>
+            {settingsMutation.data.warnings?.map((warning) => (
+              <span key={warning}>{warning}</span>
+            ))}
+            {settingsMutation.data.guidance
+              ?.filter((entry) => entry.kind === "run-command" && typeof entry.args.command === "string")
+              .map((entry) => (
+                <code key={String(entry.args.command)}>{String(entry.args.command)}</code>
+              ))}
+            <Button
+              testId="settings-materialization-retry"
+              disabled={
+                settingsMutation.isPending || settingsMutation.variables?.taskMaterializationPolicy === undefined
+              }
+              onClick={() => {
+                const taskMaterializationPolicy = settingsMutation.variables?.taskMaterializationPolicy;
+                if (taskMaterializationPolicy !== undefined)
+                  settingsMutation.mutate({
+                    taskMaterializationPolicy,
+                    expectedVersion: settingsQuery.data?.revision,
+                  });
+              }}
+            >
+              {t("views.settingsView.retryLocalFiles")}
+            </Button>
+          </div>
         ) : null}
       </Section>
       {groups.length === 0 ? (
@@ -346,7 +405,7 @@ export function RepositorySettingsPanel({
                       key={row.field}
                       row={row}
                       modified={fieldModified(row)}
-                      readOnly={readOnly}
+                      readOnly={readOnly && row.ownership !== "local"}
                       defaultText={row.field === "roles" ? undefined : defaultValueText(fieldDefault(row))}
                       onRestore={() => updateDraft(row.field, fieldDefault(row))}
                     >
@@ -358,7 +417,10 @@ export function RepositorySettingsPanel({
                           onChange={(next) => updateDraft("decisionsEnabledPoints", next)}
                         />
                       ) : (
-                        renderFieldControl(row, fieldControlProps)
+                        renderFieldControl(row, {
+                          ...fieldControlProps,
+                          readOnly: readOnly && row.ownership !== "local",
+                        })
                       )}
                     </SettingsFieldEntry>
                   ))}
@@ -414,7 +476,9 @@ function SettingsFieldEntry({
     <Row
       label={
         <span className="flex flex-wrap items-center gap-2">
-          <span>{label}</span>
+          <span data-tip={row.ownership === "local" ? [description, effect].filter(Boolean).join(" ") : undefined}>
+            {label}
+          </span>
           {defaultText !== undefined ? (
             <DefaultValueNote testId={`settings-${row.field}-default`} text={defaultText} />
           ) : null}
@@ -440,21 +504,23 @@ function SettingsFieldEntry({
         </span>
       }
       desc={
-        <>
-          {description ? <div>{description}</div> : null}
-          {effect ? (
-            <div className="mt-0.5">
-              <span className="text-text-faint">{t("views.settingsView.effectPrefix")}</span>
-              {effect}
-            </div>
-          ) : null}
-          {help ? (
-            <details className="mt-0.5" data-testid={`settings-${row.field}-help`}>
-              <summary className="cursor-pointer hover:text-text">{t("views.settingsView.helpSummary")}</summary>
-              <div className="mt-0.5">{help}</div>
-            </details>
-          ) : null}
-        </>
+        row.ownership === "local" ? undefined : (
+          <>
+            {description ? <div>{description}</div> : null}
+            {effect ? (
+              <div className="mt-0.5">
+                <span className="text-text-faint">{t("views.settingsView.effectPrefix")}</span>
+                {effect}
+              </div>
+            ) : null}
+            {help ? (
+              <details className="mt-0.5" data-testid={`settings-${row.field}-help`}>
+                <summary className="cursor-pointer hover:text-text">{t("views.settingsView.helpSummary")}</summary>
+                <div className="mt-0.5">{help}</div>
+              </details>
+            ) : null}
+          </>
+        )
       }
     >
       {children}

@@ -592,8 +592,8 @@ export function readDocumentRows(
             .flatMap((table) =>
               page?.excludeTaskPackages
                 ? [
-                    `SELECT *, ${table === "document_history" ? 1 : 0} AS retired FROM ${indexed(table)} WHERE path < 'tasks/'`,
-                    `SELECT *, ${table === "document_history" ? 1 : 0} AS retired FROM ${indexed(table)} WHERE path >= 'tasks0'`,
+                    `SELECT *, ${table === "document_history" ? 1 : 0} AS retired FROM ${indexed(table)} WHERE path < 'tasks/task_'`,
+                    `SELECT *, ${table === "document_history" ? 1 : 0} AS retired FROM ${indexed(table)} WHERE path >= 'tasks/task\`'`,
                   ]
                 : [`SELECT *, ${table === "document_history" ? 1 : 0} AS retired FROM ${indexed(table)}`],
             )

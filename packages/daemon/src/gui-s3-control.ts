@@ -558,6 +558,7 @@ export function validateCatalogSnapshot(value: unknown): readonly string[] {
           required: "boolean",
           enum: "optional-array",
           group: "optional-string",
+          ownership: "optional-string",
           effect: "optional-string",
           defaultValue: "optional-any",
         },

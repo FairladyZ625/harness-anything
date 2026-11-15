@@ -1,6 +1,7 @@
 import { readActiveDispatchLifecycle } from "./runtime-dispatch-admission.ts";
 import { forward } from "./fleet/forwarding-port.ts";
 import { forwardingIntentForAction } from "./fleet/forwarding-intent.ts";
+import { materializeFleetEdgeDocuments, reconcileFleetNodeMaterialization } from "./fleet-edge-materialization.ts";
 import { runFleetEdgeRepositoryRead } from "./fleet-edge-task.ts";
 import { initialRuntimeInstanceSettings } from "./runtime-spawn-allowlist.ts";
 import { edgeReplicaDoctor } from "./edge-replica-doctor.ts";
@@ -869,18 +870,35 @@ export function createDaemonHostRepositoryApi(
             actionId: `repository-read:${repoId}`,
             evaluatedAtCut: `repository:${repoId}:current`,
           });
-        const resolvedAction = await resolveVerticalKindCommandAction(cell, action as RepoTaskAction),
-          receipt = edgeRead
-            ? ((await runFleetEdgeRepositoryRead(
-                {
-                  rootDir: cell.status().rootDir,
-                  repoId,
-                  action: resolvedAction as never,
-                },
-                async () =>
-                  (await cell.run(resolvedAction, serverBinding, auth.connectionSignal)) as Record<string, unknown>,
-              )) as Awaited<ReturnType<typeof cell.run>>)
-            : await cell.run(resolvedAction, serverBinding, auth.connectionSignal);
+        const resolvedAction = await resolveVerticalKindCommandAction(cell, action as RepoTaskAction);
+        if (cell.status().mode === "remote-edge" && resolvedAction.kind === "doc-materialize")
+          return await materializeFleetEdgeDocuments({
+            rootDir: cell.status().rootDir,
+            repoId,
+            binding: serverBinding,
+            action: resolvedAction,
+            now: context.now(),
+          });
+        let receipt = edgeRead
+          ? ((await runFleetEdgeRepositoryRead(
+              { rootDir: cell.status().rootDir, repoId, action: resolvedAction as never },
+              async () =>
+                (await cell.run(resolvedAction, serverBinding, auth.connectionSignal)) as Record<string, unknown>,
+            )) as Awaited<ReturnType<typeof cell.run>>)
+          : await cell.run(resolvedAction, serverBinding, auth.connectionSignal);
+        if (
+          cell.status().mode === "remote-edge" &&
+          resolvedAction.kind === "settings-update" &&
+          resolvedAction.taskMaterializationPolicy !== undefined &&
+          (receipt.outcome === "applied" || receipt.outcome === "no_changes")
+        )
+          receipt = reconcileFleetNodeMaterialization({
+            rootDir: cell.status().rootDir,
+            repoId,
+            binding: serverBinding,
+            action: resolvedAction,
+            receipt,
+          });
         if (
           (command.commandClass !== "repo-read" &&
             getExecutableEntityAction(action.kind)?.target.kind === "schedule") ||

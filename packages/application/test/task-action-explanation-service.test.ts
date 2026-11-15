@@ -60,6 +60,7 @@ test("Task explanations distinguish lifecycle state, actor capability, invocatio
         "preset-upgrade",
         "assign",
         "unassign",
+        "materialize",
         "pin",
         "unpin",
       ],

@@ -53,14 +53,14 @@ export function applyCanonicalTree(input: {
     if (selected && !selected.has(logical)) continue;
     const target = path.join(root, ...logical.split("/"));
     // Local files can change after materialization; compare them with the last successful write,
-    // not the newer center blob. The center's validated object digest is already authoritative.
+    // not the newer center blob. Explicit selections also preserve an unowned local file.
     if (existsSync(target)) {
       const local = sha256Bytes(readFileSync(target));
       if (local === blob.sha256) {
         entries[logical] = blob.sha256;
         continue;
       }
-      if (hasMaterializationBaseline && local !== previous.entries[logical]) {
+      if ((hasMaterializationBaseline || input.selectedPaths !== undefined) && local !== previous.entries[logical]) {
         dirtyPaths.push(logical);
         continue;
       }
@@ -92,14 +92,26 @@ export function applyCanonicalTree(input: {
     delete entries[logical];
   }
   if (!input.preview) {
+    const taskDirectories = new Set<string>();
+    for (const row of settlements)
+      if (row.action === "delete" && row.path.startsWith("tasks/task_"))
+        for (
+          let directory = path.posix.dirname(row.path);
+          directory.startsWith("tasks/task_");
+          directory = path.posix.dirname(directory)
+        )
+          taskDirectories.add(directory);
     localGitWorktreeSettlement.retireEmptyDirectories(
       root,
-      decisionDirectoryRetirements(
-        settlements.filter(({ action }) => action === "delete").map(({ path }) => path),
-        !input.selectedPaths && (!hasMaterializationBaseline || !input.changedPaths)
-          ? input.layout.decisionsRoot
-          : undefined,
-      ),
+      [
+        ...decisionDirectoryRetirements(
+          settlements.filter(({ action }) => action === "delete").map(({ path }) => path),
+          !input.selectedPaths && (!hasMaterializationBaseline || !input.changedPaths)
+            ? input.layout.decisionsRoot
+            : undefined,
+        ),
+        ...taskDirectories,
+      ].sort((a, b) => b.split("/").length - a.split("/").length),
       input.withFence,
     );
     writeFileDurably(

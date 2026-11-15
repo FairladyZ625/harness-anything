@@ -122,7 +122,11 @@ export function isDocAction(kind: string): boolean {
  * The request entry holds no projection, so task ownership is proved here. Declared surfaces admit
  * non-task authored documents only; a different task package still requires its own lease.
  */
-function requireOwnTaskDocSelection(input: Input): void {
+export function requireOwnTaskDocSelection(
+  input: Pick<Input, "action" | "binding" | "rootDir"> & {
+    readonly projection: Pick<Input["projection"], "taskIdForDocumentPath">;
+  },
+): void {
   const principal = input.binding.executionPrincipal,
     action = input.action;
   if (principal === undefined || principal.role !== "implementation" || principal.taskId === null) return;
@@ -198,7 +202,9 @@ function singleSelectedTask(input: Input): string | null {
  * them once here and drop the marker before any doc action reads the action; daemon-internal callers
  * pass authored keys without the marker and keep their canonical coordinate.
  */
-function withWorkspaceDocumentPaths(input: Input): Input {
+export function withWorkspaceDocumentPaths(
+  input: Pick<Input, "action" | "rootDir" | "workspaceCoordinate">,
+): Pick<Input, "action" | "rootDir" | "workspaceCoordinate"> {
   const action = input.action;
   if (action.pathCoordinate !== "workspace") return input;
   const { pathCoordinate: _pathCoordinate, ...authoredAction } = action,
@@ -222,10 +228,14 @@ function withWorkspaceDocumentPaths(input: Input): Input {
   return { ...input, workspaceCoordinate: true, action: authoredAction };
 }
 
-export function runDocAction(rawInput: Input): DocSettlementReceipt | Promise<DocSettlementReceipt> {
-  const input = withWorkspaceDocumentPaths(rawInput);
-  if (Buffer.byteLength(JSON.stringify(input.action)) > DOC_COMMAND_FRAME_MAX_BYTES)
+export function requireDocCommandFrame(action: Action): void {
+  if (Buffer.byteLength(JSON.stringify(action)) > DOC_COMMAND_FRAME_MAX_BYTES)
     throw docSyncError("invalid_command", "doc command frame exceeds the descriptor-only limit");
+}
+
+export function runDocAction(rawInput: Input): DocSettlementReceipt | Promise<DocSettlementReceipt> {
+  const input = { ...rawInput, ...withWorkspaceDocumentPaths(rawInput) };
+  requireDocCommandFrame(input.action);
   if (input.action.kind.startsWith("doc-conflict-")) return runLocalDocConflictExit(input);
   if (input.action.kind === "doc-materialize") {
     requireOwnTaskDocSelection(input);

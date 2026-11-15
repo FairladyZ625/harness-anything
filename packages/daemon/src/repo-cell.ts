@@ -113,6 +113,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
     afterRevision?: number,
     expectedRevision?: number,
     previouslyMaterializedPaths?: readonly string[],
+    reconcileNodePolicy?: boolean,
   ) => {
     if (!projection) return null;
     materializationReader ??= makeTaskProjectionReader({
@@ -125,7 +126,9 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
       if (cut.status !== "ready" || cut.watermark !== (expectedRevision ?? cut.sourceRevision)) return null;
       return readNodeMaterializationDocuments(
         q,
-        context.input.storage?.nodeTaskMaterializationPolicy ?? "include_done",
+        reconcileNodePolicy && context.input.storage?.nodeTaskMaterializationPolicy === "none"
+          ? "in_flight"
+          : (context.input.storage?.nodeTaskMaterializationPolicy ?? "include_done"),
         includePolicySkippedPaths,
         afterRevision,
         previouslyMaterializedPaths,
@@ -265,7 +268,9 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
       sessionIdentity: currentSessionIdentity,
       readSettings: () => readRepositorySettings(projection!),
       killpoint: context.input.killpoint,
-      nodeTaskMaterializationPolicy: context.input.storage?.nodeTaskMaterializationPolicy,
+      get nodeTaskMaterializationPolicy() {
+        return context.input.storage?.nodeTaskMaterializationPolicy;
+      },
     });
     const runtimeReads = makeAgentRuntimeReadModel({
         readAttemptChain: (runtimeSessionId) => readRuntimeAttemptChain(runtimeSessionId, projection!),

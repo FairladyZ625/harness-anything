@@ -798,11 +798,11 @@ partitionedTest(
     const allGuiClientActions = inputs.constants.actionDeclarations.filter((action) =>
       (action.ontology?.sources ?? []).some((source) => source.role === "client" && isNonMainGui(source.candidateId)),
     );
-    assert.equal(allGuiClientActions.length, 78);
+    assert.equal(allGuiClientActions.length, 79);
     const expectedGuiClientCount = allGuiClientActions
       .flatMap((action) => action.ontology?.sources ?? [])
       .filter((source) => source.role === "client" && isNonMainGui(source.candidateId)).length;
-    assert.equal(expectedGuiClientCount, 197);
+    assert.equal(expectedGuiClientCount, 199);
     assert.equal((localState.ontology.sources ?? []).filter((source) => isNonMainGui(source.candidateId)).length, 110);
 
     const guiAcceptClient = decisionAccept.ontology.sources.find(
@@ -839,6 +839,7 @@ partitionedTest(
     );
 
     const positiveOnly = [
+      "doc-materialize",
       "decision-accept",
       "decision-propose",
       "decision-respond-review",

@@ -21,6 +21,7 @@ test("help, explain, and the router describe one Task Action catalog", () => {
       [
         renderThinHelp([], "task", undefined, [], true),
         renderThinHelp([], "preset"),
+        renderThinHelp([], "doc"),
         renderThinHelp([], "pin"),
         renderThinHelp([], "unpin"),
       ]
@@ -31,6 +32,7 @@ test("help, explain, and the router describe one Task Action catalog", () => {
           (line) =>
             line.startsWith("ha task ") ||
             line.startsWith("ha preset ") ||
+            line.startsWith("ha doc ") ||
             line.startsWith("ha pin ") ||
             line.startsWith("ha unpin "),
         ),

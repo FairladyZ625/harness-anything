@@ -1365,6 +1365,7 @@ export function openFleetEdgeRuntime(input: {
 
     await preflightRuntimeWorkspace();
     const pulled = await pullRuntimeReplica();
+    let requestedPaths: readonly string[] | undefined;
     if (taskId !== undefined) {
       const view = locateFleetMirrorView(request.viewRoot, request.repoId, request.nodeId, {
         entriesPrefix: `tasks/${taskId}`,
@@ -1378,9 +1379,11 @@ export function openFleetEdgeRuntime(input: {
             existsSync(path.join(materializedRoot, ...logical.slice(0, -"/INDEX.md".length).split("/"))),
           );
       if (packagePresent) return;
+      requestedPaths = view === null ? [] : fleetMirrorTaskPaths(view, taskId);
     }
     const materialized = applyFleetMirrorCut(request.viewRoot, request.repoId, request.workspaceRoot, "pull", {
       viewId: pulled.replica.viewId,
+      ...(requestedPaths === undefined ? {} : { request: { paths: requestedPaths } }),
     });
     if (materialized.outcome === "pull_blocked")
       throw edgeRuntimeError(

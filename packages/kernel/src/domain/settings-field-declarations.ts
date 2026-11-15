@@ -3,7 +3,12 @@ import type { CommandInterception } from "./command-interceptions.ts";
 import type { EntityActionInputField } from "./entity-kind-registry.ts";
 import type { GateWitnessMappingV1 } from "./completion-contract.ts";
 import { closeoutProfiles } from "./settings-closeout.ts";
-import { DEFAULT_TASK_ROOT_THRESHOLD, DEFAULT_TASK_WIP_LIMIT } from "./task-wip-policy.ts";
+import {
+  DEFAULT_TASK_ROOT_THRESHOLD,
+  DEFAULT_TASK_WIP_LIMIT,
+  nodeTaskMaterializationPolicies,
+  nodeTaskMaterializationPolicy,
+} from "./task-wip-policy.ts";
 import { DEFAULT_TODO_SOFT_LIMIT } from "./todo-soft-limit.ts";
 import type { OntologyPolicyDeclaration } from "./ontology-source.ts";
 
@@ -142,6 +147,7 @@ export interface SettingsCliInputField extends SettingsFieldCliDeclaration {
 /** Per-action-field presentation metadata the daemon GUI catalog projects to the settings page. */
 export interface SettingsFieldPresentation {
   readonly field: string;
+  readonly ownership: SettingsFieldOwnership;
   readonly group: SettingsFieldGroupId;
   readonly effect: string;
   /** Declared default; absent for optional fields whose default is "unset". */
@@ -400,6 +406,18 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
       format: "point id plus binding digest prefix",
     },
     yamlStyle: "inline",
+  }),
+  defineSettingsField({
+    path: ["nodeTaskMaterializationPolicy"],
+    ownership: local,
+    valueKind: "enum",
+    defaultValue: nodeTaskMaterializationPolicy.defaultValue,
+    allowedValues: nodeTaskMaterializationPolicies,
+    description: "Task documents materialized on this node.",
+    effect: "Reconcile this node's managed documents immediately without changing other nodes.",
+    group: "worktree",
+    action: { field: "taskMaterializationPolicy", type: "string" },
+    cli: { name: "--task-materialization-policy", kind: "single", enum: nodeTaskMaterializationPolicies },
   }),
   defineSettingsField({
     path: ["locale"],
@@ -1086,6 +1104,7 @@ export function settingsFieldPresentationFromDeclarations(
       action.field,
       Object.freeze({
         field: action.field,
+        ownership: declaration.ownership,
         group: declaration.group,
         effect: declaration.effect,
         ...(declaration.defaultValue !== undefined ? { defaultValue: declaration.defaultValue } : {}),

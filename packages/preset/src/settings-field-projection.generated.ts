@@ -88,6 +88,13 @@ export const settingsFieldProtocolProjection = {
       required: false,
     },
     {
+      field: "taskMaterializationPolicy",
+      description: "Task documents materialized on this node.",
+      type: "string",
+      required: false,
+      enum: ["none", "in_flight", "include_done"],
+    },
+    {
       field: "locale",
       description: "Language of the interface on this machine.",
       type: "string",
@@ -460,6 +467,15 @@ export const settingsFieldProtocolProjection = {
       kind: "repeated",
       regex: "^[A-Za-z0-9][A-Za-z0-9/_.-]*@[0-9a-f]{12}$",
       format: "point id plus binding digest prefix",
+    },
+    {
+      field: "taskMaterializationPolicy",
+      description: "Task documents materialized on this node.",
+      group: "worktree",
+      effect: "Reconcile this node's managed documents immediately without changing other nodes.",
+      name: "--task-materialization-policy",
+      kind: "single",
+      enum: ["none", "in_flight", "include_done"],
     },
     {
       field: "locale",

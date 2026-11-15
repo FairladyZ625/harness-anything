@@ -70,6 +70,18 @@ export function makeSettingsActionRuntime(
         receipt = cell.receiptForOperation(opId, binding);
       return replayReceipt(receipt, settingsState.read(), localChanged, targetRef);
     }
+    // Node policy is strictly local even when authored YAML carries formatting drift. It must not
+    // turn that unrelated drift into a shared Settings write. Mixed repository edits use the normal compiler.
+    if (
+      action.taskMaterializationPolicy !== undefined &&
+      local !== null &&
+      Object.keys(action).every(
+        (field) =>
+          ["kind", "expectedVersion", "idempotencyKey"].includes(field) ||
+          contract.execution.localOnlyFields?.includes(field),
+      )
+    )
+      return localSettingsReceipt(settingsState, opId, revision, settingsState.writeLocal(local), true);
     // Resolved only after the replay check and the local-field parse: a replayed or syntactically
     // invalid request must not touch the authored document at all.
     const initialization = settingsState.authoredInitialization(),
@@ -163,11 +175,24 @@ function settleWithoutDraft(
         : receipt;
   }
   const localChanged = local === null ? false : settingsState.writeLocal(local);
+  return localSettingsReceipt(settingsState, opId, revision, localChanged);
+}
+
+function localSettingsReceipt(
+  settingsState: RepoCellSettingsState,
+  opId: string,
+  revision: number,
+  localChanged: boolean,
+  localOnly = false,
+): WriteReceipt {
   return {
     outcome: localChanged ? "applied" : "no_changes",
     opId,
     revision,
-    evidence: JSON.stringify({ schema: "settings-update/v1", settings: settingsState.read() }),
+    evidence: JSON.stringify({
+      schema: "settings-update/v1",
+      settings: localOnly ? settingsState.readLocal() : settingsState.read(),
+    }),
     visibility: "center",
     effects: localChanged ? [localEffect] : [],
     updatedProjection: null,
@@ -328,7 +353,10 @@ function publishSettingsDraft(
     receipt = {
       opId: draft.bundle.event.opId,
       revision: appended.revision,
-      evidence: JSON.stringify({ schema: "settings-update/v1", settings: settingsState.read() }),
+      evidence: JSON.stringify({
+        schema: "settings-update/v1",
+        settings: settingsState.read(),
+      }),
       visibility: "center" as const,
       proof: {
         committedRevision: appended.revision,

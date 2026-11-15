@@ -177,7 +177,7 @@ export function assertPreloadPayload(method: string, payload: unknown): true {
     // general amend through the preload boundary. Entity unpin names the ref the same
     // way; the local-EntityRef and existence checks stay in the daemon write boundary.
     if (
-      (["pinTask", "unpinTask"].includes(method) && !exactStrings(payload, ["repoId", "taskId"])) ||
+      (["pinTask", "unpinTask", "materializeTask"].includes(method) && !exactStrings(payload, ["repoId", "taskId"])) ||
       (method === "unpinEntity" && !exactStrings(payload, ["repoId", "entityRef"]))
     )
       throw new Error(`Preload ${method} request is invalid.`);

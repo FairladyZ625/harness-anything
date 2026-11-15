@@ -1,3 +1,4 @@
+import taskMaterialization from "./scenarios/task-materialization.mjs";
 import builtinSidebar from "./scenarios/builtin-sidebar.mjs";
 import repositoryTodos from "./scenarios/repository-todos.mjs";
 import decisionPoints from "./scenarios/decision-points.mjs";
@@ -132,6 +133,7 @@ export const catalog = [
   overviewAttentionFocus,
   overviewSplitBoard,
   taskDetailExplainerDefault,
+  taskMaterialization,
   tokenUsageCosts,
   graphSpotlightCards,
   redesignToday,

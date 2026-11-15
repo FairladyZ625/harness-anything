@@ -30,6 +30,9 @@ export async function assertDocumentIndex(pool: Pool, seedPool: Pool, backend: s
         "target/%_0",
         "最大/😀/a",
         "tasks/parent/file.md",
+        "tasks/task_real/task_plan.md",
+        "tasks/_pending-issue-triage-20260818/report.md",
+        "tasks/task`/notes.md",
       ])
         await putPgProjectionValue(client, scope, "document", path, "", 2, {
           path,
@@ -130,12 +133,15 @@ export async function assertDocumentIndex(pool: Pool, seedPool: Pool, backend: s
     [],
   );
   assert.deepEqual((await queries.readDocuments("absent/")).documents, []);
-  assert.equal((await queries.readDocuments("")).documents.length, 100007);
+  assert.equal((await queries.readDocuments("")).documents.length, 100010);
   assert.deepEqual(
     (await queries.readDocuments("target/%_/", { limit: 10, includeHistory: true })).documents.map(({ path }) => path),
     ["target/%_/a", "target/%_/b", "target/%_/retired", "target/%_/深😀"],
   );
-  assert.deepEqual((await queries.readDocuments("tasks/", { limit: 10, excludeTaskPackages: true })).documents, []);
+  assert.deepEqual(
+    (await queries.readDocuments("tasks/", { limit: 10, excludeTaskPackages: true })).documents.map(({ path }) => path),
+    ["tasks/_pending-issue-triage-20260818/report.md", "tasks/parent/file.md", "tasks/task`/notes.md"],
+  );
   assert.deepEqual(
     (await queries.readDocuments("target/%_/", { limit: 2, excludeTaskPackages: true })).documents.map(
       ({ path }) => path,

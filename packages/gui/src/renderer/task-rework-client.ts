@@ -1,4 +1,4 @@
-import type { GuiActionResult, TaskSnapshotProjectionRow } from "../api/renderer-dto.ts";
+import type { CanonicalMaterializationState, GuiActionResult, TaskSnapshotProjectionRow } from "../api/renderer-dto.ts";
 import { invoke } from "./api-client-invoke.ts";
 import { readGuiActionResult } from "./command-receipt.ts";
 import { daemonBridgeError } from "./daemon-startup.ts";
@@ -10,6 +10,7 @@ export interface TaskReworkTarget {
 }
 
 export interface TaskReworkRead {
+  readonly materializationState?: CanonicalMaterializationState;
   readonly reworkTargets: readonly TaskReworkTarget[];
   readonly task: TaskSnapshotProjectionRow["snapshot"]["task"];
 }

@@ -114,7 +114,7 @@ test("main process registers one IPC handler for each preload allowlist method",
       ? runtimePayload(method)
       : method === "getTaskDispatches"
         ? { repoId: "repo-a", taskIds: ["task-a"] }
-        : ["pinTask", "unpinTask"].includes(method)
+        : ["pinTask", "unpinTask", "materializeTask"].includes(method)
           ? { repoId: "repo-a", taskId: "task-a" }
           : method === "unpinEntity"
             ? { repoId: "repo-a", entityRef: "decision/dec-1" }

@@ -2,6 +2,7 @@ import { readTaskCompletion } from "./task-completion-read.ts";
 import { readTaskReviewAttribution } from "@harness-anything/application";
 import { createHash } from "node:crypto";
 import path from "node:path";
+import { existsSync } from "node:fs";
 import {
   submissionDigest,
   completionGateIds,
@@ -229,7 +230,8 @@ export function taskShowFromProjection(
       : null,
     completion = readTaskCompletion(projection, taskId, rootDir, actor),
     materializationState =
-      task === null
+      task === null ||
+      (read.packagePath !== null && existsSync(path.join(layout.authoredRoot, read.packagePath, "task_plan.md")))
         ? "materialized"
         : projectedTaskMaterializationState(
             projection,

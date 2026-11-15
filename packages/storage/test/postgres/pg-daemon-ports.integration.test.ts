@@ -127,7 +127,7 @@ test("daemon PG storage factories expose canonical lifecycle ports without local
         async () => {
           const id = `pg-metadata-guard-${gitOnly}`,
             root = join(fixture.root, id),
-            taskId = `task-${id}`;
+            taskId = `task_${id}`;
           mkdirSync(root, { recursive: true });
           initRepo(root);
           mkdirSync(join(root, "harness/context"), { recursive: true });
