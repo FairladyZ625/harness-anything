@@ -946,8 +946,11 @@ function readDocumentHead(
       // exact accepting event still owns the replacement base; an older blob cannot authorize it.
       const accepted = query("SELECT event_json FROM event WHERE revision=?", [Number(row.revision)]).at(0),
         event = accepted ? (JSON.parse(String(accepted.event_json)) as CanonicalEventV1) : null,
-        claim = event?.schema === "decision-event/v1" ? event.payload.decisionDocumentClaim : undefined;
-      if (claim?.path === documentPath) return { sha256: claim.sha256, size: claim.size, nodeKind: "file" };
+        claim =
+          event?.schema === "decision-event/v1"
+            ? canonicalDocumentClaims(event).find((candidate) => candidate.path === documentPath)
+            : undefined;
+      if (claim) return { sha256: claim.sha256, size: claim.size, nodeKind: "file" };
     }
     return "retired";
   }

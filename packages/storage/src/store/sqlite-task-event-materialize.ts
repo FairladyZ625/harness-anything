@@ -210,7 +210,7 @@ export function closureFiles(
       if (!node || node.mode !== "100644") continue;
       const matches =
         node.sha256 === head.sha256 ||
-        (logical.endsWith("/decision.md") && sha256Text(node.body.replace(/\r\n?/gu, "\n")) === head.sha256);
+        (logical.endsWith(".md") && sha256Text(node.body.replace(/\r\n?/gu, "\n")) === head.sha256);
       if (!matches) continue;
       previouslyMaterializedManagedPaths.push(logical);
       recoveredBaseline.set(target, worktreeFingerprint(node));
