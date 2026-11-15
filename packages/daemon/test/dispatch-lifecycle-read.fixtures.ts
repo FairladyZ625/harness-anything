@@ -1,4 +1,5 @@
 import {
+  DISPATCH_LIFECYCLE_PAGE_LIMIT,
   dispatchLifecycleAddress,
   dispatchLifecycleView,
   dispatchLifecycleSummary,
@@ -127,9 +128,11 @@ function selectLifecycleViews(
 ): DispatchLifecycleRead {
   let rows: readonly DispatchLifecycleView[];
   if (query.by === "session") rows = views.filter(({ attempt }) => attempt.runtimeSessionId === query.runtimeSessionId);
-  else if (query.by === "dispatch")
+  else if (query.by === "dispatch") {
+    if (query.dispatchIds.length > DISPATCH_LIFECYCLE_PAGE_LIMIT)
+      throw new Error(`dispatch lifecycle point reads accept at most ${DISPATCH_LIFECYCLE_PAGE_LIMIT} ids`);
     rows = views.filter(({ attempt }) => query.dispatchIds.includes(attempt.dispatchId));
-  else if (query.by === "group") rows = views.filter(({ attemptGroupId }) => attemptGroupId === query.attemptGroupId);
+  } else if (query.by === "group") rows = views.filter(({ attemptGroupId }) => attemptGroupId === query.attemptGroupId);
   else rows = views.filter(({ attempt }) => query.instanceId === undefined || attempt.instanceId === query.instanceId);
   if (query.by === "active") rows = rows.filter(({ policy }) => !policy.groupSettled);
   return { status: "ready", watermark: 1, sourceRevision: 1, rows, nextCursor: null };
@@ -225,11 +228,15 @@ export function dispatchLifecycleReadOf(events: () => readonly (AgentRuntimeEven
               : [dispatchLifecycleView(group, address.dispatchId)];
           })()
         : query.by === "dispatch"
-          ? [...groups.values()].flatMap((group) =>
-              group.attempts
-                .filter((attempt) => query.dispatchIds.includes(attempt.dispatchId))
-                .map((attempt) => dispatchLifecycleView(group, attempt.dispatchId)),
-            )
+          ? (() => {
+              if (query.dispatchIds.length > DISPATCH_LIFECYCLE_PAGE_LIMIT)
+                throw new Error(`dispatch lifecycle point reads accept at most ${DISPATCH_LIFECYCLE_PAGE_LIMIT} ids`);
+              return [...groups.values()].flatMap((group) =>
+                group.attempts
+                  .filter((attempt) => query.dispatchIds.includes(attempt.dispatchId))
+                  .map((attempt) => dispatchLifecycleView(group, attempt.dispatchId)),
+              );
+            })()
           : query.by === "group"
             ? (() => {
                 const group = groups.get(query.attemptGroupId);

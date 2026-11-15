@@ -35,6 +35,7 @@ import {
   dispatchLifecyclePendingError,
   readActiveDispatchLifecycle,
   readDispatchLifecycle,
+  readDispatchLifecycleByIds,
 } from "./runtime-dispatch-admission.ts";
 import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 
@@ -91,12 +92,12 @@ export async function adoptRuntimes(
         .map((header) => [header.dispatchId, header]),
     );
   if (terminalHeaders.size) {
-    const lifecycle = await readDispatchLifecycle(context, {
-      by: "dispatch",
-      dispatchIds: [...terminalHeaders.keys()],
-    });
-    if (lifecycle.status !== "ready") throw dispatchLifecyclePendingError(lifecycle, context.runtimeSpawnError);
-    for (const view of lifecycle.rows) {
+    const lifecycleRows = await readDispatchLifecycleByIds(
+      (query) => readDispatchLifecycle(context, query),
+      [...terminalHeaders.keys()],
+      context.runtimeSpawnError,
+    );
+    for (const view of lifecycleRows) {
       const header = terminalHeaders.get(view.attempt.dispatchId);
       if (
         view.policy.attemptSettled &&

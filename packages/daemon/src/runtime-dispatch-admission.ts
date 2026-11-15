@@ -54,6 +54,25 @@ export function dispatchLifecyclePendingError(
   );
 }
 
+export async function readDispatchLifecycleByIds(
+  read: DispatchLifecycleReader,
+  dispatchIds: readonly string[],
+  error: CodedError,
+): Promise<DispatchLifecycleView[]> {
+  const uniqueIds = [...new Set(dispatchIds)];
+  if (uniqueIds.length === 0) return [];
+  const rows: DispatchLifecycleView[] = [];
+  for (let offset = 0; offset < uniqueIds.length; offset += DISPATCH_LIFECYCLE_PAGE_LIMIT) {
+    const page: DispatchLifecycleRead = await read({
+      by: "dispatch",
+      dispatchIds: uniqueIds.slice(offset, offset + DISPATCH_LIFECYCLE_PAGE_LIMIT),
+    });
+    if (page.status !== "ready") throw dispatchLifecyclePendingError(page, error);
+    rows.push(...page.rows);
+  }
+  return rows;
+}
+
 export async function readActiveDispatchLifecycle(
   read: (query: DispatchLifecycleQuery) => DispatchLifecycleRead | Promise<DispatchLifecycleRead>,
   error: CodedError,
