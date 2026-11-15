@@ -785,7 +785,7 @@ export function initializeTerminalMaterialization(
   db: DatabaseSync,
   readBlob?: EventStreamPort["readContentBlob"],
 ): void {
-  const key = "terminal-materialization-v1";
+  const key = "terminal-materialization-v2";
   if (!queryRows(db, "SELECT 1 FROM projection_maintenance WHERE key=?", key).length) {
     const refs = queryRows<{ ref: string }>(
       db,

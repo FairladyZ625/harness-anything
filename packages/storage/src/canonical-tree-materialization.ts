@@ -1,8 +1,8 @@
 import path from "node:path";
 import type { HarnessLayout } from "@harness-anything/kernel/internal/layout/index.ts";
-import { decisionDirectoryRetirements } from "./store/decision-directory-settlement.ts";
+import { decisionDirectoryFiles, decisionDirectoryRetirements } from "./store/decision-directory-settlement.ts";
 import { localGitWorktreeSettlement } from "./store/local-version-control-system.ts";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync } from "node:fs";
 import { sha256Bytes } from "@harness-anything/kernel";
 import { writeFileDurably, removeFileDurably, type WriteFence } from "./durable-file.ts";
 import type { MaterializationSettlement } from "@harness-anything/kernel";
@@ -17,6 +17,8 @@ export function applyCanonicalTree(input: {
   readonly changedPaths?: readonly string[];
   readonly selectedPaths?: readonly string[];
   readonly preview?: boolean;
+  readonly acceptedRetired?: ReadonlyMap<string, string>;
+  readonly readHistoricalDocument?: (logical: string) => { readonly blobSha256: string } | null;
   readonly readContent: (logical: string) => Uint8Array | null;
   readonly withFence?: WriteFence;
   readonly requirePreviousPaths?: (paths: readonly string[]) => void;
@@ -91,6 +93,31 @@ export function applyCanonicalTree(input: {
     if (!input.preview) removeFileDurably(target, input.withFence);
     delete entries[logical];
   }
+  const coldDecisionPass = !input.selectedPaths && (!hasMaterializationBaseline || !input.changedPaths),
+    historicalCandidates = new Map<string, string>();
+  if (input.acceptedRetired)
+    for (const [logical, expectedSha] of input.acceptedRetired) {
+      if (selected && !selected.has(logical)) continue;
+      if (input.entries.has(logical) || Object.hasOwn(previous.entries, logical)) continue;
+      historicalCandidates.set(logical, expectedSha);
+    }
+  if (coldDecisionPass && input.readHistoricalDocument)
+    for (const logical of decisionDirectoryFiles(input.layout.decisionsRoot)) {
+      if (input.entries.has(logical) || Object.hasOwn(previous.entries, logical) || historicalCandidates.has(logical))
+        continue;
+      const historical = input.readHistoricalDocument(logical);
+      if (historical) historicalCandidates.set(logical, historical.blobSha256);
+    }
+  for (const [logical, expectedSha] of historicalCandidates) {
+    const target = path.join(root, ...logical.split("/"));
+    if (!existsSync(target) || !lstatSync(target).isFile()) continue;
+    if (sha256Bytes(readFileSync(target)) !== expectedSha) {
+      dirtyPaths.push(logical);
+      continue;
+    }
+    settlements.push({ path: logical, action: "delete", copy: null });
+    if (!input.preview) removeFileDurably(target, input.withFence);
+  }
   if (!input.preview) {
     const taskDirectories = new Set<string>();
     for (const row of settlements)
@@ -106,9 +133,8 @@ export function applyCanonicalTree(input: {
       [
         ...decisionDirectoryRetirements(
           settlements.filter(({ action }) => action === "delete").map(({ path }) => path),
-          !input.selectedPaths && (!hasMaterializationBaseline || !input.changedPaths)
-            ? input.layout.decisionsRoot
-            : undefined,
+          input.layout.decisionsRoot,
+          { cold: coldDecisionPass },
         ),
         ...taskDirectories,
       ].sort((a, b) => b.split("/").length - a.split("/").length),
