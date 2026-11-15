@@ -399,6 +399,29 @@ describe("causal journey", () => {
     }
     expect(container.textContent).not.toContain("sibling");
   });
+  // dec_4AEEEB88AB4BB75474915BAC5C CH2 owner rework: preserve the three-node first view
+  // in a 600px host. Real CSS/container layout is additionally measured in hidden Electron.
+  it("fits creation, R1 and submission with trailing space inside the narrow host budget", async () => {
+    const journey = buildTaskJourney({
+      task: task({
+        events: [event("start", 9, "execution/e1"), event("submit", 10, "execution/e1")],
+        blockers: [],
+        canonicalStatus: "submitted",
+        coordinationStatus: "submitted",
+        closeoutBlocker: undefined,
+      }),
+      dispatches: [],
+      nowMs: Date.parse(at(16)),
+    });
+    const container = await render(<TaskJourneyGraph journey={journey} />);
+    const nodes = [...container.querySelectorAll<HTMLButtonElement>("[data-journey-kind]")];
+    expect(nodes.map((node) => node.getAttribute("data-journey-kind"))).toEqual(["creation", "execution", "submit"]);
+    const right = Math.max(...nodes.map((node) => parseFloat(node.style.left) + parseFloat(node.style.width)));
+    const canvas = nodes[0]!.parentElement!.parentElement!;
+    expect(right).toBeLessThanOrEqual(584);
+    expect(parseFloat(canvas.style.minWidth) - right).toBeGreaterThanOrEqual(8);
+  });
+
   it("keeps absent contextual slots empty", () => {
     const journey = buildTaskJourney({ task: task({ blockers: [], events: [] }), dispatches: [], nowMs: 0 });
     expect(journey.upstream).toEqual([]);

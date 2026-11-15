@@ -646,6 +646,8 @@ describe("Agenda unified Inbox / Outbox workbench", () => {
     );
     expect(find("agenda-entity-focus").getAttribute("data-focus-ref")).toBe("task/a");
     expect(find("task-journey-graph")).toBeTruthy();
+    // dec_4AEEEB88AB4BB75474915BAC5C CH3 owner rework: the focus toolbar owns this action.
+    expect(find("agenda-entity-focus").querySelectorAll('[data-testid="view-in-graph-button"]')).toHaveLength(1);
     act(() =>
       find("agenda-entity-focus").querySelector<HTMLButtonElement>('[data-testid="view-in-graph-button"]')!.click(),
     );
@@ -653,6 +655,7 @@ describe("Agenda unified Inbox / Outbox workbench", () => {
     expect(host.querySelector('[data-testid="focal-graph-wiring"]')).toBeNull();
     click("agenda-focus-neighborhood");
     expect(find("focal-graph-wiring").getAttribute("data-focus-ref")).toBe("task/a");
+    expect(find("agenda-entity-focus").querySelectorAll('[data-testid="view-in-graph-button"]')).toHaveLength(1);
     expect(find("focal-graph-wiring").getAttribute("data-hops")).toBe('{"up":1,"down":1}');
     key("j");
     expect(find("agenda-entity-focus").getAttribute("data-focus-ref")).toBe("task/b");

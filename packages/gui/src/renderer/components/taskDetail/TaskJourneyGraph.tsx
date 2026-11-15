@@ -19,7 +19,7 @@ const CLOSEOUT_LABEL_KEY: Readonly<Record<NonNullable<TaskJourneyNode["closeoutB
   lineage: "components.taskJourney.lineage",
   projection_unknown: "components.taskJourney.projectionUnknown",
 };
-const LABEL_WIDTH = 112;
+const LABEL_WIDTH = 88;
 const yOf = (node: TaskJourneyNode) => (node.lane === "control" ? 14 : 154);
 const CONTEXT_LABEL: Partial<Record<TaskJourneyNode["kind"], MessageKey>> = {
   parent: "components.taskJourney.parent",
@@ -76,19 +76,21 @@ export function TaskJourneyGraph({
   }, [selectedId]);
   const markerId = useId().replace(/:/gu, "");
   const { enabled, reduced } = useEntryMotion();
-  const nodeWidth = 180;
+  const nodeWidth = 148;
   const height = Math.max(
     290,
     ...journey.nodes.map((node) => yOf(node) + 84 + (attachments.get(node.id)?.length ?? 0) * 36),
   );
-  const step = nodeWidth + 24;
-  const width = LABEL_WIDTH + journey.nodes.length * step - 24;
+  const step = nodeWidth + 16;
+  const width = LABEL_WIDTH + journey.nodes.length * step - 16 + 8;
   const positions = new Map(
     journey.nodes.map((node, index) => [node.id, { x: LABEL_WIDTH + index * step, y: yOf(node) }]),
   );
   return (
-    <div data-testid="task-journey-graph" className="min-w-0">
-      <div className="grid min-w-0 grid-cols-1 gap-3 xl:grid-cols-[minmax(9rem,0.65fr)_minmax(0,3fr)_minmax(9rem,0.65fr)]">
+    <div data-testid="task-journey-graph" className="@container min-w-0">
+      <div
+        className={`grid min-w-0 grid-cols-1 gap-3 @[832px]:grid-cols-[var(--upstream)_minmax(0,5fr)_var(--downstream)] ${journey.upstream.length ? "[--upstream:minmax(7rem,1fr)]" : "[--upstream:minmax(4.5rem,auto)]"} ${journey.downstream.length ? "[--downstream:minmax(7rem,1fr)]" : "[--downstream:minmax(4.5rem,auto)]"}`}
+      >
         <ContextColumn
           title={t("components.taskJourney.upstream")}
           items={journey.upstream}
@@ -97,7 +99,10 @@ export function TaskJourneyGraph({
           onNavigateEntity={onNavigateEntity}
           targetId="creation"
         />
-        <section className="min-w-0 border-x border-border px-2" aria-label={t("components.taskJourney.rounds")}>
+        <section
+          className="min-w-0 border-border @[832px]:border-x @[832px]:px-1"
+          aria-label={t("components.taskJourney.rounds")}
+        >
           <h3 className="mb-3 ui-meta font-semibold text-text-muted">{t("components.taskJourney.rounds")}</h3>
           <div className={`max-w-full overflow-x-auto ${enabled && !reduced ? "motion-safe:scroll-smooth" : ""}`}>
             <div className="relative" style={{ width: "100%", minWidth: width, height }}>
@@ -258,19 +263,22 @@ function ContextColumn({
   readonly sourceId?: string;
 }) {
   return (
-    <section className="min-w-0" aria-label={title}>
-      <h3 className="mb-3 ui-meta font-semibold text-text-muted">{title}</h3>
-      <div className="flex flex-col gap-3">
+    <section
+      className={`min-w-0 ${items.length === 0 ? "flex items-center gap-2 @[832px]:block" : ""}`}
+      aria-label={title}
+    >
+      <h3 className={`${items.length ? "mb-3" : "@[832px]:mb-3"} ui-meta font-semibold text-text-muted`}>{title}</h3>
+      <div className="flex flex-wrap gap-3 @[832px]:flex-col">
         {items.length === 0 && <span className="ui-meta text-text-faint">—</span>}
         {items.map((item) => (
           <article
             key={item.id}
-            className="relative min-w-0 rounded-sm border border-border p-2"
+            className="relative w-40 min-w-0 max-w-full rounded-sm border border-border p-2 @[832px]:w-auto"
             data-journey-anchor={item.entityRef}
           >
             <span
               aria-hidden="true"
-              className={`absolute text-text-muted ${targetId ? "bottom-0 right-2 rotate-90 xl:bottom-auto xl:-right-3 xl:top-5 xl:rotate-0" : "right-2 top-0 rotate-90 xl:right-auto xl:-left-3 xl:top-5 xl:rotate-0"}`}
+              className={`absolute text-text-muted ${targetId ? "bottom-0 right-2 rotate-90 @[832px]:bottom-auto @[832px]:-right-3 @[832px]:top-5 @[832px]:rotate-0" : "right-2 top-0 rotate-90 @[832px]:right-auto @[832px]:-left-3 @[832px]:top-5 @[832px]:rotate-0"}`}
               data-causal-from={targetId ? item.id : sourceId}
               data-causal-to={targetId ?? item.id}
             >

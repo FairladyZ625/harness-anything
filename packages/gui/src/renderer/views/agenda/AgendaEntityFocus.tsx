@@ -46,13 +46,7 @@ export function AgendaEntityFocus({
       </div>
       {isTask && mode === "journey" ? (
         task ? (
-          <TaskCausalTimeline
-            key={focusRef}
-            task={task}
-            tasks={tasks}
-            onNavigateEntity={onNavigateEntity}
-            onFocusGraph={onFocusGraph}
-          />
+          <TaskCausalTimeline key={focusRef} task={task} tasks={tasks} onNavigateEntity={onNavigateEntity} />
         ) : (
           <p role="status" className="ui-meta text-text-muted">
             {t("views.agenda.tasksPending")}
