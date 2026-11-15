@@ -17,6 +17,7 @@ import {
 } from "./task-completion-review.fixture.ts";
 import { reviewDispatchKey } from "../src/task-review-dispatch.ts";
 import { dispatchStreamPath } from "../src/dispatch-stream.ts";
+import { createMultiVendorHarness, multiVendorReviewerOwner } from "./fixtures/reviewer-cross-vendor-lru.ts";
 
 type ChildFixture = Awaited<ReturnType<typeof fixture>>;
 
@@ -1092,6 +1093,275 @@ test("a resumed submit of an already-reviewed cut keeps the registered review", 
     await f.close();
   }
 });
+
+function latestReviewerDispatchFor(h: Awaited<ReturnType<typeof createMultiVendorHarness>>, id: string) {
+  return h
+    .events()
+    .filter((e) => e.type === "runtime_dispatch_requested" && e.payload.taskId === id && e.payload.role === "reviewer")
+    .at(-1)!;
+}
+
+test(
+  "first task review avoids impl vendor, rotates cross-row LRU, and falls back to same-vendor when exhausted",
+  { timeout: 90_000 },
+  async () => {
+    const h = await createMultiVendorHarness();
+    try {
+      await h.installAgents();
+
+      // Task 1: impl on agy-1 (google) -> avoids google -> picks deepseek-1 (row 1).
+      const t1 = await h.createAndImplementTask("task-v1", "exe-v1-1", "agy-1", "impl-v1-1");
+      await h.submitCut("task-v1", "exe-v1-1");
+      const r1 = latestReviewerDispatchFor(h, "task-v1");
+      assert.equal(r1.payload.instanceId, "deepseek-1");
+      assert.equal(r1.payload.definitionSnapshot?.model, "deepseek-v4.1-flash");
+      await h.recordReviewVerdict(
+        "task-v1",
+        t1.packagePath,
+        "exe-v1-1",
+        r1.payload.dispatchId,
+        r1.payload.runtimeSessionId,
+        "approved",
+      );
+      await h.settleLast(r1.payload.runtimeSessionId, { bindSession: true });
+
+      // Task 2: impl on agy-1 (google) -> avoids google -> LRU rotates from deepseek-1 to codex-1.
+      const t2 = await h.createAndImplementTask("task-v2", "exe-v2-1", "agy-1", "impl-v2-1");
+      await h.submitCut("task-v2", "exe-v2-1");
+      const r2 = latestReviewerDispatchFor(h, "task-v2");
+      assert.equal(r2.payload.instanceId, "codex-1");
+      assert.equal(r2.payload.definitionSnapshot?.model, "gpt-5.4");
+      await h.recordReviewVerdict(
+        "task-v2",
+        t2.packagePath,
+        "exe-v2-1",
+        r2.payload.dispatchId,
+        r2.payload.runtimeSessionId,
+        "approved",
+      );
+      await h.settleLast(r2.payload.runtimeSessionId, { bindSession: true });
+
+      // Task 3: impl on codex-1 (openai) -> avoids openai -> picks deepseek-1 (older recency than agy-1 from impl-v2-1).
+      const t3 = await h.createAndImplementTask("task-v3", "exe-v3-1", "codex-1", "impl-v3-1");
+      await h.submitCut("task-v3", "exe-v3-1");
+      const r3 = latestReviewerDispatchFor(h, "task-v3");
+      assert.equal(r3.payload.instanceId, "deepseek-1");
+      assert.equal(r3.payload.definitionSnapshot?.model, "deepseek-v4.1-flash");
+      await h.recordReviewVerdict(
+        "task-v3",
+        t3.packagePath,
+        "exe-v3-1",
+        r3.payload.dispatchId,
+        r3.payload.runtimeSessionId,
+        "approved",
+      );
+      await h.settleLast(r3.payload.runtimeSessionId, { bindSession: true });
+
+      // All heterogeneous reviewers disabled -> Task 4 implemented on agy-1 falls back smoothly to same-vendor agy-1.
+      h.instanceState["deepseek-1"] = false;
+      h.instanceState["codex-1"] = false;
+      const t5 = await h.createAndImplementTask("task-v5", "exe-v5-1", "agy-1", "impl-v5-1");
+      await h.submitCut("task-v5", "exe-v5-1");
+      const r5 = latestReviewerDispatchFor(h, "task-v5");
+      assert.equal(r5.payload.instanceId, "agy-1");
+      await h.recordReviewVerdict(
+        "task-v5",
+        t5.packagePath,
+        "exe-v5-1",
+        r5.payload.dispatchId,
+        r5.payload.runtimeSessionId,
+        "approved",
+      );
+      await h.settleLast(r5.payload.runtimeSessionId, { bindSession: true });
+    } finally {
+      await h.close();
+    }
+  },
+);
+
+test(
+  "same-task rework keeps non-resume reviewer instance/model across intervening tasks and falls back when disabled",
+  { timeout: 90_000 },
+  async () => {
+    const h = await createMultiVendorHarness(),
+      actorOwner = multiVendorReviewerOwner;
+    try {
+      await h.installAgents();
+
+      // Task 1 R1: impl on agy-1 (google) -> picks non-resume deepseek-1; settles without providerSessionId.
+      const t1 = await h.createAndImplementTask("task-v1", "exe-v1-1", "agy-1", "impl-v1-1");
+      await h.submitCut("task-v1", "exe-v1-1");
+      const r1 = latestReviewerDispatchFor(h, "task-v1");
+      assert.equal(r1.payload.instanceId, "deepseek-1");
+      assert.equal(r1.payload.definitionSnapshot?.model, "deepseek-v4.1-flash");
+      await h.recordReviewVerdict(
+        "task-v1",
+        t1.packagePath,
+        "exe-v1-1",
+        r1.payload.dispatchId,
+        r1.payload.runtimeSessionId,
+        "changes_requested",
+      );
+      await h.settleLast(r1.payload.runtimeSessionId, { bindSession: false });
+
+      // Intervening Task 2 touches codex-1 recency without disturbing Task 1's rework affinity.
+      const t2 = await h.createAndImplementTask("task-v2", "exe-v2-1", "agy-1", "impl-v2-1");
+      await h.submitCut("task-v2", "exe-v2-1");
+      const r2 = latestReviewerDispatchFor(h, "task-v2");
+      assert.equal(r2.payload.instanceId, "codex-1");
+      await h.recordReviewVerdict(
+        "task-v2",
+        t2.packagePath,
+        "exe-v2-1",
+        r2.payload.dispatchId,
+        r2.payload.runtimeSessionId,
+        "approved",
+      );
+      await h.settleLast(r2.payload.runtimeSessionId, { bindSession: true });
+
+      // Round 2 rework on Task 1 (non-resume deepseek-1) preserves round 1 instance & model.
+      assert.equal(
+        (await h.cell.run({ kind: "task-start", taskId: "task-v1", executionId: "exe-v1-2" }, actorOwner)).outcome,
+        "applied",
+      );
+      await h.submitCut("task-v1", "exe-v1-2");
+      const r1Round2 = latestReviewerDispatchFor(h, "task-v1");
+      assert.equal(r1Round2.payload.instanceId, "deepseek-1");
+      assert.equal(r1Round2.payload.definitionSnapshot?.model, "deepseek-v4.1-flash");
+      assert.equal(r1Round2.payload.resumedFromDispatchId, undefined);
+      await h.recordReviewVerdict(
+        "task-v1",
+        t1.packagePath,
+        "exe-v1-2",
+        r1Round2.payload.dispatchId,
+        r1Round2.payload.runtimeSessionId,
+        "changes_requested",
+      );
+      await h.settleLast(r1Round2.payload.runtimeSessionId, { bindSession: false });
+
+      // Disable deepseek-1 -> Round 3 rework on Task 1 falls back cleanly to ready pool (codex-1).
+      h.instanceState["deepseek-1"] = false;
+      assert.equal(
+        (await h.cell.run({ kind: "task-start", taskId: "task-v1", executionId: "exe-v1-3" }, actorOwner)).outcome,
+        "applied",
+      );
+      await h.submitCut("task-v1", "exe-v1-3");
+      const r1Round3 = latestReviewerDispatchFor(h, "task-v1");
+      assert.equal(r1Round3.payload.instanceId, "codex-1");
+      assert.equal(r1Round3.payload.definitionSnapshot?.model, "gpt-5.4");
+      await h.recordReviewVerdict(
+        "task-v1",
+        t1.packagePath,
+        "exe-v1-3",
+        r1Round3.payload.dispatchId,
+        r1Round3.payload.runtimeSessionId,
+        "approved",
+      );
+      await h.settleLast(r1Round3.payload.runtimeSessionId, { bindSession: false });
+    } finally {
+      await h.close();
+    }
+  },
+);
+
+test(
+  "same-task rework preserves instance/model on :resume-fallback and honors explicit manual override",
+  { timeout: 90_000 },
+  async () => {
+    const h = await createMultiVendorHarness(),
+      actorOwner = multiVendorReviewerOwner;
+    try {
+      await h.installAgents();
+
+      // Impl on codex-1 (openai) -> avoids openai -> picks agy-1 (row 0 tie-breaker) R1.
+      const t = await h.createAndImplementTask("task-resume-fallback", "exe-rf-1", "codex-1", "impl-rf-1");
+      await h.submitCut("task-resume-fallback", "exe-rf-1");
+      const rf1 = latestReviewerDispatchFor(h, "task-resume-fallback");
+      assert.equal(rf1.payload.instanceId, "agy-1");
+      await h.recordReviewVerdict(
+        "task-resume-fallback",
+        t.packagePath,
+        "exe-rf-1",
+        rf1.payload.dispatchId,
+        rf1.payload.runtimeSessionId,
+        "changes_requested",
+      );
+      await h.settleLast(rf1.payload.runtimeSessionId, { bindSession: true });
+
+      // Simulate runtime_resume_failed -> :resume-fallback keeps agy-1 & gemini-3.1-pro-high.
+      h.setFailNextResume(true);
+      assert.equal(
+        (await h.cell.run({ kind: "task-start", taskId: "task-resume-fallback", executionId: "exe-rf-2" }, actorOwner))
+          .outcome,
+        "applied",
+      );
+      await h.submitCut("task-resume-fallback", "exe-rf-2");
+      const rfFallback = latestReviewerDispatchFor(h, "task-resume-fallback");
+      assert.match(rfFallback.payload.dispatchKey, /:resume-fallback$/u);
+      assert.equal(rfFallback.payload.instanceId, "agy-1");
+      assert.equal(rfFallback.payload.definitionSnapshot?.model, "gemini-3.1-pro-high");
+      await h.recordReviewVerdict(
+        "task-resume-fallback",
+        t.packagePath,
+        "exe-rf-2",
+        rfFallback.payload.dispatchId,
+        rfFallback.payload.runtimeSessionId,
+        "changes_requested",
+      );
+      await h.settleLast(rfFallback.payload.runtimeSessionId, { bindSession: false });
+
+      // Explicit manual override (--instance codex-1 --model gpt-5.4) via task-dispatch-review wins over round affinity & avoidVendor.
+      assert.equal(
+        (await h.cell.run({ kind: "task-start", taskId: "task-resume-fallback", executionId: "exe-rf-3" }, actorOwner))
+          .outcome,
+        "applied",
+      );
+      const maintainer = withPolicyGroup(
+        { actor: { principal: actorOwner.actor.principal, executor: null }, source: "local" },
+        "maintainer",
+      );
+      assert.equal(
+        (
+          await h.cell.run(
+            {
+              kind: "settings-update",
+              roles: { defaultReviewer: "missing-reviewer" },
+              dispatchKey: "defer-auto-review",
+            },
+            maintainer,
+          )
+        ).outcome,
+        "applied",
+      );
+      await h.submitCut("task-resume-fallback", "exe-rf-3");
+      const manual = await h.cell.run(
+        {
+          kind: "task-dispatch-review",
+          taskIds: ["task-resume-fallback"],
+          agentId: "closeout-reviewer",
+          runtimeInstanceId: "codex-1",
+          model: "gpt-5.4",
+        },
+        maintainer,
+      );
+      assert.equal(manual.outcome, "applied", JSON.stringify(manual));
+      const explicitDispatch = latestReviewerDispatchFor(h, "task-resume-fallback");
+      assert.equal(explicitDispatch.payload.instanceId, "codex-1");
+      assert.equal(explicitDispatch.payload.definitionSnapshot?.model, "gpt-5.4");
+      await h.recordReviewVerdict(
+        "task-resume-fallback",
+        t.packagePath,
+        "exe-rf-3",
+        explicitDispatch.payload.dispatchId,
+        explicitDispatch.payload.runtimeSessionId,
+        "approved",
+      );
+      await h.settleLast(explicitDispatch.payload.runtimeSessionId, { bindSession: true });
+    } finally {
+      await h.close();
+    }
+  },
+);
 
 // Keep this last: it revokes runtime-spawn for the rest of this test file's policy realm.
 test("automatic submit dispatch cannot lend its authorization decision to runtime-spawn", async () => {

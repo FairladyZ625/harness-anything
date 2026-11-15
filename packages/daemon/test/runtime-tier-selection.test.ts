@@ -251,3 +251,258 @@ for (const selectionStrategy of ["sticky", "lru"] as const) {
     );
   });
 }
+
+test("cross-row lru rotates across heterogeneous runtime rows while sticky preserves row priority", async () => {
+  const pool: readonly RuntimeInstanceSummary[] = [
+    { ...instance("agy-1", 1, ["gemini-3.1-pro-high"]), kindId: "agy" },
+    { ...instance("deepseek-1", 1, ["deepseek-v4.1-flash"]), kindId: "deepseek-harness" },
+    { ...instance("codex-1", 1, ["gpt-5.4"]), kindId: "codex" },
+  ];
+  const baseAgent = {
+    id: "closeout-reviewer",
+    name: "Closeout Reviewer",
+    instructions: "Review",
+    runtimes: [
+      { type: "agy", model: "gemini-3.1-pro-high" },
+      { type: "deepseek-harness", model: "deepseek-v4.1-flash" },
+      { type: "codex", model: "gpt-5.4" },
+    ],
+  };
+  const lruLastDispatched = new Map<string, number>();
+  let sequence = 0;
+  const lruState = {
+    ...createRuntimeInstanceDispatchState(),
+    lastDispatchedAt: lruLastDispatched,
+    recordDispatch: (id: string) => {
+      lruLastDispatched.set(id, ++sequence);
+    },
+  };
+  const lruOrder: string[] = [];
+  for (let i = 0; i < 4; i++) {
+    const selected = await prepareRuntimeInstance(
+      {
+        agent: { ...baseAgent, selectionStrategy: "lru" },
+        instances: pool,
+        sessions: [],
+        allowedInstanceIds: pool.map((row) => row.instanceId),
+        dispatchState: lruState,
+        now,
+      },
+      async (id) => id,
+    );
+    lruOrder.push(selected.instanceId);
+  }
+  assert.deepEqual(lruOrder, ["agy-1", "deepseek-1", "codex-1", "agy-1"]);
+
+  const stickyLastDispatched = new Map<string, number>();
+  let stickySeq = 0;
+  const stickyState = {
+    ...createRuntimeInstanceDispatchState(),
+    lastDispatchedAt: stickyLastDispatched,
+    recordDispatch: (id: string) => {
+      stickyLastDispatched.set(id, ++stickySeq);
+    },
+  };
+  const stickyOrder: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    const selected = await prepareRuntimeInstance(
+      {
+        agent: { ...baseAgent, selectionStrategy: "sticky" },
+        instances: pool,
+        sessions: [],
+        allowedInstanceIds: pool.map((row) => row.instanceId),
+        dispatchState: stickyState,
+        now,
+      },
+      async (id) => id,
+    );
+    stickyOrder.push(selected.instanceId);
+  }
+  assert.deepEqual(stickyOrder, ["agy-1", "agy-1", "agy-1"]);
+});
+
+test("first-review avoidVendor avoids same vendor within same tier, rotates heterogeneous pool, and falls back smoothly", async () => {
+  const pool: readonly RuntimeInstanceSummary[] = [
+    { ...instance("agy-1", 1, ["gemini-3.1-pro-high"]), kindId: "agy" },
+    { ...instance("deepseek-1", 1, ["deepseek-v4.1-flash"]), kindId: "deepseek-harness" },
+    { ...instance("codex-1", 1, ["gpt-5.4"]), kindId: "codex" },
+  ];
+  const multiReviewer = {
+    id: "closeout-reviewer",
+    name: "Closeout Reviewer",
+    instructions: "Review",
+    selectionStrategy: "lru" as const,
+    runtimes: [
+      { type: "agy", model: "gemini-3.1-pro-high" },
+      { type: "deepseek-harness", model: "deepseek-v4.1-flash" },
+      { type: "codex", model: "gpt-5.4" },
+    ],
+  };
+  // Google implementation -> avoid google (agy-1), rotate between deepseek-1 and codex-1
+  const makeState = () => {
+    const lastDispatchedAt = new Map<string, number>();
+    let seq = 0;
+    return {
+      ...createRuntimeInstanceDispatchState(),
+      lastDispatchedAt,
+      recordDispatch: (id: string) => {
+        lastDispatchedAt.set(id, ++seq);
+      },
+    };
+  };
+  const googleImplState = makeState();
+  const googleAvoided: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    googleAvoided.push(
+      (
+        await prepareRuntimeInstance(
+          {
+            agent: multiReviewer,
+            avoidVendor: "google",
+            instances: pool,
+            sessions: [],
+            allowedInstanceIds: pool.map((row) => row.instanceId),
+            dispatchState: googleImplState,
+            now,
+          },
+          async (id) => id,
+        )
+      ).instanceId,
+    );
+  }
+  assert.deepEqual(googleAvoided, ["deepseek-1", "codex-1", "deepseek-1"]);
+
+  // OpenAI implementation -> avoid openai (codex-1), rotate between agy-1 and deepseek-1
+  const openaiImplState = makeState();
+  const openaiAvoided: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    openaiAvoided.push(
+      (
+        await prepareRuntimeInstance(
+          {
+            agent: multiReviewer,
+            avoidVendor: "openai",
+            instances: pool,
+            sessions: [],
+            allowedInstanceIds: pool.map((row) => row.instanceId),
+            dispatchState: openaiImplState,
+            now,
+          },
+          async (id) => id,
+        )
+      ).instanceId,
+    );
+  }
+  assert.deepEqual(openaiAvoided, ["agy-1", "deepseek-1", "agy-1"]);
+
+  // Smooth fallback to same-vendor when all heterogeneous instances are disabled/cooling
+  assert.deepEqual(
+    resolveRuntimeInstanceCandidates({
+      agent: multiReviewer,
+      avoidVendor: "google",
+      instances: [pool[0]!, { ...pool[1]!, enabled: false }, pool[2]!],
+      sessions: [],
+      allowedInstanceIds: ["agy-1", "deepseek-1", "codex-1"],
+      health: [cooling("codex-1")],
+      now,
+    }),
+    ["agy-1"],
+  );
+
+  // Higher tier (tier 1) still precedes same-tier avoidVendor preference over tier 2
+  assert.deepEqual(
+    resolveRuntimeInstanceCandidates({
+      agent: multiReviewer,
+      avoidVendor: "google",
+      instances: [pool[0]!, { ...pool[1]!, tier: 2 }, { ...pool[2]!, tier: 2 }],
+      sessions: [],
+      allowedInstanceIds: ["agy-1", "deepseek-1", "codex-1"],
+      now,
+    }),
+    ["agy-1", "deepseek-1", "codex-1"],
+  );
+});
+
+test("preferredInstanceId soft affinity beats LRU and avoidVendor, falls back when unavailable, and yields to explicit overrides", () => {
+  const pool: readonly RuntimeInstanceSummary[] = [
+    { ...instance("agy-1", 1, ["gemini-3.1-pro-high"]), kindId: "agy" },
+    { ...instance("deepseek-1", 1, ["deepseek-v4.1-flash"]), kindId: "deepseek-harness" },
+    { ...instance("codex-1", 1, ["gpt-5.4"]), kindId: "codex" },
+  ];
+  const multiReviewer = {
+    id: "closeout-reviewer",
+    name: "Closeout Reviewer",
+    instructions: "Review",
+    selectionStrategy: "lru" as const,
+    runtimes: [
+      { type: "agy", model: "gemini-3.1-pro-high" },
+      { type: "deepseek-harness", model: "deepseek-v4.1-flash" },
+      { type: "codex", model: "gpt-5.4" },
+    ],
+  };
+  const dispatchState = {
+    ...createRuntimeInstanceDispatchState(),
+    lastDispatchedAt: new Map([
+      ["deepseek-1", 10],
+      ["codex-1", 1],
+    ]),
+    recordDispatch: () => {},
+  };
+  // Soft affinity keeps deepseek-1 ahead of fresher codex-1 and even if avoidVendor="deepseek"
+  assert.deepEqual(
+    resolveRuntimeInstanceCandidates({
+      agent: multiReviewer,
+      preferredInstanceId: "deepseek-1",
+      avoidVendor: "google",
+      instances: pool,
+      sessions: [],
+      allowedInstanceIds: ["agy-1", "deepseek-1", "codex-1"],
+      dispatchState,
+      now,
+    }),
+    ["deepseek-1", "codex-1", "agy-1"],
+  );
+  // Unavailable preferredInstanceId smoothly falls back to heterogeneous pool
+  assert.deepEqual(
+    resolveRuntimeInstanceCandidates({
+      agent: multiReviewer,
+      preferredInstanceId: "deepseek-1",
+      avoidVendor: "google",
+      instances: pool,
+      sessions: [],
+      allowedInstanceIds: ["agy-1", "deepseek-1", "codex-1"],
+      health: [cooling("deepseek-1")],
+      dispatchState,
+      now,
+    }),
+    ["codex-1", "agy-1"],
+  );
+  // Explicit --instance or --model or agent.instance ignores soft hints
+  assert.deepEqual(
+    resolveRuntimeInstanceCandidates({
+      agent: multiReviewer,
+      requested: "agy-1",
+      explicitlyRequested: true,
+      preferredInstanceId: "deepseek-1",
+      avoidVendor: "google",
+      instances: pool,
+      sessions: [],
+      allowedInstanceIds: ["agy-1", "deepseek-1", "codex-1"],
+      now,
+    }),
+    ["agy-1"],
+  );
+  assert.deepEqual(
+    resolveRuntimeInstanceCandidates({
+      agent: { ...multiReviewer, instance: "agy-1" },
+      requested: "agy-1",
+      preferredInstanceId: "deepseek-1",
+      avoidVendor: "google",
+      instances: pool,
+      sessions: [],
+      allowedInstanceIds: ["agy-1", "deepseek-1", "codex-1"],
+      now,
+    }),
+    ["agy-1"],
+  );
+});

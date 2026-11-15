@@ -9,6 +9,7 @@ import {
   currentSubmittedExecutions,
   historicalReadConclusions,
   resolveHarnessLayout,
+  runtimeSessionIdFromActor,
   submissionDigest,
   decisionReviewContentDigest,
   documentWorkspacePath,
@@ -38,7 +39,7 @@ import {
 } from "./review-prompt-guidance.ts";
 import { selectReviewSeat, type ReviewSeat, type ReviewSeatSelection } from "./review-panel.ts";
 import { reviewPathSeatPrompt } from "./review-path-matching.ts";
-import { runtimeKindForId } from "./runtime-inventory.ts";
+import { runtimeKindForId, runtimeVendorForKind } from "./runtime-inventory.ts";
 import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
 import { DecisionReviewContentConflictError } from "./repo-cell-errors.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
@@ -130,6 +131,15 @@ export function nodeReviewDispatchCandidate(
     return null;
   if (existing !== null || activeCutReviewDispatches(cell, input.taskId, execution).length > 0) return null;
   const seatPrompt = selection.seat.source === "path" ? `\n${reviewPathSeatPrompt({ seat: selection.seat })}` : "";
+  const selectionHints = taskReviewSelectionHints(cell, {
+    taskId: input.taskId,
+    executionId: execution.executionId,
+    reviewerId,
+    dispatchKey: key,
+    packagePath: read.packagePath,
+    explicitInstanceId: intent?.runtimeInstanceId,
+    explicitModel: intent?.model,
+  });
   const payload = {
     agentId: resolved.declaration.id,
     role: "reviewer",
@@ -148,6 +158,7 @@ export function nodeReviewDispatchCandidate(
         reviewerNodeId: input.requiredNodeId,
         reverify,
       }) + seatPrompt,
+    ...selectionHints,
     ...(intent?.runtimeInstanceId ? { runtimeInstanceId: intent.runtimeInstanceId } : {}),
     ...(intent?.model ? { model: intent.model } : {}),
     ...(intent?.effort ? { effort: intent.effort } : {}),
@@ -331,8 +342,38 @@ type ReviewerContinuation = {
   readonly dispatchId: string;
   readonly reportRef: string;
   readonly resume: boolean;
+  readonly instanceId: string;
+  readonly model?: string;
   readonly review?: ReviewV1;
 };
+
+function completedReviewerDispatchesForTask(
+  cell: RepoCellOperationalContext,
+  input: {
+    readonly taskId: string;
+    readonly reviewerId: string;
+    readonly dispatchKey: string;
+  },
+) {
+  if (typeof cell.projection.readRuntimeDispatchesByTaskIds !== "function") return [];
+  const lanePrefix = `task-review-lane:${input.reviewerId}:${input.taskId}:`,
+    seatPrefix = `task-review:${input.taskId}:`;
+  return cell.projection
+    .readRuntimeDispatchesByTaskIds([input.taskId])
+    .filter((row) => {
+      const payload = row.payload;
+      return (
+        payload.role === "reviewer" &&
+        payload.taskId === input.taskId &&
+        payload.agentId === input.reviewerId &&
+        typeof payload.dispatchKey === "string" &&
+        (payload.dispatchKey.startsWith(seatPrefix) || payload.dispatchKey.startsWith(lanePrefix)) &&
+        payload.dispatchKey !== input.dispatchKey &&
+        reviewAttemptEnded(cell, payload.runtimeSessionId)
+      );
+    })
+    .sort((left, right) => String(right.payload.startedAt ?? "").localeCompare(String(left.payload.startedAt ?? "")));
+}
 
 /**
  * Find the latest completed reviewer round for exactly one task and reviewer. Historical path-lane
@@ -347,31 +388,17 @@ function previousReviewerContinuation(
     readonly packagePath: string;
   },
 ): ReviewerContinuation | null {
-  const lanePrefix = `task-review-lane:${input.reviewerId}:${input.taskId}:`,
-    seatPrefix = `task-review:${input.taskId}:`;
-  const candidates = cell.projection
-    .readRuntimeDispatchesByTaskIds([input.taskId])
-    .filter((row) => {
-      const payload = row.payload;
-      const reportRef = `${input.packagePath}/artifacts/reports/${payload.dispatchId}.md`;
-      return (
-        payload.role === "reviewer" &&
-        payload.taskId === input.taskId &&
-        payload.agentId === input.reviewerId &&
-        typeof payload.dispatchKey === "string" &&
-        (payload.dispatchKey.startsWith(seatPrefix) || payload.dispatchKey.startsWith(lanePrefix)) &&
-        payload.dispatchKey !== input.dispatchKey &&
-        reviewAttemptEnded(cell, payload.runtimeSessionId) &&
-        cell.projection.readDocument(reportRef).document !== null
-      );
-    })
-    .sort((left, right) => String(right.payload.startedAt ?? "").localeCompare(String(left.payload.startedAt ?? "")));
-  const previous = candidates[0];
+  if (typeof cell.projection.readDocument !== "function") return null;
+  const previous = completedReviewerDispatchesForTask(cell, input).find((row) => {
+    const reportRef = `${input.packagePath}/artifacts/reports/${row.payload.dispatchId}.md`;
+    return cell.projection.readDocument(reportRef).document !== null;
+  });
   if (!previous) return null;
   const payload = previous.payload,
     session = cell.projection.readRuntimeSession(payload.runtimeSessionId),
     declaration = session === null ? null : runtimeKindForId(session.kindId),
-    canResume = Boolean(session?.providerSessionId && declaration?.declaredCapabilities.includes("resume"));
+    canResume = Boolean(session?.providerSessionId && declaration?.declaredCapabilities.includes("resume")),
+    previousModel = payload.definitionSnapshot?.model;
   const reportRef = `${input.packagePath}/artifacts/reports/${payload.dispatchId}.md`;
   const review = cell.projection
     .read(input.taskId)
@@ -384,7 +411,108 @@ function previousReviewerContinuation(
     dispatchId: payload.dispatchId,
     reportRef,
     resume: canResume,
+    instanceId: payload.instanceId,
+    ...(typeof previousModel === "string" && previousModel.length > 0 ? { model: previousModel } : {}),
     ...(review === undefined ? {} : { review }),
+  };
+}
+
+function implementationVendorForExecution(
+  cell: RepoCellOperationalContext,
+  taskId: string,
+  executionId: string,
+): string | undefined {
+  if (typeof cell.projection.readRuntimeDispatchesByTaskExecution !== "function") return undefined;
+  const executionDispatches = cell.projection
+      .readRuntimeDispatchesByTaskExecution(taskId, executionId)
+      .map(({ event }) => event.payload)
+      .filter((payload) => payload.role !== "reviewer"),
+    // Rework executions that submit manual fixes without a new worker spawn inherit the task's
+    // latest implementation runtime vendor so a fallback still avoids the author's vendor.
+    dispatches =
+      executionDispatches.length > 0 || typeof cell.projection.readRuntimeDispatchesByTaskIds !== "function"
+        ? executionDispatches
+        : cell.projection
+            .readRuntimeDispatchesByTaskIds([taskId])
+            .map((row) => row.payload)
+            .filter((payload) => payload.role !== "reviewer")
+            .sort((left, right) => String(left.startedAt ?? "").localeCompare(String(right.startedAt ?? "")));
+  if (dispatches.length === 0) return undefined;
+  const holderActor = cell.projection.readLatestLeaseIntervalForExecution?.(taskId, executionId)?.holder.actor,
+    leaseSessionId = holderActor === undefined ? null : runtimeSessionIdFromActor(holderActor),
+    sourceDispatch =
+      (leaseSessionId === null
+        ? undefined
+        : dispatches.findLast((payload) => payload.runtimeSessionId === leaseSessionId)) ?? dispatches.at(-1);
+  if (!sourceDispatch) return undefined;
+  const kindId = sourceDispatch.kindId ?? sourceDispatch.definitionSnapshot?.kindId;
+  return typeof kindId === "string" ? (runtimeVendorForKind(kindId) ?? undefined) : undefined;
+}
+
+function previousReviewedRoundAffinity(
+  cell: RepoCellOperationalContext,
+  input: {
+    readonly taskId: string;
+    readonly reviewerId: string;
+    readonly dispatchKey: string;
+    readonly packagePath?: string | null;
+    readonly continuation?: ReviewerContinuation | null;
+  },
+): { readonly instanceId: string; readonly model?: string } | null {
+  if (input.continuation) {
+    return {
+      instanceId: input.continuation.instanceId,
+      ...(input.continuation.model ? { model: input.continuation.model } : {}),
+    };
+  }
+  const snapshotReviews = cell.projection.read(input.taskId).snapshot.reviews;
+  const previous = completedReviewerDispatchesForTask(cell, input).find((row) => {
+    const payload = row.payload;
+    const hasReport =
+        typeof input.packagePath === "string" &&
+        typeof cell.projection.readDocument === "function" &&
+        cell.projection.readDocument(`${input.packagePath}/artifacts/reports/${payload.dispatchId}.md`).document !==
+          null,
+      hasReview = snapshotReviews.some(
+        (candidate) =>
+          candidate.reviewId === `review-${payload.dispatchId}` ||
+          candidate.actor.executor?.id === `runtime-session:${payload.runtimeSessionId}`,
+      );
+    return hasReport || hasReview;
+  });
+  if (!previous) return null;
+  const previousModel = previous.payload.definitionSnapshot?.model;
+  return {
+    instanceId: previous.payload.instanceId,
+    ...(typeof previousModel === "string" && previousModel.length > 0 ? { model: previousModel } : {}),
+  };
+}
+
+/** Resolve same-task re-review soft affinity and first-review implementation-vendor avoidance. */
+function taskReviewSelectionHints(
+  cell: RepoCellOperationalContext,
+  input: {
+    readonly taskId: string;
+    readonly executionId: string;
+    readonly reviewerId: string;
+    readonly dispatchKey: string;
+    readonly packagePath?: string | null;
+    readonly continuation?: ReviewerContinuation | null;
+    readonly explicitInstanceId?: unknown;
+    readonly explicitModel?: unknown;
+  },
+): JsonObject {
+  if (typeof input.explicitInstanceId === "string" || typeof input.explicitModel === "string") return {};
+  const affinity = previousReviewedRoundAffinity(cell, input),
+    avoidVendor = implementationVendorForExecution(cell, input.taskId, input.executionId);
+  return {
+    ...(affinity === null
+      ? {}
+      : {
+          preferredRuntimeInstanceId: affinity.instanceId,
+          ...(affinity.model ? { preferredModel: affinity.model } : {}),
+        }),
+    ...(avoidVendor === undefined ? {} : { avoidVendor }),
   };
 }
 export function reviewDispatchIds(
@@ -722,12 +850,23 @@ export async function spawnCutReviewDispatch(
           reverify,
         })
       }${continuationNote ? `\n${continuationNote}` : ""}`,
+    selectionHints = taskReviewSelectionHints(cell, {
+      taskId: input.taskId,
+      executionId: input.execution.executionId,
+      reviewerId: input.reviewerId,
+      dispatchKey: key,
+      packagePath: input.packagePath,
+      continuation,
+      explicitInstanceId: extras.runtimeInstanceId,
+      explicitModel: extras.model,
+    }),
     payload = {
       agentId: agent.id,
       role: "reviewer",
       taskId: input.taskId,
       executionId: input.execution.executionId,
       dispatchKey: key,
+      ...selectionHints,
       ...(continuation?.resume ? { dispatchId: continuation.dispatchId } : {}),
       ...(typeof extras.runtimeInstanceId === "string" ? { runtimeInstanceId: extras.runtimeInstanceId } : {}),
       ...(typeof extras.model === "string" ? { model: extras.model } : {}),
@@ -1296,12 +1435,22 @@ export async function dispatchTaskReview(
       continue;
     }
     const seatPrompt = seat.source === "path" ? reviewPathSeatPrompt({ seat }) : null,
+      selectionHints = taskReviewSelectionHints(cell, {
+        taskId,
+        executionId: execution.executionId,
+        reviewerId,
+        dispatchKey: key,
+        packagePath: read.packagePath,
+        explicitInstanceId: action.runtimeInstanceId,
+        explicitModel: action.model,
+      }),
       payload = {
         agentId: agent.id,
         role: "reviewer",
         taskId,
         executionId: execution.executionId,
         dispatchKey: key,
+        ...selectionHints,
         ...(typeof action.runtimeInstanceId === "string" ? { runtimeInstanceId: action.runtimeInstanceId } : {}),
         ...(typeof action.model === "string" ? { model: action.model } : {}),
         ...(typeof action.effort === "string" ? { effort: action.effort } : {}),
