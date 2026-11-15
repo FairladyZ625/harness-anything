@@ -1,6 +1,5 @@
 import {
   documentWorkspacePath,
-  normalizeTaskLifecycleCommand,
   reviewsForExecution,
   type ExecutionV1,
   type TaskEventV1,
@@ -11,7 +10,7 @@ import { readLastExecutionWorkerDispatch } from "./dispatch-read.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { reviewReportRelativePath } from "./reviewer-artifact-publication.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
-import type { RepoCellBinding } from "./repo-cell-types.ts";
+import type { RepoCellBinding, RepoCellContinuationWrite } from "./repo-cell-types.ts";
 import type { TaskDispatchRow } from "./protocol/task-dispatch-contract.ts";
 import type { NodeAutoDispatchCandidate } from "./node-auto-dispatch.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
@@ -43,13 +42,6 @@ type WorkerIdentityOverrides = {
   readonly model?: string;
 };
 
-/** Uses the caller's existing RepoCell publication queue; cancellation never holds its slot. */
-export type ReturnWrite = (work: () => Promise<WriteReceiptDraft>) => Promise<WriteReceiptDraft>;
-
-// dec_E369B8616F50A6208B293997E7/CH3: a changes_requested verdict below the repository rework
-// budget reopens the implementation round in the same review write; this dispatch continues the
-// worker that submitted the returned cut, carrying the review report. The existing spawner still
-// owns admission, the new execution lease and process launch.
 export async function dispatchReviewRework(
   cell: RepoCellOperationalContext,
   input: ReworkContext & {
@@ -59,7 +51,7 @@ export async function dispatchReviewRework(
     readonly workerIdentity?: WorkerIdentityOverrides;
     /** A node-owned continuation is returned as a pending intent for that node. */
     readonly requiredNodeId?: string;
-    readonly write: ReturnWrite;
+    readonly write: RepoCellContinuationWrite;
   },
 ): Promise<ReviewReworkStep> {
   return dispatchContinuation(cell, input, principalBinding(input.binding));
@@ -178,7 +170,7 @@ export async function continueReviewRework(
   command: TaskEventV1,
   binding: RepoCellBinding,
   receipt: WriteReceiptDraft,
-  write: ReturnWrite,
+  write: RepoCellContinuationWrite,
   workerIdentity?: WorkerIdentityOverrides,
 ): Promise<WriteReceiptDraft> {
   // The applied command names the review it recorded or returned; a search over the projection
@@ -344,7 +336,7 @@ async function dispatchContinuation(
     readonly opId: string;
     readonly workerIdentity?: WorkerIdentityOverrides;
     readonly requiredNodeId?: string;
-    readonly write: ReturnWrite;
+    readonly write: RepoCellContinuationWrite;
   },
   binding: RepoCellBinding,
 ): Promise<ReviewReworkStep> {
@@ -394,64 +386,23 @@ async function dispatchContinuation(
     }
   }
   if (arrangement && !arrangement.ready) {
-    const completed = await input.write(async () => {
-      const snapshot = cell.projection.read(input.taskId).snapshot,
-        normalized = normalizeTaskLifecycleCommand(
-          {
-            workspaceId: cell.input.repoId,
-            actor: arrangement.actor,
-            source: arrangement.source,
-            expectedRevision: snapshot.revision,
-          },
-          {
-            type: "ReworkTask",
-            taskId: input.taskId,
-            executionId: arrangement.executionId,
-            reason: arrangement.reason,
-            handoffId: arrangement.id,
-          },
-        ),
-        command = cell.withServerMeta(
-          normalized,
-          cell.store.readTaskEvent(normalized.opId),
-          cell.store.readHead()?.revision ?? 0,
-          cell.now(),
-        ),
-        ownerBinding = {
-          ...binding,
-          actor: { principal: arrangement.actor.principal, executor: null },
-          source: arrangement.source,
+    const ownerBinding = {
+        ...binding,
+        actor: { principal: arrangement.actor.principal, executor: null },
+        source: arrangement.source,
+      },
+      completed = await input.write(
+        {
+          kind: "task-rework",
+          taskId: input.taskId,
+          executionId: arrangement.executionId,
+          reason: arrangement.reason,
+          takeover: true,
+          submissionDigest: arrangement.submissionDigest,
+          handoffId: arrangement.id,
         },
-        authorizationDecision = await evaluateRepoCellAction({
-          action: {
-            kind: "task-rework",
-            taskId: input.taskId,
-            executionId: arrangement.executionId,
-            reason: arrangement.reason,
-            takeover: true,
-            submissionDigest: arrangement.submissionDigest,
-          },
-          repoId: cell.input.repoId,
-          binding: ownerBinding,
-          actionId: normalized.opId,
-          revision: cell.store.readHead()?.revision ?? 0,
-          now: cell.now(),
-          readTask: (id) => cell.projection.read(id).snapshot.task,
-        }),
-        proof = await cell.proofFor(command, snapshot, { ...ownerBinding, authorizationDecision }, cell.projection),
-        result = await cell.service.execute(command, proof);
-      if (result.outcome !== "applied") {
-        const { event: _event, snapshot: _snapshot, frozenPlan: _plan, ...receipt } = result;
-        return receipt;
-      }
-      // The lifecycle service's applied receipt includes its accepted event and durable proof.
-      return cell.lifecycleReceipt(
-        result.event!,
-        result.snapshot,
-        cell.publicPublication(cell.store.publication(result.event!)),
-        result.proof!,
+        ownerBinding,
       );
-    });
     if (completed.outcome !== "applied") return { continuation: { mode: "handoff", ...completed }, steps: [completed] };
   }
   if (arrangement && !arrangement.agentId)
@@ -491,7 +442,7 @@ async function dispatchContinuation(
           ...(arrangementId ? { arrangementId, dispatchKey: `task-arrangement:${arrangementId}` } : {}),
         },
         worktree = await cell.runtimeSpawner.prepareWorktree(payload),
-        spawned = await input.write(async () => {
+        spawned = await input.write({ kind: "runtime-spawn", ...payload }, binding, async (authorizedBinding) => {
           const snapshot = cell.projection.read(input.taskId).snapshot;
           if (
             snapshot.task?.iteration !== input.execution.iteration + 1 ||
@@ -501,17 +452,12 @@ async function dispatchContinuation(
               "execution_scope_mismatch",
               "The return continuation was superseded by another execution arrangement.",
             );
-          const authorizationDecision = await evaluateRepoCellAction({
-            action: { kind: "runtime-spawn", ...payload },
-            repoId: cell.input.repoId,
-            binding,
-            actionId: payload.dispatchKey,
-            revision: cell.store.readHead()?.revision ?? 0,
-            now: cell.now(),
-            readTask: (id) => cell.projection.read(id).snapshot.task,
-          });
-          if (authorizationDecision.outcome !== "allowed")
-            throw cell.cellCodedError("authorization_denied", authorizationDecision.nextActions.join(" "));
+          if (authorizedBinding.authorizationDecision?.outcome !== "allowed")
+            throw cell.cellCodedError(
+              "authorization_denied",
+              authorizedBinding.authorizationDecision?.nextActions.join(" ") ||
+                "runtime-spawn requires repository write authority.",
+            );
           const existing = cell.projection.readRuntimeDispatchByDispatchKey(payload.dispatchKey);
           if (existing)
             return {
@@ -522,7 +468,7 @@ async function dispatchContinuation(
             } as WriteReceiptDraft;
           return (await cell.runtimeSpawner.spawn(
             payload,
-            { ...binding, authorizationDecision },
+            authorizedBinding,
             worktree,
           )) as unknown as WriteReceiptDraft;
         });

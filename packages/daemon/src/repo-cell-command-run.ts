@@ -24,7 +24,12 @@ import {
   withAuthorizationDecision,
 } from "./repo-cell-authorization.ts";
 import { cellErrorCode } from "./repo-cell-errors.ts";
-import type { RepoCellBinding, RepoCellQueueObservation, RepoTaskAction } from "./repo-cell-types.ts";
+import type {
+  RepoCellBinding,
+  RepoCellContinuationWrite,
+  RepoCellQueueObservation,
+  RepoTaskAction,
+} from "./repo-cell-types.ts";
 import { chainRepoCellWrite } from "./repo-cell.ts";
 import { compiledArtifactKinds, findArtifactKindContract } from "./artifact-entity-action.ts";
 import { admitRepoMode, builtinOccurrenceCommandTopology, entityActionCommandTopology } from "./repo-mode.ts";
@@ -147,6 +152,7 @@ export function makeRepoCellCommandRunner(
     resolveTargetAfterAuthorization = false,
     executionStarted?: () => void,
     queueObservation?: RepoCellQueueObservation,
+    continueReturn = true,
   ): Promise<WriteReceipt | SquadControlResult> => {
     if (context.state !== "attached")
       await context.attemptRecovery(recoveryCommandPolicy(action.kind, context.causeClass)?.settlesLatch === true);
@@ -271,7 +277,7 @@ export function makeRepoCellCommandRunner(
     const enqueuePublication = (
       execute: (authorizationDecision?: AuthorizationDecision) => WriteReceiptDraft | Promise<WriteReceiptDraft>,
       ingest?: (authorizationDecision?: AuthorizationDecision) => void,
-      continueReturn = true,
+      continueOnApplied = continueReturn,
     ): Promise<WriteReceipt | SquadControlResult> => {
       context.queueDepth += 1;
       let queuedDecision: AuthorizationDecision | undefined,
@@ -405,8 +411,28 @@ export function makeRepoCellCommandRunner(
       return pending
         .catch((error) => failAction(context, action, binding, error, queuedDecision))
         .then(async (receipt) => {
+          const continueWrite: RepoCellContinuationWrite = async (nextAction, nextBinding, work) =>
+            (work
+              ? await enqueueRuntimePublication(
+                  context,
+                  "runtime-run",
+                  nextAction,
+                  nextBinding,
+                  work as unknown as (
+                    authorized: RepoCellBinding,
+                  ) => Promise<import("./protocol/json-rpc-types.ts").JsonObject>,
+                )
+              : await enqueueCommand(
+                  nextAction,
+                  nextBinding,
+                  undefined,
+                  false,
+                  undefined,
+                  undefined,
+                  false,
+                )) as WriteReceiptDraft;
           if (
-            continueReturn &&
+            continueOnApplied &&
             "outcome" in receipt &&
             receipt.outcome === "applied" &&
             ["task-review-execution", "task-rework"].includes(action.kind)
@@ -418,7 +444,7 @@ export function makeRepoCellCommandRunner(
                 event,
                 binding,
                 receipt,
-                async (work) => (await enqueuePublication(work, undefined, false)) as WriteReceiptDraft,
+                continueWrite,
                 action.kind === "task-rework"
                   ? {
                       ...(typeof action.agentId === "string" ? { agentId: action.agentId } : {}),
@@ -431,7 +457,7 @@ export function makeRepoCellCommandRunner(
               )) as WriteReceipt;
           }
           if (
-            continueReturn &&
+            continueOnApplied &&
             "outcome" in receipt &&
             receipt.outcome === "applied" &&
             (action.kind === "task-submit" || action.kind === "task-settle")
@@ -441,18 +467,7 @@ export function makeRepoCellCommandRunner(
               action,
               binding,
               receipt,
-              async (nextAction, nextBinding, work) =>
-                (work
-                  ? await enqueueRuntimePublication(
-                      context,
-                      "runtime-run",
-                      nextAction,
-                      nextBinding,
-                      work as unknown as (
-                        authorized: RepoCellBinding,
-                      ) => Promise<import("./protocol/json-rpc-types.ts").JsonObject>,
-                    )
-                  : await enqueueCommand(nextAction, nextBinding)) as WriteReceiptDraft,
+              continueWrite,
             )) as WriteReceipt;
           if (!replaceAfterPublication) return receipt;
           await context.attemptRecovery(true);

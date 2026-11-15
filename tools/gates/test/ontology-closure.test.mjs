@@ -177,7 +177,9 @@ test("daemon domain service actions and policies are closed under the shared ont
   );
   const actions = candidates.filter((row) => row.category === "action");
   const policies = candidates.filter((row) => row.category === "policy");
-  assert.equal(actions.length, 162);
+  // CEO ruling dispatch_294b4cda7cf887e9077a2a81 Route 1 deleted the duplicate manual
+  // `cell.service.execute` call site in `task-return-dispatch.ts` in favor of `RepoCellContinuationWrite`.
+  assert.equal(actions.length, 161);
   // CH1 closes migration debt, while later registered policies may grow the live set.
   assert.ok(policies.length >= 126, "all 126 migrated policy sources remain represented");
   assert.deepEqual(

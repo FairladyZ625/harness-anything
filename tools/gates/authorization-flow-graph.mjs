@@ -15,6 +15,8 @@ export const EMPTY_ENV = new Map();
 // Weak ownership lets detached Programs die after an audit; no module-level table owns ASTs.
 const environmentInterners = new WeakMap();
 
+const maxInternedFrames = 20000;
+
 function makeEnvironmentInterner(lookup, freeParameters) {
   const ids = new WeakMap(),
     frames = new Map(),
@@ -64,6 +66,7 @@ function makeEnvironmentInterner(lookup, freeParameters) {
     ordered.sort(([left], [right]) => left - right);
     const key = ordered.map(([paramId, , bound]) => `${paramId}=${boundKey(bound)}`).join(";");
     if (!frames.has(key)) {
+      if (frames.size >= maxInternedFrames) frames.clear();
       const frame = new Map(ordered.map(([, param, bound]) => [param, bound]));
       canonical.add(frame);
       frames.set(key, frame);
@@ -1130,8 +1133,24 @@ export function makeEvaluator(graph, facts) {
           : null;
       return tag === "action" && key !== "action" ? "request" : tag;
     }
-    if (ts.isCallExpression(node))
-      return node.arguments.some((argument) => provenance(argument, env, depth + 1)) ? "action" : null;
+    if (ts.isCallExpression(node)) {
+      if (node.arguments.some((argument) => provenance(argument, env, depth + 1))) return "action";
+      // A 0-arg IIFE closing over action data retains action provenance through its returned values.
+      if (node.arguments.length === 0) {
+        const callee = unwrap(node.expression);
+        if (isFunctionNode(callee) && callee.body) {
+          const callEnv = lexicalEnvironment(callee, env),
+            tags = returnExpressions(callee).map((result) => provenance(result, callEnv, depth + 1));
+          if (tags.length > 0 && tags.every((tag) => tag === "action")) return "action";
+          if (tags.some(Boolean)) return "request";
+        }
+      }
+      return null;
+    }
+    if (ts.isConditionalExpression(node)) {
+      const condition = fold(node.condition, env, depth + 1);
+      if (condition) return provenance(condition.value ? node.whenTrue : node.whenFalse, env, depth + 1);
+    }
     // Text and choices computed from request data are request data.
     const parts = ts.isTemplateExpression(node)
       ? node.templateSpans.map((span) => span.expression)
@@ -1484,17 +1503,47 @@ export function makeEvaluator(graph, facts) {
           : null;
       }
     }
-    // A single-expression predicate folds through its body, so extracting one is transparent.
-    for (const value of evaluate(callee, env, depth + 1)) {
-      if (!value.fn || !value.node.body) continue;
-      const body = value.node.body,
-        result = ts.isBlock(body)
-          ? body.statements.length === 1 && ts.isReturnStatement(body.statements[0])
-            ? body.statements[0].expression
-            : null
-          : body;
-      if (result)
-        return fold(result, bindArguments(value, expandArguments(node.arguments, env, depth + 1), env), depth + 1);
+    // Pure expression or multi-statement const/if/return guards fold through their body.
+    const callees = evaluate(callee, env, depth + 1);
+    if (callees.length === 0 || !callees.every((value) => value.fn && value.node.body)) return null;
+    const expandedArgs = expandArguments(node.arguments, env, depth + 1),
+      results = callees.map((value) => {
+        const callEnv = bindArguments(value, expandedArgs, env),
+          body = value.node.body;
+        if (!ts.isBlock(body)) return fold(body, callEnv, depth + 1);
+        const outcome = foldStatements(body.statements, callEnv, depth + 1);
+        return outcome ? (outcome.returned ? outcome.result : { value: undefined }) : null;
+      });
+    return results.every((result) => result && result.value === results[0].value) ? results[0] : null;
+  }
+
+  function foldStatements(statements, env, depth) {
+    for (const statement of statements) {
+      const outcome = foldStatement(statement, env, depth);
+      if (!outcome) return null;
+      if (outcome.returned) return outcome;
+    }
+    return { returned: false };
+  }
+
+  function foldStatement(statement, env, depth) {
+    if (ts.isBlock(statement)) return foldStatements(statement.statements, env, depth);
+    if (ts.isReturnStatement(statement))
+      return {
+        returned: true,
+        result: statement.expression ? fold(statement.expression, env, depth) : { value: undefined },
+      };
+    if (ts.isVariableStatement(statement)) {
+      if (!(statement.declarationList.flags & ts.NodeFlags.Const)) return null;
+      for (const declaration of statement.declarationList.declarations)
+        if (!ts.isIdentifier(declaration.name) || !declaration.initializer) return null;
+      return { returned: false };
+    }
+    if (ts.isIfStatement(statement)) {
+      const condition = fold(statement.expression, env, depth);
+      if (!condition) return null;
+      if (condition.value) return foldStatement(statement.thenStatement, env, depth);
+      return statement.elseStatement ? foldStatement(statement.elseStatement, env, depth) : { returned: false };
     }
     return null;
   }

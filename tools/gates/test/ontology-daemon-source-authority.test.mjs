@@ -353,15 +353,15 @@ test("return continuation queue and automatic spawner use their actual technical
   const canonical = inputs.constants.actionDeclarations.find((action) => action.kind === "task-rework");
   const rows = [
     [
-      "dispatchContinuation.completed:abfbdcdd8aa3a1d9ad11a4116d269c2a",
-      "packages/daemon/src/task-return-dispatch.ts#ReturnWrite",
+      "dispatchContinuation.completed:48dbce6d60b54b29628f5a708899f3eb",
+      "packages/daemon/src/repo-cell-types.ts#RepoCellContinuationWrite",
     ],
     [
-      "dispatchContinuation.spawned:14b744047a6be1bc07655bd7438166ad",
-      "packages/daemon/src/task-return-dispatch.ts#ReturnWrite",
+      "dispatchContinuation.spawned:b47b8c859ed44d25e279d344244854b7",
+      "packages/daemon/src/repo-cell-types.ts#RepoCellContinuationWrite",
     ],
     [
-      "dispatchContinuation.spawned:6786c20b62d1c30475cf5886e9fa8637",
+      "dispatchContinuation.spawned:004f209ef618210157675205bc97597d",
       "packages/daemon/src/runtime-spawner.ts#makeRuntimeSpawner.spawn",
     ],
   ];
@@ -394,8 +394,9 @@ test("return continuation queue and automatic spawner use their actual technical
       null,
     );
   }
-  const serviceSource = canonical.ontology.sources.find((source) =>
-    source.candidateId.includes("dispatchContinuation.completed.result:"),
+  const transition = inputs.constants.actionDeclarations.find((action) => action.kind === "task-transition");
+  const serviceSource = transition.ontology.sources.find((source) =>
+    source.candidateId.includes("runTaskActionCatalogRuntime:"),
   );
   assert.equal(serviceSource?.role, "effect", "the actual canonical service execution retains its business owner");
 });

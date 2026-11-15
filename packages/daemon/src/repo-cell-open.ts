@@ -21,6 +21,7 @@ import {
   type DaemonRepoMode,
   type EventPublicationKillpoint,
   type SettingsV1,
+  type WriteReceiptDraft,
   type WriterGeneration,
 } from "@harness-anything/kernel";
 import { createPresetProcessService, presetUserRoot } from "@harness-anything/preset";
@@ -661,8 +662,20 @@ export async function openRepoWriterCell(
             // the shared return handoff waits for another runtime's terminal publication.
             void recoveryWork
               .run(() =>
-                continueReviewRework(operationalContext, event, authorized, receipt, (work) =>
-                  recoveryWork.write(work, authorized),
+                continueReviewRework(operationalContext, event, authorized, receipt, (nextAction, nextBinding, work) =>
+                  recoveryWork.write(
+                    async () => {
+                      const auth = await authorizeRuntimeAction(
+                        nextAction,
+                        nextBinding as RuntimeAttemptTerminal["binding"],
+                        operationId(nextAction, nextBinding, input.repoId, store.readHead()?.revision ?? 0),
+                      );
+                      return (
+                        work ? work(auth) : extracted.lifecycleAction(nextAction, auth)
+                      ) as Promise<WriteReceiptDraft>;
+                    },
+                    nextBinding as RuntimeAttemptTerminal["binding"],
+                  ),
                 ),
               )
               .catch((error: unknown) => console.error("[review-rework]", error));

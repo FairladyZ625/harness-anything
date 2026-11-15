@@ -1181,3 +1181,151 @@ function entry(request) {
   assert.equal(result.sources.get(site).seen, true);
   assert.equal(result.sources.get(site).ok, false);
 });
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: decided conditionals, 0-arg IIFEs, and pure multi-statement
+// bodies fold through action guards without retaining stale closure frames.
+test("provenance folds decided conditionals and 0-arg IIFE return spreads while keeping unspread objects non-action", () => {
+  const file = "packages/daemon/src/provenance-iife.ts",
+    { rootDir } = makeRepo({
+      [file]: `declare function makeAction(req: { kind: string }): { kind: string; executionId?: string };
+function readExternal(action: { kind: string; executionId?: string }, flag: boolean) {
+  const selected = action.kind === "settings-update" ? action : { other: true };
+  const rebuilt = action.kind === "task-start" ? (() => { const extra = "e1"; return { ...action, executionId: extra }; })() : action;
+  const unguarded = flag ? (() => ({ ...action, executionId: "e2" }))() : action;
+  const plain = (() => ({ kind: action.kind }))();
+  return { selected, rebuilt, unguarded, plain };
+}
+function entry(request: { kind: string }, flag: boolean) {
+  const action = makeAction(request);
+  return readExternal(action, flag);
+}`,
+    }),
+    graph = buildFlowGraph(rootDir),
+    [, helperFn, entryFn] = graph.modules.get(file).sourceFile.statements,
+    entryCall = entryFn.body.statements[1].expression,
+    entryEnv = bindArguments({ node: entryFn, env: EMPTY_ENV }, [{ flowArgument: true, root: true }], EMPTY_ENV),
+    helperEnv = bindArguments({ node: helperFn, env: EMPTY_ENV }, entryCall.arguments, entryEnv),
+    inits = helperFn.body.statements.slice(0, 4).map((stmt) => stmt.declarationList.declarations[0].initializer),
+    settingsEval = makeEvaluator(graph, {
+      kind: "settings-update",
+      commandClass: "repo-write",
+      constants: {},
+      functions: {},
+      strictMembers: true,
+    }),
+    startEval = makeEvaluator(graph, {
+      kind: "task-start",
+      commandClass: "repo-write",
+      constants: {},
+      functions: {},
+      strictMembers: true,
+    });
+  assert.equal(settingsEval.provenance(inits[0], helperEnv), "action");
+  assert.equal(startEval.provenance(inits[0], helperEnv), null);
+  assert.equal(startEval.provenance(inits[1], helperEnv), "action");
+  assert.equal(startEval.provenance(inits[2], helperEnv), "action");
+  assert.notEqual(settingsEval.provenance(inits[3], helperEnv), "action");
+});
+
+test("foldCall folds pure multi-statement const/if/return guards and leaves undecided or impure bodies open", () => {
+  const file = "packages/daemon/src/fold-statements.ts",
+    { rootDir } = makeRepo({
+      [file]: `declare function makeAction(req: { kind: string }): { kind: string; executionId?: string };
+function makeWork() { return Promise.resolve(); }
+function prepareStart(action: { kind: string }, source: unknown) {
+  if (source !== "local" || action.kind !== "task-start") return null;
+  const tag = "work";
+  return makeWork();
+}
+function readExternal(action: { kind: string }, source: unknown) {
+  if (action.kind === "task-submit" || action.kind === "task-settle") return makeWork();
+  const startAction = action.kind === "task-start" ? (() => ({ ...action, started: true }))() : action;
+  const started = prepareStart(startAction, source);
+  if (started) return started;
+  if (action.kind === "task-push") return makeWork();
+  return null;
+}
+function impureOrMutable(action: { kind: string }) {
+  let result: unknown = null;
+  if (action.kind === "settings-update") return result;
+  return null;
+}
+function entry(request: { kind: string }, source: unknown) {
+  const action = makeAction(request);
+  return readExternal(action, source);
+}
+function entryMutable(request: { kind: string }) {
+  const action = makeAction(request);
+  return impureOrMutable(action);
+}`,
+    }),
+    graph = buildFlowGraph(rootDir),
+    statements = graph.modules.get(file).sourceFile.statements,
+    entryFn = statements[5],
+    entryMutableFn = statements[6],
+    entryEnv = bindArguments({ node: entryFn, env: EMPTY_ENV }, [{ flowArgument: true, root: true }], EMPTY_ENV),
+    externalCall = entryFn.body.statements[1].expression,
+    mutableCall = entryMutableFn.body.statements[1].expression,
+    mutableEnv = bindArguments(
+      { node: entryMutableFn, env: EMPTY_ENV },
+      [{ flowArgument: true, root: true }],
+      EMPTY_ENV,
+    ),
+    evalFor = (kind) =>
+      makeEvaluator(graph, {
+        kind,
+        commandClass: "repo-write",
+        constants: {},
+        functions: {},
+        strictMembers: true,
+      });
+  assert.deepEqual(evalFor("settings-update").fold(externalCall, entryEnv), { value: null });
+  assert.equal(evalFor("task-start").fold(externalCall, entryEnv), null);
+  assert.equal(evalFor("task-submit").fold(externalCall, entryEnv), null);
+  assert.equal(evalFor("settings-update").fold(mutableCall, mutableEnv), null);
+});
+
+test("processSourceSites keeps exact callback evidence after evicting transient env frames", () => {
+  const file = "packages/daemon/src/bounded-frames.ts",
+    { rootDir } = makeRepo({
+      [file]: `const store = { append() {}, noop() {} };
+function effect() { store.append(); }
+function idle() { store.noop(); }
+function pass(index: number, cb: () => void) { return cb(); }
+function root(request: { transportKind: string }) { pass(0, effect); }`,
+    }),
+    graph = buildFlowGraph(rootDir),
+    statements = graph.modules.get(file).sourceFile.statements,
+    [, effectFn, idleFn, passFn, rootFn] = statements,
+    effectSite = sourceSite(graph, effectFn.body.statements[0].expression),
+    idleSite = sourceSite(graph, idleFn.body.statements[0].expression),
+    evaluator = makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true });
+  for (let i = 0; i < 20050; i += 1) {
+    const numLiteral = ts.factory.createNumericLiteral(String(i)),
+      bound = bindArguments({ node: passFn, env: EMPTY_ENV }, [numLiteral, idleFn.name], EMPTY_ENV);
+    assert.ok(bound instanceof Map);
+  }
+  const hit = processSourceSites(graph, passFn, {
+    evaluator,
+    env: bindArguments(
+      { node: passFn, env: EMPTY_ENV },
+      [ts.factory.createNumericLiteral("1"), effectFn.name],
+      EMPTY_ENV,
+    ),
+    targets: [effectSite],
+  });
+  assert.equal(hit.has(effectSite), true);
+  assert.equal(
+    processSourceSites(graph, passFn, {
+      evaluator,
+      env: bindArguments(
+        { node: passFn, env: EMPTY_ENV },
+        [ts.factory.createNumericLiteral("2"), idleFn.name],
+        EMPTY_ENV,
+      ),
+      targets: [effectSite, idleSite],
+    }).has(effectSite),
+    false,
+  );
+  assert.ok(rootFn);
+});

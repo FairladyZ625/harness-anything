@@ -1878,6 +1878,7 @@ export function processSourceSites(
       return true;
     }
     if (fn.body) visit(fn.body);
+    frame.env = null;
   }
   const targetRanges = targets.map((site) => {
     const [, file, start, end] = /^(.*):(\d+):(\d+)$/u.exec(site);

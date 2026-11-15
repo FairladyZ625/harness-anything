@@ -148,13 +148,43 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
   const today = options.today ?? new Date().toISOString().slice(0, 10);
   const sourceRoot = options.sourceRoot ?? rootDir,
     durable = inputs.descriptors.filter((descriptor) => descriptor.commandClass !== "repo-read"),
-    declaredActions = inputs.constants.actionDeclarations ?? [],
+    onlySet = options.only ? new Set(options.only) : null,
+    matchesOnly = (descriptor) =>
+      !onlySet ||
+      onlySet.has(descriptor.id) ||
+      Boolean(descriptor.actionKind && onlySet.has(descriptor.actionKind)) ||
+      Boolean(descriptor.kindRewrite?.authorizedKind && onlySet.has(descriptor.kindRewrite.authorizedKind)),
+    selectedKinds = onlySet
+      ? new Set([
+          ...onlySet,
+          ...inputs.descriptors
+            .filter(matchesOnly)
+            .flatMap((descriptor) => [
+              descriptor.id,
+              ...(descriptor.actionKind ? [descriptor.actionKind] : []),
+              ...(descriptor.kindRewrite?.authorizedKind ? [descriptor.kindRewrite.authorizedKind] : []),
+            ]),
+        ])
+      : null,
     actions = (inputs.constants.actionDeclarations ?? []).filter(
-      (action) => action.ontology?.sources?.length && (!options.only || options.only.includes(action.kind)),
+      (action) => action.ontology?.sources?.length && (!selectedKinds || selectedKinds.has(action.kind)),
     ),
+    onlyActions = onlySet
+      ? actions
+          .map((action) => ({
+            ...action,
+            ontology: {
+              ...action.ontology,
+              sources: action.ontology.sources.filter(
+                (source) => onlySet.has(action.kind) || onlySet.has(source.route),
+              ),
+            },
+          }))
+          .filter((action) => action.ontology.sources.length)
+      : actions,
     // Partition each source beside its actual owning route, before building its graph.
     sourceActions = options.shard
-      ? actions
+      ? onlyActions
           .map((action, index) => ({
             ...action,
             ontology: {
@@ -166,7 +196,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
             },
           }))
           .filter((action) => action.ontology.sources.length)
-      : actions,
+      : onlyActions,
     declaredSources = [
       ...new Set([
         ...sourceActions.flatMap((action) => action.ontology.sources),
@@ -194,7 +224,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
               ...(entry.builder ? [entry.builder] : []),
             ]),
           ),
-          ...declaredActions
+          ...actions
             .filter((action) => action.ontology?.authority)
             .flatMap((action) =>
               Object.values(action.ontology.entries ?? {}).flatMap((entry) => [
@@ -207,7 +237,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
     }),
     witnesses = sourceWitnesses(graph, [
       ...declaredSources,
-      ...declaredActions.flatMap((action) => action.ontology?.sources ?? []),
+      ...actions.flatMap((action) => action.ontology?.sources ?? []),
     ]),
     sourceTargets = (action, route) =>
       (action?.ontology?.sources ?? [])
@@ -243,7 +273,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       constants: inputs.constants,
       functions: inputs.functions,
       serviceCall: (node, kind, canonical) =>
-        declaredActions.some((action) =>
+        actions.some((action) =>
           (action.ontology?.sources ?? []).some(
             (source) =>
               witnesses.get(source.candidateId) === node &&
@@ -269,8 +299,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       .map((descriptor, index) => ({ descriptor, index }))
       .filter(
         ({ descriptor, index }) =>
-          (!options.only || options.only.includes(descriptor.id)) &&
-          (!options.shard || index % options.shard.count === options.shard.index),
+          matchesOnly(descriptor) && (!options.shard || index % options.shard.count === options.shard.index),
       );
   const rows = selected.map(({ descriptor, index }) => {
     const rewrite = descriptor.kindRewrite,
@@ -341,7 +370,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
     };
   });
   const nativeSites = new Map();
-  for (const action of declaredActions.filter((action) => action.ontology?.authority)) {
+  for (const action of actions.filter((action) => action.ontology?.authority)) {
     const { authority, entries = {} } = action.ontology;
     for (const [route, entry] of Object.entries(entries)) {
       const root = processEntry(graph, entry, authority);

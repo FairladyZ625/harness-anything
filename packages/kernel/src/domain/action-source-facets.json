@@ -7816,13 +7816,13 @@
         "port": "packages/daemon/src/runtime-recovery-work.ts#makeRuntimeRecoveryWork.write"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-open.ts#openRepoWriterCell.runtimeSpawner.recoverReviewerReview:6a21861fed64d0e11912c1c6f5bd0486",
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-open.ts#openRepoWriterCell.runtimeSpawner.recoverReviewerReview:bc810d8cbad660bb972a8406678bada9",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/runtime-recovery-work.ts#makeRuntimeRecoveryWork.write"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-open.ts#openRepoWriterCell.runtimeSpawner.recoverReviewerReview:77a344a29edebf2526a9dd56ef46bdf6",
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-open.ts#openRepoWriterCell.runtimeSpawner.recoverReviewerReview:8b9ed15a5fba10fbe76ea61a74a383b5",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/runtime-recovery-work.ts#makeRuntimeRecoveryWork.run"
@@ -12863,22 +12863,22 @@
         "port": "packages/daemon/src/squad-run-state.ts#SquadOrphanCancellation.cancel"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/task-return-dispatch.ts#dispatchContinuation.completed:abfbdcdd8aa3a1d9ad11a4116d269c2a",
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-return-dispatch.ts#dispatchContinuation.completed:48dbce6d60b54b29628f5a708899f3eb",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "packages/daemon/src/task-return-dispatch.ts#ReturnWrite"
+        "port": "packages/daemon/src/repo-cell-types.ts#RepoCellContinuationWrite"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/task-return-dispatch.ts#dispatchContinuation.spawned:6786c20b62d1c30475cf5886e9fa8637",
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-return-dispatch.ts#dispatchContinuation.spawned:004f209ef618210157675205bc97597d",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/runtime-spawner.ts#makeRuntimeSpawner.spawn"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/task-return-dispatch.ts#dispatchContinuation.spawned:14b744047a6be1bc07655bd7438166ad",
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-return-dispatch.ts#dispatchContinuation.spawned:b47b8c859ed44d25e279d344244854b7",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "packages/daemon/src/task-return-dispatch.ts#ReturnWrite"
+        "port": "packages/daemon/src/repo-cell-types.ts#RepoCellContinuationWrite"
       }
     ],
     "technical": true
@@ -15346,11 +15346,6 @@
         "route": "task.rework",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/task-return-dispatch.ts#dispatchContinuation.completed.result:7c65f9b0dd2c40a382f3d15bca88fece",
-        "route": "task-rework",
-        "role": "effect"
       }
     ]
   },

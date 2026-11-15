@@ -35,7 +35,7 @@ let partitionTestOrdinal = 0;
 // update this map; their measured durations are recorded by the test runner.
 const authorizationTestPartitionAssignments = [
   4, 2, 4, 3, 1, 2, 4, 1, 2, 2, 3, 4, 1, 3, 1, 4, 3, 4, 3, 3, 4, 1, 1, 2, 3, 4, 1, 4, 3, 2, 4, 2, 1, 3, 1, 4, 2, 2, 4,
-  4,
+  4, 1,
 ];
 function partitionedTest(name, testFn) {
   const ordinal = partitionTestOrdinal++;
@@ -1197,3 +1197,112 @@ partitionedTest("migration sources fail when both entry paths replace addFact wi
   first();
   assert.equal(inspect(dir).ok, true);
 });
+
+partitionedTest(
+  "options.only narrows descriptor id, actionKind, and kindRewrite without unrelated baseline noise",
+  () => {
+    const byDescriptorId = auditDurableActionAuthorization(repoRoot, inputs, { only: ["settings.update"] });
+    assert.deepEqual(
+      byDescriptorId.rows.map((row) => [row.id, row.ok]),
+      [["settings.update", true]],
+    );
+    assert.equal(byDescriptorId.sourceRows.length, 1);
+    assert.equal(byDescriptorId.sourceRows[0]?.route, "settings.update");
+    assert.equal(byDescriptorId.sourceRows[0]?.ok, true);
+    assert.deepEqual(byDescriptorId.findings, []);
+
+    const byActionKind = auditDurableActionAuthorization(repoRoot, inputs, { only: ["settings-update"] });
+    assert.deepEqual(
+      byActionKind.rows.map((row) => [row.id, row.ok]).sort((a, b) => a[0].localeCompare(b[0])),
+      [
+        ["settings-update", true],
+        ["settings.update", true],
+      ],
+    );
+    assert.equal(byActionKind.sourceRows.length, 5);
+    assert.ok(byActionKind.sourceRows.every((row) => row.ok));
+    assert.deepEqual(byActionKind.findings, []);
+
+    const byRewriteId = auditDurableActionAuthorization(repoRoot, inputs, { only: ["edge-join"] });
+    assert.deepEqual(
+      byRewriteId.rows.map((row) => [row.id, row.kind, row.ok]),
+      [["edge-join", "daemon-repo-register", true]],
+    );
+    assert.ok(byRewriteId.sourceRows.length > 0);
+    assert.ok(byRewriteId.sourceRows.every((row) => row.route === "edge-join" && row.ok));
+    assert.deepEqual(byRewriteId.findings, []);
+
+    const byRewriteAuthorizedKind = auditDurableActionAuthorization(repoRoot, inputs, {
+      only: ["daemon-repo-register"],
+    });
+    assert.deepEqual(
+      byRewriteAuthorizedKind.rows.map((row) => [row.id, row.kind, row.ok]).sort((a, b) => a[0].localeCompare(b[0])),
+      [
+        ["daemon-repo-register", "daemon-repo-register", true],
+        ["edge-join", "daemon-repo-register", true],
+      ],
+    );
+    assert.ok(byRewriteAuthorizedKind.sourceRows.length > 0);
+    assert.ok(byRewriteAuthorizedKind.sourceRows.every((row) => row.route === "daemon-repo-register" && row.ok));
+    assert.deepEqual(byRewriteAuthorizedKind.findings, []);
+
+    // Unrelated broken descriptors and unbacked sources do not leak into a narrowed selection.
+    const unrelatedBrokenInputs = {
+      ...inputs,
+      constants: {
+        ...inputs.constants,
+        durableActionKinds: inputs.constants.durableActionKinds.filter((kind) => kind !== "task-create"),
+        actionDeclarations: inputs.constants.actionDeclarations.map((action) =>
+          action.kind === "task-create"
+            ? {
+                ...action,
+                ontology: {
+                  ...action.ontology,
+                  sources: [
+                    ...(action.ontology?.sources ?? []),
+                    {
+                      candidateId:
+                        "action:packages/daemon:packages/daemon/src/task-action-catalog-runtime.ts#leakProbe:00000000",
+                      route: "task-create",
+                      role: "effect",
+                    },
+                  ],
+                },
+              }
+            : action,
+        ),
+      },
+    };
+    const narrowedStillClean = auditDurableActionAuthorization(repoRoot, unrelatedBrokenInputs, {
+      only: ["settings.update"],
+    });
+    assert.deepEqual(
+      narrowedStillClean.rows.map((row) => [row.id, row.ok]),
+      [["settings.update", true]],
+    );
+    assert.equal(narrowedStillClean.sourceRows.length, 1);
+    assert.deepEqual(narrowedStillClean.findings, []);
+    const narrowedToBroken = auditDurableActionAuthorization(repoRoot, unrelatedBrokenInputs, {
+      only: ["task-create"],
+    });
+    assert.equal(narrowedToBroken.rows.find((row) => row.id === "task-create")?.ok, false);
+    assert.ok(narrowedToBroken.findings.length > 0);
+
+    // Conversely, breaking the selected action turns the narrowed audit red immediately.
+    const selectedBrokenInputs = {
+      ...inputs,
+      constants: {
+        ...inputs.constants,
+        durableActionKinds: inputs.constants.durableActionKinds.filter((kind) => kind !== "settings-update"),
+      },
+    };
+    const selectedBroken = auditDurableActionAuthorization(repoRoot, selectedBrokenInputs, {
+      only: ["settings.update"],
+    });
+    assert.deepEqual(
+      selectedBroken.rows.map((row) => [row.id, row.ok]),
+      [["settings.update", false]],
+    );
+    assert.ok(selectedBroken.findings.some((finding) => finding.includes("settings.update")));
+  },
+);

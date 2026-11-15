@@ -10,7 +10,7 @@ import { testOrdinalInPartition } from "../../node-test-runner-lib.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../.."),
   inputs = await loadAuthorizationInputs(repoRoot),
-  owners = ["settings-update", "task-rework"],
+  owners = ["settings-update", "task-transition"],
   effects = owners.map((kind) =>
     inputs.constants.actionDeclarations
       .find((action) => action.kind === kind)
@@ -80,10 +80,10 @@ for (const [kind, file, from, to] of [
     'settings: () => { throw new Error("detached settings runtime"); }',
   ],
   [
-    "task-rework",
-    "packages/daemon/src/repo-cell-command-run.ts",
-    "if (event)\n              return (await continueReviewRework(",
-    "if (false && event)\n              return (await continueReviewRework(",
+    "task-transition",
+    "packages/daemon/src/repo-cell-action-dispatch.ts",
+    "task: async (contract, catalogAction, catalogBinding) => {",
+    'task: async () => { throw new Error("detached task catalog runtime"); }, detachedTask: async (contract, catalogAction, catalogBinding) => {',
   ],
 ])
   partitionedTest(`detaching ${kind} keeps owner authority but rejects its unreachable source`, (t) => {
@@ -95,32 +95,32 @@ for (const [kind, file, from, to] of [
     assert.ok(result.findings.some((finding) => finding.includes(source.candidateId)));
   });
 
-// dec_7E44897ECDCAEF2B92EC66A260/CH1, CEO Option 2: ReturnWrite's own
+// dec_7E44897ECDCAEF2B92EC66A260/CH1, CEO Route 1: task-transition's own
 // AuthorizationPort decision must survive the real actor/cut/enforcer/service chain.
 for (const [label, file, from, to] of [
   [
     "a replaced own Port",
-    "packages/daemon/src/task-return-dispatch.ts",
-    'authorizationDecision = await evaluateRepoCellAction({\n          action: {\n            kind: "task-rework",',
-    'authorizationDecision = await (async () => ({ outcome: "allowed" }))({\n          action: {\n            kind: "task-rework",',
+    "packages/daemon/src/repo-cell-command-run.ts",
+    "return evaluateRepoCellAction({\n          action,\n          binding,\n          actionId,",
+    'return (async () => ({ outcome: "allowed" }))({\n          action,\n          binding,\n          actionId,',
   ],
   [
     "another action kind",
-    "packages/daemon/src/task-return-dispatch.ts",
-    'kind: "task-rework",\n            taskId: input.taskId,',
-    'kind: "task-review-execution",\n            taskId: input.taskId,',
+    "packages/daemon/src/repo-cell-command-run.ts",
+    "return evaluateRepoCellAction({\n          action,\n          binding,\n          actionId,",
+    'return evaluateRepoCellAction({\n          action: { ...action, kind: "settings-update" },\n          binding,\n          actionId,',
   ],
   [
-    "the reviewer's actor",
-    "packages/daemon/src/task-return-dispatch.ts",
-    "actor: { principal: arrangement.actor.principal, executor: null },",
-    "actor: { principal: binding.actor.principal, executor: null },",
+    "a forged actor",
+    "packages/daemon/src/repo-cell-command-run.ts",
+    "return evaluateRepoCellAction({\n          action,\n          binding,\n          actionId,",
+    'return evaluateRepoCellAction({\n          action,\n          binding: { ...binding, actor: { principal: { kind: "user", id: "forged" }, executor: null } },\n          actionId,',
   ],
   [
     "a stale canonical cut",
-    "packages/daemon/src/task-return-dispatch.ts",
-    "binding: ownerBinding,\n          actionId: normalized.opId,\n          revision: cell.store.readHead()?.revision ?? 0,",
-    "binding: ownerBinding,\n          actionId: normalized.opId,\n          revision: 0,",
+    "packages/daemon/src/repo-cell-command-run.ts",
+    "const revision = context.store.readHead()?.revision ?? 0,\n          actionId = context.operationId(action, binding, context.input.repoId, revision);",
+    "const revision = 0,\n          actionId = context.operationId(action, binding, context.input.repoId, revision);",
   ],
   [
     "a bypassed allowed-decision enforcer",
@@ -130,19 +130,19 @@ for (const [label, file, from, to] of [
   ],
   [
     "a detached decision at proofFor",
-    "packages/daemon/src/task-return-dispatch.ts",
-    "proof = await cell.proofFor(command, snapshot, { ...ownerBinding, authorizationDecision }, cell.projection),",
-    "proof = await cell.proofFor(command, snapshot, ownerBinding, cell.projection),",
+    "packages/daemon/src/task-action-catalog-runtime.ts",
+    "authorityProof = await cell.proofFor(command, current.snapshot, binding, cell.projection);",
+    "authorityProof = await cell.proofFor(command, current.snapshot, { ...binding, authorizationDecision: undefined }, cell.projection);",
   ],
   [
     "a detached service proof",
-    "packages/daemon/src/task-return-dispatch.ts",
-    "result = await cell.service.execute(command, proof);",
-    "result = await cell.service.execute(command, {});",
+    "packages/daemon/src/task-action-catalog-runtime.ts",
+    ": await cell.service.execute(command, authorityProof);",
+    ": await cell.service.execute(command, {});",
   ],
 ])
-  partitionedTest(`canonical rework rejects ${label}`, (t) => {
-    const result = audit(detachedSource(t, file, from, to), ["task-rework"]),
+  partitionedTest(`canonical task-transition rejects ${label}`, (t) => {
+    const result = audit(detachedSource(t, file, from, to), ["task-transition"]),
       row = result.sourceRows.find((entry) => entry.id === effects[1].candidateId);
     assert.equal(row?.ok, false, JSON.stringify(row));
     assert.ok(result.findings.length > 0);
