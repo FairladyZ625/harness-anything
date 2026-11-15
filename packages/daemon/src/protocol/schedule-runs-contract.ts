@@ -1,5 +1,6 @@
 import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import type { ScheduleMissedReason, ScheduleRunOutcome } from "@harness-anything/kernel";
+import type { ScheduleState } from "@harness-anything/kernel/internal/domain/schedule.ts";
 import { isJsonObject, rejectSecretKeys } from "./json-rpc-types.ts";
 
 export type ScheduleOccurrenceOutcome = ScheduleRunOutcome | "running" | "missed";
@@ -143,4 +144,89 @@ function nullableUtc(value: unknown): boolean {
 
 function nonNegInt(value: unknown): boolean {
   return Number.isSafeInteger(value) && Number(value) >= 0;
+}
+
+export type ValidScheduleListRow = {
+  readonly scheduleId: string;
+  readonly state: ScheduleState;
+  readonly mode: "detect" | "remediate";
+  readonly systemPresetId?: string;
+  readonly spec: {
+    readonly trigger:
+      | { readonly kind: "interval"; readonly everyMs: number; readonly anchorAt: string }
+      | { readonly kind: "cron"; readonly expression: string; readonly timezone: string };
+    readonly target:
+      | { readonly kind: "agent"; readonly agentId: string }
+      | { readonly kind: "squad"; readonly squadId: string }
+      | { readonly kind: "builtin"; readonly builtinId: string }
+      | { readonly kind: "agent-unconfigured" };
+  };
+  readonly status: {
+    readonly automaticEvaluatedThrough: string;
+    readonly activeRun: unknown;
+  };
+  readonly updatedAt: string;
+  readonly definitionRevision: number;
+  readonly nextRunAt: string | null;
+};
+
+export type InvalidScheduleListRow = {
+  readonly scheduleId: string;
+  readonly state: "invalid";
+  readonly invalidReason: string;
+  readonly definitionRevision: number;
+};
+
+export type ScheduleListRow = ValidScheduleListRow | InvalidScheduleListRow;
+
+export function parseScheduleListReceipt(
+  receipt: Readonly<Record<string, unknown>>,
+): readonly ScheduleListRow[] | null {
+  if (
+    receipt.schema !== "command-receipt/v2" ||
+    receipt.ok !== true ||
+    receipt.command !== "schedule-list" ||
+    receipt.outcome !== "applied" ||
+    typeof receipt.evidence !== "string"
+  )
+    return null;
+  if (!Array.isArray(receipt.schedules) || !receipt.schedules.every(scheduleListRow)) return null;
+  return receipt.schedules;
+}
+
+function scheduleListRow(value: unknown): value is ScheduleListRow {
+  if (
+    isJsonObject(value) &&
+    exactFields(value, ["scheduleId", "state", "invalidReason", "definitionRevision"]) &&
+    nonEmptyText(value.scheduleId) &&
+    value.state === "invalid" &&
+    nonEmptyText(value.invalidReason) &&
+    Number.isInteger(value.definitionRevision) &&
+    Number(value.definitionRevision) >= 0
+  )
+    return true;
+  if (!isJsonObject(value) || !isJsonObject(value.spec) || !isJsonObject(value.status)) return false;
+  const trigger = value.spec.trigger,
+    target = value.spec.target;
+  return (
+    isJsonObject(trigger) &&
+    isJsonObject(target) &&
+    nonEmptyText(value.scheduleId) &&
+    (value.state === "armed" || value.state === "paused") &&
+    (value.mode === "detect" || value.mode === "remediate") &&
+    ((trigger.kind === "interval" &&
+      Number.isInteger(trigger.everyMs) &&
+      Number(trigger.everyMs) >= 60_000 &&
+      nonEmptyText(trigger.anchorAt)) ||
+      (trigger.kind === "cron" && nonEmptyText(trigger.expression) && nonEmptyText(trigger.timezone))) &&
+    ((target.kind === "agent" && nonEmptyText(target.agentId)) ||
+      (target.kind === "squad" && nonEmptyText(target.squadId)) ||
+      (target.kind === "builtin" && nonEmptyText(target.builtinId)) ||
+      target.kind === "agent-unconfigured") &&
+    nonEmptyText(value.status.automaticEvaluatedThrough) &&
+    nonEmptyText(value.updatedAt) &&
+    Number.isInteger(value.definitionRevision) &&
+    Number(value.definitionRevision) >= 0 &&
+    (value.nextRunAt === null || nonEmptyText(value.nextRunAt))
+  );
 }

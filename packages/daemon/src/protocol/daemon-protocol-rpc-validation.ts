@@ -1,6 +1,11 @@
 import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { generatedSettingsFieldProtocolProjection } from "@harness-anything/preset/internal/preset-command-contract";
-import { daemonMethodNameSets } from "./daemon-protocol-commands.ts";
+import {
+  allDaemonProtocolMethods,
+  daemonMethodAcceptsPayload,
+  daemonMethodAcceptsPayloadExecutor,
+  daemonMethodNameSets,
+} from "./daemon-protocol-commands.ts";
 import {
   admitUseCaseProjectionSelector,
   validateShape,
@@ -20,11 +25,15 @@ import {
 import { validateCatalogActionPayload, validateSessionEnvironment } from "./daemon-protocol-validate-task.ts";
 import { validateDaemonQueryPayload } from "./daemon-protocol-validate-relation-query.ts";
 import { type DaemonRpcCall, type DaemonRpcMethod, type DaemonRpcWireParams } from "./daemon-protocol.contract.ts";
-import { allDaemonProtocolMethods } from "./daemon-protocol-commands.ts";
 import { decisionStateWords, isRuntimeMcpPolicy } from "./daemon-protocol-vocabulary.ts";
 import { DaemonProtocolContractError, isJsonObject, rejectSecretKeys, type JsonObject } from "./json-rpc-types.ts";
 
-export { DaemonProtocolContractError, validateSessionEnvironment };
+export {
+  DaemonProtocolContractError,
+  daemonMethodAcceptsPayload,
+  daemonMethodAcceptsPayloadExecutor,
+  validateSessionEnvironment,
+};
 
 const TASK_ID = /^[A-Za-z0-9_-]{1,96}$/u;
 
@@ -49,25 +58,6 @@ export function isDaemonGuiOnlyActionMethod(method: string): method is DaemonGui
 
 export function isDaemonStreamMethod(method: string): method is DaemonStreamMethod {
   return daemonMethodNameSets.stream.has(method);
-}
-// The executor declaration surface, derived from the same shapes validateDaemonRpcCall enforces — never
-// a hand-copied method list. The task action methods accept the executor inside their open action envelope; every
-// other method accepts payload.executor exactly when its payload shape declares the field (the preset
-// methods and repo.agentRuntime.spawn do). The CLI injects on this predicate, so a newly contracted
-// command that does not declare executor is simply never injected into.
-export function daemonMethodAcceptsPayloadExecutor(method: string): boolean {
-  const fields = allDaemonProtocolMethods.find((entry) => entry.method === method)?.params.fields,
-    payload = fields && "payload" in fields ? fields.payload : undefined;
-  return (
-    typeof payload === "object" && payload !== null && "fields" in payload && Object.hasOwn(payload.fields, "executor")
-  );
-}
-
-export function daemonMethodAcceptsPayload(method: string): boolean {
-  return Object.hasOwn(
-    allDaemonProtocolMethods.find((entry) => entry.method === method)?.params.fields ?? {},
-    "payload",
-  );
 }
 
 export function validateDaemonRpcCall(value: unknown): readonly string[] {

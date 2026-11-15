@@ -5,7 +5,7 @@ import path from "node:path";
 import {
   isDaemonGuiActionMethod,
   isDaemonGuiReadMethod,
-} from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+} from "@harness-anything/daemon/internal/protocol/daemon-protocol-rpc-validation";
 import { requestLocalDaemonJsonRpc } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
 import { isJsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
 import { parseDaemonGuiActionResponse } from "@harness-anything/daemon/internal/protocol/gui-result-validation";
