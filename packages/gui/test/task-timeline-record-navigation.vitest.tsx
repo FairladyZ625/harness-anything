@@ -69,9 +69,11 @@ const taskWithTimelineRefs: TaskRow = {
   ],
 };
 
-describe("任务详情概况时间线:实体引用可导航", () => {
+// dec_4AEEEB88AB4BB75474915BAC5C CH1: records now live in the independent timeline tab.
+describe("任务详情独立时间线:实体引用可导航", () => {
   it("execution 与 review 引用渲染成原生按钮(可键盘激活),点击落收口页签对应记录行", async () => {
     await mount({ task: taskWithTimelineRefs });
+    await clickTab("时间线");
 
     expect(timelineTail("execution-w3").tagName).toBe("BUTTON");
     expect(timelineTail("review-w3").tagName).toBe("BUTTON");
@@ -88,7 +90,7 @@ describe("任务详情概况时间线:实体引用可导航", () => {
 
     // 回到概况再点 review 引用:落 Review 分组的对应评审记录行,同样聚焦。
     // (页签切换会重挂概况,元素每次现查,不吃旧引用。)
-    await clickTab("概况");
+    await clickTab("时间线");
     await act(async () => {
       timelineTail("review-w3").click();
     });
@@ -102,12 +104,14 @@ describe("任务详情概况时间线:实体引用可导航", () => {
 
   it("无结构化引用的事件行尾是纯文本,不渲染可点元素", async () => {
     await mount({ task: taskWithTimelineRefs });
+    await clickTab("时间线");
     const plainTail = timelineTail("手写关键记录");
     expect(plainTail.tagName).toBe("SPAN");
   });
 
   it("导航发生在任务详情内部:任务上下文与返回出口保持不变", async () => {
     await mount({ task: taskWithTimelineRefs });
+    await clickTab("时间线");
     await act(async () => {
       timelineTail("execution-w3").click();
     });
@@ -116,7 +120,7 @@ describe("任务详情概况时间线:实体引用可导航", () => {
     expect(document.querySelector('[data-testid="task-detail-view"]')).not.toBeNull();
     expect(document.querySelector('[data-testid="task-detail-tabs"]')).not.toBeNull();
     // 回概况:时间线还在原处,返回上下文未被破坏。
-    await clickTab("概况");
+    await clickTab("时间线");
     expect(document.querySelector('[data-testid="task-progress-timeline"]')).not.toBeNull();
   });
 
@@ -124,13 +128,14 @@ describe("任务详情概况时间线:实体引用可导航", () => {
     const scrollIntoView = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => undefined);
     try {
       await mount({ task: taskWithTimelineRefs });
+      await clickTab("时间线");
       await act(async () => {
         timelineTail("execution-w3").click();
       });
       await flushEffects();
       expect(scrollIntoView).toHaveBeenCalledTimes(1);
       // 换一个引用(重新从概况点开收口):新的聚焦各滚一次,不重复也不漏。
-      await clickTab("概况");
+      await clickTab("时间线");
       await act(async () => {
         timelineTail("review-w3").click();
       });
@@ -149,6 +154,7 @@ describe("任务详情概况时间线:实体引用可导航", () => {
     const scrollIntoView = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => undefined);
     try {
       await mount({ task: taskWithTimelineRefs, strict: true });
+      await clickTab("时间线");
       await act(async () => {
         timelineTail("execution-w3").click();
       });
@@ -165,6 +171,7 @@ describe("任务详情概况时间线:实体引用可导航", () => {
     const scroll = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => undefined);
     try {
       await mount({ task: taskWithTimelineRefs, strict: true });
+      await clickTab("时间线");
       await act(async () => {
         timelineTail("execution-w3").click();
       });
@@ -188,7 +195,7 @@ describe("任务详情概况时间线:实体引用可导航", () => {
       );
       expect(scroll).toHaveBeenCalledTimes(1);
 
-      await clickTab("概况");
+      await clickTab("时间线");
       await act(async () => {
         timelineTail("execution-w3").click();
       });
@@ -213,6 +220,7 @@ describe("任务详情概况时间线:实体引用可导航", () => {
     const scroll = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => undefined);
     try {
       await mount({ task: taskWithTimelineRefs });
+      await clickTab("时间线");
       await act(async () => {
         timelineTail("execution-w3").click();
       });

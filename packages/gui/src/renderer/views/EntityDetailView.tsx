@@ -6,7 +6,7 @@ import { FactInspector } from "../components/FactInspector";
 import { EgoNeighborhood } from "../graph/EgoNeighborhood";
 import { EntityRefLink } from "../components/EntityRefLink.tsx";
 import { IdText } from "../components/IdText.tsx";
-import { useEntityRelationGraphQuery, useTriadicProjectionQuery } from "../triadic-data.ts";
+import { useEntityRelationGraphQuery, useDecisionSummaryQuery, useTriadicProjectionQuery } from "../triadic-data.ts";
 import { t } from "../i18n/index.tsx";
 
 /**
@@ -255,6 +255,60 @@ function NeighborhoodPane({
           refocusTitle={t("views.entityDetail.refocusHint")}
         />
       </div>
+    </div>
+  );
+}
+
+/** CH3: one selected entity, one bounded incident-edge read; never load the repository graph. */
+export function EntityFocalNeighborhood({
+  repoId,
+  focusRef,
+  tasks,
+  active = true,
+  onNavigateEntity,
+}: {
+  readonly repoId: string;
+  readonly focusRef: string;
+  readonly tasks: readonly TaskRow[];
+  readonly active?: boolean;
+  readonly onNavigateEntity: (ref: string) => void;
+}) {
+  const graph = useEntityRelationGraphQuery(repoId, focusRef, active);
+  const summary = useDecisionSummaryQuery(repoId, { enabled: active });
+  // Ego's legacy input type also names full-document fields. Its layout and summary body
+  // read these optionally (egoCanvas / entityCardBodies); keep absent fields absent here,
+  // especially the domain-owned claimsOpen judgment that summaries do not project.
+  const decisions = summary.decisions as readonly DecisionRow[];
+  return (
+    <div
+      className="flex h-full min-h-0 min-w-0 flex-col"
+      data-testid="entity-focal-neighborhood"
+      data-focus-ref={focusRef}
+    >
+      {(graph.isError || summary.isError) && (
+        <p role="alert" className="ui-meta text-danger">
+          {t("components.taskJourney.readError", { message: (graph.error ?? summary.error)?.message ?? "" })}
+        </p>
+      )}
+      {(graph.isPending || summary.isPending) && (
+        <p role="status" className="ui-meta text-text-muted">
+          {t("views.entityDetail.loadingProjection")}
+        </p>
+      )}
+      <EgoNeighborhood
+        key={`${repoId}:${focusRef}`}
+        repoId={repoId}
+        focusRef={focusRef}
+        tasks={tasks}
+        decisions={decisions}
+        facts={graph.facts}
+        relations={graph.relations}
+        factAnchors={graph.factAnchors}
+        hops={{ up: 1, down: 1 }}
+        active={active}
+        onNavigateEntity={onNavigateEntity}
+        onRefocus={onNavigateEntity}
+      />
     </div>
   );
 }

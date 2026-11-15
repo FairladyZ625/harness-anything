@@ -742,6 +742,7 @@ function AppShell() {
                   agenda={agendaQuery.data}
                   agendaError={agendaQuery.error instanceof Error ? agendaQuery.error.message : null}
                   onNavigateEntity={navigateToEntity}
+                  onFocusGraph={focusEntityInGraph}
                 />
               ) : view === "work" ? (
                 <WorkView

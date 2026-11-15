@@ -17,7 +17,7 @@ import { workIndexOf } from "../model/work-collections.ts";
 import { formatRelative } from "../model/time.ts";
 import { adaptProjectionRows } from "../task-adapter.ts";
 import { useTasksQuery, useWorkIndexQuery } from "../task-data.ts";
-import { WorkGraphTab } from "./workspace/WorkGraphTab.tsx";
+import { AgendaEntityFocus } from "./agenda/AgendaEntityFocus.tsx";
 import { AgendaAttention } from "./agenda/AgendaAttention.tsx";
 import { AgendaOutboxCard } from "./agenda/AgendaOutboxCard.tsx";
 import { AgendaItemStatus, AgendaWorkbenchQueue } from "./agenda/AgendaWorkbenchQueue.tsx";
@@ -27,6 +27,7 @@ interface AgendaViewProps {
   readonly agenda: AgendaSuccess | undefined;
   readonly agendaError: string | null;
   readonly onNavigateEntity: (ref: string) => void;
+  readonly onFocusGraph?: (ref: string) => void;
 }
 
 /** CH1: one route, native Inbox actions, selected-only Outbox reads and quiet receipts. */
@@ -34,7 +35,7 @@ export function AgendaView(props: AgendaViewProps) {
   return <AgendaWorkbench key={props.repoId} {...props} />;
 }
 
-function AgendaWorkbench({ repoId, agenda, agendaError, onNavigateEntity }: AgendaViewProps) {
+function AgendaWorkbench({ repoId, agenda, agendaError, onNavigateEntity, onFocusGraph }: AgendaViewProps) {
   const [filter, setFilter] = useState<AgendaWorkbenchFilter>("inbox");
   const [mode, setMode] = useState<"split" | "focus">("split");
   const [search, setSearch] = useState("");
@@ -298,20 +299,16 @@ function AgendaWorkbench({ repoId, agenda, agendaError, onNavigateEntity }: Agen
                       <SegBar counts={{ [selected.task.coordinationStatus]: 1 }} />
                     )}
                   </article>
-                  {selected.workRootId && (
-                    <div
-                      key={selected.workRootId}
-                      className="flex h-[var(--long-content-cap)] shrink-0 flex-col"
-                      data-testid="agenda-work-topology"
-                    >
-                      <WorkGraphTab
-                        repoId={repoId}
-                        workRootTaskId={selected.workRootId}
-                        tasks={tasks}
-                        onNavigateEntity={onNavigateEntity}
-                        active
-                      />
-                    </div>
+                  {(selected.taskId || selected.row.target?.startsWith("decision")) && (
+                    <AgendaEntityFocus
+                      key={`focus:${selected.key}`}
+                      repoId={repoId}
+                      task={selected.task}
+                      tasks={tasks}
+                      focusRef={selected.taskId ? `task/${selected.taskId}` : `decision/${selected.row.id}`}
+                      onNavigateEntity={onNavigateEntity}
+                      onFocusGraph={onFocusGraph}
+                    />
                   )}
                 </div>
               </div>

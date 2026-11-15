@@ -5,6 +5,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { PageRegions, RegionDragHandle } from "../src/renderer/components/primitives/page-regions.tsx";
 import { readSplitPreferences } from "../src/renderer/split-layout-preferences.ts";
 import { TaskControlPanel } from "../src/renderer/components/TaskControlPanel.tsx";
 import type { TaskRow } from "../src/renderer/model/types.ts";
@@ -27,7 +28,71 @@ beforeAll(prepareDetailEnvironment);
 afterEach(cleanupMountedDetail);
 afterEach(() => vi.restoreAllMocks());
 
+// dec_4AEEEB88AB4BB75474915BAC5C CH1 replaces the docked timeline, preserving reader and record regressions.
 describe("Task detail expression", () => {
+  it("opens the independent timeline from the compact stage row and gives overview its complete dock", async () => {
+    installBridge();
+    await mount();
+    const stage = byTestId("task-overview-stage");
+    expect(stage.querySelectorAll("[data-dense-row]")).toHaveLength(1);
+    const open = [...stage.querySelectorAll("button")].find((b) => b.textContent === "查看时间线")!;
+    expect(open).toBeTruthy();
+    expect(document.querySelector('[data-region="timeline"]')).toBeNull();
+    await act(async () => open.click());
+    expect(document.querySelector('[role="tab"][aria-selected="true"]')?.id).toBe("task-tab-timeline");
+    expect(byTestId("task-progress-timeline").querySelector('[data-testid="task-journey-graph"]')).not.toBeNull();
+    await clickTab("概况");
+    expect(document.querySelector('[data-testid="task-progress-timeline"]')).toBeNull();
+    expect(byTestId("task-overview-stage")).toBeTruthy();
+  });
+
+  it("prunes a retired timeline from a saved dock while retaining the customized files/content order", async () => {
+    installBridge();
+    const host = document.createElement("div"),
+      root = createRoot(host);
+    document.body.append(host);
+    await act(async () =>
+      root.render(
+        createElement(PageRegions, {
+          connectionId: "legacy-snapshot",
+          repoId: "repo-a",
+          slot: "task-detail-docs",
+          testId: "legacy-dock",
+          columns: [["content"], ["files", "timeline"]],
+          regions: ["files", "content", "timeline"].map((id) => ({
+            id,
+            title: id,
+            content: createElement(RegionDragHandle),
+          })),
+        }),
+      ),
+    );
+    const region = (id: string) => host.querySelector<HTMLElement>(`[data-region="${id}"]`)!;
+    await act(async () => {
+      host
+        .querySelector('[data-testid="region-handle-files"]')!
+        .dispatchEvent(new Event("dragstart", { bubbles: true }));
+      region("content").dispatchEvent(
+        new MouseEvent("dragover", { clientX: 0, clientY: 0, bubbles: true, cancelable: true }),
+      );
+      region("content").dispatchEvent(
+        new MouseEvent("drop", { clientX: 0, clientY: 0, bubbles: true, cancelable: true }),
+      );
+    });
+    await vi.waitFor(() =>
+      expect(readSplitPreferences(localStorage, "legacy-snapshot", "repo-a")["task-detail-docs"]).toBeDefined(),
+    );
+    await act(async () => root.unmount());
+    host.remove();
+    await mount({ connectionId: "legacy-snapshot" });
+    const dock = byTestId("task-detail-content-grid");
+    expect(dock.querySelector('[data-region="timeline"]')).toBeNull();
+    const content = dock.querySelector('[data-region="content"]')!,
+      files = dock.querySelector('[data-region="files"]')!;
+    expect(content.compareDocumentPosition(files) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(byTestId("task-overview-stage")).toBeTruthy();
+  });
+
   it("submits the authored closeout without a packet form", async () => {
     const container = document.createElement("div"),
       root = createRoot(container),
@@ -69,7 +134,7 @@ describe("Task detail expression", () => {
     }
   });
 
-  it("renders compact task identity, six task-first tabs and a permanent document tree", async () => {
+  it("renders compact task identity, seven task-first tabs and a permanent document tree", async () => {
     const bridge = installBridge();
     await mount();
 
@@ -79,7 +144,7 @@ describe("Task detail expression", () => {
     // 页签断言限定在页签栏里:区域布局(dockview)的隐藏组头也有 role=tab 的残留节点。
     expect(
       [...byTestId("task-detail-tabs").querySelectorAll('[role="tab"]')].map((tab) => tab.textContent?.trim()),
-    ).toEqual(["概况", "派工", "证据", "关系", "收口", "文件"]);
+    ).toEqual(["概况", "时间线", "派工", "证据", "关系", "收口", "文件"]);
     // 密度(task_9f39e256):顶部元数据压成两行——tab 并入头部,不再独占整行;
     // 标题与徽标同行且徽标不换行,长标题只截断(overflow)不撑高。
     const header = byTestId("task-detail-header");
@@ -101,7 +166,7 @@ describe("Task detail expression", () => {
     expect(byTestId("task-identity-strip").textContent).toContain("kernel/task-lifecycle/v1");
     expect(byTestId("task-document-tree").textContent).toContain("artifacts");
     expect(byTestId("task-overview-tab").textContent).toContain("Canonical plan body");
-    expect(byTestId("task-progress-timeline").textContent).toContain("Review review-w3: approved");
+    expect(byTestId("task-overview-stage").textContent).toContain("Review review-w3: approved");
     expect(bridge.getTaskDocument).toHaveBeenCalledWith({ repoId: "repo-a", taskId: "task-w3", path: "task_plan.md" });
     expect(bridge.getTaskDocument.mock.calls.some(([payload]) => payload.path === "task-contract.json")).toBe(false);
   });
@@ -218,6 +283,7 @@ describe("Task detail expression", () => {
     expect(tabsNav.className).toContain("border-b");
     expect([...tabsNav.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent?.trim())).toEqual([
       "概况",
+      "时间线",
       "派工",
       "证据",
       "关系",
@@ -258,6 +324,7 @@ describe("Task detail expression", () => {
     expect(hero.textContent).toContain("等你裁决");
     expect(document.querySelector('[data-testid="task-overview-stuck"]')).toBeNull();
     // 事件按天收束(§1.4):天分组 + 事件行,全部渲染。
+    await clickTab("时间线");
     const timeline = byTestId("task-progress-timeline");
     expect(timeline.querySelector("[data-day]")?.textContent).toContain("1 条记录");
     expect(timeline.textContent).toContain("Review review-w3: approved");
@@ -303,6 +370,7 @@ describe("Task detail expression", () => {
     expect(supplement.className).toContain("text-text-faint");
     expect(supplement.textContent).toContain(":补一版徽标");
     // 两天两组,各自成组(收束),事件都在 DOM 里(完整渲染不分批)。
+    await clickTab("时间线");
     const days = [...byTestId("task-progress-timeline").querySelectorAll("[data-day]")];
     expect(days.length).toBe(2);
     expect(days[0]?.textContent).toContain("Review review-w3: approved");
@@ -404,9 +472,9 @@ describe("Task detail expression", () => {
     expect(card.style.height).toBe("100%");
     // 三块页级区域(文件|正文|时间线)都由停靠树承载,各带可拖把手;概况板自己的
     // 区域(mine/plan)嵌在正文区域里,不是页级。
-    for (const id of ["files", "content", "timeline"])
+    for (const id of ["files", "content"])
       expect(card.querySelector(`[data-region="${id}"] [data-testid="region-handle-${id}"]`)).not.toBeNull();
-    expect(card.querySelector('[data-region="timeline"]')!.closest('[data-testid="task-overview-tab"]')).toBeNull();
+    expect(card.querySelector('[data-region="timeline"]')).toBeNull();
     expect(scrollPanel.closest("main")?.className).toContain("@container");
     // 叠放文件树使用共享比例上限并内部滚动，不能用固定18rem或无限撑高挤走正文。
     // 头部行不随树滚动(分割控件常驻),树体在自己的滚动区里滚。
@@ -418,7 +486,7 @@ describe("Task detail expression", () => {
     expect(scrollPanel.className).toContain("@container");
     const overview = byTestId("task-overview-tab");
     const regions = [...overview.querySelectorAll<HTMLElement>("[data-region]")];
-    expect(regions.map((region) => region.dataset.region)).toEqual(["mine", "plan"]);
+    expect(regions.map((region) => region.dataset.region)).toEqual(["stage", "mine", "plan"]);
     for (const region of regions) {
       const section = region.querySelector(":scope > section[data-entry-region]")!;
       expect(section.querySelector("h2")).not.toBeNull();
@@ -429,9 +497,9 @@ describe("Task detail expression", () => {
       expect(element.closest("section[data-entry-region]")).not.toBeNull();
     expect(overview.querySelector("aside")).toBeNull();
     // 时间线是页级停靠区域(任务详情第三块),带自己的把手,可拖到任意半区。
-    const timeline = byTestId("task-progress-timeline");
-    expect(card.contains(timeline)).toBe(true);
-    expect(timeline.querySelector('[data-testid="region-handle-timeline"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="task-progress-timeline"]')).toBeNull();
+    const stage = byTestId("task-overview-stage");
+    expect(stage.querySelectorAll("[data-dense-row]")).toHaveLength(1);
     // 任务计划是整篇文档:占满主区剩余高度(fill 区域),正文带边距并在区内滚动。
     const plan = byTestId("task-overview-plan");
     expect(plan.className).toContain("min-h-0");
@@ -599,7 +667,6 @@ describe("Task detail expression", () => {
       region("content").dispatchEvent(
         new MouseEvent("drop", { clientX: 0, clientY: 0, bubbles: true, cancelable: true }),
       );
-      await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(region("content").dataset.zone).toBeUndefined();
     // 布局快照按连接+仓+页面槽落盘(真实键 task-detail-docs,与终端布局同库不同槽)。
@@ -613,13 +680,11 @@ describe("Task detail expression", () => {
     expect([...new Set(leafOrder((stored!.snapshot as { grid?: { root?: unknown } }).grid?.root))].sort()).toEqual([
       "content",
       "files",
-      "timeline",
     ]);
 
     // 撤销上一步停靠:文件树回原位(回到正文左侧),区域集合不变。
     await act(async () => {
       controlButton("undo").click();
-      await new Promise((resolve) => setTimeout(resolve, 0));
     });
     const undone = leafOrder(
       (
@@ -628,17 +693,16 @@ describe("Task detail expression", () => {
         }
       ).grid?.root,
     );
-    expect([...new Set(undone)].sort()).toEqual(["content", "files", "timeline"]);
+    expect([...new Set(undone)].sort()).toEqual(["content", "files"]);
     expect(undone.indexOf("files")).toBeLessThan(undone.indexOf("content"));
 
     // 重置:回默认布局,本页槽位清空。
     await act(async () => {
       controlButton("reset").click();
-      await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(readSplitPreferences(localStorage, "local", "repo-a")["task-detail-docs"]).toBeUndefined();
     expect(document.querySelector('[data-region="files"]')).not.toBeNull();
-    expect(document.querySelector('[data-region="timeline"]')).not.toBeNull();
+    expect(document.querySelector('[data-region="timeline"]')).toBeNull();
   });
 });
 

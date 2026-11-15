@@ -13,13 +13,20 @@ import { taskQueryKeys, TASK_EXPLAINER_DOC } from "../src/renderer/task-data.ts"
 
 // dec_653AB9E451B58125CA2B5C0289/CH1: the existing route becomes the workbench.
 // Keep the real read hooks, Explainer and answer mutation; isolate only graph drawing.
-vi.mock("../src/renderer/views/workspace/WorkGraphTab.tsx", () => ({
-  WorkGraphTab: (props: { workRootTaskId: string; active: boolean; tasks: readonly unknown[] }) =>
+// dec_4AEEEB88AB4BB75474915BAC5C CH3: exercise the real bounded neighborhood host, isolate drawing only.
+vi.mock("../src/renderer/graph/EgoNeighborhood", async (original) => ({
+  ...(await original<typeof import("../src/renderer/graph/EgoNeighborhood")>()),
+  EgoNeighborhood: (props: {
+    focusRef: string;
+    hops: { up: number; down: number };
+    decisions: readonly { title: string }[];
+  }) =>
     createElement("div", {
-      "data-testid": "work-graph-wiring",
-      "data-work-root": props.workRootTaskId,
-      "data-active": String(props.active),
-      "data-task-count": props.tasks.length,
+      "data-testid": "focal-graph-wiring",
+      "data-focus-ref": props.focusRef,
+      "data-hops": JSON.stringify(props.hops),
+      "data-decisions": props.decisions.map((d) => d.title).join(","),
+      "data-invented-judgment": String(props.decisions.some((d) => "claimsOpen" in d)),
     }),
 }));
 
@@ -141,6 +148,7 @@ let root: Root;
 let host: HTMLDivElement;
 let client: QueryClient;
 const navigate = vi.fn();
+const focusGraph = vi.fn();
 beforeAll(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   setActiveLocale("zh-CN");
@@ -152,6 +160,29 @@ beforeEach(() => {
   document.body.append(host);
   root = createRoot(host);
   navigate.mockClear();
+  focusGraph.mockClear();
+  vi.spyOn(harnessClient, "getDecisionSummaries").mockResolvedValue({
+    ok: true,
+    decisions: [
+      {
+        decisionId: "dec_native",
+        title: "Native summary title",
+        state: "in_effect",
+        riskTier: "low",
+        urgency: "medium",
+        proposedAt: AT,
+      },
+    ],
+    warnings: [],
+  });
+  vi.spyOn(harnessClient, "getRelationGraph").mockResolvedValue({
+    ok: true,
+    edges: [],
+    facts: [],
+    factAnchors: [],
+    coverageRows: [],
+    warnings: [],
+  });
   vi.spyOn(harnessClient, "getTasks").mockResolvedValue({
     ok: true,
     status: "ready",
@@ -227,6 +258,7 @@ function render(read: AgendaSuccess | undefined = agenda(), repoId = "repo") {
           agenda: read,
           agendaError: null,
           onNavigateEntity: navigate,
+          onFocusGraph: focusGraph,
         }),
       ),
     ),
@@ -597,27 +629,49 @@ describe("Agenda unified Inbox / Outbox workbench", () => {
     expect(navigate).toHaveBeenCalledWith("task/task_answered");
   });
 
-  it("mounts WorkGraphTab for the selected attention work and resets the graph boundary across works", () => {
+  it("defaults to the selected task journey and resets one-hop focus across siblings of the same Work", async () => {
+    seedTasks([projection("a"), projection("b")]);
     render(
       agenda({
-        awaitingYou: [ask("a"), ask("b")],
+        awaitingYou: [ask("a", { sourceRef: "task/a" }), ask("b", { sourceRef: "task/b" })],
         attentionItems: ["a", "b"].map((id) => ({
           ref: `relation/${id}`,
           title: id,
           kind: "awaiting-you" as const,
           region: "mine" as const,
-          workTaskId: `work_${id}`,
+          workTaskId: "umbrella",
           attention: { score: 10, reasons: [] },
         })),
       }),
     );
-    expect(find("work-graph-wiring").getAttribute("data-work-root")).toBe("work_a");
-    expect(find("work-graph-wiring").getAttribute("data-active")).toBe("true");
+    expect(find("agenda-entity-focus").getAttribute("data-focus-ref")).toBe("task/a");
+    expect(find("task-journey-graph")).toBeTruthy();
+    // dec_4AEEEB88AB4BB75474915BAC5C CH3 owner rework: the focus toolbar owns this action.
+    expect(find("agenda-entity-focus").querySelectorAll('[data-testid="view-in-graph-button"]')).toHaveLength(1);
+    act(() =>
+      find("agenda-entity-focus").querySelector<HTMLButtonElement>('[data-testid="view-in-graph-button"]')!.click(),
+    );
+    expect(focusGraph).toHaveBeenLastCalledWith("task/a");
+    expect(host.querySelector('[data-testid="focal-graph-wiring"]')).toBeNull();
+    click("agenda-focus-neighborhood");
+    expect(find("focal-graph-wiring").getAttribute("data-focus-ref")).toBe("task/a");
+    expect(find("agenda-entity-focus").querySelectorAll('[data-testid="view-in-graph-button"]')).toHaveLength(1);
+    expect(find("focal-graph-wiring").getAttribute("data-hops")).toBe('{"up":1,"down":1}');
     key("j");
-    expect(find("work-graph-wiring").getAttribute("data-work-root")).toBe("work_b");
+    expect(find("agenda-entity-focus").getAttribute("data-focus-ref")).toBe("task/b");
+    expect(find("task-journey-graph")).toBeTruthy();
+    expect(host.querySelector('[data-testid="focal-graph-wiring"]')).toBeNull();
+    click("agenda-focus-neighborhood");
+    expect(find("focal-graph-wiring").getAttribute("data-focus-ref")).toBe("task/b");
+    await settle(() =>
+      expect(harnessClient.getRelationGraph).toHaveBeenCalledWith(expect.objectContaining({ entity: "task/b" })),
+    );
+    for (const [payload] of vi.mocked(harnessClient.getRelationGraph).mock.calls)
+      expect(payload.entity).toMatch(/^task\/[ab]$/);
+    expect(host.querySelector('[data-testid="agenda-work-topology"]')).toBeNull();
   });
 
-  it("resolves supplemental task Work from the shared index without inferring from parent links", async () => {
+  it("focuses the supplemental child itself even when the shared index names an umbrella Work", async () => {
     seedTasks([projection("child")]);
     client.setQueryData(taskQueryKeys.works("repo"), {
       ok: true,
@@ -628,8 +682,9 @@ describe("Agenda unified Inbox / Outbox workbench", () => {
     });
     render();
     chip("出件验收");
-    await settle(() => expect(find("work-graph-wiring").getAttribute("data-work-root")).toBe("work_root"));
-    expect(find("work-graph-wiring").getAttribute("data-task-count")).toBe("1");
+    expect(find("agenda-entity-focus").getAttribute("data-focus-ref")).toBe("task/child");
+    expect(find("task-journey-graph")).toBeTruthy();
+    expect(host.querySelector('[data-testid="agenda-work-topology"]')).toBeNull();
   });
 
   it("keeps agenda-only cards usable when supplementary task/work reads fail and reports delivery read failure", async () => {
@@ -675,7 +730,7 @@ describe("Agenda unified Inbox / Outbox workbench", () => {
     expect(selected()).toBe("other");
   });
 
-  it("preserves native Decision review routes while exposing all its awaits with daemon attention", () => {
+  it("preserves native Decision review routes while exposing all its awaits with daemon attention", async () => {
     render(
       agenda({
         awaitingYou: [
@@ -698,7 +753,12 @@ describe("Agenda unified Inbox / Outbox workbench", () => {
     expect(host.querySelectorAll('[data-testid="agenda-row-dec_native"]')).toHaveLength(1);
     expect(find("agenda-current-card").querySelectorAll('[data-testid="awaits-approval-card"]')).toHaveLength(2);
     expect(find("agenda-current-card").textContent).toContain("177");
-    expect(find("work-graph-wiring").getAttribute("data-work-root")).toBe("work_native");
+    expect(find("focal-graph-wiring").getAttribute("data-focus-ref")).toBe("decision/dec_native");
+    await settle(() =>
+      expect(find("focal-graph-wiring").getAttribute("data-decisions")).toContain("Native summary title"),
+    );
+    expect(find("focal-graph-wiring").getAttribute("data-invented-judgment")).toBe("false");
+    expect(host.querySelector('[data-testid="task-journey-graph"]')).toBeNull();
     click("agenda-card-open");
     expect(navigate).toHaveBeenCalledWith("decisionreview/dec_native/respond");
   });
