@@ -74,9 +74,13 @@ function AgendaWorkbench({ repoId, agenda, agendaError, onNavigateEntity, onFocu
     const quiet = visible.filter((item) => item.quiet);
     return { visible, queue, quiet, navigable: quietOpen ? [...queue, ...quiet] : queue };
   }, [items, query, filter, quietOpen]);
+  const retainedArchived =
+    retained?.key === selectedKey &&
+    retained?.bucket === "outbox" &&
+    items.some((item) => item.key === retained.key && item.task?.packageDisposition === "archived");
   const selected =
-    navigable.find((item) => item.key === selectedKey) ??
-    (retained?.key === selectedKey ? retained : undefined) ??
+    (retainedArchived ? undefined : navigable.find((item) => item.key === selectedKey)) ??
+    (!retainedArchived && retained?.key === selectedKey ? retained : undefined) ??
     navigable[0];
   const retain = () => {
     if (selected) {
@@ -88,6 +92,20 @@ function AgendaWorkbench({ repoId, agenda, agendaError, onNavigateEntity, onFocu
   const step = (delta: number) => {
     const next = navigable[Math.max(0, Math.min(navigable.length - 1, index + delta))];
     if (next) setSelectedKey(next.key);
+  };
+  const finishArchive = (taskIds: readonly string[]) => {
+    const archived = new Set(taskIds);
+    const remains = (item: AgendaWorkbenchItem) => !archived.has(item.taskId ?? "");
+    const next = queue.slice(index + 1).find(remains) ?? queue.find(remains);
+    setRetained((current) => (archived.has(current?.taskId ?? "") ? null : current));
+    // A late receipt must preserve an unrelated selection made while the write was pending.
+    setKey((current) =>
+      current === null ||
+      current === selected?.key ||
+      queue.some((item) => item.key === current && archived.has(item.taskId ?? ""))
+        ? (next?.key ?? null)
+        : current,
+    );
   };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -307,6 +325,7 @@ function AgendaWorkbench({ repoId, agenda, agendaError, onNavigateEntity, onFocu
                         item={selected}
                         tasks={tasks}
                         onRetain={retain}
+                        onArchived={finishArchive}
                         onNavigateEntity={onNavigateEntity}
                       />
                     ) : (

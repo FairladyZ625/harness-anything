@@ -20,12 +20,14 @@ export function AgendaOutboxActions({
   item,
   tasks,
   onRetain,
+  onArchived,
   onNavigateEntity,
 }: {
   readonly repoId: string;
   readonly item: AgendaWorkbenchItem;
   readonly tasks: readonly TaskRow[];
   readonly onRetain: () => void;
+  readonly onArchived: (taskIds: readonly string[]) => void;
   readonly onNavigateEntity: (ref: string) => void;
 }) {
   const queryClient = useQueryClient();
@@ -78,7 +80,10 @@ export function AgendaOutboxActions({
         await harnessClient.archiveTasks({ repoId, taskIds, reason: t("views.agenda.archiveReason") }),
       );
       setFeedback(result.state === "applied" ? t("views.agenda.received") : (result.hint ?? result.state));
-      if (result.state === "applied") await refresh();
+      if (result.state === "applied") {
+        onArchived(taskIds);
+        await refresh();
+      }
     } catch (cause) {
       consumeKnownError(cause);
       setFeedback(cause instanceof Error ? cause.message : String(cause));

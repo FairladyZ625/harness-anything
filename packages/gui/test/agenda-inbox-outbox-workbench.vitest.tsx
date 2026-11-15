@@ -300,8 +300,9 @@ function input(el: HTMLInputElement | HTMLTextAreaElement, text: string) {
   });
 }
 const settle = async (assertion: () => void) =>
-  act(async () => {
-    await vi.waitFor(assertion);
+  vi.waitFor(async () => {
+    await act(async () => Promise.resolve());
+    assertion();
   });
 
 describe("Agenda unified Inbox / Outbox workbench", () => {

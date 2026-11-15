@@ -19,11 +19,13 @@ export function AgendaOutboxCard({
   tasks,
   onNavigateEntity,
   onRetain,
+  onArchived,
 }: {
   readonly repoId: string;
   readonly item: AgendaWorkbenchItem;
   readonly tasks: readonly TaskRow[];
   readonly onRetain: () => void;
+  readonly onArchived: (taskIds: readonly string[]) => void;
   readonly onNavigateEntity: (ref: string) => void;
 }) {
   const diff = useTaskDeliveryDiffQuery(repoId, item.taskId);
@@ -140,6 +142,7 @@ export function AgendaOutboxCard({
         tasks={tasks}
         onNavigateEntity={onNavigateEntity}
         onRetain={onRetain}
+        onArchived={onArchived}
       />
     </div>
   );
