@@ -71,7 +71,12 @@ export function adjudicateDocIntent(
   retirementReason?: string,
 ): DocIntentAdjudication {
   const authorizationDecision = requiredDocAuthorization(input.binding.authorizationDecision);
-  const documents = intent.changes.map((change) => input.projection.readDocument(change.path));
+  const documents = intent.changes.map((change) => {
+    const active = input.projection.readDocument(change.path);
+    return active.document !== null || change.candidate === null
+      ? active
+      : (input.projection.readDocumentHistory?.(change.path) ?? active);
+  });
   if (documents.some((read) => read.watermark !== read.sourceRevision)) {
     const pending = detail(intent, input.store.currentCut(), "projection_pending", lease);
     return {

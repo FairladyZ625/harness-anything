@@ -206,6 +206,7 @@ export function followerDirectories(
     (event) => canonicalOwnedDirectories(event) ?? [],
   ),
   decisionsRoot?: string,
+  decisionsDirectoryOptions?: { readonly cold?: boolean },
 ): FollowerDirectorySettlement {
   const declaredByOwner = new Map<string, readonly string[]>(),
     retiredByOwner = new Map<string, readonly string[]>();
@@ -223,6 +224,7 @@ export function followerDirectories(
   const decisionDirectories = decisionDirectoryRetirements(
     files.flatMap((file) => ("delete" in file ? [ledgerAuthoredPath(ledger, file.delete)] : [])),
     decisionsRoot,
+    decisionsDirectoryOptions,
   ).map((logical) => ledgerGitPath(ledger, logical));
   const create = [...new Set([...declaredByOwner.values()].flat())]
       .map((logical) => ledgerGitPath(ledger, logical))
