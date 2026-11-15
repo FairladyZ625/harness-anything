@@ -6,10 +6,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildTaskJourney } from "../src/renderer/model/task-journey.ts";
 import { TaskJourneyGraph } from "../src/renderer/components/taskDetail/TaskJourneyGraph.tsx";
-import { TaskTimelineRegion } from "../src/renderer/components/taskDetail/TaskDetailSections.tsx";
+import { TaskCausalTimeline } from "../src/renderer/components/taskDetail/TaskDetailSections.tsx";
 import { runtimeQueryKeys } from "../src/renderer/agent-runtime-client.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
-import type { TaskRow, EventEntry } from "../src/renderer/model/types.ts";
+import type { TaskRow, EventEntry, RelationEdge } from "../src/renderer/model/types.ts";
 import type { TaskDispatchProjectionRow } from "../src/api/renderer-dto.ts";
 
 const { getTaskDispatches } = vi.hoisted(() => ({ getTaskDispatches: vi.fn() }));
@@ -193,7 +193,7 @@ describe("task journey (dec_653AB9E451B58125CA2B5C0289 CH2)", () => {
   it("renders immediately during dispatch loading, reuses the dispatch cache, and folds audit records", async () => {
     getTaskDispatches.mockReturnValue(new Promise(() => {}));
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const container = await render(<TaskTimelineRegion task={task()} />, client);
+    const container = await render(<TaskCausalTimeline task={task()} />, client);
     expect(container.querySelectorAll("[data-journey-round]")).toHaveLength(2);
     const details = container.querySelector("details")!;
     expect(details.open).toBe(false);
@@ -208,7 +208,7 @@ describe("task journey (dec_653AB9E451B58125CA2B5C0289 CH2)", () => {
 
   it("retains the event graph when the dispatch read fails and handles blockers without events", async () => {
     getTaskDispatches.mockRejectedValue(new Error("dispatch offline"));
-    const container = await render(<TaskTimelineRegion task={task({ events: [] })} />);
+    const container = await render(<TaskCausalTimeline task={task({ events: [] })} />);
     await vi.waitFor(() =>
       expect(container.querySelector('[role="alert"]')?.textContent).toContain("dispatch offline"),
     );
@@ -326,7 +326,7 @@ describe("task journey review regressions", () => {
       coordinationStatus: "active",
       lastKnownAt: at(8),
     });
-    const container = await render(<TaskTimelineRegion task={staleTask} />, client);
+    const container = await render(<TaskCausalTimeline task={staleTask} />, client);
     const inspector = () => container.querySelector('[data-testid="task-journey-inspector"]')!.textContent;
     expect(inspector()).toContain("10s");
     expect(getTaskDispatches).not.toHaveBeenCalled();
@@ -337,5 +337,72 @@ describe("task journey review regressions", () => {
     expect(getTaskDispatches).toHaveBeenCalledTimes(1);
     expect(client.getQueryData(key)).toBe(cached);
     expect(staleTask.lastKnownAt).toBe(at(8));
+  });
+});
+
+// dec_4AEEEB88AB4BB75474915BAC5C CH2: bounded incident edges extend the existing round graph.
+describe("causal journey", () => {
+  it("joins parent, authorization, prerequisites, asks, products, children and downstream without siblings", async () => {
+    const edge = (from: string, kind: RelationEdge["kind"], to: string, relationId = from + to): RelationEdge => ({
+      from,
+      kind,
+      to,
+      relationId,
+      provenance: "local-document",
+    });
+    const focus = task({ parentTaskId: "parent", spawningDecisionIds: ["dec_auth"] });
+    const journey = buildTaskJourney({
+      task: focus,
+      dispatches: rows,
+      nowMs: Date.parse(at(16)),
+      tasks: [
+        task({ taskId: "parent", title: "Parent Work" }),
+        task({ taskId: "upstream", canonicalStatus: "done", title: "API" }),
+        task({ taskId: "child", parentTaskId: "task", createdAt: at(13), title: "Child" }),
+        task({ taskId: "next", title: "Next" }),
+        task({ taskId: "sibling", parentTaskId: "parent" }),
+      ],
+      decisions: [{ decisionId: "dec_auth", title: "Approved architecture", state: "in_effect" }],
+      facts: [{ anchor: "fact/F-output", text: "Evidence", at: at(10), confidence: "high", category: "finding" }],
+      relations: [
+        edge("decision/dec_auth/CH2", "derives", "task/task"),
+        edge("task/task", "depends-on", "task/upstream"),
+        edge("task/next", "depends-on", "task/task"),
+        edge("task/task", "produces", "fact/F-output"),
+        edge("task/task", "awaits", "person/owner", "ask"),
+        edge("task/task", "derives", "task/child"),
+      ],
+    });
+    expect(journey.upstream.map((a) => a.entityRef)).toEqual(["task/parent", "decision/dec_auth", "task/upstream"]);
+    expect(journey.upstream.find((a) => a.entityRef === "task/upstream")?.activity).toBe("done");
+    expect(journey.downstream.map((a) => a.entityRef)).toEqual(["task/next"]);
+    expect(journey.attachments.map((a) => a.entityRef).sort()).toEqual(["fact/F-output", "relation/ask", "task/child"]);
+    expect(journey.attachments.find((a) => a.entityRef === "relation/ask")?.nodeId).toBe("blocker:ask");
+    expect(journey.attachments.find((a) => a.entityRef === "fact/F-output")?.nodeId).toBe(
+      journey.nodes.find((n) => n.eventKind === "submit")?.id,
+    );
+    const navigate = vi.fn();
+    const container = await render(<TaskJourneyGraph journey={journey} onNavigateEntity={navigate} />);
+    for (const ref of [
+      "task/parent",
+      "decision/dec_auth",
+      "task/upstream",
+      "fact/F-output",
+      "relation/ask",
+      "task/child",
+      "task/next",
+    ]) {
+      const button = [...container.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.title === ref)!;
+      expect(button).toBeTruthy();
+      await act(async () => button.click());
+      expect(navigate).toHaveBeenLastCalledWith(ref);
+    }
+    expect(container.textContent).not.toContain("sibling");
+  });
+  it("keeps absent contextual slots empty", () => {
+    const journey = buildTaskJourney({ task: task({ blockers: [], events: [] }), dispatches: [], nowMs: 0 });
+    expect(journey.upstream).toEqual([]);
+    expect(journey.attachments).toEqual([]);
+    expect(journey.downstream).toEqual([]);
   });
 });

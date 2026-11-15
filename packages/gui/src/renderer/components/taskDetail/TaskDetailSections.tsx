@@ -1,3 +1,4 @@
+import { ViewInGraphButton } from "../ViewInGraphButton.tsx";
 import { TaskJourneyGraph } from "./TaskJourneyGraph.tsx";
 import { buildTaskJourney } from "../../model/task-journey.ts";
 import { DispatchAdvisories } from "./DispatchAdvisories.tsx";
@@ -10,7 +11,12 @@ import { agentRuntimeClient, pollSessionEventsOnce, runtimeQueryKeys } from "../
 import { harnessClient } from "../../api-client.ts";
 import { readAllTaskDispatches } from "../../task-dispatch-client.ts";
 import { useTaskDocumentQuery } from "../../task-data.ts";
-import { useEntityRelationGraphQuery, useEntityRelationGraphsQuery, triadicQueryKeys } from "../../triadic-data.ts";
+import {
+  useDecisionSummaryQuery,
+  useEntityRelationGraphQuery,
+  useEntityRelationGraphsQuery,
+  triadicQueryKeys,
+} from "../../triadic-data.ts";
 import { useFactArchiveVisibility } from "../../fact-archive-preferences.tsx";
 import { dayKeyOf, formatDayKeyLabel, formatTime } from "../../model/time.ts";
 import type { EventEntry, RelationEdge, TaskRow } from "../../model/types.ts";
@@ -65,13 +71,30 @@ export function TaskOverviewTab({
   task,
   connectionId,
   onOpenCloseout,
+  onOpenTimeline,
 }: {
   readonly task: TaskRow;
   readonly connectionId: string | null;
   /** 「等你裁决」区域只有一个去向:去收口页签处理,放在区域页脚;缺省不渲染按钮。 */
   readonly onOpenCloseout?: () => void;
+  readonly onOpenTimeline?: () => void;
 }) {
   const plan = useTaskDocumentQuery(task.projectId, task.taskId, "task_plan.md");
+  const dispatches = useTaskDispatches(task);
+  const stage = useMemo(
+    () =>
+      buildTaskJourney({
+        task,
+        dispatches: dispatches.data?.dispatches ?? [],
+        nowMs: dispatches.dataUpdatedAt || Date.now(),
+      }),
+    [task, dispatches.data, dispatches.dataUpdatedAt],
+  );
+  const latest = (task.events ?? []).reduce<EventEntry | undefined>(
+    (last, event) => (!last || event.at > last.at ? event : last),
+    undefined,
+  );
+
   // 卡在哪(异常区域):只收真正的阻塞——blocked 及其原因、待返工、已 submit 后
   // 仍未通过的门/缺失文档;判定见 model/task-stuck.ts,空了整块消失。
   const stuck = taskStuckItems(task);
@@ -80,7 +103,7 @@ export function TaskOverviewTab({
 
   return (
     // 区域板(标准 §2.1,与工作概况同一个 RegionBoard):主区依次是等你裁决、卡在哪、任务计划;
-    // 进展时间线已升为任务详情的页级停靠区域(TaskTimelineRegion),不再固定在概况页签里。
+    // CH1: stage is the compact entry to the independent causal timeline tab.
     <MovableRegionBoard
       connectionId={connectionId}
       repoId={task.projectId}
@@ -91,6 +114,27 @@ export function TaskOverviewTab({
         {/* 主区只有一列:等你裁决与卡在哪通常各只有一两条,单独成列会在框里留大片空白;
             并在一列里,计划占满它们下面剩余的高度。 */}
         <BoardColumn>
+          <BoardRegion region="stage" data-testid="task-overview-stage">
+            <Region
+              title={t("components.taskJourney.stage")}
+              footer={
+                onOpenTimeline && (
+                  <button type="button" onClick={onOpenTimeline} className="ml-auto min-h-6 text-accent">
+                    {t("components.taskJourney.openTimeline")}
+                  </button>
+                )
+              }
+            >
+              <DenseRow
+                tag={<StatusTag status={task.coordinationStatus} />}
+                title={latest?.summary ?? task.currentNode ?? task.title}
+                time={t("components.taskJourney.roundCount", {
+                  count: stage.nodes.filter((node) => node.lane === "worker").length,
+                })}
+                onClick={onOpenTimeline}
+              />
+            </Region>
+          </BoardRegion>
           {awaitingOwner ? (
             <BoardRegion region="mine" data-testid="task-overview-hero">
               <Region
@@ -147,61 +191,83 @@ export function TaskOverviewTab({
   );
 }
 
-/** Task journey shares the dispatch tab cache; the complete audit remains in the DOM. */
-export function TaskTimelineRegion({
-  task,
-  onOpenRecord,
-  onNavigateEntity,
-  onOpenSession,
-}: {
-  readonly task: TaskRow;
-  readonly onOpenRecord?: (recordRef: string) => void;
-  readonly onNavigateEntity?: (ref: string) => void;
-  readonly onOpenSession?: (runtimeSessionId: string) => void;
-}) {
-  const events = task.events ?? [];
-  const dispatches = useQuery({
+/** Same dispatch cache and observation clock as the dispatch tab and overview stage. */
+function useTaskDispatches(task: TaskRow) {
+  return useQuery({
     queryKey: runtimeQueryKeys.dispatches(task.projectId, task.taskId),
     queryFn: () => readAllTaskDispatches({ repoId: task.projectId, taskId: task.taskId }),
     staleTime: 4_000,
     refetchInterval: (query) =>
       (query.state.data?.dispatches ?? []).some((row) => row.status === "running") ? 4_000 : false,
   });
+}
+
+/** CH2: the detail tab and agenda share one causal timeline, including its audit drawer. */
+export function TaskCausalTimeline({
+  task,
+  tasks,
+  onOpenRecord,
+  onNavigateEntity,
+  onOpenSession,
+  onFocusGraph,
+}: {
+  readonly task: TaskRow;
+  readonly tasks?: readonly TaskRow[];
+  readonly onOpenRecord?: (recordRef: string) => void;
+  readonly onNavigateEntity?: (ref: string) => void;
+  readonly onOpenSession?: (runtimeSessionId: string) => void;
+  readonly onFocusGraph?: (ref: string) => void;
+}) {
+  const events = task.events ?? [];
+  const dispatches = useTaskDispatches(task);
+  const graph = useEntityRelationGraphQuery(task.projectId, `task/${task.taskId}`);
+  const summary = useDecisionSummaryQuery(task.projectId);
   const journey = useMemo(
     () =>
       buildTaskJourney({
         task,
+        tasks,
         dispatches: dispatches.data?.dispatches ?? [],
         nowMs: dispatches.dataUpdatedAt || Date.now(),
+        decisions: summary.decisions,
+        facts: graph.facts,
+        relations: graph.relations,
       }),
-    [task, dispatches.data, dispatches.dataUpdatedAt],
+    [task, tasks, dispatches.data, dispatches.dataUpdatedAt, summary.decisions, graph.facts, graph.relations],
   );
   return (
-    <Region
-      title={t("components.pageRegions.timeline")}
-      big={t("components.taskJourney.roundCount", {
-        count: journey.nodes.filter((node) => node.lane === "worker").length,
-      })}
-      padded
-    >
+    <section data-testid="task-progress-timeline" className="flex min-h-full min-w-0 flex-col gap-3">
+      <header className="flex shrink-0 flex-wrap items-center gap-2">
+        <h2 className="ui-meta font-semibold">{t("components.pageRegions.timeline")}</h2>
+        <span className="ui-meta text-text-muted">
+          {t("components.taskJourney.roundCount", {
+            count: journey.nodes.filter((node) => node.lane === "worker").length,
+          })}
+        </span>
+        <span className="ml-auto">
+          <ViewInGraphButton entityRef={`task/${task.taskId}`} onFocusGraph={onFocusGraph} />
+        </span>
+      </header>
       <TaskJourneyGraph
         journey={journey}
         onNavigateEntity={onNavigateEntity}
         onOpenSession={onOpenSession}
         onOpenRecord={onOpenRecord}
       />
-      {dispatches.isError && (
-        <p role="alert" className="ui-meta text-danger">
-          {t("components.taskJourney.readError", { message: dispatches.error.message })}
-        </p>
-      )}
+      {[dispatches.error, graph.error, summary.error]
+        .filter((error) => error !== null)
+        .map((error, index) => (
+          <p key={index} role="alert" className="ui-meta text-danger">
+            {t("components.taskJourney.readError", { message: error!.message })}
+          </p>
+        ))}
       <details className="border-t border-border py-2">
         <summary className="cursor-pointer ui-meta text-text-muted">
           {t("components.taskJourney.rawRecords", { count: events.length })}
         </summary>
         <TaskEventDigest events={events} onOpenRecord={onOpenRecord} />
       </details>
-    </Region>
+    </section>
   );
 }
 
