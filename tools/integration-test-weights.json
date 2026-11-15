@@ -158,7 +158,7 @@
   "packages/daemon/test/entity-content-lifecycle.integration.test.ts": 17400,
   "packages/daemon/test/entity-durability-recovery.integration.test.ts": 35400,
   "packages/daemon/test/entity-kind-content-declared.integration.test.ts": 15200,
-  "packages/daemon/test/entity-kind-lifecycle.integration.test.ts": 32600,
+  "packages/daemon/test/entity-kind-lifecycle.integration.test.ts": 23000,
   "packages/daemon/test/entity-kind-write-resolution.integration.test.ts": 4700,
   "packages/daemon/test/entity-read-fold-scan.integration.test.ts": 11300,
   "packages/daemon/test/entity-rematerialize.integration.test.ts": 6000,
