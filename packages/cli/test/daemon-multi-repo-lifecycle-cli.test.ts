@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { availableParallelism, loadavg } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -827,14 +828,23 @@ test("resident daemon CLI write p50 includes process startup through parsed rece
   const fixture = await resident.setup(t);
   t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
   try {
-    // npm is npm.cmd on Windows, and Node refuses to execute a .cmd directly, so this failed
-    // with ENOENT before the measurement even started -- a launcher defect wearing a
-    // performance test's clothes. A shell resolves the shim; the arguments here are literals.
-    execFileSync("npm", ["run", "build", "--workspace", "@harness-anything/cli"], {
-      cwd: process.cwd(),
-      stdio: "pipe",
-      shell: process.platform === "win32",
-    });
+    // Prepare the real compiled CLI from its production config. Type diagnostics already run
+    // in the static/package gates; repeating them here dominated this latency fixture's cost.
+    // Emission and the production asset copier produce byte-identical build output.
+    execFileSync(
+      process.execPath,
+      [
+        createRequire(import.meta.url).resolve("typescript/lib/tsc.js"),
+        "-p",
+        "packages/cli/tsconfig.build.json",
+        "--noCheck",
+      ],
+      {
+        cwd: process.cwd(),
+        stdio: "pipe",
+      },
+    );
+    execFileSync(process.execPath, ["packages/cli/scripts/copy-assets.mjs"], { stdio: "pipe" });
     assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"], builtCli).ok, true);
     await register(fixture.alpha, fixture.userRoot, fixture.repoId, builtCli);
     // Warm two short rounds before measuring. GitHub's runner has a cold page/cache
