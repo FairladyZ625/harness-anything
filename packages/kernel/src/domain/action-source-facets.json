@@ -11511,7 +11511,7 @@
         "port": "packages/daemon/scripts/smoke-package.mjs#run"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/scripts/smoke-package.mjs#tarballs:e642b193e9c5488ca473225523508a31",
+        "candidateId": "action:packages/daemon:packages/daemon/scripts/smoke-package.mjs#tarballs:f83572385197a8ee00871f152a3c7c53",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/scripts/smoke-package.mjs#run"
