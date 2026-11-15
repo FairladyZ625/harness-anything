@@ -948,7 +948,11 @@ function readDocumentHead(
         event = accepted ? (JSON.parse(String(accepted.event_json)) as CanonicalEventV1) : null,
         claim =
           event?.schema === "decision-event/v1"
-            ? canonicalDocumentClaims(event).find((candidate) => candidate.path === documentPath)
+            ? event.payload.decisionDocumentClaim.path === documentPath
+              ? event.payload.decisionDocumentClaim
+              : event.type === "decision_review_recorded"
+                ? event.payload.carriedDocumentClaims?.find((candidate) => candidate.path === documentPath)?.candidate
+                : undefined
             : undefined;
       if (claim) return { sha256: claim.sha256, size: claim.size, nodeKind: "file" };
     }

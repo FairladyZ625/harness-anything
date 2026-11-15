@@ -493,7 +493,11 @@ async function authorizeReplacements(
     const terminal = row.terminal_event_json ? (JSON.parse(row.terminal_event_json) as CanonicalEventV1) : null,
       retained =
         terminal?.schema === "decision-event/v1"
-          ? canonicalDocumentClaims(terminal).find((candidate) => candidate.path === row.path)
+          ? terminal.payload.decisionDocumentClaim.path === row.path
+            ? terminal.payload.decisionDocumentClaim
+            : terminal.type === "decision_review_recorded"
+              ? terminal.payload.carriedDocumentClaims?.find((candidate) => candidate.path === row.path)?.candidate
+              : undefined
           : undefined;
     heads.set(
       row.path,
