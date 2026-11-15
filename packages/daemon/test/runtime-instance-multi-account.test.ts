@@ -517,7 +517,7 @@ test("AGY account probes persist separate model catalogs and quota cooldowns per
   writeFileSync(trace, "");
   writeProviderExecutable(
     path.join(bin, "agy"),
-    `const fs = require("node:fs"); ${agyArgumentBoundary} const home = process.env.HOME ?? ""; const ultra = home.includes("agy-ultra"); const geminiDir = args[args.indexOf("--gemini-dir") + 1]; const appDataDir = args[args.indexOf("--app-data-dir") + 1]; if (args[0] === "acp" && (geminiDir !== home + "/.gemini" || appDataDir !== geminiDir + "/antigravity-cli")) process.exit(31); fs.appendFileSync(${JSON.stringify(trace)}, JSON.stringify({ home, args }) + "\\n"); if (args[0] === "models") { const prefix = ultra ? "carbon" : "hydrogen"; const count = ultra ? 22 : 18; console.log(Array.from({ length: count }, (_, i) => (i === 0 ? "gemini-4-" + prefix + "-low" : "gemini-4-" + prefix + "-fixture-" + i) + "\\tmodel").join("\\n")); } else if (args[0] === "-p" && args[1] === "/quota") { console.log(JSON.stringify({ command: { data: { groups: [{ buckets: [{ remaining_fraction: ultra ? 0 : 0.35, reset_time: ${JSON.stringify(resetAt)} }] }] } } })); } else if (args[0] !== "acp") process.exit(32);\n`,
+    `const fs = require("node:fs"); ${agyArgumentBoundary} const home = process.env.HOME ?? ""; const ultra = home.includes("agy-ultra"); const geminiDir = args[args.indexOf("--gemini-dir") + 1]; const appDataDir = args[args.indexOf("--app-data-dir") + 1]; if (args[0] === "acp" && (geminiDir !== home + "/.gemini" || appDataDir !== geminiDir + "/antigravity-cli")) process.exit(31); fs.appendFileSync(${JSON.stringify(trace)}, JSON.stringify({ home, args, sshConnection: process.env.SSH_CONNECTION ?? null }) + "\\n"); if (args[0] === "models") { const prefix = ultra ? "carbon" : "hydrogen"; const count = ultra ? 22 : 18; console.log(Array.from({ length: count }, (_, i) => (i === 0 ? "gemini-4-" + prefix + "-low" : "gemini-4-" + prefix + "-fixture-" + i) + "\\tmodel").join("\\n")); } else if (args[0] === "-p" && args[1] === "/quota") { console.log(JSON.stringify({ command: { data: { groups: [{ buckets: [{ remaining_fraction: ultra ? 0 : 0.35, reset_time: ${JSON.stringify(resetAt)} }] }] } } })); } else if (args[0] !== "acp") process.exit(32);\n`,
   );
   try {
     const store = openRuntimeInstanceStore({
@@ -583,6 +583,22 @@ test("AGY account probes persist separate model catalogs and quota cooldowns per
       path.join(userRoot, "runtime-instances", "agy-acp-pro", "home", ".gemini", "antigravity-cli"),
     ]);
     assert.equal(login.env.HOME, path.join(userRoot, "runtime-instances", "agy-acp-pro", "home"));
+    assert.equal(login.env.SSH_CONNECTION, "127.0.0.1 0 127.0.0.1 22");
+    const launchPro = await store.prepareLaunch("agy-pro", { cwd: userRoot, prompt: "Verify file token env" });
+    assert.equal(launchPro.env.SSH_CONNECTION, "127.0.0.1 0 127.0.0.1 22");
+    store.command({
+      kind: "runtime-instance-create",
+      instanceId: "agy-operator-env",
+      name: "AGY Operator Env",
+      kindId: "agy",
+      installationId: agy.installationId,
+      providerId: "google",
+      models: ["gemini-4-hydrogen-low"],
+      authMode: "subscription",
+      credentialSource: "operator",
+      isolationState: "operator-environment",
+    });
+    assert.equal(store.prepareAuthCommand("agy-operator-env", "login").env.SSH_CONNECTION, undefined);
     assert.throws(
       () => store.prepareAuthCommand("agy-acp-pro", "logout"),
       (error: unknown) => codedAs(error, "runtime_auth_unsupported"),
@@ -590,16 +606,25 @@ test("AGY account probes persist separate model catalogs and quota cooldowns per
     const traceRows = readFileSync(trace, "utf8")
       .trim()
       .split("\n")
-      .map((line) => JSON.parse(line) as { readonly home: string; readonly args: readonly string[] });
-    assert.equal(traceRows.length, 4);
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            readonly home: string;
+            readonly args: readonly string[];
+            readonly sshConnection: string | null;
+          },
+      );
+    assert.equal(traceRows.length, 5);
     assert.deepEqual(
       traceRows.map(({ home }) => home).sort(),
-      ["agy-ultra", "agy-ultra", "agy-pro", "agy-pro"]
+      ["agy-ultra", "agy-ultra", "agy-pro", "agy-pro", "agy-pro"]
         .map((instanceId) => path.join(userRoot, "runtime-instances", instanceId, "home"))
         .sort(),
     );
-    for (const { args } of traceRows)
+    for (const { args, sshConnection } of traceRows) {
       assert.deepEqual(args, args[0] === "models" ? ["models"] : ["-p", "/quota", "--output-format", "json"]);
+      assert.equal(sshConnection, "127.0.0.1 0 127.0.0.1 22");
+    }
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }
