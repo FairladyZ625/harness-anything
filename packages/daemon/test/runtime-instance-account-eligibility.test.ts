@@ -94,42 +94,80 @@ function fixture() {
   };
 }
 
-test("empty independent account is created disabled, can sign in and probe, and requires explicit model selection before enablement", async () => {
+test("empty independent account stays closed until probed, then quick-enable autofills observed models and defaultModel", async () => {
   const f = fixture();
   try {
     await f.create();
     assert.equal(f.store.read("pro")?.enabled, false);
     assert.deepEqual(f.store.read("pro")?.models, []);
+    assert.equal(f.store.read("pro")?.defaultModel, "");
     assert.throws(() => f.candidates());
-    assert.ok(f.store.prepareAuthCommand("pro", "login").args.includes("--login"));
-    await f.store.refreshAccount("pro");
-    assert.deepEqual(f.store.read("pro")?.availableModels, [hydrogen]);
-    assert.deepEqual(f.store.read("pro")?.models, []);
-    assert.equal(f.store.read("pro")?.enabled, false);
-    assert.throws(() => f.store.command({ kind: "runtime-instance-update", instanceId: "pro", enabled: true }));
-    assert.equal(f.store.read("pro")?.enabled, false);
-    assert.throws(() =>
-      f.store.command({
-        kind: "runtime-instance-update",
-        instanceId: "pro",
-        models: [carbon],
-        defaultModel: carbon,
-        enabled: true,
-      }),
-    );
-    await f.store.command({
-      kind: "runtime-instance-update",
-      instanceId: "pro",
-      models: [hydrogen],
-      defaultModel: hydrogen,
-      enabled: true,
+    // Negative control: unprobed independent account with empty availableModels still refuses enablement.
+    assert.throws(() => f.store.command({ kind: "runtime-instance-update", instanceId: "pro", enabled: true }), {
+      code: "invalid_runtime_model",
     });
+    assert.equal(f.store.read("pro")?.enabled, false);
+    assert.ok(f.store.prepareAuthCommand("pro", "login").args.includes("--login"));
+    const flash = "gemini-3.8-flash";
+    writeFileSync(f.catalog, JSON.stringify([hydrogen, flash]));
+    await f.store.refreshAccount("pro");
+    assert.deepEqual(f.store.read("pro")?.availableModels, [hydrogen, flash]);
+    assert.deepEqual(f.store.read("pro")?.models, []);
+    assert.equal(f.store.read("pro")?.defaultModel, "");
+    assert.equal(f.store.read("pro")?.enabled, false);
+    assert.throws(
+      () =>
+        f.store.command({
+          kind: "runtime-instance-update",
+          instanceId: "pro",
+          models: [carbon],
+          defaultModel: carbon,
+          enabled: true,
+        }),
+      { code: "invalid_runtime_model" },
+    );
+    await f.store.command({ kind: "runtime-instance-update", instanceId: "pro", enabled: true });
+    assert.equal(f.store.read("pro")?.enabled, true);
+    assert.deepEqual(f.store.read("pro")?.models, [hydrogen, flash]);
+    assert.equal(f.store.read("pro")?.defaultModel, hydrogen);
     assert.deepEqual(f.candidates(hydrogen), ["pro"]);
     assert.throws(() => f.candidates(carbon));
     assert.ok(
       (await f.store.prepareLaunch("pro", { cwd: f.root, prompt: "test", model: hydrogen })).args.includes(hydrogen),
     );
-    assert.deepEqual(f.store.read("pro")?.models, [hydrogen]);
+  } finally {
+    f.close();
+  }
+});
+
+test("empty independent account with explicit models and no defaultModel autofills defaultModel without breaking non-empty default checks", async () => {
+  const f = fixture();
+  try {
+    const flash = "gemini-3.8-flash";
+    writeFileSync(f.catalog, JSON.stringify([hydrogen, flash]));
+    await f.create();
+    await f.store.refreshAccount("pro");
+    await f.store.command({
+      kind: "runtime-instance-update",
+      instanceId: "pro",
+      models: [flash],
+      enabled: true,
+    });
+    assert.equal(f.store.read("pro")?.enabled, true);
+    assert.deepEqual(f.store.read("pro")?.models, [flash]);
+    assert.equal(f.store.read("pro")?.defaultModel, flash);
+    // Existing non-empty defaultModel contract remains strict when omitted from a model-set update that drops it.
+    assert.throws(
+      () =>
+        f.store.command({
+          kind: "runtime-instance-update",
+          instanceId: "pro",
+          models: [hydrogen],
+        }),
+      { code: "invalid_runtime_model" },
+    );
+    assert.deepEqual(f.store.read("pro")?.models, [flash]);
+    assert.equal(f.store.read("pro")?.defaultModel, flash);
   } finally {
     f.close();
   }
