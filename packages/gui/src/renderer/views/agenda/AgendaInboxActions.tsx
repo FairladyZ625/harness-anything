@@ -24,7 +24,15 @@ export function AgendaInboxActions(props: {
   readonly onRetain: () => void;
 }) {
   const { item } = props;
-  if (item.row.ruling || item.row.group === "restart") return <AgendaRuntimeActions {...props} />;
+  if (item.row.ruling || item.row.group === "restart")
+    return (
+      <AgendaRuntimeActions
+        repoId={props.repoId}
+        item={item}
+        onNavigateEntity={props.onNavigateEntity}
+        onRetain={props.onRetain}
+      />
+    );
   if (["dispose", "judge"].includes(item.row.group) && item.row.target?.startsWith("decision"))
     return <AgendaDecisionActions {...props} />;
   return null;
@@ -56,27 +64,12 @@ function AgendaRuntimeActions({
       queryClient.invalidateQueries({ queryKey: agendaQueryKeys.read(repoId) }),
       queryClient.invalidateQueries({ queryKey: taskQueryKeys.all(repoId) }),
     ]);
-  const submit = async (dismiss = false, opId?: string) => {
+  const submit = async (request: () => ReturnType<typeof harnessClient.resolveTaskEscalation>, dismiss = false) => {
     if (busy || !row) return;
     onRetain();
     setBusy(true);
     try {
-      const receipt = settleTaskReceipt(
-        await (opId
-          ? harnessClient.showReceipt({ repoId, opId })
-          : dismiss
-            ? harnessClient.dismissRuntimeIncident({
-                repoId,
-                dispatchId: row.dispatchId,
-                reason: answer.trim() || t("views.agenda.incidentHandled"),
-              })
-            : harnessClient.resolveTaskEscalation({
-                repoId,
-                taskId: row.taskId,
-                dispatchId: row.dispatchId,
-                answer: answer.trim(),
-              })),
-      );
+      const receipt = settleTaskReceipt(await request());
       if (receipt.state !== "applied") {
         setFeedback(receipt.hint ?? receipt.state);
         // A pending write must be checked by opId, never replayed as another answer.
@@ -138,14 +131,38 @@ function AgendaRuntimeActions({
                 variant="primary"
                 disabled={!answer.trim() || locked}
                 loading={busy}
-                onClick={() => void submit()}
+                onClick={() =>
+                  void submit(() =>
+                    harnessClient.resolveTaskEscalation({
+                      repoId,
+                      taskId: row.taskId,
+                      dispatchId: row.dispatchId,
+                      answer: answer.trim(),
+                    }),
+                  )
+                }
               >
                 {t("views.agenda.submitRuling")}
               </Button>
             </>
           )}
           {row.attention !== "guard" && row.options.length === 0 && (
-            <Button testId="agenda-incident-dismiss" disabled={locked} loading={busy} onClick={() => void submit(true)}>
+            <Button
+              testId="agenda-incident-dismiss"
+              disabled={locked}
+              loading={busy}
+              onClick={() =>
+                void submit(
+                  () =>
+                    harnessClient.dismissRuntimeIncident({
+                      repoId,
+                      dispatchId: row.dispatchId,
+                      reason: answer.trim() || t("views.agenda.incidentHandled"),
+                    }),
+                  true,
+                )
+              }
+            >
               {t("views.agenda.closeIncident")}
             </Button>
           )}
@@ -191,7 +208,9 @@ function AgendaRuntimeActions({
           size="sm"
           testId="agenda-ruling-check-receipt"
           loading={busy}
-          onClick={() => void submit(pendingWrite.dismiss, pendingWrite.opId)}
+          onClick={() =>
+            void submit(() => harnessClient.showReceipt({ repoId, opId: pendingWrite.opId }), pendingWrite.dismiss)
+          }
         >
           {t("views.agenda.checkReceipt")}
         </Button>
