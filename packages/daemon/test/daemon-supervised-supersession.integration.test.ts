@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { residentReadoptionScenarios, residentReadoptionCase } from "./fixtures/resident-readoption-cases.fixture.ts";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
@@ -138,3 +139,10 @@ for (const supervised of [true, false])
       }
     },
   );
+
+for (const scenario of residentReadoptionScenarios.filter(
+  (scenario) => scenario.supervised && !scenario.failDeadline,
+)) {
+  const entry = residentReadoptionCase(scenario);
+  test(entry.name, entry.options, entry.run);
+}
