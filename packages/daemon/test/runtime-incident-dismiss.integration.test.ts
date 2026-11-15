@@ -66,6 +66,8 @@ test("runtime-incident-dismiss settles a needs_attention receipt as the owner's 
       binding,
     );
     assert.equal(dismissed.outcome, "applied", JSON.stringify(dismissed));
+    assert.equal(dismissed.status, "settled_no_write");
+    assert.equal("proof" in dismissed, false);
     // The visible disposition becomes the owner's no_action with the reason; the automatic
     // disposition's history stays in the stream records and the annotation audit copy.
     const receipt = readIncidentActionReceipt(rootDir, dispatchId);
@@ -79,6 +81,8 @@ test("runtime-incident-dismiss settles a needs_attention receipt as the owner's 
       binding,
     );
     assert.equal(again.outcome, "no_changes", JSON.stringify(again));
+    assert.equal(again.status, "settled_no_write");
+    assert.equal("proof" in again, false);
     assert.equal(readIncidentActionReceipt(rootDir, dispatchId)?.reason, "Owner adjudicated: no resume needed.");
   });
 });

@@ -6,6 +6,7 @@ import { harnessClient } from "../../api-client.ts";
 import { agendaQueryKeys } from "../../agenda-data.ts";
 import { taskQueryKeys } from "../../task-data.ts";
 import { settleTaskReceipt } from "../../task-actions.ts";
+import { rendererErrorHint } from "../../result-validation.ts";
 import type { AgendaWorkbenchItem } from "../../model/agenda-workbench.ts";
 import type { TaskRow } from "../../model/types.ts";
 import { Button } from "../../components/primitives/Button.tsx";
@@ -54,7 +55,7 @@ function AgendaRuntimeActions({
   const [answer, setAnswer] = useState("");
   const [autoRun, setAutoRun] = useState(true);
   const [recorded, setRecorded] = useState(false);
-  const [pendingWrite, setPendingWrite] = useState<{ opId: string; dismiss: boolean } | null>(null);
+  const [pendingWrite, setPendingWrite] = useState<{ opId: string; dismiss: false } | null>(null);
   const locked = recorded || pendingWrite !== null;
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -69,13 +70,25 @@ function AgendaRuntimeActions({
     onRetain();
     setBusy(true);
     try {
-      const receipt = settleTaskReceipt(await request());
-      if (receipt.state !== "applied") {
-        setFeedback(receipt.hint ?? receipt.state);
-        // A pending write must be checked by opId, never replayed as another answer.
-        if (receipt.state === "pending") setPendingWrite({ opId: receipt.opId, dismiss });
-        else setPendingWrite(null);
-        return;
+      const response = await request();
+      if (dismiss) {
+        // Incident disposition is host-local: it settles without canonical acceptance proof.
+        if (
+          response.status !== "settled_no_write" ||
+          (response.outcome !== "applied" && response.outcome !== "no_changes")
+        ) {
+          setFeedback(rendererErrorHint(response, response.outcome));
+          return;
+        }
+      } else {
+        const receipt = settleTaskReceipt(response);
+        if (receipt.state !== "applied") {
+          setFeedback(receipt.hint ?? receipt.state);
+          // Only canonical ruling writes are checked by opId; never replay an answer.
+          if (receipt.state === "pending") setPendingWrite({ opId: receipt.opId, dismiss: false });
+          else setPendingWrite(null);
+          return;
+        }
       }
       setPendingWrite(null);
       setRecorded(true);

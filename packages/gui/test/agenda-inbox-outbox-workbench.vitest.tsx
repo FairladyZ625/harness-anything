@@ -981,7 +981,9 @@ describe("Agenda durable answer then outside-write continuation", () => {
     expect(answer).toHaveBeenCalledTimes(1);
   });
   it("closes incident receipts but never offers dismissal for a guard refusal", async () => {
-    const dismiss = vi.spyOn(harnessClient, "dismissRuntimeIncident").mockResolvedValue(applied());
+    const dismiss = vi
+      .spyOn(harnessClient, "dismissRuntimeIncident")
+      .mockResolvedValue(applied({ status: "settled_no_write", proof: undefined }));
     render(agenda({ awaitingRuling: [ruling({ rulingPath: undefined, options: [] })] }));
     click("agenda-incident-dismiss");
     await settle(() => expect(dismiss).toHaveBeenCalledWith(expect.objectContaining({ dispatchId: "dispatch_old" })));
