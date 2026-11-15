@@ -39,6 +39,10 @@ import { assertRuntimeWebSearchSupported, runtimeWebSearchForConfig } from "./ag
 // machine/user-neutral variables; host credentials never leak in.
 // A launch scoped to one runtime session passes its own tempDirectory so one-off
 // scratch never piles up in the instance-wide root; settlement reclaims it.
+// Isolated AGY/AGY-ACP instances force file-based OAuth storage via SSH_CONNECTION so
+// composite_token_storage.go skips OS Keychain calls under a Keychain-less isolated HOME.
+const agyFileTokenStorageEnvironment: NodeJS.ProcessEnv = { SSH_CONNECTION: "127.0.0.1 0 127.0.0.1 22" };
+
 export function isolatedEnvironment(
   source: NodeJS.ProcessEnv,
   stateRoot: string,
@@ -49,7 +53,10 @@ export function isolatedEnvironment(
   const home = path.join(stateRoot, "home"),
     tmp = tempDirectory ?? path.join(stateRoot, "tmp"),
     environment = runtimeKindForId(kindId).executable.configHomeEnvironment,
-    kind = environment ? { [environment]: providerConfigDirectory(home, kindId) } : {};
+    kind = {
+      ...(environment ? { [environment]: providerConfigDirectory(home, kindId) } : {}),
+      ...(kindId === "agy" || kindId === "agy-acp" ? agyFileTokenStorageEnvironment : {}),
+    };
   if (platform === "win32") {
     const result: NodeJS.ProcessEnv = {
       USERPROFILE: home,
