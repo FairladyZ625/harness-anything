@@ -20,7 +20,11 @@ import {
   submissionDigest,
   type AuthorizationDecision,
 } from "@harness-anything/kernel";
-import { agentRuntimeModelSpelling, agentRuntimeTargetForKind } from "./agent-runtime-contract.ts";
+import {
+  agentRuntimeModelMatches,
+  agentRuntimeModelSpelling,
+  agentRuntimeTargetForKind,
+} from "./agent-runtime-contract.ts";
 import {
   agentRuntimeAmbiguityWarning,
   selectedRuntimeInstance,
@@ -307,6 +311,16 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       // Delegation provenance: which already-running runtime session invoked this spawn.
       parentRuntimeSessionId = runtimeSessionIdFromActor(binding.actor),
       model = payload.model === undefined ? inherited?.model : requiredRuntimeSpawnText(payload.model, "model"),
+      preferredRuntimeInstanceId =
+        payload.preferredRuntimeInstanceId === undefined
+          ? undefined
+          : requiredRuntimeSpawnText(payload.preferredRuntimeInstanceId, "preferredRuntimeInstanceId"),
+      preferredModel =
+        payload.preferredModel === undefined
+          ? undefined
+          : requiredRuntimeSpawnText(payload.preferredModel, "preferredModel"),
+      avoidVendor =
+        payload.avoidVendor === undefined ? undefined : requiredRuntimeSpawnText(payload.avoidVendor, "avoidVendor"),
       effort = payload.effort === undefined ? undefined : requiredRuntimeSpawnText(payload.effort, "effort"),
       fast = payload.fast === undefined ? undefined : requiredRuntimeFast(payload.fast),
       permissionMode =
@@ -551,274 +565,299 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       });
       modelSlotHeld = true;
     }
-    const selectRuntime = () =>
-      prepareRuntimeInstance(
-        {
-          requested: requestedRuntimeInstanceId,
-          providerSessionId: providerSessionId ?? undefined,
-          agent,
-          model,
-          instances: runtimeInstances,
-          allowedInstanceIds,
-          sessions: localRuntimeSessions,
-          selectionStrategy: input.readSettings?.().runtime.selectionStrategy,
-          dispatchState,
-          dryRun,
-          selectRuntimeInstance: input.selectRuntimeInstance,
-          health: providerHealth,
-          now: input.now(),
-        },
-        async (runtimeInstanceId) => {
-          if (!dryRun) {
-            const rows = await readActiveDispatchLifecycle(
-                (query) =>
-                  input.remote ? input.remote.readDispatchLifecycle(query) : projection!.readDispatchLifecycle(query),
-                runtimeSpawnError,
-                runtimeInstanceId,
-              ),
-              refusal = dispatchAdmissionBlocker(rows, {
-                instanceId: runtimeInstanceId,
-                owner: dispatchOwnerForNode(input.runtimeNode?.nodeId),
-                capacity: input.runtimeInstanceCapacities?.[runtimeInstanceId],
-              });
-            if (refusal) throw runtimeSpawnError(refusal.code, refusal.message);
-          }
-          const initialFallback =
-              inheritedFallback ??
-              initialFallbackAttempt(
-                agent,
-                explicitRuntimeInstanceId,
-                model,
-                providerSessionId,
-                dispatchKey,
-                newDispatchId,
-                fallbackMission,
-                runtimeInstances,
-                localRuntimeSessions,
-                allowedInstanceIds,
-                providerHealth,
-                input.now(),
-              ),
-            fallbackAttempt =
-              initialFallback &&
-              initialFallback.candidates[initialFallback.candidateIndex ?? initialFallback.attemptIndex]?.instance !==
-                runtimeInstanceId
-                ? initialFallbackAttempt(
-                    agent,
-                    runtimeInstanceId,
-                    model,
-                    providerSessionId,
-                    dispatchKey,
-                    newDispatchId,
-                    fallbackMission,
-                    runtimeInstances,
-                    localRuntimeSessions,
-                    allowedInstanceIds,
-                    providerHealth,
-                    input.now(),
-                    explicitRuntimeInstanceId === undefined,
-                  )
-                : initialFallback,
-            fallbackAttemptForDispatch = fallbackAttempt,
-            fallbackCandidate =
-              fallbackAttemptForDispatch?.candidates[
-                fallbackAttemptForDispatch.candidateIndex ?? fallbackAttemptForDispatch.attemptIndex
-              ],
-            runtimeInstance = runtimeInstances.find((instance) => instance.instanceId === runtimeInstanceId),
-            // The instance store validates model membership verbatim, so a declaration that
-            // differs from the catalog only by letter case must launch the catalog spelling.
-            requestedSelectedModel =
-              fallbackCandidate?.model ??
-              model ??
-              (agent && runtimeInstance
-                ? agentRuntimeTargetForKind(agent.runtimes, runtimeInstance.kindId)?.model
-                : undefined),
-            selectedModel =
-              requestedSelectedModel === undefined || runtimeInstance === undefined
-                ? requestedSelectedModel
-                : (agentRuntimeModelSpelling(runtimeInstance.models, requestedSelectedModel) ?? requestedSelectedModel),
-            selectedEffort =
-              effort ??
-              (agent && runtimeInstance
-                ? agentRuntimeTargetForKind(agent.runtimes, runtimeInstance.kindId)?.effort
-                : undefined),
-            configuredPermissionMode = runtimeInstance?.permissionMode ?? undefined,
-            declaredPermissionMode = permissionMode ?? agent?.permissionMode,
-            effectivePermissionMode = declaredPermissionMode ?? configuredPermissionMode,
-            declaredMcpPolicy = mcpPolicy ?? agent?.mcpPolicy,
-            effectiveMcpPolicy = runtimeInstance
-              ? resolveRuntimeMcpPolicy({
-                  kindId: runtimeInstance.kindId,
-                  dispatchMcpPolicy: mcpPolicy,
-                  agentMcpPolicy: agent?.mcpPolicy,
-                  instanceMcpPolicy: runtimeInstance.mcpPolicy ?? undefined,
-                })
-              : declaredMcpPolicy
-                ? runtimeMcpPolicy(declaredMcpPolicy)
-                : undefined,
-            callbackRelay = dispatchCallbackRelay(newDispatchId, daemonRoute, runtimeInstance, effectivePermissionMode),
-            // A relayed sandbox still hides the host user root and daemon id; a bypass worker
-            // already has that host access and keeps the real identity in its mission. Only the
-            // endpoint is shared: the relay is located by the injected socket path.
-            missionDaemonRoute =
-              callbackRelay && daemonRoute
-                ? {
-                    ...(effectivePermissionMode === "bypass" ? daemonRoute : { userRoot: "", daemonId: "" }),
-                    endpoint: callbackRelay.path,
-                  }
-                : daemonRoute,
-            selfContainedMission =
-              taskMission && daemonRoute
-                ? assembleTaskMission({
-                    mission,
-                    repoId: input.repoId,
-                    workerRoot: cwd,
-                    worktreeNote: dispatchWorktree ? taskWorktreeCheckoutNote(dispatchWorktree) : null,
-                    taskId: taskId!,
-                    taskPackageRoot: taskMission.packageRoot,
-                    daemonRoute: missionDaemonRoute!,
-                    runtimeActor,
+    const selectionHints = {
+        ...(preferredRuntimeInstanceId === undefined ? {} : { preferredInstanceId: preferredRuntimeInstanceId }),
+        ...(preferredModel === undefined ? {} : { preferredModel }),
+        ...(avoidVendor === undefined ? {} : { avoidVendor }),
+      },
+      selectRuntime = () =>
+        prepareRuntimeInstance(
+          {
+            requested: requestedRuntimeInstanceId,
+            providerSessionId: providerSessionId ?? undefined,
+            preferredInstanceId: preferredRuntimeInstanceId,
+            avoidVendor,
+            agent,
+            model,
+            instances: runtimeInstances,
+            allowedInstanceIds,
+            sessions: localRuntimeSessions,
+            selectionStrategy: input.readSettings?.().runtime.selectionStrategy,
+            dispatchState,
+            dryRun,
+            selectRuntimeInstance: input.selectRuntimeInstance,
+            health: providerHealth,
+            now: input.now(),
+          },
+          async (runtimeInstanceId) => {
+            if (!dryRun) {
+              const rows = await readActiveDispatchLifecycle(
+                  (query) =>
+                    input.remote ? input.remote.readDispatchLifecycle(query) : projection!.readDispatchLifecycle(query),
+                  runtimeSpawnError,
+                  runtimeInstanceId,
+                ),
+                refusal = dispatchAdmissionBlocker(rows, {
+                  instanceId: runtimeInstanceId,
+                  owner: dispatchOwnerForNode(input.runtimeNode?.nodeId),
+                  capacity: input.runtimeInstanceCapacities?.[runtimeInstanceId],
+                });
+              if (refusal) throw runtimeSpawnError(refusal.code, refusal.message);
+            }
+            const initialFallback =
+                inheritedFallback ??
+                initialFallbackAttempt(
+                  agent,
+                  explicitRuntimeInstanceId,
+                  model,
+                  providerSessionId,
+                  dispatchKey,
+                  newDispatchId,
+                  fallbackMission,
+                  runtimeInstances,
+                  localRuntimeSessions,
+                  allowedInstanceIds,
+                  providerHealth,
+                  input.now(),
+                  false,
+                  selectionHints,
+                ),
+              fallbackAttempt =
+                initialFallback &&
+                initialFallback.candidates[initialFallback.candidateIndex ?? initialFallback.attemptIndex]?.instance !==
+                  runtimeInstanceId
+                  ? initialFallbackAttempt(
+                      agent,
+                      runtimeInstanceId,
+                      model,
+                      providerSessionId,
+                      dispatchKey,
+                      newDispatchId,
+                      fallbackMission,
+                      runtimeInstances,
+                      localRuntimeSessions,
+                      allowedInstanceIds,
+                      providerHealth,
+                      input.now(),
+                      explicitRuntimeInstanceId === undefined,
+                      selectionHints,
+                    )
+                  : initialFallback,
+              fallbackAttemptForDispatch = fallbackAttempt,
+              fallbackCandidate =
+                fallbackAttemptForDispatch?.candidates[
+                  fallbackAttemptForDispatch.candidateIndex ?? fallbackAttemptForDispatch.attemptIndex
+                ],
+              runtimeInstance = runtimeInstances.find((instance) => instance.instanceId === runtimeInstanceId),
+              effectivePreferredModel =
+                model === undefined &&
+                runtimeInstance !== undefined &&
+                runtimeInstanceId === preferredRuntimeInstanceId &&
+                preferredModel !== undefined &&
+                agentRuntimeModelMatches(runtimeInstance.models, preferredModel)
+                  ? preferredModel
+                  : undefined,
+              // The instance store validates model membership verbatim, so a declaration that
+              // differs from the catalog only by letter case must launch the catalog spelling.
+              requestedSelectedModel =
+                fallbackCandidate?.model ??
+                model ??
+                effectivePreferredModel ??
+                (agent && runtimeInstance
+                  ? agentRuntimeTargetForKind(agent.runtimes, runtimeInstance.kindId)?.model
+                  : undefined),
+              selectedModel =
+                requestedSelectedModel === undefined || runtimeInstance === undefined
+                  ? requestedSelectedModel
+                  : (agentRuntimeModelSpelling(runtimeInstance.models, requestedSelectedModel) ??
+                    requestedSelectedModel),
+              selectedEffort =
+                effort ??
+                (agent && runtimeInstance
+                  ? agentRuntimeTargetForKind(agent.runtimes, runtimeInstance.kindId)?.effort
+                  : undefined),
+              configuredPermissionMode = runtimeInstance?.permissionMode ?? undefined,
+              declaredPermissionMode = permissionMode ?? agent?.permissionMode,
+              effectivePermissionMode = declaredPermissionMode ?? configuredPermissionMode,
+              declaredMcpPolicy = mcpPolicy ?? agent?.mcpPolicy,
+              effectiveMcpPolicy = runtimeInstance
+                ? resolveRuntimeMcpPolicy({
+                    kindId: runtimeInstance.kindId,
+                    dispatchMcpPolicy: mcpPolicy,
+                    agentMcpPolicy: agent?.mcpPolicy,
+                    instanceMcpPolicy: runtimeInstance.mcpPolicy ?? undefined,
                   })
-                : trustedSchedule && daemonRoute
-                  ? assembleScheduledMission({
+                : declaredMcpPolicy
+                  ? runtimeMcpPolicy(declaredMcpPolicy)
+                  : undefined,
+              callbackRelay = dispatchCallbackRelay(
+                newDispatchId,
+                daemonRoute,
+                runtimeInstance,
+                effectivePermissionMode,
+              ),
+              // A relayed sandbox still hides the host user root and daemon id; a bypass worker
+              // already has that host access and keeps the real identity in its mission. Only the
+              // endpoint is shared: the relay is located by the injected socket path.
+              missionDaemonRoute =
+                callbackRelay && daemonRoute
+                  ? {
+                      ...(effectivePermissionMode === "bypass" ? daemonRoute : { userRoot: "", daemonId: "" }),
+                      endpoint: callbackRelay.path,
+                    }
+                  : daemonRoute,
+              selfContainedMission =
+                taskMission && daemonRoute
+                  ? assembleTaskMission({
                       mission,
                       repoId: input.repoId,
                       workerRoot: cwd,
-                      scheduleId: trustedSchedule.scheduleId,
-                      mode: trustedSchedule.mode,
-                      claimFence: trustedSchedule.claimFence,
+                      worktreeNote: dispatchWorktree ? taskWorktreeCheckoutNote(dispatchWorktree) : null,
+                      taskId: taskId!,
+                      taskPackageRoot: taskMission.packageRoot,
                       daemonRoute: missionDaemonRoute!,
                       runtimeActor,
                     })
-                  : mission,
-            readOnlyDispatch = effectivePermissionMode === "read-only",
-            // The self-iteration step rides every task-bound dispatch whose declaration mounts the
-            // `self-iteration` skill — the skill mount is the only opt-in (`dec_43F5EA40143C5BD729EF90D030`
-            // CH1), and both audiences opt in the same way. What differs is where the proposal lands:
-            // a delivery turn owns its task package, while a reviewer may write nothing but its review
-            // report (`runtime-execution-scope.ts:101,251-261`), so its proposal is a section of that
-            // report. Read-only attaches cannot write either surface, so they stay excluded.
-            selfIteration =
-              taskId !== null && !readOnlyDispatch
-                ? selfIterationCloseoutSection(
-                    taskId,
-                    resolvedSkills.map((skill) => skill.id),
-                    reviewerBinding ? "review" : "delivery",
-                  )
-                : null,
-            dispatchMission = dispatchMissionForPermission(
-              selfIteration === null
-                ? (selfContainedMission ?? mission)
-                : `${selfContainedMission ?? mission}\n\n${selfIteration}`,
-              effectivePermissionMode,
-              {
-                kindId: runtimeInstance?.kindId ?? "",
-                platform: hostPlatform,
-                reviewer: reviewerBinding,
-                taskBound: taskId !== null,
-              },
-            ),
-            // A worktree checks out no private ledger, so every `harness/…` reference the agent
-            // declaration or the mission carries is answered with the path this worker can open;
-            // every executing dispatch also owes the isolated-test entry when nothing names it.
-            privateReads = privateLedgerReadSection(
-              resolvePrivateLedgerReads({
-                rootDir: input.rootDir,
-                cwd,
-                texts: dispatchLedgerReadTexts({
-                  prompts: agent?.prompts ?? [],
-                  instructions: agent?.instructions,
-                  mission: dispatchMission,
+                  : trustedSchedule && daemonRoute
+                    ? assembleScheduledMission({
+                        mission,
+                        repoId: input.repoId,
+                        workerRoot: cwd,
+                        scheduleId: trustedSchedule.scheduleId,
+                        mode: trustedSchedule.mode,
+                        claimFence: trustedSchedule.claimFence,
+                        daemonRoute: missionDaemonRoute!,
+                        runtimeActor,
+                      })
+                    : mission,
+              readOnlyDispatch = effectivePermissionMode === "read-only",
+              // The self-iteration step rides every task-bound dispatch whose declaration mounts the
+              // `self-iteration` skill — the skill mount is the only opt-in (`dec_43F5EA40143C5BD729EF90D030`
+              // CH1), and both audiences opt in the same way. What differs is where the proposal lands:
+              // a delivery turn owns its task package, while a reviewer may write nothing but its review
+              // report (`runtime-execution-scope.ts:101,251-261`), so its proposal is a section of that
+              // report. Read-only attaches cannot write either surface, so they stay excluded.
+              selfIteration =
+                taskId !== null && !readOnlyDispatch
+                  ? selfIterationCloseoutSection(
+                      taskId,
+                      resolvedSkills.map((skill) => skill.id),
+                      reviewerBinding ? "review" : "delivery",
+                    )
+                  : null,
+              dispatchMission = dispatchMissionForPermission(
+                selfIteration === null
+                  ? (selfContainedMission ?? mission)
+                  : `${selfContainedMission ?? mission}\n\n${selfIteration}`,
+                effectivePermissionMode,
+                {
+                  kindId: runtimeInstance?.kindId ?? "",
+                  platform: hostPlatform,
                   reviewer: reviewerBinding,
-                  readOnly: readOnlyDispatch,
+                  taskBound: taskId !== null,
+                },
+              ),
+              // A worktree checks out no private ledger, so every `harness/…` reference the agent
+              // declaration or the mission carries is answered with the path this worker can open;
+              // every executing dispatch also owes the isolated-test entry when nothing names it.
+              privateReads = privateLedgerReadSection(
+                resolvePrivateLedgerReads({
+                  rootDir: input.rootDir,
+                  cwd,
+                  texts: dispatchLedgerReadTexts({
+                    prompts: agent?.prompts ?? [],
+                    instructions: agent?.instructions,
+                    mission: dispatchMission,
+                    reviewer: reviewerBinding,
+                    readOnly: readOnlyDispatch,
+                  }),
                 }),
-              }),
-            ),
-            assembledPrompt = agent
-              ? assembleAgentPrompt(
-                  role === "reviewer" ? { ...agent, role } : agent,
-                  dispatchMission,
-                  preset,
-                  resolvedSkills,
-                  privateReads,
-                )
-              : taskMission || role === "reviewer"
-                ? assembleUnboundPrompt(dispatchMission, role === "reviewer" ? role : undefined, privateReads)
-                : dispatchMission,
-            // Scheduled Squad leaders answer the squad decision protocol; the run settles
-            // the occurrence. Every dispatch still receives its own rendered dispatch id.
-            prompt = renderDispatchPrompt(
-              assembledPrompt,
-              newDispatchId,
-              Boolean(trustedSchedule) && squadId === undefined,
-            );
-          assertContextBudget(prompt);
+              ),
+              assembledPrompt = agent
+                ? assembleAgentPrompt(
+                    role === "reviewer" ? { ...agent, role } : agent,
+                    dispatchMission,
+                    preset,
+                    resolvedSkills,
+                    privateReads,
+                  )
+                : taskMission || role === "reviewer"
+                  ? assembleUnboundPrompt(dispatchMission, role === "reviewer" ? role : undefined, privateReads)
+                  : dispatchMission,
+              // Scheduled Squad leaders answer the squad decision protocol; the run settles
+              // the occurrence. Every dispatch still receives its own rendered dispatch id.
+              prompt = renderDispatchPrompt(
+                assembledPrompt,
+                newDispatchId,
+                Boolean(trustedSchedule) && squadId === undefined,
+              );
+            assertContextBudget(prompt);
 
-          // Dry-run preview ends exactly at the launch boundary: the same inputs, same
-          // assembly calls, no prepareLaunch, no dispatch event, no lease handoff.
-          const preview = dryRun
-            ? {
-                schema: "agent-dispatch-preview/v1",
-                ok: true,
-                command: "runtime-spawn",
-                dispatchId: newDispatchId,
-                runtimeSessionId,
-                effort: selectedEffort ?? null,
-                prompt,
-                mission,
+            // Dry-run preview ends exactly at the launch boundary: the same inputs, same
+            // assembly calls, no prepareLaunch, no dispatch event, no lease handoff.
+            const preview = dryRun
+              ? {
+                  schema: "agent-dispatch-preview/v1",
+                  ok: true,
+                  command: "runtime-spawn",
+                  dispatchId: newDispatchId,
+                  runtimeSessionId,
+                  effort: selectedEffort ?? null,
+                  prompt,
+                  mission,
+                }
+              : null;
+            let cloudRelay: Awaited<ReturnType<NonNullable<RuntimeSpawnerInput["prepareCloudRelay"]>>> | null = null;
+            let prepared: Awaited<ReturnType<RuntimeSpawnerInput["prepareLaunch"]>> | null = null;
+            if (!dryRun) {
+              const budgetMicros = selectedModel ? relayBudgetMicrosOf(selectedModel, dispatchUsageLimit) : null;
+              try {
+                cloudRelay =
+                  input.prepareCloudRelay && budgetMicros !== null && selectedModel
+                    ? await input.prepareCloudRelay({
+                        instanceId: runtimeInstanceId,
+                        attemptId: runtimeSessionId,
+                        model: selectedModel,
+                        budgetMicros,
+                      })
+                    : null;
+                prepared = await input.prepareLaunch(runtimeInstanceId, {
+                  cwd,
+                  prompt,
+                  ...(selectedModel ? { model: selectedModel } : {}),
+                  ...(selectedEffort ? { effort: selectedEffort } : {}),
+                  ...(fast === undefined ? {} : { fast }),
+                  ...(declaredPermissionMode ? { permissionMode: declaredPermissionMode } : {}),
+                  ...(effectiveMcpPolicy ? { mcpPolicy: effectiveMcpPolicy } : {}),
+                  ...(callbackRelay ? { callbackRelayPath: callbackRelay.path } : {}),
+                  ...(providerSessionId ? { providerSessionId } : {}),
+                  ...(cloudRelay ? { cloudRelay: { baseUrl: cloudRelay.baseUrl, token: cloudRelay.token } } : {}),
+                  runtimeSessionId,
+                  handshakeTimeoutMs: input.readSettings?.().runtime.providerHandshakeTimeoutMs,
+                  commandInterceptions: (input.readSettings?.().runtime.commandInterceptions ?? []).filter(
+                    (rule) => rule.agent === undefined || rule.agent === agent?.id,
+                  ),
+                });
+              } catch (error) {
+                await cloudRelay?.close();
+                throw error;
               }
-            : null;
-          let cloudRelay: Awaited<ReturnType<NonNullable<RuntimeSpawnerInput["prepareCloudRelay"]>>> | null = null;
-          let prepared: Awaited<ReturnType<RuntimeSpawnerInput["prepareLaunch"]>> | null = null;
-          if (!dryRun) {
-            const budgetMicros = selectedModel ? relayBudgetMicrosOf(selectedModel, dispatchUsageLimit) : null;
-            try {
-              cloudRelay =
-                input.prepareCloudRelay && budgetMicros !== null && selectedModel
-                  ? await input.prepareCloudRelay({
-                      instanceId: runtimeInstanceId,
-                      attemptId: runtimeSessionId,
-                      model: selectedModel,
-                      budgetMicros,
-                    })
-                  : null;
-              prepared = await input.prepareLaunch(runtimeInstanceId, {
-                cwd,
-                prompt,
-                ...(selectedModel ? { model: selectedModel } : {}),
-                ...(selectedEffort ? { effort: selectedEffort } : {}),
-                ...(fast === undefined ? {} : { fast }),
-                ...(declaredPermissionMode ? { permissionMode: declaredPermissionMode } : {}),
-                ...(effectiveMcpPolicy ? { mcpPolicy: effectiveMcpPolicy } : {}),
-                ...(callbackRelay ? { callbackRelayPath: callbackRelay.path } : {}),
-                ...(providerSessionId ? { providerSessionId } : {}),
-                ...(cloudRelay ? { cloudRelay: { baseUrl: cloudRelay.baseUrl, token: cloudRelay.token } } : {}),
-                runtimeSessionId,
-                handshakeTimeoutMs: input.readSettings?.().runtime.providerHandshakeTimeoutMs,
-                commandInterceptions: (input.readSettings?.().runtime.commandInterceptions ?? []).filter(
-                  (rule) => rule.agent === undefined || rule.agent === agent?.id,
-                ),
-              });
-            } catch (error) {
-              await cloudRelay?.close();
-              throw error;
             }
-          }
-          const result = {
-            fallbackAttempt: fallbackAttemptForDispatch,
-            runtimeInstance,
-            effectivePermissionMode,
-            effectiveMcpPolicy,
-            callbackRelay,
-            readOnlyDispatch,
-            prompt,
-            prepared,
-            cloudRelay,
-            preview,
-          };
-          return result;
-        },
-      );
+            const result = {
+              fallbackAttempt: fallbackAttemptForDispatch,
+              runtimeInstance,
+              effectivePermissionMode,
+              effectiveMcpPolicy,
+              callbackRelay,
+              readOnlyDispatch,
+              prompt,
+              prepared,
+              cloudRelay,
+              preview,
+            };
+            return result;
+          },
+        );
     let selection: Awaited<ReturnType<typeof selectRuntime>>;
     try {
       selection = await selectRuntime();
@@ -838,9 +877,17 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         cloudRelay,
       } = selection.launch;
     if (preview) return preview;
-    const runtimeSelection = selectedRuntimeInstance({
+    const effectiveSelectionModel =
+        model ??
+        (runtimeInstanceId === preferredRuntimeInstanceId &&
+        runtimeInstance !== undefined &&
+        preferredModel !== undefined &&
+        agentRuntimeModelMatches(runtimeInstance.models, preferredModel)
+          ? preferredModel
+          : undefined),
+      runtimeSelection = selectedRuntimeInstance({
         agent,
-        ...(model === undefined ? {} : { model }),
+        ...(effectiveSelectionModel === undefined ? {} : { model: effectiveSelectionModel }),
         instances: runtimeInstances,
         selected: runtimeInstanceId,
         selectionStrategy: input.readSettings?.().runtime.selectionStrategy,

@@ -25,6 +25,7 @@ import { taskExecutionPlacement } from "../src/task-execution-placement.ts";
 import { openNodeAutoDispatchLoop, parseNodeAutoDispatchSnapshot } from "../src/node-auto-dispatch.ts";
 import { nodeReworkDispatchCandidate } from "../src/task-return-dispatch.ts";
 import { readLastExecutionWorkerDispatch } from "../src/dispatch-read.ts";
+import { runtimeVendorForKind } from "../src/runtime-inventory.ts";
 
 const sha256 = (body: string | Uint8Array) => createHash("sha256").update(body).digest("hex");
 
@@ -815,4 +816,139 @@ test("a scoped re-review mission lists only the pending findings and refuses new
   assert.doesNotMatch(prompt, /On the first review/u);
   assert.match(prompt, /Give every blocking finding a `reverify`/u);
   assert.match(prompt, /When unsure, use re-review/u);
+});
+
+test("runtimeVendorForKind derives vendor families from runtimeKinds SSoT without hardcoded aliases", () => {
+  assert.equal(runtimeVendorForKind("agy"), "google");
+  assert.equal(runtimeVendorForKind("agy-acp"), "google");
+  assert.equal(runtimeVendorForKind("codex"), "openai");
+  assert.equal(runtimeVendorForKind("codex-acp"), "openai");
+  assert.equal(runtimeVendorForKind("deepseek-harness"), "deepseek");
+  assert.equal(runtimeVendorForKind("claude"), "anthropic");
+  assert.equal(runtimeVendorForKind("claude-acp"), "anthropic");
+  assert.equal(runtimeVendorForKind("unknown-custom-kind"), null);
+});
+
+test("nodeReviewDispatchCandidate emits avoidVendor on first review, round affinity on rework, and honors explicit overrides", () => {
+  const taskId = "task-vendor-hints",
+    executionId = "exe-round-2",
+    round1DispatchKey = `task-review:${taskId}:exe-round-1:closeout-reviewer:attempt:0`;
+  const implDispatch = {
+    payload: {
+      dispatchId: "dispatch_impl",
+      runtimeSessionId: "runtime_impl",
+      instanceId: "agy-pro",
+      kindId: "agy",
+      role: "worker",
+      agentId: "hydrogen",
+      executionId,
+      startedAt: "2026-11-15T00:00:00.000Z",
+      definitionSnapshot: { instanceId: "agy-pro", kindId: "agy", model: "gemini-3.1-pro-high" },
+    },
+  };
+  const prevReviewDispatch = {
+    payload: {
+      dispatchId: "dispatch_rev_1",
+      runtimeSessionId: "runtime_rev_1",
+      instanceId: "deepseek-review-1",
+      kindId: "deepseek-harness",
+      role: "reviewer",
+      agentId: "closeout-reviewer",
+      taskId,
+      executionId: "exe-round-1",
+      dispatchKey: round1DispatchKey,
+      startedAt: "2026-11-15T00:01:00.000Z",
+      definitionSnapshot: { instanceId: "deepseek-review-1", kindId: "deepseek-harness", model: "deepseek-v4.1-flash" },
+    },
+  };
+  let priorDispatches: readonly (typeof prevReviewDispatch)[] = [],
+    intent: Record<string, unknown> | undefined = { executionId, reviewerId: "closeout-reviewer" };
+  const cell = {
+    input: { repoId: "repo-vendor-hints" },
+    rootDir: process.cwd(),
+    projection: {
+      read: () => ({
+        packagePath: "tasks/vendor-hints",
+        snapshot: {
+          task: {
+            taskId,
+            status: "in_review",
+            iteration: 1,
+            reviewer: null,
+            completionGateIds: [],
+            ...(intent ? { reviewDispatchIntent: intent } : {}),
+          },
+          executions: [
+            {
+              schema: "execution/v1",
+              executionId,
+              iteration: 1,
+              state: "submitted",
+              submission: {
+                submissionOpId: "op-sub",
+                submittedAt: "2026-11-15T00:02:00.000Z",
+                commitSha: "a".repeat(40),
+                artifacts: [],
+              },
+            },
+          ],
+          reviews: [],
+          reviewResponses: [],
+          edgesTaken: [],
+          lease: null,
+        },
+      }),
+      readLatestLeaseIntervalForExecution: () => ({
+        taskId,
+        executionId,
+        acquiredRevision: 1,
+        holder: { source: { kind: "node", nodeId: "node-edge" }, actor: { executor: null } },
+      }),
+      readRuntimeDispatchesByTaskExecution: () => [{ event: implDispatch }],
+      readRuntimeDispatchesByTaskIds: () => priorDispatches,
+      readRuntimeDispatchByDispatchKey: () => null,
+      readRuntimeSession: () => ({
+        runtimeSessionId: "runtime_rev_1",
+        instanceId: "deepseek-review-1",
+        kindId: "deepseek-harness",
+        providerSessionId: null,
+      }),
+      readRuntimeSessionEventsByType: (_sessionId: string, type: string | readonly string[]) => {
+        const types = Array.isArray(type) ? type : [type];
+        return types.includes("runtime_session_outcome_observed") && priorDispatches.length > 0
+          ? [{ payload: { outcome: "succeeded" } }]
+          : [];
+      },
+      readDocument: (docPath: string) => ({
+        document: docPath.endsWith("dispatch_rev_1.md") ? { body: "# Review 1" } : null,
+      }),
+    },
+    settings: { readRepository: () => ({ roles: { defaultReviewer: "closeout-reviewer" } }) },
+    store: { readHead: () => ({ revision: 2 }), readEntityDeclarations: () => [] },
+  } as unknown as Parameters<typeof nodeReviewDispatchCandidate>[0];
+
+  const round1Candidate = nodeReviewDispatchCandidate(cell, { taskId, requiredNodeId: "node-edge" });
+  assert.equal(round1Candidate?.payload.avoidVendor, "google");
+  assert.equal(round1Candidate?.payload.preferredRuntimeInstanceId, undefined);
+  assert.equal(round1Candidate?.payload.preferredModel, undefined);
+
+  // Round 2 rework after non-resume deepseek-harness round 1 keeps round 1 instance & model
+  priorDispatches = [prevReviewDispatch];
+  const round2Candidate = nodeReviewDispatchCandidate(cell, { taskId, requiredNodeId: "node-edge" });
+  assert.equal(round2Candidate?.payload.preferredRuntimeInstanceId, "deepseek-review-1");
+  assert.equal(round2Candidate?.payload.preferredModel, "deepseek-v4.1-flash");
+  assert.equal(round2Candidate?.payload.avoidVendor, "google");
+
+  // Explicit --instance or --model override suppresses soft affinity & avoidVendor
+  intent = { executionId, reviewerId: "closeout-reviewer", runtimeInstanceId: "agy-pro" };
+  const overriddenByInstance = nodeReviewDispatchCandidate(cell, { taskId, requiredNodeId: "node-edge" });
+  assert.equal(overriddenByInstance?.payload.runtimeInstanceId, "agy-pro");
+  assert.equal(overriddenByInstance?.payload.preferredRuntimeInstanceId, undefined);
+  assert.equal(overriddenByInstance?.payload.avoidVendor, undefined);
+
+  intent = { executionId, reviewerId: "closeout-reviewer", model: "gpt-5.4" };
+  const overriddenByModel = nodeReviewDispatchCandidate(cell, { taskId, requiredNodeId: "node-edge" });
+  assert.equal(overriddenByModel?.payload.model, "gpt-5.4");
+  assert.equal(overriddenByModel?.payload.preferredRuntimeInstanceId, undefined);
+  assert.equal(overriddenByModel?.payload.avoidVendor, undefined);
 });

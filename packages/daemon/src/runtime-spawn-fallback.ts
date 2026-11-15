@@ -27,6 +27,7 @@ import { resolveRuntimeInstanceCandidates } from "./runtime-spawn-mission.ts";
 import { reclaimReviewWorktree } from "./task-worktree.ts";
 import {
   agentRuntimeModelMatches,
+  agentRuntimeModelSpelling,
   agentRuntimeTargetForKind,
   agentRuntimeKindMatches,
 } from "./agent-runtime-contract.ts";
@@ -54,6 +55,11 @@ export function initialFallbackAttempt(
   now?: string,
   /** An auto-selected anchor must still keep candidates that sort before it as successors. */
   includeCandidatesBeforePin = false,
+  selectionHints?: {
+    readonly preferredInstanceId?: string;
+    readonly preferredModel?: string;
+    readonly avoidVendor?: string;
+  },
 ): RuntimeFallbackAttempt | undefined {
   // A resumed dispatch inherits its provider session's instance, and its fallback continuation is a
   // fresh session, never a resume: the chain still belongs to this dispatch. Anchoring it at the
@@ -80,6 +86,8 @@ export function initialFallbackAttempt(
             requested: undefined,
             agent,
             model: requestedModel,
+            preferredInstanceId: selectionHints?.preferredInstanceId,
+            avoidVendor: selectionHints?.avoidVendor,
             instances,
             allowedInstanceIds,
             sessions,
@@ -94,7 +102,14 @@ export function initialFallbackAttempt(
   // chain — provider fallback must never silently change the model.
   const chainModel = requestedModel ?? (agent === null ? anchor?.defaultModel : undefined);
   const candidateModel = (instance: RuntimeInstanceSummary): string =>
-    chainModel ?? agentRuntimeTargetForKind(agent?.runtimes ?? [], instance.kindId)?.model ?? instance.defaultModel;
+    chainModel ??
+    (selectionHints?.preferredInstanceId === instance.instanceId &&
+    selectionHints.preferredModel !== undefined &&
+    agentRuntimeModelMatches(instance.models, selectionHints.preferredModel)
+      ? (agentRuntimeModelSpelling(instance.models, selectionHints.preferredModel) ?? selectionHints.preferredModel)
+      : undefined) ??
+    agentRuntimeTargetForKind(agent?.runtimes ?? [], instance.kindId)?.model ??
+    instance.defaultModel;
   const model = anchor === undefined ? undefined : candidateModel(anchor);
   if (!anchor || !model) return undefined;
   if (
@@ -113,6 +128,8 @@ export function initialFallbackAttempt(
       agent,
       model: chainModel,
       runtimeKind: agent === null ? anchor.kindId : undefined,
+      preferredInstanceId: selectionHints?.preferredInstanceId,
+      avoidVendor: selectionHints?.avoidVendor,
       instances,
       allowedInstanceIds,
       sessions,

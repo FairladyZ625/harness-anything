@@ -129,12 +129,13 @@ function acpKind<K extends RuntimeKindId>(
   modelFamily: "open" | "codex-only" | "gemini-only" = "open",
   authFile: string | null = null,
   credentialCommand?: string,
+  defaultProviderId: string = kindId,
 ): RuntimeProviderDeclaration & { readonly kindId: K } {
   return {
     kindId,
     protocolFamily: "acp",
     displayName,
-    defaultProviderId: kindId,
+    defaultProviderId,
     executable: {
       command,
       ...(credentialCommand ? { credentialCommand } : {}),
@@ -1045,6 +1046,7 @@ export const runtimeKinds = [
     "gemini-only",
     "antigravity-oauth-token",
     "agy",
+    "google",
   ),
   {
     kindId: "opencode",
@@ -1284,6 +1286,11 @@ export function runtimeKindForId(kindId: string): RuntimeKindInventory {
   const found = runtimeKinds.find((kind) => kind.kindId === kindId);
   if (!found) throw new Error(`Unknown runtime kind: ${kindId}`);
   return found;
+}
+
+/** Vendor family for a runtime kind (google, openai, deepseek, anthropic, etc.), backed by runtimeKinds SSoT. */
+export function runtimeVendorForKind(kindId: string): string | null {
+  return runtimeKinds.find((kind) => kind.kindId === kindId)?.defaultProviderId ?? null;
 }
 
 /** The provider's own sign-in argv for one action. A kind whose CLI exposes a top-level
