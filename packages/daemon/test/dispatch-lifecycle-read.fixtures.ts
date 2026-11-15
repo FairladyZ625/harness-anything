@@ -1,4 +1,5 @@
 import {
+  DISPATCH_LIFECYCLE_PAGE_LIMIT,
   dispatchLifecycleAddress,
   dispatchLifecycleView,
   dispatchLifecycleSummary,
@@ -8,8 +9,15 @@ import {
   type DispatchLifecycleQuery,
   type DispatchLifecycleRead,
   type DispatchLifecycleView,
+  type TaskEventV1,
 } from "@harness-anything/kernel";
-import { isDispatchLifecycleInput } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
+import {
+  dispatchLifecycleTaskId,
+  isDispatchLifecycleInput,
+  taskLeaseAfter,
+  type DispatchLifecycleInput,
+  type DispatchTaskLease,
+} from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 
 export const emptyDispatchLifecycleRead = async (): Promise<DispatchLifecycleRead> => ({
   status: "ready",
@@ -120,9 +128,11 @@ function selectLifecycleViews(
 ): DispatchLifecycleRead {
   let rows: readonly DispatchLifecycleView[];
   if (query.by === "session") rows = views.filter(({ attempt }) => attempt.runtimeSessionId === query.runtimeSessionId);
-  else if (query.by === "dispatch")
+  else if (query.by === "dispatch") {
+    if (query.dispatchIds.length > DISPATCH_LIFECYCLE_PAGE_LIMIT)
+      throw new Error(`dispatch lifecycle point reads accept at most ${DISPATCH_LIFECYCLE_PAGE_LIMIT} ids`);
     rows = views.filter(({ attempt }) => query.dispatchIds.includes(attempt.dispatchId));
-  else if (query.by === "group") rows = views.filter(({ attemptGroupId }) => attemptGroupId === query.attemptGroupId);
+  } else if (query.by === "group") rows = views.filter(({ attemptGroupId }) => attemptGroupId === query.attemptGroupId);
   else rows = views.filter(({ attempt }) => query.instanceId === undefined || attempt.instanceId === query.instanceId);
   if (query.by === "active") rows = rows.filter(({ policy }) => !policy.groupSettled);
   return { status: "ready", watermark: 1, sourceRevision: 1, rows, nextCursor: null };
@@ -138,24 +148,57 @@ export function lifecycleSummaryFor(entry: Parameters<typeof lifecycleReadFor>[0
   });
 }
 
-/** A test read port over accepted runtime events: the same kernel fold the projections run. */
-export function dispatchLifecycleReadOf(events: () => readonly AgentRuntimeEventV1[]) {
+/** A test read port over accepted runtime and task events: the same kernel fold the projections run. */
+export function dispatchLifecycleReadOf(events: () => readonly (AgentRuntimeEventV1 | TaskEventV1)[]) {
   return (query: DispatchLifecycleQuery): DispatchLifecycleRead => {
     const groups = new Map<string, DispatchLifecycleGroup>(),
-      bySession = new Map<string, { readonly groupId: string; readonly dispatchId: string }>();
+      bySession = new Map<string, { readonly groupId: string; readonly dispatchId: string }>(),
+      leases = new Map<string, DispatchTaskLease>();
     for (const event of events()) {
       if (!isDispatchLifecycleInput(event)) continue;
-      const address = dispatchLifecycleAddress(event);
-      if (address === null) continue;
-      const id = address.by === "group" ? address.attemptGroupId : bySession.get(address.runtimeSessionId)?.groupId,
-        step = reduceDispatchLifecycle(id === undefined ? null : (groups.get(id) ?? null), event);
-      if (step.kind !== "applied") continue;
-      groups.set(step.group.attemptGroupId, step.group);
-      for (const attempt of step.group.attempts)
-        bySession.set(attempt.runtimeSessionId, {
-          groupId: step.group.attemptGroupId,
-          dispatchId: attempt.dispatchId,
-        });
+      const input = event as DispatchLifecycleInput,
+        taskId = dispatchLifecycleTaskId(input),
+        context = { taskLease: taskId === null ? null : (leases.get(taskId) ?? null) },
+        address = dispatchLifecycleAddress(input, context);
+      const groupIds =
+        address === null
+          ? []
+          : address.by === "group"
+            ? [address.attemptGroupId]
+            : address.by === "session"
+              ? [bySession.get(address.runtimeSessionId)?.groupId]
+              : address.by === "task"
+                ? [...groups.values()]
+                    .filter(
+                      (group) =>
+                        group.phase !== "closed" &&
+                        group.attempts.find(({ dispatchId }) => dispatchId === group.currentDispatchId)?.task
+                          ?.taskId === address.taskId,
+                    )
+                    .map(({ attemptGroupId }) => attemptGroupId)
+                : [...groups.values()]
+                    .filter(
+                      (group) =>
+                        group.phase !== "closed" &&
+                        address.executionIds.includes(
+                          group.attempts.find(({ dispatchId }) => dispatchId === group.currentDispatchId)?.task
+                            ?.executionId ?? "",
+                        ),
+                    )
+                    .map(({ attemptGroupId }) => attemptGroupId);
+      for (const id of groupIds) {
+        const step = reduceDispatchLifecycle(id === undefined ? null : (groups.get(id) ?? null), input, context);
+        if (step.kind !== "applied") continue;
+        groups.set(step.group.attemptGroupId, step.group);
+        for (const attempt of step.group.attempts)
+          bySession.set(attempt.runtimeSessionId, {
+            groupId: step.group.attemptGroupId,
+            dispatchId: attempt.dispatchId,
+          });
+      }
+      const lease = taskLeaseAfter(input);
+      if (lease === null && taskId !== null) leases.delete(taskId);
+      else if (lease && taskId !== null) leases.set(taskId, lease);
     }
     if (query.by === "active") {
       const active = [...groups.values()]
@@ -185,11 +228,15 @@ export function dispatchLifecycleReadOf(events: () => readonly AgentRuntimeEvent
               : [dispatchLifecycleView(group, address.dispatchId)];
           })()
         : query.by === "dispatch"
-          ? [...groups.values()].flatMap((group) =>
-              group.attempts
-                .filter((attempt) => query.dispatchIds.includes(attempt.dispatchId))
-                .map((attempt) => dispatchLifecycleView(group, attempt.dispatchId)),
-            )
+          ? (() => {
+              if (query.dispatchIds.length > DISPATCH_LIFECYCLE_PAGE_LIMIT)
+                throw new Error(`dispatch lifecycle point reads accept at most ${DISPATCH_LIFECYCLE_PAGE_LIMIT} ids`);
+              return [...groups.values()].flatMap((group) =>
+                group.attempts
+                  .filter((attempt) => query.dispatchIds.includes(attempt.dispatchId))
+                  .map((attempt) => dispatchLifecycleView(group, attempt.dispatchId)),
+              );
+            })()
           : query.by === "group"
             ? (() => {
                 const group = groups.get(query.attemptGroupId);

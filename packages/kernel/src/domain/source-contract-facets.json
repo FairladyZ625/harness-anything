@@ -831,13 +831,13 @@
         ]
       },
       {
-        "id": "gui/src/renderer/api-client.ts#isRegionWeights",
-        "symbol": "packages/gui/src/renderer/api-client.ts#isRegionWeights",
+        "id": "gui/src/renderer/api-client-agenda.ts#isRegionWeights",
+        "symbol": "packages/gui/src/renderer/api-client-agenda.ts#isRegionWeights",
         "explain": "Renderer IPC wire-response shape guard verifying finite numeric AgendaRegionWeights across the seven agenda layout regions; attention scoring remains in daemon agenda-attention.",
         "sources": [
           {
-            "candidateId": "judgment:packages/gui:packages/gui/src/renderer/api-client.ts#isRegionWeights:dd2902920435a2a10f9a32545c2da059",
-            "route": "packages/gui/src/renderer/api-client.ts#isRegionWeights"
+            "candidateId": "judgment:packages/gui:packages/gui/src/renderer/api-client-agenda.ts#isRegionWeights:dd2902920435a2a10f9a32545c2da059",
+            "route": "packages/gui/src/renderer/api-client-agenda.ts#isRegionWeights"
           }
         ]
       },

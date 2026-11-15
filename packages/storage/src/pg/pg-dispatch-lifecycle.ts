@@ -33,8 +33,9 @@ const GROUP = "dispatch-lifecycle-group",
   DISPATCH = "dispatch-lifecycle-dispatch",
   ACTIVE = "dispatch-lifecycle-active",
   EXECUTION = "dispatch-lifecycle-execution",
+  TASK = "dispatch-lifecycle-task",
   TASK_CAS_CONTEXT = "dispatch-lifecycle-task-lease";
-const MODELS = [GROUP, SESSION, DISPATCH, ACTIVE, EXECUTION, TASK_CAS_CONTEXT] as const;
+const MODELS = [GROUP, SESSION, DISPATCH, ACTIVE, EXECUTION, TASK, TASK_CAS_CONTEXT] as const;
 
 /** Fold one event; a rejected step leaves the group unchanged. */
 export async function projectPgDispatchLifecycle(
@@ -58,7 +59,9 @@ export async function projectPgDispatchLifecycle(
           ? [address.attemptGroupId]
           : address.by === "session"
             ? [await getPgProjectionValue<string>(client, scope, SESSION, address.runtimeSessionId)]
-            : await activeGroupsForExecutions(client, scope, address.executionIds);
+            : address.by === "task"
+              ? await activeGroupsForOwner(client, scope, TASK, [address.taskId])
+              : await activeGroupsForOwner(client, scope, EXECUTION, address.executionIds);
   for (const groupId of groupIds) {
     const previous =
         groupId === null ? null : await getPgProjectionValue<DispatchLifecycleGroup>(client, scope, GROUP, groupId),
@@ -71,17 +74,34 @@ export async function projectPgDispatchLifecycle(
     await putPgProjectionValue(client, scope, TASK_CAS_CONTEXT, taskId, "", revision, lease);
 }
 
-async function activeGroupsForExecutions(
+async function activeGroupsForOwner(
   client: PoolClient,
   scope: PgProjectionScope,
-  executionIds: readonly string[],
+  model: typeof EXECUTION | typeof TASK,
+  owners: readonly string[],
 ): Promise<readonly string[]> {
   const result = await client.query<{ entity_id: string }>(
     `SELECT entity_id FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
-     AND model='${EXECUTION}' AND owner_id = ANY($4::text[]) ORDER BY entity_id COLLATE "C"`,
-    [scope.tenantId, scope.projectId, scope.policyEpoch, [...executionIds]],
+     AND model=$4 AND owner_id = ANY($5::text[]) ORDER BY entity_id COLLATE "C"`,
+    [scope.tenantId, scope.projectId, scope.policyEpoch, model, [...owners]],
   );
   return result.rows.map(({ entity_id }) => entity_id);
+}
+
+async function syncActiveIndex(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  groupId: string,
+  model: typeof EXECUTION | typeof TASK,
+  beforeOwner: string | null,
+  afterOwner: string | null,
+  active: boolean,
+  revision: number,
+): Promise<void> {
+  if (beforeOwner !== null && (beforeOwner !== afterOwner || !active))
+    await deletePgProjectionValue(client, scope, model, groupId, beforeOwner);
+  if (active && afterOwner !== null)
+    await putPgProjectionValue(client, scope, model, groupId, afterOwner, revision, groupId);
 }
 
 async function writeGroup(
@@ -99,22 +119,28 @@ async function writeGroup(
   const before = previous ? currentDispatchAttempt(previous) : null;
   if (before !== null && (before.instanceId !== current.instanceId || !active))
     await deletePgProjectionValue(client, scope, ACTIVE, group.attemptGroupId, before.instanceId);
-  const beforeExecution = before?.task?.executionId ?? null,
-    execution = current.task?.executionId ?? null;
-  if (beforeExecution !== null && (beforeExecution !== execution || !active))
-    await deletePgProjectionValue(client, scope, EXECUTION, group.attemptGroupId, beforeExecution);
+  await syncActiveIndex(
+    client,
+    scope,
+    group.attemptGroupId,
+    EXECUTION,
+    before?.task?.executionId ?? null,
+    current.task?.executionId ?? null,
+    active,
+    revision,
+  );
+  await syncActiveIndex(
+    client,
+    scope,
+    group.attemptGroupId,
+    TASK,
+    before?.task?.taskId ?? null,
+    current.task?.taskId ?? null,
+    active,
+    revision,
+  );
   if (!active) return;
   await putPgProjectionValue(client, scope, ACTIVE, group.attemptGroupId, current.instanceId, revision, group);
-  if (execution !== null)
-    await putPgProjectionValue(
-      client,
-      scope,
-      EXECUTION,
-      group.attemptGroupId,
-      execution,
-      revision,
-      group.attemptGroupId,
-    );
 }
 
 async function lifecycleModelCurrent(client: PoolClient, scope: PgProjectionScope): Promise<boolean> {

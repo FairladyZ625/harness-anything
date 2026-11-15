@@ -798,11 +798,13 @@ partitionedTest(
     const allGuiClientActions = inputs.constants.actionDeclarations.filter((action) =>
       (action.ontology?.sources ?? []).some((source) => source.role === "client" && isNonMainGui(source.candidateId)),
     );
-    assert.equal(allGuiClientActions.length, 79);
+    // dec_9C43012EBB2754D7112F618F0D / dec_13B7B846B56BFA192533011B91 expose
+    // three existing actions; dec_86761D79CF16E14C4583890F59 registers their exact GUI sources.
+    assert.equal(allGuiClientActions.length, 82);
     const expectedGuiClientCount = allGuiClientActions
       .flatMap((action) => action.ontology?.sources ?? [])
       .filter((source) => source.role === "client" && isNonMainGui(source.candidateId)).length;
-    assert.equal(expectedGuiClientCount, 199);
+    assert.equal(expectedGuiClientCount, 217);
     assert.equal((localState.ontology.sources ?? []).filter((source) => isNonMainGui(source.candidateId)).length, 110);
 
     const guiAcceptClient = decisionAccept.ontology.sources.find(

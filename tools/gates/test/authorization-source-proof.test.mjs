@@ -1302,8 +1302,9 @@ test("all 199 live non-main GUI client sources and 110 daemon-local-state source
   );
   const localState = inputs.constants.actionDeclarations.find((action) => action.kind === "daemon-local-state");
   const guiLocalSources = (localState?.ontology?.sources ?? []).filter((source) => isNonMainGui(source.candidateId));
-  assert.equal(guiClientPairs.length, 199);
-  assert.equal(new Set(guiClientPairs.map(({ action }) => action.kind)).size, 79);
+  // dec_86761D79CF16E14C4583890F59: 19 Agenda bindings replace one old AnswerForm binding.
+  assert.equal(guiClientPairs.length, 217);
+  assert.equal(new Set(guiClientPairs.map(({ action }) => action.kind)).size, 82);
   assert.equal(guiLocalSources.length, 110);
 
   const allSources = [...guiClientPairs.map(({ source }) => source), ...guiLocalSources];

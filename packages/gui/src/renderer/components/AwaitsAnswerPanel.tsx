@@ -15,6 +15,9 @@ import { t } from "../i18n/index.tsx";
 import { formatTime } from "../model/time.ts";
 import { EntityRefLink } from "./EntityRefLink.tsx";
 import { ApprovalCard, type ApprovalDecision, type ApprovalRisk } from "./agent-ui/ApprovalCard.tsx";
+import { useAgendaContinuation } from "../views/agenda/useAgendaContinuation.ts";
+import { AgendaContinuationFeedback } from "../views/agenda/AgendaContinuationFeedback.tsx";
+import { Toggle } from "./primitives/Toggle.tsx";
 import { Button } from "./primitives/Button.tsx";
 
 const timeOf = (iso: string) => formatTime(iso, { style: "month-day-time" }) ?? iso;
@@ -119,7 +122,7 @@ export function AwaitsAnswerPanel({
           </Section>
           {subject.mode === "answer" ? (
             <div className="p-4">
-              <AnswerForm repoId={repoId} row={subject.row} onClose={onClose} />
+              <AnswerForm repoId={repoId} row={subject.row} onClose={onClose} onNavigateEntity={onNavigateEntity} />
             </div>
           ) : (
             <>
@@ -174,10 +177,14 @@ export function AnswerForm({
   repoId,
   row,
   onClose,
+  onRetain,
+  onNavigateEntity,
 }: {
   readonly repoId: string;
   readonly row: Extract<AwaitsPanelSubject, { mode: "answer" }>["row"];
   readonly onClose?: () => void;
+  readonly onRetain?: () => void;
+  readonly onNavigateEntity?: (ref: string) => void;
 }) {
   const queryClient = useQueryClient(),
     { feedback, submit } = useAwaitsAnswer(repoId),
@@ -188,6 +195,13 @@ export function AnswerForm({
     pending = feedback?.state === "pending",
     done = feedback?.state === "success",
     ready = (choices.length === 0 || choice !== null) && reason.length > 0 && !pending && !done;
+
+  const taskId = row.sourceRef.startsWith("task/") ? row.sourceRef.slice(5) : null;
+  const continuation = useAgendaContinuation(repoId, taskId);
+  const [autoWake, setAutoWake] = useState(true);
+  const canWake =
+    taskId !== null &&
+    (Boolean(continuation.resume) || row.status === "planned" || row.status === "active" || row.status === "blocked");
 
   const risk: ApprovalRisk = row.askKind === "consent" ? "protected" : row.askKind === "acceptance" ? "high" : "medium";
 
@@ -245,6 +259,22 @@ export function AnswerForm({
               {t("components.awaitsAnswer.preview", { reason })}
             </p>
           ) : null}
+          {canWake && (
+            <label className="flex items-center gap-2 ui-meta">
+              <Toggle
+                checked={autoWake}
+                onChange={setAutoWake}
+                disabled={pending || done}
+                label={t("views.agenda.autoWake")}
+              />
+              {t("views.agenda.autoWake")}
+            </label>
+          )}
+          {continuation.read.isError && (
+            <p role="alert" className="ui-meta text-danger">
+              {continuation.read.error.message}
+            </p>
+          )}
           <div className="flex justify-end gap-2 pt-1">
             {!done && (
               <Button
@@ -252,7 +282,18 @@ export function AnswerForm({
                 size="sm"
                 disabled={!ready}
                 testId="awaits-answer-submit"
-                onClick={() => void submit(row, reason)}
+                onClick={() => {
+                  onRetain?.();
+                  void submit(
+                    row,
+                    reason,
+                    canWake && autoWake
+                      ? async () => {
+                          await continuation.run(undefined, taskId, true);
+                        }
+                      : undefined,
+                  );
+                }}
               >
                 {pending ? t("components.awaitsAnswer.submitting") : t("components.awaitsAnswer.submit")}
               </Button>
@@ -282,6 +323,12 @@ export function AnswerForm({
         </div>
       )}
 
+      <AgendaContinuationFeedback
+        continuation={continuation}
+        recorded={done}
+        onNavigateEntity={onNavigateEntity ?? (() => onClose?.())}
+        onRetry={() => void continuation.run(undefined, taskId, true)}
+      />
       <div className="flex justify-end gap-2">
         {feedback?.state === "conflict" && (
           <Button

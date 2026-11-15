@@ -1698,7 +1698,8 @@ test("dec_7E44897ECDCAEF2B92EC66A260/CH1: non-main packages/gui action candidate
     [],
   );
   const nonMainGuiActions = result.classified.filter((row) => row.category === "action" && isNonMainGuiPath(row.file));
-  assert.equal(nonMainGuiActions.length, 324);
+  // dec_86761D79CF16E14C4583890F59: exact Agenda sources add 18 net GUI action sites.
+  assert.equal(nonMainGuiActions.length, 342);
   assert.deepEqual(
     nonMainGuiActions.filter((row) => row.status !== "registered"),
     [],
