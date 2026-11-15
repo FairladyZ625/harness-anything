@@ -8,6 +8,9 @@ import { harnessClient, type AgendaSuccess, type TaskListSuccess } from "../src/
 import type { AgendaAwaitsRow, TaskSnapshotProjectionRow } from "../src/api/renderer-dto.ts";
 import { AgendaView } from "../src/renderer/views/AgendaView.tsx";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
+import { runtimeCommandClient } from "../src/renderer/runtime-command-client.ts";
+import { agentRuntimeClient } from "../src/renderer/agent-runtime-client.ts";
+import { taskReworkClient } from "../src/renderer/task-rework-client.ts";
 import { agendaQueryKeys } from "../src/renderer/agenda-data.ts";
 import { taskQueryKeys, TASK_EXPLAINER_DOC } from "../src/renderer/task-data.ts";
 
@@ -297,8 +300,9 @@ function input(el: HTMLInputElement | HTMLTextAreaElement, text: string) {
   });
 }
 const settle = async (assertion: () => void) =>
-  act(async () => {
-    await vi.waitFor(assertion);
+  vi.waitFor(async () => {
+    await act(async () => Promise.resolve());
+    assertion();
   });
 
 describe("Agenda unified Inbox / Outbox workbench", () => {
@@ -797,4 +801,399 @@ describe("Agenda unified Inbox / Outbox workbench", () => {
     expect(find("agenda-delivery-summary").textContent).toContain("+1 / −0");
     expect(find("agenda-gate-summary").textContent).toBe("门禁未读取");
   });
+});
+
+// dec_9C43012EBB2754D7112F618F0D CH1–CH3: regression inputs use the actual page.
+describe("Agenda inline actions", () => {
+  it("keeps archived recent delivery in quiet FYI, excluding it from active Outbox", () => {
+    const archived = projection("received", "done", AT);
+    archived.placement = { ...archived.placement, packageDisposition: "archived" };
+    seedTasks([archived, projection("next", "done", AT)]);
+    render();
+    chip("出件验收");
+    expect(selected()).toBe("next");
+    expect(find("agenda-quiet-fyi").textContent).toContain("received");
+    expect(find("agenda-archive")).toBeTruthy();
+    expect(find("agenda-followup-title")).toBeTruthy();
+  });
+  it("renders worker ruling options inside the selected Inbox card", () => {
+    render(
+      agenda({
+        awaitingRuling: [
+          {
+            taskId: "blocked",
+            title: "Needs ruling",
+            work: null,
+            pinned: false,
+            dispatchId: "dispatch_old",
+            executionId: "exe_old",
+            attention: "question",
+            question: "Choose scope?",
+            options: ["Keep scope", "Expand scope"],
+            rulingPath: "artifacts/ruling.md",
+            askedAt: AT,
+            blockingAssessment: { state: "clear" } as never,
+          },
+        ],
+      }),
+    );
+    expect(find("agenda-current-card").textContent).toContain("Choose scope?");
+    expect(find("agenda-ruling-option-0").textContent).toBe("Keep scope");
+  });
+});
+
+const applied = (extra: object = {}) =>
+  ({
+    schema: "command-receipt/v2",
+    ok: true,
+    outcome: "applied",
+    opId: "op-one",
+    proof: { durable: true, canonicalVisible: true, committedRevision: 5, appliedCut: 5 },
+    ...extra,
+  }) as never;
+const ruling = (patch: object = {}) =>
+  ({
+    taskId: "blocked",
+    title: "Needs ruling",
+    work: null,
+    pinned: false,
+    dispatchId: "dispatch_old",
+    executionId: "exe_old",
+    attention: "question",
+    question: "Choose scope?",
+    options: ["Keep scope"],
+    rulingPath: "artifacts/ruling.md",
+    askedAt: AT,
+    blockingAssessment: { state: "clear" },
+    ...patch,
+  }) as never;
+function runtime() {
+  const spawn = vi
+    .spyOn(runtimeCommandClient, "spawn")
+    .mockResolvedValue(applied({ runtimeSessionId: "session_new", dispatchId: "dispatch_new" }));
+  vi.spyOn(agentRuntimeClient, "overview").mockResolvedValue({
+    status: "ready",
+    sessions: [{ runtimeSessionId: "session_new" }],
+  } as never);
+  return spawn;
+}
+function toggle() {
+  act(() => find("agenda-current-card").querySelector<HTMLButtonElement>('[role="switch"]')!.click());
+}
+function resumeRead() {
+  vi.mocked(harnessClient.getTaskDispatches).mockResolvedValue({
+    ok: true,
+    status: "ready",
+    dispatches: [
+      {
+        taskId: "task_question",
+        dispatchId: "dispatch_old",
+        startedAt: AT,
+        resume: { dispatchId: "dispatch_old", agentId: "sol" },
+      },
+    ],
+    page: { cursor: null, nextCursor: null, limit: 500 },
+  } as never);
+}
+
+describe("Agenda durable answer then outside-write continuation", () => {
+  it.each([true, false])("awaits resumes only after applied, autoWake=%s", async (autoWake) => {
+    resumeRead();
+    const spawn = runtime();
+    let resolve!: (value: never) => void;
+    vi.spyOn(harnessClient, "retireRelation").mockImplementation(
+      () =>
+        new Promise((r) => {
+          resolve = r;
+        }),
+    );
+    render(agenda({ awaitingYou: [ask("answer")] }));
+    await settle(() => expect(find("agenda-current-card").querySelector('[role="switch"]')).not.toBeNull());
+    if (!autoWake) toggle();
+    input(find("awaits-answer-comment"), "Proceed");
+    click("awaits-answer-submit");
+    expect(spawn).not.toHaveBeenCalled();
+    await act(async () => {
+      resolve(applied());
+    });
+    await settle(() => expect(find("awaits-answer-feedback").getAttribute("data-state")).toBe("success"));
+    if (autoWake)
+      await settle(() =>
+        expect(spawn).toHaveBeenCalledWith("repo", expect.objectContaining({ dispatchId: "dispatch_old" })),
+      );
+    else expect(spawn).not.toHaveBeenCalled();
+  });
+  it("does not replay an applied answer when wake fails, and exposes a wake-only retry", async () => {
+    resumeRead();
+    const spawn = runtime().mockRejectedValueOnce(new Error("provider offline"));
+    const retire = vi.spyOn(harnessClient, "retireRelation").mockResolvedValue(applied());
+    render(agenda({ awaitingYou: [ask("answer")] }));
+    await settle(() => expect(harnessClient.getTaskDispatches).toHaveBeenCalled());
+    input(find("awaits-answer-comment"), "Proceed");
+    click("awaits-answer-submit");
+    await settle(() => expect(find("agenda-continuation-feedback").textContent).toContain("provider offline"));
+    expect(find("awaits-answer-feedback").getAttribute("data-state")).toBe("success");
+    click("agenda-wake-retry");
+    await settle(() => expect(spawn).toHaveBeenCalledTimes(2));
+    expect(retire).toHaveBeenCalledTimes(1);
+  });
+  it.each([true, false])(
+    "ruling records before NEW dispatch and never resumes old Execution, autoRun=%s",
+    async (autoRun) => {
+      const spawn = runtime();
+      let resolve!: (value: never) => void;
+      const answer = vi.spyOn(harnessClient, "resolveTaskEscalation").mockImplementation(
+        () =>
+          new Promise((r) => {
+            resolve = r;
+          }),
+      );
+      render(agenda({ awaitingRuling: [ruling()] }));
+      click("agenda-ruling-option-0");
+      if (!autoRun) toggle();
+      click("agenda-ruling-submit");
+      expect(answer).toHaveBeenCalledWith({
+        repoId: "repo",
+        taskId: "blocked",
+        dispatchId: "dispatch_old",
+        answer: "Keep scope",
+      });
+      expect(spawn).not.toHaveBeenCalled();
+      await act(async () => {
+        resolve(applied());
+      });
+      await settle(() => expect(host.textContent).toContain("答复已落库"));
+      if (autoRun) {
+        await settle(() => expect(spawn).toHaveBeenCalled());
+        expect(spawn.mock.calls[0][1]).toEqual({ taskId: "blocked", dispatchKey: expect.any(String) });
+        await settle(() => expect(host.querySelector('[title="session/session_new"]')).not.toBeNull());
+      } else expect(spawn).not.toHaveBeenCalled();
+    },
+  );
+  it("keeps a failed ruling continuation retry separate from the persisted answer", async () => {
+    const spawn = runtime().mockRejectedValueOnce(new Error("offline"));
+    const answer = vi.spyOn(harnessClient, "resolveTaskEscalation").mockResolvedValue(applied());
+    render(agenda({ awaitingRuling: [ruling()] }));
+    click("agenda-ruling-option-0");
+    click("agenda-ruling-submit");
+    await settle(() => expect(find("agenda-wake-retry")).toBeTruthy());
+    click("agenda-wake-retry");
+    await settle(() => expect(spawn).toHaveBeenCalledTimes(2));
+    expect(answer).toHaveBeenCalledTimes(1);
+  });
+  it("closes incident receipts but never offers dismissal for a guard refusal", async () => {
+    const dismiss = vi
+      .spyOn(harnessClient, "dismissRuntimeIncident")
+      .mockResolvedValue(applied({ status: "settled_no_write", proof: undefined }));
+    render(agenda({ awaitingRuling: [ruling({ rulingPath: undefined, options: [] })] }));
+    click("agenda-incident-dismiss");
+    await settle(() => expect(dismiss).toHaveBeenCalledWith(expect.objectContaining({ dispatchId: "dispatch_old" })));
+    render(agenda({ awaitingRuling: [ruling({ attention: "guard", options: [], dispatchId: "guard" })] }));
+    act(() => find("agenda-row-guard").querySelector<HTMLButtonElement>("button")!.click());
+    expect(host.querySelector('[data-testid="agenda-incident-dismiss"]')).toBeNull();
+  });
+  it("offers same-round resume and fresh restart only on the selected restart card", async () => {
+    resumeRead();
+    const spawn = runtime();
+    render(
+      agenda({
+        awaitingRestart: [{ taskId: "task_question", title: "Restart", updatedAt: AT, next: "restart" } as never],
+      }),
+    );
+    await settle(() => expect(find("agenda-resume")).toBeTruthy());
+    click("agenda-resume");
+    await settle(() =>
+      expect(spawn).toHaveBeenCalledWith("repo", expect.objectContaining({ dispatchId: "dispatch_old" })),
+    );
+    expect(find("agenda-restart")).toBeTruthy();
+  });
+});
+
+describe("Agenda delivery acceptance", () => {
+  it.each([false, true])("archives selected delivery or its whole Work, batch=%s", async (batch) => {
+    const a = projection("a", "done", AT),
+      b = projection("b", "done", AT),
+      other = projection("other", "done", AT);
+    seedTasks([a, b, other]);
+    client.setQueryData(taskQueryKeys.works("repo"), {
+      ok: true,
+      status: "ready",
+      works: [{ taskId: "work", title: "Work", memberTaskIds: ["a", "b"] }],
+    });
+    vi.mocked(harnessClient.getTasks).mockImplementation(
+      async () => client.getQueryData(taskQueryKeys.list("repo")) as TaskListSuccess,
+    );
+    const archive = vi.spyOn(harnessClient, "archiveTasks").mockImplementation(async ({ taskIds }) => {
+      for (const row of [a, b])
+        if (taskIds.includes(row.taskId)) row.placement = { ...row.placement, packageDisposition: "archived" };
+      seedTasks([{ ...a }, { ...b }, other]);
+      return applied();
+    });
+    render();
+    chip("出件验收");
+    click(batch ? "agenda-archive-work" : "agenda-archive");
+    await settle(() =>
+      expect(archive).toHaveBeenCalledWith({
+        repoId: "repo",
+        taskIds: batch ? ["a", "b"] : ["a"],
+        reason: expect.any(String),
+      }),
+    );
+    await settle(() => expect(selected()).toBe(batch ? "other" : "b"));
+    expect(find("agenda-quiet-fyi").textContent).toContain("a");
+  });
+  it("consents to the reviewed execution and sends rework reason with canonical cut", async () => {
+    const row = projection("review", "in_review");
+    row.snapshot = {
+      ...row.snapshot,
+      reviews: [
+        {
+          reviewId: "review_one",
+          executionId: "exe_reviewed",
+          reviewedAt: AT,
+          reason: "Approved",
+          evidenceChecked: [],
+          verdict: "approved",
+        } as never,
+      ],
+    };
+    seedTasks([row]);
+    const consent = vi.spyOn(harnessClient, "consentReview").mockResolvedValue(applied());
+    const rework = vi.spyOn(taskReworkClient, "rework").mockResolvedValue(applied());
+    vi.spyOn(taskReworkClient, "read").mockResolvedValue({
+      reworkTargets: [{ executionId: "exe_reviewed", submissionDigest: "sha256:cut" }],
+      task: row.snapshot.task,
+    });
+    render();
+    chip("出件验收");
+    await settle(() => expect(find("agenda-rework").hasAttribute("disabled")).toBe(true));
+    click("agenda-consent");
+    await settle(() =>
+      expect(consent).toHaveBeenCalledWith(
+        expect.objectContaining({ executionId: "exe_reviewed", reviewId: "review_one" }),
+      ),
+    );
+    seedTasks([row]);
+    input(find("agenda-rework-reason"), "Fix regression");
+    click("agenda-rework");
+    await settle(() =>
+      expect(rework).toHaveBeenCalledWith("repo", "review", {
+        executionId: "exe_reviewed",
+        submissionDigest: "sha256:cut",
+        reason: "Fix regression",
+      }),
+    );
+  });
+  it("creates a follow-up under the same Work and links the new task", async () => {
+    const row = projection("done", "done", AT);
+    seedTasks([row]);
+    client.setQueryData(taskQueryKeys.works("repo"), {
+      ok: true,
+      status: "ready",
+      works: [{ taskId: "work", title: "Work", memberTaskIds: ["done"] }],
+    });
+    vi.spyOn(harnessClient, "getCatalogSnapshot").mockResolvedValue({
+      defaults: { presetId: "standard", verticalId: "software", locale: "zh-CN" },
+    } as never);
+    vi.spyOn(harnessClient, "getCatalogPreset").mockResolvedValue({
+      resolved: { documents: [{ slot: "task.plan", body: "## Brief" }] },
+    } as never);
+    const create = vi
+      .spyOn(harnessClient, "createTask")
+      .mockResolvedValue(applied({ taskId: "followup", packagePath: "tasks/followup" }));
+    vi.mocked(harnessClient.getTasks).mockResolvedValue({
+      ...client.getQueryData<TaskListSuccess>(taskQueryKeys.list("repo"))!,
+    });
+    render();
+    chip("出件验收");
+    input(find("agenda-followup-title"), "Check deployment");
+    await settle(() => expect(find("agenda-followup").hasAttribute("disabled")).toBe(false));
+    click("agenda-followup");
+    await settle(() =>
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          parentTaskId: "work",
+          title: "Check deployment",
+          plan: expect.stringContaining("Check deployment"),
+        }),
+      ),
+    );
+    await settle(() => expect(host.querySelector('[title="task/followup"]')).not.toBeNull());
+  });
+});
+
+describe("Agenda Decision judgment", () => {
+  it.each([true, false])(
+    "accepts in place and exposes only planned derived children, hasChild=%s",
+    async (hasChild) => {
+      const row = projection("child", "planned");
+      row.placement = { ...row.placement, spawningDecisionIds: hasChild ? ["dec_native"] : [] };
+      seedTasks([row]);
+      vi.spyOn(harnessClient, "showDecision").mockResolvedValue({
+        status: "ready",
+        hint: null,
+        decision: {
+          schema: "decision-row/v1",
+          decisionId: "dec_native",
+          path: "decisions/decision-dec_native/decision.md",
+          title: "Choose API",
+          state: "proposed",
+          question: "Use canonical actions?",
+          riskTier: "low",
+          urgency: "low",
+          vertical: "software",
+          preset: "standard",
+          decisionClass: "ordinary",
+          appliesTo: { modules: [], productLines: [] },
+          proposer: { principal: { personId: "person_owner" }, executor: null },
+          arbiter: null,
+          proposedAt: AT,
+          decidedAt: null,
+          workspaceRevision: 1,
+          chosen: [{ id: "CH1", text: "Use existing canonical action" }],
+          rejected: [],
+          claims: [],
+          judgmentConsents: [],
+          body: null,
+          capabilities: [],
+          claimsOpen: true,
+        },
+      } as never);
+      const accept = vi
+        .spyOn(harnessClient, "acceptDecision")
+        .mockResolvedValue(
+          applied({ path: "decisions/decision-dec_native/decision.md", commitSha: null, documentSha256: "digest" }),
+        );
+      render(
+        agenda({
+          awaitingDecision: [
+            { decisionId: "dec_native", title: "Choose API", riskTier: "low", urgency: "low", proposedAt: AT },
+          ],
+        }),
+      );
+      await settle(() => expect(find("decision-judge-accept")).toBeTruthy());
+      expect(host.querySelector('[data-testid="agenda-unlocked-tasks"]')).toBeNull();
+      click("decision-judge-accept");
+      const textareas = find("decision-judgment-panel").querySelectorAll<HTMLTextAreaElement>("textarea");
+      input(textareas[0], "Approved");
+      input(textareas[1], "Owner judgment");
+      click("decision-judge-submit");
+      await settle(() =>
+        expect(accept).toHaveBeenCalledWith(
+          expect.objectContaining({
+            decisionId: "dec_native",
+            rationale: "Approved",
+            judgmentOnlyRationale: "Owner judgment",
+          }),
+        ),
+      );
+      if (hasChild) await settle(() => expect(find("agenda-unlock-child")).toBeTruthy());
+      else expect(host.querySelector('[data-testid="agenda-unlocked-tasks"]')).toBeNull();
+      expect(harnessClient.showDecision).toHaveBeenCalledWith({
+        repoId: "repo",
+        decisionId: "dec_native",
+        includeBody: true,
+      });
+    },
+  );
 });

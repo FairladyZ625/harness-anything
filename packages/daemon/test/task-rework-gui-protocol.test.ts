@@ -73,3 +73,30 @@ test("GUI admits task-show metadata and rework outcomes only on their own receip
     assert.notDeepEqual(validateDaemonGuiCommandReceipt({ ...receipt, command: "task-rework", continuation }), []);
   assert.notDeepEqual(validateDaemonGuiCommandReceipt({ ...receipt, undeclared: true }), []);
 });
+
+// dec_9C43012EBB2754D7112F618F0D and dec_13B7B846B56BFA192533011B91:
+// aliases expose existing actions without widening their closed transport payload.
+test("agenda archive, incident dismissal and escalation resolution use canonical actions", () => {
+  for (const [method, bridge, kind, payload] of [
+    ["repo.task.archive", "archiveTasks", "task-archive", { taskIds: ["task-one", "task-two"], reason: "Received" }],
+    [
+      "repo.agentRuntime.incidentDismiss",
+      "dismissRuntimeIncident",
+      "runtime-incident-dismiss",
+      { dispatchId: "dispatch-one", reason: "Handled" },
+    ],
+    [
+      "repo.task.escalationResolve",
+      "resolveTaskEscalation",
+      "task-escalation-resolve",
+      { taskId: "task-one", dispatchId: "dispatch-one", answer: "Keep scope" },
+    ],
+  ] as const) {
+    const facet = daemonGuiInvokeFacets.find((entry) => entry.method === method);
+    assert.equal(facet?.guiBridgeMethod, bridge);
+    assert.deepEqual(actionForDaemonMethod(method, payload), { kind, ...payload });
+    assert.equal(parseDaemonRpcParams(method, { repo: { repoId: "repo-one" }, payload }).ok, true);
+    for (const bad of [{ ...payload, principal: "pretend-owner" }, {}])
+      assert.equal(parseDaemonRpcParams(method, { repo: { repoId: "repo-one" }, payload: bad }).ok, false);
+  }
+});

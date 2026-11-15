@@ -12571,6 +12571,12 @@
         "route": "task.create",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/agenda/AgendaOutboxActions.tsx#AgendaOutboxActions:a67d3018b01d054daa7aadbd8dc91d9d",
+        "route": "task.create",
+        "role": "client",
+        "port": "packages/gui/src/renderer/views/agenda/AgendaOutboxActions.tsx#AgendaOutboxActions.create"
       }
     ]
   },
@@ -12926,6 +12932,24 @@
         "route": "task-archive",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.archiveTasks:2eddfc2808cf1fa08b4232baf1ce1863",
+        "route": "task.archive",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/agenda/AgendaOutboxActions.tsx#AgendaOutboxActions:635f21ba7ee172be014edcd50946f69b",
+        "route": "task.archive",
+        "role": "client",
+        "port": "packages/gui/src/renderer/views/agenda/AgendaOutboxActions.tsx#AgendaOutboxActions.archive"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/agenda/AgendaOutboxActions.tsx#AgendaOutboxActions:60f0f52c9bd07d93cdeaa13a145a87bb",
+        "route": "task.archive",
+        "role": "client",
+        "port": "packages/gui/src/renderer/views/agenda/AgendaOutboxActions.tsx#AgendaOutboxActions.archive"
       }
     ]
   },
@@ -13247,7 +13271,7 @@
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/AwaitsAnswerPanel.tsx#AnswerForm:e4c75b9412efafb3fdef302bdb2856c5",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/AwaitsAnswerPanel.tsx#AnswerForm:47858823f94f6d0cc4b96e1e63f88f20",
         "route": "relation.unrelate",
         "role": "client",
         "port": "packages/gui/src/renderer/awaits-answer.ts#useAwaitsAnswer.submit"
@@ -14253,6 +14277,66 @@
         "route": "agentRuntime.spawn",
         "role": "client",
         "port": "packages/gui/src/renderer/views/AgentSquadView.tsx#AgentSquadView.dispatch"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/AwaitsAnswerPanel.tsx#AnswerForm:3b517f68afc7d3972ed9aff33d781e4e",
+        "route": "agentRuntime.spawn",
+        "role": "client",
+        "port": "packages/gui/src/renderer/views/agenda/useAgendaContinuation.ts#AgendaContinuation.run"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/AwaitsAnswerPanel.tsx#AnswerForm:3b517f68afc7d3972ed9aff33d781e4e:2",
+        "route": "agentRuntime.spawn",
+        "role": "client",
+        "port": "packages/gui/src/renderer/views/agenda/useAgendaContinuation.ts#AgendaContinuation.run"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/agenda/AgendaDecisionActions.tsx#AgendaDecisionActions:04f990792161637488f54c5c10df396e",
+        "route": "agentRuntime.spawn",
+        "role": "client",
+        "port": "packages/gui/src/renderer/views/agenda/useAgendaContinuation.ts#AgendaContinuation.run"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/agenda/useAgendaContinuation.ts#useAgendaContinuation.run.settled.spawn:9cf0d2ba7fe1d34d23b96f7c22829516",
+        "route": "agentRuntime.spawn",
+        "role": "client",
+        "port": "packages/gui/src/renderer/runtime-command-client.ts#runtimeCommandClient.spawn"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/agenda/AgendaDecisionActions.tsx#AgendaDecisionActions:eb395507246588cd50edee713cc549cb",
+        "route": "agentRuntime.spawn",
+        "role": "client",
+        "port": "packages/gui/src/renderer/views/agenda/useAgendaContinuation.ts#AgendaContinuation.run"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#AgendaRuntimeActions.submit:932fd1e2222e458b4c33178a06c6d5e3",
+        "route": "agentRuntime.spawn",
+        "role": "client",
+        "port": "packages/gui/src/renderer/views/agenda/useAgendaContinuation.ts#AgendaContinuation.run"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#AgendaRuntimeActions:eab0a71d663c8a7fcaac52090fde7402",
+        "route": "agentRuntime.spawn",
+        "role": "client",
+        "port": "packages/gui/src/renderer/views/agenda/useAgendaContinuation.ts#AgendaContinuation.run"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#AgendaRuntimeActions:772af27c8efadcd2859301060669da82",
+        "route": "agentRuntime.spawn",
+        "role": "client",
+        "port": "packages/gui/src/renderer/views/agenda/useAgendaContinuation.ts#AgendaContinuation.run"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#AgendaRuntimeActions:eab0a71d663c8a7fcaac52090fde7402:2",
+        "route": "agentRuntime.spawn",
+        "role": "client",
+        "port": "packages/gui/src/renderer/views/agenda/useAgendaContinuation.ts#AgendaContinuation.run"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#AgendaRuntimeActions:46658c58922bfd71de9e12139053577b",
+        "route": "agentRuntime.spawn",
+        "role": "client",
+        "port": "packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#AgendaRuntimeActions.submit"
       }
     ],
     "execution": {
@@ -15076,6 +15160,62 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/edge-replica-doctor.ts#edgeReplicaDoctor:670825534fcc8700014b543f2b41d01b",
         "route": "daemon-fleet-edge-sync",
         "role": "support"
+      }
+    ]
+  },
+  "runtime-incident-dismiss": {
+    "owner": "runtime-session",
+    "sources": [
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.dismissRuntimeIncident:b3e4dd455b4ad070643c64e5a40fa3de",
+        "route": "agentRuntime.incidentDismiss",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#AgendaRuntimeActions:8e0e6db8add86ba7cd4e2a247bb3b2cd",
+        "route": "agentRuntime.incidentDismiss",
+        "role": "client",
+        "port": "packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#AgendaRuntimeActions.submit"
+      }
+    ],
+    "execution": {
+      "ingress": "runtime-incident-dismiss",
+      "read": false
+    },
+    "concurrency": {
+      "expectedVersion": {
+        "authority": "incident-receipt-state"
+      },
+      "leasePolicy": {
+        "authority": "daemon-host"
+      },
+      "occurrenceClaim": {
+        "authority": "incident-disposition-claim"
+      },
+      "idempotency": {
+        "authority": "dispatch-disposition"
+      },
+      "artifactOwnership": {
+        "owner": "host-local",
+        "refTemplate": "dispatch/{dispatchId}"
+      }
+    }
+  },
+  "task-escalation-resolve": {
+    "owner": "task",
+    "sources": [
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.resolveTaskEscalation:77e27a2d6473080aa9945402a8bfc70f",
+        "route": "task.escalationResolve",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#AgendaRuntimeActions:ba0fb531d328d17e8d3377aa73f7a3a8",
+        "route": "task.escalationResolve",
+        "role": "client",
+        "port": "packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#AgendaRuntimeActions.submit"
       }
     ]
   }

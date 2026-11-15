@@ -11,7 +11,7 @@ import {
 import { actorDisplayName } from "./actor-name.ts";
 import { formatListTime } from "./time.ts";
 import { taskReviewRef } from "../navigation/entityRoutes.ts";
-import type { AgendaAwaitsRow } from "../../api/renderer-dto.ts";
+import type { AgendaAwaitsRow, AgendaRulingRow } from "../../api/renderer-dto.ts";
 import type { StatusTone } from "../components/primitives/StatusTag.tsx";
 
 /**
@@ -21,6 +21,7 @@ import type { StatusTone } from "../components/primitives/StatusTag.tsx";
  */
 type AgendaGroup =
   | DecisionReviewGroup
+  | "adjudicate"
   | "answered"
   | "restart"
   | "rework"
@@ -32,6 +33,7 @@ type AgendaGroup =
 /** 组的显示序 = 注意力序:等你动手的在前,已在别人手里的在后,已答复跟进垫底。 */
 const GROUP_ORDER: readonly AgendaGroup[] = [
   "dispose",
+  "adjudicate",
   "restart",
   "rework",
   "legacySubmitted",
@@ -46,6 +48,7 @@ const GROUP_ORDER: readonly AgendaGroup[] = [
 
 const GROUP_LABEL: Readonly<Record<AgendaGroup, MessageKey>> = {
   dispose: "views.workspace.decisionReviewGroupDispose",
+  adjudicate: "views.work.attention.ruling",
   restart: "views.agenda.groupRestart",
   rework: "views.agenda.groupRework",
   legacySubmitted: "views.agenda.groupLegacySubmitted",
@@ -61,6 +64,7 @@ const GROUP_LABEL: Readonly<Record<AgendaGroup, MessageKey>> = {
 /** 组 → 状态色档(标准 §3:同一类别同一色;颜色通道只承载注意力类别)。 */
 const GROUP_TONE: Readonly<Record<AgendaGroup, StatusTone>> = {
   dispose: "bad",
+  adjudicate: "bad",
   restart: "bad",
   rework: "bad",
   legacySubmitted: "bad",
@@ -78,6 +82,7 @@ export type AgendaFilter = "attn" | "follow" | "all";
 
 export const GROUP_BUCKET: Readonly<Record<AgendaGroup, AgendaFilter>> = {
   dispose: "attn",
+  adjudicate: "attn",
   restart: "attn",
   rework: "attn",
   legacySubmitted: "attn",
@@ -103,12 +108,25 @@ export interface AgendaRow {
   /** 「打开完整详情」的落点;ask 行的完整详情是它的源实体。审计发现行无落点。 */
   readonly target: string | null;
   readonly ask?: AgendaAwaitsRow;
+  readonly ruling?: AgendaRulingRow;
 }
 
 export function agendaRowsOf(agenda: AgendaSuccess): readonly AgendaRow[] {
   // 重启行已经是该 task 的 owner 动作;同一 task 的「未提交交付」注意力行不再重复成第二行。
   const restartTaskIds = new Set(agenda.awaitingRestart.map(({ taskId }) => taskId));
   return [
+    ...(agenda.awaitingRuling ?? []).map(
+      (row): AgendaRow => ({
+        id: row.dispatchId,
+        group: "adjudicate",
+        title: row.title,
+        hint: row.question,
+        since: row.askedAt,
+        scoreRef: `dispatch/${row.dispatchId}`,
+        target: taskReviewRef(row.taskId),
+        ruling: row,
+      }),
+    ),
     ...taskAwaitsRows(agenda).map((ask) => ({
       id: ask.relationId,
       title: ask.title,
