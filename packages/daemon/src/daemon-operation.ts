@@ -72,6 +72,11 @@ export interface DaemonOperationObserver {
   readonly begin: (fields: DaemonOperationBeginFields) => {
     readonly update: (fields: DaemonOperationUpdate) => void;
     readonly end: (trace?: DaemonOperationTrace) => void;
+    readonly endSummary?: (
+      endedAtMs: number,
+      nodeId: string | null,
+      outcome: OperationalStatus.DaemonOperationOutcome | null,
+    ) => void;
   };
 }
 /** A stable handle to one operation; safe to call from a callback that runs outside its ALS context. */
@@ -321,6 +326,10 @@ class OperationTrackerImpl implements OperationTracker {
     this.ended = true;
     this.endedAtMs = monotonicMs();
     this.closeOpen(this.endedAtMs);
+    if (this.raw.endSummary) {
+      this.raw.endSummary(this.endedAtMs, this.nodeId, this.outcome);
+      return;
+    }
     const trace = this.snapshot();
     this.raw.end(trace);
   };

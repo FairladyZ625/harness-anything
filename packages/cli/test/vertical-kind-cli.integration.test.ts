@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,24 @@ import { openBootstrappedRepoCell as openRepoCell } from "../../daemon/test/repo
 import { grantArtifactKindScopes, withPolicyGroup } from "../../daemon/test/keycloak-policy.fixtures.ts";
 import { initRepo } from "../../daemon/test/task-surface.fixtures.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
+import { type TestContext } from "node:test";
+import { waitForValue } from "../../../tools/fixtures/wait-for-condition.ts";
+import {
+  cli,
+  cliEnv,
+  connectSocket,
+  currentDaemonProtocolVersion,
+  JsonRpcLineClient,
+  localUserDaemonEndpoint,
+  probeRuntimeAttach,
+  register,
+  requestDaemonJsonRpcAt,
+  run as runAutostartCli,
+  seedAttachableRuntime,
+  setup as setupAutostartFixture,
+  stop as stopAutostartDaemon,
+  waitForFileContent,
+} from "./daemon-autostart-cli.fixture.ts";
 
 const canonicalDecisionPin = "sha256:f8ccb58e91a8da7c67fe57d1e02e78bdb1bf1972abc721d4a542d27f5919ffdb",
   binding = withPolicyGroup(
@@ -519,3 +537,108 @@ function monotonicClock(): () => string {
 function git(root: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();
 }
+
+const runtimeAttachWhileBlockedTest = async (context: TestContext) => {
+  const fixture = setupAutostartFixture(),
+    repoId = "runtime-attach-live",
+    taskId = "task-runtime-attach-live",
+    runtimeSessionId = "runtime-session-attach-live",
+    blocker = path.join(fixture.parent, "vertical-attach.block"),
+    started = `${blocker}.started`,
+    endpoint = localUserDaemonEndpoint(fixture.userRoot, "default");
+  let client: JsonRpcLineClient | undefined, scriptRequest: Promise<Record<string, unknown>> | undefined;
+  try {
+    register(fixture.root, fixture.userRoot, repoId);
+    assert.equal(
+      runAutostartCli(fixture.root, fixture.userRoot, [
+        "task",
+        "create",
+        "--id",
+        taskId,
+        "--admin",
+        "--title",
+        "Runtime Attach Live",
+      ]).outcome,
+      "applied",
+    );
+    stopAutostartDaemon(fixture.root, fixture.userRoot);
+    await seedAttachableRuntime(fixture.root, fixture.userRoot, repoId, runtimeSessionId);
+    writeFileSync(blocker, "blocked\n", "utf8");
+    const launched = spawnSync(
+      process.execPath,
+      [cli, "--root", fixture.root, "--json", "daemon", "start", "--service"],
+      {
+        encoding: "utf8",
+        env: { ...cliEnv(fixture.root, fixture.userRoot), HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE: blocker },
+      },
+    );
+    assert.equal(
+      launched.status,
+      0,
+      `${launched.stderr}\n${launched.stdout}\n${existsSync(path.join(fixture.userRoot, "logs", "daemon-default.log")) ? readFileSync(path.join(fixture.userRoot, "logs", "daemon-default.log"), "utf8") : "daemon log missing"}`,
+    );
+    // Host readiness precedes repository attachment; establish the seeded read before measuring idle attach.
+    const ready = await waitForValue(async () => {
+      const receipt = await requestDaemonJsonRpcAt(
+        endpoint,
+        "repo.agentRuntime.sessions.read",
+        { repo: { repoId }, payload: { runtimeSessionId } },
+        2_000,
+        30_000,
+      );
+      return receipt.code === "repo_warming" ? null : receipt;
+    }, "seeded runtime repository to finish attaching before the idle probe");
+    assert.equal(ready.ok, true, JSON.stringify(ready));
+    assert.equal((ready.session as Record<string, unknown>).runtimeSessionId, runtimeSessionId, JSON.stringify(ready));
+    const idle = await probeRuntimeAttach(endpoint, repoId, runtimeSessionId);
+
+    const socket = await connectSocket(endpoint, 2_000);
+    client = new JsonRpcLineClient(socket, socket);
+    await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, 2_000);
+    scriptRequest = client.request("repo.script.run", {
+      repo: { repoId },
+      payload: { scriptId: "vertical:software-coding:repository-audit", taskId, inputs: {}, dryRun: true },
+    }) as Promise<Record<string, unknown>>;
+    const launch = await Promise.race([
+      waitForFileContent(started).then(() => ({ state: "started" as const })),
+      scriptRequest.then((receipt) => ({ state: "settled" as const, receipt })),
+    ]);
+    assert.equal(launch.state, "started", JSON.stringify(launch));
+
+    const readStarted = performance.now(),
+      read = await requestDaemonJsonRpcAt(
+        endpoint,
+        "repo.agentRuntime.sessions.read",
+        { repo: { repoId }, payload: { runtimeSessionId } },
+        2_000,
+        500,
+      ),
+      loaded = await probeRuntimeAttach(endpoint, repoId, runtimeSessionId);
+    const snapshot = {
+      elapsedMs: Math.round(performance.now() - readStarted),
+      revision: read.sourceRevision,
+      runtimeSessionId: (read.session as Record<string, unknown>).runtimeSessionId,
+    };
+
+    rmSync(blocker, { force: true });
+    const scriptReceipt = await scriptRequest;
+    const recovered = await probeRuntimeAttach(endpoint, repoId, runtimeSessionId);
+    context.diagnostic(
+      `runtime attach three-point control: ${JSON.stringify({ idle, loaded: { snapshot, attach: loaded }, recovered, scriptOutcome: scriptReceipt.outcome })}`,
+    );
+
+    assert.equal(idle.status, "attached", JSON.stringify(idle));
+    assert.equal(snapshot.runtimeSessionId, runtimeSessionId, JSON.stringify(snapshot));
+    assert.equal(loaded.status, "attached", JSON.stringify(loaded));
+    assert.equal(recovered.status, "attached", JSON.stringify(recovered));
+  } finally {
+    rmSync(blocker, { force: true });
+    await scriptRequest?.catch(() => undefined);
+    client?.close();
+  }
+};
+test(
+  "runtime stream attach stays live before, during, and after a blocked vertical script",
+  { timeout: 120_000 },
+  runtimeAttachWhileBlockedTest,
+);

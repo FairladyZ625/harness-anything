@@ -11,6 +11,11 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import {
+  createMultiVendorHarness,
+  latestReviewerDispatchFor,
+  multiVendorReviewerOwner,
+} from "./fixtures/reviewer-cross-vendor-lru.ts";
 
 const RESPONSE_VALIDATOR = "task-lifecycle-review-transitions/respondReview.validate",
   RESPONSE_PROOF = "repo-cell-proof/proofFor.RespondReview";
@@ -415,3 +420,88 @@ test("a response rejected for its actor proof names that proof criterion instead
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+test(
+  "same-task rework keeps non-resume reviewer instance/model across intervening tasks and falls back when disabled",
+  { timeout: 90_000 },
+  async () => {
+    const h = await createMultiVendorHarness(),
+      actorOwner = multiVendorReviewerOwner;
+    try {
+      await h.installAgents();
+
+      // Task 1 R1: impl on agy-1 (google) -> picks non-resume deepseek-1; settles without providerSessionId.
+      const t1 = await h.createAndImplementTask("task-v1", "exe-v1-1", "agy-1", "impl-v1-1");
+      await h.submitCut("task-v1", "exe-v1-1");
+      const r1 = latestReviewerDispatchFor(h, "task-v1");
+      assert.equal(r1.payload.instanceId, "deepseek-1");
+      assert.equal(r1.payload.definitionSnapshot?.model, "deepseek-v4.1-flash");
+      await h.recordReviewVerdict(
+        "task-v1",
+        t1.packagePath,
+        "exe-v1-1",
+        r1.payload.dispatchId,
+        r1.payload.runtimeSessionId,
+        "changes_requested",
+      );
+      await h.settleLast(r1.payload.runtimeSessionId, { bindSession: false });
+
+      // Intervening Task 2 touches codex-1 recency without disturbing Task 1's rework affinity.
+      const t2 = await h.createAndImplementTask("task-v2", "exe-v2-1", "agy-1", "impl-v2-1");
+      await h.submitCut("task-v2", "exe-v2-1");
+      const r2 = latestReviewerDispatchFor(h, "task-v2");
+      assert.equal(r2.payload.instanceId, "codex-1");
+      await h.recordReviewVerdict(
+        "task-v2",
+        t2.packagePath,
+        "exe-v2-1",
+        r2.payload.dispatchId,
+        r2.payload.runtimeSessionId,
+        "approved",
+      );
+      await h.settleLast(r2.payload.runtimeSessionId, { bindSession: true });
+
+      // Round 2 rework on Task 1 (non-resume deepseek-1) preserves round 1 instance & model.
+      assert.equal(
+        (await h.cell.run({ kind: "task-start", taskId: "task-v1", executionId: "exe-v1-2" }, actorOwner)).outcome,
+        "applied",
+      );
+      await h.submitCut("task-v1", "exe-v1-2");
+      const r1Round2 = latestReviewerDispatchFor(h, "task-v1");
+      assert.equal(r1Round2.payload.instanceId, "deepseek-1");
+      assert.equal(r1Round2.payload.definitionSnapshot?.model, "deepseek-v4.1-flash");
+      assert.equal(r1Round2.payload.resumedFromDispatchId, undefined);
+      await h.recordReviewVerdict(
+        "task-v1",
+        t1.packagePath,
+        "exe-v1-2",
+        r1Round2.payload.dispatchId,
+        r1Round2.payload.runtimeSessionId,
+        "changes_requested",
+      );
+      await h.settleLast(r1Round2.payload.runtimeSessionId, { bindSession: false });
+
+      // Disable deepseek-1 -> Round 3 rework on Task 1 falls back cleanly to ready pool (codex-1).
+      h.instanceState["deepseek-1"] = false;
+      assert.equal(
+        (await h.cell.run({ kind: "task-start", taskId: "task-v1", executionId: "exe-v1-3" }, actorOwner)).outcome,
+        "applied",
+      );
+      await h.submitCut("task-v1", "exe-v1-3");
+      const r1Round3 = latestReviewerDispatchFor(h, "task-v1");
+      assert.equal(r1Round3.payload.instanceId, "codex-1");
+      assert.equal(r1Round3.payload.definitionSnapshot?.model, "gpt-5.4");
+      await h.recordReviewVerdict(
+        "task-v1",
+        t1.packagePath,
+        "exe-v1-3",
+        r1Round3.payload.dispatchId,
+        r1Round3.payload.runtimeSessionId,
+        "approved",
+      );
+      await h.settleLast(r1Round3.payload.runtimeSessionId, { bindSession: false });
+    } finally {
+      await h.close();
+    }
+  },
+);

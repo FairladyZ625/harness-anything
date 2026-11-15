@@ -6,6 +6,17 @@ import { createRuntimeCallbackRelay } from "@harness-anything/daemon/internal/ru
 import { perUserSocketRoot } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import { currentDaemonProtocolVersion } from "@harness-anything/daemon/internal/protocol/version";
 import * as shared from "./daemon-autostart-cli.fixture.ts";
+import { safePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import { runCommandThroughDaemon } from "../src/daemon/client.ts";
+import {
+  createRuntimeFixture,
+  eventuallyRuntimeStatus,
+  processAlive,
+  readDispatchRecords,
+  run as runRuntimeCli,
+  runMaybe,
+  seedTask,
+} from "./runtime-cli.fixtures.ts";
 
 const {
   assert,
@@ -364,3 +375,185 @@ test("an unreadable registry reports a registry failure, not daemon_unavailable"
     restoreTemp(previousTemp);
   }
 });
+
+test(
+  "A detached runtime worker survives daemon restart and remains cancellable",
+  { timeout: 300_000 },
+  async (context) => {
+    const fixture = createRuntimeFixture(context);
+    const { root, env } = fixture;
+    const restartDetached = runRuntimeCli(root, env, ["runtime", "run", "cli-worker", "--prompt", "hold", "--detach"]),
+      restartSessionId = String(restartDetached.runtimeSessionId),
+      restartDispatchId = String(restartDetached.dispatchId),
+      liveBeforeRestart = await eventuallyRuntimeStatus(root, env, restartSessionId, "live"),
+      workerPid = Number(
+        readDispatchRecords(root, restartDispatchId).find((record) => record.kind === "process_started")?.pid,
+      ),
+      daemonBeforeRestart = runRuntimeCli(root, env, ["daemon", "status"]),
+      stoppedForRestart = runRuntimeCli(root, env, ["daemon", "stop", "--force"]);
+    assert.equal(liveBeforeRestart.session.liveness, "live");
+    assert.equal(
+      processAlive(workerPid),
+      true,
+      `runtime worker ${String(workerPid)} must be live before daemon restart`,
+    );
+    assert.equal(stoppedForRestart.forced, true, JSON.stringify(stoppedForRestart));
+    assert.equal(processAlive(workerPid), true, `runtime worker ${String(workerPid)} must survive daemon stop --force`);
+    assert.equal(runRuntimeCli(root, env, ["daemon", "start", "--service"]).ok, true);
+    const liveAfterRestart = await eventuallyRuntimeStatus(root, env, restartSessionId, "live"),
+      daemonAfterRestart = runRuntimeCli(root, env, ["daemon", "status"]);
+    assert.notEqual(daemonAfterRestart.pid, daemonBeforeRestart.pid, "runtime status must use a restarted daemon");
+    assert.equal(liveAfterRestart.session.liveness, "live");
+    assert.equal(liveAfterRestart.session.activity.outcome, null);
+    assert.equal(processAlive(workerPid), true, `runtime worker ${String(workerPid)} must agree with runtime status`);
+    assert.equal(runRuntimeCli(root, env, ["runtime", "cancel", restartSessionId]).detail, "cancelled");
+    context.diagnostic(
+      `daemon restart liveness: ${JSON.stringify({
+        runtimeSessionId: restartSessionId,
+        workerPid,
+        daemonBefore: daemonBeforeRestart.pid,
+        daemonAfter: daemonAfterRestart.pid,
+        before: liveBeforeRestart.session.liveness,
+        after: liveAfterRestart.session.liveness,
+      })}`,
+    );
+  },
+);
+
+test(
+  "Read-only dispatch contracts and closed batch and wire payloads are enforced",
+  { timeout: 300_000 },
+  async (context) => {
+    const fixture = createRuntimeFixture(context);
+    const { root, env } = fixture;
+    const { taskId, executionId } = seedTask(root, env, "validation");
+    runRuntimeCli(root, env, ["task", "start", taskId, "--execution-id", executionId]);
+    const readOnly = runMaybe(root, env, [
+      "runtime",
+      "run",
+      "cli-worker",
+      "--permission-mode",
+      "read-only",
+      "--prompt",
+      "read-only",
+      "--no-stream",
+    ]);
+    assert.equal(readOnly.status, 0, `${readOnly.stderr}\n${JSON.stringify(readOnly.receipt)}`);
+    assert.equal(readOnly.receipt.outcome, "succeeded");
+    const readOnlySpawn = readOnly.receipt.spawn as Record<string, unknown>;
+    assert.deepEqual(
+      { ledgerAccess: readOnlySpawn.ledgerAccess, reportDelivery: readOnlySpawn.reportDelivery },
+      { ledgerAccess: "unavailable", reportDelivery: "stdout" },
+    );
+    assert.match(
+      String((readOnly.receipt.result as Record<string, unknown>).text),
+      /Read-only Dispatch Contract[\s\S]*daemon-ledger commands are unavailable[\s\S]*final stdout/u,
+    );
+    const noAction = runMaybe(root, env, ["runtime", "run", "cli-worker", "--prompt", "no-action", "--no-stream"]);
+    assert.equal(noAction.status, 0, `${noAction.stderr}\n${JSON.stringify(noAction.receipt)}`);
+    assert.equal(noAction.receipt.outcome, "succeeded");
+    writeFileSync(
+      path.join(root, "batch-unknown-declaration.json"),
+      JSON.stringify({
+        schema: "runtime-batch/v1",
+        maxConcurrency: 1,
+        dispatches: [{ instance: "cli-worker", prompt: "unused" }],
+        permissionMode: "read-only",
+      }),
+    );
+    const unknownDeclaration = runMaybe(root, env, ["runtime", "batch", "batch-unknown-declaration.json"]);
+    assert.equal(unknownDeclaration.status, 1);
+    assert.equal(unknownDeclaration.receipt.code, "batch_file_invalid");
+    assert.equal((unknownDeclaration.receipt.diagnostic as Record<string, unknown>).kind, "validation");
+    writeFileSync(
+      path.join(root, "batch-unknown-dispatch.json"),
+      JSON.stringify({
+        schema: "runtime-batch/v1",
+        maxConcurrency: 1,
+        dispatches: [{ instance: "cli-worker", prompt: "unused", permissionMode: "read-only" }],
+      }),
+    );
+    const unknownDispatch = runMaybe(root, env, ["runtime", "batch", "batch-unknown-dispatch.json"]);
+    assert.equal(unknownDispatch.status, 1);
+    assert.equal(unknownDispatch.receipt.code, "batch_file_invalid");
+    assert.equal((unknownDispatch.receipt.diagnostic as Record<string, unknown>).kind, "validation");
+    const unknownSpawn = await runCommandThroughDaemon(
+      {
+        rootDir: safePath(root),
+        repoId: "runtime-cli",
+        json: true,
+        method: "repo.agentRuntime.spawn",
+        action: {
+          kind: "runtime-run",
+          runtimeInstanceId: "cli-worker",
+          cwd: { scope: "repo-root" },
+          prompt: "unused",
+          taskId: null,
+          permission_mode: "read-only",
+        } as never,
+      },
+      undefined,
+      { env },
+    );
+    assert.equal(unknownSpawn.code, "unknown_field");
+    const unknownSpawnDiagnostic = unknownSpawn.diagnostic as Record<string, unknown>;
+    assert.deepEqual(
+      {
+        kind: unknownSpawnDiagnostic.kind,
+        entity: unknownSpawnDiagnostic.entity,
+        field: unknownSpawnDiagnostic.field,
+        actual: unknownSpawnDiagnostic.actual,
+      },
+      {
+        kind: "validation",
+        entity: "repo.agentRuntime.spawn",
+        field: "permission_mode",
+        actual: "unknown",
+      },
+    );
+    assert.match(String(unknownSpawnDiagnostic.expectation), /Allowed fields:.*agentId.*permissionMode/u);
+    const unknownCancel = await runCommandThroughDaemon(
+      {
+        rootDir: safePath(root),
+        repoId: "runtime-cli",
+        json: true,
+        method: "repo.agentRuntime.cancel",
+        action: { kind: "runtime-cancel", runtimeSessionId: "missing", force: true } as never,
+      },
+      undefined,
+      { env },
+    );
+    assert.equal(unknownCancel.code, "unknown_field");
+    assert.deepEqual(
+      {
+        kind: (unknownCancel.diagnostic as Record<string, unknown>).kind,
+        field: (unknownCancel.diagnostic as Record<string, unknown>).field,
+      },
+      { kind: "validation", field: "force" },
+    );
+    const decisionList = await runCommandThroughDaemon(
+      {
+        rootDir: safePath(root),
+        repoId: "runtime-cli",
+        json: true,
+        method: "repo.task.read",
+        action: { kind: "decision-list" },
+      },
+      undefined,
+      { env },
+    );
+    assert.equal(decisionList.outcome, "applied");
+    const unknownRead = await runCommandThroughDaemon(
+      {
+        rootDir: safePath(root),
+        repoId: "runtime-cli",
+        json: true,
+        method: "repo.task.read",
+        action: { kind: "decision-list", permissionMode: "read-only" } as never,
+      },
+      undefined,
+      { env: { ...env, HARNESS_ACTOR: "" } },
+    );
+    assert.equal(unknownRead.code, "invalid_command");
+  },
+);

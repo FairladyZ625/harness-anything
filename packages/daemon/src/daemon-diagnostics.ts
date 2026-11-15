@@ -62,21 +62,27 @@ export async function openDaemonDiagnostics(options: DaemonDiagnosticsOptions) {
       const registration = operations.begin(fields),
         startedAtMs = fields.startedAtMs ?? Number(process.hrtime.bigint() / 1_000_000n);
       let ended = false;
+      const finish = (
+        endedAtMs: number,
+        nodeId: string | null | undefined,
+        outcome: DaemonOperationTrace["outcome"] | undefined,
+      ): void => {
+        if (ended) return;
+        ended = true;
+        registration.end();
+        completions.record({
+          method: fields.method,
+          nodeId: nodeId ?? fields.nodeId ?? null,
+          endedAtMs,
+          durationMs: Math.max(0, endedAtMs - startedAtMs),
+          ok: (outcome ?? fields.outcome) !== "error",
+        });
+      };
       return {
         update: registration.update,
-        end: (trace?: DaemonOperationTrace) => {
-          if (ended) return;
-          ended = true;
-          registration.end();
-          const endedAtMs = trace?.endedAtMs ?? Number(process.hrtime.bigint() / 1_000_000n);
-          completions.record({
-            method: fields.method,
-            nodeId: trace?.nodeId ?? fields.nodeId ?? null,
-            endedAtMs,
-            durationMs: Math.max(0, endedAtMs - startedAtMs),
-            ok: (trace?.outcome ?? fields.outcome) !== "error",
-          });
-        },
+        end: (trace?: DaemonOperationTrace) =>
+          finish(trace?.endedAtMs ?? Number(process.hrtime.bigint() / 1_000_000n), trace?.nodeId, trace?.outcome),
+        endSummary: (endedAtMs, nodeId, outcome) => finish(endedAtMs, nodeId, outcome),
       };
     },
   };
