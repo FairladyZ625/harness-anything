@@ -254,7 +254,6 @@ async function metricsValidationError(
 // Only queued writes refuse a force: they are the work a forced stop destroys (2026-09-28 lost 1219
 // of them). Live runtimes are not — their workers run detached and are re-adopted by pid once a
 // replacement daemon takes the slot — so they must not hold the stop hostage.
-//
 // `queueDepth` is a live counter (durable actions increment it on enqueue and decrement it on
 // dequeue), not a settled backlog: one sample cannot tell a write that drains on its own from a
 // stuck one, and a detached worker's event append is queued and dequeued within milliseconds. Poll
