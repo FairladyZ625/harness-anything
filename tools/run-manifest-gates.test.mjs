@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   buildManifestGatePlan,
+  commandForPlatformShell,
   parseManifestGateArgs,
   runManifestGatePlan,
   runManifestGatePlanParallel,
@@ -481,6 +482,29 @@ test("test quarantine skips pull-request L0 jobs", () => {
       GITHUB_HEAD_REF: "feature/x",
     }),
     false,
+  );
+});
+
+test("manifest gate runner expands POSIX variables for the Windows shell only", () => {
+  const env = { PR_BASE_SHA: "abc123", RUNNER_TEMP: "C:\\temp\\runner" },
+    command = 'node gate.mjs --base "$PR_BASE_SHA" --body "${RUNNER_TEMP}\\pr-body.md"';
+  assert.equal(
+    commandForPlatformShell(command, { platform: "win32", env }),
+    'node gate.mjs --base "abc123" --body "C:\\temp\\runner\\pr-body.md"',
+  );
+  assert.equal(
+    commandForPlatformShell(command, { platform: "linux", env }),
+    command,
+    "the POSIX lanes keep the shell's own expansion",
+  );
+});
+
+test("manifest gate runner leaves shell-owned and unknown variables alone on Windows", () => {
+  const env = { PR_BASE_SHA: "abc123" },
+    command = "sh -c 'echo $1 $@ $((1+2)) $UNSET_NAME' -- \"$PR_BASE_SHA\"";
+  assert.equal(
+    commandForPlatformShell(command, { platform: "win32", env }),
+    "sh -c 'echo $1 $@ $((1+2)) $UNSET_NAME' -- \"abc123\"",
   );
 });
 
