@@ -47,6 +47,90 @@ import { EVIDENCE_INDEX } from "./evidence-index.mjs";
 import { exitCodeFor, lineNumber, parseCommonArgs, parseTypeScript } from "./ontology-gate-lib.mjs";
 
 const receiptPath = "packages/kernel/src/domain/receipt-domain-registry.ts";
+
+/** Conservative module dependencies, including type imports, re-exports and literal import().
+ * Unmapped/deleted production inputs and shared routing/proof infrastructure require a full cut.
+ * No proof is cached: selected rows still run the unchanged authorization tracer.
+ */
+export function changedAuthorizationScope(graph, inputs, changedFiles) {
+  const full = { descriptorIds: null, sourceIds: null };
+  if (!changedFiles) return full;
+  const files = changedFiles.map((file) => path.posix.normalize(file.replaceAll("\\", "/")));
+  if (
+    files.some(
+      (file) =>
+        /^(?:packages\/kernel\/src\/|packages\/daemon\/src\/protocol\/|tools\/gates\/)/u.test(file) ||
+        /^(?:tools\/(?:gate-manifest\.json|run-manifest-gates\.mjs)|package(?:-lock)?\.json)$/u.test(file) ||
+        /^packages\/daemon\/src\/(?:repo-cell(?:-(?:open|api|command|action-context|action-dispatch|command-run|authorization))?|daemon-host-(?:open|context)|rpc-command-routing|daemon-operation)\.ts$/u.test(
+          file,
+        ) ||
+        file.split("/").includes("..") ||
+        path.posix.isAbsolute(file),
+    )
+  )
+    return full;
+  const production = files.filter(
+    (file) => /\.[cm]?[jt]sx?$/u.test(file) && !/(?:\/test(?:s)?\/|\.(?:test|spec)\.)/u.test(file),
+  );
+  if (production.some((file) => !graph.modules.has(file))) return full;
+  // Non-source inputs can change module resolution, action declarations or script manifests.
+  if (files.some((file) => !/\.[cm]?[jt]sx?$|\.(?:md|html|css|svg|png)$/u.test(file))) return full;
+  const reverse = new Map();
+  for (const [file, { sourceFile }] of graph.modules) {
+    (function visit(node) {
+      const specifier =
+        ts.isImportDeclaration(node) || ts.isExportDeclaration(node)
+          ? node.moduleSpecifier
+          : ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)
+            ? node.argument.literal
+            : ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword
+              ? node.arguments[0]
+              : null;
+      if (specifier && ts.isStringLiteralLike(specifier)) {
+        const target = graph.importTarget({ file, from: specifier.text }).file;
+        if (target) {
+          if (!reverse.has(target)) reverse.set(target, new Set());
+          reverse.get(target).add(file);
+        }
+      }
+      ts.forEachChild(node, visit);
+    })(sourceFile);
+  }
+  const affected = new Set(production),
+    queue = [...affected];
+  for (let index = 0; index < queue.length; index += 1)
+    for (const importer of reverse.get(queue[index]) ?? [])
+      if (!affected.has(importer)) {
+        affected.add(importer);
+        queue.push(importer);
+      }
+  const actions = inputs.constants.actionDeclarations ?? [],
+    sourcesByKind = new Map(actions.map((action) => [action.kind, action.ontology?.sources ?? []])),
+    routes = new Set(),
+    kinds = new Set(),
+    sourceIds = new Set();
+  for (const action of actions)
+    for (const source of action.ontology?.sources ?? [])
+      if (affected.has(sourceFileOf(source))) {
+        sourceIds.add(source.candidateId);
+        routes.add(source.route);
+        kinds.add(action.kind);
+      }
+  if (production.length && sourceIds.size === 0) return full;
+  const descriptorIds = new Set(
+    inputs.descriptors
+      .filter((descriptor) => {
+        const kind = descriptor.kindRewrite?.authorizedKind ?? descriptor.actionKind ?? descriptor.id;
+        const sources = sourcesByKind.get(kind) ?? [];
+        return routes.has(descriptor.id) || kinds.has(kind) || (affected.size > 0 && sources.length === 0);
+      })
+      .map((descriptor) => descriptor.id),
+  );
+  for (const action of actions)
+    for (const source of action.ontology?.sources ?? [])
+      if (descriptorIds.has(source.route)) sourceIds.add(source.candidateId);
+  return { descriptorIds, sourceIds };
+}
 const portAnchors = [
   { file: "packages/kernel/src/ports/authorization-port.ts", name: "AuthorizationPort" },
   { file: "packages/kernel/src/ports/identity-provider-port.ts", name: "AuthorizationDecisionPort" },
@@ -248,6 +332,18 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
         ]),
       ],
     }),
+    scope = changedAuthorizationScope(graph, inputs, options.changedFiles),
+    scopedSourceActions = sourceActions
+      .map((action) => ({
+        ...action,
+        ontology: {
+          ...action.ontology,
+          sources: action.ontology.sources.filter(
+            (source) => !scope.sourceIds || scope.sourceIds.has(source.candidateId),
+          ),
+        },
+      }))
+      .filter((action) => action.ontology.sources.length),
     witnesses = sourceWitnesses(graph, [
       ...declaredSources,
       ...actions.flatMap((action) => action.ontology?.sources ?? []),
@@ -313,7 +409,9 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       .map((descriptor, index) => ({ descriptor, index }))
       .filter(
         ({ descriptor, index }) =>
-          matchesOnly(descriptor) && (!options.shard || index % options.shard.count === options.shard.index),
+          matchesOnly(descriptor) &&
+          (!scope.descriptorIds || scope.descriptorIds.has(descriptor.id)) &&
+          (!options.shard || index % options.shard.count === options.shard.index),
       );
   const rows = selected.map(({ descriptor, index }) => {
     const rewrite = descriptor.kindRewrite,
@@ -396,7 +494,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
   for (const action of declaredActions.filter((action) => action.ontology?.authority)) {
     const { authority, entries = {} } = action.ontology;
     for (const [route, entry] of Object.entries(entries)) {
-      const routeTargets = sourceActions.flatMap((candidate) =>
+      const routeTargets = scopedSourceActions.flatMap((candidate) =>
         sourceTargets(candidate).filter((source) => source.route === route && source.role === "effect"),
       );
       if (routeTargets.length === 0) continue;
@@ -422,7 +520,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
         });
     }
   }
-  for (const action of sourceActions.filter((action) => action.ontology.scriptManifest)) {
+  for (const action of scopedSourceActions.filter((action) => action.ontology.scriptManifest)) {
     const { scriptManifest } = action.ontology;
     const parent = rows.find((row) => row.kind === action.kind && row.ok);
     if (!parent || action.catalogId !== "script-execution/run") continue;
@@ -449,7 +547,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
         evidence: [`${scriptManifest}: registered command reached from ${parent.id}'s authorized script boundary`],
       });
   }
-  const sourceRows = sourceActions.flatMap((action) =>
+  const sourceRows = scopedSourceActions.flatMap((action) =>
     action.ontology.sources.map((source) => {
       const node = witnesses.get(source.candidateId);
       const proof = source.role === "support" && node && intrinsicSupport(graph, node);
@@ -567,7 +665,7 @@ function findingsFor(rows, receipt, sourceRows) {
 }
 
 /** Each worker builds its own graph and traces every count-th descriptor; rows merge in order. */
-async function shardedAudit(rootDir) {
+async function shardedAudit(rootDir, changedFiles) {
   const count = Math.max(1, Math.min(4, availableParallelism())),
     shards = await Promise.all(
       Array.from(
@@ -575,7 +673,7 @@ async function shardedAudit(rootDir) {
         (_, index) =>
           new Promise((resolve, reject) => {
             const worker = new Worker(new URL(import.meta.url), {
-              workerData: { durableAuthorizationShard: { rootDir, shard: { index, count } } },
+              workerData: { durableAuthorizationShard: { rootDir, changedFiles, shard: { index, count } } },
             });
             worker.once("message", resolve);
             worker.once("error", reject);
@@ -647,9 +745,22 @@ function typeContainsNullish(node) {
 
 export async function main(argv = process.argv.slice(2)) {
   try {
-    const { rootDir, mode } = parseCommonArgs(argv);
+    const changedIndex = argv.findIndex((arg) => arg === "--changed-files" || arg === "--changed-files-base64");
+    const changedFiles =
+      changedIndex < 0
+        ? undefined
+        : JSON.parse(
+            argv[changedIndex] === "--changed-files-base64"
+              ? Buffer.from(argv[changedIndex + 1], "base64").toString("utf8")
+              : argv[changedIndex + 1],
+          );
+    if (changedIndex >= 0 && (!Array.isArray(changedFiles) || changedFiles.some((file) => typeof file !== "string")))
+      throw new Error("--changed-files requires a JSON array of paths");
+    const { rootDir, mode } = parseCommonArgs(
+      changedIndex < 0 ? argv : argv.filter((_, index) => index !== changedIndex && index !== changedIndex + 1),
+    );
     const started = Date.now();
-    const result = await shardedAudit(rootDir);
+    const result = await shardedAudit(rootDir, changedFiles);
     console.log(`G0-2 ontology-durable-action-authorization: ${mode}`);
     console.log("command | action | authority | evidence");
     for (const row of result.rows)
@@ -675,12 +786,13 @@ export async function main(argv = process.argv.slice(2)) {
 }
 
 if (!isMainThread && workerData?.durableAuthorizationShard) {
-  const { rootDir, shard } = workerData.durableAuthorizationShard;
+  const { rootDir, shard, changedFiles } = workerData.durableAuthorizationShard;
   const { rows, sourceRows, receipt } = auditDurableActionAuthorization(
     rootDir,
     await loadAuthorizationInputs(rootDir),
     {
       shard,
+      changedFiles,
     },
   );
   parentPort.postMessage({ rows, sourceRows, receipt });
