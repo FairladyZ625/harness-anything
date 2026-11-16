@@ -4,6 +4,11 @@ import { readFileSync, realpathSync, symlinkSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { buildFlowGraph } from "../authorization-flow-graph.mjs";
+import { loadGateAllowlist } from "../../gate-allowlists/load-gate-allowlist.mjs";
+import { auditOntologyClosure } from "../ontology-closure-audit.mjs";
+import { scanOntologyText } from "../ontology-closure-scan.mjs";
+import { evaluateOntologyClosure } from "../ontology-closure.mjs";
+import { loadOntologyClosureSnapshot } from "../ontology-gate-lib.mjs";
 import { loadAuthorizationInputs } from "../ontology-durable-action-authorization.mjs";
 import {
   clientEntryEvidence,
@@ -206,3 +211,103 @@ for (const [name, mutation] of [
     }
   });
 }
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: packages/gui (all categories) and repo baseline are zeroed and locked.
+test("dec_7E44897ECDCAEF2B92EC66A260/CH1: packages/gui full-package closure is zeroed and locked", () => {
+  const empty = { actions: [], kinds: [] };
+  const audit = (candidates, options = {}) =>
+    auditOntologyClosure({ candidates, baseline: [], previous: [], snapshot: empty, ...options });
+  const debt = (candidate) => ({
+    id: candidate.id,
+    category: candidate.category,
+    owner: "gui",
+    status: "legacy-to-remove",
+    replacementRef: "action:daemon-local-state",
+    removalSlice: "Onto-H",
+    ref: "dec_7E44897ECDCAEF2B92EC66A260",
+    reason: candidate.reason,
+  });
+  const assertRegistered = (rows, message) =>
+    assert.deepEqual(
+      rows.filter((row) => row.status !== "registered"),
+      [],
+      message,
+    );
+  assert.deepEqual(
+    loadGateAllowlist("ontology-closure", { report: false }).candidates,
+    [],
+    "repo ontology-closure debt must be 0",
+  );
+  const guiAll = evaluateOntologyClosure({ rootDir: repoRoot, base: "HEAD" }).classified.filter((r) =>
+    r.file.startsWith("packages/gui/"),
+  );
+  for (const cat of ["action", "judgment", "policy"]) {
+    const rows = guiAll.filter((r) => r.category === cat);
+    assert.ok(rows.length > 0, `packages/gui/${cat} must remain covered`);
+    assertRegistered(rows, `packages/gui/${cat}`);
+  }
+  const mainActions = guiAll.filter((r) => r.category === "action" && r.file.startsWith("packages/gui/src/main/"));
+  assert.ok(mainActions.length > 0, "GUI main actions must have registered coverage without freezing a count floor");
+  assertRegistered(mainActions, "main actions must have no unregistered or legacy debt");
+  assert.deepEqual(
+    guiAll.filter((r) => r.category === "action" && r.declarationRef === "action:cli-local-effects"),
+    [],
+  );
+  const decl = (frag) => mainActions.find((r) => r.id.includes(frag))?.declarationRef;
+  assert.equal(decl("oidc-auth-ipc.ts#requireSuccessfulAuthReply:"), "action:rbac-bootstrap");
+  assert.equal(decl("artifact-open-ipc.ts#openMaterializedCopy:"), "action:daemon-local-state");
+  const snapshot = loadOntologyClosureSnapshot(repoRoot);
+  for (const [file, snippet, sym] of [
+    ["artifact-open-ipc.ts", "function undeclaredMainFs() { writeFileSync('/tmp/x', 'y'); }", "undeclaredMainFs"],
+    ["ipc-handlers.ts", "function undeclaredMainIpc() { ipcMain.handle('h:m', () => {}); }", "undeclaredMainIpc"],
+    ["oidc-auth-ipc.ts", "function undeclaredMainAuth() { dispatch(); }", "undeclaredMainAuth"],
+  ]) {
+    const target = `packages/gui/src/main/${file}`;
+    const source = readFileSync(path.join(repoRoot, target), "utf8");
+    const scanned = scanOntologyText(target, source);
+    assert.deepEqual(audit(scanned, { snapshot }).findings, [], target);
+    const removed = scanned.find((r) => r.category === "action");
+    assert.ok(removed, target);
+    const prunedSnapshot = {
+      ...snapshot,
+      actions: snapshot.actions.map((entry) =>
+        entry.ontology
+          ? {
+              ...entry,
+              ontology: {
+                ...entry.ontology,
+                sources: entry.ontology.sources.filter((s) => s.candidateId !== removed.id),
+              },
+            }
+          : entry,
+      ),
+    };
+    assert.deepEqual(
+      audit(
+        scanned.filter((r) => r.id !== removed.id),
+        { snapshot: prunedSnapshot },
+      ).findings,
+      [],
+      `${target}: legitimate removal of a registered main action must pass`,
+    );
+    const mutated = scanOntologyText(target, `${source}\n${snippet}\n`);
+    const red = audit(mutated, { snapshot });
+    assert.deepEqual(
+      red.findings.map((f) => [f.code, f.symbol]),
+      [["ONTOLOGY_ACTION_UNDECLARED", sym]],
+      target,
+    );
+    const added = mutated.find((row) => row.id === red.findings[0].id);
+    const growth = audit(mutated, { snapshot, baseline: [debt(added)], previous: [] }).findings;
+    assert.equal(growth[0].code, "ONTOLOGY_BASELINE_GROWTH");
+    const action = {
+      kind: "daemon-local-state",
+      ontology: { owner: "gui", sources: [{ candidateId: added.id, route: "daemon-local-state" }] },
+    };
+    assert.deepEqual(
+      audit(mutated, { snapshot: { ...snapshot, actions: [...snapshot.actions, action] } }).findings,
+      [],
+      "newly registered main action must pass",
+    );
+  }
+});

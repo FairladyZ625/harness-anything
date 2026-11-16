@@ -1845,6 +1845,7 @@ test("dec_7E44897ECDCAEF2B92EC66A260/CH1: non-main packages/gui action candidate
     nonMainGuiAll.filter((row) => row.status !== "registered"),
     [],
   );
+
   // F1 regression: GUI business RPCs and preload IPC channels bind their owning business
   // ActionDeclaration rather than collapsing into daemon-local-state or cli-local-effects.
   const declOf = (fragment) => {
@@ -1913,6 +1914,7 @@ test("dec_7E44897ECDCAEF2B92EC66A260/CH1: non-main packages/gui action candidate
     ),
     [],
   );
+
   const snapshot = loadOntologyClosureSnapshot(repoRoot);
   for (const [target, snippet, expectedSymbol] of [
     [
@@ -1934,66 +1936,19 @@ test("dec_7E44897ECDCAEF2B92EC66A260/CH1: non-main packages/gui action candidate
     const source = readFileSync(path.join(repoRoot, target), "utf8");
     const original = scanOntologyText(target, source);
     assert.deepEqual(audit(original, { snapshot }).findings, [], target);
+
     const mutated = scanOntologyText(target, `${source}\n${snippet}\n`);
     const undeclaredResult = audit(mutated, { snapshot });
     assert.equal(undeclaredResult.findings.length, 1, target);
     assert.equal(undeclaredResult.findings[0].code, "ONTOLOGY_ACTION_UNDECLARED", target);
     assert.equal(undeclaredResult.findings[0].symbol, expectedSymbol, target);
+
     const addedCandidate = mutated.find((row) => row.id === undeclaredResult.findings[0].id);
     assert.ok(addedCandidate, target);
     assert.deepEqual(
       audit(mutated, { snapshot, baseline: [debt(addedCandidate)], previous: [] }).findings.map((row) => row.code),
       ["ONTOLOGY_BASELINE_GROWTH"],
       target,
-    );
-  }
-});
-// dec_7E44897ECDCAEF2B92EC66A260/CH1: packages/gui (all categories) and repo baseline are zeroed and locked.
-test("dec_7E44897ECDCAEF2B92EC66A260/CH1: packages/gui full-package closure is zeroed and locked", () => {
-  assertEmpty(
-    loadGateAllowlist("ontology-closure", { report: false }).candidates,
-    "repo ontology-closure debt must be 0",
-  );
-  const guiAll = evaluateOntologyClosure({ rootDir: repoRoot, base: "HEAD" }).classified.filter((r) =>
-    r.file.startsWith("packages/gui/"),
-  );
-  for (const cat of ["action", "judgment", "policy"]) {
-    const rows = guiAll.filter((r) => r.category === cat);
-    assert.ok(rows.length > 0 && assertRegistered(rows, `packages/gui/${cat}`) === undefined);
-  }
-  const mainActions = guiAll.filter((r) => r.category === "action" && r.file.startsWith("packages/gui/src/main/"));
-  assert.ok(mainActions.length >= 33, "retain baseline coverage while allowing registered main actions");
-  assertRegistered(mainActions, "main actions must have no unregistered or legacy debt");
-  assertEmpty(guiAll.filter((r) => r.category === "action" && r.declarationRef === "action:cli-local-effects"));
-  const decl = (frag) => mainActions.find((r) => r.id.includes(frag))?.declarationRef;
-  assert.equal(decl("oidc-auth-ipc.ts#requireSuccessfulAuthReply:"), "action:rbac-bootstrap");
-  assert.equal(decl("artifact-open-ipc.ts#openMaterializedCopy:"), "action:daemon-local-state");
-  const snapshot = loadOntologyClosureSnapshot(repoRoot);
-  for (const [file, snippet, sym] of [
-    ["artifact-open-ipc.ts", "function undeclaredMainFs() { writeFileSync('/tmp/x', 'y'); }", "undeclaredMainFs"],
-    ["ipc-handlers.ts", "function undeclaredMainIpc() { ipcMain.handle('h:m', () => {}); }", "undeclaredMainIpc"],
-    ["oidc-auth-ipc.ts", "function undeclaredMainAuth() { dispatch(); }", "undeclaredMainAuth"],
-  ]) {
-    const target = `packages/gui/src/main/${file}`;
-    const source = readFileSync(path.join(repoRoot, target), "utf8");
-    assertEmpty(audit(scanOntologyText(target, source), { snapshot }).findings, target);
-    const mutated = scanOntologyText(target, `${source}\n${snippet}\n`);
-    const red = audit(mutated, { snapshot });
-    assert.deepEqual(
-      red.findings.map((f) => [f.code, f.symbol]),
-      [["ONTOLOGY_ACTION_UNDECLARED", sym]],
-      target,
-    );
-    const added = mutated.find((row) => row.id === red.findings[0].id);
-    const growth = audit(mutated, { snapshot, baseline: [debt(added)], previous: [] }).findings;
-    assert.equal(growth[0].code, "ONTOLOGY_BASELINE_GROWTH");
-    const action = {
-      kind: "daemon-local-state",
-      ontology: { owner: "gui", sources: [{ candidateId: added.id, route: "daemon-local-state" }] },
-    };
-    assertEmpty(
-      audit(mutated, { snapshot: { ...snapshot, actions: [...snapshot.actions, action] } }).findings,
-      "newly registered main action must pass",
     );
   }
 });
