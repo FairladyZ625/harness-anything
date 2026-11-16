@@ -555,7 +555,13 @@ async function forceStopDaemon(userRoot: string, daemonId: string, pid: number):
   }
   writeDaemonStoppedMarker(userRoot, daemonId);
   signalStop(pid);
-  if (await waitProcessExit(pid, 2_000))
+  if (await waitProcessExit(pid, 2_000)) {
+    // A daemon that shuts down cooperatively removes its own bookkeeping. A Windows SIGTERM is
+    // TerminateProcess: it runs no handler, so the pid file and singleton lock outlive the process
+    // and the caller has to clear them (#1565). Release only files that still name this pid, which
+    // leaves the POSIX path a no-op because the daemon already removed them.
+    releaseDaemonPidFile(userRoot, daemonId, pid);
+    releaseDaemonSingletonLock(userRoot, daemonId, pid);
     return {
       ok: true,
       command: "daemon-stop",
@@ -563,6 +569,7 @@ async function forceStopDaemon(userRoot: string, daemonId: string, pid: number):
       forced: true,
       summary: `daemon-stop: pid ${pid} terminated (SIGTERM)`,
     };
+  }
   if (replaced(readDaemonPid(userRoot, daemonId)))
     return daemonFailure(
       "daemon-stop",

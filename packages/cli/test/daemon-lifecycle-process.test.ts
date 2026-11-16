@@ -662,25 +662,32 @@ async function residentPid(userRoot: string): Promise<number> {
 }
 async function waitForImportAcceptance(root: string): Promise<string> {
   const reader = makeTaskEventReader({ rootDir: root, repoId: "singleton-import" });
-  for (let attempt = 0; attempt < 12_000; attempt += 1) {
-    const migrated = reader.read().events.filter((event) => event.type === "entity_migrated");
-    if (migrated.length > 0) {
-      assert.equal(migrated.filter((event) => event.payload.entity.kind === "task").length, 150);
-      const terminal = migrated.at(-1)!;
-      assert.equal(terminal.payload.entity.kind, "repo-document");
-      if (terminal.payload.entity.kind === "repo-document")
-        assert.match(terminal.payload.entity.documentClaim.path, /\/entity-backfill\.json$/u);
-      const outcome = reader.readCommandOutcome(terminal.opId);
-      assert.equal(outcome?.status, "accepted_durable");
-      assert.deepEqual(
-        outcome.memberOpIds,
-        migrated.map((event) => event.opId),
-      );
-      return terminal.opId;
+  // The reader holds the generation's SQLite files open. POSIX lets the fixture tree be unlinked
+  // anyway; Windows refuses to remove a directory whose files are still open, so the handle is
+  // released before the test's cleanup runs.
+  try {
+    for (let attempt = 0; attempt < 12_000; attempt += 1) {
+      const migrated = reader.read().events.filter((event) => event.type === "entity_migrated");
+      if (migrated.length > 0) {
+        assert.equal(migrated.filter((event) => event.payload.entity.kind === "task").length, 150);
+        const terminal = migrated.at(-1)!;
+        assert.equal(terminal.payload.entity.kind, "repo-document");
+        if (terminal.payload.entity.kind === "repo-document")
+          assert.match(terminal.payload.entity.documentClaim.path, /\/entity-backfill\.json$/u);
+        const outcome = reader.readCommandOutcome(terminal.opId);
+        assert.equal(outcome?.status, "accepted_durable");
+        assert.deepEqual(
+          outcome.memberOpIds,
+          migrated.map((event) => event.opId),
+        );
+        return terminal.opId;
+      }
+      await delay(5);
     }
-    await delay(5);
+    throw new Error("migration command interval was not accepted");
+  } finally {
+    await reader.drain();
   }
-  throw new Error("migration command interval was not accepted");
 }
 
 async function waitForProcessExit(pid: number, boundMs: number): Promise<void> {
@@ -790,24 +797,40 @@ function runText(root: string, userRoot: string, args: readonly string[]): strin
 }
 function stop(userRoot: string): void {
   const pid = readDaemonPid(userRoot, "default");
-  if (pid === null) return;
-  try {
-    process.kill(pid, "SIGKILL");
-  } catch {
-    /* already gone */
+  if (pid !== null) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      /* already gone */
+    }
+    // A terminated Windows process releases its handles a moment after the kill returns; deleting
+    // the tree that holds its files until then fails with EPERM on every retry.
+    for (let attempt = 0; attempt < 500 && processAlive(pid); attempt += 1)
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
   }
   // A killed daemon leaves its pid file and socket file behind; remove both so
-  // a failure-path cleanup cannot leak a stale endpoint into the next run.
+  // a failure-path cleanup cannot leak a stale endpoint into the next run. A Windows endpoint is a
+  // named pipe, not a filesystem node: there is nothing to unlink, and rmSync rejects the path.
   rmSync(daemonPidPath(userRoot, "default"), { force: true });
-  rmSync(localUserDaemonEndpoint(userRoot, "default"), { force: true });
+  if (process.platform !== "win32") rmSync(localUserDaemonEndpoint(userRoot, "default"), { force: true });
+}
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
 }
 function cleanup(parent: string): void {
+  // A Windows daemon releases the handles it holds on its workspace seconds after it is killed;
+  // until then the tree cannot be removed at all, so wait it out instead of failing the test.
   for (let attempt = 0; ; attempt += 1) {
     try {
-      rmSync(parent, { recursive: true, force: true });
+      rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
       return;
     } catch (error) {
-      if (attempt >= 10) throw error;
+      if (attempt >= 100) throw error;
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
     }
   }
@@ -1045,7 +1068,8 @@ async function stopCleanup(fixture: StopFixture): Promise<void> {
     /* already gone */
   }
   rmSync(daemonPidPath(fixture.userRoot, fixture.daemonId), { force: true });
-  rmSync(localUserDaemonEndpoint(fixture.userRoot, fixture.daemonId), { force: true });
+  if (process.platform !== "win32")
+    rmSync(localUserDaemonEndpoint(fixture.userRoot, fixture.daemonId), { force: true });
   rmSync(fixture.parent, { recursive: true, force: true });
 }
 
@@ -1278,6 +1302,7 @@ async function drainCleanup(fixture: Fixture): Promise<void> {
     /* already gone */
   }
   rmSync(daemonPidPath(fixture.userRoot, fixture.daemonId), { force: true });
-  rmSync(localUserDaemonEndpoint(fixture.userRoot, fixture.daemonId), { force: true });
+  if (process.platform !== "win32")
+    rmSync(localUserDaemonEndpoint(fixture.userRoot, fixture.daemonId), { force: true });
   rmSync(fixture.parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
 }
