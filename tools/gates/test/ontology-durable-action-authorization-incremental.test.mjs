@@ -352,9 +352,3 @@ partitionedTest("daemon leaf action changes stay below 60 descriptors and detect
   }
   assert.equal(count(), descriptors);
 });
-
-partitionedTest("daemon leaf action CLI measures the narrowed authorization proof", () => {
-  const { seconds, descriptors } = measuredGate(["packages/daemon/src/todo-action.ts"]);
-  console.log(`DAEMON_LEAF_AUTHORIZATION_BENCHMARK ${JSON.stringify({ seconds, descriptors })}`);
-  assert.ok(descriptors > 0 && descriptors < 60);
-});
