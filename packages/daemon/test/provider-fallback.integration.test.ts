@@ -269,7 +269,12 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     assert.doesNotMatch(JSON.stringify(completed), /sk-provider-fallback-secret/u);
     const fallbackPrompt = prompts.get("provider-success-second")?.at(-1) ?? "";
     assert.match(fallbackPrompt, /# Provider fallback continuation/u);
-    assert.match(fallbackPrompt, /上次 attempt 用 provider-rate-first\/provider-success-model 因/u);
+    const progress = fallbackPrompt.match(/<runtime-progress>[\s\S]*?<\/runtime-progress>/u)?.[0];
+    assert.ok(progress, fallbackPrompt);
+    assert.ok(Buffer.byteLength(progress, "utf8") <= 2048);
+    assert.match(progress, /HEAD: [a-f0-9]+ /u);
+    assert.match(progress, /Last attempt: provider_quota/u);
+    assert.match(progress, /Reason: [^\n]*429/u);
     assert.doesNotMatch(fallbackPrompt, /sk-provider-fallback-secret/u);
     const runtimeStatus = await cell.read("repo.agentRuntime.sessions.read", {
       runtimeSessionId: completed[0]!.runtimeSessionId,
@@ -609,10 +614,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     assert.doesNotMatch(stderrReason, /PROVIDER-STDERR-RAW-LINE-3/u);
     const stderrContinuation = prompts.get("provider-stderr-second")?.[0] ?? "";
     assert.match(stderrContinuation, /# Provider fallback continuation/u);
-    assert.match(
-      stderrContinuation,
-      /上次 attempt 用 provider-stderr-first\/provider-success-model 因 provider_fault/u,
-    );
+    assert.match(stderrContinuation, /Last attempt: provider_fault/u);
     assert.match(stderrContinuation, /full diagnostics: file:\.harness\/runtime\/dispatches\//u);
     assert.doesNotMatch(stderrContinuation, /PROVIDER-STDERR-RAW-LINE-3/u);
     assert.ok(
@@ -1168,6 +1170,13 @@ for (const recovery of ["reconcile", "adoption", "timer"] as const) {
         interrupted = new Error("publication interrupted before center acceptance");
       let rejectPublication = true,
         launches = 0;
+      // CH1 prepares host Git facts before the writer queue. Observe that actual
+      // enqueue boundary rather than assuming the timer synchronously queues work.
+      const expectedQueued = recovery === "timer" ? 2 : 1;
+      let notifyQueued: () => void;
+      const queued = new Promise<void>((resolve) => {
+        notifyQueued = resolve;
+      });
       t.mock.timers.enable({ apis: ["setTimeout"] });
       const openContext = () => {
         const context = {
@@ -1177,7 +1186,10 @@ for (const recovery of ["reconcile", "adoption", "timer"] as const) {
           input: {
             rootDir: root,
             now: () => "2099-01-01T00:00:00.000Z",
-            schedule: (work: () => void | Promise<void>) => queue.push(work),
+            schedule: (work: () => void | Promise<void>) => {
+              queue.push(work);
+              if (queue.length === expectedQueued) notifyQueued();
+            },
             remote: {
               readDispatchLifecycle: (query) => cell.readDispatchLifecycle(query),
               readRuntimeSession: async (runtimeSessionId) =>
@@ -1222,7 +1234,8 @@ for (const recovery of ["reconcile", "adoption", "timer"] as const) {
       await firstContext.reconcileFallback(dispatchId);
       if (recovery === "timer") await firstContext.reconcileFallback(dispatchId);
       t.mock.timers.tick(0);
-      assert.equal(queue.length, recovery === "timer" ? 2 : 1);
+      await queued;
+      assert.equal(queue.length, expectedQueued);
       await assert.rejects(queue.shift()!(), interrupted);
       const frozen = readDispatchStream(root, dispatchId)!.terminalOutcome!;
       assert.equal(frozen.payload.attempt?.fallbackState, "exhausted");
