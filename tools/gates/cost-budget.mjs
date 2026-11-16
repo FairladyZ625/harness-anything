@@ -5,7 +5,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { COLLECTION_PROBES, measureCollectionCosts } from "../../packages/daemon/test/fixtures/g38-collection-cost.mjs";
+import { COLLECTION_PROBES } from "../../packages/daemon/test/fixtures/g38-collection-cost.mjs";
+import { measureCostSuitesParallel } from "../../packages/daemon/test/fixtures/g38-cost-runner.mjs";
 import { repoRoot } from "./git.mjs";
 import { loadReceipts, verifyReceipt } from "./receipt-verify.mjs";
 import { runReadLane } from "./cost-budget-read-lane.mjs";
@@ -505,12 +506,16 @@ export async function main(argv = process.argv.slice(2), defaultRoot = repoRoot(
       Object.keys(section.baseline),
       `${budgetPath}.writeCostScaling`,
     );
-    const result = await evaluateCostBudget({ rootDir, ...options });
+    const [result, suites] = await Promise.all([
+      evaluateCostBudget({ rootDir, ...options }),
+      measureCostSuitesParallel({ rootDir }),
+    ]);
     for (const metric of METRICS) console.log(`${metric}: ${result.actual[metric]}/${result.budgets[metric]}`);
     const g1 = await evaluateG1WriteCostScaling({
       rootDir,
       budgetPath: options.budgetPath,
       receiptsDir: options.receiptsDir,
+      measured: suites.g1Measured,
     });
     for (const operation of g1.operations)
       for (const metric of g1.metrics)
@@ -518,7 +523,7 @@ export async function main(argv = process.argv.slice(2), defaultRoot = repoRoot(
           `G1 ${operation}.${metric}: ${g1.actualSmall[operation][metric]}/${g1.budgets[operation][metric]} ` +
             `at ${g1.scales.small}, ${g1.actualLarge[operation][metric]} at ${g1.scales.large}`,
         );
-    const collections = evaluateCollectionCosts(await measureCollectionCosts(rootDir));
+    const collections = evaluateCollectionCosts(suites.collectionMeasured);
     for (const [id, { small, large, growth }] of Object.entries(collections.measured))
       for (const metric of Object.keys(small.counts))
         console.log(

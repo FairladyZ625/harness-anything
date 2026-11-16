@@ -268,6 +268,13 @@ export async function runCommandThroughDaemon(
       launch: (target) => cliDaemonServeLaunch(target.userRoot, target.daemonId),
       autostartOptions: (target) =>
         daemonAutostartOptions(command, autostart, env, target.userRoot, target.daemonId, "operation"),
+      settleWarming: (initial, target, method, params) =>
+        settleRepoWarming(
+          initial,
+          () => openLocalDaemonReader(target, method, params),
+          target.userRoot,
+          target.daemonId,
+        ),
     });
   }
   // Only parsed CLI routes still carry CLI inputs. Programmatic actions (for example an

@@ -24,6 +24,7 @@ import {
   REPLAY_TASK_GRAPH,
   sha256Text,
   taskLifecycleWritePlan,
+  type CanonicalWriteBundle,
   type DocEventV1,
   type TaskEventV1,
 } from "@harness-anything/kernel";
@@ -304,6 +305,12 @@ function factDraft(index: number, revision: number): FactEventDraftV1 {
  * (no daemon round trip) and waits for its follower to publish them, so the measuring writer
  * attaches to a fully settled Git and worktree. Every seeded kind grows with the ledger, so a cost
  * that scans tasks, lifecycle transitions, documents, facts, decisions, claims or relations shows up. */
+function appendBatch(store: ReturnType<typeof makeTaskEventStore>, bundles: readonly CanonicalWriteBundle[]): void {
+  if (bundles.length === 0) return;
+  const terminal = bundles.at(-1)!;
+  store.append(bundles.length === 1 ? terminal : { ...terminal, preceding: bundles.slice(0, -1) });
+}
+
 async function seedLedger(
   rootDir: string,
   repoId: string,
@@ -329,6 +336,7 @@ async function seedLedger(
     )
       throw new Error(`G38 work-task collection ${workTaskCount} does not fit ${taskCount} seeded tasks`);
     let revision = store.read().revision;
+    const taskBundles: CanonicalWriteBundle[] = [];
     for (let index = 0; index < taskCount; index += 1) {
       revision += 1;
       const event = taskCreatedEvent(
@@ -337,7 +345,7 @@ async function seedLedger(
         `G1 bulk task ${index}`,
         workTaskCount !== undefined && index > 0 && index <= workTaskCount ? bulkTaskId(0) : undefined,
       );
-      store.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+      taskBundles.push({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
     }
     for (let index = 0; index < cancelledCount; index += 1) {
       revision += 1;
@@ -347,9 +355,11 @@ async function seedLedger(
         `G1 bulk task ${index}`,
         workTaskCount !== undefined && index > 0 && index <= workTaskCount ? bulkTaskId(0) : undefined,
       );
-      store.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+      taskBundles.push({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
     }
+    appendBatch(store, taskBundles);
     let editedPath = "";
+    const docBundles: CanonicalWriteBundle[] = [];
     for (let index = 0; index < docCount; index += 1) {
       revision += 1;
       const target = `context/g1-bulk-doc-${String(index).padStart(6, "0")}.md`,
@@ -357,15 +367,16 @@ async function seedLedger(
         // region, matching the proven docBundle fixture shape (task-event-store.fixtures.ts) that
         // this helper mirrors; a multi-paragraph body splits into more regions than a hand-built
         // proof can match.
-        body = `G1 bulk document ${index} filler prose for the cost-scaling ledger.\n`,
-        { event, plan, blobs } = docWriteBundle(store, body, revision, `op-g1-bulk-doc-${index}`, target);
-      store.append({ event, plan, blobs });
+        body = `G1 bulk document ${index} filler prose for the cost-scaling ledger.\n`;
+      docBundles.push(docWriteBundle(store, body, revision, `op-g1-bulk-doc-${index}`, target));
       if (index === 0) editedPath = target;
     }
+    appendBatch(store, docBundles);
+    const tailBundles: CanonicalWriteBundle[] = [];
     for (let index = 0; index < factCount; index += 1) {
       revision += 1;
       const compiled = compileFactWrite({ event: factDraft(index, revision) });
-      store.append({ event: compiled.event, plan: compiled.plan, blobs: compiled.blobs });
+      tailBundles.push({ event: compiled.event, plan: compiled.plan, blobs: compiled.blobs });
     }
     for (let index = 0; index < decisionCount; index += 1) {
       revision += 1;
@@ -375,8 +386,9 @@ async function seedLedger(
         currentRelations: [],
         currentDocument: null,
       });
-      store.append({ event: compiled.event, plan: compiled.plan, blobs: compiled.blobs });
+      tailBundles.push({ event: compiled.event, plan: compiled.plan, blobs: compiled.blobs });
     }
+    appendBatch(store, tailBundles);
     if (workTaskCount !== undefined) {
       const projection = makeTaskProjection({ rootDir, eventStore: store });
       try {
