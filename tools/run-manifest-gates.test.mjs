@@ -1,8 +1,11 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { cpSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { devNull } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { commitAll, makeRepo, runGit, writeRepoFile } from "./gates/test/helpers.mjs";
 import {
   buildManifestGatePlan,
   commandForPlatformShell,
@@ -46,6 +49,131 @@ test("manifest gate runner parses a positive --parallel value", () => {
     () => parseManifestGateArgs(["--workflow-job", "quick-gates", "--parallel", "0"]),
     /--parallel must be a positive integer/u,
   );
+});
+
+function authorizationManifest() {
+  const executionSurfaces = {
+    rewriteCi: { pullRequestJobs: ["quick-gates"], nonPullRequestJobs: ["quick-gates"] },
+  };
+  return {
+    gates: [
+      {
+        id: "ontology-durable-action-authorization",
+        command: "node tools/capture.mjs authorization",
+        executionSurfaces,
+      },
+      { id: "other", command: "node tools/capture.mjs other", executionSurfaces },
+    ],
+  };
+}
+
+test("PR authorization scope is shell-neutral and does not narrow the quick-gates set", () => {
+  const files = ["packages/daemon/src/路径 & 'quote'.ts", "packages\\daemon\\src\\helper.ts"];
+  const manifest = authorizationManifest();
+  for (const eventName of ["pull_request", "merge_group"]) {
+    const options = parseManifestGateArgs(["--workflow-job", "quick-gates"]);
+    Object.assign(options, { eventName, authorizationChangedPaths: files });
+    const plan = buildManifestGatePlan(manifest, options);
+    assert.deepEqual(
+      plan.map((entry) => entry.id),
+      manifest.gates.map((gate) => gate.id),
+    );
+    assert.equal(plan[1].command, manifest.gates[1].command);
+    const command = `${manifest.gates[0].command} --changed-files-base64 ${Buffer.from(JSON.stringify(files)).toString("base64")}`;
+    for (const platform of ["win32", "linux", "darwin"])
+      assert.equal(commandForPlatformShell(plan[0].command, { platform, env: {} }), command);
+  }
+});
+
+test("push and non-PR plans never append authorization scope even when supplied", () => {
+  const manifest = authorizationManifest();
+  for (const eventName of ["push", "schedule", "workflow_dispatch", null]) {
+    const options = parseManifestGateArgs(["--workflow-job", "quick-gates"]);
+    Object.assign(options, { eventName, authorizationChangedPaths: ["packages/daemon/src/helper.ts"] });
+    assert.deepEqual(
+      buildManifestGatePlan(manifest, options),
+      manifest.gates.map(({ id, command }) => ({ id, command })),
+    );
+  }
+});
+
+function authorizationRunnerFixture() {
+  const { rootDir } = makeRepo({
+    "tools/gate-manifest.json": JSON.stringify(authorizationManifest()),
+    "tools/test-quarantine.json": JSON.stringify({ schema: "harness-test-quarantine/v1", tests: [] }),
+    "tools/capture.mjs": 'console.log("CAPTURE " + JSON.stringify(process.argv.slice(2)));',
+    "old name.ts": "export const old = 1;\n",
+    "deleted.ts": "export const deleted = 1;\n",
+  });
+  for (const file of ["run-manifest-gates.mjs", "test-quarantine.mjs"])
+    cpSync(path.join(import.meta.dirname, file), path.join(rootDir, "tools", file));
+  runGit(rootDir, ["config", "core.excludesFile", devNull]);
+  commitAll(rootDir);
+  runGit(rootDir, ["update-ref", "refs/remotes/origin/main", "HEAD"]);
+  return rootDir;
+}
+
+function capturedAuthorizationRun(rootDir, eventName, args = []) {
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_SYSTEM: devNull };
+  if (eventName === null) delete env.GITHUB_EVENT_NAME;
+  else env.GITHUB_EVENT_NAME = eventName;
+  const result = spawnSync(
+    process.execPath,
+    ["tools/run-manifest-gates.mjs", "--workflow-job", "quick-gates", ...args],
+    {
+      cwd: rootDir,
+      env,
+      encoding: "utf8",
+    },
+  );
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  return [...result.stdout.matchAll(/^CAPTURE (.+)$/gmu)].map((match) => JSON.parse(match[1]));
+}
+
+test("CLI passes the exact PR merge-base diff, including both rename sides and deletions", () => {
+  const root = authorizationRunnerFixture();
+  renameSync(path.join(root, "old name.ts"), path.join(root, "new name.ts"));
+  rmSync(path.join(root, "deleted.ts"));
+  writeRepoFile(root, "路径 & 'quote'.ts", "export const value = 1;\n");
+  const head = commitAll(root);
+  // Advance canonical main independently: two-dot diff would incorrectly include main-only.ts.
+  runGit(root, ["checkout", "--quiet", "--detach", "refs/remotes/origin/main"]);
+  writeRepoFile(root, "main-only.ts", "export const mainOnly = true;\n");
+  const main = commitAll(root);
+  runGit(root, ["update-ref", "refs/remotes/origin/main", main]);
+  runGit(root, ["checkout", "--quiet", "--detach", head]);
+  writeRepoFile(root, "uncommitted.ts", "ignored by committed PR diff\n");
+  for (const event of ["pull_request", "merge_group"]) {
+    const captured = capturedAuthorizationRun(root, event);
+    assert.deepEqual(captured[1], ["other"]);
+    assert.deepEqual(captured[0].slice(0, 2), ["authorization", "--changed-files-base64"]);
+    assert.deepEqual(JSON.parse(Buffer.from(captured[0][2], "base64").toString("utf8")), [
+      "deleted.ts",
+      "new name.ts",
+      "old name.ts",
+      "路径 & 'quote'.ts",
+    ]);
+  }
+});
+
+test("CLI preserves full authorization for push, other events, and missing PR base", () => {
+  const root = authorizationRunnerFixture();
+  for (const event of ["push", "schedule", "workflow_dispatch", null])
+    assert.deepEqual(capturedAuthorizationRun(root, event), [["authorization"], ["other"]]);
+  runGit(root, ["update-ref", "-d", "refs/remotes/origin/main"]);
+  for (const event of ["pull_request", "merge_group"])
+    assert.deepEqual(capturedAuthorizationRun(root, event), [["authorization"], ["other"]]);
+});
+
+test("CLI supports an explicit comparison base without enabling push scoping", () => {
+  const root = authorizationRunnerFixture();
+  runGit(root, ["tag", "comparison", "HEAD"]);
+  writeRepoFile(root, "leaf.ts", "export const leaf = 1;\n");
+  commitAll(root);
+  const args = ["--changed-base", "comparison"];
+  const captured = capturedAuthorizationRun(root, "pull_request", args);
+  assert.deepEqual(JSON.parse(Buffer.from(captured[0][2], "base64").toString("utf8")), ["leaf.ts"]);
+  assert.deepEqual(capturedAuthorizationRun(root, "push", args), [["authorization"], ["other"]]);
 });
 
 test("manifest gate runner keeps a bounded pool and reports every failure in plan order", async () => {

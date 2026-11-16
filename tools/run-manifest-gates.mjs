@@ -25,6 +25,8 @@ export function parseManifestGateArgs(args) {
     exclude: new Set(),
     changed: null,
     changedPaths: null,
+    changedBase: "origin/main",
+    authorizationChangedPaths: null,
     eventName: null,
     githubGroups: false,
     parallel: 1,
@@ -59,6 +61,11 @@ export function parseManifestGateArgs(args) {
     }
     if (arg === "--changed") {
       options.changed = requireValue(args, index, arg);
+      index += 1;
+      continue;
+    }
+    if (arg === "--changed-base") {
+      options.changedBase = requireValue(args, index, arg);
       index += 1;
       continue;
     }
@@ -210,7 +217,16 @@ export function buildManifestGatePlan(manifest, options) {
     if (!gate.command || typeof gate.command !== "string") {
       throw new Error(`manifest gate ${id} has no executable command`);
     }
-    return gate;
+    // Keep the workflow's complete gate selection. Only the authorization proof receives
+    // the PR diff; its existing conservative closure decides when a full audit is needed.
+    return supportsAuthorizationScope(options) &&
+      gate.id === "ontology-durable-action-authorization" &&
+      Array.isArray(options.authorizationChangedPaths)
+      ? {
+          ...gate,
+          command: `${gate.command} --changed-files-base64 ${Buffer.from(JSON.stringify(options.authorizationChangedPaths)).toString("base64")}`,
+        }
+      : gate;
   });
 
   return collapseCompositeCoveredCommands(dedupeCommands(applyShardOption(gates, options.shard)));
@@ -353,6 +369,30 @@ function readChangedPaths(revision) {
   ].join("");
   const untracked = readGitOutput(["ls-files", "--others", "--exclude-standard", "-z"]);
   return [...new Set(`${changed}${untracked}`.split("\0").filter(Boolean))].sort();
+}
+
+function supportsAuthorizationScope(options) {
+  return options.workflowJob === "quick-gates" && ["pull_request", "merge_group"].includes(options.eventName);
+}
+
+function readAuthorizationChangedPaths(options) {
+  if (!supportsAuthorizationScope(options)) return null;
+  const revision = options.changedBase;
+  const base = spawnSync("git", ["rev-parse", "--verify", "--quiet", `${revision}^{commit}`], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  if (base.error) throw base.error;
+  if (base.status === 1) {
+    console.warn(`Authorization comparison base ${revision} is unavailable; running the full proof.`);
+    return null;
+  }
+  if (base.status !== 0) throw new Error(`git rev-parse ${revision} failed: ${base.stderr.trim()}`);
+  // Three-dot compares the merge base, even when canonical main has advanced independently.
+  // Disable rename folding so deleted paths also reach the gate's full-scope safeguard.
+  return readGitOutput(["diff", "--no-renames", "--name-only", "-z", `${base.stdout.trim()}...HEAD`, "--"])
+    .split("\0")
+    .filter(Boolean);
 }
 
 /**
@@ -542,6 +582,7 @@ async function main(argv) {
   const options = parseManifestGateArgs(argv);
   options.eventName = process.env.GITHUB_EVENT_NAME ?? null;
   if (options.changed !== null) options.changedPaths = readChangedPaths(options.changed);
+  options.authorizationChangedPaths = readAuthorizationChangedPaths(options);
   readTestQuarantine(repoRoot);
   if (shouldSkipTestQuarantine(options.workflowJob, process.env)) process.env.HARNESS_TEST_QUARANTINE = "skip";
   if (options.shard !== null) process.env.HARNESS_TEST_SHARD = String(options.shard);
@@ -562,6 +603,11 @@ async function main(argv) {
       : `changed:${options.changed}`;
   if (options.changed !== null) {
     console.log(`Changed path selection (${options.changed}): ${options.changedPaths.length} path(s).`);
+  }
+  if (options.authorizationChangedPaths !== null) {
+    console.log(
+      `Authorization PR scope (${options.changedBase}...HEAD): ${options.authorizationChangedPaths.length} path(s).`,
+    );
   }
   console.log(`Manifest gate runner (${selector}): ${plan.length} command(s).`);
   const useParallelPool = options.parallel > 1 && !options.packageSurface;
