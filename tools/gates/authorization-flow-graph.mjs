@@ -17,6 +17,7 @@ import {
   makeFileOf,
   memberName,
   registerSourceFileInterner,
+  releaseSourceFileInterner,
   unwrap,
 } from "./authorization-flow-env.mjs";
 import { parseTypeScript, walkTypeScriptFiles } from "./ontology-gate-lib.mjs";
@@ -251,6 +252,13 @@ export function buildFlowGraph(
   for (const { sourceFile } of modules.values()) registerSourceFileInterner(sourceFile, internEnv);
   return {
     freshQueries: () => buildFlowGraph(rootDir, { anchorRoot, sourceFiles, lexicalFiles }, sourceInputs),
+    releaseQueries() {
+      internEnv.resetFramePool();
+      // A shared Program keeps its SourceFiles alive. Their WeakMap values must
+      // not keep the preceding audit's interner and lookup/type caches alive too.
+      for (const sourceFile of program.getSourceFiles()) releaseSourceFileInterner(sourceFile, internEnv);
+      for (const { sourceFile } of modules.values()) releaseSourceFileInterner(sourceFile, internEnv);
+    },
     rootDir,
     internEnv,
     freeParameters,

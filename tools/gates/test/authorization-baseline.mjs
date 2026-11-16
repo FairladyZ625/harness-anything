@@ -1,11 +1,17 @@
 // Shared source inputs within one test process / partition. No authorization result is cached.
 import path from "node:path";
+import { afterEach } from "node:test";
 import { buildFlowGraph, freshEvaluationGraph } from "../authorization-flow-graph.mjs";
 import { guiCallbackCallerFiles, sourceFileOf } from "../authorization-source-proof.mjs";
 import { auditDurableActionAuthorization, loadAuthorizationInputs } from "../ontology-durable-action-authorization.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
-let inputsPromise, baselineInputs, graph;
+let inputsPromise, baselineInputs, graph, activeQueries;
+
+afterEach(() => {
+  activeQueries?.releaseQueries();
+  activeQueries = null;
+});
 
 export function baselineAuthorizationInputs() {
   return (inputsPromise ??= loadAuthorizationInputs(repoRoot).then((inputs) => {
@@ -47,7 +53,7 @@ function baselineSourceGraph() {
 }
 
 export function baselineFlowGraph() {
-  return freshEvaluationGraph(baselineSourceGraph());
+  return (activeQueries = freshEvaluationGraph(baselineSourceGraph()));
 }
 
 export function auditWithBaseline(rootDir, inputs, options = {}) {

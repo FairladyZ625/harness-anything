@@ -244,7 +244,17 @@ export function kindRewriteViolations(rewrite, today, index = EVIDENCE_INDEX) {
 export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
   // Reuse source analysis only. Evaluator scopes are keyed by graph identity, so each
   // audit gets a fresh identity and an empty frame pool even when its AST is shared.
-  const preparedGraph = options.graph ? freshEvaluationGraph(options.graph) : null;
+  if (!options.graph) return auditAuthorization(rootDir, inputs, options);
+  const graph = freshEvaluationGraph(options.graph);
+  try {
+    return auditAuthorization(rootDir, inputs, { ...options, graph });
+  } finally {
+    graph.releaseQueries();
+  }
+}
+
+function auditAuthorization(rootDir, inputs, options) {
+  const preparedGraph = options.graph;
   const today = options.today ?? new Date().toISOString().slice(0, 10);
   const sourceRoot = options.sourceRoot ?? rootDir,
     durable = inputs.descriptors.filter((descriptor) => descriptor.commandClass !== "repo-read"),
@@ -645,12 +655,14 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
     }),
   );
   const receipt = receiptAuthorizationContract(rootDir);
-  return {
+  const result = {
     rows,
     sourceRows,
     receipt,
     findings: findingsFor(rows, receipt, sourceRows),
   };
+  if (!preparedGraph) graph.releaseQueries();
+  return result;
 }
 
 function findingsFor(rows, receipt, sourceRows) {

@@ -12,6 +12,10 @@ export function registerSourceFileInterner(sourceFile, interner) {
   environmentInterners.set(sourceFile, interner);
 }
 
+export function releaseSourceFileInterner(sourceFile, interner) {
+  if (environmentInterners.get(sourceFile) === interner) environmentInterners.delete(sourceFile);
+}
+
 export const isFunctionNode = (node) =>
   Boolean(node) &&
   (ts.isArrowFunction(node) ||

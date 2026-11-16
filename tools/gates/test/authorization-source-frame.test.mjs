@@ -11,6 +11,19 @@ import {
 import { processSourceSites, sourceSite } from "../authorization-source-proof.mjs";
 import { makeRepo } from "./helpers.mjs";
 
+test("a retained source file releases its completed audit's environment owner", () => {
+  const file = "packages/daemon/src/owner.ts",
+    { rootDir } = makeRepo({ [file]: "function owner(callback) { callback(); }" }),
+    graph = buildFlowGraph(rootDir),
+    owner = graph.modules.get(file).sourceFile.statements[0],
+    bind = () => bindArguments({ node: owner, env: EMPTY_ENV }, [owner.name], EMPTY_ENV),
+    live = bind();
+  assert.equal(live, graph.internEnv(live));
+  graph.releaseQueries();
+  const released = bind();
+  assert.notEqual(released, graph.internEnv(released), "the retained AST no longer selects the completed interner");
+});
+
 test("shared AST audits discard fact memo and frame identity in positive and negative order", (t) => {
   const file = "packages/daemon/src/audit.ts",
     { rootDir } = makeRepo({
