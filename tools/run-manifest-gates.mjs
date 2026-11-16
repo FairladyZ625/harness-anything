@@ -355,9 +355,27 @@ function readChangedPaths(revision) {
   return [...new Set(`${changed}${untracked}`.split("\0").filter(Boolean))].sort();
 }
 
+/**
+ * A manifest command is written for the POSIX lanes, where the shell expands `$NAME` inside its own
+ * quoting rules. Windows `shell: true` goes through cmd.exe, which expands `%NAME%` and leaves
+ * `$NAME` literal, so `--base "$PR_BASE_SHA"` reached the gate as the text `$PR_BASE_SHA` and the
+ * gate failed on a value the caller had already set -- the local pr-body preflight could not pass
+ * on Windows at all. Expand the POSIX form on Windows only. A name the environment does not carry is
+ * left untouched, so shell- or tool-owned syntax such as `$1` or `$@` keeps its meaning, and POSIX
+ * lanes stay untouched because there the shell already applies its own quoting.
+ */
+export function commandForPlatformShell(command, { platform = process.platform, env = process.env } = {}) {
+  if (platform !== "win32") return command;
+  return command.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/gu, (match, braced, bare) => {
+    const value = env[braced ?? bare];
+    return value === undefined ? match : value;
+  });
+}
+
 export function runCommand(label, command, failureHint = null, { cwd = repoRoot } = {}) {
   console.log(`\n▶ ${label}  (${command})`);
   const started = Date.now();
+  command = commandForPlatformShell(command);
   const result = spawnSync(command, {
     cwd,
     env: process.env,
@@ -389,6 +407,7 @@ const MAX_GATE_OUTPUT_CHARS = 16 * 1024 * 1024;
 export function runCommandAsync(label, command, failureHint = null, { cwd = repoRoot, githubGroups = false } = {}) {
   return new Promise((resolve) => {
     const started = Date.now();
+    command = commandForPlatformShell(command);
     let stdout = "";
     let stderr = "";
     let settled = false;

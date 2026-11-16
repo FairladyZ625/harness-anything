@@ -32,6 +32,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { commandForPlatformShell } from "./run-manifest-gates.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const manifestPath = path.join(repoRoot, "tools/gate-manifest.json");
@@ -121,6 +122,7 @@ function readJson(filePath) {
 function runCommand(entry) {
   console.log(`\n▶ ${entry.id}  (${entry.command})`);
   const started = Date.now();
+  entry.command = commandForPlatformShell(entry.command);
   const result = spawnSync(entry.command, {
     cwd: repoRoot,
     env: process.env,
