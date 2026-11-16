@@ -68,7 +68,7 @@ function runChildSlice(scriptPath, rootDir, slice, outputPath) {
         [WORKER_SPEC_ENV]: JSON.stringify(slice),
         [WORKER_OUT_ENV]: outputPath,
       },
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["ignore", "ignore", "pipe"],
     });
     const stderrChunks = [];
     child.stderr.on("data", (chunk) => stderrChunks.push(chunk));

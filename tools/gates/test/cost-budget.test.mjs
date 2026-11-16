@@ -749,6 +749,8 @@ test("terminal settlement scales with degree and cold materialization excludes d
   );
 });
 
+const REPO_ROOT = path.resolve(import.meta.dirname, "../../..");
+
 function writeSyntheticCostRoot(
   rootDir,
   { collectionRegression = false, g1Regression = false, workerCrash = false } = {},
@@ -756,8 +758,8 @@ function writeSyntheticCostRoot(
   const fixtureDir = path.join(rootDir, "packages/daemon/test/fixtures");
   mkdirSync(fixtureDir, { recursive: true });
   mkdirSync(path.join(rootDir, "packages"), { recursive: true });
-  symlinkSync(path.join(process.cwd(), "packages/kernel"), path.join(rootDir, "packages/kernel"), "dir");
-  const budgetConfig = JSON.parse(readFileSync(path.join(process.cwd(), "tools/gates/cost-budget.json"), "utf8"));
+  symlinkSync(path.join(REPO_ROOT, "packages/kernel"), path.join(rootDir, "packages/kernel"), "dir");
+  const budgetConfig = JSON.parse(readFileSync(path.join(REPO_ROOT, "tools/gates/cost-budget.json"), "utf8"));
   mkdirSync(path.join(rootDir, "tools/gates"), { recursive: true });
   writeFileSync(path.join(rootDir, "tools/gates/cost-budget.json"), JSON.stringify(budgetConfig, null, 2));
   writeFileSync(
@@ -817,7 +819,7 @@ test("parallel cost-budget worker orchestration preserves complete probe coverag
     });
     assert.deepEqual(g1Eval.errors, []);
 
-    const fixturePath = path.join(process.cwd(), "packages/daemon/fixtures/perf/cost-budget-ledger.json");
+    const fixturePath = path.join(REPO_ROOT, "packages/daemon/fixtures/perf/cost-budget-ledger.json");
     const okExit = await runCostBudgetMain([
       "--phase",
       "legacy",
