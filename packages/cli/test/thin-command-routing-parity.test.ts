@@ -1196,6 +1196,105 @@ test("runtime instance parser rejects repeated static headers regardless of spel
   }
 });
 
+test("runtime instance parser keeps static headers non-secret and disjoint from credential-header", () => {
+  const base = [
+    "runtime",
+    "instance",
+    "create",
+    "--id",
+    "codex-headers",
+    "--name",
+    "Codex Headers",
+    "--kind",
+    "codex",
+    "--provider",
+    "sidecar",
+    "--model",
+    "gpt-5.6-sol",
+    "--auth",
+    "api-key",
+    "--credential-ref",
+    "credential:v1:codex-headers",
+  ];
+  const validHeaders = [
+    ["X-Custom=static", { "X-Custom": "static" }],
+    ["User-Agent=cli-client", { "User-Agent": "cli-client" }],
+    ["X-Trace-Id=trace=with=equals", { "X-Trace-Id": "trace=with=equals" }],
+    [
+      "!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ=value with spaces=and=equals",
+      { "!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ": "value with spaces=and=equals" },
+    ],
+  ] as const;
+  for (const [input, expected] of validHeaders) {
+    const accepted = parseThinCommand([...base, "--http-header", input]);
+    assert.equal(accepted.ok, true, JSON.stringify(accepted));
+    if (accepted.ok) assert.deepEqual(accepted.command.action.codex, { httpHeaders: expected });
+  }
+  const credentialWithStatic = parseThinCommand([
+    ...base,
+    "--credential-header",
+    "X-Api-Key",
+    "--http-header",
+    "X-Trace-Id=static",
+  ]);
+  assert.equal(credentialWithStatic.ok, true, JSON.stringify(credentialWithStatic));
+  if (credentialWithStatic.ok)
+    assert.deepEqual(credentialWithStatic.command.action.codex, {
+      httpHeaders: { "X-Trace-Id": "static" },
+      credentialHeader: "X-Api-Key",
+    });
+
+  const objectKey = parseThinCommand([...base, "--http-header", "__proto__=static"]);
+  assert.equal(objectKey.ok, true, JSON.stringify(objectKey));
+  if (objectKey.ok) {
+    const headers = objectKey.command.action.codex?.httpHeaders;
+    assert.equal(Object.hasOwn(headers ?? {}, "__proto__"), true);
+    assert.equal(headers?.["__proto__"], "static");
+  }
+
+  const invalidHeaders = [
+    ["missing separator", "X-Custom"],
+    ["empty name", "=static"],
+    ["empty value", "X-Custom="],
+    ["non-token name", "X Custom=static"],
+    ["invalid token character", "X:Custom=static"],
+    ["multiline name", "X-Custom\nName=static"],
+    ["carriage-return name", "X-Custom\rName=static"],
+    ["multiline value", "X-Custom=static\nvalue"],
+    ["carriage-return value", "X-Custom=static\rvalue"],
+    ["authorization name", "aUtHoRiZaTiOn=static"],
+    ["cookie name", "cOoKiE=static"],
+    ["set-cookie name", "sEt-CoOkIe=static"],
+    ["proxy-authorization name", "pRoXy-AuThOrIzAtIoN=static"],
+    ["api-key name", "aPi-KeY=static"],
+    ["credential name", "cReDeNtIaL=static"],
+    ["password name", "PaSsWoRd=static"],
+    ["secret name", "sEcReT=static"],
+    ["token name", "ToKeN=static"],
+  ] as const;
+  for (const [category, input] of invalidHeaders) {
+    const rejected = parseThinCommand([...base, "--http-header", input]);
+    assert.equal(rejected.ok, false, JSON.stringify(rejected));
+    if (!rejected.ok) {
+      assert.equal(rejected.code, "invalid_field");
+      assert.equal(rejected.nextAction, "Use --http-header Name=Value with a non-secret static header.", category);
+    }
+  }
+
+  const collision = parseThinCommand([
+    ...base,
+    "--credential-header",
+    " x-CUSTOM ",
+    "--http-header",
+    "X-Custom=static",
+  ]);
+  assert.equal(collision.ok, false, JSON.stringify(collision));
+  if (!collision.ok) {
+    assert.equal(collision.code, "invalid_field");
+    assert.equal(collision.nextAction, "Static HTTP headers must not overlap --credential-header.");
+  }
+});
+
 test("thin parser rejects retired CI observer and task CI commands", () => {
   assert.equal(parseThinCommand(["ci", "observe", "pull"]).ok, false);
   assert.equal(parseThinCommand(["task", "ci", "task-1", "--json"]).ok, false);
