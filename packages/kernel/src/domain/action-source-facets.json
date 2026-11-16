@@ -145,6 +145,24 @@
         "route": "task.submit",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/ipc-handlers.ts#registerHarnessIpcHandlers:5962930d2276bc85a0442ce47be53e01",
+        "route": "task.submit",
+        "role": "client",
+        "port": "packages/gui/src/api/service-bridge.ts#GuiServiceBridge.invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/local-composition-root.ts#request:38ae245f20c60c7081c99b35ffcecf6d",
+        "route": "task.submit",
+        "role": "client",
+        "port": "packages/gui/src/main/local-composition-root.ts#request.invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/local-main-controls.ts#addLocalMainControls.invoke.result:b26c933742e8f0b55938b6d6a48bd009",
+        "route": "task.submit",
+        "role": "client",
+        "port": "packages/gui/src/api/service-bridge.ts#GuiServiceBridge.invoke"
       }
     ]
   },
@@ -12979,27 +12997,9 @@
         "role": "support"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/main/ipc-handlers.ts#registerHarnessIpcHandlers:5962930d2276bc85a0442ce47be53e01",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/api/service-bridge.ts#GuiServiceBridge.invoke"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/main/local-composition-root.ts#bootstrapLocalRepository:38ae245f20c60c7081c99b35ffcecf6d",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/main/local-composition-root.ts#bootstrapLocalRepository.invoke"
-      },
-      {
         "candidateId": "action:packages/gui:packages/gui/src/main/local-composition-root.ts#request:c608ebc31eb68140235e75ba222ae194",
         "route": "daemon-local-state",
         "role": "support"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/main/local-composition-root.ts#request:38ae245f20c60c7081c99b35ffcecf6d",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/main/local-composition-root.ts#request.invoke"
       },
       {
         "candidateId": "action:packages/gui:packages/gui/src/main/local-composition-root.ts#repoTarget:0297f56b364c7b46df63269b919ddf5b",
@@ -13017,12 +13017,6 @@
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.writeFile"
-      },
-      {
-        "candidateId": "action:packages/gui:packages/gui/src/main/local-main-controls.ts#addLocalMainControls.invoke.result:b26c933742e8f0b55938b6d6a48bd009",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/gui/src/api/service-bridge.ts#GuiServiceBridge.invoke"
       },
       {
         "candidateId": "action:packages/gui:packages/gui/src/main/login-webview-boundary.ts#createLoginWebviewGrants.unbindGuestWebContents:c0e0d1cdf99bac93b5267115b20b2a8c",
@@ -13331,6 +13325,12 @@
         "route": "repo-bootstrap",
         "role": "client",
         "port": "packages/gui/src/preload/electron-preload.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/main/local-composition-root.ts#bootstrapLocalRepository:38ae245f20c60c7081c99b35ffcecf6d",
+        "route": "repo-bootstrap",
+        "role": "client",
+        "port": "packages/gui/src/main/local-composition-root.ts#bootstrapLocalRepository.invoke"
       }
     ],
     "execution": {

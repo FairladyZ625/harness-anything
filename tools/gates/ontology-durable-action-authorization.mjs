@@ -307,7 +307,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
     declaredSourceFiles = declaredSources.map(sourceFileOf),
     guiCallerFiles = guiCallbackCallerFiles(
       sourceRoot,
-      declaredSourceFiles.filter((f) => /^packages\/gui\/src\/(?:renderer|preload|browser)\//u.test(f)),
+      declaredSourceFiles.filter((f) => /^packages\/gui\/src\/(?:renderer|preload|browser|main)\//u.test(f)),
     ),
     graph = buildFlowGraph(sourceRoot, {
       anchorRoot: rootDir,
