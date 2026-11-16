@@ -249,7 +249,7 @@ export const executionRuntimeBudgetPolicy = {
   ownerRef: "execution",
   unit: "attempts / reported tokens",
   bounds:
-    "Admit at most six runtime attempts per Execution; an optional token ceiling stops further dispatch at equality. Replays of an accepted dispatch consume no new attempt.",
+    "Admit at most six implementation attempts per Execution; runtime.executionUsageLimit > 0 enables a cumulative token ceiling that stops further dispatch at equality, while 0 disables it. Replays consume no new attempt; reviewers are excluded.",
   defaultValue: { maxAttempts: 6, maxTokens: null as number | null },
   version: 1,
   scope: "Runtime dispatch admission, automatic fallback and explicit recovery",
@@ -261,6 +261,16 @@ export const executionRuntimeBudgetPolicy = {
       candidateId:
         "policy:packages/kernel:packages/kernel/src/domain/task-submission-policy.ts#executionRuntimeBudgetPolicy.defaultValue.maxAttempts:592ca6dd8f074537e90d9de469cc1591",
       route: "Execution cumulative admission",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/repo-cell-runtime-ingress.ts#appendAuxiliaryRuntimeIngress.refusal:43630d82630fd3e6e72d010d737c72e4",
+      route: "Repository executionUsageLimit selects the center admission token ceiling",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spawn-fallback.ts#settleFallbackAttempt.refusal:43630d82630fd3e6e72d010d737c72e4",
+      route: "Repository executionUsageLimit selects the local fallback token ceiling",
     },
     {
       candidateId:

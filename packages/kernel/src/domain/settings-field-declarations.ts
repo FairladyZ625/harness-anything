@@ -795,6 +795,18 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     cli: { name: "--runtime-dispatch-usage-limit", kind: "single", regex: "^[0-9]+$" },
   }),
   defineSettingsField({
+    path: ["runtime", "executionUsageLimit"],
+    ownership: repository,
+    valueKind: "integer",
+    defaultValue: 0,
+    minimum: 0,
+    description: "Maximum total tokens across implementation dispatches in one Execution; 0 disables the limit.",
+    effect: "Refuses recovery and provider fallback at this cumulative limit; reviewer dispatches do not count.",
+    group: "schedules-nodes",
+    action: { field: "runtimeExecutionUsageLimit", type: "number" },
+    cli: { name: "--runtime-execution-usage-limit", kind: "single", regex: "^[0-9]+$" },
+  }),
+  defineSettingsField({
     path: ["runtime", "providerMaxRetries"],
     ownership: repository,
     valueKind: "integer",

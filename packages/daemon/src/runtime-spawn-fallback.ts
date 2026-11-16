@@ -1,3 +1,4 @@
+import { executionRuntimeBudgetPolicy } from "@harness-anything/kernel/internal/domain/task-submission-policy.ts";
 import {
   collectRuntimeWorkspaceProgress,
   runtimeProgressSnapshot,
@@ -301,12 +302,15 @@ export async function settleFallbackAttempt(
     return;
   }
   if (active.task && !input.remote) {
-    const refusal = runtimeExecutionBudgetRefusal(
-      context.requiredRuntimeProjection(input),
-      { ...active.task, role: active.role },
-      undefined,
-      active,
-    );
+    const limit = input.readSettings?.()?.runtime.executionUsageLimit ?? 0,
+      refusal = runtimeExecutionBudgetRefusal(
+        context.requiredRuntimeProjection(input),
+        { ...active.task, role: active.role },
+        limit > 0
+          ? { ...executionRuntimeBudgetPolicy.defaultValue, maxTokens: limit }
+          : executionRuntimeBudgetPolicy.defaultValue,
+        active,
+      );
     if (refusal) return exhaustedTerminal(`${refusal.code}: ${refusal.message}`, refusal);
   }
   const currentCandidateIndex = fallback.candidateIndex ?? fallback.attemptIndex,

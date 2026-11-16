@@ -243,3 +243,59 @@ for (const tokens of [false, true])
       );
     }
   });
+
+// F3: exercise the production fallback settings reader, not a direct policy argument.
+for (const [executionUsageLimit, secondTokens, expected] of [
+  [100, 40, "exhausted"],
+  [100, 39, "scheduled"],
+  [0, 40, "scheduled"],
+] as const)
+  test(`local fallback cumulative setting=${executionUsageLimit}, tokens=60+${secondTokens}`, async () => {
+    const task = { taskId: "task-budget", executionId: "execution-budget" },
+      rows = [60, secondTokens].map((totalTokens, index) => ({
+        event: { payload: { runtimeSessionId: `runtime-${index}`, role: "implementer" } },
+        metrics: { totalTokens },
+      })),
+      terminal: unknown[] = [],
+      states: Record<string, unknown>[] = [],
+      result = await settleFallbackAttempt(
+        {
+          input: {
+            now: () => "2026-11-17T00:00:00Z",
+            readSettings: () => ({ runtime: { executionUsageLimit, dispatchUsageLimit: 100 } }),
+            onAttemptTerminal: async (value: unknown) => {
+              terminal.push(value);
+            },
+          },
+          requiredRuntimeProjection: () => ({ readRuntimeDispatchesByTaskExecution: () => rows }),
+        } as never,
+        {
+          runtimeSessionId: "runtime-1",
+          inputTokens: secondTokens - 10,
+          outputTokens: 10,
+          tokenLimit: 100,
+          task,
+          role: "implementer",
+          stream: { appendFallbackState: (state: Record<string, unknown>) => states.push(state) },
+          fallbackAttempt: { attemptIndex: 0, candidates: [{ instance: "a" }, { instance: "b" }] },
+        } as never,
+        {
+          classification: "provider_fault",
+          reason: "startup 500",
+          provider: { instance: "a", model: "fixture", kind: "agy" },
+          attemptGroupId: "group",
+          attemptIndex: 0,
+        },
+        { outcome: "failed" } as never,
+      );
+    assert.equal(result?.fallbackState, expected);
+    assert.equal(states[0]?.state, expected);
+    if (expected === "exhausted") {
+      assert.equal(result?.budgetRefusal?.code, "execution_budget_exceeded");
+      assert.match(String(states[0]?.reason), /100\/100 reported tokens/u);
+      assert.equal(terminal.length, 1);
+    } else {
+      assert.equal(result?.budgetRefusal, undefined);
+      assert.equal(terminal.length, 0);
+    }
+  });

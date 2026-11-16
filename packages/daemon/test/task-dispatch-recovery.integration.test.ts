@@ -50,7 +50,7 @@ type Launch = {
  * The recovery fence replaces both with one compare-and-dispatch inside the runtime publication
  * write turn of a real RepoCell; every refusal below must leave the dispatch list unchanged.
  */
-for (const budgetCase of [false, "attempts", "per-dispatch"])
+for (const budgetCase of [false, "attempts", "per-dispatch", "execution-equal", "execution-below"])
   test(`a stopped dispatch is recovered through the fence; cumulative budget=${budgetCase}`, () =>
     recoveryScenario(budgetCase));
 
@@ -61,10 +61,15 @@ async function recoveryScenario(budgetCase: boolean | string): Promise<void> {
     waitForArrival(async () => ((await check()) ? true : null), watchDirectoryArrival(root));
   try {
     initRepo(root);
-    if (budgetCase === "per-dispatch")
-      writeFileSync(path.join(root, "harness/harness.yaml"), "settings:\n  runtime:\n    dispatchUsageLimit: 100\n", {
-        flag: "a",
-      });
+    const tokenBudgetCase = ["per-dispatch", "execution-equal", "execution-below"].includes(String(budgetCase)),
+      executionUsageLimit = String(budgetCase).startsWith("execution-") ? 100 : 0,
+      secondTokens = budgetCase === "execution-below" ? 39 : 40;
+    if (tokenBudgetCase)
+      writeFileSync(
+        path.join(root, "harness/harness.yaml"),
+        `settings:\n  runtime:\n    dispatchUsageLimit: 100\n    executionUsageLimit: ${executionUsageLimit}\n`,
+        { flag: "a" },
+      );
     const cell = await openBootstrappedRepoCell({
       repoId: workspaceId(repoId),
       rootDir: canonicalRoot(root),
@@ -158,10 +163,12 @@ async function recoveryScenario(budgetCase: boolean | string): Promise<void> {
               { type: "item.completed", item: { id: "message", type: "agent_message", text: "stopping" } },
               {
                 type: "turn.completed",
-                usage:
-                  budgetCase === "per-dispatch"
-                    ? { input_tokens: index === 0 ? 50 : 30, output_tokens: 10 }
-                    : { input_tokens: 1, output_tokens: 1 },
+                usage: tokenBudgetCase
+                  ? {
+                      input_tokens: index === 0 ? 50 : index === 1 ? secondTokens - 10 : 0,
+                      output_tokens: index < 2 ? 10 : 0,
+                    }
+                  : { input_tokens: 1, output_tokens: 1 },
               },
             ];
           for (const event of records)
@@ -180,7 +187,7 @@ async function recoveryScenario(budgetCase: boolean | string): Promise<void> {
           });
           launch.exit(0);
           await outcomeObserved(runtimeSessionId);
-          if (budgetCase === "per-dispatch") {
+          if (tokenBudgetCase) {
             const outcome = makeTaskEventReader({ repoId, rootDir: root })
               .read()
               .events.findLast(
@@ -189,7 +196,10 @@ async function recoveryScenario(budgetCase: boolean | string): Promise<void> {
                   event.payload.runtimeSessionId === runtimeSessionId,
               );
             assert.ok(outcome?.type === "runtime_session_outcome_observed");
-            assert.equal(outcome.payload.runtimeMetrics?.totalTokens, index === 0 ? 60 : 40);
+            assert.equal(
+              outcome.payload.runtimeMetrics?.totalTokens,
+              index === 0 ? 60 : index === 1 ? secondTokens : 0,
+            );
           }
         },
         // The worker process ends without any provider output reaching the daemon.
@@ -355,9 +365,10 @@ async function recoveryScenario(budgetCase: boolean | string): Promise<void> {
       assert.deepEqual(dispatches(), [firstDispatchId, recoveredDispatchId], "no double dispatch");
 
       if (budgetCase) {
-        // F2: 60 + 40 settled tokens do not turn a 100-token per-dispatch setting
-        // into an Execution cap; the third through sixth dispatch must still be admitted.
-        const limit = 6;
+        // F3: the production setting alone selects the cumulative policy. At equality,
+        // refuse the third attempt; below it or disabled, admit through the sixth.
+        // F2: the per-dispatch setting never becomes the Execution ceiling.
+        const limit = budgetCase === "execution-equal" ? 2 : 6;
         let latestDispatchId = recoveredDispatchId;
         for (let index = 2; index < limit; index += 1) {
           const next = await cell.spawnRuntime(
@@ -374,17 +385,19 @@ async function recoveryScenario(budgetCase: boolean | string): Promise<void> {
         const before = dispatches();
         await assert.rejects(
           cell.spawnRuntime(
-            spawnPayload("budget-seventh", {
+            spawnPayload("budget-over-limit", {
               dispatchId: latestDispatchId,
               executionId,
               expectedVersion: await revision(),
             }),
             ceo,
           ),
-          { code: "execution_budget_exceeded" },
+          (error: Error & { code?: string }) =>
+            error.code === "execution_budget_exceeded" &&
+            (budgetCase !== "execution-equal" || /2\/6 attempts, 100\/100 reported tokens/u.test(error.message)),
         );
         assert.equal(launches.length, limit);
-        assert.deepEqual(dispatches(), before, "the refused seventh attempt appends no dispatch");
+        assert.deepEqual(dispatches(), before, "the refused attempt appends no dispatch");
         // F1: review observes the submitted work; it is not another implementation attempt.
         // Exercise the same canonical ingress the closeout-reviewer dispatch uses at the ceiling.
         const source = makeTaskEventReader({ repoId, rootDir: root })
