@@ -25,6 +25,7 @@ import {
 } from "./authorization-baseline.mjs";
 import { replaceSourceOnce, runGit } from "./helpers.mjs";
 import { sourceWitness } from "./authorization-source-fixture.mjs";
+import { clientEntryRequiredRoutes, sourceWitnesses } from "../authorization-source-proof.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 const tracedPackages = ["daemon", "authorization-keycloak", "application"];
@@ -36,7 +37,7 @@ let partitionTestOrdinal = 0;
 // update this map; their measured durations are recorded by the test runner.
 const authorizationTestPartitionAssignments = [
   4, 2, 4, 3, 1, 2, 4, 1, 2, 2, 3, 4, 1, 3, 1, 4, 3, 4, 3, 3, 4, 1, 1, 2, 3, 4, 1, 4, 3, 2, 4, 2, 1, 3, 1, 4, 2, 2, 4,
-  4, 1, 2,
+  4, 1, 2, 3,
 ];
 function partitionedTest(name, testFn) {
   const ordinal = partitionTestOrdinal++;
@@ -105,17 +106,40 @@ partitionedTest("source mutation fragments match LF and CRLF checkouts alike", (
 });
 
 function rows(dir, only, descriptors = inputs.descriptors, options = {}) {
+  const graph = baselineFlowGraph(dir);
+  let sourceIds = options.sourceIds;
+  if (only !== undefined && sourceIds === undefined) {
+    const selected = new Set(only),
+      actions = inputs.constants.actionDeclarations,
+      witnesses = sourceWitnesses(
+        graph,
+        actions.flatMap((action) => action.ontology?.sources ?? []),
+      );
+    sourceIds = actions.flatMap((action) =>
+      (action.ontology?.sources ?? [])
+        .filter((source) => {
+          if (selected.has(source.route)) return true;
+          const node = witnesses.get(source.candidateId);
+          return (
+            source.role === "client" &&
+            node &&
+            clientEntryRequiredRoutes(graph, node, source, action, descriptors).some((route) => selected.has(route))
+          );
+        })
+        .map((source) => source.candidateId),
+    );
+  }
   const result = auditDurableActionAuthorization(
     repoRoot,
     { ...inputs, descriptors },
-    { sourceRoot: dir, only, sourceIds: [], ...options },
+    { sourceRoot: dir, only, ...options, graph, sourceIds },
   );
   return Object.fromEntries(result.rows.map((row) => [row.id, row]));
 }
 
-/** Shared baseline green, copied mutation red, baseline green again with fresh proof state. */
+/** Copied sources green, mutation red, genuinely restored copy green with fresh proof state. */
 function threeStage(t, ids, mutate, { dir = sourceCopy(t), reason } = {}) {
-  const before = rows(repoRoot, ids);
+  const before = rows(dir, ids);
   for (const id of ids) assert.ok(before[id].ok, `${id}: real sources must be green`);
   const restore = mutate(dir);
   const mutated = rows(dir, ids);
@@ -124,7 +148,7 @@ function threeStage(t, ids, mutate, { dir = sourceCopy(t), reason } = {}) {
     if (reason) assert.match(mutated[id].violations.join("; "), reason, `${id}: ${mutated[id].violations}`);
   }
   restore();
-  const restored = rows(repoRoot, ids);
+  const restored = rows(dir, ids);
   for (const id of ids) assert.ok(restored[id].ok, `${id}: restoring the source must return to green`);
   return mutated;
 }
@@ -1321,4 +1345,15 @@ partitionedTest("shared source graph rejects a changed authority after repeated 
     assert.deepEqual(descriptors.rows, full.rows, "descriptor proofs agree with the full source audit");
     assert.deepEqual(descriptors.sourceRows, []);
   }
+});
+
+partitionedTest("descriptor rows reject a source service whose allowed-decision enforcer is bypassed", (t) => {
+  threeStage(t, ["task-transition"], (dir) =>
+    edit(
+      dir,
+      "packages/daemon/src/repo-cell-proof.ts",
+      'if (!binding.authorizationDecision || binding.authorizationDecision.outcome !== "allowed")',
+      "if (false)",
+    ),
+  );
 });

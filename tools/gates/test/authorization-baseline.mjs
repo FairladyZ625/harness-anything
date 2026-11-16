@@ -55,9 +55,11 @@ function baselineSourceGraph() {
   return graph;
 }
 
-export function baselineFlowGraph() {
+export function baselineFlowGraph(sourceRoot = repoRoot) {
   activeQueries?.releaseQueries();
-  return (activeQueries = freshEvaluationGraph(baselineSourceGraph()));
+  return (activeQueries = freshEvaluationGraph(
+    sourceRoot === repoRoot ? baselineSourceGraph() : mutationGraph(sourceRoot),
+  ));
 }
 
 export function mutatedFlowGraph(overrides) {
