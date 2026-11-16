@@ -169,13 +169,13 @@ async function startChildrenAtWriteBarrier(
   clients: readonly ScaleClient[],
 ): Promise<ChildRun[]> {
   const children: ChildRun[] = [];
-  // Readiness is setup, not the scale assertion: serialize cold pulls so a loaded
+  // Readiness is setup, not the scale assertion: launch cold pulls in small waves so a loaded
   // runner cannot starve one wave. Every ready child remains alive, and all 32
   // write/replica windows are still released together below.
-  for (const client of clients) {
-    const child = runChild(fixture, port, client);
-    children.push(child);
-    await child.ready;
+  for (let offset = 0; offset < clients.length; offset += 4) {
+    const wave = clients.slice(offset, offset + 4).map((client) => runChild(fixture, port, client));
+    children.push(...wave);
+    await Promise.all(wave.map((child) => child.ready));
   }
   return children;
 }
