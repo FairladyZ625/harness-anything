@@ -1574,11 +1574,6 @@
         "candidateId": "action:packages/cli:packages/cli/src/cli/runtime-credential-input.ts#runtimeCredentialInput:28bda09c4ae031da8b10246a505e4f5a",
         "route": "runtime-instance-hosting-credential-set",
         "role": "support"
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-credential-port.ts#credentialPort.store:cfb22cbb198a835c1210c43e9026964e",
-        "route": "runtime-instance-hosting-credential-set",
-        "role": "effect"
       }
     ],
     "concurrency": {
@@ -2566,16 +2561,6 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-squad-child.ts#reacquireSquadTaskLease:55b6ea8d15ae07239a82ee995fa9bf04",
         "route": "squad-run",
         "role": "support"
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/squad-coordinator.ts#makeSquadCoordinator.spawnWorker.receipt:385454731026677437936a45d8d3bfaf",
-        "route": "squad-run",
-        "role": "effect"
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/squad-coordinator.ts#makeSquadCoordinator.spawnLeader.receipt:5723e77c6978dbd3e09effd67320f392",
-        "route": "squad-run",
-        "role": "effect"
       }
     ]
   },
@@ -12879,6 +12864,48 @@
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/repo-cell-types.ts#RepoCellContinuationWrite"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-credential-port.ts#credentialPort.store:cfb22cbb198a835c1210c43e9026964e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/agent-runtime-credential-port.ts#CredentialRunner"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-credential-port.ts#credentialPort.remove:d20529fffbc72fe71dc7ea2886d7a2b3",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/agent-runtime-credential-port.ts#CredentialBackend.remove"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-credential-port.ts#credentialPort.remove:f9cc3cc96c3830652306e6e448a2b24e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/agent-runtime-credential-port.ts#CredentialRunner"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-scheduler.ts#makeScheduleScheduler.targetFor.execute:fedd751c9cee14e8e02fbafe0cb48ac1",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/repo-cell-types.ts#RepoCell.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-action-runtime.ts#dispatchClaimedSchedule:7b96c809171dcf0515a6d19233e9494c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/schedule-action-runtime.ts#dispatchClaimedSchedule.input.spawn"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/squad-coordinator.ts#makeSquadCoordinator.cancel:2ac935defb5ab0afd13c0dd8ed3dc4fd",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/squad-coordinator.ts#SquadRuntimeSpawnerPort.cancel"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/squad-coordinator.ts#makeSquadCoordinator.spawnLeader.receipt:5723e77c6978dbd3e09effd67320f392",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/squad-coordinator.ts#SquadRuntimeSpawnerPort.spawn"
       }
     ],
     "technical": true
@@ -15409,16 +15436,6 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/schedule-action-runtime.ts#makeScheduleActionRuntime.runInternal:961bd5b35dd236f65566e15d02590043",
         "route": "schedule-run-now",
         "role": "effect"
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-action-runtime.ts#dispatchClaimedSchedule:7b96c809171dcf0515a6d19233e9494c",
-        "route": "schedule-run-now",
-        "role": "effect"
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/schedule-scheduler.ts#makeScheduleScheduler.targetFor.execute:fedd751c9cee14e8e02fbafe0cb48ac1",
-        "route": "schedule-run-now",
-        "role": "support"
       }
     ]
   },
@@ -16047,11 +16064,6 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/squad-control-result.ts#executeSquadControl.raw:8acd83d45f05f06cde226d790c9ec408",
         "route": "squad-cancel",
         "role": "effect"
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/squad-coordinator.ts#makeSquadCoordinator.cancel:2ac935defb5ab0afd13c0dd8ed3dc4fd",
-        "route": "squad-cancel",
-        "role": "effect"
       }
     ]
   },
@@ -16061,18 +16073,7 @@
   },
   "runtime-instance-hosting-credential-unset": {
     "owner": "runtime",
-    "sources": [
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-credential-port.ts#credentialPort.remove:d20529fffbc72fe71dc7ea2886d7a2b3",
-        "route": "runtime-instance-hosting-credential-unset",
-        "role": "effect"
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-credential-port.ts#credentialPort.remove:f9cc3cc96c3830652306e6e448a2b24e",
-        "route": "runtime-instance-hosting-credential-unset",
-        "role": "effect"
-      }
-    ],
+    "sources": [],
     "concurrency": {
       "expectedVersion": {
         "authority": "not-applicable"

@@ -254,7 +254,6 @@ export async function openRepoWriterCell(
     throw error;
   }
   let { store, recovery, projection, entityActionExecutor, runtimeReads, service, replica } = core;
-  let entityActionRuntimes: EntityActionCatalogRuntimes = Object.freeze({});
   let knownTaskIds: Set<string> | null = null,
     state: RepoCellStatus["state"] = recovery.status === "indeterminate" ? "unavailable" : "attached",
     recoveryUncertain = recovery.status === "indeterminate";
@@ -775,21 +774,21 @@ export async function openRepoWriterCell(
       };
     };
   const personActionRuntime = makePersonActionRuntime(runtimeContext);
-  entityActionRuntimes = Object.freeze({
+  const entityActionRuntimes: EntityActionCatalogRuntimes = {
     commitRuntimeSession: (bundle: Parameters<typeof commitRuntimeSettlement>[1], binding: RepoCellBinding) =>
       commitRuntimeSettlement(runtimeContext, bundle, binding),
-    entity: Object.freeze({
+    entity: {
       agent: agentActionRuntime,
       schedule: scheduleActionRuntime,
       person: personActionRuntime,
       squad: squadActionRuntime,
-    }),
-    prepare: Object.freeze({
+    },
+    prepare: {
       agent: prepareAgentAction,
       squad: prepareAgentAction,
       "runtime-session": runtimeSessionActionPreparer(() => projection),
-    }),
-  });
+    },
+  };
   const squadCoordinator = makeRepoCellSquadCoordinator({
     rootDir,
     repoId: input.repoId,
@@ -1054,7 +1053,7 @@ export async function openRepoWriterCell(
     },
     now,
     executeAction: extracted.executeAction,
-    squadCoordinator: extracted.squadCoordinator,
+    squadCoordinator,
     presetProcess,
     get runtimeReads() {
       return runtimeReads;

@@ -343,29 +343,39 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       canonicalCut: !nonCanonical.has(kind),
     };
     const owner = tracer.traceDescriptor(traceInput);
-    // A descriptor result contains evidence strings, not frames. Release the completed
-    // policy pool before the full source walk and again before the next descriptor.
     graph.resetFramePool();
     const ownerEvidence =
       authority === "local-transport" ? owner.local : authority === "own-session" ? owner.session : owner.authorized;
-    // Host-only sources require the independent scoped proof below. Verified migration
-    // callbacks still require this descriptor's owning authorization route at final judgment.
     const targets = sourceTargets(action, descriptor.id).filter((source) => {
       const node = witnesses.get(source.id);
       return !(
         hostServiceEntryRequired(graph, node, action) || migrationServiceEntryEvidence(graph, node, source, action)
       );
     });
-    // CH1 source ownership requires the route's authority first. A failed owner cannot
-    // acquire a certificate by searching deeper implementation callbacks. Leave its effects
-    // unproven; valid owners still run the complete guarded/unguarded source trace.
-    const trace =
-      targets.length > 0 &&
+    const tracedPackageTargets = targets.filter((source) =>
+      /^packages\/(?:daemon|application|authorization-keycloak)\/src\//u.test(source.site),
+    );
+    const externalTargets = targets.filter(
+      (source) => !/^packages\/(?:daemon|application|authorization-keycloak)\/src\//u.test(source.site),
+    );
+    const externalTrace =
+      externalTargets.length > 0 &&
       ownerEvidence.length > 0 &&
       declarationViolations.length === 0 &&
       owner.violations.length === 0
-        ? sourceTracer.traceDescriptor({ ...traceInput, sources: targets })
-        : owner;
+        ? tracer.traceDescriptor({ ...traceInput, sources: externalTargets })
+        : null;
+    if (externalTrace) {
+      graph.resetFramePool();
+      for (const source of externalTrace.sources.values()) sourceResults.set(source.id, source);
+    }
+    const trace =
+      tracedPackageTargets.length > 0 &&
+      ownerEvidence.length > 0 &&
+      declarationViolations.length === 0 &&
+      owner.violations.length === 0
+        ? sourceTracer.traceDescriptor({ ...traceInput, sources: tracedPackageTargets })
+        : (externalTrace ?? owner);
     graph.resetFramePool();
     for (const source of trace.sources.values()) sourceResults.set(source.id, source);
     const evidence =

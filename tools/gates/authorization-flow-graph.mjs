@@ -993,6 +993,15 @@ export function makeEvaluator(graph, facts) {
         if (property.name && graph.memberKey(property.name) === key) {
           if (ts.isPropertyAssignment(property)) return evaluate(property.initializer, value.env, depth + 1);
           if (ts.isShorthandPropertyAssignment(property)) return evaluate(property.name, value.env, depth + 1);
+          if (ts.isGetAccessorDeclaration(property) && property.body?.statements.length === 1) {
+            const stmt = property.body.statements[0];
+            if (stmt && ts.isReturnStatement(stmt) && stmt.expression) {
+              const resolved = evaluate(stmt.expression, lexicalEnv(property, value.env), depth + 1).filter(
+                (entry) => !entry.unknown,
+              );
+              if (resolved.length > 0) return resolved;
+            }
+          }
           return [{ fn: true, node: property, env: value.env }];
         }
       }
@@ -1173,23 +1182,6 @@ export function makeEvaluator(graph, facts) {
       // Policy dispatch must select the request's actual member. Only source reachability
       // may conservatively enumerate the authored alternatives of an unknown key.
       if (key === null && !facts.strictMembers) return [unknown];
-      if (
-        key === "then" &&
-        graphScope.onlyExternalPromiseThen &&
-        ts.isCallExpression(node.parent) &&
-        unwrap(node.parent.expression) === node
-      ) {
-        const signatures = graph.memberSignature(node);
-        if (
-          signatures?.size > 0 &&
-          [...signatures].every((decl) => {
-            const sf = decl.getSourceFile?.();
-            return sf?.isDeclarationFile && /[/\\]node_modules[/\\]typescript[/\\]lib[/\\]/u.test(sf.fileName);
-          })
-        ) {
-          return [{ external: "then" }];
-        }
-      }
       const receivers = evaluate(node.expression, env, depth + 1),
         direct = receivers.flatMap((value) =>
           value.object || value.classNode || value.module
@@ -1293,6 +1285,7 @@ export function makeEvaluator(graph, facts) {
     if (node.text === "undefined") return { value: undefined };
     const binding = graph.lookup(node.text, node);
     if (!binding) return null;
+    if (binding.kind === "fn") return { value: true };
     if (binding.kind === "param") {
       const bound = env.get(binding.parameter);
       if (!bound) return null;
@@ -1521,7 +1514,7 @@ export function makeEvaluator(graph, facts) {
 
   function objectLiteralsOf(expression, env, depth = 0) {
     const node = unwrap(expression);
-    if (!node || depth > maxEvaluationDepth) return null;
+    if (!node || depth > maxEvaluationDepth * 2) return null;
     const kind = node.kind;
     if (
       kind !== SK_IDENTIFIER &&
@@ -1849,7 +1842,7 @@ export function makeEvaluator(graph, facts) {
 
   /** Three-valued: `{ value }` when the branch is decided, null when both branches remain live. */
   function fold(expression, env, depth = 0) {
-    if (depth > maxEvaluationDepth) return null;
+    if (depth > maxEvaluationDepth * 2) return null;
     const node = unwrap(expression);
     if (!node) return null;
     const constant = literal(node);
@@ -1858,6 +1851,7 @@ export function makeEvaluator(graph, facts) {
   }
 
   function foldQuery(node, env, depth) {
+    if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) return { value: true };
     if (ts.isIdentifier(node)) return foldIdentifier(node, env, depth);
     if (ts.isPropertyAccessExpression(node)) return foldProperty(node, env, depth);
     if (ts.isTemplateExpression(node)) {
