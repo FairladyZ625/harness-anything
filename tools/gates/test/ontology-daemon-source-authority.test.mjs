@@ -274,9 +274,10 @@ test("daemon source declarations preserve actual driver and business owners", ()
     ],
     [
       "action:packages/daemon:packages/daemon/src/schedule-scheduler.ts#makeScheduleScheduler.targetFor.execute:fedd751c9cee14e8e02fbafe0cb48ac1",
-      "schedule-run-now",
-      "schedule-run-now",
-      "support",
+      "daemon-local-state",
+      "daemon-local-state",
+      "technical-port",
+      "packages/daemon/src/repo-cell-types.ts#RepoCell.run",
     ],
     [
       "action:packages/daemon:packages/daemon/src/decision-point-executor.ts#openDecisionPointExecutor.settle.apply:79a44954c303732a0c96fdbd6afe2c74",

@@ -432,7 +432,7 @@ export function makeAuthorizationTracer(graph, anchors) {
         authorityModule: anchors.authorityModule,
         constants: anchors.constants,
         functions: anchors.functions,
-        strictMembers: Boolean(descriptor.sources?.length),
+        strictMembers: (!anchors.sourceGraph || anchors.sourceGraph === graph) && Boolean(descriptor.sources?.length),
       },
       evaluator = makeEvaluator(graph, facts),
       sourceGraph = anchors.sourceGraph ?? graph,

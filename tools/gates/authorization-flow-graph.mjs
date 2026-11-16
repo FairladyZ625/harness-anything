@@ -993,9 +993,9 @@ export function makeEvaluator(graph, facts) {
         if (property.name && graph.memberKey(property.name) === key) {
           if (ts.isPropertyAssignment(property)) return evaluate(property.initializer, value.env, depth + 1);
           if (ts.isShorthandPropertyAssignment(property)) return evaluate(property.name, value.env, depth + 1);
-          if (ts.isGetAccessorDeclaration(property) && property.body?.statements.length === 1) {
+          if (facts.strictMembers && ts.isGetAccessorDeclaration(property) && property.body?.statements.length === 1) {
             const stmt = property.body.statements[0];
-            if (stmt && ts.isReturnStatement(stmt) && stmt.expression) {
+            if (stmt && ts.isReturnStatement(stmt) && stmt.expression && ts.isCallExpression(stmt.expression)) {
               const resolved = evaluate(stmt.expression, lexicalEnv(property, value.env), depth + 1).filter(
                 (entry) => !entry.unknown,
               );
@@ -1930,8 +1930,20 @@ export function makeEvaluator(graph, facts) {
       return { value: left.value === right.value };
     if ([ts.SyntaxKind.ExclamationEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsToken].includes(operator))
       return { value: left.value !== right.value };
+    if (operator === ts.SyntaxKind.PlusToken) return { value: left.value + right.value };
     return null;
   }
 
-  return { evaluate, fold, returnValues, fromRequest, provenance, expandArguments, staticScope: factScope };
+  const externalFold = (expression, env, depth = 0) =>
+    depth >= maxEvaluationDepth ? (literal(unwrap(expression)) ?? null) : fold(expression, env, depth);
+
+  return {
+    evaluate,
+    fold: externalFold,
+    returnValues,
+    fromRequest,
+    provenance,
+    expandArguments,
+    staticScope: factScope,
+  };
 }

@@ -12912,6 +12912,12 @@
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/squad-coordinator.ts#SquadRuntimeSpawnerPort.spawn"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-spawn-control.ts#cancelRuntime.stopOwnedRuntime:a48ffbebb821cbbf655b0d95183d27dd",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-spawn-types.ts#RuntimeProcess.terminate"
       }
     ],
     "technical": true

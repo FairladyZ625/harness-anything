@@ -352,32 +352,29 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
         hostServiceEntryRequired(graph, node, action) || migrationServiceEntryEvidence(graph, node, source, action)
       );
     });
-    const tracedPackageTargets = targets.filter((source) =>
-      /^packages\/(?:daemon|application|authorization-keycloak)\/src\//u.test(source.site),
-    );
-    const externalTargets = targets.filter(
-      (source) => !/^packages\/(?:daemon|application|authorization-keycloak)\/src\//u.test(source.site),
-    );
-    const externalTrace =
-      externalTargets.length > 0 &&
+    const policyTrace =
+      targets.length > 0 &&
       ownerEvidence.length > 0 &&
       declarationViolations.length === 0 &&
       owner.violations.length === 0
-        ? tracer.traceDescriptor({ ...traceInput, sources: externalTargets })
+        ? tracer.traceDescriptor({ ...traceInput, sources: targets })
         : null;
-    if (externalTrace) {
+    if (policyTrace) {
       graph.resetFramePool();
-      for (const source of externalTrace.sources.values()) sourceResults.set(source.id, source);
+      for (const source of policyTrace.sources.values()) sourceResults.set(source.id, source);
     }
-    const trace =
-      tracedPackageTargets.length > 0 &&
-      ownerEvidence.length > 0 &&
-      declarationViolations.length === 0 &&
-      owner.violations.length === 0
-        ? sourceTracer.traceDescriptor({ ...traceInput, sources: tracedPackageTargets })
-        : (externalTrace ?? owner);
-    graph.resetFramePool();
-    for (const source of trace.sources.values()) sourceResults.set(source.id, source);
+    const remainingTargets = policyTrace
+      ? targets.filter((target) => {
+          const seen = policyTrace.sources.get(target.site);
+          return !seen?.seen || !seen.ok;
+        })
+      : [];
+    if (remainingTargets.length > 0) {
+      const fullTrace = sourceTracer.traceDescriptor({ ...traceInput, sources: remainingTargets });
+      graph.resetFramePool();
+      for (const source of fullTrace.sources.values()) sourceResults.set(source.id, source);
+    }
+    const trace = policyTrace ?? owner;
     const evidence =
         authority === "local-transport" ? trace.local : authority === "own-session" ? trace.session : trace.authorized,
       violations = [...declarationViolations, ...trace.violations];
