@@ -1,8 +1,6 @@
 import { cliContractPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
-import {
-  builtInRuntimeProviderInputDeclaration,
-  type SafePath,
-} from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import { builtInRuntimeProviderInputDeclaration } from "@harness-anything/daemon/internal/protocol/daemon-protocol-commands";
+import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol-identifiers";
 import { accepted, readFlags, rejected } from "./thin-command-flags.ts";
 import type { ProtocolCommand, ThinParseResult } from "./thin-command-types.ts";
 

@@ -14,7 +14,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { pipeline } from "node:stream/promises";
-import { connect, createServer, type Server } from "node:net";
+import { connect, createServer, type Socket } from "node:net";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { consumeKnownError } from "@harness-anything/kernel";
@@ -147,6 +147,7 @@ export class ManagedRbacService {
   /** Windows has no portable process-group handle; retain a cleanup obligation after kc.bat exits. */
   #keycloakCleanupPending = false;
   #lifecycle: Promise<unknown> = Promise.resolve();
+  #closingPassthrough: Promise<void> = Promise.resolve();
   /** Set while an operator or the daemon is stopping the services; exit supervision stays quiet. */
   #stopping = false;
   #restartTimer: ReturnType<typeof setTimeout> | null = null;
@@ -268,7 +269,15 @@ export class ManagedRbacService {
   async #stopChildren(): Promise<Record<string, unknown>> {
     const stopped: string[] = [];
     for (const name of ["keycloak", "postgres"] as const) if (await this.#stopChild(name)) stopped.push(name);
+    await this.#closingPassthrough;
     return { ok: true, command: "rbac-stop", stopped };
+  }
+
+  #closePassthrough(passthrough: PassthroughListener | undefined): Promise<void> {
+    if (!passthrough) return Promise.resolve();
+    const closing = this.#closingPassthrough.then(() => passthrough.close());
+    this.#closingPassthrough = closing.catch(consumeKnownError);
+    return closing;
   }
 
   /**
@@ -781,11 +790,12 @@ export class ManagedRbacService {
       javaHome = javaHomePath(this.#root, this.#ports.platform),
       kc = managedExecutable(this.#root, "runtime/keycloak/bin/kc.sh", this.#ports.platform);
     if (listener) requirePrivateKeyFile(listener.certificateKeyFile);
+    await this.#closingPassthrough;
     await this.#stopKeycloakOrphan(config);
     const httpsPort = listener ? (await availableLoopbackPorts())[0] : undefined,
       passthrough = listener ? await listenPassthrough(listener, httpsPort!) : undefined;
     if (this.#stopping) {
-      passthrough?.close();
+      await this.#closePassthrough(passthrough);
       return;
     }
     try {
@@ -825,11 +835,15 @@ export class ManagedRbacService {
         /Keycloak .* started in/u,
         60_000,
         path.join(this.#root, "runtime", "keycloak"),
-        passthrough ? () => passthrough.close() : undefined,
+        passthrough
+          ? () => {
+              void this.#closePassthrough(passthrough);
+            }
+          : undefined,
       );
     } catch (error) {
       // The spawn itself failed before the termination path existed; release the listener now.
-      passthrough?.close();
+      await this.#closePassthrough(passthrough);
       throw error;
     }
   }
@@ -1318,13 +1332,24 @@ function requirePrivateKeyFile(file: string): void {
     );
 }
 
-function listenPassthrough(listener: ManagedRbacListener, httpsPort: number): Promise<Server> {
-  const server = createServer((client) => {
-    const keycloak = connect(httpsPort, "127.0.0.1");
-    client.pipe(keycloak).pipe(client);
-    client.on("error", () => keycloak.destroy());
-    keycloak.on("error", () => client.destroy());
-  });
+interface PassthroughListener {
+  readonly close: () => Promise<void>;
+}
+
+function listenPassthrough(listener: ManagedRbacListener, httpsPort: number): Promise<PassthroughListener> {
+  const sockets = new Set<Socket>(),
+    track = (socket: Socket) => {
+      sockets.add(socket);
+      socket.once("close", () => sockets.delete(socket));
+    },
+    server = createServer((client) => {
+      const keycloak = connect(httpsPort, "127.0.0.1");
+      track(client);
+      track(keycloak);
+      client.pipe(keycloak).pipe(client);
+      client.on("error", () => keycloak.destroy());
+      keycloak.on("error", () => client.destroy());
+    });
   return new Promise((resolve, reject) => {
     server.once("error", (error) =>
       reject(
@@ -1334,7 +1359,15 @@ function listenPassthrough(listener: ManagedRbacListener, httpsPort: number): Pr
         ),
       ),
     );
-    server.listen(listener.port, listener.address, () => resolve(server));
+    server.listen(listener.port, listener.address, () =>
+      resolve({
+        close: () =>
+          new Promise<void>((done) => {
+            server.close(() => done());
+            for (const socket of sockets) socket.destroy();
+          }),
+      }),
+    );
   });
 }
 

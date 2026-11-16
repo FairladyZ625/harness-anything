@@ -664,8 +664,11 @@ function authoredDocument(
 }
 function isolateLedgerFromProject(rootDir: string, authoredRoot: string, localRoot: string): void {
   /* @gate-identity non-state/environment-io.b172fdbbdccfd324 */ mkdirSync(rootDir, { recursive: true });
-  if (!optionalGit(rootDir, ["rev-parse", "--show-toplevel"])) git(rootDir, ["init", "--quiet"]);
-  const projectRoot = optionalGit(rootDir, ["rev-parse", "--show-toplevel"]);
+  let projectRoot = optionalGit(rootDir, ["rev-parse", "--show-toplevel"]);
+  if (!projectRoot) {
+    git(rootDir, ["init", "--quiet"]);
+    projectRoot = optionalGit(rootDir, ["rev-parse", "--show-toplevel"]);
+  }
   if (!projectRoot)
     throw repoBootstrapError(
       "publication_indeterminate",
@@ -681,37 +684,60 @@ function isolateLedgerFromProject(rootDir: string, authoredRoot: string, localRo
   if (existsSync(ignorePath) && (!lstatSync(ignorePath).isFile() || lstatSync(ignorePath).isSymbolicLink()))
     throw repoBootstrapError("reserved_path", ".gitignore must be a regular file.");
   const existing = existsSync(ignorePath) ? readFileSync(ignorePath, "utf8") : "",
-    missing = projectPaths.filter((target) => !projectGitIgnores(projectRoot, target)).map((target) => `/${target}/`);
+    ignored = projectGitIgnoredTargets(projectRoot, projectPaths),
+    missing = projectPaths.filter((target) => !ignored.has(target)).map((target) => `/${target}/`);
   if (missing.length)
     /* @gate-identity non-state/environment-io.236932fbb7b48e53 */ writeFileSync(
       ignorePath,
       `${existing && !existing.endsWith("\n") ? `${existing}\n` : existing}${missing.join("\n")}\n`,
       "utf8",
     );
-  git(projectRoot, ["rm", "-r", "--cached", "--ignore-unmatch", "--", ...projectPaths]);
+  const dotGitHead = path.join(projectRoot, ".git", "HEAD"),
+    dotGitIndex = path.join(projectRoot, ".git", "index");
+  if (process.env.GIT_INDEX_FILE || !existsSync(dotGitHead) || existsSync(dotGitIndex))
+    git(projectRoot, ["rm", "-r", "--cached", "--ignore-unmatch", "--", ...projectPaths]);
 }
 /**
- * Whether this repository's own `.gitignore` already ignores the Harness root, decided by git
+ * Whether this repository's own `.gitignore` already ignores each Harness root, decided by git
  * instead of by matching the literal rule bootstrap appends: an existing dot-directory glob already
  * covers the root. The probe is a phantom child path, so a root that does not exist yet is judged by
  * its ignore rules. Excludes that live only in this clone (`.git/info/exclude`, the user's global
  * excludesFile) are not repository rules and would not reach clones or CI, so they do not suppress
  * the durable rule.
  */
-function projectGitIgnores(projectRoot: string, target: string): boolean {
+function projectGitIgnoredTargets(projectRoot: string, targets: readonly string[]): Set<string> {
+  if (targets.length === 0) return new Set();
+  const probes = new Map(targets.map((target) => [`${target}/__bootstrap_probe__`, target]));
   let reported: string;
   try {
-    reported = git(projectRoot, ["check-ignore", "--no-index", "-v", "--", `${target}/__bootstrap_probe__`]);
+    reported = git(projectRoot, [
+      "-c",
+      "core.quotePath=false",
+      "check-ignore",
+      "--no-index",
+      "-v",
+      "--",
+      ...probes.keys(),
+    ]);
   } catch (error) {
-    if (typeof error === "object" && error !== null && "status" in error && error.status === 1) return false;
+    if (typeof error === "object" && error !== null && "status" in error && error.status === 1) return new Set();
     throw error;
   }
-  // git reports `<source>:<line>:<pattern>\t<path>`; the path holds no tab, so the head is the pattern.
-  const source = /^(?<source>.*):\d+:/u.exec(reported.split("\t")[0] ?? "")?.groups?.source,
-    resolved = source === undefined ? undefined : path.resolve(projectRoot, source);
-  if (resolved === undefined || path.basename(resolved) !== ".gitignore") return false;
-  const relative = path.relative(projectRoot, resolved);
-  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
+  const ignored = new Set<string>();
+  for (const line of reported.split(/\r?\n/u)) {
+    if (!line) continue;
+    const tab = line.lastIndexOf("\t");
+    if (tab < 0) continue;
+    const target = probes.get(line.slice(tab + 1));
+    if (!target) continue;
+    // git reports `<source>:<line>:<pattern>\t<path>`; the path holds no tab, so the head is the pattern.
+    const source = /^(?<source>.*):\d+:/u.exec(line.slice(0, tab))?.groups?.source,
+      resolved = source === undefined ? undefined : path.resolve(projectRoot, source);
+    if (resolved === undefined || path.basename(resolved) !== ".gitignore") continue;
+    const relative = path.relative(projectRoot, resolved);
+    if (relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative)) ignored.add(target);
+  }
+  return ignored;
 }
 /** Removes exactly the ignore rules bootstrap added for these Harness roots; other user rules stay. */
 export function removeHarnessIgnoreRules(rootDir: string, authoredRoot: string, localRoot: string): void {

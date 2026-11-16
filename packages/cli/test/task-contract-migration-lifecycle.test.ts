@@ -2,14 +2,18 @@
 import test from "node:test";
 import {
   assert,
-  setup,
+  cli,
+  cliEnv,
+  git,
+  path,
+  published,
+  realizedTaskPlan,
   register,
   run,
-  published,
+  setup,
+  spawnSync,
+  statusOf,
   writeFileSync,
-  path,
-  realizedTaskPlan,
-  git,
 } from "./daemon-autostart-cli.fixture.ts";
 
 test("submitted contract migration continues through the CLI without losing historical execution", () => {
@@ -79,4 +83,51 @@ test("submitted contract migration continues through the CLI without losing hist
   assert.equal(after.task.status, "submitted");
   assert.deepEqual(after.executions[0], before.executions[0]);
   assert.deepEqual(after.reviews, before.reviews);
+});
+
+test("cancelled task reinstates to planned through the CLI and daemon", () => {
+  const fixture = setup(),
+    taskId = "task-reinstate";
+
+  assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
+  register(fixture.root, fixture.userRoot, "reinstate");
+  assert.equal(
+    run(fixture.root, fixture.userRoot, ["task", "create", "--id", taskId, "--admin", "--title", "Reinstate"]).outcome,
+    "applied",
+  );
+  assert.equal(
+    run(fixture.root, fixture.userRoot, [
+      "task",
+      "transition",
+      taskId,
+      "cancelled",
+      "--force",
+      "--reason",
+      "Erroneous batch cleanup",
+    ]).outcome,
+    "applied",
+  );
+  assert.equal(statusOf(fixture.root, fixture.userRoot, taskId), "cancelled");
+
+  // A reinstate without the auditable reason is refused by the CLI before it can reach the daemon.
+  const bare = spawnSync(
+    process.execPath,
+    [cli, "--root", fixture.root, "--json", "task", "transition", taskId, "planned"],
+    { encoding: "utf8", env: cliEnv(fixture.root, fixture.userRoot) },
+  );
+  assert.equal(bare.status, 2, `${bare.stderr}\n${bare.stdout}`);
+  const bareReceipt = JSON.parse(bare.stdout) as { ok: boolean; error?: { code: string } };
+  assert.equal(bareReceipt.ok, false);
+  assert.equal(bareReceipt.error?.code, "missing_field");
+
+  const reinstated = run(fixture.root, fixture.userRoot, [
+    "task",
+    "transition",
+    taskId,
+    "planned",
+    "--reason",
+    "Owner adjudicated rollback of the batch cancellation",
+  ]);
+  assert.equal(reinstated.outcome, "applied", JSON.stringify(reinstated));
+  assert.equal(statusOf(fixture.root, fixture.userRoot, taskId), "planned");
 });

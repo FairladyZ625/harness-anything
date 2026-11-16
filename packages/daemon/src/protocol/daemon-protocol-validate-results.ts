@@ -1,4 +1,3 @@
-import type { ScheduleState } from "@harness-anything/kernel/internal/domain/schedule.ts";
 import { validateReceiptAcceptance } from "@harness-anything/kernel/internal/domain/receipt-acceptance.ts";
 import type { SquadControlResult } from "../squad-control-result.ts";
 import { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
@@ -33,50 +32,12 @@ import { validateDaemonWorkspaceSummary, validTaskDispatchRow } from "./daemon-p
 import { receiptOutcomeWords } from "./daemon-protocol-vocabulary.ts";
 import { generatedTaskCreateResultFields, generatedWriteReceiptFields } from "./daemon-protocol-commands-task.ts";
 import { isJsonObject, type JsonObject } from "./json-rpc-types.ts";
-export type ValidScheduleListRow = {
-  readonly scheduleId: string;
-  readonly state: ScheduleState;
-  readonly mode: "detect" | "remediate";
-  readonly systemPresetId?: string;
-  readonly spec: {
-    readonly trigger:
-      | { readonly kind: "interval"; readonly everyMs: number; readonly anchorAt: string }
-      | { readonly kind: "cron"; readonly expression: string; readonly timezone: string };
-    readonly target:
-      | { readonly kind: "agent"; readonly agentId: string }
-      | { readonly kind: "squad"; readonly squadId: string }
-      | { readonly kind: "builtin"; readonly builtinId: string }
-      | { readonly kind: "agent-unconfigured" };
-  };
-  readonly status: {
-    readonly automaticEvaluatedThrough: string;
-    readonly activeRun: unknown;
-  };
-  readonly updatedAt: string;
-  readonly definitionRevision: number;
-  readonly nextRunAt: string | null;
-};
-export type InvalidScheduleListRow = {
-  readonly scheduleId: string;
-  readonly state: "invalid";
-  readonly invalidReason: string;
-  readonly definitionRevision: number;
-};
-export type ScheduleListRow = ValidScheduleListRow | InvalidScheduleListRow;
-export function parseScheduleListReceipt(
-  receipt: Readonly<Record<string, unknown>>,
-): readonly ScheduleListRow[] | null {
-  if (
-    receipt.schema !== "command-receipt/v2" ||
-    receipt.ok !== true ||
-    receipt.command !== "schedule-list" ||
-    receipt.outcome !== "applied" ||
-    typeof receipt.evidence !== "string"
-  )
-    return null;
-  if (!Array.isArray(receipt.schedules) || !receipt.schedules.every(scheduleListRow)) return null;
-  return receipt.schedules;
-}
+export {
+  parseScheduleListReceipt,
+  type InvalidScheduleListRow,
+  type ScheduleListRow,
+  type ValidScheduleListRow,
+} from "./schedule-runs-contract.ts";
 
 export function makeDaemonCommandReceipt(command: string, receipt: object): JsonObject {
   if (isSquadControlResult(receipt)) {
@@ -150,42 +111,6 @@ export function daemonCommandReceiptRejectionCode(receipt: Readonly<Record<strin
     nonEmpty(receipt.code)
     ? receipt.code
     : null;
-}
-
-function scheduleListRow(value: unknown): value is ScheduleListRow {
-  if (
-    exactRecord(value, ["scheduleId", "state", "invalidReason", "definitionRevision"]) &&
-    nonEmpty(value.scheduleId) &&
-    value.state === "invalid" &&
-    nonEmpty(value.invalidReason) &&
-    integer(value.definitionRevision) &&
-    Number(value.definitionRevision) >= 0
-  )
-    return true;
-  if (!isJsonObject(value) || !isJsonObject(value.spec) || !isJsonObject(value.status)) return false;
-  const trigger = value.spec.trigger,
-    target = value.spec.target;
-  return (
-    isJsonObject(trigger) &&
-    isJsonObject(target) &&
-    nonEmpty(value.scheduleId) &&
-    (value.state === "armed" || value.state === "paused") &&
-    (value.mode === "detect" || value.mode === "remediate") &&
-    ((trigger.kind === "interval" &&
-      integer(trigger.everyMs) &&
-      Number(trigger.everyMs) >= 60_000 &&
-      nonEmpty(trigger.anchorAt)) ||
-      (trigger.kind === "cron" && nonEmpty(trigger.expression) && nonEmpty(trigger.timezone))) &&
-    ((target.kind === "agent" && nonEmpty(target.agentId)) ||
-      (target.kind === "squad" && nonEmpty(target.squadId)) ||
-      (target.kind === "builtin" && nonEmpty(target.builtinId)) ||
-      target.kind === "agent-unconfigured") &&
-    nonEmpty(value.status.automaticEvaluatedThrough) &&
-    nonEmpty(value.updatedAt) &&
-    integer(value.definitionRevision) &&
-    Number(value.definitionRevision) >= 0 &&
-    (value.nextRunAt === null || nonEmpty(value.nextRunAt))
-  );
 }
 
 export function validateDaemonDocumentRead(value: unknown): readonly string[] {

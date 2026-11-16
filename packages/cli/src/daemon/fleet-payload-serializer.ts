@@ -6,7 +6,7 @@ import {
 import {
   commandDescriptorForAction,
   hasCommandDescriptor,
-} from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+} from "@harness-anything/daemon/internal/protocol/daemon-protocol-commands";
 import {
   generatedTaskActionProtocolDeclarations,
   type CliInputFacet,

@@ -13,7 +13,7 @@ import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts"
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { initIngressRepo, rpc } from "./fixtures/runtime-ingress.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
-import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
+import { registerBootstrappedDaemonRepo, openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 
 async function waitStarted(barrier: Int32Array, count: number): Promise<void> {
   for (let observed = Atomics.load(barrier, 1); observed < count; observed = Atomics.load(barrier, 1))
@@ -136,23 +136,84 @@ function p99(values: readonly number[]): number {
 
 test("read clients without a physical worker context reuse workers across repository owners", async () => {
   let workers = 0;
+  const factory = () => {
+    workers++;
+    return new Worker(
+      `const {parentPort} = require('node:worker_threads');
+      parentPort.postMessage({schema: 'harness-repo-writer-status/v1', protocolVersion: 1, kind: 'attach-progress'});
+      parentPort.on('message', request => parentPort.postMessage({
+        requestId: request.requestId, outcome: 'ok', value: request.payload.config.repoId
+      }));`,
+      { eval: true },
+    );
+  };
   const clients = ["one", "two"].map((repoId) =>
-    openRepoReadClient({ repoId: repoId as never, rootDir: "/unused" as never, ownerId: repoId }, () => {
-      workers++;
-      return new Worker(
-        `const {parentPort} = require('node:worker_threads');
-        parentPort.postMessage({schema: 'harness-repo-writer-status/v1', protocolVersion: 1, kind: 'attach-progress'});
-        parentPort.on('message', request => parentPort.postMessage({
-          requestId: request.requestId, outcome: 'ok', value: request.payload.config.repoId
-        }));`,
-        { eval: true },
-      );
-    }),
+    openRepoReadClient({ repoId: repoId as never, rootDir: "/unused" as never, ownerId: repoId }, factory),
   );
   try {
     for (let n = 0; n < 6; n++) assert.equal(await clients[n % 2]!.request("probe", []), n % 2 === 0 ? "one" : "two");
     assert.equal(workers, 1, "alternating owners must not cold-start a worker for every read");
   } finally {
     await Promise.all(clients.map((client) => client.close()));
+  }
+});
+
+test("closing a real reader releases SQLite handles before reusing its isolate at the same root", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-reader-release-")),
+    repoId = "reader-release",
+    handles = new Int32Array(new SharedArrayBuffer(8)),
+    workers: Worker[] = [],
+    timings: number[] = [];
+  initIngressRepo(root, process.getuid?.() ?? 0);
+  const input = { repoId: repoId as never, rootDir: root as never, ownerId: "release-test" },
+    factory: import("../src/repo-read-pool.ts").RepoReadWorkerFactory = (_url, options) => {
+      const worker = new Worker(new URL("./fixtures/read-handle-worker.ts", import.meta.url), {
+        ...options,
+        workerData: { ...options.workerData, handles: handles.buffer },
+      });
+      workers.push(worker);
+      return worker;
+    };
+  // The reader consumes a completed projection; seeding only the canonical event
+  // store does not build it. Attach and drain the real writer before opening readers.
+  await (await openBootstrappedRepoCell(input)).close();
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const client = openRepoReadClient(input, factory);
+      try {
+        const started = performance.now();
+        assert.ok(await client.request("readEventWitness", [1]));
+        timings.push(performance.now() - started);
+        await client.request("observeTail", [{ kind: "events", direction: "history" }]);
+        assert.ok(Atomics.load(handles, 0) > Atomics.load(handles, 1), "the real read must open a connection");
+      } finally {
+        await client.close();
+      }
+      assert.equal(Atomics.load(handles, 0), Atomics.load(handles, 1), "close resolves after native handles close");
+      assert.equal(workers.length, 1, "the next client at the same root reuses the isolate");
+      assert.ok(workers[0]!.threadId > 0, "the worker remains alive after releasing its connections");
+    }
+    const first = openRepoReadClient(input, factory),
+      second = openRepoReadClient(input, factory);
+    try {
+      assert.ok(await first.request("readEventWitness", [1]));
+      const closedBeforeHandoff = Atomics.load(handles, 1);
+      assert.ok(await second.request("readEventWitness", [1]));
+      assert.ok(
+        Atomics.load(handles, 1) > closedBeforeHandoff,
+        "a different client at the same root must release the previous client's native handles",
+      );
+      await first.close();
+      assert.equal(workers.length, 1, "same-root client handoff retains the compatible isolate");
+    } finally {
+      await Promise.all([first.close(), second.close()]);
+    }
+    assert.equal(Atomics.load(handles, 0), Atomics.load(handles, 1), "both clients drain every native handle");
+    rmSync(root, { recursive: true, force: true });
+    t.diagnostic(`native reader handles opened=${Atomics.load(handles, 0)} closed=${Atomics.load(handles, 1)}`);
+    t.diagnostic(`reader first-query ms: cold=${timings[0]!.toFixed(1)} warm=${timings[1]!.toFixed(1)}`);
+  } finally {
+    await Promise.all(workers.map((worker) => worker.terminate()));
+    rmSync(root, { recursive: true, force: true });
   }
 });

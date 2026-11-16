@@ -238,6 +238,7 @@ test("legacy outcome without replication proof stays invisible", { timeout: 60_0
       (await fixture.adminPool.query("SHOW synchronous_standby_names")).rows[0]!.synchronous_standby_names !== "*"
     ) {
       // SHOW is the state probe; the enclosing test owns the hang guard.
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
     }
     await withPostgresTransaction(
       fixture.pool,
@@ -471,6 +472,7 @@ async function strict(fixture: Awaited<ReturnType<typeof pgRuntimeFixture>>, ena
     (enabled ? "*" : "")
   ) {
     // SHOW is the state probe; the enclosing test owns the hang guard.
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
   }
 }
 
@@ -559,5 +561,6 @@ async function blocked(fixture: Awaited<ReturnType<typeof pgRuntimeFixture>>): P
       )
     ).rows[0];
     if (row) return row.pid;
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
   }
 }

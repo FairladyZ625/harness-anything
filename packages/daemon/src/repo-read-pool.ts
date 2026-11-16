@@ -39,9 +39,12 @@ export type RepoReadWorkerFactory = (
     };
   },
 ) => Worker;
+type Owner = { readonly slots: Set<Slot> };
 type Job = {
+  handoff?: boolean;
   readonly createWorker?: RepoReadWorkerFactory;
-  readonly owner: object;
+  readonly owner: Owner;
+  readonly completion: Promise<void>;
   readonly request: RepoWriterRequestV1;
   readonly resolve: (value: unknown) => void;
   readonly reject: (error: Error) => void;
@@ -49,11 +52,12 @@ type Job = {
 };
 type Slot = {
   worker: Worker | null;
+  createWorker?: RepoReadWorkerFactory | typeof Worker;
   ready: boolean;
   starting: Job | null;
   job: Job | null;
-  owner: object | null;
-  contextOwner: object | null;
+  owner: Owner | null;
+  contextOwner: Owner | null;
   stopping: Promise<void> | null;
 };
 const slots: Slot[] = Array.from({ length: REPO_READ_WORKERS }, () => ({
@@ -69,9 +73,18 @@ const queue: Job[] = [];
 
 /** The writer request/receipt envelope carries whole read operations, never callbacks or per-row RPCs. */
 export function openRepoReadClient(input: RepoCellOpenInput, createWorker?: RepoReadWorkerFactory) {
-  const owner = {},
-    outstanding = new Set<Promise<void>>();
+  const owner: Owner = { slots: new Set() },
+    outstanding = new Set<Promise<void>>(),
+    readerId = randomUUID(),
+    config: RepoReadPayload["config"] = {
+      repoId: input.repoId,
+      rootDir: input.rootDir,
+      storage: input.storage,
+      mode: input.mode,
+      authoredBranch: input.authoredBranch,
+    };
   let closed = false;
+  let closing: Promise<void> | undefined;
   return {
     request: <T>(method: string, args: readonly unknown[], binding?: RepoCellBinding): Promise<T> => {
       if (closed) return Promise.reject(readError("repo_unavailable", "Repository reader is closed."));
@@ -87,13 +100,8 @@ export function openRepoReadClient(input: RepoCellOpenInput, createWorker?: Repo
           : undefined,
         replicaPin = replicaRoot ? replicaGenerationReaders(replicaRoot).acquire() : null;
       const payload: RepoReadPayload = {
-        config: {
-          repoId: input.repoId,
-          rootDir: input.rootDir,
-          storage: input.storage,
-          mode: input.mode,
-          authoredBranch: input.authoredBranch,
-        },
+        config,
+        readerId,
         method,
         args,
         now,
@@ -115,6 +123,7 @@ export function openRepoReadClient(input: RepoCellOpenInput, createWorker?: Repo
       return new Promise<T>((resolve, reject) => {
         queue.push({
           owner,
+          completion,
           createWorker,
           request: {
             schema: "harness-repo-writer-request/v1",
@@ -135,7 +144,8 @@ export function openRepoReadClient(input: RepoCellOpenInput, createWorker?: Repo
         pump();
       }).finally(() => replicaPin?.release());
     },
-    close: async () => {
+    close: () => {
+      if (closing) return closing;
       closed = true;
       for (let index = queue.length - 1; index >= 0; index--) {
         const job = queue[index]!;
@@ -144,10 +154,21 @@ export function openRepoReadClient(input: RepoCellOpenInput, createWorker?: Repo
         job.reject(readError("repo_unavailable", "Repository reader is closed."));
         job.settled();
       }
-      await Promise.all(outstanding);
-      // Reserve the idle slots before yielding: another repository must not inherit a worker
-      // that is being terminated to release this repository's SQLite/PG handles.
-      await Promise.all(slots.filter((slot) => slot.owner === owner && slot.job === null).map(stop));
+      return (closing = (async () => {
+        await Promise.all(outstanding);
+        // Reserve each idle reader synchronously. A different owner cannot use it until the
+        // worker acknowledges that its query runtime has drained all SQLite/PG handles.
+        await Promise.all(
+          [...owner.slots].map(async (slot) => {
+            // A subsequent owner's read may already be switching this worker's runtime.
+            // Its receipt (or completed termination) proves our old handles are gone.
+            if (slot.job) await slot.job.completion;
+            if (slot.stopping) await slot.stopping;
+            if (slot.owner === owner)
+              await (slot.contextOwner !== null || !slot.ready ? stop(slot) : release(slot, owner, config));
+          }),
+        );
+      })());
     },
   };
 }
@@ -160,16 +181,20 @@ function pump(): void {
     const job = queue[0]!;
     if (
       slot.owner !== job.owner &&
-      (slot.contextOwner !== null ||
+      (slot.createWorker !== (job.createWorker ?? Worker) ||
+        slot.contextOwner !== null ||
         requiresStorageWorkerContext((job.request.payload as RepoReadPayload).config.storage))
     ) {
       void stop(slot);
       continue;
     }
     queue.shift();
+    job.handoff = slot.owner !== null && slot.owner !== job.owner;
     slot.job = job;
     slot.owner = job.owner;
+    job.owner.slots.add(slot);
     const worker = slot.worker!;
+    worker.ref();
     void Promise.resolve()
       .then(() => worker.postMessage(job.request))
       .then(undefined, (error: unknown) => {
@@ -182,6 +207,7 @@ function pump(): void {
     if (!job) break;
     slot.starting = job;
     slot.owner = job.owner;
+    job.owner.slots.add(slot);
     void Promise.resolve()
       .then(() => {
         if (slot.starting !== job || slot.stopping || !queue.includes(job)) return;
@@ -216,6 +242,7 @@ function pump(): void {
         // Other readers already close/reopen their query runtime when config changes.
         slot.contextOwner = context.context === undefined ? null : job.owner;
         slot.worker = worker;
+        slot.createWorker = job.createWorker ?? Worker;
         worker.on("message", (receipt: RepoWriterReceiptV1 | RepoWriterStatusV1) => {
           if (slot.worker !== worker) return;
           if (receipt.schema === "harness-repo-writer-status/v1") {
@@ -223,6 +250,7 @@ function pump(): void {
               slot.starting = null;
               slot.ready = true;
               pump();
+              if (!slot.job) worker.unref();
             }
             return;
           }
@@ -230,9 +258,15 @@ function pump(): void {
           if (!active || receipt.requestId !== active.request.requestId) return;
           slot.job = null;
           if (receipt.outcome === "ok") active.resolve(receipt.value);
-          else active.reject(deserializeWriterError(receipt.error!));
+          else {
+            // A failed handoff may have failed while closing the previous runtime.
+            // Only completed termination can then prove its handles were released.
+            if (active.handoff) void stop(slot);
+            active.reject(deserializeWriterError(receipt.error!));
+          }
           active.settled();
           pump();
+          if (!slot.job) worker.unref();
         });
         worker.on("error", (error) => {
           if (slot.worker === worker) fail(slot, error);
@@ -245,6 +279,46 @@ function pump(): void {
       })
       .then(undefined, (error: unknown) => fail(slot, error instanceof Error ? error : new Error(String(error))));
   }
+}
+
+function release(slot: Slot, owner: Owner, config: RepoReadPayload["config"]): Promise<void> {
+  const worker = slot.worker!;
+  const completion = Promise.withResolvers<void>();
+  const released = new Promise<void>((resolve, reject) => {
+    slot.job = {
+      owner,
+      completion: completion.promise,
+      request: {
+        schema: "harness-repo-writer-request/v1",
+        protocolVersion: REPO_WRITER_PROTOCOL_VERSION,
+        requestId: randomUUID(),
+        method: "read",
+        payload: { config, method: "close", args: [] } satisfies RepoReadPayload,
+        writerEpoch: null,
+      },
+      resolve: () => resolve(),
+      reject: (error) => {
+        // Quarantine a failed release before the receipt handler pumps queued reads.
+        void stop(slot);
+        reject(error);
+      },
+      settled: () => {
+        slot.owner = null;
+        completion.resolve();
+      },
+    };
+    worker.ref();
+    const request = slot.job.request;
+    void Promise.resolve()
+      .then(() => worker.postMessage(request))
+      .then(undefined, (error: unknown) => {
+        if (slot.worker === worker) fail(slot, error instanceof Error ? error : new Error(String(error)));
+      });
+  });
+  return released.catch(async (error: unknown) => {
+    await stop(slot);
+    throw error;
+  });
 }
 
 function fail(slot: Slot, error: Error): void {

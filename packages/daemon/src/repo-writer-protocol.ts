@@ -330,6 +330,8 @@ export type RepoWriterCanonicalStoreCapability = (
 
 /** Reader workers use the existing writer RPC envelope and serialization contracts. */
 export interface RepoReadPayload {
+  /** Client lifetime identity: identical repository configuration still requires a handle handoff. */
+  readonly readerId?: string;
   readonly config: Pick<
     import("./repo-cell-open.ts").RepoCellOpenInput,
     "repoId" | "rootDir" | "storage" | "mode" | "authoredBranch"

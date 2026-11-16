@@ -1,5 +1,5 @@
 import { cliErrorMessage } from "./cli-error.ts";
-import { commandDescriptorForAction } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import { commandDescriptorForAction } from "@harness-anything/daemon/internal/protocol/daemon-protocol-commands";
 import { readCliInputFile } from "./cli-input-codec.ts";
 import type { ThinCommand } from "./cli/thin-command.ts";
 

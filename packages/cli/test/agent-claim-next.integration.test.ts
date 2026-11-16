@@ -5,6 +5,16 @@ import { parseThinCommand } from "../src/cli/thin-command.ts";
 import { runRuntimeFacadeCommand } from "../src/cli-runtime-command.ts";
 import { fleetNodeClaimFixture } from "../../daemon/test/fleet-node-claim.fixtures.ts";
 import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import {
+  createRuntimeFixture,
+  eventuallyFile,
+  installIdentities,
+  run,
+  runMaybe,
+  seedTask,
+} from "./runtime-cli.fixtures.ts";
 
 test(
   "two node consumers race a real TLS CAS pool; loser advances then both exhaust",
@@ -191,5 +201,146 @@ test(
     assert.equal((await invoke()).outcome, "running");
     assert.equal((await invoke()).outcome, "empty");
     assert.equal(launched, 1);
+  },
+);
+
+test(
+  "Task-bound batch enforces one lease holder and archives successful dispatches",
+  { timeout: 300_000 },
+  async (context) => {
+    const fixture = createRuntimeFixture(context);
+    const { parent, root, env } = fixture;
+    installIdentities(parent, root, env);
+    const { taskId, executionId, packagePath, artifactRoot } = seedTask(root, env, "batch");
+    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
+    mkdirSync(path.join(artifactRoot, "missions"), { recursive: true });
+    writeFileSync(path.join(artifactRoot, "missions", "existing-mission.md"), "existing mission");
+    run(root, env, ["doc", "sync", "--submit", "--path", `${packagePath}/artifacts/missions/existing-mission.md`]);
+    const tracker = path.join(root, ".batch-tracker");
+    writeFileSync(
+      path.join(root, "batch.json"),
+      JSON.stringify(
+        {
+          schema: "runtime-batch/v1",
+          maxConcurrency: 2,
+          dispatches: [
+            { instance: "cli-worker", agent: "fable", to: "missing-agent", prompt: "must reject" },
+            {
+              instance: "cli-worker",
+              agent: "fable",
+              to: "terra",
+              model: "runtime-test-model",
+              effort: "high",
+              fast: true,
+              prompt: "batch hold one",
+              task: taskId,
+            },
+            {
+              instance: "cli-worker",
+              agent: "fable",
+              to: "terra",
+              effort: "high",
+              fast: true,
+              prompt: "batch hold two",
+              cwd: ".",
+              task: taskId,
+            },
+            {
+              instance: "cli-worker",
+              agent: "fable",
+              to: "terra",
+              effort: "high",
+              fast: true,
+              mission: "existing-mission",
+              task: taskId,
+            },
+            {
+              instance: "cli-worker",
+              agent: "fable",
+              to: "terra",
+              effort: "high",
+              fast: true,
+              prompt: "batch hold three",
+              task: taskId,
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+    );
+    const batch = runMaybe(root, env, ["runtime", "batch", "batch.json"]);
+    assert.equal(batch.status, 1, `${batch.stderr}\n${JSON.stringify(batch.receipt)}`);
+    assert.equal(batch.receipt.command, "runtime-batch");
+    // The no-delivery task workers settle stopped, so the batch aggregate reports partial_failure
+    // alongside its rejected dispatch instead of restated successes.
+    assert.equal(batch.receipt.outcome, "partial_failure");
+    const batchRows = batch.receipt.dispatches as Array<Record<string, unknown>>;
+    assert.equal(batchRows.length, 5);
+    const taskBatchRows = batchRows.slice(1),
+      // The dispatched task workers settle stopped (no delivery); the ones that lost the single
+      // lease race stay rejected. Both together must cover every task-bound row.
+      settledTaskBatchRows = taskBatchRows.filter((row) => row.status === "stopped"),
+      rejectedTaskBatchRows = taskBatchRows.filter((row) => row.status === "rejected");
+    assert.ok(settledTaskBatchRows.length >= 1, JSON.stringify(batch.receipt));
+    assert.equal(
+      settledTaskBatchRows.length + rejectedTaskBatchRows.length,
+      taskBatchRows.length,
+      JSON.stringify(batch.receipt),
+    );
+    // A row that races a live holder loses the lease; one that arrives after the holder stopped must
+    // name the stopped dispatch instead of silently dispatching a second worker (#4376).
+    assert.equal(
+      rejectedTaskBatchRows.every((row) =>
+        ["runtime_task_lease_required", "dispatch_recovery_fence_required"].includes(String(row.code)),
+      ),
+      true,
+      JSON.stringify(batch.receipt),
+    );
+    assert.equal(batchRows[0]?.code, "squad_member_not_found");
+    assert.equal(
+      settledTaskBatchRows.every(
+        (row) => typeof row.dispatchId === "string" && typeof row.runtimeSessionId === "string",
+      ),
+      true,
+    );
+    const batchDispatchIds = new Set(settledTaskBatchRows.map((row) => String(row.dispatchId))),
+      batchDispatches = (
+        runMaybe(root, env, ["task", "dispatches", taskId]).receipt.dispatches as Array<Record<string, unknown>>
+      ).filter((row) => batchDispatchIds.has(String(row.dispatchId)));
+    assert.equal(batchDispatches.length, settledTaskBatchRows.length);
+    assert.equal(
+      batchDispatches.every(
+        (row) => row.agentId === "terra" && row.delegatedByAgentId === "fable" && row.squadId === "core-squad",
+      ),
+      true,
+      JSON.stringify(batchDispatches),
+    );
+    const batchArchives = settledTaskBatchRows.map((row) =>
+      path.join(artifactRoot, "dispatches", `${String(row.dispatchId)}.json`),
+    );
+    await Promise.all(batchArchives.map(eventuallyFile));
+    assert.deepEqual(
+      batchArchives.filter((archive) => !existsSync(archive)),
+      [],
+      "successful runtime batch dispatch archives must become visible",
+    );
+    const slowBatchArchive = batchArchives[0]!;
+    assert.equal(
+      (JSON.parse(readFileSync(slowBatchArchive, "utf8")) as Record<string, unknown>).reasoningEffort,
+      "high",
+    );
+    assert.equal((JSON.parse(readFileSync(slowBatchArchive, "utf8")) as Record<string, unknown>).fast, true);
+    const events = existsSync(tracker) ? readFileSync(tracker, "utf8").trim().split("\n").filter(Boolean) : [],
+      trackedBatchDispatches = settledTaskBatchRows.filter((row) => row.index !== 3).length;
+    let active = 0,
+      peak = 0;
+    for (const event of events) {
+      active += event === "start" ? 1 : -1;
+      peak = Math.max(peak, active);
+    }
+    assert.equal(events.filter((event) => event === "start").length, trackedBatchDispatches);
+    assert.equal(events.filter((event) => event === "end").length, trackedBatchDispatches);
+    assert.ok(peak <= 1, `task-bound batch exceeded its single lease holder: ${events.join(",")}`);
   },
 );

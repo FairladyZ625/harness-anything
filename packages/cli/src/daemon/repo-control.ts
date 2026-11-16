@@ -1,7 +1,7 @@
 import path from "node:path";
 import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
-import { daemonRepoModeWords } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import { daemonRepoModeWords } from "@harness-anything/daemon/internal/protocol/daemon-protocol-vocabulary";
 import { daemonFailure, daemonOption } from "./control-support.ts";
 
 type ControlFinisher = (receipt: Record<string, unknown>, exitCode: number) => number;

@@ -1,11 +1,9 @@
-import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
-import {
-  parseScheduleListReceipt,
-  type ScheduleListRow,
-} from "@harness-anything/daemon/internal/protocol/daemon-protocol-validate-results";
+import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol-identifiers";
 import { parseScheduleDuration } from "@harness-anything/daemon/internal/protocol/daemon-protocol-vocabulary";
 import {
+  parseScheduleListReceipt,
   validateScheduleRuns,
+  type ScheduleListRow,
   type ScheduleRunsResult,
 } from "@harness-anything/daemon/internal/protocol/schedule-runs-contract";
 import { consumeKnownError } from "../daemon/client.ts";

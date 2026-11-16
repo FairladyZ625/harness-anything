@@ -15,6 +15,25 @@ import {
   localUserDaemonEndpoint,
 } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import { status } from "../src/daemon/control-status.ts";
+import { type TestContext } from "node:test";
+import { spawnSync } from "node:child_process";
+import { existsSync, writeFileSync } from "node:fs";
+import { type Socket } from "node:net";
+import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
+import {
+  cli,
+  cliEnv,
+  connectSocket,
+  currentDaemonProtocolVersion,
+  JsonRpcLineClient,
+  processAlive,
+  register,
+  run as runAutostartCli,
+  setup as setupAutostartFixture,
+  setupRepository,
+  waitForFileContent,
+  waitForProcessExit,
+} from "./daemon-autostart-cli.fixture.ts";
 
 test("status reports a draining old process until its terminal exit record, then lets its successor answer", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-status-processes-")),
@@ -235,3 +254,105 @@ function serveLineRpc(
     );
   });
 }
+
+const disconnectBlockedVerticalScriptTest = async (context: TestContext) => {
+  const fixture = setupAutostartFixture(),
+    otherRoot = setupRepository(fixture.parent, "other-repo"),
+    blockedRepoId = "vertical-disconnect",
+    otherRepoId = "vertical-unaffected",
+    taskId = "task-vertical-disconnect",
+    blocker = path.join(fixture.parent, "vertical-disconnect.block"),
+    started = `${blocker}.started`,
+    endpoint = localUserDaemonEndpoint(fixture.userRoot, "default");
+  let actionSocket: Socket | undefined,
+    queuedClient: JsonRpcLineClient | undefined,
+    scriptRequest: Promise<Record<string, unknown>> | undefined,
+    queuedWrite: Promise<Record<string, unknown>> | undefined;
+  try {
+    writeFileSync(blocker, "blocked\n", "utf8");
+    const launched = spawnSync(
+      process.execPath,
+      [cli, "--root", fixture.root, "--json", "daemon", "start", "--service"],
+      {
+        encoding: "utf8",
+        env: { ...cliEnv(fixture.root, fixture.userRoot), HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE: blocker },
+      },
+    );
+    assert.equal(launched.status, 0, `${launched.stderr}\n${launched.stdout}`);
+    register(fixture.root, fixture.userRoot, blockedRepoId);
+    register(otherRoot, fixture.userRoot, otherRepoId);
+    assert.equal(
+      runAutostartCli(fixture.root, fixture.userRoot, [
+        "task",
+        "create",
+        "--id",
+        taskId,
+        "--admin",
+        "--title",
+        "Vertical Disconnect",
+      ]).outcome,
+      "applied",
+    );
+
+    actionSocket = await connectSocket(endpoint, 2_000);
+    const actionClient = new JsonRpcLineClient(actionSocket, actionSocket);
+    await actionClient.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, 2_000);
+    scriptRequest = actionClient.request("repo.script.run", {
+      repo: { repoId: blockedRepoId },
+      payload: { scriptId: "vertical:software-coding:repository-audit", taskId, inputs: {}, dryRun: true },
+    }) as Promise<Record<string, unknown>>;
+    void scriptRequest.catch(() => undefined);
+    const childPid = Number(await waitForFileContent(started));
+    assert.equal(Number.isSafeInteger(childPid) && childPid > 0, true, `invalid vertical child pid: ${childPid}`);
+    assert.equal(processAlive(childPid), true, `vertical child ${childPid} must be alive before disconnect`);
+
+    const unaffected = await requestDaemonJsonRpcAt(
+      endpoint,
+      "repo.tasks.list",
+      { repo: { repoId: otherRepoId }, payload: {} },
+      2_000,
+      500,
+    );
+    context.diagnostic(
+      `other-repo read while vertical script blocked: ${JSON.stringify({ status: unaffected.status, rowCount: Array.isArray(unaffected.rows) ? unaffected.rows.length : null })}`,
+    );
+    assert.equal(unaffected.status, "ready");
+
+    const queuedSocket = await connectSocket(endpoint, 2_000);
+    queuedClient = new JsonRpcLineClient(queuedSocket, queuedSocket);
+    await queuedClient.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, 2_000);
+    queuedWrite = queuedClient.request("repo.task.create", {
+      repo: { repoId: blockedRepoId },
+      payload: { taskId: "task-after-disconnect", title: "After Disconnect" },
+    }) as Promise<Record<string, unknown>>;
+    const writeStarted = performance.now();
+    await queuedWrite.catch(() => undefined);
+    context.diagnostic(
+      `same-repo write before client disconnect: ${JSON.stringify({ state: "settled", elapsedMs: Math.round(performance.now() - writeStarted) })}`,
+    );
+
+    actionSocket.destroy();
+    await waitForProcessExit(childPid);
+    const writeReceipt = await queuedWrite;
+    context.diagnostic(
+      `vertical child after client disconnect: ${JSON.stringify({ writeOutcome: writeReceipt.outcome, blockerStillPresent: existsSync(blocker), childAlive: processAlive(childPid) })}`,
+    );
+    assert.equal(
+      existsSync(blocker),
+      true,
+      "the test blocker must still be present when cancellation terminates the child",
+    );
+    assert.equal(processAlive(childPid), false, "the disconnected client's vertical child must be terminated");
+    assert.equal(writeReceipt.outcome, "applied");
+  } finally {
+    actionSocket?.destroy();
+    rmSync(blocker, { force: true });
+    await queuedWrite?.catch(() => undefined);
+    queuedClient?.close();
+  }
+};
+test(
+  "disconnecting a blocked vertical script client terminates its child after same-repo writes advance",
+  { timeout: 120_000 },
+  disconnectBlockedVerticalScriptTest,
+);

@@ -490,3 +490,11 @@ export async function createMultiVendorHarness() {
     },
   };
 }
+
+/** Returns the most recent reviewer dispatch event recorded for a task in a multi-vendor test harness. */
+export function latestReviewerDispatchFor(h: Awaited<ReturnType<typeof createMultiVendorHarness>>, id: string) {
+  return h
+    .events()
+    .filter((e) => e.type === "runtime_dispatch_requested" && e.payload.taskId === id && e.payload.role === "reviewer")
+    .at(-1)!;
+}
