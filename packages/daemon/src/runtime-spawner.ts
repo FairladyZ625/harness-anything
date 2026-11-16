@@ -305,6 +305,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     onPrepared?: (dispatchId: string, runtimeSessionId: string) => void,
     admissionTaskRead?: ReturnType<typeof requireCurrentTaskProjection> | null,
     workspaceProgress?: RuntimeWorkspaceProgress,
+    recoveryRequested = false,
   ): Promise<JsonObject> {
     const dryRun = payload.dryRun === true,
       dispatchUsageLimit = input.readSettings?.().runtime.dispatchUsageLimit ?? 0;
@@ -554,12 +555,14 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       });
     // A named instance and its model are validated before mission loading reads and assembles the
     // submitted task cut; model errors must not wait behind review-context preparation.
-    const { taskMission, mission } = await resolveRuntimeMission({
+    const { taskMission, mission, progressSnapshot } = await resolveRuntimeMission({
         rootDir: input.rootDir,
         cwd,
         taskId,
         workspaceProgress: workspaceProgress ?? (input.remote ? await collectRuntimeWorkspaceProgress(cwd) : undefined),
         continuationSnapshotProvided: inheritedFallback !== undefined,
+        continuationRequested:
+          recoveryRequested || requestedDispatchId !== undefined || providerSessionId !== undefined,
         projection,
         remoteTask,
         taskSnapshot,
@@ -727,6 +730,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 taskMission && daemonRoute
                   ? assembleTaskMission({
                       mission,
+                      progressSnapshot,
                       repoId: input.repoId,
                       workerRoot: cwd,
                       worktreeNote: dispatchWorktree ? taskWorktreeCheckoutNote(dispatchWorktree) : null,
@@ -1570,6 +1574,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         undefined,
         admitted.taskRead,
         workspaceProgress,
+        admitted.recovery !== null,
       );
       return admitted.recovery ? { ...receipt, recovery: { ...admitted.recovery, replayed: false } } : receipt;
     },

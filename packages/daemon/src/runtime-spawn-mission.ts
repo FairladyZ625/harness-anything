@@ -948,6 +948,7 @@ export function renderWorkerRootPaths(mission: string, cwd: string): string {
 
 export function assembleTaskMission(input: {
   readonly mission: string;
+  readonly progressSnapshot?: string | null;
   readonly repoId: string;
   readonly workerRoot: string;
   /** How the task worktree was checked out and prepared for this dispatch; null when it runs elsewhere. */
@@ -971,6 +972,7 @@ export function assembleTaskMission(input: {
     `Daemon endpoint: ${input.daemonRoute.endpoint}`,
     `Runtime actor: ${input.runtimeActor}`,
     "The daemon route, repository selection, and runtime actor are already injected into the process environment.",
+    ...(input.progressSnapshot ? [input.progressSnapshot] : []),
     "# Assigned Mission",
     input.mission,
   ].join("\n");
@@ -1026,9 +1028,11 @@ export async function resolveRuntimeMission(input: {
   readonly reviewerBinding: boolean;
   readonly workspaceProgress?: RuntimeWorkspaceProgress;
   readonly continuationSnapshotProvided?: boolean;
+  readonly continuationRequested?: boolean;
 }): Promise<{
   readonly taskMission: { readonly mission: string; readonly packageRoot: string } | null;
   readonly mission: string;
+  readonly progressSnapshot: string | null;
 }> {
   const { rootDir, cwd, taskId, remoteTask, taskSnapshot, missionName, explicitMission } = input,
     projection = input.projection!,
@@ -1088,7 +1092,7 @@ export async function resolveRuntimeMission(input: {
   // explicit prompts through this body), so the guidance's "已注入" claim holds on each of them.
   const planBody = taskId === null ? null : (remoteTask?.planBody ?? taskMission?.planBody ?? null);
   const continuationSection =
-      taskId === null || input.continuationSnapshotProvided
+      taskId === null || input.continuationSnapshotProvided || (continuation === null && !input.continuationRequested)
         ? null
         : runtimeProgressSnapshot({
             workspace: input.workspaceProgress,
@@ -1122,12 +1126,10 @@ export async function resolveRuntimeMission(input: {
             remoteTask?.riskTierFlowVersion ?? taskSnapshot?.task?.metadata?.riskTierFlowVersion,
             reviewerNote,
           ),
-    mission =
-      continuationSection === null
-        ? renderWorkerRootPaths(baseMission, cwd)
-        : renderWorkerRootPaths(`${baseMission}\n\n${continuationSection}`, cwd);
+    mission = renderWorkerRootPaths(baseMission, cwd);
   return {
     taskMission: taskMission === null ? null : { ...taskMission, mission },
     mission: mission,
+    progressSnapshot: continuationSection,
   };
 }

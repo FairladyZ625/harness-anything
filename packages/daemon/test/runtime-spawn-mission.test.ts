@@ -174,14 +174,56 @@ test("task mission renders the pre-collected bounded progress snapshot (CH1)", a
     reviewerBinding: false,
     workspaceProgress: { head: "abc1234 Completed focused checks", changedFiles: 2, unavailable: null },
   });
-  assert.match(resolved.mission, /Reason: worker_stop: Focused tests passed\./u);
-  assert.match(resolved.mission, /HEAD: abc1234 Completed focused checks/u);
-  assert.match(resolved.mission, /Changed files: 2/u);
-  assert.match(resolved.mission, /Task lifecycle node: implementation/u);
-  assert.match(resolved.mission, /Last attempt: worker_stop/u);
-  const snapshot = resolved.mission.match(/<runtime-progress>[\s\S]*?<\/runtime-progress>/u)![0];
+  assert.equal(resolved.mission, "Continue the task.");
+  assert.match(resolved.progressSnapshot!, /Reason: worker_stop: Focused tests passed\./u);
+  assert.match(resolved.progressSnapshot!, /HEAD: abc1234 Completed focused checks/u);
+  assert.match(resolved.progressSnapshot!, /Changed files: 2/u);
+  assert.match(resolved.progressSnapshot!, /Task lifecycle node: implementation/u);
+  assert.match(resolved.progressSnapshot!, /Last attempt: worker_stop/u);
+  const snapshot = resolved.progressSnapshot!.match(/<runtime-progress>[\s\S]*?<\/runtime-progress>/u)![0];
   assert.ok(Buffer.byteLength(snapshot, "utf8") <= 2048);
-  assert.doesNotMatch(resolved.mission, /full terminal result/iu);
+  assert.doesNotMatch(resolved.progressSnapshot!, /full terminal result/iu);
+  const assembled = assembleTaskMission({
+    mission: resolved.mission,
+    progressSnapshot: snapshot,
+    repoId: "repo",
+    workerRoot: "/repo",
+    taskId: "task_x",
+    taskPackageRoot: "/repo/tasks/task_x",
+    daemonRoute,
+    runtimeActor: "worker",
+  });
+  assert.ok(assembled.endsWith("# Assigned Mission\nContinue the task."));
+  assert.ok(assembled.indexOf(snapshot) < assembled.indexOf("# Assigned Mission"));
+});
+
+test("explicit recovery retains a progress snapshot without an archived conclusion", async () => {
+  const resolved = await resolveRuntimeMission({
+    rootDir: process.cwd(),
+    cwd: process.cwd(),
+    taskId: "task_x",
+    projection: null,
+    remoteTask: {
+      packageRoot: "tasks/task_x",
+      mission: () => "Recover the task.",
+      continuationContext: null,
+      causalContext: null,
+      profileId: null,
+      taskClass: "standard",
+      planBody: null,
+      ownerReturnBody: null,
+    } as never,
+    taskSnapshot: null,
+    missionName: undefined,
+    explicitMission: undefined,
+    reviewerBinding: false,
+    continuationRequested: true,
+    workspaceProgress: { head: "abc1234 recovery", changedFiles: 3, unavailable: null },
+  });
+  assert.equal(resolved.mission, "Recover the task.");
+  assert.match(resolved.progressSnapshot!, /HEAD: abc1234 recovery/u);
+  assert.match(resolved.progressSnapshot!, /Last attempt: none recorded/u);
+  assert.ok(Buffer.byteLength(resolved.progressSnapshot!, "utf8") <= 2048);
 });
 
 test("a remote mission carries an escalation answer from the mirrored ruling package", async () => {
