@@ -1,3 +1,4 @@
+import type { RepoCellOpenInput } from "./repo-cell-types.ts";
 import { publicPublication } from "./repo-cell-receipts.ts";
 import { nodeMaterializationStorage } from "./node-materialization-settings.ts";
 import { writerLifecyclePolicy } from "@harness-anything/kernel/internal/domain/writer-lifecycle-policy.ts";
@@ -9,8 +10,8 @@ import { scheduleOccurrenceSettlementOwner } from "./schedule-runtime-outcome.ts
 import { dispatchTaskReview } from "./task-review-dispatch.ts";
 import { reviewDispatchKey } from "./review-dispatch-key.ts";
 import { resolveAgentRuntimeDeclaration } from "./agent-declaration-resolution.ts";
-import { createEntityStore, makeTaskEventStore } from "@harness-anything/storage";
-import type { DaemonStorageConfig } from "@harness-anything/storage";
+import { createEntityStore } from "@harness-anything/storage";
+
 import {
   bindWriterGenerationToken,
   consumeKnownError,
@@ -18,8 +19,6 @@ import {
   isSamePerson,
   runtimeSessionActionIds,
   type AgentRuntimeEventV1,
-  type DaemonRepoMode,
-  type EventPublicationKillpoint,
   type SettingsV1,
   type WriteReceiptDraft,
   type WriterGeneration,
@@ -32,22 +31,18 @@ import {
   readAgentDeclaration,
   resolveSquadDispatch,
 } from "./agent-entities.ts";
-import type { PreparedRuntimeLaunch, RuntimeInstanceSummary, RuntimeLaunchRequest } from "./agent-runtime-instances.ts";
-import {
-  makeAgentRuntimeStreamHub,
-  type AgentRuntimeNativeSignal,
-  type AgentRuntimeStreamHub,
-} from "./agent-runtime-stream.ts";
+
+import { makeAgentRuntimeStreamHub, type AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import {
   pruneDispatchStreamArchive,
   readFactEvidenceSources,
   scheduleArchivedDispatchStreamCompaction,
 } from "./dispatch-stream-archive.ts";
 import { createRuntimeOutcomeWaiters } from "./runtime-settlement.ts";
-import { type CanonicalRoot, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
+
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { makeRecoveryProbe } from "./recovery-state.ts";
-import { bootstrapRepo, type RepoBootstrapInput, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
+import { bootstrapRepo, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { initializeBootstrapLedger } from "./repo-cell-bootstrap-ledger.ts";
 import { createRepoCellActionContext } from "./repo-cell-action-context.ts";
 import type { RepoCellOperationalContext, RepoCellRuntimeContext } from "./repo-cell-types.ts";
@@ -74,84 +69,23 @@ import { commitRuntimeSettlement } from "./repo-cell-runtime-settlement.ts";
 import { failed, rejected, requiredCellText } from "./repo-cell-settlement.ts";
 import type {
   RepoCell,
-  RepoCellAttachProgress,
   RepoCellBinding,
   RepoCellStatus,
   RepoCellWriteQueueState,
   RepoTaskAction,
 } from "./repo-cell-types.ts";
 import type { EntityActionCatalogPreparer, EntityActionCatalogRuntimes } from "./entity-action-catalog-executor.ts";
-import {
-  makeRuntimeSpawner,
-  type RuntimeAttemptTerminal,
-  type RuntimeDaemonRoute,
-  type RuntimeLauncher,
-} from "./runtime-spawn.ts";
-import { withOnlineRuntimeSession, type RuntimeOperatorSession } from "./runtime-online-binding.ts";
+import { makeRuntimeSpawner, type RuntimeAttemptTerminal } from "./runtime-spawn.ts";
+import { withOnlineRuntimeSession } from "./runtime-online-binding.ts";
 import { makeRepoCellSquadCoordinator } from "./repo-cell-squad-coordinator.ts";
 import { reconcileAbandonedTaskWorktrees } from "./task-worktree.ts";
 import { makeAgentActionRuntime, makeSquadActionRuntime } from "./squad-action-runtime.ts";
-import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
+
 import { withWriterEpochFenceDescriptor } from "@harness-anything/storage";
 import { repoCellLatchedMessage } from "./repo-cell-latched-message.ts";
 import { backupRepo, drillRepoBackup } from "./repo-all-purge.ts";
 import { makeRepoCellFleetBackup } from "./repo-cell-fleet-backup.ts";
 import { reviewerArtifactsFromCarriedReview } from "./reviewer-artifact-publication.ts";
-
-export interface RepoCellOpenInput {
-  readonly storage?: DaemonStorageConfig;
-  readonly repoId: WorkspaceId;
-  readonly rootDir: CanonicalRoot;
-  readonly ownerId: string;
-  /** Supervisor-owned generation for physical isolate replacement, independent of wall-clock steps. */
-  readonly writerGeneration?: number;
-  readonly mode?: DaemonRepoMode;
-  readonly authoredBranch?: string;
-  readonly runtimeLaunch?: RuntimeLauncher;
-  readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
-  readonly keycloakCenter?: import("./transport/auth-context.ts").KeycloakCenterAuthority;
-  readonly keycloakSession?: (rootDir: string) => Promise<RuntimeOperatorSession>;
-  readonly runtimeInstanceDispatchState?: import("@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts").RuntimeInstanceDispatchState;
-  readonly selectRuntimeInstance?: import("./runtime-spawn-types.ts").RuntimeSpawnerInput["selectRuntimeInstance"];
-  readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
-  /** Center-owned instance limits; edges cannot supply or override these in an admission payload. */
-  readonly runtimeInstanceCapacities?: Readonly<Record<string, number>>;
-  readonly runtimeProviderHealth?: import("./runtime-provider-health.ts").RuntimeProviderHealthStore;
-  readonly prepareRuntimeLaunch?: (instanceId: string, request: RuntimeLaunchRequest) => Promise<PreparedRuntimeLaunch>;
-  readonly prepareCloudRelay?: NonNullable<Parameters<typeof makeRuntimeSpawner>[0]["prepareCloudRelay"]>;
-  readonly reclaimRuntimeTempDirectory?: (instanceId: string, runtimeSessionId: string) => Error | null;
-  readonly listRuntimeTempSessionIds?: () => readonly string[];
-  readonly reclaimSettledRuntimeTempDirectories?: (
-    settledRuntimeSessionIds: readonly string[],
-  ) => { readonly instanceId: string; readonly runtimeSessionId: string; readonly error: Error }[];
-  readonly prepareDaemonGitEnvironment?: (
-    instanceId: string,
-    provider: "github" | "gitlab",
-    repoId: string,
-  ) => Promise<NodeJS.ProcessEnv | null>;
-  readonly bootstrap?: RepoBootstrapInput;
-  readonly onBootstrap?: (receipt: RepoBootstrapReceipt) => void;
-  readonly onRuntimeOutcome?: (
-    event: Extract<
-      import("@harness-anything/kernel").AgentRuntimeEventV1,
-      { readonly type: "runtime_session_outcome_observed" }
-    >,
-  ) => void;
-  /** Relays validated live provider frames to the host-side read-only stream hub. */
-  readonly onRuntimeSignal?: (runtimeSessionId: string, signal: AgentRuntimeNativeSignal) => void;
-  readonly onAttemptTerminal?: (terminal: RuntimeAttemptTerminal) => void;
-  /** Internal writer status bridge for asynchronous materialization health changes. */
-  readonly onMaterializationHealthChange?: Parameters<typeof makeTaskEventStore>[0]["onMaterializationHealthChange"];
-  readonly onQueueDepthChange?: (queueDepth: number) => void;
-  readonly onOpenProgress?: (progress: RepoCellAttachProgress) => void;
-  readonly now?: () => string;
-  readonly killpoint?: (point: EventPublicationKillpoint) => void;
-  readonly shouldStop?: () => boolean;
-  readonly recordLifecycle?: DaemonLifecycleRecorder;
-  /** Host-owned fleet roster snapshot (remote-center schedule reads); resolved per read. */
-  /** Daemon-owned fallback for writes produced inside the cell rather than a request. */
-  readonly defaultWriterEpochFence?: NonNullable<RepoCellBinding["writerEpochFence"]>;
-}
 
 export async function openRepoCell(input: RepoCellOpenInput): Promise<RepoCell> {
   const { openRepoCellProxy } = await import("./repo-cell-proxy.ts");

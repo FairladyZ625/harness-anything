@@ -39,7 +39,7 @@ import {
 } from "@harness-anything/storage";
 import { localSystemBinding } from "../src/daemon-host-binding.ts";
 import { rejectHostAction, rejectPresetRun } from "../src/daemon-host-errors.ts";
-import type { DaemonHostOpenInput } from "../src/daemon-host-open.ts";
+import type { DaemonHostOpenInput } from "../src/daemon-host-types.ts";
 import { canonicalRoot, workspaceId, type DaemonStatusResult } from "../src/protocol/daemon-protocol.contract.ts";
 import type { RepoCellStatus, RepoTaskAction } from "../src/repo-cell-types.ts";
 import {

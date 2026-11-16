@@ -13,7 +13,7 @@ import { daemonBuildStamp, observeDaemonBuild, type DaemonBuildObserver } from "
 import { firstWorkspaceLinkFinding, workspaceLinkFailure } from "./workspace-link-integrity.ts";
 import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import { createUnixSocketTransportServer } from "./transport/unix-socket.ts";
-import type { DaemonHostOpenInput } from "./daemon-host-open.ts";
+import type { DaemonHostOpenInput } from "./daemon-host-types.ts";
 import type { DaemonLifecycleEntry, DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import type { DaemonBuildDrainStatus } from "./protocol/daemon-protocol.contract.ts";
 import type { openDaemonDiagnostics } from "./daemon-diagnostics.ts";

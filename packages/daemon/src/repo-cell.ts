@@ -74,7 +74,7 @@ export function repoCellTaskQueryJudgmentsFor(projection: TaskProjectionQueries)
 export interface RepoCellCoreInput {
   readonly input: {
     readonly repoId: string;
-    readonly storage?: import("@harness-anything/storage").DaemonStorageConfig;
+    readonly storage?: import("./repo-cell-types.ts").RepoCellOpenInput["storage"];
     readonly killpoint?: Parameters<typeof makeTaskEventStore>[0]["killpoint"];
     readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
     readonly onMaterializationHealthChange?: Parameters<typeof makeTaskEventStore>[0]["onMaterializationHealthChange"];

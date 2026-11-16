@@ -35,6 +35,16 @@ import type {
   SkillEvalSkill,
   SkillEvalVersionDraft,
 } from "./skill-eval-runner.ts";
+import type { DaemonStorageConfig } from "@harness-anything/storage";
+import type { RuntimeLauncher } from "./runtime-spawn-types.ts";
+import type { RuntimeInstallationWitness } from "./agent-runtime-instances.ts";
+import type { CredentialPort } from "./agent-runtime-credential-port.ts";
+import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
+import type { IdentitySessionPort, IdentityManagementPort } from "@harness-anything/kernel";
+import type { RepoCellOpenInput } from "./repo-cell-types.ts";
+import type { EdgeJoinSshTunnelManager } from "./fleet/edge-join-ssh-tunnel.ts";
+import type { createEdgeJoinStore } from "./fleet/edge-join.ts";
+import type { SkillEvalProductionInput } from "./skill-eval-production.ts";
 
 export interface DaemonHost {
   /** Platform skill-evaluation capability composed from daemon-owned policy and ports. */
@@ -287,4 +297,46 @@ export interface DaemonHost {
   readonly startAttachments: () => void;
   readonly attachmentsSettled: () => Promise<void>;
   readonly close: () => Promise<void>;
+}
+
+export interface DaemonHostOpenInput {
+  readonly storage?: Readonly<Record<string, DaemonStorageConfig>>;
+  readonly daemonId: string;
+  readonly userRoot: string;
+  readonly endpoint?: string;
+  readonly startedAt?: string;
+  readonly now?: () => string;
+  readonly runtimeLaunch?: RuntimeLauncher;
+  readonly runtimeInstanceCapacities?: Readonly<Record<string, number>>;
+  readonly runtimeDiscover?: () =>
+    | readonly RuntimeInstallationWitness[]
+    | Promise<readonly RuntimeInstallationWitness[]>;
+  readonly runtimeEnv?: NodeJS.ProcessEnv;
+  /** Reads the operator's GitHub token for a launch; tests substitute it so no host login is read. */
+  readonly runtimeGithubToken?: (environment: NodeJS.ProcessEnv) => Promise<string | null>;
+  readonly runtimeCredentialPort?: CredentialPort;
+  readonly authenticateExecutionPrincipal?: (
+    credential: string,
+  ) => Promise<import("./runtime-execution-credential.ts").RuntimeExecutionPrincipal>;
+  readonly runtimeFile?: string;
+  readonly shutdownRequested?: () => boolean;
+  readonly recordLifecycle?: DaemonLifecycleRecorder;
+  readonly buildDraining?: () => boolean;
+  readonly onRepoStatusChange?: () => void;
+  /** One persisted transport record per completed request, shared with local JSON-RPC traffic. */
+  readonly recordTraffic?: (entry: import("./conn-log.ts").DaemonTrafficLogEntry) => void;
+  /** The daemon's one OIDC session service; the transport binds requests through the same instance. */
+  readonly oidc?: IdentitySessionPort;
+  /** The managed identity center's lifecycle; a hermetic host substitutes it to stage its resume. */
+  readonly managedRbac?: Pick<IdentityManagementPort, "run" | "resume" | "stop" | "loginListenerCertificate">;
+  readonly attachTimeoutMs?: number;
+  readonly openCell?: (
+    input: RepoCellOpenInput & { readonly onStatus?: (status: RepoCellStatus) => void },
+  ) => Promise<RepoCell>;
+  readonly sshTunnels?: EdgeJoinSshTunnelManager;
+  readonly edgeJoins?: ReturnType<typeof createEdgeJoinStore>;
+  /** Optional deployment overrides; the daemon composes the default catalog, policy, runtime and slot queue. */
+  readonly skillEval?: Omit<SkillEvalProductionInput, "userRoot" | "runner">;
+  /** Test/deployment replacement for the composed runner. */
+  readonly skillEvalRunner?: SkillEvalRunner;
 }

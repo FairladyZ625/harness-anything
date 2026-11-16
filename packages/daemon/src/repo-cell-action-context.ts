@@ -91,12 +91,6 @@ import type { makeSquadCoordinator } from "./squad-coordinator.ts";
 import type { EntityActionCatalogRuntimes, makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 
-type Bound<Implementation> = Implementation extends (context: infer Context, ...args: infer Args) => infer Result
-  ? Context extends object
-    ? (...args: Args) => Result
-    : never
-  : never;
-
 export function createRepoCellActionContext(bindings: {
   readonly input: {
     readonly repoId: string;
@@ -199,14 +193,14 @@ export function createRepoCellActionContext(bindings: {
       bindings.setKnownTaskIds(value);
     },
   };
-  const boundProjectedTaskIds: Bound<typeof projectedTaskIdsImpl> = () => projectedTaskIdsImpl(leafContext),
-    boundCanonicalSettlement: Bound<typeof canonicalSettlementImpl> = (receipt, event) =>
+  const boundProjectedTaskIds: RepoCellActionContext["projectedTaskIds"] = () => projectedTaskIdsImpl(leafContext),
+    boundCanonicalSettlement: RepoCellActionContext["canonicalSettlement"] = (receipt, event) =>
       canonicalSettlementImpl(leafContext as unknown as RepoCellActionContext, receipt, event),
-    boundProgressReceipt: Bound<typeof progressReceiptImpl> = (event, publication) =>
+    boundProgressReceipt: RepoCellActionContext["progressReceipt"] = (event, publication) =>
       progressReceiptImpl(leafContext as unknown as RepoCellActionContext, event, publication),
-    boundLifecycleReceipt: Bound<typeof lifecycleReceipt> = (event, snapshot, publication, proof) =>
+    boundLifecycleReceipt: RepoCellActionContext["lifecycleReceipt"] = (event, snapshot, publication, proof) =>
       lifecycleReceipt(leafContext as unknown as RepoCellActionContext, event, snapshot, publication, proof),
-    boundPreviewResult: Bound<typeof previewResultImpl> = (opId, value, revision, command) =>
+    boundPreviewResult: RepoCellActionContext["previewResult"] = (opId, value, revision, command) =>
       previewResultImpl(leafContext as unknown as RepoCellOperationalContext, opId, value, revision, command);
   const settlementContext = {
     cellCodedError,
@@ -270,9 +264,9 @@ export function createRepoCellActionContext(bindings: {
     lifecycleReceipt: boundLifecycleReceipt,
     previewResult: boundPreviewResult,
   };
-  const boundReceiptForOperation: Bound<typeof receiptForOperationImpl> = (opId, binding) =>
+  const boundReceiptForOperation: RepoCellActionContext["receiptForOperation"] = (opId, binding) =>
       receiptForOperationImpl(settlementContext as unknown as RepoCellActionContext, opId, binding),
-    boundLifecycleAction: Bound<typeof lifecycleActionImpl> = (action, binding, carriedReview) =>
+    boundLifecycleAction: RepoCellActionContext["lifecycleAction"] = (action, binding, carriedReview) =>
       lifecycleActionImpl(settlementContext as unknown as RepoCellOperationalContext, action, binding, carriedReview);
 
   const context: RepoCellActionContext = {

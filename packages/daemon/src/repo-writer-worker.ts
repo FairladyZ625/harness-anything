@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
 import { consumeKnownError } from "@harness-anything/kernel";
 import { fleetBaseBackupTrace, withStorageWriteRequest } from "@harness-anything/storage";
-import type { RepoCellOpenInput } from "./repo-cell-open.ts";
+import type { RepoCellOpenInput } from "./repo-cell-types.ts";
 import { openRepoWriterCell } from "./repo-cell-open.ts";
 import { withRepoCellWriteSlot } from "./repo-cell.ts";
 import type {

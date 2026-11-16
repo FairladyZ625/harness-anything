@@ -15,7 +15,7 @@ import { readReplicaHealth } from "./fleet/replica-health.ts";
 import { commandDescriptorForAction, repoCellExecutionForAction } from "./protocol/daemon-protocol-commands.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import { acquireWorkspaceLock, causeClassOf } from "./repo-cell-lock.ts";
-import type { RepoCellOpenInput } from "./repo-cell-open.ts";
+import type { RepoCellOpenInput } from "./repo-cell-types.ts";
 import { operationId } from "./repo-cell-proof.ts";
 import { failed } from "./repo-cell-settlement.ts";
 import type { RepoCell, RepoCellBinding } from "./repo-cell-types.ts";

@@ -10,7 +10,7 @@ import path from "node:path";
 import { Worker } from "node:worker_threads";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { replicaGenerationReaders } from "./fleet/replica-generation.ts";
-import type { RepoCellOpenInput } from "./repo-cell-open.ts";
+import type { RepoCellOpenInput } from "./repo-cell-types.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 import {
   REPO_WRITER_PROTOCOL_VERSION,

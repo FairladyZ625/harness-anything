@@ -1,7 +1,7 @@
 import { statSync } from "node:fs";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { nodeMaterializationPolicyForMode } from "@harness-anything/kernel/internal/domain/task-wip-policy.ts";
-import type { RepoCellOpenInput } from "./repo-cell-open.ts";
+import type { RepoCellOpenInput } from "./repo-cell-types.ts";
 import { readLocalState } from "./repo-cell-settings-state.ts";
 
 /** One live configuration shared by the store and read projections, including independent readers. */

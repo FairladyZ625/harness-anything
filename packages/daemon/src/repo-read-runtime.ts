@@ -26,7 +26,7 @@ import { createRepoCellApi, repoCellSynchronousRead } from "./repo-cell-api.ts";
 import { bindVerifiedExecutorClaim } from "./repo-cell-authorization.ts";
 import { dispatchRead } from "./repo-cell-command.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
-import type { RepoCellOpenInput } from "./repo-cell-open.ts";
+import type { RepoCellOpenInput } from "./repo-cell-types.ts";
 import { makeRepoCellSettingsState } from "./repo-cell-settings-state.ts";
 import { requiredCellText } from "./repo-cell-settlement.ts";
 import type { RepoCell, RepoCellBinding, RepoCellStatus, RepoTaskAction } from "./repo-cell-types.ts";
