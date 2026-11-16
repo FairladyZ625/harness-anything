@@ -1131,7 +1131,7 @@ export function resolvedGuiClientBindings(graph, node, descriptors = []) {
   };
 }
 
-function listGuiClientTreeFiles(rootDir) {
+function listGuiClientTreeFiles(rootDir, includeMain) {
   const result = [];
   function walkDir(relDir) {
     const abs = path.join(rootDir, relDir);
@@ -1149,14 +1149,9 @@ function listGuiClientTreeFiles(rootDir) {
       }
     }
   }
-  for (const dir of [
-    "packages/gui/src/renderer",
-    "packages/gui/src/preload",
-    "packages/gui/src/browser",
-    "packages/gui/src/main",
-    "packages/gui/src/api",
-  ])
-    walkDir(dir);
+  const dirs = ["packages/gui/src/renderer", "packages/gui/src/preload", "packages/gui/src/browser"];
+  if (includeMain) dirs.push("packages/gui/src/main", "packages/gui/src/api");
+  for (const dir of dirs) walkDir(dir);
   return result;
 }
 
@@ -1214,7 +1209,8 @@ function findGuiDirectCallbackSink(text, filePath) {
 
 export function guiCallbackCallerFiles(rootDir, seedFiles) {
   if (seedFiles.length === 0) return [];
-  const allFiles = listGuiClientTreeFiles(rootDir),
+  const includeMain = seedFiles.some((f) => f.startsWith("packages/gui/src/main/")),
+    allFiles = listGuiClientTreeFiles(rootDir, includeMain),
     fileSet = new Set(allFiles),
     texts = new Map(),
     forward = new Map(),

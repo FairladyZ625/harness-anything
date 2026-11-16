@@ -666,13 +666,14 @@ function findingsFor(rows, receipt, sourceRows) {
 
 /** Each worker builds its own graph and traces every count-th descriptor; rows merge in order. */
 async function shardedAudit(rootDir, changedFiles) {
-  const count = Math.max(1, Math.min(4, availableParallelism())),
+  const count = Math.max(1, Math.min(3, availableParallelism())),
     shards = await Promise.all(
       Array.from(
         { length: count },
         (_, index) =>
           new Promise((resolve, reject) => {
             const worker = new Worker(new URL(import.meta.url), {
+              resourceLimits: { maxOldGenerationSizeMb: 4096 },
               workerData: { durableAuthorizationShard: { rootDir, changedFiles, shard: { index, count } } },
             });
             worker.once("message", resolve);
