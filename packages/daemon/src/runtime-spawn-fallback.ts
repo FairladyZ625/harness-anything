@@ -304,7 +304,7 @@ export async function settleFallbackAttempt(
     const refusal = runtimeExecutionBudgetRefusal(
       context.requiredRuntimeProjection(input),
       { ...active.task, role: active.role },
-      active.tokenLimit,
+      undefined,
       active,
     );
     if (refusal) return exhaustedTerminal(`${refusal.code}: ${refusal.message}`, refusal);

@@ -267,11 +267,6 @@ export const executionRuntimeBudgetPolicy = {
         "policy:packages/daemon:packages/daemon/src/runtime-continuation-context.ts#collectRuntimeWorkspaceProgress.read.timeoutSignal:a0ffb54437f00b213319ed2bd17e59c2",
       route: "Bounded host snapshot before the writer turn",
     },
-    {
-      candidateId:
-        "policy:packages/daemon:packages/daemon/src/runtime-spend-cap.ts#runtimeExecutionBudgetRefusal.maxTokens:9cea0b137dc1fe8e613f0ff7215c07cc",
-      route: "Existing dispatch ceiling to optional cumulative token ceiling",
-    },
   ],
 } as const satisfies OntologyPolicyDeclaration;
 

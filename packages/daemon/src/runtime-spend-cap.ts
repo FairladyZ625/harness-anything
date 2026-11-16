@@ -2,6 +2,7 @@ import type { TaskProjection } from "@harness-anything/kernel";
 import {
   executionRuntimeBudgetRefusal,
   executionRuntimeBudgetPolicy,
+  type ExecutionRuntimeBudget,
 } from "@harness-anything/kernel/internal/domain/task-submission-policy.ts";
 import type { ActiveRuntime } from "./runtime-spawn-types.ts";
 
@@ -36,7 +37,7 @@ export function observeRuntimeSpendCap(
 export function runtimeExecutionBudgetRefusal(
   projection: TaskProjection,
   task: { readonly taskId: string; readonly executionId: string; readonly role?: string | null },
-  tokenLimit: number | null,
+  budget: ExecutionRuntimeBudget = executionRuntimeBudgetPolicy.defaultValue,
   current?: { readonly runtimeSessionId: string; readonly inputTokens: number; readonly outputTokens: number },
 ) {
   // Review must remain available after implementation exhausts its spending authorization.
@@ -49,9 +50,5 @@ export function runtimeExecutionBudgetRefusal(
       totalTokens: row.metrics?.totalTokens ?? 0,
     }));
   if (current) attempts.push({ runtimeSessionId: current.runtimeSessionId, totalTokens: runtimeTokenTotal(current) });
-  return executionRuntimeBudgetRefusal(attempts, {
-    maxAttempts: executionRuntimeBudgetPolicy.defaultValue.maxAttempts,
-    // The declared dispatch usage ceiling also caps the Execution's aggregate consumption.
-    maxTokens: tokenLimit !== null && tokenLimit > 0 ? tokenLimit : null,
-  });
+  return executionRuntimeBudgetRefusal(attempts, budget);
 }

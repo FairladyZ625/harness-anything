@@ -565,7 +565,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           recoveryRequested || requestedDispatchId !== undefined || providerSessionId !== undefined,
         projection,
         remoteTask,
-        lifecycleNode: taskId && input.remote ? await input.remote.readTaskLifecycleNode?.(taskId) : undefined,
+        lifecycleNode:
+          taskId && input.remote && inheritedFallback === undefined
+            ? await input.remote.readTaskLifecycleNode?.(taskId)
+            : undefined,
         taskSnapshot,
         missionName,
         explicitMission,

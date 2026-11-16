@@ -881,7 +881,10 @@ for (const coordinated of [false, true])
   test(`repeated adoption preserves publication owner in one fallback (coordinated=${coordinated})`, () =>
     verifyFallbackAdoption(coordinated));
 
-async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
+test("remote fallback launches one successor despite a rejected optional lifecycle probe", () =>
+  verifyFallbackAdoption(false, true));
+
+async function verifyFallbackAdoption(coordinated: boolean, rejectLifecycleProbe = false): Promise<void> {
   const root = mkdtempSync(path.join(tmpdir(), "ha-provider-fallback-adopt-twice-")),
     now = () => new Date().toISOString(),
     receipts = new Map<string, Record<string, unknown>>(),
@@ -891,13 +894,38 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
   let pid = 10_000,
     revision = 0,
     nextLaunches = 0,
+    taskContextReads = 0,
+    lifecycleProbeReads = 0,
     afterRestart = false,
     scheduled = Promise.resolve();
   const remote = {
       existing: async (opId: string) => receipts.get(opId) ?? null,
       taskContext: async () => {
-        throw new Error("task context is not used by this taskless fallback test");
+        assert.ok(rejectLifecycleProbe, "task context is not used by the taskless controls");
+        taskContextReads += 1;
+        return {
+          executionId: "execution-edge-probe",
+          packageRoot: root,
+          mission: () => "Continue the edge task.",
+          planBody: null,
+          riskTier: "low" as const,
+          riskTierFlowVersion: null,
+          profileId: null,
+          taskClass: "standard",
+          causalContext: null,
+          ownerReturnBody: null,
+          continuationContext: null,
+          reviewerNote: null,
+          worktree: null,
+        };
       },
+      readTaskLifecycleNode: async () => {
+        lifecycleProbeReads += 1;
+        if (rejectLifecycleProbe && lifecycleProbeReads > 1)
+          throw runtimeSpawnError("replica_unavailable", "Optional replica probe unavailable.");
+        return "implementation";
+      },
+      executionCredential: () => ({ credential: "test-only-edge-credential", expiresAt: "2099-01-01T00:00:00Z" }),
       async readRuntimeSession(id: string) {
         return (
           (await this.readRuntimeSessions()).find(
@@ -981,6 +1009,9 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
         repoId: "provider-fallback-adopt-twice",
         rootDir: root,
         daemonGeneration: 1,
+        ...(rejectLifecycleProbe
+          ? { runtimeDaemonRoute: { userRoot: root, daemonId: "edge-probe", endpoint: path.join(root, "daemon.sock") } }
+          : {}),
         remote,
         stream: { publish: () => ({}) as never },
         now,
@@ -1024,7 +1055,7 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
         targetAgentId: agent.id,
         cwd: { scope: "repo-root" },
         prompt: "Schedule one durable fallback.",
-        taskId: null,
+        taskId: rejectLifecycleProbe ? "task-edge-probe" : null,
         dispatchKey: "adopt-twice",
       },
       binding,
@@ -1068,7 +1099,7 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
     afterRestart = true;
     spawner = open();
     await spawner.adopt();
-    await spawner.adopt();
+    if (!rejectLifecycleProbe) await spawner.adopt();
     const streams = await eventually(async () => {
       const continuationIds = published.flatMap((event) =>
           event.type === "runtime_dispatch_requested" && event.payload.instanceId === "provider-adopt-next"
@@ -1079,9 +1110,10 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
           .map((dispatchId) => readDispatchStream(root, dispatchId))
           .filter((value): value is NonNullable<typeof value> => value !== null),
         lifecycle = await remote.readDispatchLifecycle({ by: "dispatch", dispatchIds: [first.header.dispatchId] });
-      return values.length === 2 &&
+      return (values.length === 2 &&
         lifecycle.status === "ready" &&
-        lifecycle.rows[0]?.controlLeafDispatchId === continuationIds[0]
+        lifecycle.rows[0]?.controlLeafDispatchId === continuationIds[0]) ||
+        (rejectLifecycleProbe && lifecycle.status === "ready" && lifecycle.rows[0]?.policy.groupSettled)
         ? values
         : null;
     });
@@ -1096,6 +1128,14 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
     assert.equal(original?.header.publicationOwner, coordinated ? "commander" : "runtime");
     assert.equal(continuation?.header.publicationOwner, original?.header.publicationOwner);
     assert.equal(nextLaunches, 1);
+    if (rejectLifecycleProbe) {
+      assert.equal(taskContextReads, 3, "both launches and the original settlement obtain required task context");
+      assert.equal(lifecycleProbeReads, 2, "the supplied fallback snapshot suppresses a third optional read");
+      assert.equal(continuation?.header.taskId, "task-edge-probe");
+      assert.equal(continuation?.header.executionId, "execution-edge-probe");
+      assert.match(continuation?.header.prompt ?? "", /Workspace probe: progress snapshot unavailable/u);
+      assert.match(continuation?.header.prompt ?? "", /Task lifecycle node: unavailable/u);
+    }
     assert.equal(continuations.length, 1);
     const lifecycle = await remote.readDispatchLifecycle({ by: "dispatch", dispatchIds: [first.header.dispatchId] });
     assert.ok(lifecycle.status === "ready");

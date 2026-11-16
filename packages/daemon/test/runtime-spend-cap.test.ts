@@ -72,14 +72,15 @@ test("reviewer dispatches neither consume implementation attempts/tokens nor fac
       event: { payload: { runtimeSessionId: "reviewer", role: "reviewer" } },
       metrics: { totalTokens: 1000 },
     },
-    projection = { readRuntimeDispatchesByTaskExecution: () => [...rows, reviewer] } as never;
-  assert.equal(runtimeExecutionBudgetRefusal(projection, task, 100), null);
+    projection = { readRuntimeDispatchesByTaskExecution: () => [...rows, reviewer] } as never,
+    budget = { maxAttempts: 6, maxTokens: 100 };
+  assert.equal(runtimeExecutionBudgetRefusal(projection, task, budget), null);
   rows.push({
     event: { payload: { runtimeSessionId: "implementation-5", role: "implementer" } },
     metrics: { totalTokens: 1 },
   });
-  assert.equal(runtimeExecutionBudgetRefusal(projection, task, 100)?.code, "execution_budget_exceeded");
-  assert.equal(runtimeExecutionBudgetRefusal(projection, { ...task, role: "reviewer" }, 100), null);
+  assert.equal(runtimeExecutionBudgetRefusal(projection, task, budget)?.code, "execution_budget_exceeded");
+  assert.equal(runtimeExecutionBudgetRefusal(projection, { ...task, role: "reviewer" }, budget), null);
   const result = await settleFallbackAttempt(
     {
       input: { now: () => "2026-11-16T00:00:00Z", readSettings: () => ({ runtime: {} }) },
@@ -126,6 +127,21 @@ test("usage at the limit does not stop the runtime yet", async () => {
   assert.equal(runtime.spendCapExceeded, false);
 });
 
+test("Execution token ceiling is opt-in and independent of each dispatch's token cap", () => {
+  const task = { taskId: "task-budget", executionId: "execution-budget" },
+    rows = [60, 40].map((totalTokens, index) => ({
+      event: { payload: { runtimeSessionId: `runtime-${index}`, role: "implementer" } },
+      metrics: { totalTokens },
+    })),
+    projection = { readRuntimeDispatchesByTaskExecution: () => rows } as never;
+  assert.equal(runtimeExecutionBudgetRefusal(projection, task), null);
+  assert.equal(
+    runtimeExecutionBudgetRefusal(projection, task, { maxAttempts: 6, maxTokens: 100 })?.code,
+    "execution_budget_exceeded",
+  );
+  assert.equal(runtimeExecutionBudgetRefusal(projection, task, { maxAttempts: 6, maxTokens: 101 }), null);
+});
+
 test("the output handler enforces the cap after the consuming chunk", async () => {
   let output: ((chunk: string) => void) | null = null;
   const runtime = active(100, {
@@ -165,7 +181,7 @@ test("the output handler enforces the cap after the consuming chunk", async () =
 });
 
 for (const tokens of [false, true])
-  test(`cumulative ${tokens ? "tokens" : "attempts"} exhaust fallback before scheduling another provider`, async () => {
+  test(`Execution ${tokens ? "token opt-in leaves the per-dispatch cap independent" : "attempts exhaust fallback"}`, async () => {
     const task = { taskId: "task-budget", executionId: "execution-budget" },
       rows = Array.from({ length: tokens ? 2 : 6 }, (_, index) => ({
         event: { payload: { runtimeSessionId: `runtime-${index}` } },
@@ -188,7 +204,12 @@ for (const tokens of [false, true])
         },
         requiredRuntimeProjection: () => projection,
       } as never;
-    const refusal = runtimeExecutionBudgetRefusal(projection, task, tokens ? 100 : null, current);
+    const refusal = runtimeExecutionBudgetRefusal(
+      projection,
+      task,
+      { maxAttempts: 6, maxTokens: tokens ? 100 : null },
+      current,
+    );
     assert.equal(refusal?.code, "execution_budget_exceeded");
     const result = await settleFallbackAttempt(
       context,
@@ -208,11 +229,17 @@ for (const tokens of [false, true])
       },
       { outcome: "failed" } as never,
     );
-    assert.equal(result?.fallbackState, "exhausted");
-    assert.equal(result?.budgetRefusal?.code, "execution_budget_exceeded");
-    assert.match(String(states[0]?.reason), /execution_budget_exceeded/u);
-    assert.equal(
-      states.some((state) => state.state === "scheduled"),
-      false,
-    );
+    if (tokens) {
+      assert.equal(result?.fallbackState, "scheduled", "a dispatch cap does not opt into Execution token limiting");
+      assert.equal(result?.budgetRefusal, undefined);
+      assert.equal(states[0]?.state, "scheduled");
+    } else {
+      assert.equal(result?.fallbackState, "exhausted");
+      assert.equal(result?.budgetRefusal?.code, "execution_budget_exceeded");
+      assert.match(String(states[0]?.reason), /execution_budget_exceeded/u);
+      assert.equal(
+        states.some((state) => state.state === "scheduled"),
+        false,
+      );
+    }
   });

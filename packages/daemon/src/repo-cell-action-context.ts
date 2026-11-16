@@ -135,7 +135,6 @@ export interface RepoCellSettingsState {
 }
 
 export interface RepoCellActionContext extends TaskQueryCell {
-  readonly runtimeUsageLimit: () => number;
   readonly projection: TaskProjection;
   /** The resolved layout for this repository, so receipt translation never re-reads harness.yaml. */
   readonly layout: HarnessLayout;
@@ -422,7 +421,6 @@ export function createRepoCellActionContext(bindings: {
       lifecycleActionImpl(settlementContext as unknown as RepoCellOperationalContext, action, binding, carriedReview);
 
   const context: RepoCellActionContext = {
-    runtimeUsageLimit: () => bindings.getSettings().runtime.dispatchUsageLimit,
     cellCodedError,
     input: bindings.input,
     get projection() {

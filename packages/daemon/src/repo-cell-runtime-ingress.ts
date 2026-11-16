@@ -232,15 +232,11 @@ export function appendAuxiliaryRuntimeIngress(
       return { ...runtimeIngressReceipt(cell, existing), reused: true };
     }
     if (typeof action.payload.taskId === "string" && typeof action.payload.executionId === "string") {
-      const refusal = runtimeExecutionBudgetRefusal(
-        cell.projection,
-        {
-          taskId: action.payload.taskId,
-          executionId: action.payload.executionId,
-          role: typeof action.payload.role === "string" ? action.payload.role : null,
-        },
-        cell.runtimeUsageLimit(),
-      );
+      const refusal = runtimeExecutionBudgetRefusal(cell.projection, {
+        taskId: action.payload.taskId,
+        executionId: action.payload.executionId,
+        role: typeof action.payload.role === "string" ? action.payload.role : null,
+      });
       if (refusal) throw cell.cellCodedError(refusal.code, refusal.message);
     }
     // The lifecycle aggregate decides admission here, inside the writer, before the append.
