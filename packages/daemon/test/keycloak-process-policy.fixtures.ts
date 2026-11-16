@@ -1,6 +1,9 @@
+import { registerBundledVertical } from "./bundled-vertical.fixture.mjs";
 import { after } from "node:test";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes, type BasePolicyGroupId } from "@harness-anything/kernel";
 import { spawnKeycloak, signInAt } from "./keycloak.fixtures.ts";
+
+registerBundledVertical();
 
 // A separate HTTP process keeps authorization responsive while a CLI fixture uses spawnSync.
 const realm = await spawnKeycloak(),
