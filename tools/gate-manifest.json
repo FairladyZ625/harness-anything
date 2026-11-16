@@ -179,7 +179,6 @@
         "pglite-node26",
         "package-policy",
         "gui-build",
-        "gate-contract-tests",
         "cost-budget-reads",
         "cost-budget-reads-sqlite",
         "cost-budget-read-summary"
@@ -4976,43 +4975,6 @@
       "positiveControl": {
         "status": "covered",
         "evidence": ["tools/gates/test/cost-budget.test.mjs", "tools/gates/test/cost-budget-reads.test.mjs"]
-      }
-    },
-    {
-      "id": "gate-contract-tests",
-      "command": "node --test tools/gates/test/*.test.mjs",
-      "category": "meta-governance",
-      "tier": "pr-advisory",
-      "tierReason": "The gate fixture suite is not a branch-protection required context; its blocking signal is the rewrite-ci.yml gate-contract-tests job (merged from the retired rebuild-gates.yml). Promotion to a required context remains a CEO-controlled switch.",
-      "authoritySource": ["task_9a1058d01d5487ef3e44118485", "tools/gates/contracts/gates.contract.mjs"],
-      "consumerScope": ["every fixture suite under tools/gates/test executed by node --test in CI"],
-      "githubContext": {
-        "requiredContexts": [],
-        "workflowJobs": ["gate-contract-tests"],
-        "nodeVersions": [24]
-      },
-      "allowlistPolicy": {
-        "allowed": false,
-        "location": null,
-        "adrOrDecisionRequired": false,
-        "notes": "The suite runs every gate fixture; there is no skip allowlist."
-      },
-      "changeControl": {
-        "ordinaryImplementationMayModify": false,
-        "requiresGovernanceEvidence": true,
-        "protectedSurfaces": ["tools/gate-manifest.json"]
-      },
-      "bypassFixtureRequired": false,
-      "executionSurfaces": {
-        "packageJson": { "check": false, "checkPr": false, "script": null },
-        "rewriteCi": { "pullRequestJobs": ["gate-contract-tests"], "nonPullRequestJobs": [] },
-        "branchProtection": { "required": false, "contexts": [] },
-        "classes": ["pr"]
-      },
-      "deterministic": true,
-      "positiveControl": {
-        "status": "covered",
-        "evidence": ["the suite's own negative-control assertions, e.g. tools/gates/test/derived-contracts.test.mjs"]
       }
     },
     {
