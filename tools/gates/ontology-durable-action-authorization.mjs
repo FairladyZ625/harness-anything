@@ -241,6 +241,8 @@ export function kindRewriteViolations(rewrite, today, index = EVIDENCE_INDEX) {
   return violations;
 }
 
+// Tests may request named source rows (an empty ID array requests owner proofs only).
+// Keep the complete declarations as proof anchors; gate/CLI calls validate every source.
 export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
   // Reuse source analysis only. Evaluator scopes are keyed by graph identity, so each
   // audit gets a fresh identity and an empty frame pool even when its AST is shared.
@@ -255,6 +257,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
 
 function auditAuthorization(rootDir, inputs, options) {
   const preparedGraph = options.graph;
+  const sourceProjection = options.sourceIds === undefined ? null : new Set(options.sourceIds);
   const today = options.today ?? new Date().toISOString().slice(0, 10);
   const sourceRoot = options.sourceRoot ?? rootDir,
     durable = inputs.descriptors.filter((descriptor) => descriptor.commandClass !== "repo-read"),
@@ -354,7 +357,9 @@ function auditAuthorization(rootDir, inputs, options) {
         ontology: {
           ...action.ontology,
           sources: action.ontology.sources.filter(
-            (source) => !scope.sourceIds || scope.sourceIds.has(source.candidateId),
+            (source) =>
+              (!scope.sourceIds || scope.sourceIds.has(source.candidateId)) &&
+              (!sourceProjection || sourceProjection.has(source.candidateId)),
           ),
         },
       }))
@@ -461,6 +466,7 @@ function auditAuthorization(rootDir, inputs, options) {
     const ownerEvidence =
       authority === "local-transport" ? owner.local : authority === "own-session" ? owner.session : owner.authorized;
     const targets = sourceTargets(action, descriptor.id).filter((source) => {
+      if (sourceProjection && !sourceProjection.has(source.id)) return false;
       const node = witnesses.get(source.id);
       return !(
         hostServiceEntryRequired(graph, node, action) || migrationServiceEntryEvidence(graph, node, source, action)

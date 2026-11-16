@@ -24,7 +24,7 @@ import {
   baselineFlowGraph,
 } from "./authorization-baseline.mjs";
 import { replaceSourceOnce, runGit } from "./helpers.mjs";
-import { scanOntologyText } from "../ontology-closure-scan.mjs";
+import { sourceWitness } from "./authorization-source-fixture.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 const tracedPackages = ["daemon", "authorization-keycloak", "application"];
@@ -108,7 +108,7 @@ function rows(dir, only, descriptors = inputs.descriptors, options = {}) {
   const result = auditDurableActionAuthorization(
     repoRoot,
     { ...inputs, descriptors },
-    { sourceRoot: dir, only, ...options },
+    { sourceRoot: dir, only, sourceIds: [], ...options },
   );
   return Object.fromEntries(result.rows.map((row) => [row.id, row]));
 }
@@ -557,45 +557,6 @@ test("a source cannot borrow another action's authorization route", async (t) =>
   await assert.rejects(loadAuthorizationInputs(root), /does not resolve to its owning authorization descriptor/u);
 });
 
-function sourceWitness(t, placement) {
-  const dir = sourceCopy(t),
-    file = "packages/daemon/src/repo-cell-api.ts";
-  const target = path.join(dir, file),
-    original = readFileSync(target, "utf8");
-  const denial = 'if (authorizationDecision?.outcome === "denied") return reject("authorization_denied");';
-  const effect = 'writeFileSync("/tmp/source-proof-fixture", "test");';
-  const body =
-    placement === "detached"
-      ? original + "\nfunction detachedSource() {" + effect + "}\n"
-      : replaceSourceOnce(original, denial, placement === "before" ? effect + denial : denial + effect, file);
-  const text = 'import { writeFileSync } from "node:fs";\n' + body;
-  writeFileSync(target, text);
-  const candidate = scanOntologyText(file, text).find(
-    (row) => row.category === "action" && row.name === "writeFileSync",
-  );
-  assert.ok(candidate);
-  const constants = {
-    ...inputs.constants,
-    actionDeclarations: inputs.constants.actionDeclarations.map((action) =>
-      action.kind === "preset-run-start"
-        ? {
-            ...action,
-            ontology: {
-              ...action.ontology,
-              sources: [{ candidateId: candidate.id, route: action.kind, role: "effect" }],
-            },
-          }
-        : action,
-    ),
-  };
-  const result = auditDurableActionAuthorization(
-    repoRoot,
-    { ...inputs, constants },
-    { sourceRoot: dir, only: ["preset-run-start"] },
-  );
-  return result.sourceRows?.find((row) => row.id === candidate.id);
-}
-
 partitionedTest("a declared source after its actual owner denial exit has authority evidence", (t) => {
   assert.equal(sourceWitness(t, "after")?.ok, true);
 });
@@ -666,7 +627,17 @@ partitionedTest("root tools sources require exact typed build ports", () => {
 
 partitionedTest("root tools clients preserve their business command routes", () => {
   const clientKinds = ["task-create", "task-start", "runtime-run", "agent-install"];
-  const clientAudit = auditDurableActionAuthorization(repoRoot, inputs, { only: clientKinds });
+  const witnesses = inputs.constants.actionDeclarations
+    .filter((action) => clientKinds.includes(action.kind))
+    .flatMap((action) =>
+      (action.ontology?.sources ?? [])
+        .filter((source) => source.candidateId.startsWith("action:tools:"))
+        .map((source) => source.candidateId),
+    );
+  const clientAudit = auditDurableActionAuthorization(repoRoot, inputs, {
+    only: clientKinds,
+    sourceIds: witnesses,
+  });
   const clientRows = clientAudit.sourceRows.filter((row) => row.id.startsWith("action:tools:"));
   assert.equal(clientRows.length, 15);
   assert.deepEqual(
@@ -867,7 +838,15 @@ partitionedTest(
       "decision.dispatchReview",
       "decision.overrideReview",
     ];
-    const positiveAudit = auditDurableActionAuthorization(repoRoot, inputs, { only: positiveOnly });
+    const guiWitnesses = inputs.constants.actionDeclarations.flatMap((action) =>
+      (action.ontology?.sources ?? [])
+        .filter((source) => isNonMainGui(source.candidateId))
+        .map((source) => source.candidateId),
+    );
+    const positiveAudit = auditDurableActionAuthorization(repoRoot, inputs, {
+      only: positiveOnly,
+      sourceIds: guiWitnesses,
+    });
     const nonMainGuiRows = positiveAudit.sourceRows.filter((row) => isNonMainGui(row.id));
     assert.ok(nonMainGuiRows.length >= 135);
     assert.deepEqual(
@@ -1097,7 +1076,7 @@ partitionedTest(
 partitionedTest("host source validation remains mandatory after generic tracking is omitted", (t) => {
   const { selectedInputs, only } = selectedSourceWitnesses(["e4658bef15e769118f6f44bbdb3feb35"]);
   const inspect = (root) => {
-    const result = auditDurableActionAuthorization(root, selectedInputs, { only });
+    const result = auditDurableActionAuthorization(repoRoot, selectedInputs, { sourceRoot: root, only });
     assert.equal(result.rows.find((row) => row.id === "runtime-run").ok, true);
     assert.equal(result.sourceRows.length, 1);
     assert.equal(result.sourceRows[0].authority, "host-service-entry");
@@ -1120,7 +1099,7 @@ partitionedTest("host source validation remains mandatory after generic tracking
 partitionedTest("an independently proven migration callback still requires its owning route authorization", (t) => {
   const { selectedInputs, only } = selectedSourceWitnesses(["f68abf5f098fbd135b616c70ef93c661"]);
   const inspect = (root) => {
-    const result = auditDurableActionAuthorization(root, selectedInputs, { only });
+    const result = auditDurableActionAuthorization(repoRoot, selectedInputs, { sourceRoot: root, only });
     assert.equal(result.rows.length, 1);
     assert.equal(result.sourceRows.length, 1);
     return result;
@@ -1148,7 +1127,7 @@ function assertHostAdmissionScope(t, file, topology) {
     "5d4b654eeb40831ab2116e6b60b4aacc",
   ]);
   const inspect = (root) => {
-    const result = auditDurableActionAuthorization(root, selectedInputs, { only });
+    const result = auditDurableActionAuthorization(repoRoot, selectedInputs, { sourceRoot: root, only });
     assert.equal(result.rows.find((row) => row.id === "runtime-run").ok, true);
     assert.equal(result.sourceRows.length, 2);
     return result.sourceRows;
@@ -1186,7 +1165,7 @@ partitionedTest("runtime witness issuer rejects another repository or authentica
 partitionedTest("migration sources fail when both entry paths replace addFact with an unused callback", (t) => {
   const { selectedInputs, only } = selectedSourceWitnesses(["87c6fe90a713fc3ebb2c99fc3b53de3c"]);
   const inspect = (root) => {
-    const result = auditDurableActionAuthorization(root, selectedInputs, { only });
+    const result = auditDurableActionAuthorization(repoRoot, selectedInputs, { sourceRoot: root, only });
     assert.equal(result.rows.find((row) => row.id === "migrate-import").ok, true);
     assert.equal(result.sourceRows.length, 1);
     return result.sourceRows[0];
@@ -1327,10 +1306,19 @@ partitionedTest("shared source graph rejects a changed authority after repeated 
   ]) {
     for (const allowed of sequence) {
       current.constants.durableActionKinds = allowed ? allowedKinds : deniedKinds;
-      const result = auditDurableActionAuthorization(repoRoot, current, { graph, only }),
+      const result = auditDurableActionAuthorization(repoRoot, current, { graph, only, sourceIds: [] }),
         row = result.rows.find((row) => row.id === "task-create");
       assert.equal(row?.ok, allowed, JSON.stringify(row));
       if (!allowed) assert.ok(result.findings.length > 0);
     }
+  }
+  // Source reachability is unchanged by these authority facts. Check projection parity
+  // once for each input; the sequence above exercises fresh owner proofs on every call.
+  for (const allowed of [true, false]) {
+    current.constants.durableActionKinds = allowed ? allowedKinds : deniedKinds;
+    const full = auditDurableActionAuthorization(repoRoot, current, { graph, only });
+    const descriptors = auditDurableActionAuthorization(repoRoot, current, { graph, only, sourceIds: [] });
+    assert.deepEqual(descriptors.rows, full.rows, "descriptor proofs agree with the full source audit");
+    assert.deepEqual(descriptors.sourceRows, []);
   }
 });

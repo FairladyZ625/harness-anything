@@ -8,8 +8,30 @@ import {
   freshEvaluationGraph,
   makeEvaluator,
 } from "../authorization-flow-graph.mjs";
-import { processSourceSites, sourceSite } from "../authorization-source-proof.mjs";
+import { processSourceSites, sourceSite, sourceWitnesses } from "../authorization-source-proof.mjs";
+import { scanOntologyText } from "../ontology-closure-scan.mjs";
 import { makeRepo } from "./helpers.mjs";
+
+test("shared source witnesses survive caller mutation and reject replaced syntax", () => {
+  const file = "packages/daemon/src/witness.ts",
+    text = 'function effect() { store.append("original"); }',
+    { rootDir } = makeRepo({ [file]: text }),
+    graph = buildFlowGraph(rootDir),
+    sources = scanOntologyText(file, text)
+      .filter((candidate) => candidate.category === "action")
+      .map((candidate) => ({ candidateId: candidate.id })),
+    original = [...sourceWitnesses(graph, sources)];
+  assert.equal(original.length, 1);
+  sourceWitnesses(graph, sources).clear();
+  const query = freshEvaluationGraph(graph);
+  assert.deepEqual([...sourceWitnesses(query, sources)], original);
+  query.releaseQueries();
+  const changed = graph.withSourceOverrides(new Map([[file, "function effect() {}"]]));
+  assert.equal(sourceWitnesses(changed, sources).size, 0);
+  assert.deepEqual([...sourceWitnesses(graph, sources)], original);
+  changed.releaseQueries();
+  graph.releaseQueries();
+});
 
 test("a retained source file releases its completed audit's environment owner", () => {
   const file = "packages/daemon/src/owner.ts",
@@ -287,4 +309,58 @@ const first = 1, second = 2;`,
   const beforeRepeat = evaluations;
   assert.equal(processSourceSites(graph, nodes[2], { evaluator, env: frame(1), targets: [site] }).has(site), true);
   assert.equal(evaluations, beforeRepeat);
+});
+
+// A mutation Program reuses pristine syntax, while its checker and proof state remain separate.
+test("source overrides reuse unchanged ASTs and recheck changed imports in either order", () => {
+  const file = "packages/daemon/src/value.ts",
+    caller = "packages/daemon/src/caller.ts",
+    { rootDir } = makeRepo({
+      [file]: 'export function value() { return "green"; }',
+      [caller]: 'import { value } from "./value.ts"; export function entry() { return value(); }',
+    }),
+    baseline = buildFlowGraph(rootDir),
+    originalCaller = baseline.modules.get(caller).sourceFile,
+    expression = originalCaller.statements[1].body.statements[0].expression,
+    check = (graph, expected) => {
+      const query = freshEvaluationGraph(graph);
+      try {
+        assert.deepEqual(makeEvaluator(query, {}).fold(expression, EMPTY_ENV), { value: expected });
+      } finally {
+        query.releaseQueries();
+      }
+    };
+  check(baseline, "green");
+  assert.equal(baseline.callDeclaration(expression), baseline.modules.get(file).sourceFile.statements[0]);
+  const mutation = baseline.withSourceOverrides(
+    new Map([
+      [file, 'export function value() { return "red"; }'],
+      ["packages/daemon/src/new.ts", "export function added() { return false; }"],
+    ]),
+  );
+  assert.equal(mutation.modules.get(caller).sourceFile, originalCaller);
+  assert.notEqual(mutation.modules.get(file).sourceFile, baseline.modules.get(file).sourceFile);
+  assert.ok(mutation.modules.has("packages/daemon/src/new.ts"));
+  assert.equal(mutation.callDeclaration(expression), mutation.modules.get(file).sourceFile.statements[0]);
+  check(mutation, "red");
+  mutation.releaseQueries();
+  check(baseline, "green");
+  check(mutation, "red");
+});
+
+test("interleaved Programs bind through their own query owner on shared source files", () => {
+  const file = "packages/daemon/src/caller.ts",
+    { rootDir } = makeRepo({
+      [file]: 'function value(input) { return input; } export function entry() { return value("ok"); }',
+    }),
+    baseline = buildFlowGraph(rootDir),
+    left = freshEvaluationGraph(baseline),
+    right = freshEvaluationGraph(baseline.withSourceOverrides(new Map())),
+    expression = baseline.modules.get(file).sourceFile.statements[1].body.statements[0].expression,
+    first = makeEvaluator(left, {}),
+    second = makeEvaluator(right, {});
+  assert.deepEqual(second.fold(expression, EMPTY_ENV), { value: "ok" });
+  right.releaseQueries();
+  assert.deepEqual(first.fold(expression, EMPTY_ENV), { value: "ok" });
+  left.releaseQueries();
 });

@@ -118,6 +118,7 @@ function parameterUsed(parameter, fn) {
 }
 
 export function makeAuthorizationTracer(graph, anchors) {
+  const bindFrame = (fn, args, env) => bindArguments(fn, args, env, fn.env, graph.internEnv);
   const where = (node) => {
     const source = node.getSourceFile();
     return `${graph.fileOf(node)}:${source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1}`;
@@ -546,7 +547,7 @@ export function makeAuthorizationTracer(graph, anchors) {
           if (ts.isCallExpression(node) && node !== call && decisionCall(node, new Set())) {
             inner = decisionSubject(
               node,
-              bindArguments(value, evaluator.expandArguments(call.arguments, env), env),
+              bindFrame(value, evaluator.expandArguments(call.arguments, env), env),
               depth + 1,
             );
             break;
@@ -688,7 +689,7 @@ export function makeAuthorizationTracer(graph, anchors) {
       for (const value of evaluator.evaluate(callee, env)) {
         if (!value.fn || !value.node.body || seen.has(value.node)) continue;
         seen.add(value.node);
-        const inner = bindArguments(value, evaluator.expandArguments(call.arguments, env), env),
+        const inner = bindFrame(value, evaluator.expandArguments(call.arguments, env), env),
           returns = [];
         if (ts.isBlock(value.node.body))
           eachOwnNode(value.node.body, (node) => {
@@ -871,7 +872,7 @@ export function makeAuthorizationTracer(graph, anchors) {
           if (value.fn)
             walkFunction(
               value,
-              bindArguments(value, evaluator.expandArguments([callee.expression], env), env),
+              bindFrame(value, evaluator.expandArguments([callee.expression], env), env),
               clone(state),
             );
         return;
@@ -982,7 +983,7 @@ export function makeAuthorizationTracer(graph, anchors) {
         if ((!sourceAuthority && !boundary) || pendingSources.length === 0) return;
         const sites = processSourceSites(sourceGraph, value.node, {
           evaluator: sourceEvaluator,
-          env: bindArguments(value, sourceEvaluator.expandArguments(node.arguments, env), env),
+          env: bindFrame(value, sourceEvaluator.expandArguments(node.arguments, env), env),
           targets: pendingSources.map(([site]) => site),
         });
         for (const [site, target] of pendingSources)
@@ -1050,14 +1051,10 @@ export function makeAuthorizationTracer(graph, anchors) {
         }
         if (producesDecision(value.node)) {
           // A producer that itself exits on denial is an enforcer: what follows it is authorized.
-          const outcome = walkFunction(
-            value,
-            bindArguments(value, evaluator.expandArguments(node.arguments, env), env),
-            {
-              ...newState(),
-              effect: state.effect,
-            },
-          );
+          const outcome = walkFunction(value, bindFrame(value, evaluator.expandArguments(node.arguments, env), env), {
+            ...newState(),
+            effect: state.effect,
+          });
           if (outcome.authorizedReturn) {
             enforcedSubject = decisionSubject(node, env);
             checkCut(node, env, enforcedSubject);
@@ -1074,7 +1071,7 @@ export function makeAuthorizationTracer(graph, anchors) {
         inner.consumed = false;
         const outcome = walkFunction(
           value,
-          bindArguments(value, evaluator.expandArguments(node.arguments, env), env),
+          bindFrame(value, evaluator.expandArguments(node.arguments, env), env),
           inner,
         );
         walked.push(outcome);
@@ -1177,7 +1174,7 @@ export function makeAuthorizationTracer(graph, anchors) {
           if (ts.isCallExpression(inner) && inner !== call && decisionCall(inner, new Set()))
             return unwrapDecisionCall(
               inner,
-              bindArguments(value, sourceEvaluator.expandArguments(call.arguments, env), env),
+              bindFrame(value, sourceEvaluator.expandArguments(call.arguments, env), env),
               depth + 1,
             );
       }
@@ -1208,7 +1205,7 @@ export function makeAuthorizationTracer(graph, anchors) {
     function resolveCallFunctions(functions, argumentExpressions, env, fields, depth) {
       const answers = [];
       for (const value of functions) {
-        const inner = bindArguments(value, sourceEvaluator.expandArguments(argumentExpressions, env), env);
+        const inner = bindFrame(value, sourceEvaluator.expandArguments(argumentExpressions, env), env);
         for (const result of serviceReturns(value.node, inner)) {
           const answer = serviceValue(result.expression, inner, fields, depth + 1);
           if (!answer) return null;
@@ -1608,7 +1605,7 @@ export function makeAuthorizationTracer(graph, anchors) {
       calls.calls.push({ authorized: state.authorized, at: where(call), carried: false, parameter });
       frames.set(group, calls);
       guardCalls.set(parameter, frames);
-      const next = bindArguments(value, evaluator.expandArguments(call.arguments, env), env),
+      const next = bindFrame(value, evaluator.expandArguments(call.arguments, env), env),
         inner = clone(state);
       inner.writerTurn ||= Boolean(writerQueue && parameter.parent === writerQueue);
       inner.sourceCovered ||= Boolean(sourceAuthority);

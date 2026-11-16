@@ -297,8 +297,13 @@ export function lexicalEnvironment(node, env = EMPTY_ENV) {
  * Callers inside the evaluator pass argument records so a rest binding can retain the original
  * expression frame while it is forwarded through another spread call.
  */
-export function bindArguments(fn, args, callerEnv, env = fn.env) {
-  const interner = environmentInterners.get(fn.node.getSourceFile());
+export function bindArguments(
+  fn,
+  args,
+  callerEnv,
+  env = fn.env,
+  interner = environmentInterners.get(fn.node.getSourceFile()),
+) {
   const parameters = interner.freeParameters(fn.node);
   if (parameters.size === 0) return EMPTY_ENV;
   const captured = env.size === 0 ? EMPTY_ENV : interner.lexicalEnvironment(fn.node, env);

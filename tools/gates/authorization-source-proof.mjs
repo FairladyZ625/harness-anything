@@ -17,15 +17,27 @@ import {
 } from "./authorization-gui-source-proof.mjs";
 export { guiCallbackCallerFiles, guiClientSource, resolvedGuiClientBindings, sourceSite };
 
+// Scanner output depends only on immutable syntax and its logical repository path.
+// Keep the private index separate from each caller's mutable witness selection.
+const sourceWitnessIndexes = new WeakMap();
+
 /** Identity and AST come from the same scanner as closure, never a second fingerprint. */
 export function sourceWitnesses(graph, sources) {
   const witnesses = new Map();
   for (const file of new Set(sources.map(sourceFileOf))) {
     const source = graph.modules.get(file)?.sourceFile;
     if (!source) continue;
-    scanOntologyText(file, source, (candidate, node) => {
-      if (candidate.category === "action") witnesses.set(candidate.id, node);
-    });
+    let paths = sourceWitnessIndexes.get(source);
+    if (!paths) sourceWitnessIndexes.set(source, (paths = new Map()));
+    let index = paths.get(file);
+    if (!index) {
+      index = new Map();
+      scanOntologyText(file, source, (candidate, node) => {
+        if (candidate.category === "action") index.set(candidate.id, node);
+      });
+      paths.set(file, index);
+    }
+    for (const [id, node] of index) witnesses.set(id, node);
   }
   return witnesses;
 }
@@ -1445,7 +1457,7 @@ function invokesCallbackSource(graph, call, node) {
         callee.fn &&
         reachesSource(graph, callee.node, node, {
           evaluator,
-          env: bindArguments(callee, call.arguments, new Map()),
+          env: bindArguments(callee, call.arguments, new Map(), callee.env, graph.internEnv),
         }),
     )
   );
@@ -1824,7 +1836,12 @@ export function processSourceSites(
     frame.edges = [];
     const linkFrame = (value, args = null) =>
       frame.edges.push({
-        frame: frameFor(value.node, args ? bindArguments(value, evaluator.expandArguments(args, env), env) : value.env),
+        frame: frameFor(
+          value.node,
+          args
+            ? bindArguments(value, evaluator.expandArguments(args, env), env, value.env, graph.internEnv)
+            : value.env,
+        ),
         // Ordering needs only declaration ranges, not argument AST arrays. These cached
         // edges are reused for different target queries, so retain no query-specific flag.
         references: args?.flatMap(referencedRanges) ?? [],

@@ -1,16 +1,19 @@
 // Shared source inputs within one test process / partition. No authorization result is cached.
 import path from "node:path";
+import fs from "node:fs";
 import { afterEach } from "node:test";
+import { walkTypeScriptFiles } from "../ontology-gate-lib.mjs";
 import { buildFlowGraph, freshEvaluationGraph } from "../authorization-flow-graph.mjs";
 import { guiCallbackCallerFiles, sourceFileOf } from "../authorization-source-proof.mjs";
 import { auditDurableActionAuthorization, loadAuthorizationInputs } from "../ontology-durable-action-authorization.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
-let inputsPromise, baselineInputs, graph, activeQueries;
+let inputsPromise, baselineInputs, graph, activeQueries, activeMutation;
 
 afterEach(() => {
   activeQueries?.releaseQueries();
-  activeQueries = null;
+  activeMutation?.releaseQueries();
+  activeQueries = activeMutation = null;
 });
 
 export function baselineAuthorizationInputs() {
@@ -53,12 +56,36 @@ function baselineSourceGraph() {
 }
 
 export function baselineFlowGraph() {
+  activeQueries?.releaseQueries();
   return (activeQueries = freshEvaluationGraph(baselineSourceGraph()));
 }
 
+export function mutatedFlowGraph(overrides) {
+  activeMutation?.releaseQueries();
+  return (activeMutation = baselineSourceGraph().withSourceOverrides(overrides));
+}
+
+function mutationGraph(sourceRoot) {
+  const baseline = baselineSourceGraph(),
+    overrides = new Map();
+  // Compare only copied modules. Symlinked packages remain the same read-only source.
+  const files = new Set([...baseline.modules.keys(), ...walkTypeScriptFiles(sourceRoot, "packages")]);
+  for (const file of files) {
+    const sourceFile = baseline.modules.get(file)?.sourceFile;
+    const candidate = path.join(sourceRoot, file);
+    if (!fs.existsSync(candidate)) continue;
+    const original = path.join(repoRoot, file);
+    if (fs.existsSync(original) && fs.realpathSync(candidate) === fs.realpathSync(original)) continue;
+    const text = fs.readFileSync(candidate, "utf8");
+    if (text !== sourceFile?.text) overrides.set(file, text);
+  }
+  return overrides.size === 0 ? baseline : baseline.withSourceOverrides(overrides);
+}
+
 export function auditWithBaseline(rootDir, inputs, options = {}) {
-  return auditDurableActionAuthorization(rootDir, inputs, {
-    ...(rootDir === repoRoot && (options.sourceRoot ?? rootDir) === repoRoot ? { graph: baselineSourceGraph() } : {}),
-    ...options,
-  });
+  const sourceRoot = options.sourceRoot ?? rootDir;
+  const graph =
+    options.graph ??
+    (rootDir === repoRoot ? (sourceRoot === repoRoot ? baselineSourceGraph() : mutationGraph(sourceRoot)) : undefined);
+  return auditDurableActionAuthorization(rootDir, inputs, { ...options, ...(graph ? { graph } : {}) });
 }

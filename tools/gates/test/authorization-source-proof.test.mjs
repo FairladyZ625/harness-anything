@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, readFileSync, readdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { readFileSync, realpathSync, symlinkSync } from "node:fs";
 import path from "node:path";
 import nodeTest from "node:test";
 import ts from "typescript";
@@ -19,11 +19,10 @@ import {
   sourceSite,
   sourceFrameKey,
   sourceWitnesses,
-  sourceFileOf,
 } from "../authorization-source-proof.mjs";
 import { scanOntologyText } from "../ontology-closure-scan.mjs";
 import { makeRepo, replaceSourceOnce } from "./helpers.mjs";
-import { baselineAuthorizationInputs, baselineFlowGraph } from "./authorization-baseline.mjs";
+import { baselineAuthorizationInputs, baselineFlowGraph, mutatedFlowGraph } from "./authorization-baseline.mjs";
 import { testOrdinalInPartition } from "../../node-test-runner-lib.mjs";
 
 // Reuse the runner's bounded partitioning: whole-file server execution exceeded its heap.
@@ -191,24 +190,9 @@ invokes(() => rmSync("/tmp/returned-call"));`);
   }
 });
 
-function mutatedDaemonGraph(source, file, from, to) {
-  const { rootDir } = makeRepo({ "package.json": readFileSync(path.join(repoRoot, "package.json"), "utf8") });
-  mkdirSync(path.join(rootDir, "packages"));
-  for (const name of readdirSync(path.join(repoRoot, "packages"))) {
-    const original = path.join(repoRoot, "packages", name),
-      target = path.join(rootDir, "packages", name);
-    if (name === "daemon" || name === file.split("/")[1]) {
-      cpSync(path.join(original, "src"), path.join(target, "src"), { recursive: true });
-      cpSync(path.join(original, "package.json"), path.join(target, "package.json"));
-    } else {
-      // Read-only package sources, never a writable link into the dependency store.
-      symlinkSync(original, target, "dir");
-    }
-  }
-  symlinkSync(realpathSync(path.join(repoRoot, "node_modules")), path.join(rootDir, "node_modules"), "dir");
-  const target = path.join(rootDir, file);
-  writeFileSync(target, replaceSourceOnce(readFileSync(target, "utf8"), from, to, file));
-  return buildFlowGraph(rootDir, { sourceFiles: [sourceFileOf(source)] });
+function mutatedDaemonGraph(_source, file, from, to) {
+  const text = readFileSync(path.join(repoRoot, file), "utf8");
+  return mutatedFlowGraph(new Map([[file, replaceSourceOnce(text, from, to, file)]]));
 }
 
 test("a real package script reaches its dist effect; a detached effect has no entry evidence", () => {
