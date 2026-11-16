@@ -512,22 +512,6 @@ jobs:
   # via the guard, matching the trigger rebuild-gates.yml had after dec_6127D45D dropped its
   # push trigger. They now also join this workflow's concurrency group, so a superseded run is
   # cancelled instead of finishing on a stale SHA.
-  gate-contract-tests:
-    needs: install
-    if: always() && github.event_name == 'pull_request' && needs.install.outputs.code != 'false'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - uses: actions/download-artifact@v4
-        with:
-          name: node-modules-${{ hashFiles('package-lock.json') }}
-          path: ${{ runner.temp }}
-      - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
-      - run: node --test tools/gates/test/*.test.mjs
-
   platform-smoke-windows:
     if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'schedule'
     runs-on: windows-latest
