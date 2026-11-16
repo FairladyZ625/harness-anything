@@ -16,7 +16,7 @@ export function parseRuntimeInstanceCreate(
     credentialRef = flags.one.get("--credential-ref"),
     kindId = flags.one.get("--kind"),
     credentialHeader = flags.one.get("--credential-header"),
-    header = runtimeHttpHeaderFlags(flags.many.get("--http-header") ?? []);
+    header = runtimeHttpHeaderFlags(flags.many.get("--http-header") ?? [], credentialHeader);
   if (!kindId) return rejected("missing_field", "Runtime instances require --kind <runtime-kind>.", json);
   if (
     authMode === "api-key" &&
@@ -146,12 +146,14 @@ function runtimeInstanceKindConfig(
 
 function runtimeHttpHeaderFlags(
   values: readonly string[],
+  credentialHeader: string | undefined,
 ):
   | { readonly ok: true; readonly value?: Readonly<Record<string, string>> }
   | { readonly ok: false; readonly hint: string } {
   if (values.length === 0) return { ok: true };
-  const headers: Record<string, string> = {},
-    normalizedNames = new Set<string>();
+  const entries: [string, string][] = [],
+    normalizedNames = new Set<string>(),
+    normalizedCredentialHeader = credentialHeader?.trim().toLowerCase();
   for (const value of values) {
     const separator = value.indexOf("=");
     if (separator < 1 || separator === value.length - 1)
@@ -162,13 +164,29 @@ function runtimeHttpHeaderFlags(
     const name = value.slice(0, separator),
       item = value.slice(separator + 1),
       normalizedName = name.toLowerCase();
+    if (
+      !/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/u.test(name) ||
+      /(?:authorization|proxy-authorization|set-cookie|cookie|credential|password|secret|token|api[-_]?key)/iu.test(
+        name,
+      ) ||
+      /[\r\n]/u.test(item)
+    )
+      return {
+        ok: false,
+        hint: "Use --http-header Name=Value with a non-secret static header.",
+      };
+    if (normalizedCredentialHeader === normalizedName)
+      return {
+        ok: false,
+        hint: "Static HTTP headers must not overlap --credential-header.",
+      };
     if (normalizedNames.has(normalizedName))
       return {
         ok: false,
         hint: `HTTP header ${name} was provided more than once.`,
       };
     normalizedNames.add(normalizedName);
-    headers[name] = item;
+    entries.push([name, item]);
   }
-  return { ok: true, value: headers };
+  return { ok: true, value: Object.fromEntries(entries) };
 }
