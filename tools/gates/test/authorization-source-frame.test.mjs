@@ -20,8 +20,12 @@ test("a retained source file releases its completed audit's environment owner", 
     live = bind();
   assert.equal(live, graph.internEnv(live));
   graph.releaseQueries();
-  const released = bind();
-  assert.notEqual(released, graph.internEnv(released), "the retained AST no longer selects the completed interner");
+  assert.throws(bind, TypeError, "the retained AST no longer selects the completed interner");
+  const next = freshEvaluationGraph(graph),
+    current = bind();
+  graph.releaseQueries();
+  assert.equal(current, next.internEnv(current), "a stale owner cannot release the next audit's interner");
+  next.releaseQueries();
 });
 
 test("shared AST audits discard fact memo and frame identity in positive and negative order", (t) => {
