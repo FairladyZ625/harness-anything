@@ -268,16 +268,157 @@ export function createRepoCellActionContext(bindings: {
   readonly setKnownTaskIds: (value: Set<string> | null) => void;
   readonly getSquadCoordinator: () => ReturnType<typeof makeSquadCoordinator>;
 }): RepoCellActionContext {
-  // Bound callbacks become reachable only when the fully constructed context is returned.
+  const actionContext: { current: object | null } = { current: null };
   const bind =
     <Context extends object, Args extends readonly unknown[], Result>(
       implementation: (context: Context, ...args: Args) => Result,
     ) =>
-    (...args: Args): Result =>
-      implementation(context as Context, ...args);
+    (...args: Args): Result => {
+      if (actionContext.current === null) throw new Error("RepoCell action context is not initialized");
+      return implementation(actionContext.current as Context, ...args);
+    };
   const unavailableTaskQuery = (): never => {
     throw new Error("RepoCell task query functions are not installed");
   };
+  const boundProofFor = (
+    command: Parameters<typeof proofFor>[0],
+    snapshot: Parameters<typeof proofFor>[1],
+    binding: Parameters<typeof proofFor>[2],
+    projection: Parameters<typeof proofFor>[3],
+  ) => proofFor(command, snapshot, binding, projection, bindings.rootDir, bindings.getSettings);
+  const layout = resolveHarnessLayout(bindings.rootDir);
+  const leafContext = {
+    cellCodedError,
+    input: bindings.input,
+    get projection() {
+      return bindings.getProjection();
+    },
+    get store() {
+      return bindings.getStore();
+    },
+    requiredCellText,
+    now: bindings.now,
+    operationId,
+    rootDir: bindings.rootDir,
+    layout,
+    rejected,
+    get service() {
+      return bindings.getService();
+    },
+    workspaceText,
+    buildCommand,
+    withServerMeta,
+    proofFor: boundProofFor,
+    publicPublication: bindings.publicPublication,
+    explicitExecutionId,
+    projectionReady,
+    uniqueDerivedExecutionId,
+    receiptProof,
+    withoutDryRun,
+    legacyReviewLint,
+    cellStringList,
+    decodeEvidencePayload,
+    renderEvidencePayload,
+    createTaskId,
+    progressEvidence,
+    completionApplied,
+    completeRetryCommand,
+    failed,
+    completionSettlement,
+    errorOperationId,
+    completionStopped,
+    assertTaskTransitionDocumentReady,
+    get recoveryUncertain() {
+      return bindings.getRecoveryUncertain();
+    },
+    set recoveryUncertain(value: boolean) {
+      bindings.setRecoveryUncertain(value);
+    },
+    get recovery() {
+      return bindings.getRecovery();
+    },
+    get knownTaskIds() {
+      return bindings.getKnownTaskIds();
+    },
+    set knownTaskIds(value: Set<string> | null) {
+      bindings.setKnownTaskIds(value);
+    },
+  };
+  const boundProjectedTaskIds: Bound<typeof projectedTaskIdsImpl> = () => projectedTaskIdsImpl(leafContext),
+    boundCanonicalSettlement: Bound<typeof canonicalSettlementImpl> = (receipt, event) =>
+      canonicalSettlementImpl(leafContext as unknown as RepoCellActionContext, receipt, event),
+    boundProgressReceipt: Bound<typeof progressReceiptImpl> = (event, publication) =>
+      progressReceiptImpl(leafContext as unknown as RepoCellActionContext, event, publication),
+    boundLifecycleReceipt: Bound<typeof lifecycleReceipt> = (event, snapshot, publication, proof) =>
+      lifecycleReceipt(leafContext as unknown as RepoCellActionContext, event, snapshot, publication, proof),
+    boundPreviewResult: Bound<typeof previewResultImpl> = (opId, value, revision, command) =>
+      previewResultImpl(leafContext as unknown as RepoCellOperationalContext, opId, value, revision, command);
+  const settlementContext = {
+    cellCodedError,
+    input: bindings.input,
+    get projection() {
+      return bindings.getProjection();
+    },
+    get store() {
+      return bindings.getStore();
+    },
+    requiredCellText,
+    now: bindings.now,
+    operationId,
+    rootDir: bindings.rootDir,
+    layout,
+    rejected,
+    get service() {
+      return bindings.getService();
+    },
+    workspaceText,
+    buildCommand,
+    withServerMeta,
+    proofFor: boundProofFor,
+    publicPublication: bindings.publicPublication,
+    explicitExecutionId,
+    projectionReady,
+    uniqueDerivedExecutionId,
+    receiptProof,
+    withoutDryRun,
+    legacyReviewLint,
+    cellStringList,
+    decodeEvidencePayload,
+    renderEvidencePayload,
+    createTaskId,
+    progressEvidence,
+    completionApplied,
+    completeRetryCommand,
+    failed,
+    completionSettlement,
+    errorOperationId,
+    completionStopped,
+    assertTaskTransitionDocumentReady,
+    get recoveryUncertain() {
+      return bindings.getRecoveryUncertain();
+    },
+    set recoveryUncertain(value: boolean) {
+      bindings.setRecoveryUncertain(value);
+    },
+    get recovery() {
+      return bindings.getRecovery();
+    },
+    get knownTaskIds() {
+      return bindings.getKnownTaskIds();
+    },
+    set knownTaskIds(value: Set<string> | null) {
+      bindings.setKnownTaskIds(value);
+    },
+    projectedTaskIds: boundProjectedTaskIds,
+    canonicalSettlement: boundCanonicalSettlement,
+    progressReceipt: boundProgressReceipt,
+    lifecycleReceipt: boundLifecycleReceipt,
+    previewResult: boundPreviewResult,
+  };
+  const boundReceiptForOperation: Bound<typeof receiptForOperationImpl> = (opId, binding) =>
+      receiptForOperationImpl(settlementContext as unknown as RepoCellActionContext, opId, binding),
+    boundLifecycleAction: Bound<typeof lifecycleActionImpl> = (action, binding, carriedReview) =>
+      lifecycleActionImpl(settlementContext as unknown as RepoCellOperationalContext, action, binding, carriedReview);
 
   const context: RepoCellActionContext = {
     cellCodedError,
@@ -292,7 +433,7 @@ export function createRepoCellActionContext(bindings: {
     requiredCellText,
     now: bindings.now,
     operationId,
-    receiptForOperation: bind(receiptForOperationImpl),
+    receiptForOperation: boundReceiptForOperation,
     listTasks: bind(listTasksImpl),
     listRelations: bind(listRelationsImpl),
     listEvents: bind(listEventsImpl),
@@ -305,7 +446,7 @@ export function createRepoCellActionContext(bindings: {
     queryRead: (): TaskQueryReadModel => unavailableTaskQuery(),
     publishGeneratedArtifact,
     rootDir: bindings.rootDir,
-    layout: resolveHarnessLayout(bindings.rootDir),
+    layout,
     get entityActionExecutor() {
       return bindings.getEntityActionExecutor();
     },
@@ -331,7 +472,7 @@ export function createRepoCellActionContext(bindings: {
     completeTask: bind(completeTaskImpl),
     taskSurfaceWrite: bind(taskSurfaceWriteImpl),
     rejected,
-    lifecycleAction: bind(lifecycleActionImpl),
+    lifecycleAction: boundLifecycleAction,
     get service() {
       return bindings.getService();
     },
@@ -341,13 +482,8 @@ export function createRepoCellActionContext(bindings: {
     workspaceText,
     buildCommand,
     withServerMeta,
-    proofFor: (
-      command: Parameters<typeof proofFor>[0],
-      snapshot: Parameters<typeof proofFor>[1],
-      binding: Parameters<typeof proofFor>[2],
-      projection: Parameters<typeof proofFor>[3],
-    ) => proofFor(command, snapshot, binding, projection, bindings.rootDir, bindings.getSettings),
-    lifecycleReceipt: bind(lifecycleReceipt),
+    proofFor: boundProofFor,
+    lifecycleReceipt: boundLifecycleReceipt,
     publicPublication: bindings.publicPublication,
     explicitExecutionId,
     projectionReady,
@@ -355,15 +491,15 @@ export function createRepoCellActionContext(bindings: {
     receiptProof,
     taskMutation: bind(taskMutationImpl),
     withoutDryRun,
-    previewResult: bind(previewResultImpl),
-    projectedTaskIds: bind(projectedTaskIdsImpl),
+    previewResult: boundPreviewResult,
+    projectedTaskIds: boundProjectedTaskIds,
     wipSnapshotEntries: bind(wipSnapshotEntriesImpl),
     legacyReviewLint,
     cellStringList,
     decodeEvidencePayload,
     renderEvidencePayload,
     createTaskId,
-    progressReceipt: bind(progressReceiptImpl),
+    progressReceipt: boundProgressReceipt,
     progressEvidence,
     completionApplied,
     completionContext: bind(completionContextImpl),
@@ -374,7 +510,7 @@ export function createRepoCellActionContext(bindings: {
     errorOperationId,
     completionStopped,
     completionKillpoint: bind(completionKillpointImpl),
-    executeAction: bind(executeActionImpl),
+    executeAction: (action, binding) => executeActionImpl(context as RepoCellOperationalContext, action, binding),
     withHumanSummary: bind(withHumanSummaryImpl),
     get recoveryUncertain() {
       return bindings.getRecoveryUncertain();
@@ -385,7 +521,7 @@ export function createRepoCellActionContext(bindings: {
     get recovery() {
       return bindings.getRecovery();
     },
-    canonicalSettlement: bind(canonicalSettlementImpl),
+    canonicalSettlement: boundCanonicalSettlement,
     get knownTaskIds() {
       return bindings.getKnownTaskIds();
     },
@@ -394,5 +530,6 @@ export function createRepoCellActionContext(bindings: {
     },
   };
 
+  actionContext.current = context;
   return context;
 }

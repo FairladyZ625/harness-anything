@@ -1285,6 +1285,128 @@ function entryMutable(request: { kind: string }) {
   assert.equal(evalFor("settings-update").fold(mutableCall, mutableEnv), null);
 });
 
+test("shared empty-env evaluator caches isolate descriptor kind, method, fields, commandClass, and unset depths", () => {
+  const file = "packages/daemon/src/fact-isolation.ts",
+    { rootDir } = makeRepo({
+      [file]: `
+declare function decode(params: unknown): { kind: string; scope?: string; extra?: string };
+declare const unknownTarget: { dryRun?: boolean; commandClass?: string };
+function makeActionReader(req: { method: string; scope?: string; extra?: string }) {
+  return () => decode(req).kind;
+}
+function entry(request: { method: string; scope?: string; extra?: string }) {
+  const action = decode(request);
+  const readKind = makeActionReader(request);
+  return [
+    action.kind + ":" + request.method + ":" + request.scope,
+    request.extra,
+    readKind(),
+    unknownTarget.dryRun,
+    unknownTarget.commandClass,
+  ];
+}`,
+    }),
+    graph = buildFlowGraph(rootDir),
+    sourceFile = graph.modules.get(file).sourceFile,
+    entryFn = sourceFile.statements.find((s) => ts.isFunctionDeclaration(s) && s.name?.text === "entry"),
+    elements = entryFn.body.statements.at(-1).expression.elements,
+    [summarizeExpr, readExtraExpr, readKindCallExpr, dryRunExpr, commandClassExpr] = elements,
+    reqEnv = new Map([[entryFn.parameters[0], { root: true }]]),
+    shared = { constants: {}, functions: {}, commandClass: "repo-write", strictMembers: true },
+    evalA = makeEvaluator(graph, {
+      ...shared,
+      kind: "action-a",
+      method: "route.a",
+      fields: { scope: "alpha" },
+    }),
+    evalWithRepoRead = makeEvaluator(graph, {
+      ...shared,
+      kind: "action-a",
+      method: "route.a",
+      fields: { scope: "alpha" },
+      commandClass: "repo-read",
+    }),
+    evalB = makeEvaluator(graph, {
+      ...shared,
+      kind: "action-b",
+      method: "route.b",
+      fields: { scope: "beta" },
+    }),
+    evalNoKind = makeEvaluator(graph, { ...shared, method: "route.c", fields: { scope: "gamma" } }),
+    evalNoMethod = makeEvaluator(graph, { ...shared, kind: "action-c" }),
+    evalWithMethod = makeEvaluator(graph, { ...shared, kind: "action-c", method: "route.c" }),
+    evalWithExtra = makeEvaluator(graph, {
+      ...shared,
+      kind: "action-b",
+      method: "route.b",
+      fields: { extra: "only-extra" },
+    });
+
+  // Prime with evalA first; evalB must still compute its own kind, method, and field values.
+  assert.deepEqual(evalA.fold(summarizeExpr, reqEnv), { value: "action-a:route.a:alpha" });
+  assert.deepEqual(evalB.fold(summarizeExpr, reqEnv), { value: "action-b:route.b:beta" });
+  assert.deepEqual(evalA.fold(readKindCallExpr, reqEnv), { value: "action-a" });
+  assert.deepEqual(evalB.fold(readKindCallExpr, reqEnv), { value: "action-b" });
+
+  // Depth-sparse empty-env writes (depth 1 before depth 0) must not leak UNSET_QUERY or commandClass across evaluators.
+  const atDepth1 = evalA.evaluate(dryRunExpr, EMPTY_ENV, 1);
+  const atDepth0 = evalB.evaluate(dryRunExpr, EMPTY_ENV, 0);
+  assert.ok(Array.isArray(atDepth1));
+  assert.ok(Array.isArray(atDepth0));
+  assert.deepEqual(evalA.fold(dryRunExpr, EMPTY_ENV), { value: false });
+  assert.equal(evalNoKind.fold(dryRunExpr, EMPTY_ENV), null);
+  assert.deepEqual(evalA.fold(commandClassExpr, EMPTY_ENV, 1), { value: "repo-write" });
+  assert.deepEqual(evalWithRepoRead.fold(commandClassExpr, EMPTY_ENV, 0), { value: "repo-read" });
+  assert.deepEqual(evalA.fold(commandClassExpr, EMPTY_ENV), { value: "repo-write" });
+  assert.deepEqual(evalWithRepoRead.fold(commandClassExpr, EMPTY_ENV), { value: "repo-read" });
+
+  // Presence of kind, method, commandClass, or different field keys must isolate factScope directly.
+  assert.equal(evalNoMethod.fold(summarizeExpr, reqEnv), null);
+  assert.equal(evalB.fold(readExtraExpr, reqEnv), null);
+  assert.deepEqual(evalWithExtra.fold(readExtraExpr, reqEnv), { value: "only-extra" });
+  assert.notEqual(evalNoKind.staticScope, evalA.staticScope);
+  assert.notEqual(evalNoMethod.staticScope, evalWithMethod.staticScope);
+  assert.notEqual(evalB.staticScope, evalWithExtra.staticScope);
+  assert.notEqual(evalA.staticScope, evalWithRepoRead.staticScope);
+  assert.equal(evalA.staticScope, evalB.staticScope);
+});
+
+test("fold preserves JS optional-chaining short-circuit boundaries across chained accesses", () => {
+  const file = "packages/daemon/src/optional-chain.ts",
+    { rootDir } = makeRepo({
+      [file]: `
+function testChains(input) {
+  const missing = undefined;
+  const literalUndef = { b: undefined };
+  const literalNull = { b: null };
+  return [
+    missing?.a.b.c,
+    (missing?.a.b).c,
+    ({}).b.c,
+    literalUndef?.b.c,
+    literalNull?.b.c,
+    input?.nested?.prop,
+  ];
+}`,
+    }),
+    graph = buildFlowGraph(rootDir),
+    sourceFile = graph.modules.get(file).sourceFile,
+    fn = sourceFile.statements.find((s) => ts.isFunctionDeclaration(s) && s.name?.text === "testChains"),
+    elements = fn.body.statements.at(-1).expression.elements,
+    evaluator = makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true });
+  // Optional chain short-circuits the entire chain when its optional link evaluates to undefined.
+  assert.deepEqual(evaluator.fold(elements[0], EMPTY_ENV), { value: undefined, optionalShortCircuit: true });
+  // Parenthesizing terminates the optional chain, so `.c` must not inherit short-circuiting.
+  assert.equal(evaluator.fold(elements[1], EMPTY_ENV), null);
+  // Plain property access on `{}` without `?.` or undefined initializer must not short-circuit.
+  assert.equal(evaluator.fold(elements[2], EMPTY_ENV), null);
+  // Existing property values `undefined` / `null` do not trigger `?.` short-circuiting on `.c`.
+  assert.equal(evaluator.fold(elements[3], EMPTY_ENV), null);
+  assert.equal(evaluator.fold(elements[4], EMPTY_ENV), null);
+  // Symbolic input without a null/undefined binding stays unknown (`null`).
+  assert.equal(evaluator.fold(elements[5], EMPTY_ENV), null);
+});
+
 test("processSourceSites keeps exact callback evidence after evicting transient env frames", () => {
   const file = "packages/daemon/src/bounded-frames.ts",
     { rootDir } = makeRepo({

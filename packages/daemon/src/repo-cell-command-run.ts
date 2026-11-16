@@ -274,6 +274,32 @@ export function makeRepoCellCommandRunner(
         })
         .then((receipt) => receipt as WriteReceipt)
         .catch((error) => failAction(context, action, binding, error));
+    const appendCompletionWarnings = async <T extends WriteReceiptDraft | WriteReceipt | SquadControlResult>(
+      receipt: T,
+      authorizedBinding: RepoCellBinding,
+    ): Promise<T> => {
+      if (
+        (action.kind === "task-submit" || action.kind === "task-settle" || action.kind === "task-witness-rerun") &&
+        typeof action.taskId === "string" &&
+        !isSquadControlCommand(action.kind) &&
+        "opId" in receipt &&
+        (receipt.outcome === "applied" ||
+          (receipt.outcome === "pending" && (receipt as WriteReceipt).status === "accepted_durable"))
+      ) {
+        const warnings = await runCompletionSources(
+          context,
+          action.taskId as string,
+          authorizedBinding,
+          action.kind === "task-witness-rerun" ? `gate-${receipt.opId}` : undefined,
+        );
+        if (warnings.length)
+          return {
+            ...receipt,
+            warnings: [...((receipt as WriteReceipt).warnings ?? []), ...warnings],
+          };
+      }
+      return receipt;
+    };
     const enqueuePublication = (
       execute: (authorizationDecision?: AuthorizationDecision) => WriteReceiptDraft | Promise<WriteReceiptDraft>,
       ingest?: (authorizationDecision?: AuthorizationDecision) => void,
@@ -456,19 +482,22 @@ export function makeRepoCellCommandRunner(
                   : undefined,
               )) as WriteReceipt;
           }
-          if (
-            continueOnApplied &&
-            "outcome" in receipt &&
-            receipt.outcome === "applied" &&
-            (action.kind === "task-submit" || action.kind === "task-settle")
-          )
-            return (await continueSubmittedTask(
-              context.extracted,
-              action,
-              binding,
-              receipt,
-              continueWrite,
-            )) as WriteReceipt;
+          if (continueOnApplied && (action.kind === "task-submit" || action.kind === "task-settle")) {
+            const submitted =
+              "outcome" in receipt && receipt.outcome === "applied"
+                ? ((await continueSubmittedTask(
+                    context.extracted,
+                    action,
+                    binding,
+                    receipt,
+                    continueWrite,
+                  )) as WriteReceipt)
+                : receipt;
+            return await appendCompletionWarnings(
+              submitted,
+              queuedDecision ? { ...binding, authorizationDecision: queuedDecision } : binding,
+            );
+          }
           if (!replaceAfterPublication) return receipt;
           await context.attemptRecovery(true);
           return context.state === "attached"
@@ -577,6 +606,11 @@ export function makeRepoCellCommandRunner(
         .catch(async (error) =>
           failAction(context, action, binding, error, durable ? await authorizeAtCurrentCut()! : undefined),
         );
+    if (action.kind === "task-witness-rerun" && typeof action.taskId === "string")
+      return enqueuePublication(async (authorizationDecision) => {
+        const nextBinding = authorizationDecision ? { ...binding, authorizationDecision } : binding;
+        return appendCompletionWarnings(await context.executeAction(action, nextBinding), nextBinding);
+      });
     return enqueuePublication((authorizationDecision) =>
       context.executeAction(action, authorizationDecision ? { ...binding, authorizationDecision } : binding),
     );
@@ -598,23 +632,6 @@ export function makeRepoCellCommandRunner(
     }
     action = resolution.action;
     const receipt = await run(action, binding, signal, !resolution.resolved, onExecutionStart, queueObservation);
-    if (
-      (action.kind === "task-submit" || action.kind === "task-settle" || action.kind === "task-witness-rerun") &&
-      typeof action.taskId === "string" &&
-      !isSquadControlCommand(action.kind) &&
-      "outcome" in receipt &&
-      (receipt.outcome === "applied" ||
-        (receipt.outcome === "pending" && (receipt as WriteReceipt).status === "accepted_durable"))
-    ) {
-      const warnings = await runCompletionSources(
-        context,
-        action.taskId as string,
-        binding,
-        action.kind === "task-witness-rerun" ? `gate-${receipt.opId}` : undefined,
-      );
-      if (warnings.length)
-        return { ...receipt, warnings: [...((receipt as WriteReceipt).warnings ?? []), ...warnings] };
-    }
     return receipt;
   };
 }

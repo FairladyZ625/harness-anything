@@ -35,8 +35,21 @@ import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
 const repositoryEffect = "settings-event/settings_changed";
 const localEffect = "settings-local/locale_changed";
 
+export type SettingsActionCell = Pick<
+  RepoCellRuntimeContext,
+  | "cellCodedError"
+  | "input"
+  | "now"
+  | "operationId"
+  | "projection"
+  | "publicPublication"
+  | "receiptForOperation"
+  | "rootDir"
+  | "store"
+>;
+
 export function makeSettingsActionRuntime(
-  cell: RepoCellRuntimeContext,
+  cell: SettingsActionCell,
   settingsState: RepoCellSettingsState,
 ): EntityActionCatalogRunner {
   return (contract, action, binding, catalogOpId): WriteReceipt | Promise<WriteReceipt> => {
@@ -153,7 +166,7 @@ export function makeSettingsActionRuntime(
  * asynchronous catalog lookup, so this path stays synchronous.
  */
 function settleWithoutDraft(
-  cell: RepoCellRuntimeContext,
+  cell: SettingsActionCell,
   settingsState: RepoCellSettingsState,
   binding: RepoCellBinding,
   opId: string,
@@ -214,7 +227,7 @@ function mergedSettings(
 
 /** The action's local-only fields (locale, GUI deadlines) applied onto this machine's local settings; null when it names none. */
 function localSettingsFromAction(
-  cell: RepoCellRuntimeContext,
+  cell: SettingsActionCell,
   action: RepoTaskAction,
   settingsState: Pick<RepoCellSettingsState, "readLocal">,
 ): LocalSettingsV1 | null {
@@ -230,7 +243,7 @@ function localSettingsFromAction(
   }
 }
 
-function readAuthoredDocument(cell: RepoCellRuntimeContext): string | undefined {
+function readAuthoredDocument(cell: SettingsActionCell): string | undefined {
   const configPath = path.join(resolveHarnessLayout(cell.rootDir).authoredRoot, "harness.yaml");
   return existsSync(configPath)
     ? new TextDecoder("utf-8", { fatal: true }).decode(
@@ -240,7 +253,7 @@ function readAuthoredDocument(cell: RepoCellRuntimeContext): string | undefined 
 }
 
 function authoredGateMappings(
-  cell: RepoCellRuntimeContext,
+  cell: SettingsActionCell,
   authoredDocumentBody: string | undefined,
 ): readonly GateWitnessMappingV1[] {
   if (authoredDocumentBody === undefined)
@@ -266,7 +279,7 @@ function authoredGateMappings(
  * `validateRepositorySettings`; anything the document cannot express fails the round-trip.
  */
 function draftedGateMappings(
-  cell: RepoCellRuntimeContext,
+  cell: SettingsActionCell,
   draft: unknown,
   documentBody: string | undefined,
 ): readonly GateWitnessMappingV1[] | undefined {
@@ -291,7 +304,7 @@ function draftedGateMappings(
 }
 
 function readSettings(
-  cell: RepoCellRuntimeContext,
+  cell: SettingsActionCell,
   settingsState: RepoCellSettingsState,
   action: RepoTaskAction,
   binding: RepoCellBinding,
@@ -335,7 +348,7 @@ function readSettings(
 }
 
 function publishSettingsDraft(
-  cell: RepoCellRuntimeContext,
+  cell: SettingsActionCell,
   settingsState: RepoCellSettingsState,
   opId: string,
   draft: Extract<SettingsActionDraft, { readonly kind: "event" }>,
@@ -397,7 +410,7 @@ function replayReceipt(
 }
 
 function settingsOperationId(
-  cell: RepoCellRuntimeContext,
+  cell: SettingsActionCell,
   action: RepoTaskAction,
   binding: RepoCellBinding,
   revision: number,

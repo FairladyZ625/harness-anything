@@ -145,7 +145,9 @@ export function readLocalState(
   return { value: fallback, valid: false };
 }
 
-export function makeRepoCellSettingsState(cell: RepoCellActionContext): RepoCellSettingsState {
+export function makeRepoCellSettingsState(
+  cell: Pick<RepoCellActionContext, "input" | "now" | "projection" | "rootDir" | "store">,
+): RepoCellSettingsState {
   // Machine-local preferences live under this repository's own local root, never a literal `.harness`.
   const localPath = resolveHarnessLayout(cell.rootDir).settingsLocalPath;
 

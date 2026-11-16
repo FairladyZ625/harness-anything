@@ -8,7 +8,18 @@ import { allDaemonProtocolMethods } from "../../packages/daemon/src/protocol/dae
 import { daemonGuiStreamFacets } from "../../packages/daemon/src/protocol/daemon-protocol.contract.ts";
 import { isFunctionNode, unwrap } from "./authorization-flow-graph.mjs";
 
-export const sourceSite = (graph, node) => `${graph.fileOf(node)}:${node.getStart(node.getSourceFile())}:${node.end}`;
+const nodeStarts = new WeakMap();
+
+export function nodeStart(node) {
+  let start = nodeStarts.get(node);
+  if (start === undefined) {
+    start = node.getStart(node.getSourceFile());
+    nodeStarts.set(node, start);
+  }
+  return start;
+}
+
+export const sourceSite = (graph, node) => `${graph.fileOf(node)}:${nodeStart(node)}:${node.end}`;
 export const guiClientSource = (graph, node) =>
   /^packages\/gui\/src\/(?:renderer|preload|browser)\//u.test(graph.fileOf(node));
 

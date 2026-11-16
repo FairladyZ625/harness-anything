@@ -13,7 +13,12 @@ import fs from "node:fs";
 import { pathToFileURL } from "node:url";
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
 import ts from "typescript";
-import { authorizationPolicyGraph, buildFlowGraph, isFunctionNode } from "./authorization-flow-graph.mjs";
+import {
+  authorizationPolicyGraph,
+  buildFlowGraph,
+  isFunctionNode,
+  makeEvaluator,
+} from "./authorization-flow-graph.mjs";
 import { makeAuthorizationTracer } from "./authorization-flow-trace.mjs";
 import { withArtifactActionIngressDeclarations } from "./ontology-gate-lib.mjs";
 import {
@@ -50,6 +55,13 @@ const portAnchors = [
 const decisionAnchor = { file: "packages/kernel/src/domain/receipt-frame.ts", name: "AuthorizationDecision" };
 const sessionAnchors = [
   { file: "packages/kernel/src/ports/identity-session-port.ts", name: "IdentitySessionPort", member: "requireSession" },
+];
+const serviceAnchors = [
+  {
+    file: "packages/application/src/task-lifecycle-service.ts",
+    name: "TaskLifecycleService",
+    members: ["execute", "executeWithDocuments"],
+  },
 ];
 
 /** The protocol authorities the trace reads: descriptors, the method table and kernel constants. */
@@ -269,6 +281,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       writerQueue: { file: "packages/daemon/src/repo-cell.ts", name: "chainRepoCellWrite" },
       writerFence: { file: "packages/kernel/src/domain/write-chain.contract.ts", name: "assertCurrentWriter" },
       sessions: sessionAnchors,
+      services: serviceAnchors,
       entries: transportEntries(graph),
       constants: inputs.constants,
       functions: inputs.functions,
@@ -369,6 +382,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       violations,
     };
   });
+  const processEvaluator = makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true });
   const nativeSites = new Map();
   for (const action of actions.filter((action) => action.ontology?.authority)) {
     const { authority, entries = {} } = action.ontology;
@@ -380,11 +394,15 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       );
       if (routeTargets.length === 0) continue;
       const cacheKey = `${entry.file}\u0000${route}`;
-      if (!nativeSites.has(cacheKey))
+      if (!nativeSites.has(cacheKey)) {
         nativeSites.set(
           cacheKey,
-          processSourceSites(graph, root, { targets: routeTargets.map((source) => source.site) }),
+          processSourceSites(graph, root, {
+            evaluator: processEvaluator,
+            targets: routeTargets.map((source) => source.site),
+          }),
         );
+      }
       const sites = nativeSites.get(cacheKey);
       for (const source of routeTargets)
         sourceResults.set(source.id, {
@@ -408,7 +426,10 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       const file = path.posix.normalize(path.posix.join(path.posix.dirname(scriptManifest), script.command));
       const root = moduleEntry(graph, file);
       if (root)
-        for (const site of processSourceSites(graph, root, { targets: scriptTargets.map((source) => source.site) }))
+        for (const site of processSourceSites(graph, root, {
+          evaluator: processEvaluator,
+          targets: scriptTargets.map((source) => source.site),
+        }))
           sites.add(site);
     }
     for (const source of scriptTargets)

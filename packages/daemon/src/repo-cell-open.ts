@@ -724,7 +724,17 @@ export async function openRepoWriterCell(
   });
   const runtimeContext = Object.assign(extracted, { mode, runtimeSpawner });
   runtimeContext satisfies RepoCellRuntimeContext;
-  const settings = makeRepoCellSettingsState(extracted),
+  const settings = makeRepoCellSettingsState({
+      input: extracted.input,
+      now,
+      get projection() {
+        return projection;
+      },
+      rootDir,
+      get store() {
+        return store;
+      },
+    }),
     scheduleActionRuntime = makeScheduleActionRuntime(runtimeContext, () => settings.read().worktree),
     agentActionRuntime = makeAgentActionRuntime(runtimeContext),
     squadActionRuntime = makeSquadActionRuntime(runtimeContext),
