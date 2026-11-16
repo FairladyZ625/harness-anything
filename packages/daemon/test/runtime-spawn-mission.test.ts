@@ -173,6 +173,7 @@ test("task mission renders the pre-collected bounded progress snapshot (CH1)", a
     explicitMission: undefined,
     reviewerBinding: false,
     workspaceProgress: { head: "abc1234 Completed focused checks", changedFiles: 2, unavailable: null },
+    lifecycleNode: "implementation",
   });
   assert.equal(resolved.mission, "Continue the task.");
   assert.match(resolved.progressSnapshot!, /Reason: worker_stop: Focused tests passed\./u);

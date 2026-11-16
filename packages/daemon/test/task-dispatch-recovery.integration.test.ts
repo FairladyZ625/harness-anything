@@ -2,6 +2,7 @@
 import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
@@ -365,6 +366,33 @@ async function recoveryScenario(budgetCase: boolean | string): Promise<void> {
         );
         assert.equal(launches.length, limit);
         assert.deepEqual(dispatches(), before, "the refused seventh attempt appends no dispatch");
+        // F1: review observes the submitted work; it is not another implementation attempt.
+        // Exercise the same canonical ingress the closeout-reviewer dispatch uses at the ceiling.
+        const source = makeTaskEventReader({ repoId, rootDir: root })
+            .read()
+            .events.find((event) => event.type === "runtime_dispatch_requested" && event.payload.taskId === taskId)!,
+          dispatchKey = "review-at-implementation-ceiling",
+          hash = createHash("sha256").update(`${repoId}\0${dispatchKey}`).digest("hex"),
+          reviewerDispatchId = `dispatch_${hash.slice(0, 24)}`,
+          receipt = await cell.runtimeIngress(
+            {
+              kind: "event",
+              type: "runtime_dispatch_requested",
+              opId: "review-at-implementation-ceiling",
+              payload: {
+                ...source.payload,
+                dispatchKey,
+                dispatchId: reviewerDispatchId,
+                runtimeSessionId: `runtime_${hash.slice(24, 48)}`,
+                attemptGroupId: reviewerDispatchId,
+                attemptIndex: 0,
+                role: "reviewer",
+              },
+            },
+            ceo,
+          );
+        assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+        assert.deepEqual(dispatches(), [...before, reviewerDispatchId]);
         return;
       }
 

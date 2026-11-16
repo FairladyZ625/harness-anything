@@ -303,7 +303,7 @@ export async function settleFallbackAttempt(
   if (active.task && !input.remote) {
     const refusal = runtimeExecutionBudgetRefusal(
       context.requiredRuntimeProjection(input),
-      active.task,
+      { ...active.task, role: active.role },
       active.tokenLimit,
       active,
     );
@@ -448,9 +448,18 @@ export async function scheduleFallbackContinuation(args: {
     async () => {
       if (context.closed?.()) return;
       // Host probes finish before input.schedule enters the exclusive writer turn (D1).
-      const workspaceProgress = await collectRuntimeWorkspaceProgress(header.cwd!);
-      const remoteNode =
-        header.taskId && input.remote ? await input.remote.readTaskLifecycleNode?.(header.taskId) : null;
+      let workspaceProgress: RuntimeWorkspaceProgress = { head: null, changedFiles: null, unavailable: null };
+      let remoteNode: string | null | undefined = null;
+      try {
+        workspaceProgress = await collectRuntimeWorkspaceProgress(header.cwd!);
+        remoteNode = header.taskId && input.remote ? await input.remote.readTaskLifecycleNode?.(header.taskId) : null;
+      } catch (error) {
+        consumeKnownError(error);
+        workspaceProgress = {
+          ...workspaceProgress,
+          unavailable: `progress snapshot unavailable (${runtimeErrorCode(error) ?? "probe_failed"})`,
+        };
+      }
       if (context.closed?.()) return;
       input.schedule(async () => {
         const currentRead = await readDispatchLifecycle(context, { by: "dispatch", dispatchIds: [args.dispatchId] });

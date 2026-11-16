@@ -237,6 +237,7 @@ export function appendAuxiliaryRuntimeIngress(
         {
           taskId: action.payload.taskId,
           executionId: action.payload.executionId,
+          role: typeof action.payload.role === "string" ? action.payload.role : null,
         },
         cell.runtimeUsageLimit(),
       );

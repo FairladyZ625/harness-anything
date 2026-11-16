@@ -35,14 +35,19 @@ export function observeRuntimeSpendCap(
  * The current attempt's terminal metrics may not have been published when fallback is decided. */
 export function runtimeExecutionBudgetRefusal(
   projection: TaskProjection,
-  task: { readonly taskId: string; readonly executionId: string },
+  task: { readonly taskId: string; readonly executionId: string; readonly role?: string | null },
   tokenLimit: number | null,
   current?: { readonly runtimeSessionId: string; readonly inputTokens: number; readonly outputTokens: number },
 ) {
-  const attempts = projection.readRuntimeDispatchesByTaskExecution(task.taskId, task.executionId).map((row) => ({
-    runtimeSessionId: row.event.payload.runtimeSessionId,
-    totalTokens: row.metrics?.totalTokens ?? 0,
-  }));
+  // Review must remain available after implementation exhausts its spending authorization.
+  if (task.role === "reviewer") return null;
+  const attempts = projection
+    .readRuntimeDispatchesByTaskExecution(task.taskId, task.executionId)
+    .filter((row) => row.event.payload.role !== "reviewer")
+    .map((row) => ({
+      runtimeSessionId: row.event.payload.runtimeSessionId,
+      totalTokens: row.metrics?.totalTokens ?? 0,
+    }));
   if (current) attempts.push({ runtimeSessionId: current.runtimeSessionId, totalTokens: runtimeTokenTotal(current) });
   return executionRuntimeBudgetRefusal(attempts, {
     maxAttempts: executionRuntimeBudgetPolicy.defaultValue.maxAttempts,

@@ -62,6 +62,48 @@ function providerContext() {
   } as never;
 }
 
+test("reviewer dispatches neither consume implementation attempts/tokens nor face its ceiling", async () => {
+  const task = { taskId: "task-budget", executionId: "execution-budget" },
+    rows = Array.from({ length: 5 }, (_, index) => ({
+      event: { payload: { runtimeSessionId: `implementation-${index}`, role: "implementer" } },
+      metrics: { totalTokens: 1 },
+    })),
+    reviewer = {
+      event: { payload: { runtimeSessionId: "reviewer", role: "reviewer" } },
+      metrics: { totalTokens: 1000 },
+    },
+    projection = { readRuntimeDispatchesByTaskExecution: () => [...rows, reviewer] } as never;
+  assert.equal(runtimeExecutionBudgetRefusal(projection, task, 100), null);
+  rows.push({
+    event: { payload: { runtimeSessionId: "implementation-5", role: "implementer" } },
+    metrics: { totalTokens: 1 },
+  });
+  assert.equal(runtimeExecutionBudgetRefusal(projection, task, 100)?.code, "execution_budget_exceeded");
+  assert.equal(runtimeExecutionBudgetRefusal(projection, { ...task, role: "reviewer" }, 100), null);
+  const result = await settleFallbackAttempt(
+    {
+      input: { now: () => "2026-11-16T00:00:00Z", readSettings: () => ({ runtime: {} }) },
+      requiredRuntimeProjection: () => projection,
+    } as never,
+    {
+      task,
+      role: "reviewer",
+      tokenLimit: 100,
+      stream: { appendFallbackState: () => undefined },
+      fallbackAttempt: { attemptIndex: 0, candidates: [{ instance: "a" }, { instance: "b" }] },
+    } as never,
+    {
+      classification: "provider_fault",
+      reason: "startup 500",
+      provider: { instance: "a", model: "fixture", kind: "agy" },
+      attemptGroupId: "reviewer-group",
+      attemptIndex: 0,
+    },
+    { outcome: "failed" } as never,
+  );
+  assert.equal(result?.fallbackState, "scheduled", "reviewer fallback retains its own bounded retry policy");
+});
+
 test("usage above the dispatch token limit marks the runtime as capped", async () => {
   const runtime = active(100);
   await consumeProviderLine(
