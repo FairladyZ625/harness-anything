@@ -197,34 +197,37 @@ test("task mission renders the pre-collected bounded progress snapshot (CH1)", a
   assert.ok(assembled.indexOf(snapshot) < assembled.indexOf("# Assigned Mission"));
 });
 
-test("explicit recovery retains a progress snapshot without an archived conclusion", async () => {
-  const resolved = await resolveRuntimeMission({
-    rootDir: process.cwd(),
-    cwd: process.cwd(),
-    taskId: "task_x",
-    projection: null,
-    remoteTask: {
-      packageRoot: "tasks/task_x",
-      mission: () => "Recover the task.",
-      continuationContext: null,
-      causalContext: null,
-      profileId: null,
-      taskClass: "standard",
-      planBody: null,
-      ownerReturnBody: null,
-    } as never,
-    taskSnapshot: null,
-    missionName: undefined,
-    explicitMission: undefined,
-    reviewerBinding: false,
-    continuationRequested: true,
-    workspaceProgress: { head: "abc1234 recovery", changedFiles: 3, unavailable: null },
+for (const lifecycleNode of ["custom-recovery-stage", null])
+  test(`explicit recovery keeps progress without an archive; lifecycle=${lifecycleNode}`, async () => {
+    const resolved = await resolveRuntimeMission({
+      rootDir: process.cwd(),
+      cwd: process.cwd(),
+      taskId: "task_x",
+      projection: null,
+      remoteTask: {
+        packageRoot: "tasks/task_x",
+        mission: () => "Recover the task.",
+        continuationContext: null,
+        causalContext: null,
+        profileId: null,
+        taskClass: "standard",
+        planBody: null,
+        ownerReturnBody: null,
+      } as never,
+      taskSnapshot: null,
+      missionName: undefined,
+      explicitMission: undefined,
+      reviewerBinding: false,
+      continuationRequested: true,
+      lifecycleNode,
+      workspaceProgress: { head: "abc1234 recovery", changedFiles: 3, unavailable: null },
+    });
+    assert.equal(resolved.mission, "Recover the task.");
+    assert.match(resolved.progressSnapshot!, /HEAD: abc1234 recovery/u);
+    assert.match(resolved.progressSnapshot!, /Last attempt: none recorded/u);
+    assert.ok(resolved.progressSnapshot!.includes(`Task lifecycle node: ${lifecycleNode ?? "unavailable"}`));
+    assert.ok(Buffer.byteLength(resolved.progressSnapshot!, "utf8") <= 2048);
   });
-  assert.equal(resolved.mission, "Recover the task.");
-  assert.match(resolved.progressSnapshot!, /HEAD: abc1234 recovery/u);
-  assert.match(resolved.progressSnapshot!, /Last attempt: none recorded/u);
-  assert.ok(Buffer.byteLength(resolved.progressSnapshot!, "utf8") <= 2048);
-});
 
 test("a remote mission carries an escalation answer from the mirrored ruling package", async () => {
   const packageRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-escalation-mirror-"));

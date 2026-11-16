@@ -449,6 +449,8 @@ export async function scheduleFallbackContinuation(args: {
       if (context.closed?.()) return;
       // Host probes finish before input.schedule enters the exclusive writer turn (D1).
       const workspaceProgress = await collectRuntimeWorkspaceProgress(header.cwd!);
+      const remoteNode =
+        header.taskId && input.remote ? await input.remote.readTaskLifecycleNode?.(header.taskId) : null;
       if (context.closed?.()) return;
       input.schedule(async () => {
         const currentRead = await readDispatchLifecycle(context, { by: "dispatch", dispatchIds: [args.dispatchId] });
@@ -490,9 +492,7 @@ export async function scheduleFallbackContinuation(args: {
             header.taskId && !input.remote
               ? (context.requiredRuntimeProjection(input).read(header.taskId, false, false).snapshot.task
                   ?.currentNode ?? "implementation")
-              : header.role === "reviewer"
-                ? "review"
-                : "implementation",
+              : (remoteNode ?? "unavailable"),
           );
         try {
           const continuationPayload: JsonObject = {

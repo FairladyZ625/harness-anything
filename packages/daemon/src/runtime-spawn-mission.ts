@@ -1029,6 +1029,7 @@ export async function resolveRuntimeMission(input: {
   readonly workspaceProgress?: RuntimeWorkspaceProgress;
   readonly continuationSnapshotProvided?: boolean;
   readonly continuationRequested?: boolean;
+  readonly lifecycleNode?: string | null;
 }): Promise<{
   readonly taskMission: { readonly mission: string; readonly packageRoot: string } | null;
   readonly mission: string;
@@ -1096,7 +1097,7 @@ export async function resolveRuntimeMission(input: {
         ? null
         : runtimeProgressSnapshot({
             workspace: input.workspaceProgress,
-            node: taskSnapshot?.task?.currentNode ?? (input.reviewerBinding ? "review" : "implementation"),
+            node: input.lifecycleNode ?? taskSnapshot?.task?.currentNode ?? "unavailable",
             classification: continuation?.lastConclusion?.split(":")[0] ?? null,
             reason: continuation?.lastConclusion ?? null,
           }),
