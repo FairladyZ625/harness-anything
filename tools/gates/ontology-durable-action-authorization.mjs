@@ -354,7 +354,15 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
     }),
     scope = changedAuthorizationScope(graph, inputs, options.changedFiles);
   options.onScope?.({
-    descriptorIds: scope.descriptorIds ? [...scope.descriptorIds] : null,
+    descriptorIds:
+      scope.descriptorIds || onlySet
+        ? durable
+            .filter(
+              (descriptor) =>
+                matchesOnly(descriptor) && (!scope.descriptorIds || scope.descriptorIds.has(descriptor.id)),
+            )
+            .map((descriptor) => descriptor.id)
+        : null,
     durableDescriptorIds: durable.map((descriptor) => descriptor.id),
   });
   const scopedSourceActions = sourceActions
