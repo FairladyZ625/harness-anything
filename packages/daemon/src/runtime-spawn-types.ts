@@ -354,6 +354,8 @@ export type RuntimeSessionSelection = Pick<
 >;
 
 export interface RemoteRuntimePersistence {
+  /** Snapshot context only: read the task's actual lifecycle node from the edge replica. */
+  readonly readTaskLifecycleNode?: (taskId: string) => Promise<string | null>;
   readonly executionCredential: (runtimeSessionId: string) => {
     readonly credential: string;
     readonly expiresAt: string;

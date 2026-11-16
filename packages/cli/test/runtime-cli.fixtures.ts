@@ -521,17 +521,16 @@ export function assertTaskMissionPrompt(
     assignmentOffset = prompt.indexOf(assignment);
   assert.notEqual(assignmentOffset, -1, prompt);
   const assembledMission = prompt.slice(assignmentOffset + assignment.length);
-  if (!expected.continuationContext) {
-    assert.equal(assembledMission, expected.mission, prompt);
-    return;
+  assert.equal(assembledMission, expected.mission, prompt);
+  if (expected.continuationContext) {
+    // dec_B9B5BF3C86195DF4186D01668D/CH1: bounded progress belongs to the dispatch
+    // context, preserving the caller's Assigned Mission bytes.
+    const snapshot = prompt.match(/<runtime-progress>[\s\S]*?<\/runtime-progress>/u)?.[0];
+    assert.ok(snapshot, prompt);
+    assert.ok(Buffer.byteLength(snapshot, "utf8") <= 2048);
+    assert.match(snapshot, /HEAD: .+\nChanged files: .+\nTask lifecycle node: .+\nLast attempt: .+\nReason: /u);
+    assert.ok(prompt.indexOf(snapshot) < assignmentOffset);
   }
-  const continuationHeading = "# Previous runtime continuation context\n",
-    expectedPrefix = `${expected.mission}\n\n${continuationHeading}`;
-  assert.ok(assembledMission.startsWith(expectedPrefix), assembledMission);
-  assert.match(
-    assembledMission.slice(expectedPrefix.length),
-    /^Previous dispatch: \S+\nLast conclusion: [\s\S]*\nExit worktree HEAD: .*\nCurrent worktree HEAD: .*\nHEAD comparison: (?:same|changed|unavailable)$/u,
-  );
 }
 
 /**

@@ -96,6 +96,8 @@ export function providerFaultFromFrame(
       diagnostic = diagnosticText(result?.error),
       responseCode = integer(result?.status_code),
       code = diagnosticText(result?.code);
+    if (result?.finished_reason === "print_timeout")
+      return fault("print_timeout", "agy print_timeout: turn exceeded its print deadline.");
     return providerFaultFromDiagnostic(responseCode, code, diagnostic, resetAtFrom(result ?? value));
   }
   if (kindId === "zcode" && value.type === "turn.failed") {
@@ -131,7 +133,7 @@ export function providerFaultFromStderr(kindId: RuntimeInstanceKind, stderr: str
     kindId === "agy" &&
     /^\[agy\] print timeout after [^\r\n]+ with turn in progress; returning partial output$/imu.test(normalized)
   )
-    return fault("pre_tool_exit", normalized);
+    return fault("print_timeout", normalized);
   const diagnosticFault = providerFaultFromDiagnostic(null, null, normalized, undefined);
   return diagnosticFault?.code === "unrecognized_model" || diagnosticFault?.code === "auth_failed"
     ? null
@@ -150,8 +152,8 @@ export function classifyRuntimeExit(
   exitCode: number | null,
   ruling: { readonly question: string; readonly options?: readonly string[] } | null = null,
 ): RuntimeAttemptOutcome & { readonly outcome: RuntimeExitOutcome } {
-  const providerFault =
-      active.providerFault ?? providerFaultFromStderr(active.kindId, active.errorOverflowed ? "" : active.errorBuffer),
+  const stderrFault = providerFaultFromStderr(active.kindId, active.errorOverflowed ? "" : active.errorBuffer),
+    providerFault = stderrFault?.code === "print_timeout" ? stderrFault : (active.providerFault ?? stderrFault),
     outcome = runtimeExitOutcome(active, exitCode, providerFault),
     provider = { instance: active.instanceId, model: active.model, kind: active.kindId },
     attemptGroupId = active.fallbackAttempt?.attemptGroupId ?? active.dispatchId,
@@ -198,15 +200,15 @@ export function classifyRuntimeExit(
     return { ...classified("worker_stop", providerFault.reason), outcome: "failed" };
   if (attemptFailed && providerFault?.code === "unrecognized_model")
     return classified("gate_red", providerFault.reason);
-  // Codex can reject a request before it establishes a turn. Retry this one startup-only
-  // availability fault through the existing bounded provider fallback chain, but do not replay
-  // work after the worker has already called a tool.
-  if (attemptFailed && providerFault?.code === "request_unavailable" && active.toolCallObserved)
-    return classified("gate_red", providerFault.reason);
-  // A connection that dropped after the worker already called a tool may have left work behind;
-  // keep that attempt a task failure instead of replaying it on the next provider.
-  if (attemptFailed && providerFault?.code === "provider_disconnected" && active.toolCallObserved)
-    return classified("gate_red", providerFault.reason);
+  // dec_B9B5BF3C86195DF4186D01668D/CH1: a print deadline is terminal, and a
+  // provider fault after tools may have left side effects. Quota keeps its cooldown semantics.
+  if (providerFault?.code === "print_timeout")
+    return { ...classified("gate_red", providerFault.reason), outcome: "failed" };
+  if (active.toolCallObserved && ((providerFault && !providerFault.faultClass) || exitCode === null))
+    return {
+      ...classified("gate_red", providerFault?.reason ?? "Provider disconnected after tool activity."),
+      outcome: "failed",
+    };
   if (attemptFailed && providerFault)
     return {
       ...classified(providerFault.faultClass ? "provider_quota" : "provider_fault", providerFault.reason),
@@ -220,7 +222,11 @@ export function classifyRuntimeExit(
   // A drained reconnect budget is upstream overload, not the worker giving up: when the provider
   // reconnected and the attempt then ended without any successful tool call, the last agent
   // message is the overloaded stream's tail, whatever it claims about the workspace.
-  if (reconnectExhaustedTail(active)) return classified("provider_fault", reconnectExhaustedReason(active));
+  if (reconnectExhaustedTail(active))
+    return {
+      ...classified(active.toolCallObserved ? "gate_red" : "provider_fault", reconnectExhaustedReason(active)),
+      outcome: "failed",
+    };
   // A reconnect with neither a served tool call nor an answering agent message has no terminal
   // evidence to preserve. Keep this transport-loss case on the historical worker-stop path;
   // completed_without_final_text is reserved for a provider that actually completed a turn.

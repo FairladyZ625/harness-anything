@@ -18,6 +18,8 @@ import {
   taskReviewAttributionPolicy,
   taskKernelPolicies,
   executionDelegationPolicy,
+  executionRuntimeBudgetPolicy,
+  executionRuntimeBudgetJudgment,
 } from "./task-submission-policy.ts";
 import {
   daemonRuntimeSessionPolicySources,
@@ -1505,7 +1507,8 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     entityStore: null,
     authoring: { kind: "task-lifecycle", contractRef: "task-event/v1" },
     sdkExposure: noSdkExposure,
-    policies: [executionDelegationPolicy],
+    policies: [executionDelegationPolicy, executionRuntimeBudgetPolicy],
+    judgments: [executionRuntimeBudgetJudgment],
   },
   {
     kind: "review",

@@ -659,6 +659,10 @@ function contextFor(
         });
       },
       runtimeSpawner: {
+        prepareProgress: () => {
+          assert.equal(fixture.tailAssignments, 0, "progress is prepared before the writer publication turn");
+          return Promise.resolve({ head: "abc1234 fixture", changedFiles: 0, unavailable: null });
+        },
         prepareWorktree: (payload: unknown) => {
           fixture.prepared.push(payload);
           return Promise.resolve(null);

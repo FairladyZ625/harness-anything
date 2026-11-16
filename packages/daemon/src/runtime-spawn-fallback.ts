@@ -1,3 +1,10 @@
+import { executionRuntimeBudgetPolicy } from "@harness-anything/kernel/internal/domain/task-submission-policy.ts";
+import {
+  collectRuntimeWorkspaceProgress,
+  runtimeProgressSnapshot,
+  type RuntimeWorkspaceProgress,
+} from "./runtime-continuation-context.ts";
+import { runtimeExecutionBudgetRefusal } from "./runtime-spend-cap.ts";
 import { INITIAL_SETTINGS_V1 } from "@harness-anything/kernel/internal/domain/settings.ts";
 import {
   archiveDispatchStream,
@@ -20,7 +27,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { consumeKnownError, type AgentRuntimeEventV1, type DispatchLifecycleView } from "@harness-anything/kernel";
 import { readDispatchLifecycle } from "./runtime-dispatch-admission.ts";
-import { runtimeErrorMessage, runtimeSpawnError } from "./runtime-spawn-errors.ts";
+import { runtimeErrorCode, runtimeErrorMessage, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import type { RuntimeAgent, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import { resolveRuntimeInstanceCandidates } from "./runtime-spawn-mission.ts";
@@ -181,14 +188,16 @@ export function initialFallbackAttempt(
  * provider stderr. It must never inline the previous attempt's raw log, whose size would grow the
  * next mission (and can push it past the next provider's input limit).
  */
-export function continuationMission(outcome: RuntimeAttemptOutcome, originalMission: string): string {
+export function continuationMission(
+  outcome: RuntimeAttemptOutcome,
+  originalMission: string,
+  workspace?: RuntimeWorkspaceProgress,
+  node = "implementation",
+): string {
   return [
     "# Provider fallback continuation",
-    [
-      `上次 attempt 用 ${outcome.provider.instance}/${outcome.provider.model} 因 ${outcome.classification} ` +
-        `(${outcome.reason}) 中断；`,
-      "worktree 现状保留在原 cwd；继续同一任务，不使用 provider resume。",
-    ].join(""),
+    runtimeProgressSnapshot({ workspace, node, classification: outcome.classification, reason: outcome.reason }),
+    "worktree 现状保留在原 cwd；继续同一任务，不使用 provider resume。",
     "",
     originalMission,
   ].join("\n");
@@ -239,7 +248,7 @@ function nextFallbackCandidate(
 export type FallbackSettlement = Pick<
   NonNullable<Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }>["payload"]["attempt"]>,
   "fallbackState" | "fallbackSchedule"
->;
+> & { readonly budgetRefusal?: { readonly code: string; readonly message: string } };
 
 export async function settleFallbackAttempt(
   context: RuntimeSpawnerContext,
@@ -248,10 +257,13 @@ export async function settleFallbackAttempt(
   terminal: RuntimeAttemptTerminal,
 ): Promise<FallbackSettlement | void> {
   const { input } = context;
-  const exhaustedTerminal = async (reason: string): Promise<FallbackSettlement> => {
+  const exhaustedTerminal = async (
+    reason: string,
+    budgetRefusal?: { readonly code: string; readonly message: string },
+  ): Promise<FallbackSettlement> => {
     active.stream.appendFallbackState({ state: "exhausted", reason }, input.now());
     await input.onAttemptTerminal?.({ ...terminal, outcome: "failed", reason });
-    return { fallbackState: "exhausted" };
+    return { fallbackState: "exhausted", ...(budgetRefusal ? { budgetRefusal } : {}) };
   };
   const scheduledTerminal = (
     schedule: NonNullable<FallbackSettlement["fallbackSchedule"]>,
@@ -288,6 +300,18 @@ export async function settleFallbackAttempt(
   if (delivered || !isProviderFailureClassification(outcome.classification) || !fallback) {
     await input.onAttemptTerminal?.(terminal);
     return;
+  }
+  if (active.task && !input.remote) {
+    const limit = input.readSettings?.()?.runtime.executionUsageLimit ?? 0,
+      refusal = runtimeExecutionBudgetRefusal(
+        context.requiredRuntimeProjection(input),
+        { ...active.task, role: active.role },
+        limit > 0
+          ? { ...executionRuntimeBudgetPolicy.defaultValue, maxTokens: limit }
+          : executionRuntimeBudgetPolicy.defaultValue,
+        active,
+      );
+    if (refusal) return exhaustedTerminal(`${refusal.code}: ${refusal.message}`, refusal);
   }
   const currentCandidateIndex = fallback.candidateIndex ?? fallback.attemptIndex,
     nextAttemptIndex = fallback.attemptIndex + 1,
@@ -375,6 +399,7 @@ export async function scheduleFallbackContinuation(args: {
     handoffFromRuntimeSessionId: string | undefined,
     publicationOwner: ActiveRuntime["publicationOwner"] | undefined,
     onDispatched: (dispatchId: string, runtimeSessionId: string) => void,
+    workspaceProgress: RuntimeWorkspaceProgress,
   ) => Promise<unknown>;
   readonly dispatchId: string;
 }): Promise<void> {
@@ -424,7 +449,21 @@ export async function scheduleFallbackContinuation(args: {
   if (!plan) throw runtimeSpawnError("runtime_event_missing", `Fallback ${args.dispatchId} has no schedule data.`);
   const notBeforeMs = Date.parse(plan.notBeforeAt);
   const timer = setTimeout(
-    () => {
+    async () => {
+      if (context.closed?.()) return;
+      // Host probes finish before input.schedule enters the exclusive writer turn (D1).
+      let workspaceProgress: RuntimeWorkspaceProgress = { head: null, changedFiles: null, unavailable: null };
+      let remoteNode: string | null | undefined = null;
+      try {
+        workspaceProgress = await collectRuntimeWorkspaceProgress(header.cwd!);
+        remoteNode = header.taskId && input.remote ? await input.remote.readTaskLifecycleNode?.(header.taskId) : null;
+      } catch (error) {
+        consumeKnownError(error);
+        workspaceProgress = {
+          ...workspaceProgress,
+          unavailable: `progress snapshot unavailable (${runtimeErrorCode(error) ?? "probe_failed"})`,
+        };
+      }
       if (context.closed?.()) return;
       input.schedule(async () => {
         const currentRead = await readDispatchLifecycle(context, { by: "dispatch", dispatchIds: [args.dispatchId] });
@@ -459,7 +498,15 @@ export async function scheduleFallbackContinuation(args: {
               ? { waitStartedAt: fallback.waitStartedAt ?? plan.waitStartedAt ?? input.now() }
               : {}),
           },
-          continuation = continuationMission(stream.attemptOutcome!, fallback.originalMission);
+          continuation = continuationMission(
+            stream.attemptOutcome!,
+            fallback.originalMission,
+            workspaceProgress,
+            header.taskId && !input.remote
+              ? (context.requiredRuntimeProjection(input).read(header.taskId, false, false).snapshot.task
+                  ?.currentNode ?? "implementation")
+              : (remoteNode ?? "unavailable"),
+          );
         try {
           const continuationPayload: JsonObject = {
               runtimeInstanceId: next.instance,
@@ -504,6 +551,7 @@ export async function scheduleFallbackContinuation(args: {
                 input.now(),
               );
             },
+            workspaceProgress,
           );
         } catch (error) {
           consumeKnownError(error);
@@ -523,7 +571,13 @@ export async function scheduleFallbackContinuation(args: {
           const exhausted = {
             ...terminal,
             reason,
-            payload: { ...terminal.payload, attempt: { ...attempt, reason, fallbackState: "exhausted" as const } },
+            payload: {
+              ...terminal.payload,
+              ...(runtimeErrorCode(error) === "execution_budget_exceeded"
+                ? { reasonCode: "execution_budget_exceeded" }
+                : {}),
+              attempt: { ...attempt, reason, fallbackState: "exhausted" as const },
+            },
           };
           writer.appendTerminalOutcome(exhausted, input.now());
           await publishTerminal(exhausted);

@@ -908,6 +908,7 @@ test("a failed attempt persists a one-line reason that references the dispatch s
       },
       errorBuffer:
         "PROVIDER-STDERR-FIRST-LINE diagnostic\nPROVIDER-STDERR-RAW-SECOND-LINE\nPROVIDER-STDERR-RAW-THIRD-LINE",
+      toolCallObserved: false,
     }),
     context = {
       exiting: new Set<string>(),

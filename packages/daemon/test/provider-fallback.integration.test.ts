@@ -269,7 +269,12 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     assert.doesNotMatch(JSON.stringify(completed), /sk-provider-fallback-secret/u);
     const fallbackPrompt = prompts.get("provider-success-second")?.at(-1) ?? "";
     assert.match(fallbackPrompt, /# Provider fallback continuation/u);
-    assert.match(fallbackPrompt, /上次 attempt 用 provider-rate-first\/provider-success-model 因/u);
+    const progress = fallbackPrompt.match(/<runtime-progress>[\s\S]*?<\/runtime-progress>/u)?.[0];
+    assert.ok(progress, fallbackPrompt);
+    assert.ok(Buffer.byteLength(progress, "utf8") <= 2048);
+    assert.match(progress, /HEAD: [a-f0-9]+ /u);
+    assert.match(progress, /Last attempt: provider_quota/u);
+    assert.match(progress, /Reason: [^\n]*429/u);
     assert.doesNotMatch(fallbackPrompt, /sk-provider-fallback-secret/u);
     const runtimeStatus = await cell.read("repo.agentRuntime.sessions.read", {
       runtimeSessionId: completed[0]!.runtimeSessionId,
@@ -609,10 +614,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     assert.doesNotMatch(stderrReason, /PROVIDER-STDERR-RAW-LINE-3/u);
     const stderrContinuation = prompts.get("provider-stderr-second")?.[0] ?? "";
     assert.match(stderrContinuation, /# Provider fallback continuation/u);
-    assert.match(
-      stderrContinuation,
-      /上次 attempt 用 provider-stderr-first\/provider-success-model 因 provider_fault/u,
-    );
+    assert.match(stderrContinuation, /Last attempt: provider_fault/u);
     assert.match(stderrContinuation, /full diagnostics: file:\.harness\/runtime\/dispatches\//u);
     assert.doesNotMatch(stderrContinuation, /PROVIDER-STDERR-RAW-LINE-3/u);
     assert.ok(
@@ -879,7 +881,10 @@ for (const coordinated of [false, true])
   test(`repeated adoption preserves publication owner in one fallback (coordinated=${coordinated})`, () =>
     verifyFallbackAdoption(coordinated));
 
-async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
+test("remote fallback launches one successor despite a rejected optional lifecycle probe", () =>
+  verifyFallbackAdoption(false, true));
+
+async function verifyFallbackAdoption(coordinated: boolean, rejectLifecycleProbe = false): Promise<void> {
   const root = mkdtempSync(path.join(tmpdir(), "ha-provider-fallback-adopt-twice-")),
     now = () => new Date().toISOString(),
     receipts = new Map<string, Record<string, unknown>>(),
@@ -889,13 +894,38 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
   let pid = 10_000,
     revision = 0,
     nextLaunches = 0,
+    taskContextReads = 0,
+    lifecycleProbeReads = 0,
     afterRestart = false,
     scheduled = Promise.resolve();
   const remote = {
       existing: async (opId: string) => receipts.get(opId) ?? null,
       taskContext: async () => {
-        throw new Error("task context is not used by this taskless fallback test");
+        assert.ok(rejectLifecycleProbe, "task context is not used by the taskless controls");
+        taskContextReads += 1;
+        return {
+          executionId: "execution-edge-probe",
+          packageRoot: root,
+          mission: () => "Continue the edge task.",
+          planBody: null,
+          riskTier: "low" as const,
+          riskTierFlowVersion: null,
+          profileId: null,
+          taskClass: "standard",
+          causalContext: null,
+          ownerReturnBody: null,
+          continuationContext: null,
+          reviewerNote: null,
+          worktree: null,
+        };
       },
+      readTaskLifecycleNode: async () => {
+        lifecycleProbeReads += 1;
+        if (rejectLifecycleProbe && lifecycleProbeReads > 1)
+          throw runtimeSpawnError("replica_unavailable", "Optional replica probe unavailable.");
+        return "implementation";
+      },
+      executionCredential: () => ({ credential: "test-only-edge-credential", expiresAt: "2099-01-01T00:00:00Z" }),
       async readRuntimeSession(id: string) {
         return (
           (await this.readRuntimeSessions()).find(
@@ -979,6 +1009,9 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
         repoId: "provider-fallback-adopt-twice",
         rootDir: root,
         daemonGeneration: 1,
+        ...(rejectLifecycleProbe
+          ? { runtimeDaemonRoute: { userRoot: root, daemonId: "edge-probe", endpoint: path.join(root, "daemon.sock") } }
+          : {}),
         remote,
         stream: { publish: () => ({}) as never },
         now,
@@ -1022,7 +1055,7 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
         targetAgentId: agent.id,
         cwd: { scope: "repo-root" },
         prompt: "Schedule one durable fallback.",
-        taskId: null,
+        taskId: rejectLifecycleProbe ? "task-edge-probe" : null,
         dispatchKey: "adopt-twice",
       },
       binding,
@@ -1066,7 +1099,7 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
     afterRestart = true;
     spawner = open();
     await spawner.adopt();
-    await spawner.adopt();
+    if (!rejectLifecycleProbe) await spawner.adopt();
     const streams = await eventually(async () => {
       const continuationIds = published.flatMap((event) =>
           event.type === "runtime_dispatch_requested" && event.payload.instanceId === "provider-adopt-next"
@@ -1077,9 +1110,10 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
           .map((dispatchId) => readDispatchStream(root, dispatchId))
           .filter((value): value is NonNullable<typeof value> => value !== null),
         lifecycle = await remote.readDispatchLifecycle({ by: "dispatch", dispatchIds: [first.header.dispatchId] });
-      return values.length === 2 &&
+      return (values.length === 2 &&
         lifecycle.status === "ready" &&
-        lifecycle.rows[0]?.controlLeafDispatchId === continuationIds[0]
+        lifecycle.rows[0]?.controlLeafDispatchId === continuationIds[0]) ||
+        (rejectLifecycleProbe && lifecycle.status === "ready" && lifecycle.rows[0]?.policy.groupSettled)
         ? values
         : null;
     });
@@ -1094,6 +1128,14 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
     assert.equal(original?.header.publicationOwner, coordinated ? "commander" : "runtime");
     assert.equal(continuation?.header.publicationOwner, original?.header.publicationOwner);
     assert.equal(nextLaunches, 1);
+    if (rejectLifecycleProbe) {
+      assert.equal(taskContextReads, 3, "both launches and the original settlement obtain required task context");
+      assert.equal(lifecycleProbeReads, 2, "the supplied fallback snapshot suppresses a third optional read");
+      assert.equal(continuation?.header.taskId, "task-edge-probe");
+      assert.equal(continuation?.header.executionId, "execution-edge-probe");
+      assert.match(continuation?.header.prompt ?? "", /Workspace probe: progress snapshot unavailable/u);
+      assert.match(continuation?.header.prompt ?? "", /Task lifecycle node: unavailable/u);
+    }
     assert.equal(continuations.length, 1);
     const lifecycle = await remote.readDispatchLifecycle({ by: "dispatch", dispatchIds: [first.header.dispatchId] });
     assert.ok(lifecycle.status === "ready");
@@ -1168,6 +1210,13 @@ for (const recovery of ["reconcile", "adoption", "timer"] as const) {
         interrupted = new Error("publication interrupted before center acceptance");
       let rejectPublication = true,
         launches = 0;
+      // CH1 prepares host Git facts before the writer queue. Observe that actual
+      // enqueue boundary rather than assuming the timer synchronously queues work.
+      const expectedQueued = recovery === "timer" ? 2 : 1;
+      let notifyQueued: () => void;
+      const queued = new Promise<void>((resolve) => {
+        notifyQueued = resolve;
+      });
       t.mock.timers.enable({ apis: ["setTimeout"] });
       const openContext = () => {
         const context = {
@@ -1177,7 +1226,10 @@ for (const recovery of ["reconcile", "adoption", "timer"] as const) {
           input: {
             rootDir: root,
             now: () => "2099-01-01T00:00:00.000Z",
-            schedule: (work: () => void | Promise<void>) => queue.push(work),
+            schedule: (work: () => void | Promise<void>) => {
+              queue.push(work);
+              if (queue.length === expectedQueued) notifyQueued();
+            },
             remote: {
               readDispatchLifecycle: (query) => cell.readDispatchLifecycle(query),
               readRuntimeSession: async (runtimeSessionId) =>
@@ -1222,7 +1274,8 @@ for (const recovery of ["reconcile", "adoption", "timer"] as const) {
       await firstContext.reconcileFallback(dispatchId);
       if (recovery === "timer") await firstContext.reconcileFallback(dispatchId);
       t.mock.timers.tick(0);
-      assert.equal(queue.length, recovery === "timer" ? 2 : 1);
+      await queued;
+      assert.equal(queue.length, expectedQueued);
       await assert.rejects(queue.shift()!(), interrupted);
       const frozen = readDispatchStream(root, dispatchId)!.terminalOutcome!;
       assert.equal(frozen.payload.attempt?.fallbackState, "exhausted");
@@ -1474,17 +1527,23 @@ function fakeProcess(pid: number, behavior: Behavior): RuntimeProcess {
                   ]
                 : [
                     { type: "acp.session", sessionId, modes: ["read-only"], currentMode: "read-only" },
-                    {
-                      type: "acp.update",
-                      sessionId,
-                      update: {
-                        sessionUpdate: "tool_call",
-                        kind: "execute",
-                        toolCallId: "call-1",
-                        title: "Read file",
-                        status: "pending",
-                      },
-                    },
+                    // The stream-error case is the startup-fallback positive control.
+                    // CH1's all-kind matrix separately refuses post-tool server/stream faults.
+                    ...(behavior === "acp_stream_error"
+                      ? []
+                      : [
+                          {
+                            type: "acp.update",
+                            sessionId,
+                            update: {
+                              sessionUpdate: "tool_call",
+                              kind: "execute",
+                              toolCallId: "call-1",
+                              title: "Read file",
+                              status: "pending",
+                            },
+                          },
+                        ]),
                     {
                       type: "acp.error",
                       sessionId,

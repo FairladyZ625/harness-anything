@@ -1,3 +1,6 @@
+import { projectedRepositorySettings } from "./repo-cell-settings-state.ts";
+import { executionRuntimeBudgetPolicy } from "@harness-anything/kernel/internal/domain/task-submission-policy.ts";
+import { runtimeExecutionBudgetRefusal } from "./runtime-spend-cap.ts";
 import { createAgentRuntimeEvent } from "@harness-anything/kernel";
 import { requireSquadRuntimeOwner, requireSquadRuntimeAdmission } from "./squad-runtime-ingress.ts";
 import { admitHandoffDispatch } from "./runtime-handoff-store.ts";
@@ -229,6 +232,21 @@ export function appendAuxiliaryRuntimeIngress(
       )
         throw cell.cellCodedError("dispatch_key_conflict", `Dispatch key ${key} already names different content.`);
       return { ...runtimeIngressReceipt(cell, existing), reused: true };
+    }
+    if (typeof action.payload.taskId === "string" && typeof action.payload.executionId === "string") {
+      const limit = projectedRepositorySettings(cell.projection)?.runtime.executionUsageLimit ?? 0,
+        refusal = runtimeExecutionBudgetRefusal(
+          cell.projection,
+          {
+            taskId: action.payload.taskId,
+            executionId: action.payload.executionId,
+            role: typeof action.payload.role === "string" ? action.payload.role : null,
+          },
+          limit > 0
+            ? { ...executionRuntimeBudgetPolicy.defaultValue, maxTokens: limit }
+            : executionRuntimeBudgetPolicy.defaultValue,
+        );
+      if (refusal) throw cell.cellCodedError(refusal.code, refusal.message);
     }
     // The lifecycle aggregate decides admission here, inside the writer, before the append.
     requireDispatchLifecycleAdmission(

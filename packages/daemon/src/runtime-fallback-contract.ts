@@ -26,6 +26,7 @@ export type RuntimeProviderFault = {
     | "auth_failed"
     | "request_unavailable"
     | "provider_disconnected"
+    | "print_timeout"
     | "pre_tool_exit"
     | "permission_denied";
   readonly reason: string;

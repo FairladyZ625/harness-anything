@@ -831,6 +831,11 @@ export function openFleetEdgeRuntime(input: {
           worktree,
         };
       },
+      readTaskLifecycleNode: (taskId) =>
+        readRuntimeProjection(
+          input.resolveLocation(),
+          (projection) => projection.read(taskId, false, false).snapshot.task?.currentNode ?? null,
+        ),
       readRuntimeSession: (runtimeSessionId) =>
         readRuntimeProjection(input.resolveLocation(), (projection) => projection.readRuntimeSession(runtimeSessionId)),
       readRuntimeSessions: async (query) => {

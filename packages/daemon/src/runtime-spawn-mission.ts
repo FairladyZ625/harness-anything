@@ -31,9 +31,8 @@ import type {
 import { assertTaskTransitionDocumentReady } from "./transition-document-access.ts";
 import { workerLedgerPath } from "./worktree-setup.ts";
 import {
-  continuationContext,
-  continuationContextPrompt,
-  currentWorktreeHead,
+  runtimeProgressSnapshot,
+  type RuntimeWorkspaceProgress,
   latestRuntimeContinuationSeed,
 } from "./runtime-continuation-context.ts";
 import { readDispatchRuling } from "./runtime-ruling.ts";
@@ -949,6 +948,7 @@ export function renderWorkerRootPaths(mission: string, cwd: string): string {
 
 export function assembleTaskMission(input: {
   readonly mission: string;
+  readonly progressSnapshot?: string | null;
   readonly repoId: string;
   readonly workerRoot: string;
   /** How the task worktree was checked out and prepared for this dispatch; null when it runs elsewhere. */
@@ -972,6 +972,7 @@ export function assembleTaskMission(input: {
     `Daemon endpoint: ${input.daemonRoute.endpoint}`,
     `Runtime actor: ${input.runtimeActor}`,
     "The daemon route, repository selection, and runtime actor are already injected into the process environment.",
+    ...(input.progressSnapshot ? [input.progressSnapshot] : []),
     "# Assigned Mission",
     input.mission,
   ].join("\n");
@@ -1025,9 +1026,14 @@ export async function resolveRuntimeMission(input: {
   readonly missionName: string | undefined;
   readonly explicitMission: string | undefined;
   readonly reviewerBinding: boolean;
+  readonly workspaceProgress?: RuntimeWorkspaceProgress;
+  readonly continuationSnapshotProvided?: boolean;
+  readonly continuationRequested?: boolean;
+  readonly lifecycleNode?: string | null;
 }): Promise<{
   readonly taskMission: { readonly mission: string; readonly packageRoot: string } | null;
   readonly mission: string;
+  readonly progressSnapshot: string | null;
 }> {
   const { rootDir, cwd, taskId, remoteTask, taskSnapshot, missionName, explicitMission } = input,
     projection = input.projection!,
@@ -1072,24 +1078,29 @@ export async function resolveRuntimeMission(input: {
     continuation =
       taskId === null
         ? null
-        : continuationContext(
-            remoteTask?.continuationContext ??
-              (projection
-                ? latestRuntimeContinuationSeed(
-                    projection,
-                    taskId,
-                    taskSnapshot?.executions.map(({ executionId }) => executionId) ?? [],
-                  )
-                : null),
-            await currentWorktreeHead(cwd),
-          ),
+        : (remoteTask?.continuationContext ??
+          (projection
+            ? latestRuntimeContinuationSeed(
+                projection,
+                taskId,
+                taskSnapshot?.executions.map(({ executionId }) => executionId) ?? [],
+              )
+            : null)),
     taskMission = taskId
       ? missionAt(rootDir, cwd, remoteTask ?? { projection, taskId, missionName, causalContext }, input.reviewerBinding)
       : null;
   // Every task-bound assembly path inlines the plan (derived missions through deriveTaskMission,
   // explicit prompts through this body), so the guidance's "已注入" claim holds on each of them.
   const planBody = taskId === null ? null : (remoteTask?.planBody ?? taskMission?.planBody ?? null);
-  const continuationSection = continuation === null ? null : continuationContextPrompt(continuation),
+  const continuationSection =
+      taskId === null || input.continuationSnapshotProvided || (continuation === null && !input.continuationRequested)
+        ? null
+        : runtimeProgressSnapshot({
+            workspace: input.workspaceProgress,
+            node: input.lifecycleNode ?? taskSnapshot?.task?.currentNode ?? "unavailable",
+            classification: continuation?.lastConclusion?.split(":")[0] ?? null,
+            reason: continuation?.lastConclusion ?? null,
+          }),
     reviewerNote =
       taskId === null || input.reviewerBinding
         ? null
@@ -1116,12 +1127,10 @@ export async function resolveRuntimeMission(input: {
             remoteTask?.riskTierFlowVersion ?? taskSnapshot?.task?.metadata?.riskTierFlowVersion,
             reviewerNote,
           ),
-    mission =
-      continuationSection === null
-        ? renderWorkerRootPaths(baseMission, cwd)
-        : renderWorkerRootPaths(`${baseMission}\n\n${continuationSection}`, cwd);
+    mission = renderWorkerRootPaths(baseMission, cwd);
   return {
     taskMission: taskMission === null ? null : { ...taskMission, mission },
     mission: mission,
+    progressSnapshot: continuationSection,
   };
 }

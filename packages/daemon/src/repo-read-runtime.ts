@@ -186,6 +186,7 @@ export function makeRepoReadRuntime(
       now = input.now ?? (() => new Date().toISOString());
     const runtimeSpawner: RepoCellRuntimeContext["runtimeSpawner"] = {
         prepareWorktree: unsupportedWrite,
+        prepareProgress: unsupportedWrite,
         spawn: unsupportedWrite,
         spawnTask: unsupportedWrite,
         spawnHandoff: unsupportedWrite,
