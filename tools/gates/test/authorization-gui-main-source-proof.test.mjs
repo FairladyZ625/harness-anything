@@ -9,7 +9,7 @@ import { auditOntologyClosure } from "../ontology-closure-audit.mjs";
 import { scanOntologyText } from "../ontology-closure-scan.mjs";
 import { evaluateOntologyClosure } from "../ontology-closure.mjs";
 import { loadOntologyClosureSnapshot } from "../ontology-gate-lib.mjs";
-import { loadAuthorizationInputs } from "../ontology-durable-action-authorization.mjs";
+import { loadAuthorizationInputs, shardWorkerCount } from "../ontology-durable-action-authorization.mjs";
 import {
   clientEntryEvidence,
   clientEntryRequiredRoutes,
@@ -310,4 +310,13 @@ test("dec_7E44897ECDCAEF2B92EC66A260/CH1: packages/gui full-package closure is z
       "newly registered main action must pass",
     );
   }
+});
+
+test("dec_88CAA23DE4907261D7ECB107ED/CH1: shardedAudit worker count stays within 16 GiB runner RAM budget", () => {
+  const gib = 1024 ** 3;
+  assert.equal(shardWorkerCount(4, Math.floor(15.62 * gib)), 2);
+  assert.equal(shardWorkerCount(4, 16 * gib), 2);
+  assert.equal(shardWorkerCount(4, 5 * gib), 1);
+  assert.equal(shardWorkerCount(8, 22 * gib), 3);
+  assert.equal(shardWorkerCount(8, 32 * gib), 4);
 });

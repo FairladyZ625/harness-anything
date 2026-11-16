@@ -7,7 +7,7 @@
 // own signed-in session), and that declaration is checked against the route, not trusted. A route
 // that authorizes another kind than it declares (`kindRewrite`) is traced against that kind and holds
 // only while its source decision and owner task are in the public evidence index and it has not expired.
-import { availableParallelism } from "node:os";
+import { availableParallelism, totalmem } from "node:os";
 import path from "node:path";
 import fs from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -696,10 +696,16 @@ function findingsFor(rows, receipt, sourceRows) {
   ];
 }
 
+const SHARD_WORKER_MEMORY_BUDGET_BYTES = 6 * 1024 ** 3;
+
+export function shardWorkerCount(parallelism = availableParallelism(), memoryBytes = totalmem()) {
+  return Math.max(1, Math.min(4, parallelism, Math.floor(memoryBytes / SHARD_WORKER_MEMORY_BUDGET_BYTES)));
+}
+
 /** Each worker builds its own graph and traces every count-th descriptor; rows merge in order. */
 export async function shardedAudit(rootDir, changedFiles, options = {}) {
   const { sourceRoot, only } = options,
-    count = Math.max(1, Math.min(4, availableParallelism())),
+    count = shardWorkerCount(),
     shards = await Promise.all(
       Array.from(
         { length: count },
