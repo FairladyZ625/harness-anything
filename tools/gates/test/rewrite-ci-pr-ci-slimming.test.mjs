@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { parseGateWorkflow } from "../../gate-workflow-parser.mjs";
 import { parseManifestGateArgs, selectManifestGateIds } from "../../run-manifest-gates.mjs";
-import { discoverTestTierManifest } from "../../test-tier-manifest.mjs";
+import { discoverTestTierManifest, parseTestTierMarker } from "../../test-tier-manifest.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "../../..");
 // The crlf-checkout lane materialises this workflow with CRLF line endings; normalise once so
@@ -152,6 +152,24 @@ test("crlf-checkout runs one partition on PR and merge_group, four on main pushe
   assert.deepEqual(gate.githubContext.requiredContexts, ["crlf-checkout"]);
 });
 
+function assertGateTestsInFastContractOnly({ workflowMap, manifestData, tierManifest, gateTestFiles }) {
+  assert.equal(workflowMap.has("gate-contract-tests"), false, "duplicate unsharded gate-contract-tests job is retired");
+  assert.equal(
+    manifestData.gates.some((gate) => gate.id === "gate-contract-tests"),
+    false,
+    "gate-manifest must not retain retired gate-contract-tests",
+  );
+  const fastAndContract = new Set([...tierManifest.fast, ...tierManifest.contract]);
+  assert.ok(gateTestFiles.length > 0);
+  for (const file of gateTestFiles) {
+    assert.equal(
+      fastAndContract.has(file),
+      true,
+      `${file} must belong to fast or contract tier so fast-contract (1..4) executes it`,
+    );
+  }
+}
+
 test("CH3 leaves the required PR evidence lanes intact and retires duplicate gate-contract-tests", () => {
   for (const jobId of [
     "fast-contract",
@@ -166,32 +184,37 @@ test("CH3 leaves the required PR evidence lanes intact and retires duplicate gat
   }
   // dec_307A99A9D25925FE559FE5E140/CH1: gate-contract-tests ran tools/gates/test/*.test.mjs unsharded
   // (~40m) after the 4-way sharded fast-contract lane already ran every file.
-  assert.equal(workflow.has("gate-contract-tests"), false, "duplicate unsharded gate-contract-tests job is retired");
-  assert.equal(
-    manifest.gates.some((gate) => gate.id === "gate-contract-tests"),
-    false,
-    "gate-manifest must not retain retired gate-contract-tests",
-  );
   const tierManifest = discoverTestTierManifest(rootDir),
-    fastAndContract = new Set([...tierManifest.fast, ...tierManifest.contract]),
     gateTestFiles = readdirSync(path.join(rootDir, "tools/gates/test"))
       .filter((entry) => entry.endsWith(".test.mjs"))
       .map((entry) => `tools/gates/test/${entry}`)
       .sort();
-  assert.ok(gateTestFiles.length > 0);
-  for (const file of gateTestFiles) {
-    assert.equal(
-      fastAndContract.has(file),
-      true,
-      `${file} must belong to fast or contract tier so fast-contract (1..4) executes it`,
-    );
-  }
-  // Positive control for the anti-recurrence guard: an untiered or integration-placed gate test is rejected.
-  const verifyAllGateTestsInFastContract = (files, covered) => files.filter((file) => !covered.has(file));
-  assert.deepEqual(verifyAllGateTestsInFastContract(gateTestFiles, fastAndContract), []);
-  assert.deepEqual(
-    verifyAllGateTestsInFastContract([...gateTestFiles, "tools/gates/test/orphaned-sample.test.mjs"], fastAndContract),
-    ["tools/gates/test/orphaned-sample.test.mjs"],
+  assertGateTestsInFastContractOnly({ workflowMap: workflow, manifestData: manifest, tierManifest, gateTestFiles });
+  // Positive controls execute the exact guard function above plus parseTestTierMarker: re-adding
+  // gate-contract-tests, placing a gate test outside fast|contract, or omitting a tier marker fails.
+  assert.throws(
+    () =>
+      assertGateTestsInFastContractOnly({
+        workflowMap: parseGateWorkflow(`${workflowText}\n  gate-contract-tests:\n    runs-on: ubuntu-latest\n`),
+        manifestData: manifest,
+        tierManifest,
+        gateTestFiles,
+      }),
+    /duplicate unsharded gate-contract-tests job is retired/u,
+  );
+  assert.throws(
+    () =>
+      assertGateTestsInFastContractOnly({
+        workflowMap: workflow,
+        manifestData: manifest,
+        tierManifest,
+        gateTestFiles: [...gateTestFiles, "tools/gates/test/orphaned-sample.test.mjs"],
+      }),
+    /orphaned-sample\.test\.mjs must belong to fast or contract tier/u,
+  );
+  assert.throws(
+    () => parseTestTierMarker("import test from 'node:test';\n", "tools/gates/test/orphaned-sample.test.mjs"),
+    /test tier marker missing/u,
   );
   assert.equal(workflow.has("boundaries"), false, "the boundary gates run inside quick-gates");
   assert.ok(
