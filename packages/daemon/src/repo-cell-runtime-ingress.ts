@@ -1,3 +1,4 @@
+import { runtimeExecutionBudgetRefusal } from "./runtime-spend-cap.ts";
 import { createAgentRuntimeEvent } from "@harness-anything/kernel";
 import { requireSquadRuntimeOwner, requireSquadRuntimeAdmission } from "./squad-runtime-ingress.ts";
 import { admitHandoffDispatch } from "./runtime-handoff-store.ts";
@@ -229,6 +230,17 @@ export function appendAuxiliaryRuntimeIngress(
       )
         throw cell.cellCodedError("dispatch_key_conflict", `Dispatch key ${key} already names different content.`);
       return { ...runtimeIngressReceipt(cell, existing), reused: true };
+    }
+    if (typeof action.payload.taskId === "string" && typeof action.payload.executionId === "string") {
+      const refusal = runtimeExecutionBudgetRefusal(
+        cell.projection,
+        {
+          taskId: action.payload.taskId,
+          executionId: action.payload.executionId,
+        },
+        cell.runtimeUsageLimit(),
+      );
+      if (refusal) throw cell.cellCodedError(refusal.code, refusal.message);
     }
     // The lifecycle aggregate decides admission here, inside the writer, before the append.
     requireDispatchLifecycleAdmission(

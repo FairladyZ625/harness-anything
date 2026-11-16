@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import test from "node:test";
 import {
   continuationContext,
-  continuationContextPrompt,
+  runtimeProgressSnapshot,
   currentWorktreeHead,
   latestRuntimeContinuationSeed,
 } from "../src/runtime-continuation-context.ts";
@@ -68,9 +68,14 @@ test("continuation context compares the settled HEAD and includes only the bound
     currentHead: "b".repeat(40),
     headStatus: "changed",
   });
-  assert.match(continuationContextPrompt(context)!, /Last conclusion: Tests passed; change is ready for review\./u);
-  assert.match(continuationContextPrompt(context)!, /HEAD comparison: changed/u);
-  assert.doesNotMatch(continuationContextPrompt(context)!, /terminal result|full transcript/iu);
+  const snapshot = runtimeProgressSnapshot({
+    node: "implementation",
+    classification: "worker_stop",
+    reason: context.lastConclusion,
+  });
+  assert.match(snapshot, /Reason: Tests passed; change is ready for review\./u);
+  assert.match(snapshot, /Last attempt: worker_stop/u);
+  assert.doesNotMatch(snapshot, /terminal result|full transcript/iu);
 });
 
 test("continuation seed selects the newest archived dispatch across task executions", () => {

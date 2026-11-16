@@ -1,3 +1,4 @@
+import { collectRuntimeWorkspaceProgress, type RuntimeWorkspaceProgress } from "./runtime-continuation-context.ts";
 import {
   currentExecutionArrangement,
   executionArrangementAllows,
@@ -35,6 +36,7 @@ import { assertAgentDispatchable } from "./agent-entities.ts";
 import { sharedProviderDirectory } from "./agent-runtime-instance-storage.ts";
 import {
   openDispatchStream,
+  readDispatchStream,
   removeDispatchStream,
   scrubProviderValue,
   type DispatchStreamWriter,
@@ -260,7 +262,16 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     reconcileFallback: (dispatchId) =>
       scheduleFallbackContinuation({
         context: extracted,
-        launch: (payload, binding, fallback, schedule, handoffFromRuntimeSessionId, publicationOwner, onDispatched) =>
+        launch: (
+          payload,
+          binding,
+          fallback,
+          schedule,
+          handoffFromRuntimeSessionId,
+          publicationOwner,
+          onDispatched,
+          workspaceProgress,
+        ) =>
           spawnAttempt(
             payload,
             binding,
@@ -272,6 +283,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             undefined,
             undefined,
             onDispatched,
+            undefined,
+            undefined,
+            workspaceProgress,
           ),
         dispatchId,
       }),
@@ -290,6 +304,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     onDispatched?: (dispatchId: string, runtimeSessionId: string) => void,
     onPrepared?: (dispatchId: string, runtimeSessionId: string) => void,
     admissionTaskRead?: ReturnType<typeof requireCurrentTaskProjection> | null,
+    workspaceProgress?: RuntimeWorkspaceProgress,
   ): Promise<JsonObject> {
     const dryRun = payload.dryRun === true,
       dispatchUsageLimit = input.readSettings?.().runtime.dispatchUsageLimit ?? 0;
@@ -543,6 +558,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         rootDir: input.rootDir,
         cwd,
         taskId,
+        workspaceProgress: workspaceProgress ?? (input.remote ? await collectRuntimeWorkspaceProgress(cwd) : undefined),
+        continuationSnapshotProvided: inheritedFallback !== undefined,
         projection,
         remoteTask,
         taskSnapshot,
@@ -1475,6 +1492,16 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         };
   }
   return {
+    /** Host-only snapshot preparation; callers complete this before enqueueing admission. */
+    prepareProgress: async (payload: JsonObject, worktree: TaskWorktreeCheckout | null) => {
+      const inherited =
+          typeof payload.dispatchId === "string"
+            ? readDispatchStream(input.rootDir, payload.dispatchId)?.header.cwd
+            : undefined,
+        packageRoot = dispatchTaskPackageRoot(input, typeof payload.taskId === "string" ? payload.taskId : null, null),
+        { cwd } = resolveDispatchCwd(input.rootDir, payload, inherited, worktree, packageRoot);
+      return collectRuntimeWorkspaceProgress(cwd);
+    },
     /** Checks a task dispatch's worktree out and prepares it; runs before the dispatch is queued for writing. */
     prepareWorktree: async (payload: JsonObject, reviewedCommit?: string | null) => {
       // Explicit-instance and declared-Agent model failures must surface before checkout/setup
@@ -1511,6 +1538,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       binding: RuntimeBinding,
       worktree: TaskWorktreeCheckout | null = null,
       admissionProjection: ReturnType<typeof requiredRuntimeProjection>,
+      workspaceProgress?: RuntimeWorkspaceProgress,
     ) => {
       const admitted = admitTaskDispatch({
         repoId: input.repoId,
@@ -1541,6 +1569,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         undefined,
         undefined,
         admitted.taskRead,
+        workspaceProgress,
       );
       return admitted.recovery ? { ...receipt, recovery: { ...admitted.recovery, replayed: false } } : receipt;
     },

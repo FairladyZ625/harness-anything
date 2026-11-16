@@ -39,6 +39,7 @@ const repoId = "task-dispatch-recovery",
 
 type Launch = {
   readonly child: ReturnType<typeof spawn>;
+  readonly prompt: string;
   output: ((chunk: string, persisted?: boolean) => void) | null;
   exit: ((code: number | null) => void) | null;
 };
@@ -48,13 +49,21 @@ type Launch = {
  * The recovery fence replaces both with one compare-and-dispatch inside the runtime publication
  * write turn of a real RepoCell; every refusal below must leave the dispatch list unchanged.
  */
-test("a stopped dispatch is recovered once through the fenced compare-and-dispatch", async () => {
+for (const budgetCase of [false, "attempts", "tokens"])
+  test(`a stopped dispatch is recovered through the fence; cumulative budget=${budgetCase}`, () =>
+    recoveryScenario(budgetCase));
+
+async function recoveryScenario(budgetCase: boolean | string): Promise<void> {
   const root = mkdtempSync(path.join(tmpdir(), "ha-task-dispatch-recovery-")),
     launches: Launch[] = [];
   const eventually = (check: () => boolean | Promise<boolean>, ..._rest: unknown[]): Promise<void> =>
     waitForArrival(async () => ((await check()) ? true : null), watchDirectoryArrival(root));
   try {
     initRepo(root);
+    if (budgetCase === "tokens")
+      writeFileSync(path.join(root, "harness/harness.yaml"), "settings:\n  runtime:\n    dispatchUsageLimit: 10\n", {
+        flag: "a",
+      });
     const cell = await openBootstrappedRepoCell({
       repoId: workspaceId(repoId),
       rootDir: canonicalRoot(root),
@@ -92,14 +101,14 @@ test("a stopped dispatch is recovered once through the fenced compare-and-dispat
         cwd: request.cwd,
         prompt: request.prompt,
       }),
-      runtimeLaunch: () => {
+      runtimeLaunch: (request) => {
         const child = spawn(process.execPath, ["-e", "process.exit(0)"], {
           detached: true,
           stdio: ["pipe", "ignore", "ignore"],
         });
         if (!child.pid) throw new Error("fixture worker child did not expose a pid");
         child.unref();
-        const launch: Launch = { child, output: null, exit: null };
+        const launch: Launch = { child, prompt: request.prompt, output: null, exit: null };
         launches.push(launch);
         return {
           pid: child.pid,
@@ -226,7 +235,11 @@ test("a stopped dispatch is recovered once through the fenced compare-and-dispat
       });
       await assert.rejects(
         cell.spawnRuntime(
-          spawnPayload("stale-key", { dispatchId: firstDispatchId, executionId, expectedVersion: stoppedRevision - 1 }),
+          spawnPayload("stale-key", {
+            dispatchId: firstDispatchId,
+            executionId,
+            expectedVersion: stoppedRevision - 1,
+          }),
           ceo,
         ),
         (error: Error & { code?: string }) =>
@@ -257,7 +270,11 @@ test("a stopped dispatch is recovered once through the fenced compare-and-dispat
       );
       await assert.rejects(
         cell.spawnRuntime(
-          spawnPayload("outsider-key", { dispatchId: firstDispatchId, executionId, expectedVersion: stoppedRevision }),
+          spawnPayload("outsider-key", {
+            dispatchId: firstDispatchId,
+            executionId,
+            expectedVersion: stoppedRevision,
+          }),
           outsider,
         ),
         { code: "authorization_denied" },
@@ -272,6 +289,12 @@ test("a stopped dispatch is recovered once through the fenced compare-and-dispat
       assert.equal(recovery.sourceDispatchId, firstDispatchId);
       assert.equal(recovery.dispatchId, recoveredDispatchId);
       assert.equal(recovery.replayed, false);
+      const progress = launches[1]!.prompt.match(/<runtime-progress>[\s\S]*?<\/runtime-progress>/u)?.[0];
+      assert.ok(progress, launches[1]!.prompt);
+      assert.ok(Buffer.byteLength(progress, "utf8") <= 2048);
+      assert.match(progress, /HEAD: [a-f0-9]+ /u);
+      assert.match(progress, /Task lifecycle node: implementation/u);
+      assert.match(progress, /Last attempt: worker_stop/u);
       assert.deepEqual(dispatches(), [firstDispatchId, recoveredDispatchId]);
       const leased = JSON.parse(String((await cell.run({ kind: "task-show", taskId }, ceo)).evidence));
       assert.equal(leased.lease.executionId, executionId, "the recovery rejoins the same execution");
@@ -312,6 +335,38 @@ test("a stopped dispatch is recovered once through the fenced compare-and-dispat
           error.code === "dispatch_recovery_superseded" && error.message.includes(recoveredDispatchId),
       );
       assert.deepEqual(dispatches(), [firstDispatchId, recoveredDispatchId], "no double dispatch");
+
+      if (budgetCase) {
+        const limit = budgetCase === "tokens" ? 5 : 6;
+        let latestDispatchId = recoveredDispatchId;
+        for (let index = 2; index < limit; index += 1) {
+          const next = await cell.spawnRuntime(
+            spawnPayload(`budget-${index}`, {
+              dispatchId: latestDispatchId,
+              executionId,
+              expectedVersion: await revision(),
+            }),
+            ceo,
+          );
+          latestDispatchId = String(next.dispatchId);
+          await stopWorker(index, latestDispatchId, String(next.runtimeSessionId));
+        }
+        const before = dispatches();
+        await assert.rejects(
+          cell.spawnRuntime(
+            spawnPayload("budget-seventh", {
+              dispatchId: latestDispatchId,
+              executionId,
+              expectedVersion: await revision(),
+            }),
+            ceo,
+          ),
+          { code: "execution_budget_exceeded" },
+        );
+        assert.equal(launches.length, limit);
+        assert.deepEqual(dispatches(), before, "the refused seventh attempt appends no dispatch");
+        return;
+      }
 
       // The task left `active` after the comparison was read: the recovery is refused.
       const parked = await cell.run(
@@ -370,7 +425,7 @@ test("a stopped dispatch is recovered once through the fenced compare-and-dispat
     for (const launch of launches) stopFixtureGroup(launch.child);
     rmSync(root, { recursive: true, force: true });
   }
-});
+}
 
 function stopFixtureGroup(child: ReturnType<typeof spawn>): void {
   if (!child.pid) return;

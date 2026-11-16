@@ -31,9 +31,8 @@ import type {
 import { assertTaskTransitionDocumentReady } from "./transition-document-access.ts";
 import { workerLedgerPath } from "./worktree-setup.ts";
 import {
-  continuationContext,
-  continuationContextPrompt,
-  currentWorktreeHead,
+  runtimeProgressSnapshot,
+  type RuntimeWorkspaceProgress,
   latestRuntimeContinuationSeed,
 } from "./runtime-continuation-context.ts";
 import { readDispatchRuling } from "./runtime-ruling.ts";
@@ -1025,6 +1024,8 @@ export async function resolveRuntimeMission(input: {
   readonly missionName: string | undefined;
   readonly explicitMission: string | undefined;
   readonly reviewerBinding: boolean;
+  readonly workspaceProgress?: RuntimeWorkspaceProgress;
+  readonly continuationSnapshotProvided?: boolean;
 }): Promise<{
   readonly taskMission: { readonly mission: string; readonly packageRoot: string } | null;
   readonly mission: string;
@@ -1072,24 +1073,29 @@ export async function resolveRuntimeMission(input: {
     continuation =
       taskId === null
         ? null
-        : continuationContext(
-            remoteTask?.continuationContext ??
-              (projection
-                ? latestRuntimeContinuationSeed(
-                    projection,
-                    taskId,
-                    taskSnapshot?.executions.map(({ executionId }) => executionId) ?? [],
-                  )
-                : null),
-            await currentWorktreeHead(cwd),
-          ),
+        : (remoteTask?.continuationContext ??
+          (projection
+            ? latestRuntimeContinuationSeed(
+                projection,
+                taskId,
+                taskSnapshot?.executions.map(({ executionId }) => executionId) ?? [],
+              )
+            : null)),
     taskMission = taskId
       ? missionAt(rootDir, cwd, remoteTask ?? { projection, taskId, missionName, causalContext }, input.reviewerBinding)
       : null;
   // Every task-bound assembly path inlines the plan (derived missions through deriveTaskMission,
   // explicit prompts through this body), so the guidance's "已注入" claim holds on each of them.
   const planBody = taskId === null ? null : (remoteTask?.planBody ?? taskMission?.planBody ?? null);
-  const continuationSection = continuation === null ? null : continuationContextPrompt(continuation),
+  const continuationSection =
+      taskId === null || input.continuationSnapshotProvided
+        ? null
+        : runtimeProgressSnapshot({
+            workspace: input.workspaceProgress,
+            node: taskSnapshot?.task?.currentNode ?? (input.reviewerBinding ? "review" : "implementation"),
+            classification: continuation?.lastConclusion?.split(":")[0] ?? null,
+            reason: continuation?.lastConclusion ?? null,
+          }),
     reviewerNote =
       taskId === null || input.reviewerBinding
         ? null

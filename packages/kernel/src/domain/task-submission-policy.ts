@@ -1,5 +1,5 @@
 import { artifactLocatorKinds } from "./vertical-definition.ts";
-import type { OntologyPolicyDeclaration } from "./ontology-source.ts";
+import type { OntologyPolicyDeclaration, OntologyJudgmentDeclaration } from "./ontology-source.ts";
 
 /** Existing submission budgets and admission now run at the external-read boundary. */
 export const taskSubmissionPolicies = [
@@ -241,3 +241,69 @@ export const executionDelegationPolicy = {
     "policy:packages/kernel:packages/kernel/src/domain/task-lifecycle-replay.ts#compileExecutionExecutorDeclaration:3f38832e263dbb1a4535c6c3df71c0c3",
   ].map((candidateId) => ({ candidateId, route: "execution delegation" })),
 } as const satisfies OntologyPolicyDeclaration;
+
+/** dec_B9B5BF3C86195DF4186D01668D/CH1: the Execution owns the retry budget,
+ * not a provider session or a fallback group. Existing dispatch/outcome events are the ledger. */
+export const executionRuntimeBudgetPolicy = {
+  id: "execution-runtime-budget",
+  ownerRef: "execution",
+  unit: "attempts / reported tokens",
+  bounds:
+    "Admit at most six runtime attempts per Execution; an optional token ceiling stops further dispatch at equality. Replays of an accepted dispatch consume no new attempt.",
+  defaultValue: { maxAttempts: 6, maxTokens: null as number | null },
+  version: 1,
+  scope: "Runtime dispatch admission, automatic fallback and explicit recovery",
+  reason:
+    "Stop cross-session replay loops at the center's serialized dispatch append (dec_B9B5BF3C86195DF4186D01668D/CH1).",
+  fixtures: ["packages/kernel/test/contracts/execution-runtime-budget.test.ts"],
+  sources: [
+    {
+      candidateId:
+        "policy:packages/kernel:packages/kernel/src/domain/task-submission-policy.ts#executionRuntimeBudgetPolicy.defaultValue.maxAttempts:592ca6dd8f074537e90d9de469cc1591",
+      route: "Execution cumulative admission",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-continuation-context.ts#collectRuntimeWorkspaceProgress.read.timeoutSignal:a0ffb54437f00b213319ed2bd17e59c2",
+      route: "Bounded host snapshot before the writer turn",
+    },
+    {
+      candidateId:
+        "policy:packages/daemon:packages/daemon/src/runtime-spend-cap.ts#runtimeExecutionBudgetRefusal.maxTokens:9cea0b137dc1fe8e613f0ff7215c07cc",
+      route: "Existing dispatch ceiling to optional cumulative token ceiling",
+    },
+  ],
+} as const satisfies OntologyPolicyDeclaration;
+
+export interface ExecutionRuntimeBudget {
+  readonly maxAttempts: number;
+  readonly maxTokens: number | null;
+}
+
+/** A session can be settled again when fallback closes. Count its reported total once. */
+export function executionRuntimeBudgetRefusal(
+  attempts: readonly { readonly runtimeSessionId: string; readonly totalTokens: number }[],
+  budget: ExecutionRuntimeBudget = executionRuntimeBudgetPolicy.defaultValue,
+): { readonly code: "execution_budget_exceeded"; readonly message: string } | null {
+  const sessions = new Map<string, number>();
+  for (const attempt of attempts)
+    sessions.set(attempt.runtimeSessionId, Math.max(sessions.get(attempt.runtimeSessionId) ?? 0, attempt.totalTokens));
+  const tokens = [...sessions.values()].reduce((total, value) => total + value, 0);
+  if (sessions.size < budget.maxAttempts && (budget.maxTokens === null || tokens < budget.maxTokens)) return null;
+  return {
+    code: "execution_budget_exceeded",
+    message: `Execution budget exceeded: ${sessions.size}/${budget.maxAttempts} attempts, ${tokens}/${budget.maxTokens ?? "unlimited"} reported tokens. Automatic continuation is stopped; owner/CEO adjudication is required.`,
+  };
+}
+
+export const executionRuntimeBudgetJudgment = {
+  id: "executionRuntimeBudgetRefusal",
+  symbol: "packages/kernel/src/domain/task-submission-policy.ts#executionRuntimeBudgetRefusal",
+  inputs: ["persisted runtime attempts and cumulative budget"],
+  output: "execution_budget_exceeded refusal or null",
+  failureCodes: ["execution_budget_exceeded"],
+  explain:
+    "Count each runtime session once across recovery and fallback, and refuse admission at the Execution ceiling.",
+  consumers: ["packages/daemon/src/runtime-spend-cap.ts"],
+  sources: [],
+} as const satisfies OntologyJudgmentDeclaration;

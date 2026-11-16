@@ -1,6 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
+import { runtimeKindIds } from "../src/runtime-inventory.ts";
 import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
 import { isProviderFailureClassification } from "../src/runtime-fallback-contract.ts";
 import {
@@ -222,7 +223,7 @@ test("connection failures overlapping capacity, stream, or HTTP rules keep the p
         1,
       );
     assert.equal(fault?.code, "server_error", diagnostic);
-    assert.equal(afterTool.classification, "provider_fault", diagnostic);
+    assert.equal(afterTool.classification, "gate_red", diagnostic);
   }
 });
 
@@ -296,7 +297,7 @@ test("Codex tool item.started closes the startup retry window before item comple
   );
 });
 
-test("ACP serving capacity errors remain provider faults after tool activity", () => {
+test("ACP serving capacity errors fail without replay after tool activity (CH1)", () => {
   const providerFault = providerFaultFromFrame("devin", {
       type: "acp.error",
       message: "Protocol error (unimplemented): We are currently experiencing capacity issues with this serving model",
@@ -304,7 +305,7 @@ test("ACP serving capacity errors remain provider faults after tool activity", (
     result = classifyRuntimeExit(active({ kindId: "devin", toolCallObserved: true, providerFault }), 1);
 
   assert.equal(providerFault?.code, "server_error");
-  assert.equal(result.classification, "provider_fault");
+  assert.equal(result.classification, "gate_red");
 });
 
 test("transient busy model service errors remain retryable provider faults", () => {
@@ -497,8 +498,8 @@ test("attempt-bound classification falls back only for recognized provider fault
     classification: "provider_fault",
   });
   assert.deepEqual(pick(classifyRuntimeExit(active({ toolCallObserved: true }), null)), {
-    outcome: "unknown",
-    classification: "provider_fault",
+    outcome: "failed",
+    classification: "gate_red",
   });
   assert.deepEqual(pick(classifyRuntimeExit(active({ toolCallObserved: true }), 1)), {
     outcome: "failed",
@@ -546,7 +547,7 @@ test("attempt-bound classification falls back only for recognized provider fault
   });
   assert.deepEqual(
     pick(classifyRuntimeExit(active({ lossReason: "runtime process disappeared", toolCallObserved: true }), null)),
-    { outcome: "unknown", classification: "worker_stop" },
+    { outcome: "failed", classification: "gate_red" },
   );
   const recovered = active({ providerFault: { code: "rate_limited", reason: "transient 429" } });
   observeProviderFault(recovered, { toolCallObserved: true });
@@ -554,7 +555,7 @@ test("attempt-bound classification falls back only for recognized provider fault
   assert.equal(classifyRuntimeExit(recovered, 1).classification, "gate_red");
 });
 
-test("agy print timeout makes an exit-zero partial turn a provider fault", () => {
+test("agy print timeout fails an exit-zero partial turn without provider replay (dec_B9B5BF3C86195DF4186D01668D/CH1)", () => {
   const stderr = "[agy] print timeout after 2h0m0s with turn in progress; returning partial output\n",
     runtime = active({
       kindId: "agy",
@@ -564,10 +565,10 @@ test("agy print timeout makes an exit-zero partial turn a provider fault", () =>
     }),
     fault = providerFaultFromStderr("agy", stderr),
     result = classifyRuntimeExit(runtime, 0);
-  assert.equal(fault?.code, "pre_tool_exit");
+  assert.equal(fault?.code, "print_timeout");
   assert.equal(fault?.reason, stderr.trim());
   assert.equal(result.outcome, "failed");
-  assert.equal(result.classification, "provider_fault");
+  assert.equal(result.classification, "gate_red");
   assert.equal(result.reason, stderr.trim());
 });
 
@@ -797,4 +798,70 @@ test("every Messages stream-integrity diagnostic retries while well-formed refus
       );
     assert.equal(result.classification, "gate_red", diagnostic);
   }
+});
+
+// CH1 makes side effects, rather than provider kind, the no-replay boundary.
+for (const kindId of runtimeKindIds) {
+  for (const diagnostic of ["stream disconnected before message_stop", "service is busy; please try again later"]) {
+    test(`${kindId}: post-tool stream/server fault fails without replay; startup still retries`, () => {
+      const providerFault = providerFaultFromStderr(kindId, diagnostic);
+      assert.ok(providerFault);
+      for (const toolCallObserved of [false, true]) {
+        const result = classifyRuntimeExit(
+          active({ kindId, providerOutcome: "failed", providerFault, toolCallObserved }),
+          1,
+        );
+        assert.equal(result.outcome, "failed");
+        assert.equal(isProviderFailureClassification(result.classification), !toolCallObserved);
+      }
+    });
+  }
+  test(`${kindId}: bare process disconnect after a tool fails without replay`, () => {
+    const result = classifyRuntimeExit(active({ kindId, toolCallObserved: true }), null);
+    assert.equal(result.outcome, "failed");
+    assert.equal(isProviderFailureClassification(result.classification), false);
+  });
+}
+for (const toolCallObserved of [false, true]) {
+  test(`agy print_timeout stderr and result prohibit replay; tools=${toolCallObserved}`, () => {
+    const stderr = "[agy] print timeout after 2h0m0s with turn in progress; returning partial output";
+    for (const providerFault of [
+      providerFaultFromStderr("agy", stderr),
+      providerFaultFromFrame("agy", {
+        event: "result",
+        result: { finished_reason: "print_timeout", status: "SUCCESS", response: "partial", error: "server is busy" },
+      }),
+    ]) {
+      const result = classifyRuntimeExit(
+        active({ kindId: "agy", providerOutcome: "succeeded", providerFault, toolCallObserved, errorBuffer: "" }),
+        0,
+      );
+      assert.equal(providerFault?.code, "print_timeout");
+      assert.equal(result.outcome, "failed");
+      assert.equal(isProviderFailureClassification(result.classification), false);
+      assert.match(result.reason, /print[_ ]timeout/u);
+    }
+  });
+}
+test("agy tool step marks the side-effect boundary", () => {
+  const frame = parseProviderFrame("agy", {
+    event: "step_update",
+    step_update: { step_type: "tool", text_delta: "running" },
+  });
+  assert.equal(frame.toolCallObserved, true);
+});
+
+test("agy print deadline outranks an earlier quota diagnostic", () => {
+  const result = classifyRuntimeExit(
+    active({
+      kindId: "agy",
+      providerOutcome: "failed",
+      toolCallObserved: false,
+      providerFault: { code: "quota_exhausted", faultClass: "quota_exhausted", reason: "quota exhausted" },
+      errorBuffer: "[agy] print timeout after 2h0m0s with turn in progress; returning partial output",
+    }),
+    1,
+  );
+  assert.equal(result.outcome, "failed");
+  assert.equal(isProviderFailureClassification(result.classification), false);
 });

@@ -4,6 +4,8 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { runtimeExecutionBudgetRefusal } from "../src/runtime-spend-cap.ts";
+import { settleFallbackAttempt } from "../src/runtime-spawn-fallback.ts";
 import {
   attachActiveRuntime,
   createActiveRuntime,
@@ -119,3 +121,56 @@ test("the output handler enforces the cap after the consuming chunk", async () =
   // test process exit instead of leaking one fs_event handle.
   disposeActiveRuntimeObservations(runtime);
 });
+
+for (const tokens of [false, true])
+  test(`cumulative ${tokens ? "tokens" : "attempts"} exhaust fallback before scheduling another provider`, async () => {
+    const task = { taskId: "task-budget", executionId: "execution-budget" },
+      rows = Array.from({ length: tokens ? 2 : 6 }, (_, index) => ({
+        event: { payload: { runtimeSessionId: `runtime-${index}` } },
+        metrics: { totalTokens: tokens ? 30 : 0 },
+      })),
+      projection = {
+        readRuntimeDispatchesByTaskExecution: (taskId: string, executionId: string) => {
+          assert.equal(taskId, task.taskId);
+          assert.equal(executionId, task.executionId);
+          return rows;
+        },
+      } as never,
+      states: Record<string, unknown>[] = [],
+      current = { runtimeSessionId: tokens ? "runtime-1" : "runtime-5", inputTokens: tokens ? 70 : 0, outputTokens: 0 },
+      context = {
+        input: {
+          now: () => "2026-11-16T00:00:00Z",
+          readSettings: () => ({ runtime: {} }),
+          onAttemptTerminal: async () => undefined,
+        },
+        requiredRuntimeProjection: () => projection,
+      } as never;
+    const refusal = runtimeExecutionBudgetRefusal(projection, task, tokens ? 100 : null, current);
+    assert.equal(refusal?.code, "execution_budget_exceeded");
+    const result = await settleFallbackAttempt(
+      context,
+      {
+        ...current,
+        task,
+        tokenLimit: tokens ? 100 : null,
+        stream: { appendFallbackState: (state: Record<string, unknown>) => states.push(state) },
+        fallbackAttempt: { attemptIndex: 0, candidates: [{ instance: "a" }, { instance: "b" }] },
+      } as never,
+      {
+        classification: "provider_fault",
+        reason: "startup 500",
+        provider: { instance: "a", model: "fixture", kind: "agy" },
+        attemptGroupId: "group",
+        attemptIndex: 0,
+      },
+      { outcome: "failed" } as never,
+    );
+    assert.equal(result?.fallbackState, "exhausted");
+    assert.equal(result?.budgetRefusal?.code, "execution_budget_exceeded");
+    assert.match(String(states[0]?.reason), /execution_budget_exceeded/u);
+    assert.equal(
+      states.some((state) => state.state === "scheduled"),
+      false,
+    );
+  });
