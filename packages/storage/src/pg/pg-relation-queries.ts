@@ -295,6 +295,21 @@ export async function readVersionedRelationsInTransaction(
   });
 }
 
+// Distinct CASE pathkeys prevent one-row estimates from choosing a narrower
+// index that filters type/state. NOT NULL makes every expression the original
+// ID with its default collation. CASE/NullTest are explicitly leakproof nodes in
+// PostgreSQL's contain_leaked_vars; textcat and COALESCE keep cursors as Filters
+// under RLS. Share these expressions between index order and cursor predicates.
+const relationReaderPages = [
+  { columns: "", name: "all", order: "(CASE WHEN relation_id IS NULL THEN 'all' ELSE relation_id END)" },
+  { columns: "relation_type,", name: "0", order: "(CASE WHEN relation_id IS NULL THEN 'type' ELSE relation_id END)" },
+  { columns: "relation_state,", name: "1", order: "(CASE WHEN relation_id IS NULL THEN 'state' ELSE relation_id END)" },
+  {
+    columns: "relation_type,relation_state,",
+    name: "2",
+    order: "(CASE WHEN relation_id IS NULL THEN 'type-state' ELSE relation_id END)",
+  },
+] as const;
 /** Per verified authorization key take at most k candidates, then deduplicate
  * and take the global k. Overlapping keys cannot skip a row or distort nextCursor.
  * The payload query still applies ha_relations' authoritative visibility predicate
@@ -315,11 +330,12 @@ async function readReaderRelationPage(
   // During the dated expansion, keep the previous reader available until the
   // scoped pending index is empty. A read never repairs or partially trusts keys.
   if (pending.rows.length) return null;
-  const where = ["tenant_id=$1", "project_id=$2", "policy_epoch=$3", "reader_key=allowed.key"];
+  const page = relationReaderPages[(query.relationType === undefined ? 0 : 1) + (query.state === undefined ? 0 : 2)]!,
+    where = ["tenant_id=$1", "project_id=$2", "policy_epoch=$3", "reader_key=allowed.key"];
   for (const [value, column, op] of [
     [query.relationType, "relation_type", "="],
     [query.state, "relation_state", "="],
-    [query.afterRelationId, "relation_id", ">"],
+    [query.afterRelationId, page.order, ">"],
   ] as const)
     if (value !== undefined) {
       values.push(value);
@@ -329,7 +345,7 @@ async function readReaderRelationPage(
   const result = await client.query<{ relation_id: string }>(
     `SELECT DISTINCT relation_id FROM unnest($4::text[]) AS allowed(key) CROSS JOIN LATERAL (
       SELECT relation_id FROM ha_relation_reader_keys WHERE ${where.join(" AND ")}
-      ORDER BY relation_id LIMIT $${values.length} OFFSET 0) AS candidate
+      ORDER BY ${page.order} LIMIT $${values.length} OFFSET 0) AS candidate
       ORDER BY relation_id LIMIT $${values.length}`,
     values,
   );
@@ -382,7 +398,7 @@ export function relationReaderIndexDdl(): readonly string[] {
       tenant_id text NOT NULL, project_id text NOT NULL, policy_epoch bigint NOT NULL,
       readers text[] NOT NULL DEFAULT '{}', reader_key text NOT NULL, relation_id text NOT NULL,
       relation_type text NOT NULL, relation_state text NOT NULL,
-      PRIMARY KEY(tenant_id,project_id,policy_epoch,reader_key,relation_id)
+      PRIMARY KEY(tenant_id,project_id,policy_epoch,relation_id,reader_key)
     )`,
     // The previous runtime can fire the trigger as soon as it is installed. Give
     // its writes scoped access first, without a schema-owner/SECURITY DEFINER path.
@@ -392,11 +408,11 @@ export function relationReaderIndexDdl(): readonly string[] {
         GRANT SELECT,INSERT,UPDATE,DELETE ON ha_relation_reader_keys TO "${role}";
       END IF; END $grant$`,
     ),
-    // All four type/state filter shapes retain relation_id order inside one reader key.
-    ...["relation_type", "relation_state", "relation_type,relation_state"].map(
-      (columns, index) =>
-        `CREATE INDEX IF NOT EXISTS ha_relation_reader_keys_page_${index} ON ha_relation_reader_keys
-        (tenant_id,project_id,policy_epoch,reader_key,${columns},relation_id)`,
+    // Each full equality prefix owns its order/cursor expression, including no filters.
+    ...relationReaderPages.map(
+      ({ columns, name, order }) =>
+        `CREATE INDEX IF NOT EXISTS ha_relation_reader_keys_page_${name} ON ha_relation_reader_keys
+        (tenant_id,project_id,policy_epoch,reader_key,${columns}${order})`,
     ),
     "ALTER TABLE ha_relations ADD COLUMN IF NOT EXISTS reader_index_version smallint NOT NULL DEFAULT 0",
     `CREATE INDEX IF NOT EXISTS ha_relations_reader_index_pending ON ha_relations

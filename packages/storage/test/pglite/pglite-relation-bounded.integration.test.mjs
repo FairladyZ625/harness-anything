@@ -20,6 +20,7 @@ import {
   readTaskRelationNeighborhoodWindow,
 } from "../../src/projection/task-query-projection.ts";
 import { pgRuntimeFixture } from "../postgres/pg-runtime.fixture.ts";
+import { tracedPgReads, explainNodes } from "../postgres/pg-explain.fixture.ts";
 
 const scope = { tenantId: "bounded", projectId: "relation", policyEpoch: 1, readers: ["one", "two"] };
 const ids = (rows) => rows.map(({ relationId }) => relationId);
@@ -113,6 +114,130 @@ async function observeReaderIndexCommits(f, relationIds) {
     },
   };
 }
+// F1: LIMIT must bound the index range, including an empty page, rather than only
+// output after filtering a same-reader history prefix. Exercise the real RLS read.
+for (const size of [200, 2000])
+  test(`postgres reader-key pages seek every filter prefix at ${size} scale with skewed history`, async (t) => {
+    const f = await fixture("postgres"),
+      plans = [],
+      pool = tracedPgReads(f.pool, plans, (sql) => sql.includes("FROM ha_relation_reader_keys"));
+    try {
+      await f.adminPool.query("ALTER TABLE ha_relation_reader_keys SET (autovacuum_enabled=false)");
+      for (const id of ["z-target-1", "z-target-2", "z-target-3", "z-target-Å", "z-target-é"])
+        await edge(f.adminPool, id, "task/from", "task/to");
+      await f.adminPool.query(
+        `INSERT INTO ha_relations(tenant_id,project_id,policy_epoch,readers,relation_id,
+        source_ref,target_ref,relation_type,relation_state,workspace_revision,value,freshness)
+        SELECT r.tenant_id,r.project_id,r.policy_epoch,r.readers,'a-history-'||lpad(i::text,6,'0'),
+          r.source_ref,r.target_ref,CASE WHEN i>$1 AND i<=2*$1 THEN 'depends-on' ELSE 'noise-type-'||i END,
+          CASE WHEN i>2*$1 THEN 'active' ELSE 'noise-state-'||i END,1,
+          r.value||jsonb_build_object('id','a-history-'||lpad(i::text,6,'0'),
+            'type',CASE WHEN i>$1 AND i<=2*$1 THEN 'depends-on' ELSE 'noise-type-'||i END,
+            'state',CASE WHEN i>2*$1 THEN 'active' ELSE 'noise-state-'||i END),'current'
+        FROM ha_relations r CROSS JOIN generate_series(1,3*$1::integer) AS g(i)
+        WHERE r.relation_id='z-target-1'`,
+        [size],
+      );
+      // Correlated scope columns make the four equality estimates clamp to one
+      // while type/state are common globally but rare together for this reader.
+      await f.adminPool.query(
+        `INSERT INTO ha_relations(tenant_id,project_id,policy_epoch,readers,relation_id,
+          source_ref,target_ref,relation_type,relation_state,workspace_revision,value,freshness)
+        SELECT 'tenant-'||i,'project-'||i,i,ARRAY['reader-'||i],r.relation_id,
+          r.source_ref,r.target_ref,r.relation_type,r.relation_state,1,r.value,'current'
+        FROM ha_relations r CROSS JOIN generate_series(1,10*$1::integer) AS g(i)
+        WHERE r.tenant_id=$2 AND r.relation_id='z-target-1'`,
+        [size, scope.tenantId],
+      );
+      for (const statistics of ["unanalyzed", "analyzed"]) {
+        if (statistics === "analyzed") await f.adminPool.query("ANALYZE ha_relation_reader_keys");
+        for (const [filter, index] of [
+          [{}, "all"],
+          [{ relationType: "depends-on" }, "0"],
+          [{ state: "active" }, "1"],
+          [{ relationType: "depends-on", state: "active" }, "2"],
+        ]) {
+          for (const page of ["first", "after", "empty"])
+            await t.test(`${statistics}/${index}/${page}`, async () => {
+              const afterRelationId = page === "first" ? undefined : page === "after" ? "z-target-2" : "zz",
+                query = { ...filter, limit: 2, ...(afterRelationId ? { afterRelationId } : {}) },
+                values = [scope.tenantId, scope.projectId, scope.policyEpoch],
+                where = ["tenant_id=$1", "project_id=$2", "policy_epoch=$3"];
+              for (const [value, column] of [
+                [filter.relationType, "relation_type"],
+                [filter.state, "relation_state"],
+                [afterRelationId, "relation_id"],
+              ])
+                if (value !== undefined) {
+                  values.push(value);
+                  where.push(`${column}${column === "relation_id" ? ">" : "="}$${values.length}`);
+                }
+              const expected = await scoped(f.pool, (client) =>
+                client.query(
+                  `SELECT relation_id FROM ha_relations WHERE ${where.join(" AND ")} ORDER BY relation_id LIMIT 2`,
+                  values,
+                ),
+              );
+              plans.length = 0;
+              const actual = await scoped(pool, (client) =>
+                  readVersionedRelationsInTransaction(client, scope, scope.readers, query),
+                ),
+                scans = explainNodes(plans).filter((node) => node["Relation Name"] === "ha_relation_reader_keys");
+              assert.deepEqual(
+                ids(actual),
+                expected.rows.map((row) => row.relation_id),
+              );
+              assert.ok(scans.length > 0, "the production reader-key scan must be explained");
+              t.diagnostic(JSON.stringify({ readerPagePlan: { size, statistics, filter, page, scans } }));
+              for (const scan of scans) {
+                assert.equal(scan["Index Name"], `ha_relation_reader_keys_page_${index}`);
+                assert.equal(scan["Rows Removed by Filter"] ?? 0, 0);
+                assert.equal(scan["Rows Removed by Index Recheck"] ?? 0, 0);
+                for (const column of [
+                  "reader_key",
+                  ...(filter.relationType ? ["relation_type"] : []),
+                  ...(filter.state ? ["relation_state"] : []),
+                ])
+                  assert.match(scan["Index Cond"], new RegExp(`${column} =`));
+                if (afterRelationId) assert.match(scan["Index Cond"], /> 'z/);
+                assert.ok(scan["Actual Rows"] <= 2, "no unrelated history before LIMIT");
+              }
+            });
+        }
+        // Empty requested filter values must seek to an empty range as well.
+        for (const filter of [
+          { relationType: "absent" },
+          { state: "absent" },
+          { relationType: "depends-on", state: "absent" },
+        ])
+          await t.test(`${statistics}/absent/${JSON.stringify(filter)}`, async () => {
+            plans.length = 0;
+            assert.deepEqual(
+              await scoped(pool, (client) =>
+                readVersionedRelationsInTransaction(client, scope, scope.readers, { ...filter, limit: 2 }),
+              ),
+              [],
+            );
+            const scans = explainNodes(plans).filter((node) => node["Relation Name"] === "ha_relation_reader_keys");
+            assert.ok(scans.length > 0, "an empty page must still explain its index seek");
+            t.diagnostic(JSON.stringify({ readerPagePlan: { size, statistics, filter, page: "no-match", scans } }));
+            for (const scan of scans) {
+              assert.equal(
+                scan["Index Name"],
+                `ha_relation_reader_keys_page_${filter.relationType ? (filter.state ? "2" : "0") : "1"}`,
+              );
+              assert.equal(scan["Rows Removed by Filter"] ?? 0, 0);
+              for (const column of [filter.relationType && "relation_type", filter.state && "relation_state"].filter(
+                Boolean,
+              ))
+                assert.match(scan["Index Cond"], new RegExp(`${column} =`));
+            }
+          });
+      }
+    } finally {
+      await f.close();
+    }
+  });
 test("postgres production readers serve each scope while its reader-key expansion completes", async () => {
   const f = await fixture("postgres");
   let commits;

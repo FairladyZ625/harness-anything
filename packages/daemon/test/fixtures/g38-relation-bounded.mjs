@@ -346,6 +346,20 @@ export async function verifyPgRelationReadCost(t, backend, dimension) {
     pair[scale] = await tracePgProbe(dimension, size, probeIds, backend);
     t.diagnostic(JSON.stringify({ p4Trace: { backend, dimension, scale, measurements: pair[scale] } }));
   }
+  // review-dispatch_812a346aaff225c51da0fb31/F1: the original-scale
+  // cost trace must not silently accept a PK scan with residual type/state filters.
+  for (const scale of Object.values(pair))
+    for (const measurement of Object.values(scale))
+      for (const statement of [...measurement.firstStatements, ...measurement.warmStatements])
+        for (const scan of statement.scanNodes.filter((node) => node.relationName === "ha_relation_reader_keys")) {
+          const type = /relation_type\s*=/u.test(statement.sql),
+            state = /relation_state\s*=/u.test(statement.sql),
+            index = type ? (state ? "2" : "0") : state ? "1" : "all";
+          assert.equal(scan.indexName, `ha_relation_reader_keys_page_${index}`);
+          assert.equal(scan.rowsRemovedByFilter, 0);
+          for (const column of [type && "relation_type", state && "relation_state"].filter(Boolean))
+            assert.match(scan.indexCond, new RegExp(`${column} =`));
+        }
   for (const id of probeIds) {
     assert.equal(pair.small[id].resultSize, pair.large[id].resultSize, `${id} fixed output`);
     assert.equal(pair.small[id].firstResultSize, pair.large[id].firstResultSize);
