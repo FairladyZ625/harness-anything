@@ -1,4 +1,4 @@
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import { existsSync } from "node:fs";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import {

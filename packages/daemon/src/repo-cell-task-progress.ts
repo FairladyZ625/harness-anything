@@ -28,7 +28,7 @@ import {
   readCompletionDeliveryStatus,
   factRetirementAssessment,
 } from "./task-completion-read.ts";
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import { archiveTaskOnComplete } from "./repo-cell-task-auto-archive.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 

@@ -5,7 +5,7 @@ import { readDaemonRegistry } from "@harness-anything/kernel";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import { localUserDaemonEndpoint } from "./client/local-daemon-target.ts";
 import { acquireDaemonSingleton, daemonPidPath } from "./daemon-singleton.ts";
-import type { openDaemonHost } from "./daemon-host.ts";
+import type { openDaemonHost } from "./daemon-host-open.ts";
 import type { openDaemonRequestLog } from "./request-log.ts";
 import { openDaemonLifecycleLog } from "./lifecycle-log.ts";
 import { openDaemonConnLog } from "./conn-log.ts";

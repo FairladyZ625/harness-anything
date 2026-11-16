@@ -14,7 +14,7 @@ import {
   resolveWorkerGitIdentity,
 } from "../src/runtime-worker-push.ts";
 import { readBeforeWriteQueue } from "../src/write-queue-external-reads.ts";
-import type { RepoCellApiContext } from "../src/repo-cell-api.ts";
+import type { RepoCellApiContext } from "../src/repo-cell-types.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";
 
 test("worker delivery is witnessed only on its bound task branch with commits above the baseline", async (context) => {

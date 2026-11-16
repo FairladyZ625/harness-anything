@@ -1,4 +1,4 @@
-import type { RepoCell, RepoTaskAction } from "./repo-cell.ts";
+import type { RepoCell, RepoTaskAction } from "./repo-cell-types.ts";
 
 type DeclarationRead = {
   readonly declaration: { readonly entityKinds: readonly unknown[] };

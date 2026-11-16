@@ -18,7 +18,12 @@ import type { DaemonControlReceipt, TerminalAttachSubscription } from "./gui-s3-
 import { type DaemonGuiReadResultMap, type DaemonGuiRpcReadMethod } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { type RepoBootstrapRequest } from "./repo-bootstrap.ts";
-import { type RepoCell, type RepoCellStatus, type RepoTaskAction, type RuntimeIngressAction } from "./repo-cell.ts";
+import {
+  type RepoCell,
+  type RepoCellStatus,
+  type RepoTaskAction,
+  type RuntimeIngressAction,
+} from "./repo-cell-types.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import type { RemoteProxyManager } from "./remote-proxy.ts";
 import type { ManagedRbacRequest } from "@harness-anything/kernel";

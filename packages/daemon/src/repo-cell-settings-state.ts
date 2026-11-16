@@ -34,7 +34,7 @@ import type {
   AuthoredSettingsInitialization,
   RepoCellActionContext,
   RepoCellSettingsState,
-} from "./repo-cell-action-context.ts";
+} from "./repo-cell-types.ts";
 import type { PresetSnapshotV1 } from "@harness-anything/preset";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 import type { DaemonSettingsLastChange } from "./protocol/daemon-settings-read-types.ts";

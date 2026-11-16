@@ -1,4 +1,3 @@
-import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import type { SquadControlResult } from "./squad-control-result.ts";
 import type { makeTaskLifecycleService } from "@harness-anything/application/internal/task-lifecycle-service";
 import type {
@@ -14,8 +13,17 @@ import type {
   WriteReceiptDraft,
   WriteSource,
   TaskClaimant,
+  DaemonRegistryRepo,
+  CanonicalEventAppendReceipt,
+  EventPublicationKillpoint,
+  HarnessLayout,
+  LocalSettingsV1,
+  RepositorySettingsV1,
+  SettingsV1,
+  TaskProjection,
+  assertCurrentWriter,
 } from "@harness-anything/kernel";
-import type { PresetRunReceiptV1 } from "@harness-anything/preset";
+import type { PresetRunReceiptV1, createPresetProcessService } from "@harness-anything/preset";
 import type { AgentRuntimeAttachSubscription, AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import type { RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import type { FleetRuntimeDispatchContext } from "./fleet/command-protocol.ts";
@@ -26,14 +34,91 @@ import type {
   DaemonGuiReadPayloadMap,
   DaemonGuiReadResultMap,
   ObserveTailResult,
+  CanonicalRoot,
 } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import type { TerminalHost, TrustedTerminalLaunch } from "./terminal-host.ts";
 import type { KeycloakCenterAuthority } from "./transport/auth-context.ts";
-import type { WriterEpochFenceDescriptor } from "@harness-anything/storage";
-import type { createLedgerBackup } from "@harness-anything/storage";
-import type { DaemonRegistryRepo } from "@harness-anything/kernel";
+import type { WriterEpochFenceDescriptor, createLedgerBackup } from "@harness-anything/storage";
+import type { NodeTaskMaterializationPolicy } from "@harness-anything/kernel/internal/domain/task-wip-policy.ts";
+import type { runTaskActionCatalogRuntime as lifecycleActionImpl } from "./task-action-catalog-runtime.ts";
+import type { decisionProposalAction, taskCreateAction } from "./repo-cell-action-parse.ts";
+import type { buildCommand, withServerMeta } from "./repo-cell-command.ts";
+import type {
+  completionKillpoint as completionKillpointImpl,
+  publishGateWitness as publishGateWitnessImpl,
+} from "./repo-cell-completion.ts";
+import type { cellCodedError, errorOperationId, publishGeneratedArtifact } from "./repo-cell-errors.ts";
+import type { decodeEvidencePayload, renderEvidencePayload } from "./repo-cell-evidence.ts";
+import type {
+  completeRetryCommand,
+  explicitExecutionId,
+  uniqueDerivedExecutionId,
+} from "./repo-cell-execution-selection.ts";
+import type { lifecycleReceipt, workspaceText } from "./repo-cell-packets.ts";
+import type { createTaskId, operationId, proofFor, receiptProof, withoutDryRun } from "./repo-cell-proof.ts";
+import type {
+  canonicalSettlement as canonicalSettlementImpl,
+  progressReceipt as progressReceiptImpl,
+  projectedTaskIds as projectedTaskIdsImpl,
+  receiptForOperation as receiptForOperationImpl,
+} from "./repo-cell-receipts.ts";
+import type { legacyReviewLint } from "./repo-cell-review-lint.ts";
+import type { appendAuxiliaryRuntimeIngress as appendAuxiliaryRuntimeIngressImpl } from "./repo-cell-runtime-ingress.ts";
+import type {
+  cellStringList,
+  completionApplied,
+  completionSettlement,
+  completionStopped,
+  failed,
+  progressEvidence,
+  projectionReady,
+  rejected,
+  requiredCellText,
+} from "./repo-cell-settlement.ts";
+import type {
+  runTaskCommandWithDocs as runTaskCommandWithDocsImpl,
+  taskSurfaceWrite as taskSurfaceWriteImpl,
+} from "./repo-cell-task-command-docs.ts";
+import type { taskMutation as taskMutationImpl } from "./repo-cell-task-mutation.ts";
+import type { assertTaskTransitionDocumentReady } from "./transition-document-access.ts";
+import type {
+  createTask as createTaskImpl,
+  previewResult as previewResultImpl,
+  upgradePresetSnapshot as upgradePresetSnapshotImpl,
+  withHumanSummary as withHumanSummaryImpl,
+} from "./repo-cell-task-create.ts";
+import type {
+  archiveTasks as archiveTasksImpl,
+  upsertEntity as upsertEntityImpl,
+  migrateTaskContracts as migrateTaskContractsImpl,
+  supersedeWithNewTask as supersedeWithNewTaskImpl,
+} from "./repo-cell-task-maintenance.ts";
+import type {
+  appendProgress as appendProgressImpl,
+  completeTask as completeTaskImpl,
+  completionContext as completionContextImpl,
+} from "./repo-cell-task-progress.ts";
+import type {
+  assertTaskWipCapacity as assertTaskWipCapacityImpl,
+  listRelations as listRelationsImpl,
+  listTasks as listTasksImpl,
+  reviewTask as reviewTaskImpl,
+  taskReadSet as taskReadSetImpl,
+  taskWipEnteringAction as taskWipEnteringActionImpl,
+  wipSnapshotEntries as wipSnapshotEntriesImpl,
+  TaskQueryCell,
+} from "./repo-cell-task-query.ts";
+import type { graphView as graphViewImpl } from "./repo-cell-graph-view.ts";
+import type { listEvents as listEventsImpl, showEvent as showEventImpl } from "./repo-cell-event-query.ts";
+import type { makeSquadCoordinator } from "./squad-coordinator.ts";
+import type { EntityActionCatalogRuntimes, makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
+import type { makeRuntimeSpawner } from "./runtime-spawn.ts";
+import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
+import type { makeRecoveryProbe } from "./recovery-state.ts";
+import type { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 
 export type RepoTaskAction = Readonly<Record<string, unknown>> & {
   readonly kind: string;
@@ -397,3 +482,224 @@ export type PublicPublication = {
  * and this constant deliberately does not derive from that setting: lease duration is a fleet
  * concurrency-safety parameter (how long a dead holder blocks the task), not an operator knob. */
 export const leaseTtlMs = 24 * 60 * 60 * 1_000;
+
+type Bound<Implementation> = Implementation extends (context: infer Context, ...args: infer Args) => infer Result
+  ? Context extends object
+    ? (...args: Args) => Result
+    : never
+  : never;
+
+/** The settings value an absent entity would be minted with, and the authored bytes it comes from. */
+export interface AuthoredSettingsInitialization {
+  readonly settings: SettingsV1;
+  readonly repository: RepositorySettingsV1;
+  readonly documentBody: string;
+  readonly candidateDocumentBody: string;
+}
+
+export interface RepoCellSettingsState {
+  /** `ha init`'s mint. It may seed a defaults local file, and only when the machine has none yet. */
+  readonly initializeBootstrap: (
+    settings: SettingsV1,
+    documentBody: string,
+    binding: RepoCellBinding,
+  ) => ReturnType<CanonicalEventStore["append"]> | null;
+  /** The write path's mint: repository settings only, never this machine's preferences file. */
+  readonly initializeAuthored: (
+    initialization: AuthoredSettingsInitialization,
+    binding: RepoCellBinding,
+  ) => ReturnType<CanonicalEventStore["append"]> | null;
+  /**
+   * The mint a write request would perform, resolved without writing: the request is judged against
+   * this value first so a rejected request appends no event. `null` when the entity already exists.
+   */
+  readonly authoredInitialization: () => AuthoredSettingsInitialization | null;
+  readonly read: () => SettingsV1;
+  readonly readLocal: () => LocalSettingsV1;
+  readonly readRepository: () => RepositorySettingsV1;
+  readonly writeLocal: (value: LocalSettingsV1) => boolean;
+}
+
+export interface RepoCellActionContext extends TaskQueryCell {
+  readonly projection: TaskProjection;
+  /** The resolved layout for this repository, so receipt translation never re-reads harness.yaml. */
+  readonly layout: HarnessLayout;
+  readonly store: CanonicalEventStore;
+  readonly input: {
+    readonly repoId: string;
+    readonly nodeTaskMaterializationPolicy?: NodeTaskMaterializationPolicy;
+    readonly runtimeDaemonRoute?: import("./runtime-spawn.ts").RuntimeDaemonRoute;
+    readonly killpoint?: (point: EventPublicationKillpoint) => void;
+    readonly shouldStop?: () => boolean;
+    readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
+    readonly runtimeInstanceCapacities?: Readonly<Record<string, number>>;
+    readonly prepareDaemonGitEnvironment?: (
+      instanceId: string,
+      provider: "github" | "gitlab",
+      repoId: string,
+    ) => Promise<NodeJS.ProcessEnv | null>;
+  };
+  readonly appendAuxiliaryRuntimeIngress: Bound<typeof appendAuxiliaryRuntimeIngressImpl>;
+  readonly requiredCellText: typeof requiredCellText;
+  readonly now: () => string;
+  readonly operationId: typeof operationId;
+  readonly receiptForOperation: Bound<typeof receiptForOperationImpl>;
+  readonly listTasks: Bound<typeof listTasksImpl>;
+  readonly listRelations: Bound<typeof listRelationsImpl>;
+  readonly listEvents: Bound<typeof listEventsImpl>;
+  readonly showEvent: Bound<typeof showEventImpl>;
+  readonly reviewTask: Bound<typeof reviewTaskImpl>;
+  readonly taskReadSet: Bound<typeof taskReadSetImpl>;
+  readonly graphView: Bound<typeof graphViewImpl>;
+  readonly publishGeneratedArtifact: typeof publishGeneratedArtifact;
+  readonly entityActionExecutor: ReturnType<typeof makeEntityActionCatalogExecutor>;
+  readonly entityActionRuntimes: EntityActionCatalogRuntimes;
+  readonly decisionProposalAction: typeof decisionProposalAction;
+  readonly upgradePresetSnapshot: Bound<typeof upgradePresetSnapshotImpl>;
+  readonly upsertEntity: Bound<typeof upsertEntityImpl>;
+  readonly taskWipEnteringAction: Bound<typeof taskWipEnteringActionImpl>;
+  readonly assertTaskWipCapacity: Bound<typeof assertTaskWipCapacityImpl>;
+  readonly createTask: Bound<typeof createTaskImpl>;
+  readonly taskCreateAction: typeof taskCreateAction;
+  readonly runTaskCommandWithDocs: Bound<typeof runTaskCommandWithDocsImpl>;
+  readonly assertTaskTransitionDocumentReady: typeof assertTaskTransitionDocumentReady;
+  readonly appendProgress: Bound<typeof appendProgressImpl>;
+  readonly migrateTaskContracts: Bound<typeof migrateTaskContractsImpl>;
+  readonly archiveTasks: Bound<typeof archiveTasksImpl>;
+  readonly supersedeWithNewTask: Bound<typeof supersedeWithNewTaskImpl>;
+  readonly declareExecutionExecutor: (action: RepoTaskAction, binding: RepoCellBinding) => WriteReceiptDraft;
+  readonly annotateExecution: (action: RepoTaskAction, binding: RepoCellBinding) => WriteReceiptDraft;
+  readonly completeTask: Bound<typeof completeTaskImpl>;
+  readonly taskSurfaceWrite: Bound<typeof taskSurfaceWriteImpl>;
+  readonly rejected: typeof rejected;
+  readonly lifecycleAction: Bound<typeof lifecycleActionImpl>;
+  readonly service: ReturnType<typeof makeTaskLifecycleService>;
+  readonly squadCoordinator: ReturnType<typeof makeSquadCoordinator>;
+  readonly workspaceText: typeof workspaceText;
+  readonly buildCommand: typeof buildCommand;
+  readonly withServerMeta: typeof withServerMeta;
+  readonly proofFor: (
+    command: Parameters<typeof proofFor>[0],
+    snapshot: Parameters<typeof proofFor>[1],
+    binding: Parameters<typeof proofFor>[2],
+    projection: Parameters<typeof proofFor>[3],
+  ) => ReturnType<typeof proofFor>;
+  readonly lifecycleReceipt: Bound<typeof lifecycleReceipt>;
+  readonly publicPublication: (value: Pick<CanonicalEventAppendReceipt, "commitSha" | "cut">) => PublicPublication;
+  readonly explicitExecutionId: typeof explicitExecutionId;
+  readonly projectionReady: typeof projectionReady;
+  readonly uniqueDerivedExecutionId: typeof uniqueDerivedExecutionId;
+  readonly receiptProof: typeof receiptProof;
+  readonly taskMutation: Bound<typeof taskMutationImpl>;
+  readonly withoutDryRun: typeof withoutDryRun;
+  readonly previewResult: Bound<typeof previewResultImpl>;
+  readonly projectedTaskIds: Bound<typeof projectedTaskIdsImpl>;
+  readonly wipSnapshotEntries: Bound<typeof wipSnapshotEntriesImpl>;
+  readonly legacyReviewLint: typeof legacyReviewLint;
+  readonly cellStringList: typeof cellStringList;
+  readonly decodeEvidencePayload: typeof decodeEvidencePayload;
+  readonly renderEvidencePayload: typeof renderEvidencePayload;
+  readonly createTaskId: typeof createTaskId;
+  readonly progressReceipt: Bound<typeof progressReceiptImpl>;
+  readonly progressEvidence: typeof progressEvidence;
+  readonly completionApplied: typeof completionApplied;
+  readonly completionContext: Bound<typeof completionContextImpl>;
+  readonly completeRetryCommand: typeof completeRetryCommand;
+  readonly failed: typeof failed;
+  readonly completionSettlement: typeof completionSettlement;
+  readonly publishGateWitness: Bound<typeof publishGateWitnessImpl>;
+  readonly errorOperationId: typeof errorOperationId;
+  readonly completionStopped: typeof completionStopped;
+  readonly completionKillpoint: Bound<typeof completionKillpointImpl>;
+  readonly executeAction: (action: RepoTaskAction, binding: RepoCellBinding) => Promise<WriteReceiptDraft>;
+  readonly withHumanSummary: Bound<typeof withHumanSummaryImpl>;
+  recoveryUncertain: boolean;
+  readonly recovery: {
+    readonly status: OperationalStatus.RepoRecoveryStatus;
+    readonly elapsedMs: number;
+    readonly error?: string;
+    readonly errorCode?: string;
+  };
+  readonly canonicalSettlement: Bound<typeof canonicalSettlementImpl>;
+  knownTaskIds: Set<string> | null;
+}
+
+export interface RepoCellRuntimeContext extends RepoCellActionContext {
+  readonly mode: DaemonRepoMode;
+  readonly runtimeSpawner: ReturnType<typeof makeRuntimeSpawner>;
+}
+
+export interface RepoCellOperationalContext extends RepoCellRuntimeContext {
+  readonly settings: RepoCellSettingsState;
+}
+
+export interface RepoCellApiContext {
+  readonly extracted: RepoCellOperationalContext;
+  readonly mode: DaemonRepoMode;
+  readonly input: {
+    readonly repoId: string;
+    readonly runtimeDaemonRoute?: import("./runtime-spawn.ts").RuntimeDaemonRoute;
+    readonly killpoint?: (point: EventPublicationKillpoint) => void;
+    readonly runtimeInstances?: RepoCellOperationalContext["input"]["runtimeInstances"];
+    readonly prepareDaemonGitEnvironment?: (
+      instanceId: string,
+      provider: "github" | "gitlab",
+      repoId: string,
+    ) => Promise<NodeJS.ProcessEnv | null>;
+  };
+  readonly rejected: RepoCellOperationalContext["rejected"];
+  readonly operationId: RepoCellOperationalContext["operationId"];
+  readonly failed: RepoCellOperationalContext["failed"];
+  readonly fatalCellError: (error: unknown) => boolean;
+  readonly errorOperationId: RepoCellOperationalContext["errorOperationId"];
+  readonly cellCodedError: RepoCellOperationalContext["cellCodedError"];
+  readonly requiredCellText: RepoCellOperationalContext["requiredCellText"];
+  readonly dispatchRead: typeof import("./repo-cell-command.ts").dispatchRead;
+  state: RepoCell["status"] extends () => infer Status
+    ? Status extends { readonly state: infer State }
+      ? State
+      : never
+    : never;
+  readonly attemptRecovery: (force?: boolean) => Promise<void>;
+  causeClass: ReturnType<RepoCell["status"]>["causeClass"];
+  readonly latched: () => string;
+  readonly latchWith: (error: unknown) => void;
+  queueDepth: number;
+  tail: Promise<void>;
+  /** Head tracker shared by every append to `tail`; names who a waiting write is behind. */
+  readonly writeQueue: RepoCellWriteQueueState;
+  readonly activeWriter: Parameters<typeof assertCurrentWriter>[0];
+  readonly writerToken: Parameters<typeof assertCurrentWriter>[1];
+  activeWriterEpochFence: (<T>(operation: () => T) => T) | null;
+  activeWriterEpochFenceDescriptor: NonNullable<RepoCellBinding["writerEpochFence"]> | null;
+  readonly withHumanSummary: (receipt: WriteReceiptDraft) => WriteReceiptDraft;
+  lastError: string | null;
+  recoveryUncertain: boolean;
+  readonly recoveryProbe: ReturnType<typeof makeRecoveryProbe>;
+  readonly replica: RepoCell["replica"];
+  readonly rootDir: CanonicalRoot;
+  readonly store: CanonicalEventStore;
+  readonly projection: TaskProjection;
+  readonly withReadSession?: import("./doc-sync-reads.ts").ProjectedDocumentReadContext["withReadSession"];
+  readonly now: () => string;
+  readonly onlineBinding: (binding: RepoCellBinding) => Promise<RepoCellBinding>;
+  readonly executeAction: RepoCellOperationalContext["executeAction"];
+  readonly squadCoordinator: ReturnType<typeof makeSquadCoordinator>;
+  readonly presetProcess: ReturnType<typeof createPresetProcessService>;
+  readonly runtimeReads: ReturnType<typeof makeAgentRuntimeReadModel>;
+  readonly runtimeSpawner: ReturnType<typeof makeRuntimeSpawner>;
+  /** Resolves when the session's projected outcome is settled per the domain settle predicate. */
+  readonly awaitRuntimeOutcome: (runtimeSessionId: string) => Promise<void>;
+  /** Resolves on the next runtime signal/outcome notification or the settlement grace backstop. */
+  readonly runtimeSignalVersion: () => number;
+  readonly awaitRuntimeSignal: (observedVersion?: number) => Promise<void>;
+  readonly settings: RepoCellSettingsState;
+  readonly appendAuxiliaryRuntimeIngress: RepoCellOperationalContext["appendAuxiliaryRuntimeIngress"];
+  bootstrapReceipt: RepoBootstrapReceipt | undefined;
+  readonly catalog: RepoCell["catalog"];
+  readonly runtimeStream: AgentRuntimeStreamHub;
+  readonly canHibernate?: () => boolean;
+  readonly generation: number;
+  readonly recovery: RepoCellOperationalContext["recovery"];
+  readonly lock: { readonly close: () => Promise<void> };
+}

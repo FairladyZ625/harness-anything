@@ -2,7 +2,7 @@ import path from "node:path";
 import { prepareTaskSubmission } from "./submission-preparation.ts";
 import { currentSubmittedExecutions, type WriteReceiptDraft } from "@harness-anything/kernel";
 import { artifactImportSourceResolution, prepareArtifactEntityImportSource } from "./artifact-entity-action.ts";
-import type { RepoCellApiContext } from "./repo-cell-api.ts";
+import type { RepoCellApiContext } from "./repo-cell-types.ts";
 import { taskWorktreeInput } from "./repo-cell-action-dispatch.ts";
 import { startExecutionId } from "./repo-cell-command.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";

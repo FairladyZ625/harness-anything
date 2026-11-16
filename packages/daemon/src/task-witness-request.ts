@@ -1,5 +1,5 @@
 import { currentGateRun, gateAppliesToSubmission, isRetiredCiRequirement } from "@harness-anything/kernel";
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import type { DaemonTaskWitnessRunResult } from "./protocol/daemon-protocol.contract.ts";
 
 export interface TaskWitnessRequest {

@@ -11,7 +11,7 @@ import { attestGateWitness } from "../src/repo-cell-witness-adapters.ts";
 import { annotateExecution, declareExecutionExecutor } from "../src/repo-cell-action-dispatch.ts";
 import { projectionReady, requiredCellText } from "../src/repo-cell-settlement.ts";
 import { readTaskCompletion } from "../src/task-completion-read.ts";
-import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "../src/repo-cell-types.ts";
 import { runFactAction } from "../src/repo-cell-fact-action.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";

@@ -3,7 +3,7 @@ import {
   openFleetStorage,
   type DaemonStorageConfig,
 } from "@harness-anything/storage";
-import type { RepoCellApiContext } from "./repo-cell-api.ts";
+import type { RepoCellApiContext } from "./repo-cell-types.ts";
 import type { RepoCell } from "./repo-cell-types.ts";
 import { chainRepoCellWrite } from "./repo-cell.ts";
 

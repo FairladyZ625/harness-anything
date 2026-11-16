@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import type { AgentRuntimeEventV1, PersistedCanonicalEventV1 } from "@harness-anything/kernel";
 import { normalizeHistoricalSquadRunIdentity } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events";
-import type { RepoCellActionContext } from "../src/repo-cell-action-context.ts";
+import type { RepoCellActionContext } from "../src/repo-cell-types.ts";
 import type { RepoCellBinding, RuntimeIngressAction } from "../src/repo-cell-types.ts";
 import { requireSquadRuntimeOwner } from "../src/squad-runtime-ingress.ts";
 

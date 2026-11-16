@@ -37,7 +37,7 @@ import { selectExecutorDeclaration, taskLineageExecutorCandidates } from "./disp
 import { readCompletionContext } from "./task-completion-read.ts";
 import { taskShowFromProjection } from "./repo-cell-completion.ts";
 import { dispatchDecisionReview, dispatchTaskReview } from "./task-review-dispatch.ts";
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import { runFactAction } from "./repo-cell-fact-action.ts";
 import { deriveActionResult } from "./entity-action-catalog-executor.ts";
 import type { TaskCommandWithDocsAction } from "./repo-cell-task-command-docs.ts";

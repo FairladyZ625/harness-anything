@@ -2,7 +2,7 @@ import { assertCurrentWriter, attachReceiptAcceptance, type WriteReceipt } from 
 import { commandDescriptorForAction } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { evaluateRepoCellAction, bindVerifiedExecutorClaim } from "./repo-cell-authorization.ts";
-import type { RepoCellApiContext } from "./repo-cell-api.ts";
+import type { RepoCellApiContext } from "./repo-cell-types.ts";
 import type { RepoCellBinding, RepoCellQueueObservation, RepoTaskAction } from "./repo-cell-types.ts";
 import { chainRepoCellWrite } from "./repo-cell.ts";
 import { admitRepoMode } from "./repo-mode.ts";

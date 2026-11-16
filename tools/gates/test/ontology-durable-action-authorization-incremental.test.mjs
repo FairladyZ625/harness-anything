@@ -16,6 +16,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import ts from "typescript";
+import { buildFlowGraph } from "../authorization-flow-graph.mjs";
+import { sourceFileOf, guiCallbackCallerFiles } from "../authorization-source-proof.mjs";
 import { testOrdinalInPartition } from "../../node-test-runner-lib.mjs";
 import { replaceSourceOnce, runGit } from "./helpers.mjs";
 import {
@@ -29,7 +31,7 @@ import { exitCodeFor } from "../ontology-gate-lib.mjs";
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 let ordinal = 0;
 function partitionedTest(name, run) {
-  if (testOrdinalInPartition(ordinal++, process.env.HARNESS_TEST_PARTITION, [1, 1, 2, 3, 4, 1, 2])) test(name, run);
+  if (testOrdinalInPartition(ordinal++, process.env.HARNESS_TEST_PARTITION, [1, 1, 2, 3, 4, 1, 2, 4, 4])) test(name, run);
 }
 
 function fixtureGraph(modules) {
@@ -295,3 +297,62 @@ partitionedTest(
     assert.equal(clientSource?.ok, false);
   },
 );
+
+// dec_B9B5BF3C86195DF4186D01668D/CH3: fix the source cycle, preserving every type edge.
+partitionedTest("daemon leaf action changes stay below 60 descriptors and detect a restored type cycle", async () => {
+  const inputs = await loadAuthorizationInputs(repoRoot);
+  const started = performance.now();
+  const sourceFiles = inputs.constants.actionDeclarations.flatMap((action) => [
+    ...(action.ontology?.sources ?? []).map(sourceFileOf),
+    ...Object.values(action.ontology?.entries ?? {}).flatMap((entry) => [
+      entry.file,
+      ...(entry.builder ? [entry.builder] : []),
+    ]),
+  ]);
+  const graph = buildFlowGraph(repoRoot, {
+    sourceFiles: [...new Set(sourceFiles)],
+    lexicalFiles: guiCallbackCallerFiles(
+      repoRoot,
+      sourceFiles.filter((file) => /^packages\/gui\/src\/(?:renderer|preload|browser)\//u.test(file)),
+    ),
+  });
+  const durableInputs = {
+    ...inputs,
+    descriptors: inputs.descriptors.filter((descriptor) => descriptor.commandClass !== "repo-read"),
+  };
+  const file = "packages/daemon/src/todo-action.ts";
+  const count = () => changedAuthorizationScope(graph, durableInputs, [file]).descriptorIds?.size;
+  const descriptors = count();
+  console.log(
+    `DAEMON_LEAF_SCOPE ${JSON.stringify({ descriptors, total: durableInputs.descriptors.length, seconds: (performance.now() - started) / 1000 })}`,
+  );
+  assert.ok(descriptors > 0 && descriptors < 60, `todo-action selected ${descriptors} descriptors; expected 1..59`);
+  // Moving declarations alone is insufficient if their signatures still type-import the
+  // composition root: every leaf importing the shared contracts joins the dispatcher again.
+  const contracts = "packages/daemon/src/repo-cell-types.ts";
+  const original = graph.modules.get(contracts);
+  try {
+    graph.modules.set(contracts, {
+      ...original,
+      sourceFile: ts.createSourceFile(
+        contracts,
+        `${original.sourceFile.text}\nimport type { RepoCellActionContext as RestoredContext } from "./repo-cell-action-context.ts";`,
+        ts.ScriptTarget.Latest,
+        true,
+      ),
+    });
+    const restored = count();
+    console.log(`DAEMON_LEAF_RESTORED_CYCLE ${JSON.stringify({ descriptors: restored })}`);
+    assert.ok(restored >= 200, `restored type cycle selected only ${restored} descriptors`);
+  } finally {
+    graph.modules.set(contracts, original);
+  }
+  assert.equal(count(), descriptors);
+});
+
+partitionedTest("daemon leaf action CLI measures the narrowed authorization proof", () => {
+  const { stdout, ...measurement } = measuredGate(["packages/daemon/src/todo-action.ts"]);
+  console.log(`DAEMON_LEAF_AUTHORIZATION_BENCHMARK ${JSON.stringify(measurement)}`);
+  assert.ok(measurement.descriptors > 0 && measurement.descriptors < 60);
+  assert.match(stdout, /source authority: 0\//u);
+});

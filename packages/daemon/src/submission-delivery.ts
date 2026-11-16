@@ -7,7 +7,7 @@ import {
   type SubmissionV1,
   type WriteSource,
 } from "@harness-anything/kernel";
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import type { Snapshot } from "./repo-cell-types.ts";
 import { runProcessExitAsync, runProcessTextAsync } from "./process-port.ts";
 import { repositoryBaseRefAsync } from "./schedule-occurrence-workspace.ts";

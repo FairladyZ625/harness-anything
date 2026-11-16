@@ -1,4 +1,4 @@
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { WriteReceiptDraft as WriteReceipt } from "@harness-anything/kernel";
 import { readAgentDiff, readAgentHistory, readAgentVersion, type AgentVersionPorts } from "./agent-version-read.ts";

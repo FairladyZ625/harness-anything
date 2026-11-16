@@ -27,7 +27,7 @@ import type {
   AuthoredSettingsInitialization,
   RepoCellRuntimeContext,
   RepoCellSettingsState,
-} from "./repo-cell-action-context.ts";
+} from "./repo-cell-types.ts";
 import type { EntityActionCatalogRunner } from "./entity-action-catalog-executor.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";

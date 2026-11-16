@@ -7,7 +7,7 @@ import {
   sha256Bytes,
   type ArtifactDelivery,
 } from "@harness-anything/kernel";
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 
 /** Anchors name this task's artifacts package-relative; the frozen cut stores the full task-package path. */
 export function submissionArtifactPath(packagePath: string, path: string): string {

@@ -8,7 +8,7 @@ import path from "node:path";
 import test, { after } from "node:test";
 import { readSettingsFacet, reviewDigest, submissionDigest } from "@harness-anything/kernel";
 import { compileRepoTaskPackage } from "@harness-anything/preset";
-import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "../src/repo-cell-types.ts";
 import type { RepoCellBinding, Snapshot } from "../src/repo-cell-types.ts";
 import { completeTask } from "../src/repo-cell-task-progress.ts";
 import { completionSettlement, completionStopped, projectionReady } from "../src/repo-cell-settlement.ts";

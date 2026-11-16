@@ -2,8 +2,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { TaskV2 } from "@harness-anything/kernel";
-import type { RepoCellActionContext } from "../src/repo-cell-action-context.ts";
-import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
+import type { RepoCellActionContext } from "../src/repo-cell-types.ts";
+import type { RepoCellOperationalContext } from "../src/repo-cell-types.ts";
 import { withRetiredTaskClass } from "../src/repo-cell-task-maintenance.ts";
 import { taskMutation } from "../src/repo-cell-task-mutation.ts";
 

@@ -1,7 +1,7 @@
 import type { WriteReceiptDraft as WriteReceipt } from "@harness-anything/kernel";
 import { dismissIncidentActionReceipt } from "./decision-incident-receipt.ts";
 import { noChanges } from "./entity-action-write-helpers.ts";
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 /** `runtime-incident-dismiss`: the owner's explicit close of one escalated incident receipt. The

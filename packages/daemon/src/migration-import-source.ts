@@ -11,7 +11,7 @@ import type {
 } from "./migration-import-types.ts";
 import { migrationOracleKinds } from "./migration-import-types.ts";
 import { runProcessText } from "./process-port.ts";
-import type { RepoTaskAction } from "./repo-cell.ts";
+import type { RepoTaskAction } from "./repo-cell-types.ts";
 
 export function migrationSourceRoots(action: RepoTaskAction): readonly string[] {
   if (

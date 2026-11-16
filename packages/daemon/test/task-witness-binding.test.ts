@@ -8,7 +8,7 @@ import path from "node:path";
 import { reduceTaskEvent, type TaskEventV1, type FrozenGateRequirement } from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { completionSnapshot } from "../../kernel/test/domain/completion.fixtures.ts";
-import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "../src/repo-cell-types.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";
 import { centerWitnessAction, runTaskWitnessAction } from "../src/task-witness-action.ts";
 

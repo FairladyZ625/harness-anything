@@ -1,5 +1,5 @@
 import type { DaemonTaskDispatchesPayload } from "./protocol/daemon-protocol-gui-types.ts";
-import type { RepoCellApiContext } from "./repo-cell-api.ts";
+import type { RepoCellApiContext } from "./repo-cell-types.ts";
 import { decisionReadSurfaces } from "@harness-anything/kernel";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 

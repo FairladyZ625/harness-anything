@@ -1,6 +1,6 @@
 import type { WriteReceiptDraft as WriteReceipt } from "@harness-anything/kernel";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 
 /**
  * The lightweight closeout path: a task whose profile declares archiveOnComplete is archived

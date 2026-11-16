@@ -24,7 +24,7 @@ import {
 } from "../src/dispatch-read.ts";
 import { openDecisionAnnotationStore } from "../src/decision-annotations.ts";
 import { appendIncidentActionReceipt } from "../src/decision-incident-receipt.ts";
-import type { RepoCellApiContext } from "../src/repo-cell-api.ts";
+import type { RepoCellApiContext } from "../src/repo-cell-types.ts";
 import type { TaskProjectionQueries } from "../src/protocol/daemon-protocol.contract.ts";
 import { taskDispatchesPayloadFromCell } from "../src/repo-cell-read-payloads.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";

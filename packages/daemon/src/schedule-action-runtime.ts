@@ -19,7 +19,7 @@ import {
 } from "./protocol/daemon-protocol-commands-runtime-fleet.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { resolvePacketAction, type PacketActionContract } from "./repo-cell-action-parse.ts";
-import type { RepoCellRuntimeContext } from "./repo-cell-action-context.ts";
+import type { RepoCellRuntimeContext } from "./repo-cell-types.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import type { EntityActionCatalogRunner } from "./entity-action-catalog-executor.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";

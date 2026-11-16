@@ -9,7 +9,7 @@ import {
   type ExecutionV1,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
-import type { RepoCellApiContext } from "./repo-cell-api.ts";
+import type { RepoCellApiContext } from "./repo-cell-types.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { chainRepoCellWrite } from "./repo-cell.ts";
 import { centerWitnessAction } from "./task-witness-action.ts";

@@ -22,7 +22,7 @@ import {
 import { TaskLifecycleContractError } from "@harness-anything/kernel/internal/domain/task-lifecycle-event.ts";
 import { errorCode } from "@harness-anything/kernel/internal/domain/task-lifecycle-contract-support.ts";
 import { attributeCellCriterion } from "./repo-cell-errors.ts";
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { assertCurrentSubmittedExecution } from "./repo-cell-execution-selection.ts";
 

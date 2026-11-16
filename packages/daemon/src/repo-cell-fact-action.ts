@@ -1,7 +1,7 @@
 import { type WriteReceiptDraft as WriteReceipt } from "@harness-anything/kernel";
 import { withObservedCommit } from "./fact-observed-commit.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 export function runFactAction(
