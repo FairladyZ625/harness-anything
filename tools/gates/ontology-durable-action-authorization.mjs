@@ -160,6 +160,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
   const today = options.today ?? new Date().toISOString().slice(0, 10);
   const sourceRoot = options.sourceRoot ?? rootDir,
     durable = inputs.descriptors.filter((descriptor) => descriptor.commandClass !== "repo-read"),
+    declaredActions = inputs.constants.actionDeclarations ?? [],
     onlySet = options.only ? new Set(options.only) : null,
     matchesOnly = (descriptor) =>
       !onlySet ||
@@ -178,7 +179,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
             ]),
         ])
       : null,
-    actions = (inputs.constants.actionDeclarations ?? []).filter(
+    actions = declaredActions.filter(
       (action) => action.ontology?.sources?.length && (!selectedKinds || selectedKinds.has(action.kind)),
     ),
     onlyActions = onlySet
@@ -236,7 +237,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
               ...(entry.builder ? [entry.builder] : []),
             ]),
           ),
-          ...actions
+          ...declaredActions
             .filter((action) => action.ontology?.authority)
             .flatMap((action) =>
               Object.values(action.ontology.entries ?? {}).flatMap((entry) => [
@@ -352,27 +353,28 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
         hostServiceEntryRequired(graph, node, action) || migrationServiceEntryEvidence(graph, node, source, action)
       );
     });
-    const policyTrace =
+    const fullTrace =
       targets.length > 0 &&
       ownerEvidence.length > 0 &&
       declarationViolations.length === 0 &&
       owner.violations.length === 0
-        ? tracer.traceDescriptor({ ...traceInput, sources: targets })
+        ? sourceTracer.traceDescriptor({ ...traceInput, sources: targets })
         : null;
-    if (policyTrace) {
+    if (fullTrace) {
       graph.resetFramePool();
-      for (const source of policyTrace.sources.values()) sourceResults.set(source.id, source);
+      for (const source of fullTrace.sources.values()) sourceResults.set(source.id, source);
     }
-    const remainingTargets = policyTrace
+    const remainingTargets = fullTrace
       ? targets.filter((target) => {
-          const seen = policyTrace.sources.get(target.site);
+          const seen = fullTrace.sources.get(target.site);
           return !seen?.seen || !seen.ok;
         })
       : [];
-    if (remainingTargets.length > 0) {
-      const fullTrace = sourceTracer.traceDescriptor({ ...traceInput, sources: remainingTargets });
+    const policyTrace =
+      remainingTargets.length > 0 ? tracer.traceDescriptor({ ...traceInput, sources: remainingTargets }) : null;
+    if (policyTrace) {
       graph.resetFramePool();
-      for (const source of fullTrace.sources.values()) sourceResults.set(source.id, source);
+      for (const source of policyTrace.sources.values()) sourceResults.set(source.id, source);
     }
     const trace = policyTrace ?? owner;
     const evidence =
@@ -391,15 +393,15 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
   });
   const processEvaluator = makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true });
   const nativeSites = new Map();
-  for (const action of actions.filter((action) => action.ontology?.authority)) {
+  for (const action of declaredActions.filter((action) => action.ontology?.authority)) {
     const { authority, entries = {} } = action.ontology;
     for (const [route, entry] of Object.entries(entries)) {
-      const root = processEntry(graph, entry, authority);
-      if (!root || action.residency.scope === "canonical" || action.receiptSettlement !== "none") continue;
       const routeTargets = sourceActions.flatMap((candidate) =>
         sourceTargets(candidate).filter((source) => source.route === route && source.role === "effect"),
       );
       if (routeTargets.length === 0) continue;
+      const root = processEntry(graph, entry, authority);
+      if (!root || action.residency.scope === "canonical" || action.receiptSettlement !== "none") continue;
       const cacheKey = `${entry.file}\u0000${route}`;
       if (!nativeSites.has(cacheKey)) {
         nativeSites.set(

@@ -606,11 +606,14 @@ export function makeRepoCellCommandRunner(
         .catch(async (error) =>
           failAction(context, action, binding, error, durable ? await authorizeAtCurrentCut()! : undefined),
         );
-    if (action.kind === "task-witness-rerun" && typeof action.taskId === "string")
-      return enqueuePublication(async (authorizationDecision) => {
-        const nextBinding = authorizationDecision ? { ...binding, authorizationDecision } : binding;
-        return appendCompletionWarnings(await context.executeAction(action, nextBinding), nextBinding);
-      });
+    if (action.kind === "task-witness-rerun" && typeof action.taskId === "string") {
+      const receipt = await enqueuePublication((authorizationDecision) =>
+        context.executeAction(action, authorizationDecision ? { ...binding, authorizationDecision } : binding),
+      );
+      const rerunDecision = await authorizeAtCurrentCut()!;
+      if (rerunDecision.outcome !== "allowed") return receipt;
+      return await appendCompletionWarnings(receipt, { ...binding, authorizationDecision: rerunDecision });
+    }
     return enqueuePublication((authorizationDecision) =>
       context.executeAction(action, authorizationDecision ? { ...binding, authorizationDecision } : binding),
     );
