@@ -13,7 +13,12 @@ import fs from "node:fs";
 import { pathToFileURL } from "node:url";
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
 import ts from "typescript";
-import { authorizationPolicyGraph, buildFlowGraph, isFunctionNode } from "./authorization-flow-graph.mjs";
+import {
+  authorizationPolicyGraph,
+  buildFlowGraph,
+  isFunctionNode,
+  makeEvaluator,
+} from "./authorization-flow-graph.mjs";
 import { makeAuthorizationTracer } from "./authorization-flow-trace.mjs";
 import { withArtifactActionIngressDeclarations } from "./ontology-gate-lib.mjs";
 import {
@@ -51,16 +56,25 @@ const decisionAnchor = { file: "packages/kernel/src/domain/receipt-frame.ts", na
 const sessionAnchors = [
   { file: "packages/kernel/src/ports/identity-session-port.ts", name: "IdentitySessionPort", member: "requireSession" },
 ];
+const serviceAnchors = [
+  {
+    file: "packages/application/src/task-lifecycle-service.ts",
+    name: "TaskLifecycleService",
+    members: ["execute", "executeWithDocuments"],
+  },
+];
 
 /** The protocol authorities the trace reads: descriptors, the method table and kernel constants. */
 export async function loadAuthorizationInputs(rootDir) {
   const load = (file) => import(pathToFileURL(path.join(rootDir, file)).href);
   const actionDeclarationRelPath = "packages/kernel/src/domain/action-declaration.ts";
-  const [contract, commands, kernel, domainDeclarations] = await Promise.all([
+  const entityKindRelPath = "packages/kernel/src/domain/entity-kind-registry.ts";
+  const [contract, commands, kernel, domainDeclarations, entityKinds] = await Promise.all([
     load("packages/daemon/src/protocol/daemon-protocol.contract.ts"),
     load("packages/daemon/src/protocol/daemon-protocol-commands.ts"),
     load("packages/kernel/src/index.ts"),
     fs.existsSync(path.join(rootDir, actionDeclarationRelPath)) ? load(actionDeclarationRelPath) : null,
+    fs.existsSync(path.join(rootDir, entityKindRelPath)) ? load(entityKindRelPath) : null,
   ]);
   const constants = {},
     functions = {};
@@ -72,6 +86,7 @@ export async function loadAuthorizationInputs(rootDir) {
     domainDeclarations?.artifactActionIngressKinds ?? kernel.artifactActionIngressKinds ?? [],
   );
   constants.actionDeclarations = actionDeclarations;
+  constants.entityKindContracts = entityKinds?.entityKindContracts ?? [];
   const descriptors = [...contract.daemonProtocolCommands, ...contract.daemonGuiActionMethods].map((row) => ({
     ...row,
   }));
@@ -146,12 +161,43 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
   const sourceRoot = options.sourceRoot ?? rootDir,
     durable = inputs.descriptors.filter((descriptor) => descriptor.commandClass !== "repo-read"),
     declaredActions = inputs.constants.actionDeclarations ?? [],
-    actions = (inputs.constants.actionDeclarations ?? []).filter(
-      (action) => action.ontology?.sources?.length && (!options.only || options.only.includes(action.kind)),
+    onlySet = options.only ? new Set(options.only) : null,
+    matchesOnly = (descriptor) =>
+      !onlySet ||
+      onlySet.has(descriptor.id) ||
+      Boolean(descriptor.actionKind && onlySet.has(descriptor.actionKind)) ||
+      Boolean(descriptor.kindRewrite?.authorizedKind && onlySet.has(descriptor.kindRewrite.authorizedKind)),
+    selectedKinds = onlySet
+      ? new Set([
+          ...onlySet,
+          ...inputs.descriptors
+            .filter(matchesOnly)
+            .flatMap((descriptor) => [
+              descriptor.id,
+              ...(descriptor.actionKind ? [descriptor.actionKind] : []),
+              ...(descriptor.kindRewrite?.authorizedKind ? [descriptor.kindRewrite.authorizedKind] : []),
+            ]),
+        ])
+      : null,
+    actions = declaredActions.filter(
+      (action) => action.ontology?.sources?.length && (!selectedKinds || selectedKinds.has(action.kind)),
     ),
+    onlyActions = onlySet
+      ? actions
+          .map((action) => ({
+            ...action,
+            ontology: {
+              ...action.ontology,
+              sources: action.ontology.sources.filter(
+                (source) => onlySet.has(action.kind) || onlySet.has(source.route),
+              ),
+            },
+          }))
+          .filter((action) => action.ontology.sources.length)
+      : actions,
     // Partition each source beside its actual owning route, before building its graph.
     sourceActions = options.shard
-      ? actions
+      ? onlyActions
           .map((action, index) => ({
             ...action,
             ontology: {
@@ -163,7 +209,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
             },
           }))
           .filter((action) => action.ontology.sources.length)
-      : actions,
+      : onlyActions,
     declaredSources = [
       ...new Set([
         ...sourceActions.flatMap((action) => action.ontology.sources),
@@ -202,7 +248,10 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
         ]),
       ],
     }),
-    witnesses = sourceWitnesses(graph, declaredSources),
+    witnesses = sourceWitnesses(graph, [
+      ...declaredSources,
+      ...actions.flatMap((action) => action.ontology?.sources ?? []),
+    ]),
     sourceTargets = (action, route) =>
       (action?.ontology?.sources ?? [])
         .filter(
@@ -220,16 +269,37 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
           site: sourceSite(graph, witnesses.get(source.candidateId)),
         })),
     sourceResults = new Map(),
-    tracer = makeAuthorizationTracer(authorizationPolicyGraph(graph), {
+    anchors = {
       sourceGraph: graph,
       ports: portAnchors,
       authorityModule: "@harness-anything/kernel",
       decision: decisionAnchor,
+      currentCut: {
+        file: "packages/kernel/src/ports/task-event-store.ts",
+        name: "CanonicalEventStore",
+        member: "readHead",
+      },
+      writerQueue: { file: "packages/daemon/src/repo-cell.ts", name: "chainRepoCellWrite" },
+      writerFence: { file: "packages/kernel/src/domain/write-chain.contract.ts", name: "assertCurrentWriter" },
       sessions: sessionAnchors,
+      services: serviceAnchors,
       entries: transportEntries(graph),
       constants: inputs.constants,
       functions: inputs.functions,
-    }),
+      serviceCall: (node, kind, canonical) =>
+        actions.some((action) =>
+          (action.ontology?.sources ?? []).some(
+            (source) =>
+              witnesses.get(source.candidateId) === node &&
+              (canonical
+                ? action.kind === kind && (source.role === "effect" || source.role === undefined)
+                : Boolean(technicalPortEvidence(graph, node, source, action, inputs.descriptors))),
+          ),
+        ),
+    },
+    tracer = makeAuthorizationTracer(authorizationPolicyGraph(graph), anchors),
+    // Source ownership retains internal service guards as well as its actual callback frames.
+    sourceTracer = makeAuthorizationTracer(graph, anchors),
     // ActionDeclaration residency: a host- or runtime-local action is not decided at a canonical cut.
     nonCanonical = new Set(
       (inputs.constants.actionDeclarations ?? [])
@@ -243,8 +313,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       .map((descriptor, index) => ({ descriptor, index }))
       .filter(
         ({ descriptor, index }) =>
-          (!options.only || options.only.includes(descriptor.id)) &&
-          (!options.shard || index % options.shard.count === options.shard.index),
+          matchesOnly(descriptor) && (!options.shard || index % options.shard.count === options.shard.index),
       );
   const rows = selected.map(({ descriptor, index }) => {
     const rewrite = descriptor.kindRewrite,
@@ -265,7 +334,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
           : [`${descriptor.method} is not a read method, so the daemon may act for this command`],
         violations: [],
       };
-    const trace = tracer.traceDescriptor({
+    const traceInput = {
       method: descriptor.method,
       kind,
       commandClass: descriptor.commandClass,
@@ -273,16 +342,41 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       localTransport: authority === "local-transport",
       ownSession: authority === "own-session",
       canonicalCut: !nonCanonical.has(kind),
-      // Host-only sources cannot use this trace, and a verified migration callback already
-      // has independent evidence. Both still pass through the final route/source checks below.
-      sources: sourceTargets(action, descriptor.id).filter((source) => {
-        const node = witnesses.get(source.id);
-        return !(
-          hostServiceEntryRequired(graph, node, action) || migrationServiceEntryEvidence(graph, node, source, action)
-        );
-      }),
+    };
+    const owner = tracer.traceDescriptor(traceInput);
+    graph.resetFramePool();
+    const ownerEvidence =
+      authority === "local-transport" ? owner.local : authority === "own-session" ? owner.session : owner.authorized;
+    const targets = sourceTargets(action, descriptor.id).filter((source) => {
+      const node = witnesses.get(source.id);
+      return !(
+        hostServiceEntryRequired(graph, node, action) || migrationServiceEntryEvidence(graph, node, source, action)
+      );
     });
-    for (const source of trace.sources.values()) sourceResults.set(source.id, source);
+    const fullTrace =
+      targets.length > 0 &&
+      ownerEvidence.length > 0 &&
+      declarationViolations.length === 0 &&
+      owner.violations.length === 0
+        ? sourceTracer.traceDescriptor({ ...traceInput, sources: targets })
+        : null;
+    if (fullTrace) {
+      graph.resetFramePool();
+      for (const source of fullTrace.sources.values()) sourceResults.set(source.id, source);
+    }
+    const remainingTargets = fullTrace
+      ? targets.filter((target) => {
+          const seen = fullTrace.sources.get(target.site);
+          return !seen?.seen || !seen.ok;
+        })
+      : [];
+    const policyTrace =
+      remainingTargets.length > 0 ? tracer.traceDescriptor({ ...traceInput, sources: remainingTargets }) : null;
+    if (policyTrace) {
+      graph.resetFramePool();
+      for (const source of policyTrace.sources.values()) sourceResults.set(source.id, source);
+    }
+    const trace = policyTrace ?? owner;
     const evidence =
         authority === "local-transport" ? trace.local : authority === "own-session" ? trace.session : trace.authorized,
       violations = [...declarationViolations, ...trace.violations];
@@ -297,22 +391,27 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       violations,
     };
   });
+  const processEvaluator = makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true });
   const nativeSites = new Map();
   for (const action of declaredActions.filter((action) => action.ontology?.authority)) {
     const { authority, entries = {} } = action.ontology;
     for (const [route, entry] of Object.entries(entries)) {
-      const root = processEntry(graph, entry, authority);
-      if (!root || action.residency.scope === "canonical" || action.receiptSettlement !== "none") continue;
       const routeTargets = sourceActions.flatMap((candidate) =>
         sourceTargets(candidate).filter((source) => source.route === route && source.role === "effect"),
       );
       if (routeTargets.length === 0) continue;
+      const root = processEntry(graph, entry, authority);
+      if (!root || action.residency.scope === "canonical" || action.receiptSettlement !== "none") continue;
       const cacheKey = `${entry.file}\u0000${route}`;
-      if (!nativeSites.has(cacheKey))
+      if (!nativeSites.has(cacheKey)) {
         nativeSites.set(
           cacheKey,
-          processSourceSites(graph, root, { targets: routeTargets.map((source) => source.site) }),
+          processSourceSites(graph, root, {
+            evaluator: processEvaluator,
+            targets: routeTargets.map((source) => source.site),
+          }),
         );
+      }
       const sites = nativeSites.get(cacheKey);
       for (const source of routeTargets)
         sourceResults.set(source.id, {
@@ -336,7 +435,10 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       const file = path.posix.normalize(path.posix.join(path.posix.dirname(scriptManifest), script.command));
       const root = moduleEntry(graph, file);
       if (root)
-        for (const site of processSourceSites(graph, root, { targets: scriptTargets.map((source) => source.site) }))
+        for (const site of processSourceSites(graph, root, {
+          evaluator: processEvaluator,
+          targets: scriptTargets.map((source) => source.site),
+        }))
           sites.add(site);
     }
     for (const source of scriptTargets)

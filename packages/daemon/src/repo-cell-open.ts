@@ -21,6 +21,7 @@ import {
   type DaemonRepoMode,
   type EventPublicationKillpoint,
   type SettingsV1,
+  type WriteReceiptDraft,
   type WriterGeneration,
 } from "@harness-anything/kernel";
 import { createPresetProcessService, presetUserRoot } from "@harness-anything/preset";
@@ -68,7 +69,6 @@ import { chainRepoCellWrite, initializeRepoCell } from "./repo-cell.ts";
 import { acquireWorkspaceLock, causeClassOf, latchReprobeThrottleMs } from "./repo-cell-lock.ts";
 import { operationId } from "./repo-cell-proof.ts";
 import { makeScheduleActionRuntime, settleScheduledRuntime } from "./schedule-action-runtime.ts";
-import { makeSettingsActionRuntime } from "./settings-action-runtime.ts";
 import { commitRuntimeSessionAction, runtimeSessionActionPreparer } from "./runtime-session-action-runtime.ts";
 import { makeRepoCellSettingsState, readEffectiveDispatchArchiveRetention } from "./repo-cell-settings-state.ts";
 import { makePersonActionRuntime } from "./person-action-runtime.ts";
@@ -254,7 +254,6 @@ export async function openRepoWriterCell(
     throw error;
   }
   let { store, recovery, projection, entityActionExecutor, runtimeReads, service, replica } = core;
-  let entityActionRuntimes: EntityActionCatalogRuntimes = Object.freeze({});
   let knownTaskIds: Set<string> | null = null,
     state: RepoCellStatus["state"] = recovery.status === "indeterminate" ? "unavailable" : "attached",
     recoveryUncertain = recovery.status === "indeterminate";
@@ -662,8 +661,20 @@ export async function openRepoWriterCell(
             // the shared return handoff waits for another runtime's terminal publication.
             void recoveryWork
               .run(() =>
-                continueReviewRework(operationalContext, event, authorized, receipt, (work) =>
-                  recoveryWork.write(work, authorized),
+                continueReviewRework(operationalContext, event, authorized, receipt, (nextAction, nextBinding, work) =>
+                  recoveryWork.write(
+                    async () => {
+                      const auth = await authorizeRuntimeAction(
+                        nextAction,
+                        nextBinding as RuntimeAttemptTerminal["binding"],
+                        operationId(nextAction, nextBinding, input.repoId, store.readHead()?.revision ?? 0),
+                      );
+                      return (
+                        work ? work(auth) : extracted.lifecycleAction(nextAction, auth)
+                      ) as Promise<WriteReceiptDraft>;
+                    },
+                    nextBinding as RuntimeAttemptTerminal["binding"],
+                  ),
                 ),
               )
               .catch((error: unknown) => console.error("[review-rework]", error));
@@ -712,9 +723,18 @@ export async function openRepoWriterCell(
   });
   const runtimeContext = Object.assign(extracted, { mode, runtimeSpawner });
   runtimeContext satisfies RepoCellRuntimeContext;
-  const settings = makeRepoCellSettingsState(extracted),
+  const settings = makeRepoCellSettingsState({
+      input: extracted.input,
+      now,
+      get projection() {
+        return projection;
+      },
+      rootDir,
+      get store() {
+        return store;
+      },
+    }),
     scheduleActionRuntime = makeScheduleActionRuntime(runtimeContext, () => settings.read().worktree),
-    settingsActionRuntime = makeSettingsActionRuntime(runtimeContext, settings),
     agentActionRuntime = makeAgentActionRuntime(runtimeContext),
     squadActionRuntime = makeSquadActionRuntime(runtimeContext),
     prepareAgentAction: EntityActionCatalogPreparer = (contract, action, _binding, opId) => {
@@ -754,22 +774,21 @@ export async function openRepoWriterCell(
       };
     };
   const personActionRuntime = makePersonActionRuntime(runtimeContext);
-  entityActionRuntimes = Object.freeze({
+  const entityActionRuntimes: EntityActionCatalogRuntimes = {
     commitRuntimeSession: (bundle: Parameters<typeof commitRuntimeSettlement>[1], binding: RepoCellBinding) =>
       commitRuntimeSettlement(runtimeContext, bundle, binding),
-    entity: Object.freeze({
+    entity: {
       agent: agentActionRuntime,
       schedule: scheduleActionRuntime,
-      settings: settingsActionRuntime,
       person: personActionRuntime,
       squad: squadActionRuntime,
-    }),
-    prepare: Object.freeze({
+    },
+    prepare: {
       agent: prepareAgentAction,
       squad: prepareAgentAction,
       "runtime-session": runtimeSessionActionPreparer(() => projection),
-    }),
-  });
+    },
+  };
   const squadCoordinator = makeRepoCellSquadCoordinator({
     rootDir,
     repoId: input.repoId,
@@ -1034,7 +1053,7 @@ export async function openRepoWriterCell(
     },
     now,
     executeAction: extracted.executeAction,
-    squadCoordinator: extracted.squadCoordinator,
+    squadCoordinator,
     presetProcess,
     get runtimeReads() {
       return runtimeReads;

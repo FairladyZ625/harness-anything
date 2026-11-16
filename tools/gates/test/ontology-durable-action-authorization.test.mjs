@@ -34,7 +34,8 @@ let partitionTestOrdinal = 0;
 // Explicit partitions spread the mutation cases across four workers. New cases must
 // update this map; their measured durations are recorded by the test runner.
 const authorizationTestPartitionAssignments = [
-  4, 2, 4, 3, 1, 2, 4, 1, 2, 2, 3, 4, 1, 3, 1, 4, 3, 2, 3, 3, 4, 1, 1, 2, 3, 4, 1, 2, 1, 3, 1, 4, 2, 1, 4,
+  4, 2, 4, 3, 1, 2, 4, 1, 2, 2, 3, 4, 1, 3, 1, 4, 3, 4, 3, 3, 4, 1, 1, 2, 3, 4, 1, 4, 3, 2, 4, 2, 1, 3, 1, 4, 2, 2, 4,
+  4, 1,
 ];
 function partitionedTest(name, testFn) {
   const ordinal = partitionTestOrdinal++;
@@ -623,156 +624,161 @@ partitionedTest("caller-owned CLI output and cleanup cannot claim a canonical le
 // package-assets-build only through exact typed ports or intrinsic support, while concrete
 // business CLI/RPC client calls in tools/ bind their owning business ActionDeclaration via client
 // ports and cannot hide under package-assets-build or spoof a mismatched route.
-partitionedTest(
-  "root tools sources need a typed port under package-assets-build; client calls bind business actions",
-  () => {
-    const build = inputs.constants.actionDeclarations.find((action) => action.kind === "package-assets-build");
-    const audit = (sources, target = build) =>
-      auditDurableActionAuthorization(
-        repoRoot,
-        {
-          ...inputs,
-          constants: {
-            ...inputs.constants,
-            actionDeclarations: inputs.constants.actionDeclarations.map((action) =>
-              action === target ? { ...action, ontology: { ...action.ontology, sources } } : action,
-            ),
-          },
-        },
-        { only: [target.kind] },
-      ).sourceRows.map(({ id, ok, violations }) => ({ id, ok, violations }));
-    const tools = build.ontology.sources.filter((source) => source.candidateId.startsWith("action:tools:"));
-    assert.ok(tools.some((source) => source.role === "technical-port"));
-    assert.ok(tools.some((source) => source.role === "support"));
-    assert.deepEqual(
-      audit(build.ontology.sources).filter((row) => !row.ok),
-      [],
-    );
-    const { port: _port, ...unported } = tools.find((source) => source.role === "technical-port");
-    assert.deepEqual(
-      audit([{ ...unported, role: "effect" }]).map(({ ok, violations }) => ({ ok, violations })),
-      [{ ok: false, violations: ["root tooling source needs a typed technical port or intrinsic support"] }],
-    );
-    const packaged = build.ontology.sources.find((source) => source.candidateId.startsWith("action:packages/"));
-    assert.deepEqual(
-      audit([{ ...packaged, role: "technical-port", port: "node_modules/@types/node/fs.d.ts#fs.rmSync" }]).map(
-        ({ ok, violations }) => ({ ok, violations }),
-      ),
-      [{ ok: false, violations: ["source has no verified owner/authority chain"] }],
-    );
+const build = inputs.constants.actionDeclarations.find((action) => action.kind === "package-assets-build");
+const audit = (sources, target = build) =>
+  auditDurableActionAuthorization(
+    repoRoot,
+    {
+      ...inputs,
+      constants: {
+        ...inputs.constants,
+        actionDeclarations: inputs.constants.actionDeclarations.map((action) =>
+          action === target ? { ...action, ontology: { ...action.ontology, sources } } : action,
+        ),
+      },
+    },
+    { only: [target.kind] },
+  ).sourceRows.map(({ id, ok, violations }) => ({ id, ok, violations }));
 
-    const clientKinds = ["task-create", "task-start", "runtime-run", "agent-install"];
-    const clientAudit = auditDurableActionAuthorization(repoRoot, inputs, { only: clientKinds });
-    const clientRows = clientAudit.sourceRows.filter((row) => row.id.startsWith("action:tools:"));
-    assert.equal(clientRows.length, 15);
-    assert.deepEqual(
-      clientRows.filter((row) => !row.ok),
-      [],
-    );
+partitionedTest("root tools sources require exact typed build ports", () => {
+  const tools = build.ontology.sources.filter((source) => source.candidateId.startsWith("action:tools:"));
+  assert.ok(tools.some((source) => source.role === "technical-port"));
+  assert.ok(tools.some((source) => source.role === "support"));
+  assert.deepEqual(
+    audit(build.ontology.sources).filter((row) => !row.ok),
+    [],
+  );
+  const { port: _port, ...unported } = tools.find((source) => source.role === "technical-port");
+  assert.deepEqual(
+    audit([{ ...unported, role: "effect" }]).map(({ ok, violations }) => ({ ok, violations })),
+    [{ ok: false, violations: ["root tooling source needs a typed technical port or intrinsic support"] }],
+  );
+  const packaged = build.ontology.sources.find((source) => source.candidateId.startsWith("action:packages/"));
+  assert.deepEqual(
+    audit([{ ...packaged, role: "technical-port", port: "node_modules/@types/node/fs.d.ts#fs.rmSync" }]).map(
+      ({ ok, violations }) => ({ ok, violations }),
+    ),
+    [{ ok: false, violations: ["source has no verified owner/authority chain"] }],
+  );
+});
 
-    const taskCreate = inputs.constants.actionDeclarations.find((action) => action.kind === "task-create");
-    const dispatchCreateClient = taskCreate.ontology.sources.find(
-      (source) =>
-        source.role === "client" && source.candidateId.includes("tools/dispatch-task.mjs#runDispatch.created:"),
-    );
-    assert.ok(dispatchCreateClient);
-    assert.deepEqual(
-      audit([{ ...dispatchCreateClient, route: "task-start" }], taskCreate).map(({ ok, violations }) => ({
-        ok,
-        violations,
-      })),
-      [
-        {
-          ok: false,
-          violations: [
-            "root tooling client source needs a typed client port whose command/action argument matches its declared route",
-          ],
-        },
-      ],
-    );
-    assert.deepEqual(
-      audit([{ ...dispatchCreateClient, role: "technical-port", route: build.kind }], build).map(
-        ({ ok, violations }) => ({ ok, violations }),
-      ),
-      [{ ok: false, violations: ["root tooling source needs a typed technical port or intrinsic support"] }],
-    );
+partitionedTest("root tools clients preserve their business command routes", () => {
+  const clientKinds = ["task-create", "task-start", "runtime-run", "agent-install"];
+  const clientAudit = auditDurableActionAuthorization(repoRoot, inputs, { only: clientKinds });
+  const clientRows = clientAudit.sourceRows.filter((row) => row.id.startsWith("action:tools:"));
+  assert.equal(clientRows.length, 15);
+  assert.deepEqual(
+    clientRows.filter((row) => !row.ok),
+    [],
+  );
 
-    const docSubmit = inputs.constants.actionDeclarations.find((action) => action.kind === "doc-submit");
-    const uploadClients = docSubmit.ontology.sources.filter(
-      (source) => source.role === "client" && source.candidateId.includes("tools/stress/fleet/upload-boundary.mjs#"),
-    );
-    assert.equal(uploadClients.length, 2);
-    assert.deepEqual(
-      auditDurableActionAuthorization(repoRoot, inputs, { only: ["doc-submit"] }).sourceRows.filter((row) => !row.ok),
-      [],
-    );
-    assert.deepEqual(
-      audit(
-        uploadClients.map((source) => ({ ...source, role: "technical-port", route: build.kind })),
-        build,
-      ).map(({ ok, violations }) => ({ ok, violations })),
-      uploadClients.map(() => ({
+  const taskCreate = inputs.constants.actionDeclarations.find((action) => action.kind === "task-create");
+  const dispatchCreateClient = taskCreate.ontology.sources.find(
+    (source) => source.role === "client" && source.candidateId.includes("tools/dispatch-task.mjs#runDispatch.created:"),
+  );
+  assert.ok(dispatchCreateClient);
+  assert.deepEqual(
+    audit([{ ...dispatchCreateClient, route: "task-start" }], taskCreate).map(({ ok, violations }) => ({
+      ok,
+      violations,
+    })),
+    [
+      {
         ok: false,
-        violations: ["root tooling source needs a typed technical port or intrinsic support"],
-      })),
-    );
+        violations: [
+          "root tooling client source needs a typed client port whose command/action argument matches its declared route",
+        ],
+      },
+    ],
+  );
+  assert.deepEqual(
+    audit([{ ...dispatchCreateClient, role: "technical-port", route: build.kind }], build).map(
+      ({ ok, violations }) => ({ ok, violations }),
+    ),
+    [{ ok: false, violations: ["root tooling source needs a typed technical port or intrinsic support"] }],
+  );
+});
 
-    const factRecord = inputs.constants.actionDeclarations.find((action) => action.kind === "fact-record");
-    const measureFactClient = factRecord.ontology.sources.find(
+partitionedTest("document upload clients cannot hide in the build bucket", () => {
+  const docSubmit = inputs.constants.actionDeclarations.find((action) => action.kind === "doc-submit");
+  const uploadClients = docSubmit.ontology.sources.filter(
+    (source) => source.role === "client" && source.candidateId.includes("tools/stress/fleet/upload-boundary.mjs#"),
+  );
+  assert.equal(uploadClients.length, 2);
+  assert.deepEqual(
+    auditDurableActionAuthorization(repoRoot, inputs, { only: ["doc-submit"] }).sourceRows.filter((row) => !row.ok),
+    [],
+  );
+  assert.deepEqual(
+    audit(
+      uploadClients.map((source) => ({ ...source, role: "technical-port", route: build.kind })),
+      build,
+    ).map(({ ok, violations }) => ({ ok, violations })),
+    uploadClients.map(() => ({
+      ok: false,
+      violations: ["root tooling source needs a typed technical port or intrinsic support"],
+    })),
+  );
+});
+
+partitionedTest("fact timing clients cannot hide in the build bucket", () => {
+  const factRecord = inputs.constants.actionDeclarations.find((action) => action.kind === "fact-record");
+  const measureFactClient = factRecord.ontology.sources.find(
+    (source) =>
+      source.role === "client" &&
+      source.candidateId.includes("tools/measure-cli-command-timing.mjs#invokeMeasuredCommand:"),
+  );
+  assert.ok(measureFactClient);
+  assert.deepEqual(
+    auditDurableActionAuthorization(repoRoot, inputs, { only: ["fact-record"] }).sourceRows.filter((row) => !row.ok),
+    [],
+  );
+  assert.deepEqual(
+    audit([{ ...measureFactClient, role: "technical-port", route: build.kind }], build).map(({ ok, violations }) => ({
+      ok,
+      violations,
+    })),
+    [{ ok: false, violations: ["root tooling source needs a typed technical port or intrinsic support"] }],
+  );
+});
+
+partitionedTest("entity benchmarks bind their declared write and read actions", () => {
+  const benchEntityImport = inputs.constants.actionDeclarations
+    .find((action) => action.kind === "entity-import")
+    ?.ontology.sources.find(
       (source) =>
         source.role === "client" &&
-        source.candidateId.includes("tools/measure-cli-command-timing.mjs#invokeMeasuredCommand:"),
+        source.candidateId.includes("tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:"),
     );
-    assert.ok(measureFactClient);
-    assert.deepEqual(
-      auditDurableActionAuthorization(repoRoot, inputs, { only: ["fact-record"] }).sourceRows.filter((row) => !row.ok),
-      [],
+  assert.ok(benchEntityImport);
+  const benchRead = inputs.constants.actionDeclarations
+    .find((action) => action.kind === "repository-read")
+    ?.ontology.sources.find(
+      (source) =>
+        source.role === "client" &&
+        source.candidateId.includes("tools/scale/cli-entity-bench.mjs#main.invokeReadBenchCommand.runRead:"),
     );
-    assert.deepEqual(
-      audit([{ ...measureFactClient, role: "technical-port", route: build.kind }], build).map(({ ok, violations }) => ({
-        ok,
-        violations,
-      })),
-      [{ ok: false, violations: ["root tooling source needs a typed technical port or intrinsic support"] }],
-    );
-
-    const benchEntityImport = inputs.constants.actionDeclarations
-      .find((action) => action.kind === "entity-import")
-      ?.ontology.sources.find(
-        (source) =>
-          source.role === "client" &&
-          source.candidateId.includes("tools/scale/cli-entity-bench.mjs#main.invokeBenchCommand:"),
-      );
-    assert.ok(benchEntityImport);
-    const benchRead = inputs.constants.actionDeclarations
-      .find((action) => action.kind === "repository-read")
-      ?.ontology.sources.find(
-        (source) =>
-          source.role === "client" &&
-          source.candidateId.includes("tools/scale/cli-entity-bench.mjs#main.invokeReadBenchCommand.runRead:"),
-      );
-    assert.ok(benchRead);
-    assert.deepEqual(
-      auditDurableActionAuthorization(repoRoot, inputs, {
-        only: ["entity-import", "task-create", "ledger-backup", "repository-read"],
-      }).sourceRows.filter((row) => !row.ok),
-      [],
-    );
-    assert.deepEqual(
-      audit([{ ...benchEntityImport, role: "technical-port", route: build.kind }], build).map(({ ok, violations }) => ({
-        ok,
-        violations,
-      })),
-      [{ ok: false, violations: ["root tooling source needs a typed technical port or intrinsic support"] }],
-    );
-    assert.equal(
-      build.ontology.sources.some((source) =>
-        source.candidateId.includes("tools/scale/cli-entity-bench.mjs#main.receipt:"),
-      ),
-      false,
-    );
-  },
-);
+  assert.ok(benchRead);
+  assert.deepEqual(
+    auditDurableActionAuthorization(repoRoot, inputs, {
+      only: ["entity-import", "task-create", "ledger-backup", "repository-read"],
+    }).sourceRows.filter((row) => !row.ok),
+    [],
+  );
+  assert.deepEqual(
+    audit([{ ...benchEntityImport, role: "technical-port", route: build.kind }], build).map(({ ok, violations }) => ({
+      ok,
+      violations,
+    })),
+    [{ ok: false, violations: ["root tooling source needs a typed technical port or intrinsic support"] }],
+  );
+  assert.equal(
+    build.ontology.sources.some((source) =>
+      source.candidateId.includes("tools/scale/cli-entity-bench.mjs#main.receipt:"),
+    ),
+    false,
+  );
+});
 
 // dec_7E44897ECDCAEF2B92EC66A260/CH1 F1: non-main GUI renderer/preload/browser RPC, IPC, and
 // higher-order callback callsites bind their owning business ActionDeclaration via role: "client"
@@ -1134,7 +1140,7 @@ partitionedTest("an independently proven migration callback still requires its o
 });
 
 // dec_7E44897ECDCAEF2B92EC66A260/CH1: a green descriptor cannot repair a mismatched host scope.
-partitionedTest("host sources fail when admission checks another repository or authentication context", (t) => {
+function assertHostAdmissionScope(t, file, topology) {
   const { selectedInputs, only } = selectedSourceWitnesses([
     "e4658bef15e769118f6f44bbdb3feb35",
     "5d4b654eeb40831ab2116e6b60b4aacc",
@@ -1147,30 +1153,31 @@ partitionedTest("host sources fail when admission checks another repository or a
   };
   assert.ok(inspect(repoRoot).every((row) => row.ok));
   const dir = sourceCopy(t);
-  for (const [file, topology] of [
-    ["daemon-host-runtime-api.ts", 'commandDescriptorForAction("runtime-run")'],
-    ["daemon-host-control-api.ts", "ledgerWriteCommandTopology"],
+  for (const replacement of [
+    `"another-repository", ${topology}, auth`,
+    `repoId, ${topology}, { ...auth, nodePrincipal: undefined }`,
   ]) {
-    for (const replacement of [
-      `"another-repository", ${topology}, auth`,
-      `repoId, ${topology}, { ...auth, nodePrincipal: undefined }`,
-    ]) {
-      const member =
-          file === "daemon-host-runtime-api.ts"
-            ? "runtimeIngress: async (repoId, action, auth)"
-            : "issueRuntimeWitness: async (repoId, runtimeSessionId, auth)",
-        prefix = `${member} => {\n      `;
-      const restore = edit(
-        dir,
-        `packages/daemon/src/${file}`,
-        prefix + `context.requireHostMode(repoId, ${topology}, auth);`,
-        prefix + `context.requireHostMode(${replacement});`,
-      );
-      assert.equal(inspect(dir).filter((row) => !row.ok).length, 1);
-      restore();
-    }
+    const member =
+        file === "daemon-host-runtime-api.ts"
+          ? "runtimeIngress: async (repoId, action, auth)"
+          : "issueRuntimeWitness: async (repoId, runtimeSessionId, auth)",
+      prefix = `${member} => {\n      `;
+    const restore = edit(
+      dir,
+      `packages/daemon/src/${file}`,
+      prefix + `context.requireHostMode(repoId, ${topology}, auth);`,
+      prefix + `context.requireHostMode(${replacement});`,
+    );
+    assert.equal(inspect(dir).filter((row) => !row.ok).length, 1);
+    restore();
   }
   assert.ok(inspect(dir).every((row) => row.ok));
+}
+partitionedTest("runtime ingress rejects another repository or authentication context", (t) => {
+  assertHostAdmissionScope(t, "daemon-host-runtime-api.ts", 'commandDescriptorForAction("runtime-run")');
+});
+partitionedTest("runtime witness issuer rejects another repository or authentication context", (t) => {
+  assertHostAdmissionScope(t, "daemon-host-control-api.ts", "ledgerWriteCommandTopology");
 });
 
 // dec_7E44897ECDCAEF2B92EC66A260/CH1: entry callback arguments must actually reach the source.
@@ -1192,3 +1199,112 @@ partitionedTest("migration sources fail when both entry paths replace addFact wi
   first();
   assert.equal(inspect(dir).ok, true);
 });
+
+partitionedTest(
+  "options.only narrows descriptor id, actionKind, and kindRewrite without unrelated baseline noise",
+  () => {
+    const byDescriptorId = auditDurableActionAuthorization(repoRoot, inputs, { only: ["settings.update"] });
+    assert.deepEqual(
+      byDescriptorId.rows.map((row) => [row.id, row.ok]),
+      [["settings.update", true]],
+    );
+    assert.equal(byDescriptorId.sourceRows.length, 1);
+    assert.equal(byDescriptorId.sourceRows[0]?.route, "settings.update");
+    assert.equal(byDescriptorId.sourceRows[0]?.ok, true);
+    assert.deepEqual(byDescriptorId.findings, []);
+
+    const byActionKind = auditDurableActionAuthorization(repoRoot, inputs, { only: ["settings-update"] });
+    assert.deepEqual(
+      byActionKind.rows.map((row) => [row.id, row.ok]).sort((a, b) => a[0].localeCompare(b[0])),
+      [
+        ["settings-update", true],
+        ["settings.update", true],
+      ],
+    );
+    assert.equal(byActionKind.sourceRows.length, 5);
+    assert.ok(byActionKind.sourceRows.every((row) => row.ok));
+    assert.deepEqual(byActionKind.findings, []);
+
+    const byRewriteId = auditDurableActionAuthorization(repoRoot, inputs, { only: ["edge-join"] });
+    assert.deepEqual(
+      byRewriteId.rows.map((row) => [row.id, row.kind, row.ok]),
+      [["edge-join", "daemon-repo-register", true]],
+    );
+    assert.ok(byRewriteId.sourceRows.length > 0);
+    assert.ok(byRewriteId.sourceRows.every((row) => row.route === "edge-join" && row.ok));
+    assert.deepEqual(byRewriteId.findings, []);
+
+    const byRewriteAuthorizedKind = auditDurableActionAuthorization(repoRoot, inputs, {
+      only: ["daemon-repo-register"],
+    });
+    assert.deepEqual(
+      byRewriteAuthorizedKind.rows.map((row) => [row.id, row.kind, row.ok]).sort((a, b) => a[0].localeCompare(b[0])),
+      [
+        ["daemon-repo-register", "daemon-repo-register", true],
+        ["edge-join", "daemon-repo-register", true],
+      ],
+    );
+    assert.ok(byRewriteAuthorizedKind.sourceRows.length > 0);
+    assert.ok(byRewriteAuthorizedKind.sourceRows.every((row) => row.route === "daemon-repo-register" && row.ok));
+    assert.deepEqual(byRewriteAuthorizedKind.findings, []);
+
+    // Unrelated broken descriptors and unbacked sources do not leak into a narrowed selection.
+    const unrelatedBrokenInputs = {
+      ...inputs,
+      constants: {
+        ...inputs.constants,
+        durableActionKinds: inputs.constants.durableActionKinds.filter((kind) => kind !== "task-create"),
+        actionDeclarations: inputs.constants.actionDeclarations.map((action) =>
+          action.kind === "task-create"
+            ? {
+                ...action,
+                ontology: {
+                  ...action.ontology,
+                  sources: [
+                    ...(action.ontology?.sources ?? []),
+                    {
+                      candidateId:
+                        "action:packages/daemon:packages/daemon/src/task-action-catalog-runtime.ts#leakProbe:00000000",
+                      route: "task-create",
+                      role: "effect",
+                    },
+                  ],
+                },
+              }
+            : action,
+        ),
+      },
+    };
+    const narrowedStillClean = auditDurableActionAuthorization(repoRoot, unrelatedBrokenInputs, {
+      only: ["settings.update"],
+    });
+    assert.deepEqual(
+      narrowedStillClean.rows.map((row) => [row.id, row.ok]),
+      [["settings.update", true]],
+    );
+    assert.equal(narrowedStillClean.sourceRows.length, 1);
+    assert.deepEqual(narrowedStillClean.findings, []);
+    const narrowedToBroken = auditDurableActionAuthorization(repoRoot, unrelatedBrokenInputs, {
+      only: ["task-create"],
+    });
+    assert.equal(narrowedToBroken.rows.find((row) => row.id === "task-create")?.ok, false);
+    assert.ok(narrowedToBroken.findings.length > 0);
+
+    // Conversely, breaking the selected action turns the narrowed audit red immediately.
+    const selectedBrokenInputs = {
+      ...inputs,
+      constants: {
+        ...inputs.constants,
+        durableActionKinds: inputs.constants.durableActionKinds.filter((kind) => kind !== "settings-update"),
+      },
+    };
+    const selectedBroken = auditDurableActionAuthorization(repoRoot, selectedBrokenInputs, {
+      only: ["settings.update"],
+    });
+    assert.deepEqual(
+      selectedBroken.rows.map((row) => [row.id, row.ok]),
+      [["settings.update", false]],
+    );
+    assert.ok(selectedBroken.findings.some((finding) => finding.includes("settings.update")));
+  },
+);

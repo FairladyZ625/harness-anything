@@ -24,7 +24,12 @@ import {
   withAuthorizationDecision,
 } from "./repo-cell-authorization.ts";
 import { cellErrorCode } from "./repo-cell-errors.ts";
-import type { RepoCellBinding, RepoCellQueueObservation, RepoTaskAction } from "./repo-cell-types.ts";
+import type {
+  RepoCellBinding,
+  RepoCellContinuationWrite,
+  RepoCellQueueObservation,
+  RepoTaskAction,
+} from "./repo-cell-types.ts";
 import { chainRepoCellWrite } from "./repo-cell.ts";
 import { compiledArtifactKinds, findArtifactKindContract } from "./artifact-entity-action.ts";
 import { admitRepoMode, builtinOccurrenceCommandTopology, entityActionCommandTopology } from "./repo-mode.ts";
@@ -147,6 +152,7 @@ export function makeRepoCellCommandRunner(
     resolveTargetAfterAuthorization = false,
     executionStarted?: () => void,
     queueObservation?: RepoCellQueueObservation,
+    continueReturn = true,
   ): Promise<WriteReceipt | SquadControlResult> => {
     if (context.state !== "attached")
       await context.attemptRecovery(recoveryCommandPolicy(action.kind, context.causeClass)?.settlesLatch === true);
@@ -268,10 +274,36 @@ export function makeRepoCellCommandRunner(
         })
         .then((receipt) => receipt as WriteReceipt)
         .catch((error) => failAction(context, action, binding, error));
+    const appendCompletionWarnings = async <T extends WriteReceiptDraft | WriteReceipt | SquadControlResult>(
+      receipt: T,
+      authorizedBinding: RepoCellBinding,
+    ): Promise<T> => {
+      if (
+        (action.kind === "task-submit" || action.kind === "task-settle" || action.kind === "task-witness-rerun") &&
+        typeof action.taskId === "string" &&
+        !isSquadControlCommand(action.kind) &&
+        "opId" in receipt &&
+        (receipt.outcome === "applied" ||
+          (receipt.outcome === "pending" && (receipt as WriteReceipt).status === "accepted_durable"))
+      ) {
+        const warnings = await runCompletionSources(
+          context,
+          action.taskId as string,
+          authorizedBinding,
+          action.kind === "task-witness-rerun" ? `gate-${receipt.opId}` : undefined,
+        );
+        if (warnings.length)
+          return {
+            ...receipt,
+            warnings: [...((receipt as WriteReceipt).warnings ?? []), ...warnings],
+          };
+      }
+      return receipt;
+    };
     const enqueuePublication = (
       execute: (authorizationDecision?: AuthorizationDecision) => WriteReceiptDraft | Promise<WriteReceiptDraft>,
       ingest?: (authorizationDecision?: AuthorizationDecision) => void,
-      continueReturn = true,
+      continueOnApplied = continueReturn,
     ): Promise<WriteReceipt | SquadControlResult> => {
       context.queueDepth += 1;
       let queuedDecision: AuthorizationDecision | undefined,
@@ -405,8 +437,28 @@ export function makeRepoCellCommandRunner(
       return pending
         .catch((error) => failAction(context, action, binding, error, queuedDecision))
         .then(async (receipt) => {
+          const continueWrite: RepoCellContinuationWrite = async (nextAction, nextBinding, work) =>
+            (work
+              ? await enqueueRuntimePublication(
+                  context,
+                  "runtime-run",
+                  nextAction,
+                  nextBinding,
+                  work as unknown as (
+                    authorized: RepoCellBinding,
+                  ) => Promise<import("./protocol/json-rpc-types.ts").JsonObject>,
+                )
+              : await enqueueCommand(
+                  nextAction,
+                  nextBinding,
+                  undefined,
+                  false,
+                  undefined,
+                  undefined,
+                  false,
+                )) as WriteReceiptDraft;
           if (
-            continueReturn &&
+            continueOnApplied &&
             "outcome" in receipt &&
             receipt.outcome === "applied" &&
             ["task-review-execution", "task-rework"].includes(action.kind)
@@ -418,7 +470,7 @@ export function makeRepoCellCommandRunner(
                 event,
                 binding,
                 receipt,
-                async (work) => (await enqueuePublication(work, undefined, false)) as WriteReceiptDraft,
+                continueWrite,
                 action.kind === "task-rework"
                   ? {
                       ...(typeof action.agentId === "string" ? { agentId: action.agentId } : {}),
@@ -430,30 +482,22 @@ export function makeRepoCellCommandRunner(
                   : undefined,
               )) as WriteReceipt;
           }
-          if (
-            continueReturn &&
-            "outcome" in receipt &&
-            receipt.outcome === "applied" &&
-            (action.kind === "task-submit" || action.kind === "task-settle")
-          )
-            return (await continueSubmittedTask(
-              context.extracted,
-              action,
-              binding,
-              receipt,
-              async (nextAction, nextBinding, work) =>
-                (work
-                  ? await enqueueRuntimePublication(
-                      context,
-                      "runtime-run",
-                      nextAction,
-                      nextBinding,
-                      work as unknown as (
-                        authorized: RepoCellBinding,
-                      ) => Promise<import("./protocol/json-rpc-types.ts").JsonObject>,
-                    )
-                  : await enqueueCommand(nextAction, nextBinding)) as WriteReceiptDraft,
-            )) as WriteReceipt;
+          if (continueOnApplied && (action.kind === "task-submit" || action.kind === "task-settle")) {
+            const submitted =
+              "outcome" in receipt && receipt.outcome === "applied"
+                ? ((await continueSubmittedTask(
+                    context.extracted,
+                    action,
+                    binding,
+                    receipt,
+                    continueWrite,
+                  )) as WriteReceipt)
+                : receipt;
+            return await appendCompletionWarnings(
+              submitted,
+              queuedDecision ? { ...binding, authorizationDecision: queuedDecision } : binding,
+            );
+          }
           if (!replaceAfterPublication) return receipt;
           await context.attemptRecovery(true);
           return context.state === "attached"
@@ -562,6 +606,14 @@ export function makeRepoCellCommandRunner(
         .catch(async (error) =>
           failAction(context, action, binding, error, durable ? await authorizeAtCurrentCut()! : undefined),
         );
+    if (action.kind === "task-witness-rerun" && typeof action.taskId === "string") {
+      const receipt = await enqueuePublication((authorizationDecision) =>
+        context.executeAction(action, authorizationDecision ? { ...binding, authorizationDecision } : binding),
+      );
+      const rerunDecision = await authorizeAtCurrentCut()!;
+      if (rerunDecision.outcome !== "allowed") return receipt;
+      return await appendCompletionWarnings(receipt, { ...binding, authorizationDecision: rerunDecision });
+    }
     return enqueuePublication((authorizationDecision) =>
       context.executeAction(action, authorizationDecision ? { ...binding, authorizationDecision } : binding),
     );
@@ -583,23 +635,6 @@ export function makeRepoCellCommandRunner(
     }
     action = resolution.action;
     const receipt = await run(action, binding, signal, !resolution.resolved, onExecutionStart, queueObservation);
-    if (
-      (action.kind === "task-submit" || action.kind === "task-settle" || action.kind === "task-witness-rerun") &&
-      typeof action.taskId === "string" &&
-      !isSquadControlCommand(action.kind) &&
-      "outcome" in receipt &&
-      (receipt.outcome === "applied" ||
-        (receipt.outcome === "pending" && (receipt as WriteReceipt).status === "accepted_durable"))
-    ) {
-      const warnings = await runCompletionSources(
-        context,
-        action.taskId as string,
-        binding,
-        action.kind === "task-witness-rerun" ? `gate-${receipt.opId}` : undefined,
-      );
-      if (warnings.length)
-        return { ...receipt, warnings: [...((receipt as WriteReceipt).warnings ?? []), ...warnings] };
-    }
     return receipt;
   };
 }

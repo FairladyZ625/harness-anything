@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, cpSync, readFileSync } from "node:fs";
+import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -248,6 +249,173 @@ test("declared command checks submitted CSV/PNG/JSON without code: seed red, ame
     assert.equal(final.payload.execution.gateRuns.length, 4);
     assert.equal(currentGateRun(final.payload.execution, "version-pinned")?.result, "pass");
   } finally {
+    await cell.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("owner rerun releases the writer turn before running the completion command so unrelated writes advance", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-completion-rerun-queue-")),
+    ledger = path.join(root, "harness"),
+    repoId = workspaceId("completion-rerun-queue"),
+    taskId = "task-rerun-queue",
+    executionId = "execution-rerun-queue",
+    worker = withPolicyGroup(
+      {
+        actor: { principal: { personId: "research-owner" }, executor: { kind: "agent" as const, id: "task-worker" } },
+        source: "local" as const,
+      },
+      "admin",
+    ),
+    owner = withPolicyGroup(
+      { actor: { principal: { personId: "research-owner" }, executor: null }, source: "local" as const },
+      "admin",
+    );
+  let holdNextRun = false,
+    releaseHeldRun: (() => void) | undefined,
+    notifyEntered: (() => void) | undefined;
+  const enteredPromise = () =>
+      new Promise<void>((resolve) => {
+        notifyEntered = resolve;
+      }),
+    server = net.createServer((socket) => {
+      if (!holdNextRun) {
+        socket.end("go\n");
+        return;
+      }
+      holdNextRun = false;
+      notifyEntered?.();
+      releaseHeldRun = () => socket.end("go\n");
+    });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+  const port = (server.address() as net.AddressInfo).port;
+  const barrierScript = `import { readFileSync } from "node:fs";
+import net from "node:net";
+await new Promise((resolve, reject) => {
+  const s = net.connect(${port}, "127.0.0.1");
+  s.on("data", () => { s.destroy(); resolve(); });
+  s.on("error", reject);
+});
+const input = JSON.parse(readFileSync(JSON.parse(process.env.HA_PRESET_INPUT).witnessInput, "utf8"));
+const experiment = input.subjects.find(s => s.path.endsWith("/experiment.json"));
+const metadata = JSON.parse(readFileSync(experiment.file, "utf8"));
+const subjects = input.subjects.map(({file, ...anchor}) => anchor);
+console.log(JSON.stringify({schema:"preset-script-result/v1", produces:[{capabilityId:"completion-witness",payload:{
+result: "pass", subjects, predicateType:"research/version-pinned/v1",
+predicate: metadata, diagnostic: "Seed verified"}}]}));`;
+  initRepo(root);
+  git(root, "branch", "-M", "main");
+  writeFileSync(path.join(root, ".gitignore"), "harness/\n.harness/\n.worktrees/\nsource/\n");
+  git(root, "add", ".gitignore");
+  git(root, "commit", "-qm", "test: fixture exclusions");
+  mkdirSync(ledger);
+  initRepo(ledger);
+  const source = researchPackage(root, barrierScript),
+    assets = path.join(root, "verticals/research"),
+    verticalId = "research/experiments";
+  cpSync(new URL("../../preset/assets/software-coding", import.meta.url), assets, { recursive: true });
+  const manifestPath = path.join(source, "preset.json"),
+    manifest = JSON.parse(readFileSync(manifestPath, "utf8")),
+    declarationPath = path.join(assets, "vertical.json"),
+    declaration = JSON.parse(readFileSync(declarationPath, "utf8"));
+  declaration.id = verticalId;
+  declaration.completion = manifest.completion;
+  manifest.vertical = verticalId;
+  delete manifest.completion;
+  writeFileSync(declarationPath, JSON.stringify(declaration));
+  writeFileSync(manifestPath, JSON.stringify(manifest));
+  cpSync(source, path.join(assets, "presets/research-checks"), { recursive: true });
+  writeFileSync(
+    path.join(ledger, "harness.yaml"),
+    writeRepositorySettingsFacet(
+      "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\nsettings: {}\n",
+      {
+        ...INITIAL_SETTINGS_V1,
+        defaultVertical: verticalId,
+        defaultPreset: "research-checks",
+        defaultProfile: "experiment",
+      },
+    ),
+  );
+  const cell = await openBootstrappedRepoCell({ repoId, rootDir: canonicalRoot(root), ownerId: "completion-queue" });
+  const applied = async (action: Record<string, unknown> & { kind: string }, binding = worker) => {
+    const receipt = await cell.run(action, binding);
+    assert.ok(
+      receipt.outcome === "applied" || (receipt.outcome === "pending" && receipt.acceptance !== null),
+      JSON.stringify(receipt),
+    );
+    if (receipt.acceptance !== null) await waitForFixturePublication(cell, receipt.opId, binding);
+    return receipt;
+  };
+  try {
+    await applied({ kind: "preset-install", packageSource: source });
+    const created = await applied({
+        kind: "task-create",
+        taskId,
+        title: "Rerun non-blocking queue check",
+        presetId: "research-checks",
+        profileId: "experiment",
+        riskTier: "low",
+      }),
+      packagePath = String((created as { packagePath?: string }).packagePath);
+    await realizeTaskPlanFixture(
+      root,
+      packagePath,
+      (documentPath) => applied({ kind: "doc-submit", paths: [documentPath] }),
+      "Rerun non-blocking queue check",
+    );
+    await applied({ kind: "task-start", taskId, executionId });
+    mkdirSync(path.join(ledger, packagePath, "artifacts"), { recursive: true });
+    writeFileSync(path.join(ledger, packagePath, "artifacts/experiment.json"), '{"seed":7}\n');
+    writeFileSync(
+      path.join(ledger, packagePath, "closeout.md"),
+      "## Summary\nSubmitted.\n## Verification\nChecked.\n## Residual Risk\nNone.\n## Same Mechanism Elsewhere\nChecked.\n",
+    );
+    await applied({ kind: "doc-submit", taskId });
+    await applied({ kind: "task-submit", taskId, executionId });
+    const events = () =>
+      makeTaskEventReader({ repoId, rootDir: root })
+        .read()
+        .events.filter(isTaskEvent)
+        .filter((e) => e.taskId === taskId);
+    const initialRun = currentGateRun(
+      events().findLast((e) => e.type === "completion_gate_verified")!.payload.execution,
+      "version-pinned",
+    )!;
+    const entered = enteredPromise();
+    holdNextRun = true;
+    let rerunResolved = false;
+    const rerunPromise = applied(
+      {
+        kind: "task-witness-rerun",
+        taskId,
+        executionId,
+        gateId: "version-pinned",
+        runId: initialRun.runId,
+        reason: "Hold source command outside writer turn",
+      },
+      owner,
+    ).then((receipt) => {
+      rerunResolved = true;
+      return receipt;
+    });
+    await entered;
+    const unrelated = await applied({ kind: "todo-add", text: "advances while witness command runs" }, owner);
+    assert.equal(unrelated.outcome, "applied");
+    assert.equal(rerunResolved, false, "unrelated queued write must finish before the held witness command settles");
+    releaseHeldRun?.();
+    const rerunReceipt = await rerunPromise;
+    assert.equal(rerunReceipt.outcome, "applied");
+    assert.equal(
+      currentGateRun(
+        events().findLast((e) => e.type === "completion_gate_verified")!.payload.execution,
+        "version-pinned",
+      )?.result,
+      "pass",
+    );
+  } finally {
+    releaseHeldRun?.();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
     await cell.close();
     rmSync(root, { recursive: true, force: true });
   }

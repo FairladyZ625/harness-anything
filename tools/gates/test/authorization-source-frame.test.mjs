@@ -1,0 +1,232 @@
+// harness-test-tier: contract
+import assert from "node:assert/strict";
+import test from "node:test";
+import { bindArguments, buildFlowGraph, EMPTY_ENV, makeEvaluator } from "../authorization-flow-graph.mjs";
+import { processSourceSites, sourceSite } from "../authorization-source-proof.mjs";
+import { makeRepo } from "./helpers.mjs";
+
+test("recursive helpers and self-updated locals capture only actual free parameters", () => {
+  const file = "packages/daemon/src/frame.ts",
+    { rootDir } = makeRepo({
+      [file]: `function effect() { store.append(); } function empty() {}
+function owner(callback, unused) {
+  let value = callback; value = value || callback;
+  function first() { second(); }
+  function second() { if (value) value(); first(); }
+  first();
+}
+function closed(unused) { function first() { second(); } function second() { first(); } return first; }`,
+    }),
+    graph = buildFlowGraph(rootDir),
+    [effect, empty, owner, closed] = graph.modules.get(file).sourceFile.statements,
+    [first, second] = owner.body.statements.filter((node) => node.name),
+    site = sourceSite(graph, effect.body.statements[0].expression),
+    evaluator = makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true });
+  for (const fn of [first, second])
+    assert.deepEqual(
+      [...graph.freeParameters(fn)].map((node) => node.name.text),
+      ["callback"],
+    );
+  assert.equal(graph.freeParameters(closed.body.statements[0]).size, 0);
+  for (const [callback, expected] of [
+    [empty.name, false],
+    [effect.name, true],
+    [empty.name, false],
+  ]) {
+    const env = bindArguments({ node: owner, env: EMPTY_ENV }, [callback], EMPTY_ENV);
+    assert.equal(processSourceSites(graph, owner, { evaluator, env, targets: [site] }).has(site), expected);
+  }
+});
+
+test("stored argument captures share the canonical environment DAG", () => {
+  const file = "packages/daemon/src/frame.ts",
+    { rootDir } = makeRepo({
+      [file]: `function take(value, noise) { if (noise) return value.value; return value.value; }
+function caller(value, noise) { const payload = { value }; return take(payload, noise); }
+const same = "same", first = 1, second = 2;`,
+    }),
+    graph = buildFlowGraph(rootDir),
+    [take, caller, values] = graph.modules.get(file).sourceFile.statements,
+    args = values.declarationList.declarations.map((node) => node.initializer),
+    call = caller.body.statements.at(-1).expression,
+    frame = (noise) =>
+      bindArguments(
+        { node: take, env: EMPTY_ENV },
+        call.arguments,
+        bindArguments({ node: caller, env: EMPTY_ENV }, [args[0], noise], EMPTY_ENV),
+      ),
+    first = frame(args[1]),
+    second = frame(args[2]),
+    capture = first.get(take.parameters[0]).env,
+    evaluator = makeEvaluator(graph, { constants: {}, functions: {} });
+  assert.ok(first !== second, "different referenced noise still distinguishes the outer frame");
+  assert.ok(capture === graph.internEnv(capture), "stored captures must be canonical, not only their key");
+  assert.ok(capture === second.get(take.parameters[0]).env, "equivalent captured subgraphs share storage");
+  const seen = new Set(),
+    pending = [first, second];
+  while (pending.length) {
+    const env = pending.pop();
+    if (seen.has(env)) continue;
+    seen.add(env);
+    assert.ok(env === graph.internEnv(env), "every retained capture is a canonical DAG node");
+    for (const bound of env.values()) if (bound.env) pending.push(bound.env);
+  }
+  assert.deepEqual(evaluator.fold(take.body.statements[0].thenStatement.expression, first), { value: "same" });
+  assert.deepEqual(evaluator.fold(take.body.statements[0].expression, first), { value: 1 });
+  assert.deepEqual(evaluator.fold(take.body.statements[0].expression, second), { value: 2 });
+});
+
+test("a function value cannot capture its own invocation parameters", () => {
+  const file = "packages/daemon/src/frame.ts",
+    { rootDir } = makeRepo({
+      [file]: `function take(value) { return value; }
+function recursive(callback) { callback(); return take(recursive); }
+function first() {} function second() {}`,
+    }),
+    graph = buildFlowGraph(rootDir),
+    [take, recursive, first, second] = graph.modules.get(file).sourceFile.statements,
+    args = recursive.body.statements.at(-1).expression.arguments,
+    invocation = (callback) => bindArguments({ node: recursive, env: EMPTY_ENV }, [callback], EMPTY_ENV),
+    value = (callback) => bindArguments({ node: take, env: EMPTY_ENV }, args, invocation(callback));
+  assert.ok(value(first.name) === value(second.name), "a function closes over its declaration, not its call");
+});
+
+test("unused own parameters cannot multiply a function invocation frame", () => {
+  const file = "packages/daemon/src/frame.ts",
+    { rootDir } = makeRepo({
+      [file]: `function effect() { store.append(); } function empty() {}
+function invoke(callback, unused) { callback(); }
+const first = 1, second = 2;`,
+    }),
+    graph = buildFlowGraph(rootDir),
+    [effect, empty, invoke, values] = graph.modules.get(file).sourceFile.statements,
+    args = values.declarationList.declarations.map((node) => node.initializer),
+    fn = { node: invoke, env: EMPTY_ENV },
+    frame = (callback, noise) => bindArguments(fn, [callback, noise], EMPTY_ENV),
+    first = frame(effect.name, args[0]),
+    second = frame(effect.name, args[1]);
+  assert.ok(first === second, "an unreferenced formal parameter must not enter the frame pool");
+  assert.ok(first !== frame(empty.name, args[0]), "the real callback still distinguishes invocations");
+});
+
+test("recursive function expressions capture only parameters outside their declaration", () => {
+  for (const local of [false, true]) {
+    const file = "packages/daemon/src/frame.ts",
+      definition = "const recursive = (callback) => { callback(); return recursive; };",
+      { rootDir } = makeRepo({
+        [file]: `function take(value) { return value; }
+${local ? `function owner() { ${definition} }` : definition}
+function first() {} function second() {}`,
+      }),
+      graph = buildFlowGraph(rootDir),
+      [take, declaration, first, second] = graph.modules.get(file).sourceFile.statements,
+      recursive = (local ? declaration.body.statements[0] : declaration).declarationList.declarations[0].initializer,
+      reference = recursive.body.statements.at(-1).expression,
+      invocation = (callback) => bindArguments({ node: recursive, env: EMPTY_ENV }, [callback], EMPTY_ENV),
+      value = (callback) => bindArguments({ node: take, env: EMPTY_ENV }, [reference], invocation(callback));
+    assert.ok(value(first.name) === value(second.name), "a const function alias has the same capture boundary");
+    const literalValue = (callback) => bindArguments({ node: take, env: EMPTY_ENV }, [recursive], invocation(callback));
+    assert.ok(literalValue(first.name) === literalValue(second.name), "a function literal has the same boundary");
+    assert.equal(graph.freeParameters(reference).size, 0, "the value captures no outer parameter");
+    assert.ok(graph.freeParameters(recursive).has(recursive.parameters[0]), "the body still depends on its argument");
+  }
+});
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: a cached frame never certifies another caller.
+test("complete source misses reuse their closed call graph without poisoning hits or full walks", () => {
+  const file = "packages/daemon/src/callback.ts";
+  const { rootDir } = makeRepo({
+    [file]: `function target() {}
+function first() { second(); }
+function second() { first(); }
+function entry() { first(); }`,
+  });
+  const original = buildFlowGraph(rootDir),
+    [target, first, second, entry] = original.modules.get(file).sourceFile.statements;
+  let reads = 0;
+  const graph = {
+      ...original,
+      fileOf(node) {
+        reads++;
+        return original.fileOf(node);
+      },
+    },
+    evaluator = makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true }),
+    missing = sourceSite(original, target),
+    query = () => processSourceSites(graph, entry, { evaluator, targets: [missing] });
+  const early = sourceSite(original, first);
+  assert.ok(processSourceSites(graph, entry, { evaluator, targets: [early] }).has(early));
+  assert.equal(query().has(missing), false);
+  const firstReads = reads;
+  assert.ok(firstReads > 0);
+  assert.equal(query().has(missing), false);
+  assert.equal(reads, firstReads, "a complete negative closure must not be walked again");
+  const live = sourceSite(original, first);
+  assert.ok(processSourceSites(graph, entry, { evaluator, targets: [live] }).has(live));
+  assert.ok(
+    processSourceSites(graph, entry, { evaluator }).has(sourceSite(original, second.body.statements[0].expression)),
+  );
+});
+
+test("source summaries reuse unchanged frames and retain separate callback bindings", () => {
+  const file = "packages/daemon/src/callback.ts";
+  const { rootDir } = makeRepo({
+    [file]: `
+function invoke(callback) { callback(); }
+function empty() {}
+function effect() { store.append(); }
+function first() { invoke(empty); }
+function second() { invoke(effect); }`,
+  });
+  const graph = buildFlowGraph(rootDir);
+  const functions = graph.modules.get(file).sourceFile.statements;
+  const site = sourceSite(graph, functions[2].body.statements[0].expression);
+  const evaluator = makeEvaluator(graph, { constants: {}, functions: {} });
+  const evaluate = evaluator.evaluate;
+  let evaluations = 0;
+  evaluator.evaluate = (...args) => {
+    evaluations++;
+    return evaluate(...args);
+  };
+  const env = new Map();
+  assert.equal(processSourceSites(graph, functions[3], { evaluator, env, targets: [site] }).has(site), false);
+  const beforeRepeat = evaluations;
+  assert.equal(processSourceSites(graph, functions[3], { evaluator, env, targets: [site] }).has(site), false);
+  assert.equal(evaluations, beforeRepeat);
+  assert.equal(processSourceSites(graph, functions[4], { evaluator, env, targets: [site] }).has(site), true);
+});
+
+test("source frames ignore parameters outside their lexical scope", () => {
+  const file = "packages/daemon/src/callback.ts";
+  const { rootDir } = makeRepo({
+    [file]: `
+function caller(input) {}
+function effect() { store.append(); }
+function entry() { effect(); }
+const first = 1, second = 2;`,
+  });
+  const graph = buildFlowGraph(rootDir);
+  const nodes = graph.modules.get(file).sourceFile.statements;
+  const evaluator = makeEvaluator(graph, { constants: {}, functions: {} });
+  const evaluate = evaluator.evaluate;
+  let evaluations = 0;
+  evaluator.evaluate = (...args) => {
+    evaluations++;
+    return evaluate(...args);
+  };
+  const frame = (index) =>
+    new Map([
+      [
+        nodes[0].parameters[0],
+        {
+          expression: nodes[3].declarationList.declarations[index].initializer,
+          env: new Map(),
+        },
+      ],
+    ]);
+  const site = sourceSite(graph, nodes[1].body.statements[0].expression);
+  assert.equal(processSourceSites(graph, nodes[2], { evaluator, env: frame(0), targets: [site] }).has(site), true);
+  const beforeRepeat = evaluations;
+  assert.equal(processSourceSites(graph, nodes[2], { evaluator, env: frame(1), targets: [site] }).has(site), true);
+  assert.equal(evaluations, beforeRepeat);
+});

@@ -119,8 +119,9 @@ export function buildCommand(
     });
   }
   if (lifecycleAction?.commandType === "ReworkTask") {
-    const requestedExecutionId = explicitExecutionId(action);
-    if (action.takeover === true && !requestedExecutionId)
+    const requestedExecutionId = explicitExecutionId(action),
+      hasHandoff = typeof action.handoffId === "string";
+    if ((action.takeover === true || hasHandoff) && !requestedExecutionId)
       throw cellCodedError(
         "invalid_command",
         "Takeover requires --execution-id and --submission-digest naming the target cut.",
@@ -133,7 +134,7 @@ export function buildCommand(
         `Run ha task show ${taskId}; only a current submitted execution can be returned.`,
         (candidate) => `ha task rework ${taskId} --execution-id ${candidate} --reason <why>`,
       );
-    if (requestedExecutionId && action.takeover !== true)
+    if (requestedExecutionId && action.takeover !== true && !hasHandoff)
       assertCurrentSubmittedExecution(snapshot, taskId, requestedExecutionId);
     const submitted = currentSubmittedExecutions(snapshot).find((value) => value.executionId === executionId),
       currentReviews = submitted ? reviewsForExecution(snapshot.reviews, submitted) : [],
@@ -162,6 +163,7 @@ export function buildCommand(
             ...(typeof action.model === "string" ? { model: action.model } : {}),
           }
         : {}),
+      ...(hasHandoff ? { handoffId: requiredCellText(action.handoffId, "handoffId") } : {}),
     });
   }
   if (lifecycleAction?.commandType === "SubmitExecution") {

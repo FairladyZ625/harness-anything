@@ -39,7 +39,6 @@ import { repositoryRuntimeReads } from "./repository-runtime-reads.ts";
 import { readEdgeViewBlob, readEdgeViewBlobRange } from "./runtime-result-read.ts";
 import { makeScheduleActionRuntime } from "./schedule-action-runtime.ts";
 import { scheduleOccurrenceSettlementOwner } from "./schedule-runtime-outcome.ts";
-import { makeSettingsActionRuntime } from "./settings-action-runtime.ts";
 import { makeAgentActionRuntime, makeSquadActionRuntime } from "./squad-action-runtime.ts";
 import { explainAuthenticationRequired } from "./task-action-explanation-read.ts";
 import { makeTaskQueryReadModel } from "./task-query-read.ts";
@@ -255,7 +254,6 @@ export function makeRepoReadRuntime(
       entity: Object.freeze({
         agent: makeAgentActionRuntime(runtimeContext),
         schedule: makeScheduleActionRuntime(runtimeContext, () => settings.read().worktree),
-        settings: makeSettingsActionRuntime(runtimeContext, settings),
         person: makePersonActionRuntime(runtimeContext),
         squad: makeSquadActionRuntime(runtimeContext),
       }),

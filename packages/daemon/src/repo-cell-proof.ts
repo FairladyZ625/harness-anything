@@ -210,7 +210,8 @@ export async function proofFor(
       authorizationDecision,
     };
   }
-  if (command.type === "TransitionTask" || command.type === "AssignTask" || command.type === "UnassignTask") return {};
+  if (command.type === "TransitionTask" || command.type === "AssignTask" || command.type === "UnassignTask")
+    return { authorizationDecision: requiredAuthorizationDecision(binding) };
   if (command.type === "SubmitExecution") {
     if (command.amend === true)
       return {

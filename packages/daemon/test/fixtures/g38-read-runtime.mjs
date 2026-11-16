@@ -10,7 +10,6 @@ import { createRepoCellApi } from "../../src/repo-cell-api.ts";
 import { makeRepoCellSettingsState } from "../../src/repo-cell-settings-state.ts";
 import { makeEntityActionCatalogExecutor } from "../../src/entity-action-catalog-executor.ts";
 import { makeAgentActionRuntime, makeSquadActionRuntime } from "../../src/squad-action-runtime.ts";
-import { makeSettingsActionRuntime } from "../../src/settings-action-runtime.ts";
 import { makePersonActionRuntime } from "../../src/person-action-runtime.ts";
 import { makeScheduleActionRuntime } from "../../src/schedule-action-runtime.ts";
 import { executeRepoReadAction } from "../../src/repo-cell-action-dispatch.ts";
@@ -69,7 +68,6 @@ export async function createReadFixtureRuntime({ projection, store, rootDir }, n
       agent: makeAgentActionRuntime(context),
       squad: makeSquadActionRuntime(context),
       person: makePersonActionRuntime(context),
-      settings: makeSettingsActionRuntime(context, settings),
       schedule: makeScheduleActionRuntime(context, () => settings.read().worktree),
     },
   };

@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import ts from "typescript";
 import { stripGlobals } from "../../packages/cli/src/cli/thin-command-flags.ts";
-import { bindArguments, isFunctionNode, makeEvaluator, unwrap } from "./authorization-flow-graph.mjs";
+import { bindArguments, EMPTY_ENV, isFunctionNode, makeEvaluator, unwrap } from "./authorization-flow-graph.mjs";
 import { scanOntologyText } from "./ontology-closure-scan.mjs";
 
 export const sourceFileOf = (source) => source.candidateId.split(":")[2].split("#")[0];
@@ -1739,64 +1739,106 @@ function reachesSource(graph, entry, node, options = {}) {
   return processSourceSites(graph, entry, { ...options, targets: [target] }).has(target);
 }
 
-const processSitesCache = new WeakMap();
-const processBoundSitesCache = new WeakMap();
-
-/** Process ownership needs real call reachability, without interpreting RPC branch predicates. */
-export function processSourceSites(graph, entry, options = {}) {
-  // The graph and default bindings are immutable within an audit. Explicit callback bindings
-  // remain separate: the same function can reach different sources under different arguments.
-  const { evaluator = makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true }), env = new Map() } =
-    options;
-  const targetList = options.targets ? [...options.targets] : null;
-  const targetKey = targetList ? `targets:${targetList.join("\u0000")}` : "all";
-  const reusable = true;
-  const bindingShape = (frame) =>
-    [...frame.values()]
-      .map((bound) => (bound.expression ? sourceSite(graph, bound.expression) : bound.root ? "<root>" : "<unknown>"))
-      .join("|");
-  const key = bindingShape(env);
-  let cache = processSitesCache.get(graph);
-  if (reusable && !options.evaluator && !options.env && cache?.has(entry)) {
-    const cached = cache.get(entry);
-    if (cached instanceof Map && cached.has(targetKey)) return cached.get(targetKey);
-    if (targetKey === "all" && !(cached instanceof Map)) return cached;
-  }
-  let boundCache;
-  if (reusable && (options.evaluator || options.env)) {
-    let entries = processBoundSitesCache.get(graph);
-    if (!entries) processBoundSitesCache.set(graph, (entries = new WeakMap()));
-    let evaluators = entries.get(entry);
-    if (!evaluators) entries.set(entry, (evaluators = new WeakMap()));
-    let frames = evaluators.get(evaluator);
-    if (!frames) evaluators.set(evaluator, (frames = new Map()));
-    boundCache = frames;
-    if (frames.has(`${targetKey}\u0000${key}`)) return frames.get(`${targetKey}\u0000${key}`);
-  }
-  const seen = new Map(),
-    sites = new Set(),
-    targetLookup = targetList && Object.fromEntries(targetList.map((target) => [target, true])),
-    witnessedTargets = {};
-  // A source-less traversal is a complete reachability query; only a targeted query
-  // may stop after witnessing every requested site.
-  let remainingCount = targetList ? targetList.length : Number.POSITIVE_INFINITY;
-  function walk(fn, env) {
-    const key = bindingShape(env),
-      frames = seen.get(fn) ?? new Set();
-    if (!fn.body || frames.has(key) || remainingCount === 0) return;
-    frames.add(key);
-    seen.set(fn, frames);
-    // A function endpoint is witnessed only when the evaluated call actually enters it.
-    // This proves callback binding without folding the callback's data-dependent result.
-    const entrySite = isFunctionNode(fn) && sourceSite(graph, fn);
-    if (entrySite && targetLookup?.[entrySite] && !witnessedTargets[entrySite]) {
-      sites.add(entrySite);
-      witnessedTargets[entrySite] = true;
-      remainingCount -= 1;
-      if (remainingCount === 0) return;
+/** Bounded lexical/caller identity shared by source and policy cycle detection. */
+export function sourceFrameKey(graph, fn, env) {
+  const argumentSite = (argument) => {
+    let bound = argument;
+    // Parameter bindings point into older caller frames, so forwarding aliases terminate at
+    // their original argument without serializing unrelated captured environments.
+    while (bound.expression) {
+      const expression = unwrap(bound.expression);
+      if (!ts.isIdentifier(expression)) break;
+      const binding = graph.lookup(expression.text, expression);
+      if (binding?.kind !== "param" || binding.trail.length > 0) break;
+      const caller = bound.env.get(binding.parameter);
+      if (!caller) break;
+      bound = caller;
     }
+    return bound.root
+      ? "request"
+      : bound.rest
+        ? bound.rest.map(argumentSite).join(",")
+        : bound.expression
+          ? sourceSite(graph, bound.expression)
+          : "-";
+  };
+  // Only lexical ancestors can supply a function's captured parameters. An evaluator may carry
+  // extra caller bindings while resolving a nested callable; those cannot change this frame.
+  const lexicalBindings = (node, env) => {
+    const parameters = graph.freeParameters(node);
+    return [...env].filter(([parameter]) => parameters.has(parameter)).map(([, bound]) => bound);
+  };
+  const callerShape = (bound) => {
+    if (bound.rest) return bound.rest.map(callerShape).join(",");
+    if (!bound.expression || !bound.env) return "";
+    const node = unwrap(bound.expression),
+      binding = ts.isIdentifier(node) ? graph.lookup(node.text, node) : null,
+      // A const alias captures at its declaration, not at a later reference inside
+      // an unrelated binder. Preserve the declaration's actual captured arguments.
+      captured =
+        binding?.kind === "var" && binding.trail.length === 0 && binding.declaration.parent.flags & ts.NodeFlags.Const
+          ? (binding.declaration.initializer ?? node)
+          : binding?.kind === "fn"
+            ? binding.node
+            : node;
+    return lexicalBindings(captured, bound.env).map(argumentSite).join("|");
+  };
+  // One lexical caller frame distinguishes a reused expression bound to different callbacks.
+  // This is bounded calling context, not recursive serialization of the environment chain.
+  return lexicalBindings(fn, env)
+    .map((bound) => `${argumentSite(bound)}@[${callerShape(bound)}]`)
+    .join("|");
+}
+
+const sourceWalks = new WeakMap();
+
+export function processSourceSites(
+  graph,
+  entry,
+  {
+    evaluator = makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true }),
+    env = EMPTY_ENV,
+    targets = [],
+  } = {},
+) {
+  targets = [...targets];
+  const requestedSites = new Set(targets);
+  // Evaluator facts and source bindings are immutable within a descriptor. Cache only a frame's
+  // direct sites/edges, never its transitive result or the authority that reached it. Traversal
+  // remains per caller, so cycles and early target exits cannot poison later callers' evidence.
+  const graphs = sourceWalks.get(evaluator) ?? new WeakMap();
+  sourceWalks.set(evaluator, graphs);
+  const frames = graphs.get(graph) ?? new Map();
+  graphs.set(graph, frames);
+  const seen = new Set(),
+    sites = new Set();
+  function frameFor(fn, env) {
+    const key = sourceFrameKey(graph, fn, env),
+      contexts = frames.get(fn) ?? new Map();
+    frames.set(fn, contexts);
+    if (!contexts.has(key)) contexts.set(key, { fn, env, sites: new Set(), edges: null, missing: new Set() });
+    return contexts.get(key);
+  }
+  function expand(frame) {
+    const { fn, env } = frame;
+    frame.edges = [];
+    const linkFrame = (value, args = null) =>
+      frame.edges.push({
+        frame: frameFor(value.node, args ? bindArguments(value, evaluator.expandArguments(args, env), env) : value.env),
+        // Ordering needs only declaration ranges, not argument AST arrays. These cached
+        // edges are reused for different target queries, so retain no query-specific flag.
+        references: args?.flatMap(referencedRanges) ?? [],
+      });
     function visit(node) {
-      if (remainingCount === 0 || isFunctionNode(node)) return;
+      if (isFunctionNode(node)) return true;
+      if (ts.isBlock(node) || ts.isSourceFile(node)) {
+        for (const statement of node.statements) if (!visit(statement)) return false;
+        return true;
+      }
+      if (ts.isReturnStatement(node) || ts.isThrowStatement(node)) {
+        if (node.expression) visit(node.expression);
+        return false;
+      }
       if (ts.isIfStatement(node) || ts.isConditionalExpression(node)) {
         const condition = ts.isIfStatement(node) ? node.expression : node.condition;
         visit(condition);
@@ -1804,52 +1846,98 @@ export function processSourceSites(graph, entry, options = {}) {
         const left = ts.isIfStatement(node) ? node.thenStatement : node.whenTrue;
         const right = ts.isIfStatement(node) ? node.elseStatement : node.whenFalse;
         if (folded) {
-          if (folded.value ? left : right) visit(folded.value ? left : right);
-        } else {
-          visit(left);
-          if (right) visit(right);
+          const selected = folded.value ? left : right;
+          return selected ? visit(selected) : true;
         }
-        return;
+        // Unknown branches both remain reachable; only two exits terminate the next statement.
+        const leftContinues = visit(left),
+          rightContinues = right ? visit(right) : true;
+        return leftContinues || rightContinues;
       }
       if (ts.isNewExpression(node) && node.expression.getText() === "Promise" && !graph.lookup("Promise", node))
         for (const argument of node.arguments ?? [])
-          for (const value of evaluator.evaluate(argument, env).filter((value) => value.fn))
-            walk(value.node, value.env);
+          for (const value of evaluator.evaluate(argument, env).filter((value) => value.fn)) linkFrame(value);
       if (ts.isCallExpression(node)) {
-        const site = sourceSite(graph, node);
-        sites.add(site);
-        if (targetLookup?.[site] && !witnessedTargets[site]) {
-          witnessedTargets[site] = true;
-          remainingCount -= 1;
-        }
-        // Membership queries can stop only after every requested source is witnessed. A missing
-        // source still explores the complete reachable graph, including every callback binding.
-        if (remainingCount === 0) return;
+        frame.sites.add(sourceSite(graph, node));
         const values = evaluator.evaluate(node.expression, env);
         const declared = graph.callDeclaration(node);
-        for (const value of values.filter((value) => value.fn))
-          walk(value.node, bindArguments(value, node.arguments, env));
-        // A typeof callback signature can name another function's body. Prefer the
-        // supplied function value; only an unresolved callable needs declaration fallback.
+        for (const value of values.filter((value) => value.fn)) linkFrame(value, node.arguments);
+        // A typeof callback signature can refer to a different implementation. The supplied
+        // function owns this call; use declaration fallback only when no function resolves.
         if (isFunctionNode(declared) && declared.body && !values.some((value) => value.fn))
-          walk(declared, bindArguments({ node: declared, env: new Map() }, node.arguments, env));
+          linkFrame({ node: declared, env: EMPTY_ENV }, node.arguments);
         if (values.some((value) => value.external !== undefined))
           for (const arg of node.arguments)
-            for (const value of evaluator.evaluate(arg, env).filter((value) => value.fn)) walk(value.node, value.env);
+            for (const value of evaluator.evaluate(arg, env).filter((value) => value.fn)) linkFrame(value);
       }
-      ts.forEachChild(node, visit);
+      // A child's exit cannot skip siblings in an enclosing loop/try/switch. Keep those
+      // constructs conservative; sequential blocks and branches handle their own exits above.
+      ts.forEachChild(node, (child) => {
+        visit(child);
+      });
+      return true;
     }
-    visit(fn.body);
+    if (fn.body) visit(fn.body);
+    frame.env = null;
   }
-  walk(entry, env);
-  if (reusable) {
-    if (boundCache) boundCache.set(`${targetKey}\u0000${key}`, sites);
-    else {
-      if (!cache) processSitesCache.set(graph, (cache = new WeakMap()));
-      const entries = cache.get(entry);
-      if (entries instanceof Map) entries.set(targetKey, sites);
-      else cache.set(entry, new Map([[targetKey, sites]]));
+  const targetRanges = targets.map((site) => {
+    const [, file, start, end] = /^(.*):(\d+):(\d+)$/u.exec(site);
+    return { file, start: Number(start), end: Number(end) };
+  });
+  const rangeOf = (node) => ({ file: graph.fileOf(node), start: node.getStart(node.getSourceFile()), end: node.end });
+  const containsTarget = (range) =>
+    targetRanges.some(({ file, start, end }) => range.file === file && range.start <= start && range.end >= end);
+  const targetFiles = new Set(targetRanges.map(({ file }) => file));
+  const enclosesTarget = (node) => containsTarget(rangeOf(node));
+  const references = new WeakMap();
+  function referencedRanges(node) {
+    if (references.has(node)) return references.get(node);
+    const found = [];
+    (function visit(child) {
+      if (ts.isCallExpression(child)) {
+        const declaration = graph.callDeclaration(child);
+        if (isFunctionNode(declaration) && declaration.body) found.push(rangeOf(declaration));
+      }
+      ts.forEachChild(child, visit);
+    })(node);
+    references.set(node, found);
+    return found;
+  }
+  function walk(frame) {
+    // A dispatcher may re-enter with another argument binding. frameFor already gives
+    // each binding context its identity; seen frames terminate cycles without pruning it.
+    if (!frame.fn.body || seen.has(frame)) return;
+    if (targets.length > 0 && targets.every((site) => sites.has(site))) return;
+    if (targets.length > 0 && targets.every((site) => sites.has(site) || frame.missing.has(site))) return;
+    seen.add(frame);
+    // Upstream host/migration proofs target an invoked callback endpoint as well as calls.
+    const endpoint = sourceSite(graph, frame.fn);
+    if (requestedSites.has(endpoint)) sites.add(endpoint);
+    if (frame.edges === null) expand(frame);
+    for (const site of frame.sites) sites.add(site);
+    // An authored callback naming the target is cheap evidence to inspect first. This only
+    // orders actual call edges; every other edge remains available when the target is absent.
+    const preferred = [],
+      neighboring = [],
+      remaining = [];
+    for (const edge of frame.edges) {
+      const next =
+        targets.length > 0 && (enclosesTarget(edge.frame.fn) || edge.references.some(containsTarget))
+          ? preferred
+          : targetFiles.has(graph.fileOf(edge.frame.fn))
+            ? neighboring
+            : remaining;
+      next.push(edge.frame);
     }
+    // A sibling helper in the target's module is the next search choice. Every other
+    // real edge remains available; ordering cannot certify an absent source.
+    for (const edge of [...preferred, ...neighboring, ...remaining]) walk(edge);
   }
+  walk(frameFor(entry, env));
+  // A missing requested target forces a complete traversal (including cycles). Every
+  // visited frame then has the same negative reachability fact. An early hit proves
+  // no absence; an untargeted query still walks the whole graph. Never cache authority.
+  const missing = targets.filter((site) => !sites.has(site));
+  for (const frame of seen) for (const site of missing) frame.missing.add(site);
   return sites;
 }
