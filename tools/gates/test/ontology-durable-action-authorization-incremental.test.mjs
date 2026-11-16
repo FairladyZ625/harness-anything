@@ -31,7 +31,8 @@ import { exitCodeFor } from "../ontology-gate-lib.mjs";
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 let ordinal = 0;
 function partitionedTest(name, run) {
-  if (testOrdinalInPartition(ordinal++, process.env.HARNESS_TEST_PARTITION, [1, 1, 2, 3, 4, 1, 2, 4, 4])) test(name, run);
+  if (testOrdinalInPartition(ordinal++, process.env.HARNESS_TEST_PARTITION, [1, 1, 2, 3, 4, 1, 2, 4, 4]))
+    test(name, run);
 }
 
 function fixtureGraph(modules) {
