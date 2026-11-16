@@ -673,7 +673,6 @@ async function shardedAudit(rootDir, changedFiles) {
         (_, index) =>
           new Promise((resolve, reject) => {
             const worker = new Worker(new URL(import.meta.url), {
-              resourceLimits: { maxOldGenerationSizeMb: 3072 },
               workerData: { durableAuthorizationShard: { rootDir, changedFiles, shard: { index, count } } },
             });
             worker.once("message", resolve);
