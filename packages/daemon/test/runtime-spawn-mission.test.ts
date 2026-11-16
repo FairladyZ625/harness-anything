@@ -148,7 +148,7 @@ test("a Git worktree without a HEAD returns unavailable", async () => {
   }
 });
 
-test("task mission includes the previous conclusion and compares it with current HEAD", async () => {
+test("task mission renders the pre-collected bounded progress snapshot (CH1)", async () => {
   const resolved = await resolveRuntimeMission({
     rootDir: process.cwd(),
     cwd: process.cwd(),
@@ -159,7 +159,7 @@ test("task mission includes the previous conclusion and compares it with current
       mission: () => "Continue the task.",
       continuationContext: {
         dispatchId: "dispatch_0123456789abcdef01234567",
-        lastConclusion: "Focused tests passed.",
+        lastConclusion: "worker_stop: Focused tests passed.",
         exitHead: "prior-head",
       },
       causalContext: null,
@@ -172,11 +172,15 @@ test("task mission includes the previous conclusion and compares it with current
     missionName: undefined,
     explicitMission: undefined,
     reviewerBinding: false,
+    workspaceProgress: { head: "abc1234 Completed focused checks", changedFiles: 2, unavailable: null },
   });
-  assert.match(resolved.mission, /Last conclusion: Focused tests passed\./u);
-  assert.match(resolved.mission, /Exit worktree HEAD: prior-head/u);
-  assert.match(resolved.mission, /Current worktree HEAD: [a-f0-9]{40}/u);
-  assert.match(resolved.mission, /HEAD comparison: changed/u);
+  assert.match(resolved.mission, /Reason: worker_stop: Focused tests passed\./u);
+  assert.match(resolved.mission, /HEAD: abc1234 Completed focused checks/u);
+  assert.match(resolved.mission, /Changed files: 2/u);
+  assert.match(resolved.mission, /Task lifecycle node: implementation/u);
+  assert.match(resolved.mission, /Last attempt: worker_stop/u);
+  const snapshot = resolved.mission.match(/<runtime-progress>[\s\S]*?<\/runtime-progress>/u)![0];
+  assert.ok(Buffer.byteLength(snapshot, "utf8") <= 2048);
   assert.doesNotMatch(resolved.mission, /full terminal result/iu);
 });
 
