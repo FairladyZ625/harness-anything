@@ -20,22 +20,41 @@ type Isolate = {
 };
 type Inventory = { parent: number; isolates: Isolate[] };
 
+let activeLedgerChannel: string | null = null;
+
 /** Observe children where they are created, including workers created inside writer/diagnostics isolates.
  * getHeapStatistics schedules a V8 sample on that isolate; a stalled worker stays explicitly unsampled
  * or stale. No wait for it can block the main heartbeat or the independent diagnostic socket.
  */
 export function observeWorkerMemory(channelName = getEnvironmentData(channelKey) as string | undefined) {
-  const channel = channelName ? new BroadcastChannel(channelName) : null,
+  const isLedgerRoot = channelName !== undefined && channelName === activeLedgerChannel,
     children = new Map<Worker, Isolate>(),
     sampling = new Set<Worker>(),
     inventories = new Map<number, Isolate[]>();
-  let closed = false;
+  let channel: BroadcastChannel | null = null,
+    hasRemoteObserver = false,
+    closed = false;
+  const attachChannel = (): void => {
+    if (channel || !channelName || closed) return;
+    channel = new BroadcastChannel(channelName);
+    channel.onmessage = ({ data }: { data: Inventory | "sample" }) => {
+      if (data === "sample") refresh();
+      else {
+        hasRemoteObserver = true;
+        inventories.set(data.parent, data.isolates);
+      }
+    };
+    channel.unref();
+  };
   const sendInventory = (): void => {
     if (closed) return;
     for (const [worker, row] of children) row.role = workerRoles.get(worker) ?? row.role;
     const inventory: Inventory = { parent: threadId, isolates: [...children.values()] };
     inventories.set(threadId, inventory.isolates);
-    channel?.postMessage(inventory);
+    // Only non-root workers with spawned descendants report inventories over BroadcastChannel;
+    // the ledger root already tracks direct workers in-process and avoids waking idle workers
+    // (which otherwise triggers Node's lazy BroadcastChannel MessageEvent / undici load).
+    if (!isLedgerRoot) channel?.postMessage(inventory);
   };
   const refresh = (): void => {
     if (closed) return;
@@ -67,6 +86,7 @@ export function observeWorkerMemory(channelName = getEnvironmentData(channelKey)
     }
   };
   const created = (worker: Worker): void => {
+    if (!isLedgerRoot) attachChannel();
     children.set(worker, {
       threadId: worker.threadId,
       role: workerRoles.get(worker) ?? worker.threadName ?? "worker",
@@ -81,16 +101,13 @@ export function observeWorkerMemory(channelName = getEnvironmentData(channelKey)
     });
     refresh();
   };
-  if (channel) process.on("worker", created);
-  if (channel)
-    channel.onmessage = ({ data }: { data: Inventory | "sample" }) => {
-      if (data === "sample") refresh();
-      else inventories.set(data.parent, data.isolates);
-    };
-  channel?.unref();
+  if (channelName) {
+    if (isLedgerRoot) attachChannel();
+    process.on("worker", created);
+  }
   return {
     sample: () => {
-      channel?.postMessage("sample");
+      if (hasRemoteObserver) channel?.postMessage("sample");
       refresh();
     },
     snapshot: (main: NodeJS.MemoryUsage) => {
@@ -160,7 +177,13 @@ export function openDaemonMemoryLedger() {
   const previous = getEnvironmentData(channelKey),
     name = `harness-memory-${randomUUID()}`;
   setEnvironmentData(channelKey, name);
-  const ledger = observeWorkerMemory(name);
+  activeLedgerChannel = name;
+  let ledger: ReturnType<typeof observeWorkerMemory>;
+  try {
+    ledger = observeWorkerMemory(name);
+  } finally {
+    activeLedgerChannel = null;
+  }
   return {
     ...ledger,
     close: () => {

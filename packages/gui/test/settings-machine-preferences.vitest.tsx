@@ -66,7 +66,7 @@ async function mountSettings(mode: SystemRepoRow["mode"]) {
         chooseRepository: vi.fn(async () => null),
         bootstrap: vi.fn(async () => ({ ok: true })),
       },
-      request: vi.fn(async (method: string, payload: unknown) => {
+      request: vi.fn(async (method: string, payload: unknown): Promise<unknown> => {
         if (method === "updateSettings") {
           updateCalls.push(payload);
           throw new Error("fetch failed");
@@ -80,7 +80,16 @@ async function mountSettings(mode: SystemRepoRow["mode"]) {
   client.setQueryData(settingsQueryKeys.read(REPO_ID), {
     schema: "daemon.settings-read/v1",
     ok: true,
-    settings: { locale: "en-US", gates: [] },
+    settings: {
+      schema: "settings/v1",
+      settingsId: "repository",
+      defaultVertical: "software/coding",
+      defaultPreset: "standard-task",
+      defaultProfile: "baseline",
+      locale: "en-US",
+      gates: [],
+      scaffolds: { task: "governance/task-scaffold.json", repository: "governance/repository-scaffold.json" },
+    },
     values: {
       defaultVertical: "software/coding",
       defaultPreset: "standard-task",
@@ -88,6 +97,9 @@ async function mountSettings(mode: SystemRepoRow["mode"]) {
       reviewReturnBudget: 2,
       closeoutReview: false,
       locale: "en-US",
+      taskMaterializationPolicy: "include_done",
+      guiConnectTimeoutMs: 2_000,
+      guiRequestTimeoutMs: 30_000,
     },
     revision: 1,
     lastChanged: "initial",
@@ -143,7 +155,7 @@ async function mountSettings(mode: SystemRepoRow["mode"]) {
   await act(async () => {
     await vi.waitFor(() => expect(container.textContent).toContain("仓库设置"));
   });
-  return { container, updateCalls };
+  return { container, updateCalls, client };
 }
 
 describe("settings distinguish machine preferences from repository governance", () => {
@@ -166,7 +178,14 @@ describe("settings distinguish machine preferences from repository governance", 
     ).filter((control) => {
       const testId = control.dataset.testid;
       return (
-        testId !== "settings-search" && testId !== "settings-advanced-toggle" && !testId?.startsWith("settings-tab-")
+        ![
+          "settings-taskMaterializationPolicy-select",
+          "settings-guiConnectTimeoutMs-input",
+          "settings-guiRequestTimeoutMs-input",
+        ].includes(testId ?? "") &&
+        testId !== "settings-search" &&
+        testId !== "settings-advanced-toggle" &&
+        !testId?.startsWith("settings-tab-")
       );
     });
     expect(editControls.length).toBeGreaterThan(3);
@@ -231,6 +250,115 @@ describe("settings distinguish machine preferences from repository governance", 
       expect(localStorage.getItem("harness-locale")).toBe("zh-CN");
       expect(updateCalls).toEqual([]);
       expect(container.textContent).not.toContain("fetch failed");
+    },
+  );
+
+  it.each(["local", "remote-edge"] as const)(
+    "derives the local materialization selector and submits only its change (%s)",
+    async (mode) => {
+      const { container, updateCalls } = await mountSettings(mode);
+      const control = container.querySelector<HTMLSelectElement>(
+        '[data-testid="settings-taskMaterializationPolicy-select"]',
+      )!;
+      expect(control.disabled).toBe(false);
+      expect(Array.from(control.options).map((option) => option.value)).toEqual(["none", "in_flight", "include_done"]);
+      await act(async () => {
+        control.value = "in_flight";
+        control.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      const save = container.querySelector<HTMLButtonElement>('[data-testid="settings-repository-save"]')!;
+      expect(save.disabled).toBe(false);
+      await act(async () => save.click());
+      expect(updateCalls).toEqual([
+        {
+          repoId: REPO_ID,
+          expectedVersion: 1,
+          taskMaterializationPolicy: "in_flight",
+          idempotencyKey: expect.any(String),
+        },
+      ]);
+    },
+  );
+
+  it.each(["remote-edge", "local"] as const)(
+    "shows pending files and retries only the saved local policy (%s)",
+    async (mode) => {
+      const { container, client } = await mountSettings(mode),
+        request = vi.mocked(window.harness.request),
+        updates: Record<string, unknown>[] = [];
+      let saved = client.getQueryData<Record<string, unknown>>(settingsQueryKeys.read(REPO_ID))!;
+      request.mockImplementation(async (method, payload) => {
+        if (method === "getSettings") return saved;
+        if (method !== "updateSettings") throw new Error(`Unexpected request: ${method}`);
+        updates.push(payload as Record<string, unknown>);
+        saved = {
+          ...saved,
+          revision: mode === "local" ? 2 : 1,
+          values: { ...(saved.values as object), taskMaterializationPolicy: "in_flight", reviewReturnBudget: 9 },
+        };
+        return {
+          schema: "command-receipt/v2",
+          ok: true,
+          command: "settings-update",
+          opId: "local-policy",
+          revision: mode === "local" ? 2 : 1,
+          outcome: updates.length === 1 ? "pending" : "applied",
+          warnings: updates.length === 1 ? ["Local materialization conflicts: tasks/task_done/task_plan.md"] : [],
+          guidance:
+            updates.length === 1
+              ? [
+                  {
+                    kind: "run-command",
+                    args: { command: "ha settings update --task-materialization-policy in_flight" },
+                  },
+                ]
+              : [],
+        };
+      });
+      const control = container.querySelector<HTMLSelectElement>(
+        '[data-testid="settings-taskMaterializationPolicy-select"]',
+      )!;
+      await act(async () => {
+        control.value = "in_flight";
+        control.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      if (mode === "local") {
+        const budget = container.querySelector<HTMLInputElement>('[data-testid="settings-reviewReturnBudget-input"]')!;
+        await act(async () => {
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(budget, "3");
+          budget.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+      }
+      await act(async () =>
+        container.querySelector<HTMLButtonElement>('[data-testid="settings-repository-save"]')!.click(),
+      );
+      await act(async () => {
+        await vi.waitFor(() =>
+          expect(
+            container.querySelector('[data-testid="settings-materialization-pending"]'),
+            JSON.stringify({ updates, text: container.textContent?.slice(-2600) }),
+          ).not.toBeNull(),
+        );
+      });
+      expect(control.value).toBe("in_flight");
+      expect(container.textContent).toContain("tasks/task_done/task_plan.md");
+      expect(container.textContent).toContain("ha settings update --task-materialization-policy in_flight");
+      const retry = container.querySelector<HTMLButtonElement>('[data-testid="settings-materialization-retry"]')!;
+      expect(retry.disabled).toBe(false);
+      await act(async () => retry.click());
+      await act(async () => {
+        await vi.waitFor(() =>
+          expect(container.querySelector('[data-testid="settings-materialization-pending"]')).toBeNull(),
+        );
+      });
+      expect(updates).toHaveLength(2);
+      if (mode === "local") expect(updates[0]).toMatchObject({ reviewReturnBudget: 3 });
+      expect(updates[1]).toEqual({
+        repoId: REPO_ID,
+        taskMaterializationPolicy: "in_flight",
+        expectedVersion: mode === "local" ? 2 : 1,
+        idempotencyKey: expect.any(String),
+      });
     },
   );
 

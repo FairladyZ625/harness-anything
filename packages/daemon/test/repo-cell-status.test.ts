@@ -22,7 +22,7 @@ test("status reports projection identity failure without blocking backup or publ
           throw error;
         },
       } as never,
-      store: { materializationHealth: () => null } as never,
+      store: { materializationHealth: () => null, followerStatus: () => ({}) } as never,
     };
   const status = repoCellStatus(context);
   assert.equal(status.state, "attached");

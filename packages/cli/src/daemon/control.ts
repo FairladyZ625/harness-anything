@@ -29,27 +29,16 @@ import {
 import { cliErrorMessage } from "../cli-error.ts";
 import { consumeKnownError } from "./client.ts";
 import { ensureCliDaemonRunning } from "./autostart.ts";
-import { firstCliCommandIndex } from "../cli/thin-command.ts";
-import { runGuiLaunch } from "../cli/gui-launch.ts";
-import { runDaemonConnectionControl } from "./connection-control.ts";
+import { firstCliCommandIndex } from "../cli/command-index.ts";
 import { daemonFailure, daemonOption } from "./control-support.ts";
 import { assessDaemonStatus, status } from "./control-status.ts";
-import { runDaemonRepoControl } from "./repo-control.ts";
-import { runDaemonServiceControl } from "./service-control.ts";
-import { assertCanonicalCliEntry } from "./cli-entry-guard.ts";
-import { daemonMetricsArgsError, renderDaemonMetrics, runDaemonMetrics } from "./metrics.ts";
-import { parseDaemonSloOptions, renderDaemonSlo, runDaemonSlo } from "./slo.ts";
-import { parseDaemonTopOptions, runDaemonTop } from "./top.ts";
-import { renderDaemonFleetStatus, runDaemonFleetStatus } from "./fleet-status.ts";
-import { applyNodeAutoClaimControl, parseNodeAutoClaimControl } from "./node-auto-claim.ts";
-import { runDaemonProbeControl } from "./probe/probe-control.ts";
 const fleetNumber = { port: /^(?:0|[1-9][0-9]{0,4})$/u, quota: /^[1-9][0-9]{0,15}$/u };
 type ReceiptEmitter = (receipt: Record<string, unknown>, json: boolean) => void;
 type ControlFinisher = (receipt: Record<string, unknown>, exitCode: number) => number;
 export async function runDaemonControl(argv: readonly string[], renderReceipt: ReceiptEmitter): Promise<number> {
   const at = firstCliCommandIndex(argv);
   const command = argv[at + 1];
-  const metricsValidationFailure = metricsValidationError(argv, command);
+  const metricsValidationFailure = await metricsValidationError(argv, command);
   if (metricsValidationFailure) {
     renderReceipt(
       daemonFailure("daemon-metrics", "invalid_field", cliErrorMessage(metricsValidationFailure)),
@@ -77,10 +66,19 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
     );
     return 1;
   }
-  if (argv[at] === "gui") return runGuiLaunch(argv, {}, renderReceipt);
+  if (argv[at] === "gui") {
+    const { runGuiLaunch } = await import("../cli/gui-launch.ts");
+    return runGuiLaunch(argv, {}, renderReceipt);
+  }
   try {
-    if (command === "probe") return await runDaemonProbeControl(argv, userRoot, daemonId, finish);
-    if (!(command === "status" || command === undefined)) assertCanonicalCliEntry();
+    if (command === "probe") {
+      const { runDaemonProbeControl } = await import("./probe/probe-control.ts");
+      return await runDaemonProbeControl(argv, userRoot, daemonId, finish);
+    }
+    if (!(command === "status" || command === undefined)) {
+      const { assertCanonicalCliEntry } = await import("./cli-entry-guard.ts");
+      assertCanonicalCliEntry();
+    }
     const observed = await runDaemonObserverCommand(command, argv, userRoot, daemonId, json, finish);
     if (observed !== undefined) return observed;
     if (command === "projection" && subcommand === "rebuild") {
@@ -110,9 +108,14 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
     if (command === "auto-claim") return await runNodeAutoClaimControl(argv, at, userRoot, daemonId, finish);
     const repoResult = await maybeRunDaemonRepoControl(command, argv, subcommand, userRoot, daemonId, finish);
     if (repoResult !== undefined) return repoResult;
-    if (command === "connection") return await runDaemonConnectionControl(argv, subcommand, userRoot, daemonId, finish);
-    if (command === "service")
+    if (command === "connection") {
+      const { runDaemonConnectionControl } = await import("./connection-control.ts");
+      return await runDaemonConnectionControl(argv, subcommand, userRoot, daemonId, finish);
+    }
+    if (command === "service") {
+      const { runDaemonServiceControl } = await import("./service-control.ts");
       return await runDaemonServiceControl(subcommand, userRoot, daemonId, invokingRoot, finish);
+    }
     if (command === "start") return await startDaemonService(argv, userRoot, daemonId, invokingRoot, finish);
     if (command === "status") {
       const assessed = assessDaemonStatus(await status(userRoot, daemonId, argv));
@@ -184,6 +187,7 @@ async function runNodeAutoClaimControl(
   daemonId: string,
   finish: ControlFinisher,
 ): Promise<number> {
+  const { applyNodeAutoClaimControl, parseNodeAutoClaimControl } = await import("./node-auto-claim.ts");
   const parsed = parseNodeAutoClaimControl(argv.slice(commandIndex + 2));
   if (typeof parsed === "string") return finish(daemonFailure("daemon-auto-claim", "invalid_field", parsed), 2);
   const receipt = await applyNodeAutoClaimControl(parsed, userRoot, async (policy) => {
@@ -208,6 +212,7 @@ async function maybeRunDaemonRepoControl(
   finish: ControlFinisher,
 ): Promise<number | undefined> {
   if (command !== "repo") return undefined;
+  const { runDaemonRepoControl } = await import("./repo-control.ts");
   return await runDaemonRepoControl(argv, subcommand, userRoot, daemonId, finish);
 }
 
@@ -220,20 +225,29 @@ async function runDaemonObserverCommand(
   finish: ControlFinisher,
 ): Promise<number | undefined> {
   if (command === "metrics") {
+    const { renderDaemonMetrics, runDaemonMetrics } = await import("./metrics.ts");
     const receipt = await runDaemonMetrics(argv, userRoot, daemonId);
     if (json) return finish(receipt, 0);
     console.log(renderDaemonMetrics(receipt));
     return 0;
   }
-  if (command === "top") return await runDaemonTop(parseDaemonTopOptions(argv, userRoot, daemonId));
+  if (command === "top") {
+    const { parseDaemonTopOptions, runDaemonTop } = await import("./top.ts");
+    return await runDaemonTop(parseDaemonTopOptions(argv, userRoot, daemonId));
+  }
   if (command !== "slo") return undefined;
+  const { parseDaemonSloOptions, renderDaemonSlo, runDaemonSlo } = await import("./slo.ts");
   const receipt = await runDaemonSlo(parseDaemonSloOptions(argv, userRoot, daemonId));
   console.log(json ? JSON.stringify(receipt) : renderDaemonSlo(receipt));
   return 0;
 }
 
-function metricsValidationError(argv: readonly string[], command: string | undefined): Error | undefined {
+async function metricsValidationError(
+  argv: readonly string[],
+  command: string | undefined,
+): Promise<Error | undefined> {
   if (command !== "metrics") return undefined;
+  const { daemonMetricsArgsError } = await import("./metrics.ts");
   return daemonMetricsArgsError(argv);
 }
 
@@ -309,6 +323,7 @@ async function fleetStatusControl(
 ): Promise<number> {
   // Transport and flag errors propagate to runDaemonControl's catch, which converts them
   // into the daemon-fleet failure receipt; only the read's own rejection is handled here.
+  const { renderDaemonFleetStatus, runDaemonFleetStatus } = await import("./fleet-status.ts");
   const result = await runDaemonFleetStatus(argv, userRoot, daemonId);
   if (result.ok !== true) {
     const errorCode = typeof result.code === "string" ? result.code : "fleet_status_failed";

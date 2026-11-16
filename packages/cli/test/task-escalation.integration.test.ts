@@ -13,6 +13,17 @@ import {
   runMaybe,
   seedTask,
 } from "./runtime-cli.fixtures.ts";
+import { readFileSync } from "node:fs";
+import {
+  livingDeliverableProtocol,
+  taskPlanSection,
+  taskPrPublicationNote,
+  taskQueryGuidance,
+} from "@harness-anything/daemon/internal/runtime-spawn-mission";
+import { safePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import { runCommandThroughDaemon } from "../src/daemon/client.ts";
+import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
+import { renderedRulingContract, writeIdentity, workerWorktreeBoundary } from "./runtime-cli.fixtures.ts";
 
 test("a worker escalation blocks its task until the owner answers and resumes with that answer", async (context) => {
   const fixture = createRuntimeFixture(context),
@@ -142,3 +153,130 @@ test("a worker escalation blocks its task until the owner answers and resumes wi
     new RegExp(`Owner answer to worker escalation ${dispatchId}: ${answer}`, "u"),
   );
 });
+
+test(
+  "Daemon request contracts receive executor attribution only on declared surfaces",
+  { timeout: 300_000 },
+  async (context) => {
+    const fixture = createRuntimeFixture(context);
+    const { root, env } = fixture;
+    const { taskId, executionId } = seedTask(root, env, "executor");
+    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
+    // #1572: with HARNESS_ACTOR declared, the daemon request log is the server-side proof that executor
+    // attribution still arrives — inside the action for repo.task.run writes (task start) and at payload
+    // level for preset methods (task create) — while nothing is ever rejected for an undeclared executor.
+    const requests = readFileSync(path.join(root, ".harness", "requests", "requests.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    assert.deepEqual(
+      requests.find((entry) => entry.method === "repo.task.run" && entry.command === "task-start")?.executor,
+      { kind: "agent", id: "runtime-cli-test" },
+    );
+    assert.deepEqual(requests.find((entry) => entry.method === "repo.task.create")?.executor, {
+      kind: "agent",
+      id: "runtime-cli-test",
+    });
+    assert.equal(
+      requests.some((entry) => entry.code === "invalid_request"),
+      false,
+      JSON.stringify(requests.filter((entry) => entry.code === "invalid_request")),
+    );
+    // A contracted read method with no CLI argv (repo.tasks.documents.list declares a closed payload
+    // without executor) stands in for "the next new command": with an explicit HARNESS_ACTOR, injection
+    // must follow the daemon-declared surface, so the real daemon accepts the request instead of
+    // rejecting an undeclared executor.
+    const probe = await runCommandThroughDaemon(
+      {
+        rootDir: safePath(root),
+        repoId: "runtime-cli",
+        json: true,
+        method: "repo.tasks.documents.list",
+        action: { kind: "task-documents-list", taskId },
+      },
+      undefined,
+      { env: { ...env, HARNESS_ACTOR: "agent:injection-probe" } },
+    );
+    assert.equal(probe.ok, true, JSON.stringify(probe));
+  },
+);
+
+test(
+  "CLI installs identities, updates squads and assembles wildcard worker prompts",
+  { timeout: 300_000 },
+  async (context) => {
+    const fixture = createRuntimeFixture(context);
+    const { parent, root, env } = fixture;
+    const { squadSource } = installIdentities(parent, root, env);
+    const agents = JSON.parse(String(run(root, env, ["agent", "list"]).evidence)) as { agents: Array<{ id: string }> },
+      squads = JSON.parse(String(run(root, env, ["squad", "list"]).evidence)) as { squads: Array<{ id: string }> };
+    assert.deepEqual(
+      agents.agents.map(({ id }) => id),
+      ["any-worker", "fable", "opencode-worker", "outsider", "terra"],
+    );
+    assert.deepEqual(
+      squads.squads.map(({ id }) => id),
+      ["core-squad"],
+    );
+    writeIdentity(squadSource, {
+      id: "core-squad",
+      title: "Core Squad",
+      kind: "squad",
+      squad: {
+        id: "core-squad",
+        name: "Core Squad",
+        leader: "fable",
+        workers: ["terra", "opencode-worker"],
+        leaderTurnBudget: 8,
+        roster: "# Core Squad\n\nFable delegates; humans edited this roster.",
+      },
+    });
+    run(root, env, ["squad", "install", "--source", squadSource]);
+    const squad = JSON.parse(String(run(root, env, ["squad", "inspect", "core-squad"]).evidence)) as {
+      squad: { roster: string };
+    };
+    assert.match(squad.squad.roster, /humans edited/u);
+    const { taskId, executionId } = seedTask(root, env, "identity");
+    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
+    // The wildcard worker completes its provider turn but delivers nothing on the task, so the
+    // dispatch settles unknown and the no-stream wait exits 1 (F-4C182EEE).
+    const wildcard = runMaybe(root, env, [
+      "agent",
+      "run",
+      "any-worker",
+      "--prompt",
+      "wildcard prompt",
+      "--cwd",
+      ".",
+      "--task",
+      taskId,
+      "--no-stream",
+    ]);
+    assert.equal(wildcard.status, 1, `${wildcard.stderr}\n${JSON.stringify(wildcard.receipt)}`);
+    const wildcardText = String((wildcard.receipt.result as Record<string, unknown>).text);
+    assert.ok(
+      wildcardText.startsWith(
+        "final:# Agent Identity: Any Worker (any-worker)\n\nUse any compatible runtime.\n\n# Harness Execution Discipline",
+      ),
+      wildcardText,
+    );
+    assert.match(wildcardText, /# Worker Role/u);
+    const wildcardDispatchId = String((wildcard.receipt.spawn as Record<string, unknown>).dispatchId);
+    assert.ok(
+      wildcardText.endsWith(
+        `# Assigned Mission\n${taskPlanSection(realizedPlan("identity"))}\n\n${taskQueryGuidance(taskId)}\n\n${renderedRulingContract(wildcardDispatchId)}\n\n${workerWorktreeBoundary}\n\n本任务的提交将由评审员 closeout-reviewer 审查（内置默认）。提交即自动派评审；预算未耗尽时 changes_requested 会回到本轮返工并携带评审报告，预算耗尽后由业主使用 ha task rework <task-id> --reason <why> 退回。\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nwildcard prompt` +
+          `\n\nTask ${taskId} is not submitted: the worker exited without a submitted delivery. ` +
+          `Recover the stopped worker with: ha agent run any-worker --task ${taskId} ` +
+          `--recover-dispatch ${wildcardDispatchId} --execution-id ${executionId} ` +
+          "--expected-version <revision> --idempotency-key <key>",
+      ),
+      wildcardText,
+    );
+    assert.ok(
+      wildcardText.indexOf("# Worker Role") < wildcardText.indexOf("prompt://review") &&
+        wildcardText.indexOf("prompt://review") < wildcardText.indexOf("# Standard Task") &&
+        wildcardText.indexOf("# Standard Task") < wildcardText.indexOf("# Mission"),
+      "the role prompt, declared prompts, and preset must reach the real CLI dispatch in declaration order",
+    );
+  },
+);

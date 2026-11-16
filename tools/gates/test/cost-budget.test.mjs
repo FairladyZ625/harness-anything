@@ -468,6 +468,27 @@ test("task review response probe indexes prior responses and findings once", asy
   assert.deepEqual(result.errors, []);
 });
 
+test("a host-local action on a ledger entity retains its declared residency in cost coverage", async (t) => {
+  const rootDir = g1Setup(t);
+  const declaration = path.join(rootDir, "packages/kernel/src/domain/action-declaration.ts");
+  writeFileSync(
+    declaration,
+    readFileSync(declaration, "utf8").replace(
+      "export const actionDeclarations = [",
+      "export const actionDeclarations = [{kind:'local-restore',executionClass:'repo-write',residency:{scope:'host-local'}},",
+    ),
+  );
+  writeFileSync(
+    path.join(rootDir, "packages/kernel/src/domain/entity-kind-registry.ts"),
+    "export const entityKindContracts = [{residency:{authored:'ledger'},actionCatalog:{actions:[{execution:{ingress:'local-restore',read:false}}]}}];\n",
+  );
+  const measured = g1Measured(
+    { "op-a": { sqlRowsRead: 100, gitProcesses: 4 } },
+    { "op-a": { sqlRowsRead: 100, gitProcesses: 4 } },
+  );
+  assert.equal((await evaluateG1WriteCostScaling({ rootDir, measured })).ok, true);
+});
+
 test("coverage includes canonical entity catalog writers without a public permission declaration", async (t) => {
   const rootDir = g1Setup(t),
     measured = g1Measured(

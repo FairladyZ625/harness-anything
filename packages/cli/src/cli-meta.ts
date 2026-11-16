@@ -1,12 +1,6 @@
 import { cliOperationalPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
-import {
-  cliCapabilities,
-  parseThinCommand,
-  renderThinCapabilities,
-  type ThinHelpWorkEntry,
-} from "./cli/thin-command.ts";
-import { runCommandThroughDaemon } from "./daemon/client.ts";
+import type { ThinHelpWorkEntry } from "./cli/thin-command-help.ts";
 import { stripGlobals } from "./cli/thin-command-flags.ts";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -30,8 +24,9 @@ export function resolveCliVersion(): string {
   throw new Error("CLI version could not be derived from package.json.");
 }
 
-export function emitMeta(command: "version" | "capabilities", json: boolean): number {
+export async function emitMeta(command: "version" | "capabilities", json: boolean): Promise<number> {
   if (command === "capabilities") {
+    const { cliCapabilities, renderThinCapabilities } = await import("./cli/thin-command-help.ts");
     console.log(json ? JSON.stringify(cliCapabilities) : renderThinCapabilities());
     return 0;
   }
@@ -56,12 +51,14 @@ export async function taskCreateHelpCatalog(argv: readonly string[]): Promise<
   }>
 > {
   if (!isTaskCreateHelpInvocation(argv)) return [];
+  const { parseThinCommand } = await import("./cli/thin-command.ts");
   const globals = argv.flatMap((value, index) =>
       value === "--json" ? [value] : value === "--root" || value === "--repo" ? [value, argv[index + 1] ?? ""] : [],
     ),
     parsed = parseThinCommand(["preset", "list", ...globals]);
   if (!parsed.ok) return [];
   try {
+    const { runCommandThroughDaemon } = await import("./daemon/client.ts");
     const receipt = await runCommandThroughDaemon(parsed.command, undefined, {
         autostart: false,
       }),
@@ -96,12 +93,14 @@ export async function taskCreateHelpCatalog(argv: readonly string[]): Promise<
  */
 export async function taskCreateHelpWorks(argv: readonly string[]): Promise<readonly ThinHelpWorkEntry[]> {
   if (!isTaskCreateHelpInvocation(argv)) return [];
+  const { parseThinCommand } = await import("./cli/thin-command.ts");
   const globals = argv.flatMap((value, index) =>
       value === "--root" || value === "--repo" ? [value, argv[index + 1] ?? ""] : [],
     ),
     parsed = parseThinCommand(["work", "list", "--limit", String(TASK_CREATE_HELP_WORK_LIMIT), ...globals]);
   if (!parsed.ok) return [];
   try {
+    const { runCommandThroughDaemon } = await import("./daemon/client.ts");
     const receipt = await runCommandThroughDaemon(parsed.command, undefined, { autostart: false }),
       payload = typeof receipt.evidence === "string" ? (JSON.parse(receipt.evidence) as unknown) : null,
       rows =

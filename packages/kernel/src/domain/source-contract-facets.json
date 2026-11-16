@@ -282,7 +282,7 @@
         "explain": "Single-package `decision.md` authored-file vs canonical Decision projection consistency inspector.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/decision-surface-actions.ts#validateOne:90da8b4bd6abdac4f13c202e624c151d",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/decision-surface-actions.ts#validateOne:75ec792826972c8f8c4c29875b185939",
             "route": "packages/daemon/src/decision-surface-actions.ts#validateOne"
           }
         ]
@@ -831,13 +831,13 @@
         ]
       },
       {
-        "id": "gui/src/renderer/api-client.ts#isRegionWeights",
-        "symbol": "packages/gui/src/renderer/api-client.ts#isRegionWeights",
+        "id": "gui/src/renderer/api-client-agenda.ts#isRegionWeights",
+        "symbol": "packages/gui/src/renderer/api-client-agenda.ts#isRegionWeights",
         "explain": "Renderer IPC wire-response shape guard verifying finite numeric AgendaRegionWeights across the seven agenda layout regions; attention scoring remains in daemon agenda-attention.",
         "sources": [
           {
-            "candidateId": "judgment:packages/gui:packages/gui/src/renderer/api-client.ts#isRegionWeights:dd2902920435a2a10f9a32545c2da059",
-            "route": "packages/gui/src/renderer/api-client.ts#isRegionWeights"
+            "candidateId": "judgment:packages/gui:packages/gui/src/renderer/api-client-agenda.ts#isRegionWeights:dd2902920435a2a10f9a32545c2da059",
+            "route": "packages/gui/src/renderer/api-client-agenda.ts#isRegionWeights"
           }
         ]
       },
@@ -2495,7 +2495,7 @@
         "explain": "Preload contextBridge method allowlist, secret-key hygiene and IPC transport envelope guard; query and projection selectors delegate to daemon protocol validators and kernel vocabularies.",
         "sources": [
           {
-            "candidateId": "judgment:packages/gui:packages/gui/src/preload/allowlist.ts#assertPreloadPayload:5c01cfd2e7b0f7cdbb65aa9b9892df5a",
+            "candidateId": "judgment:packages/gui:packages/gui/src/preload/allowlist.ts#assertPreloadPayload:e714c39ceb4d1a698c7d8780465340be",
             "route": "packages/gui/src/preload/allowlist.ts#assertPreloadPayload"
           }
         ]
@@ -6496,7 +6496,7 @@
         "explain": "GUI S3 wire-response validator for `catalog-snapshot/v1` repository vertical/preset catalog inventory DTOs; manifest validity stays in `@harness-anything/preset` and kernel.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/gui-s3-control.ts#validateCatalogSnapshot:9cd7cc3ed6c63056bf30cd085245f332",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/gui-s3-control.ts#validateCatalogSnapshot:ca63be1f743caaacfd74df11ae380b38",
             "route": "packages/daemon/src/gui-s3-control.ts#validateCatalogSnapshot"
           }
         ]

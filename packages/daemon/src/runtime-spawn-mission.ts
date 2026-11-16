@@ -38,7 +38,7 @@ import {
 } from "./runtime-continuation-context.ts";
 import { readDispatchRuling } from "./runtime-ruling.ts";
 import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
-import { claudeWorkspaceWriteCli } from "./runtime-inventory.ts";
+import { claudeWorkspaceWriteCli, runtimeVendorForKind } from "./runtime-inventory.ts";
 
 export function resolveRuntimeCwd(root: string, value: unknown): string {
   if (!value || typeof value !== "object" || Array.isArray(value))
@@ -155,6 +155,10 @@ export function resolveRuntimeInstanceCandidates(input: {
   /** The operator explicitly pinned the instance; the pin's model mismatch is the actionable error. */
   readonly explicitlyRequested?: boolean;
   readonly providerSessionId?: string;
+  /** Soft affinity for same-task re-review continuation when no explicit override is given. */
+  readonly preferredInstanceId?: string;
+  /** Implementation vendor family to deprioritize within the same tier on first review. */
+  readonly avoidVendor?: string;
   readonly unavailableReasons?: string[];
   readonly agent: RuntimeAgent | null;
   readonly model?: string;
@@ -383,6 +387,16 @@ export function resolveRuntimeInstanceCandidates(input: {
   const allowedRank = new Map(allowed.map((instanceId, index) => [instanceId, index])),
     load = input.dispatchState?.readActiveLoads() ?? new Map<string, number>();
   const strategy = input.agent?.selectionStrategy ?? input.selectionStrategy ?? "sticky",
+    explicitOverride =
+      input.requested !== undefined ||
+      input.explicitlyRequested === true ||
+      input.providerSessionId !== undefined ||
+      input.agent?.instance !== undefined ||
+      input.model !== undefined,
+    preferredId = explicitOverride ? undefined : input.preferredInstanceId,
+    avoidVendor = explicitOverride ? undefined : input.avoidVendor,
+    sameVendor = (instance: RuntimeInstanceSummary): number =>
+      avoidVendor !== undefined && runtimeVendorForKind(instance.kindId) === avoidVendor ? 1 : 0,
     ranks = new Map(ready.map((instance) => [instance.instanceId, runtimeInstanceRank(input, instance.instanceId)]));
   return [...ready]
     .sort((a, b) => {
@@ -391,15 +405,20 @@ export function resolveRuntimeInstanceCandidates(input: {
         leftLoad = load.get(a.instanceId) ?? 0,
         rightLoad = load.get(b.instanceId) ?? 0;
       return (
+        (preferredId === undefined ? 0 : Number(b.instanceId === preferredId) - Number(a.instanceId === preferredId)) ||
         left.tier - right.tier ||
-        left.rowIndex - right.rowIndex ||
+        sameVendor(a) - sameVendor(b) ||
         (strategy === "lru"
           ? leftLoad - rightLoad ||
             (input.dispatchState?.lastDispatchedAt.get(a.instanceId) ?? 0) -
-              (input.dispatchState?.lastDispatchedAt.get(b.instanceId) ?? 0)
-          : Number(leftLoad > 0) - Number(rightLoad > 0)) ||
-        compareRuntimeInstanceRank(left, right) ||
-        (strategy === "sticky" ? leftLoad - rightLoad : 0) ||
+              (input.dispatchState?.lastDispatchedAt.get(b.instanceId) ?? 0) ||
+            left.rowIndex - right.rowIndex ||
+            left.preferenceIndex - right.preferenceIndex ||
+            right.modelTier - left.modelTier
+          : left.rowIndex - right.rowIndex ||
+            Number(leftLoad > 0) - Number(rightLoad > 0) ||
+            compareRuntimeInstanceRank(left, right) ||
+            leftLoad - rightLoad) ||
         (allowedRank.get(a.instanceId) ?? allowed.length) - (allowedRank.get(b.instanceId) ?? allowed.length)
       );
     })

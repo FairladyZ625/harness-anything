@@ -80,7 +80,13 @@ test(
     assert.ok(reckon.cut, "reckoning must use the replica query with the center disconnected");
     const local = await e.command({ kind: "settings-read" });
     assert.equal(local.outcome, "applied", JSON.stringify(local));
-    assert.deepEqual(JSON.parse(String(local.evidence)), JSON.parse(String(updatedTruth.evidence)));
+    const edgeSettings = JSON.parse(String(local.evidence)),
+      centerSettings = JSON.parse(String(updatedTruth.evidence));
+    assert.equal(centerSettings.settings.nodeTaskMaterializationPolicy, "include_done");
+    assert.deepEqual(edgeSettings, {
+      ...centerSettings,
+      settings: { ...centerSettings.settings, nodeTaskMaterializationPolicy: "in_flight" },
+    });
     assert.deepEqual(local.lastChanged, updatedTruth.lastChanged);
     assert.ok(local.lastChanged, "settings attribution is present");
     assert.ok(local.cut, "settings must use the replica cut");

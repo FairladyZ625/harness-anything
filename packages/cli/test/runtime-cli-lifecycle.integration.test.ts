@@ -4,8 +4,8 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -13,10 +13,8 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
-import { workspaceId } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
-import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
 import { eventuallyValue } from "../../daemon/test/fixtures/runtime-ingress.ts";
+import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
 import {
   livingDeliverableProtocol,
   taskPlanSection,
@@ -26,40 +24,23 @@ import {
 import { safePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { runCommandThroughDaemon } from "../src/daemon/client.ts";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
-import { waitForPromise, waitForValue } from "../../../tools/fixtures/wait-for-condition.ts";
 import {
   assertTaskMissionPrompt,
   createRuntimeFixture,
   eventuallyFile,
   eventuallyNotification,
   eventuallyRuntimeReaderReuse,
-  eventuallyRuntimeStatus,
   eventuallyTerminal,
   installIdentities,
-  processAlive,
   published,
   readDispatchRecords,
   readPublishedDispatch,
   renderedRulingContract,
   run,
-  runAsync,
   runMaybe,
   seedTask,
-  writeIdentity,
+  workerWorktreeBoundary,
 } from "./runtime-cli.fixtures.ts";
-
-// The write-boundary section every non-reviewer task-bound mission carries, immediately after the
-// ruling contract and before the reviewer note (see taskMissionSections).
-const workerWorktreeBoundary = "# 写入边界\n只写自己的 worktree，不改主分支；主分支现有环境可读，可用于对比。";
-
-function killProcessIfAlive(pid: number): void {
-  if (!processAlive(pid)) return;
-  try {
-    process.kill(pid, "SIGKILL");
-  } catch (error) {
-    if (!(error && typeof error === "object" && "code" in error && error.code === "ESRCH")) throw error;
-  }
-}
 
 test("dispatch JSONL reads ignore only an unterminated tail record", (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-dispatch-tail-")),
@@ -81,7 +62,7 @@ test(
   "parked runtime awaits omit the repo-read response deadline at the transport seam",
   { timeout: 300_000 },
   async (context) => {
-    const { root, env } = createRuntimeFixture(context, true);
+    const { root, env } = createRuntimeFixture(context);
     const deadlines: unknown[] = [];
     const captureDeadline =
       <Args extends unknown[], Result>(_request: (...args: Args) => Promise<Result>) =>
@@ -121,8 +102,8 @@ test(
   "Task dispatch rejects an incomplete plan then automatically acquires its lease",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context, true);
-    installIdentities(fixture.parent, fixture.root, fixture.env, true);
+    const fixture = createRuntimeFixture(context);
+    installIdentities(fixture.parent, fixture.root, fixture.env);
     const { root, env } = fixture;
     const taskId = "task-runtime-automatic-lease";
     const automaticTaskId = `${taskId}-automatic`;
@@ -194,8 +175,8 @@ test(
 );
 
 const cancellationResumeTest = async (context: TestContext) => {
-  const fixture = createRuntimeFixture(context, true);
-  installIdentities(fixture.parent, fixture.root, fixture.env, true);
+  const fixture = createRuntimeFixture(context);
+  installIdentities(fixture.parent, fixture.root, fixture.env);
   const { parent, root, env, userRoot, daemonId } = fixture;
   const { taskId, executionId, packagePath, artifactRoot } = seedTask(root, env, "cancel-resume");
   const workerRelative = ".worktrees/resume-worker",
@@ -376,8 +357,8 @@ test(
   "rejected task resume stream cleanup follows the observed lease stop proof",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context, true);
-    installIdentities(fixture.parent, fixture.root, fixture.env, true);
+    const fixture = createRuntimeFixture(context);
+    installIdentities(fixture.parent, fixture.root, fixture.env);
     const { root, env } = fixture,
       { taskId, executionId } = seedTask(root, env, "rejected-resume-stop-proof");
     run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
@@ -455,7 +436,7 @@ test(
   "Detached runtime results are retrieved from another CLI process over a reused connection",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context, true);
+    const fixture = createRuntimeFixture(context);
     const { root, env, userRoot, daemonId } = fixture;
     const detachedProcess = runMaybe(root, env, [
         "runtime",
@@ -496,535 +477,3 @@ test(
     );
   },
 );
-
-test(
-  "Daemon request contracts receive executor attribution only on declared surfaces",
-  { timeout: 300_000 },
-  async (context) => {
-    const fixture = createRuntimeFixture(context, true);
-    const { root, env } = fixture;
-    const { taskId, executionId } = seedTask(root, env, "executor");
-    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-    // #1572: with HARNESS_ACTOR declared, the daemon request log is the server-side proof that executor
-    // attribution still arrives — inside the action for repo.task.run writes (task start) and at payload
-    // level for preset methods (task create) — while nothing is ever rejected for an undeclared executor.
-    const requests = readFileSync(path.join(root, ".harness", "requests", "requests.jsonl"), "utf8")
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line) as Record<string, unknown>);
-    assert.deepEqual(
-      requests.find((entry) => entry.method === "repo.task.run" && entry.command === "task-start")?.executor,
-      { kind: "agent", id: "runtime-cli-test" },
-    );
-    assert.deepEqual(requests.find((entry) => entry.method === "repo.task.create")?.executor, {
-      kind: "agent",
-      id: "runtime-cli-test",
-    });
-    assert.equal(
-      requests.some((entry) => entry.code === "invalid_request"),
-      false,
-      JSON.stringify(requests.filter((entry) => entry.code === "invalid_request")),
-    );
-    // A contracted read method with no CLI argv (repo.tasks.documents.list declares a closed payload
-    // without executor) stands in for "the next new command": with an explicit HARNESS_ACTOR, injection
-    // must follow the daemon-declared surface, so the real daemon accepts the request instead of
-    // rejecting an undeclared executor.
-    const probe = await runCommandThroughDaemon(
-      {
-        rootDir: safePath(root),
-        repoId: "runtime-cli",
-        json: true,
-        method: "repo.tasks.documents.list",
-        action: { kind: "task-documents-list", taskId },
-      },
-      undefined,
-      { env: { ...env, HARNESS_ACTOR: "agent:injection-probe" } },
-    );
-    assert.equal(probe.ok, true, JSON.stringify(probe));
-  },
-);
-
-test(
-  "CLI installs identities, updates squads and assembles wildcard worker prompts",
-  { timeout: 300_000 },
-  async (context) => {
-    const fixture = createRuntimeFixture(context, true);
-    const { parent, root, env } = fixture;
-    const { squadSource } = installIdentities(parent, root, env);
-    const agents = JSON.parse(String(run(root, env, ["agent", "list"]).evidence)) as { agents: Array<{ id: string }> },
-      squads = JSON.parse(String(run(root, env, ["squad", "list"]).evidence)) as { squads: Array<{ id: string }> };
-    assert.deepEqual(
-      agents.agents.map(({ id }) => id),
-      ["any-worker", "fable", "opencode-worker", "outsider", "terra"],
-    );
-    assert.deepEqual(
-      squads.squads.map(({ id }) => id),
-      ["core-squad"],
-    );
-    writeIdentity(squadSource, {
-      id: "core-squad",
-      title: "Core Squad",
-      kind: "squad",
-      squad: {
-        id: "core-squad",
-        name: "Core Squad",
-        leader: "fable",
-        workers: ["terra", "opencode-worker"],
-        leaderTurnBudget: 8,
-        roster: "# Core Squad\n\nFable delegates; humans edited this roster.",
-      },
-    });
-    run(root, env, ["squad", "install", "--source", squadSource]);
-    const squad = JSON.parse(String(run(root, env, ["squad", "inspect", "core-squad"]).evidence)) as {
-      squad: { roster: string };
-    };
-    assert.match(squad.squad.roster, /humans edited/u);
-    const { taskId, executionId } = seedTask(root, env, "identity");
-    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-    // The wildcard worker completes its provider turn but delivers nothing on the task, so the
-    // dispatch settles unknown and the no-stream wait exits 1 (F-4C182EEE).
-    const wildcard = runMaybe(root, env, [
-      "agent",
-      "run",
-      "any-worker",
-      "--prompt",
-      "wildcard prompt",
-      "--cwd",
-      ".",
-      "--task",
-      taskId,
-      "--no-stream",
-    ]);
-    assert.equal(wildcard.status, 1, `${wildcard.stderr}\n${JSON.stringify(wildcard.receipt)}`);
-    const wildcardText = String((wildcard.receipt.result as Record<string, unknown>).text);
-    assert.ok(
-      wildcardText.startsWith(
-        "final:# Agent Identity: Any Worker (any-worker)\n\nUse any compatible runtime.\n\n# Harness Execution Discipline",
-      ),
-      wildcardText,
-    );
-    assert.match(wildcardText, /# Worker Role/u);
-    const wildcardDispatchId = String((wildcard.receipt.spawn as Record<string, unknown>).dispatchId);
-    assert.ok(
-      wildcardText.endsWith(
-        `# Assigned Mission\n${taskPlanSection(realizedPlan("identity"))}\n\n${taskQueryGuidance(taskId)}\n\n${renderedRulingContract(wildcardDispatchId)}\n\n${workerWorktreeBoundary}\n\n本任务的提交将由评审员 closeout-reviewer 审查（内置默认）。提交即自动派评审；预算未耗尽时 changes_requested 会回到本轮返工并携带评审报告，预算耗尽后由业主使用 ha task rework <task-id> --reason <why> 退回。\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nwildcard prompt` +
-          `\n\nTask ${taskId} is not submitted: the worker exited without a submitted delivery. ` +
-          `Recover the stopped worker with: ha agent run any-worker --task ${taskId} ` +
-          `--recover-dispatch ${wildcardDispatchId} --execution-id ${executionId} ` +
-          "--expected-version <revision> --idempotency-key <key>",
-      ),
-      wildcardText,
-    );
-    assert.ok(
-      wildcardText.indexOf("# Worker Role") < wildcardText.indexOf("prompt://review") &&
-        wildcardText.indexOf("prompt://review") < wildcardText.indexOf("# Standard Task") &&
-        wildcardText.indexOf("# Standard Task") < wildcardText.indexOf("# Mission"),
-      "the role prompt, declared prompts, and preset must reach the real CLI dispatch in declaration order",
-    );
-  },
-);
-
-test(
-  "Concurrent fact writes preserve runtime progress attribution and task wait artifacts",
-  { timeout: 300_000 },
-  async (context) => {
-    const fixture = createRuntimeFixture(context, true);
-    installIdentities(fixture.parent, fixture.root, fixture.env, true);
-    const { root, env } = fixture;
-    const { taskId, executionId, packagePath } = seedTask(root, env, "progress");
-    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-    const concurrentProjectionReads = await Promise.all([
-        ...Array.from({ length: 6 }, (_, index) =>
-          runAsync(root, env, [
-            "fact",
-            "record",
-            taskId,
-            "--statement",
-            `Concurrent projection observation ${String(index + 1)}`,
-            "--source",
-            `test:runtime-cli-concurrency:${String(index + 1)}`,
-          ]),
-        ),
-        runAsync(root, env, [
-          "agent",
-          "run",
-          "terra",
-          "--prompt",
-          `progress-middle:${taskId}`,
-          "--cwd",
-          ".",
-          "--task",
-          taskId,
-          "--no-stream",
-        ]),
-      ]),
-      factWrites = concurrentProjectionReads.slice(0, 6),
-      progressResult = concurrentProjectionReads[6]!;
-    assert.equal(
-      factWrites.every((result) => result.status === 0 && result.receipt.outcome === "applied"),
-      true,
-      JSON.stringify(factWrites),
-    );
-    // The progress worker appends checkpoints but delivers no commit or submission, so it settles
-    // unknown and its no-stream exit is 1 (F-4C182EEE); the attribution assertions below are unchanged.
-    assert.equal(progressResult.status, 1, `${progressResult.stderr}\n${JSON.stringify(progressResult.receipt)}`);
-    context.diagnostic(
-      `projection readiness concurrency: ${JSON.stringify({ factWrites: factWrites.length, runtime: progressResult.receipt.outcome })}`,
-    );
-    const progressRun = progressResult.receipt,
-      progressDispatchId = String((progressRun.spawn as Record<string, unknown>).dispatchId),
-      shownProgress = JSON.parse(String(run(root, env, ["task", "show", taskId]).evidence)) as {
-        progress: Array<{
-          actor: { executor: unknown };
-          payload: { text: string; evidence: unknown[]; runtimeSessionId?: string };
-        }>;
-      },
-      runtimeExecutor = { kind: "agent", id: `runtime-session:${progressRun.runtimeSessionId}` };
-    assert.deepEqual(
-      shownProgress.progress.map((event) => event.payload.text),
-      ["Provider checkpoint one.", "Provider checkpoint two."],
-    );
-    assert.equal(
-      shownProgress.progress.every((event) => event.payload.evidence.length === 1),
-      true,
-    );
-    assert.deepEqual(
-      shownProgress.progress.map((event) => event.actor.executor),
-      [runtimeExecutor, runtimeExecutor],
-    );
-    assert.deepEqual(
-      shownProgress.progress.map((event) => event.payload.runtimeSessionId),
-      [progressRun.runtimeSessionId, progressRun.runtimeSessionId],
-    );
-    const unrelatedProgress = runMaybe(root, { ...env, HARNESS_ACTOR: "agent:unrelated-runtime" }, [
-      "task",
-      "progress",
-      "append",
-      taskId,
-      "--text",
-      "Unrelated checkpoint.",
-      "--evidence",
-      "test:reports/runtime-progress.txt:unrelated",
-    ]);
-    assert.equal(unrelatedProgress.status, 1);
-    assert.equal(unrelatedProgress.receipt.code, "progress_lease_required");
-    const taskWait = runMaybe(root, env, ["runtime", "status", "--task", taskId, "--wait", "--no-stream"]);
-    assert.equal(taskWait.status, 1, `${taskWait.stderr}\n${JSON.stringify(taskWait.receipt)}`);
-    assert.equal(taskWait.receipt.outcome, "stopped");
-    const waitedRow = (taskWait.receipt.dispatches as Array<Record<string, unknown>>).find(
-      (row) => row.dispatchId === progressDispatchId,
-    );
-    assert.equal(waitedRow?.exitCode, 0);
-    assert.equal(waitedRow?.dispatchPath, `${packagePath}/artifacts/dispatches/${progressDispatchId}.json`);
-    assert.equal(waitedRow?.reportPath, `${packagePath}/artifacts/reports/${progressDispatchId}.md`);
-  },
-);
-
-test(
-  "A detached runtime worker survives daemon restart and remains cancellable",
-  { timeout: 300_000 },
-  async (context) => {
-    const fixture = createRuntimeFixture(context, true);
-    const { root, env } = fixture;
-    const restartDetached = run(root, env, ["runtime", "run", "cli-worker", "--prompt", "hold", "--detach"]),
-      restartSessionId = String(restartDetached.runtimeSessionId),
-      restartDispatchId = String(restartDetached.dispatchId),
-      liveBeforeRestart = await eventuallyRuntimeStatus(root, env, restartSessionId, "live"),
-      workerPid = Number(
-        readDispatchRecords(root, restartDispatchId).find((record) => record.kind === "process_started")?.pid,
-      ),
-      daemonBeforeRestart = run(root, env, ["daemon", "status"]),
-      stoppedForRestart = run(root, env, ["daemon", "stop", "--force"]);
-    assert.equal(liveBeforeRestart.session.liveness, "live");
-    assert.equal(
-      processAlive(workerPid),
-      true,
-      `runtime worker ${String(workerPid)} must be live before daemon restart`,
-    );
-    assert.equal(stoppedForRestart.forced, true, JSON.stringify(stoppedForRestart));
-    assert.equal(processAlive(workerPid), true, `runtime worker ${String(workerPid)} must survive daemon stop --force`);
-    assert.equal(run(root, env, ["daemon", "start", "--service"]).ok, true);
-    const liveAfterRestart = await eventuallyRuntimeStatus(root, env, restartSessionId, "live"),
-      daemonAfterRestart = run(root, env, ["daemon", "status"]);
-    assert.notEqual(daemonAfterRestart.pid, daemonBeforeRestart.pid, "runtime status must use a restarted daemon");
-    assert.equal(liveAfterRestart.session.liveness, "live");
-    assert.equal(liveAfterRestart.session.activity.outcome, null);
-    assert.equal(processAlive(workerPid), true, `runtime worker ${String(workerPid)} must agree with runtime status`);
-    assert.equal(run(root, env, ["runtime", "cancel", restartSessionId]).detail, "cancelled");
-    context.diagnostic(
-      `daemon restart liveness: ${JSON.stringify({
-        runtimeSessionId: restartSessionId,
-        workerPid,
-        daemonBefore: daemonBeforeRestart.pid,
-        daemonAfter: daemonAfterRestart.pid,
-        before: liveBeforeRestart.session.liveness,
-        after: liveAfterRestart.session.liveness,
-      })}`,
-    );
-  },
-);
-
-test(
-  "Read-only dispatch contracts and closed batch and wire payloads are enforced",
-  { timeout: 300_000 },
-  async (context) => {
-    const fixture = createRuntimeFixture(context, true);
-    const { root, env } = fixture;
-    const { taskId, executionId } = seedTask(root, env, "validation");
-    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-    const readOnly = runMaybe(root, env, [
-      "runtime",
-      "run",
-      "cli-worker",
-      "--permission-mode",
-      "read-only",
-      "--prompt",
-      "read-only",
-      "--no-stream",
-    ]);
-    assert.equal(readOnly.status, 0, `${readOnly.stderr}\n${JSON.stringify(readOnly.receipt)}`);
-    assert.equal(readOnly.receipt.outcome, "succeeded");
-    const readOnlySpawn = readOnly.receipt.spawn as Record<string, unknown>;
-    assert.deepEqual(
-      { ledgerAccess: readOnlySpawn.ledgerAccess, reportDelivery: readOnlySpawn.reportDelivery },
-      { ledgerAccess: "unavailable", reportDelivery: "stdout" },
-    );
-    assert.match(
-      String((readOnly.receipt.result as Record<string, unknown>).text),
-      /Read-only Dispatch Contract[\s\S]*daemon-ledger commands are unavailable[\s\S]*final stdout/u,
-    );
-    const noAction = runMaybe(root, env, ["runtime", "run", "cli-worker", "--prompt", "no-action", "--no-stream"]);
-    assert.equal(noAction.status, 0, `${noAction.stderr}\n${JSON.stringify(noAction.receipt)}`);
-    assert.equal(noAction.receipt.outcome, "succeeded");
-    writeFileSync(
-      path.join(root, "batch-unknown-declaration.json"),
-      JSON.stringify({
-        schema: "runtime-batch/v1",
-        maxConcurrency: 1,
-        dispatches: [{ instance: "cli-worker", prompt: "unused" }],
-        permissionMode: "read-only",
-      }),
-    );
-    const unknownDeclaration = runMaybe(root, env, ["runtime", "batch", "batch-unknown-declaration.json"]);
-    assert.equal(unknownDeclaration.status, 1);
-    assert.equal(unknownDeclaration.receipt.code, "batch_file_invalid");
-    assert.equal((unknownDeclaration.receipt.diagnostic as Record<string, unknown>).kind, "validation");
-    writeFileSync(
-      path.join(root, "batch-unknown-dispatch.json"),
-      JSON.stringify({
-        schema: "runtime-batch/v1",
-        maxConcurrency: 1,
-        dispatches: [{ instance: "cli-worker", prompt: "unused", permissionMode: "read-only" }],
-      }),
-    );
-    const unknownDispatch = runMaybe(root, env, ["runtime", "batch", "batch-unknown-dispatch.json"]);
-    assert.equal(unknownDispatch.status, 1);
-    assert.equal(unknownDispatch.receipt.code, "batch_file_invalid");
-    assert.equal((unknownDispatch.receipt.diagnostic as Record<string, unknown>).kind, "validation");
-    const unknownSpawn = await runCommandThroughDaemon(
-      {
-        rootDir: safePath(root),
-        repoId: "runtime-cli",
-        json: true,
-        method: "repo.agentRuntime.spawn",
-        action: {
-          kind: "runtime-run",
-          runtimeInstanceId: "cli-worker",
-          cwd: { scope: "repo-root" },
-          prompt: "unused",
-          taskId: null,
-          permission_mode: "read-only",
-        } as never,
-      },
-      undefined,
-      { env },
-    );
-    assert.equal(unknownSpawn.code, "unknown_field");
-    const unknownSpawnDiagnostic = unknownSpawn.diagnostic as Record<string, unknown>;
-    assert.deepEqual(
-      {
-        kind: unknownSpawnDiagnostic.kind,
-        entity: unknownSpawnDiagnostic.entity,
-        field: unknownSpawnDiagnostic.field,
-        actual: unknownSpawnDiagnostic.actual,
-      },
-      {
-        kind: "validation",
-        entity: "repo.agentRuntime.spawn",
-        field: "permission_mode",
-        actual: "unknown",
-      },
-    );
-    assert.match(String(unknownSpawnDiagnostic.expectation), /Allowed fields:.*agentId.*permissionMode/u);
-    const unknownCancel = await runCommandThroughDaemon(
-      {
-        rootDir: safePath(root),
-        repoId: "runtime-cli",
-        json: true,
-        method: "repo.agentRuntime.cancel",
-        action: { kind: "runtime-cancel", runtimeSessionId: "missing", force: true } as never,
-      },
-      undefined,
-      { env },
-    );
-    assert.equal(unknownCancel.code, "unknown_field");
-    assert.deepEqual(
-      {
-        kind: (unknownCancel.diagnostic as Record<string, unknown>).kind,
-        field: (unknownCancel.diagnostic as Record<string, unknown>).field,
-      },
-      { kind: "validation", field: "force" },
-    );
-    const decisionList = await runCommandThroughDaemon(
-      {
-        rootDir: safePath(root),
-        repoId: "runtime-cli",
-        json: true,
-        method: "repo.task.read",
-        action: { kind: "decision-list" },
-      },
-      undefined,
-      { env },
-    );
-    assert.equal(decisionList.outcome, "applied");
-    const unknownRead = await runCommandThroughDaemon(
-      {
-        rootDir: safePath(root),
-        repoId: "runtime-cli",
-        json: true,
-        method: "repo.task.read",
-        action: { kind: "decision-list", permissionMode: "read-only" } as never,
-      },
-      undefined,
-      { env: { ...env, HARNESS_ACTOR: "" } },
-    );
-    assert.equal(unknownRead.code, "invalid_command");
-  },
-);
-
-for (const afterResult of [false, true])
-  test(
-    `runtime status --wait settles a killed native host (result=${afterResult})`,
-    {
-      skip: process.platform === "win32" ? "requires POSIX SIGKILL kill point semantics" : false,
-    },
-    async (context) => {
-      const { parent, root, env, version } = createRuntimeFixture(context, true);
-      installIdentities(parent, root, env, true);
-      const pidPath = path.join(parent, "lost-provider.pid");
-      writeProviderExecutable(
-        path.join(parent, "bin", "codex"),
-        `
-      const fs = require("node:fs");
-      if (process.argv[2] === "--version") { console.log("codex ${version}"); process.exit(0); }
-      if (process.argv[2] === "login") process.exit(0);
-      fs.readFileSync(0, "utf8");
-      fs.writeFileSync(${JSON.stringify(pidPath)}, String(process.pid));
-      console.log(JSON.stringify({ type: "thread.started", thread_id: "lost-provider-session" }));
-      if (${afterResult}) console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }));
-      setInterval(() => {}, 1000);
-    `,
-      );
-      const { taskId } = seedTask(root, env, `host-loss-${afterResult}`);
-      const spawned = run(root, env, [
-        "agent",
-        "run",
-        "terra",
-        "--prompt",
-        "host loss",
-        "--cwd",
-        ".",
-        "--task",
-        taskId,
-        "--detach",
-      ]);
-      const sessionId = String(spawned.runtimeSessionId),
-        dispatchId = String(spawned.dispatchId);
-      await eventuallyFile(pidPath);
-      await eventuallyRuntimeStatus(root, env, sessionId, "live");
-      if (afterResult) {
-        await waitForValue(
-          () =>
-            readDispatchRecords(root, dispatchId).some(
-              (record) =>
-                record.kind === "provider_event" && (record.event as Record<string, unknown>).type === "turn.completed",
-            )
-              ? true
-              : null,
-          `dispatch ${dispatchId} provider result to be durable before killing the host`,
-          { describeLast: () => JSON.stringify(readDispatchRecords(root, dispatchId)) },
-        );
-      }
-      const hostPid = Number(
-        readDispatchRecords(root, dispatchId).find((record) => record.kind === "process_started")!.pid,
-      );
-      try {
-        const wait = runAsync(root, env, ["runtime", "status", sessionId, "--wait", "--no-stream"]);
-        process.kill(hostPid, "SIGKILL");
-        const result = await waitForPromise(wait, "runtime status --wait to settle after host loss");
-        context.diagnostic(`native host loss invocation: ${JSON.stringify(result)}`);
-        // dec_614F7BBB18C8687E7EFC72173D/CH3: a lost host has no process-exit evidence.
-        assert.equal(result.receipt.outcome, "unknown", JSON.stringify(result));
-        assert.equal(result.status, 1, JSON.stringify(result));
-        assert.equal(typeof result.receipt.nextAction, "string", JSON.stringify(result));
-        assert.ok(String(result.receipt.nextAction).includes(taskId));
-        const settledSession = result.receipt.session as {
-          associations?: readonly { taskId?: string; lease?: { phase?: string } }[];
-        };
-        assert.equal(
-          settledSession.associations?.find((association) => association.taskId === taskId)?.lease?.phase,
-          "released",
-          "the stopped provider must release its task lease before the terminal outcome",
-        );
-        const reader = makeTaskEventReader({ repoId: workspaceId("runtime-cli"), rootDir: root }),
-          projection = makeTaskProjection({ rootDir: root, eventStore: reader });
-        try {
-          const lifecycle = projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatchId] });
-          assert.equal(lifecycle.status, "ready");
-          assert.equal(lifecycle.rows[0]?.attempt.stopProof, "proven_stopped");
-          assert.equal(lifecycle.rows[0]?.attempt.task?.leaseReleased, true);
-          assert.equal(lifecycle.rows[0]?.groupPhase, "closed");
-          const events = reader.read().events,
-            exitIndex = events.findIndex(
-              (event) => event.type === "runtime_session_exited" && event.payload.runtimeSessionId === sessionId,
-            ),
-            releaseIndexes = events.flatMap((event, index) =>
-              event.type === "lease_released" && event.taskId === taskId ? [index] : [],
-            ),
-            outcomeIndex = events.findIndex(
-              (event) =>
-                event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === sessionId,
-            );
-          assert.equal(releaseIndexes.length, 1, "the matching lease is released exactly once");
-          assert.ok(exitIndex >= 0 && exitIndex < releaseIndexes[0]! && releaseIndexes[0]! < outcomeIndex);
-        } finally {
-          projection.close();
-          await reader.drain();
-        }
-        const dispatches = runMaybe(root, env, ["task", "dispatches", taskId]).receipt.dispatches as Record<
-          string,
-          unknown
-        >[];
-        const row = dispatches.find((candidate) => candidate.dispatchId === dispatchId)!;
-        // Public dispatch status is the accepted outcome; process loss remains in the owner's stream below.
-        assert.deepEqual({ status: row.status, outcome: row.outcome }, { status: "unknown", outcome: "unknown" });
-        assert.match(JSON.stringify(result.receipt), /no longer alive/u);
-        const records = readDispatchRecords(root, dispatchId);
-        assert.ok(records.some((record) => record.kind === "process_lost"));
-        assert.equal(
-          records.some((record) => record.kind === "process_exit"),
-          false,
-        );
-        if (afterResult)
-          assert.ok(
-            records.some(
-              (record) =>
-                record.kind === "provider_event" && (record.event as Record<string, unknown>).type === "turn.completed",
-            ),
-          );
-        context.diagnostic(`native host loss: ${JSON.stringify(result.receipt)}`);
-      } finally {
-        killProcessIfAlive(Number(readFileSync(pidPath, "utf8")));
-      }
-    },
-  );

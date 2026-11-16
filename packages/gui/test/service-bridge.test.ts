@@ -371,6 +371,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       reviewReturnBudget: 2,
       restoreDrillRetention: 3,
       locale: "en-US",
+      nodeTaskMaterializationPolicy: "include_done",
       scaffolds: { task: "governance/task-scaffold.json", repository: "governance/repository-scaffold.json" },
       delivery: { requireMerged: true, targetBranch: "main" },
       gates: [],
@@ -441,10 +442,11 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     assert.equal(settingsAfter.settings.locale, "zh-CN");
     const harnessYaml = readFileSync(path.join(fixture.rootDir, "harness/harness.yaml"), "utf8");
     assert.match(harnessYaml, /defaultPreset: docs-task/u);
-    assert.doesNotMatch(harnessYaml, /^  locale:/mu);
+    assert.doesNotMatch(harnessYaml, /^  (?:locale|nodeTaskMaterializationPolicy):/mu);
     assert.deepEqual(JSON.parse(readFileSync(path.join(fixture.rootDir, ".harness/settings.local.json"), "utf8")), {
       schema: "settings-local/v1",
       locale: "zh-CN",
+      nodeTaskMaterializationPolicy: "include_done",
       gui: { connectTimeoutMs: 2000, requestTimeoutMs: 30000 },
     });
     assert.match(harnessYaml, /wipLimit: 30/u);

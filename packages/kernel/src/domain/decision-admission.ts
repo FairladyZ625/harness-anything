@@ -126,6 +126,8 @@ function assertAmendment(
     afterAnchors = new Set([...next.chosen, ...next.rejected, ...next.claims].map(({ id }) => id));
   if (next.title !== current.title) changed.add("title");
   if (next.decisionClass !== current.decisionClass) changed.add("decisionClass");
+  if (next.appliesTo !== undefined && stableStringify(next.appliesTo) !== stableStringify(current.appliesTo))
+    changed.add("appliesTo");
   if (stableStringify(next.chosen) !== stableStringify(current.chosen)) changed.add("chosen");
   if (stableStringify(next.rejected) !== stableStringify(current.rejected)) changed.add("rejected");
   for (const claim of next.claims) {
@@ -144,7 +146,9 @@ function assertAmendment(
   // preserve that envelope's original admission semantics.
   if (auditedAmendment) assertNoRemovedActiveRelationAnchors(state, event.decisionId, beforeAnchors, afterAnchors);
   if (
-    [...fields].some((field) => !["title", "decisionClass", "chosen", "rejected", "claims", "body"].includes(field)) ||
+    [...fields].some(
+      (field) => !["title", "decisionClass", "appliesTo", "chosen", "rejected", "claims", "body"].includes(field),
+    ) ||
     [...fields].sort().join("\0") !== [...changed].sort().join("\0")
   )
     fail(
@@ -157,6 +161,7 @@ function assertAmendment(
   if (event.payload.reason !== undefined) {
     const prior = event.payload.previous,
       expectedPrevious = {
+        ...(prior?.appliesTo === undefined ? {} : { appliesTo: current.appliesTo }),
         title: current.title,
         decisionClass: current.decisionClass,
         chosen: current.chosen,
@@ -286,7 +291,7 @@ export const decisionAdmissionJudgments = [
     sources: [
       {
         candidateId:
-          "judgment:packages/kernel:packages/kernel/src/domain/decision-admission.ts#assertAmendment:ff2ea21702d746ef4197bebec0686377",
+          "judgment:packages/kernel:packages/kernel/src/domain/decision-admission.ts#assertAmendment:1e1fec920be93020f104c16f15e8ad76",
         route: "Decision admission",
       },
     ],

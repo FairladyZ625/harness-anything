@@ -106,7 +106,10 @@ export async function assertTerminalMaterialization(input: {
   readonly fact: (id: string) => FactProjectionRow | null | Promise<FactProjectionRow | null>;
   readonly decision: (
     id: string,
-  ) => { readonly materializationState: string } | null | Promise<{ readonly materializationState: string } | null>;
+  ) =>
+    | { readonly materializationState: string; readonly appliesTo: DecisionDocumentState["appliesTo"] }
+    | null
+    | Promise<{ readonly materializationState: string; readonly appliesTo: DecisionDocumentState["appliesTo"] } | null>;
 }) {
   let revision = 1;
   const append = async (bundle: CanonicalWriteBundle) => {
@@ -205,6 +208,32 @@ export async function assertTerminalMaterialization(input: {
   await append({ event: created, plan: taskLifecycleWritePlan(created), blobs: [] });
   await decision(proposal(revision, decisionId));
   await decision(proposal(revision, targetId));
+  const currentTarget = decisions.get(targetId)!.state,
+    previousScope = {
+      title: currentTarget.title,
+      decisionClass: currentTarget.decisionClass,
+      chosen: currentTarget.chosen,
+      rejected: currentTarget.rejected,
+      claims: currentTarget.claims,
+      appliesTo: currentTarget.appliesTo,
+    },
+    amendedScope = { modules: ["storage", "kernel"], productLines: ["harness-anything"] };
+  await decision({
+    ...proposal(revision, targetId),
+    type: "decision_amended",
+    payload: {
+      previous: previousScope,
+      next: { ...previousScope, appliesTo: amendedScope },
+      fields: ["appliesTo"],
+      reason: "backfill the module scope",
+      body: null,
+    },
+  });
+  assert.deepEqual((await input.decision(targetId))?.appliesTo, amendedScope);
+  assert.match(
+    (await input.document(`decisions/decision-${targetId}/decision.md`))?.body ?? "",
+    /applies_to: \{"modules":\["storage","kernel"\]/u,
+  );
   const observation = fact(revision),
     recorded = compileFactWrite({ event: observation });
   await append(recorded);
@@ -316,6 +345,50 @@ export async function assertTerminalMaterialization(input: {
   assert.match((await input.history(targetPath))?.body ?? "", /rejected/u);
   assert.equal(await input.document(reportPath), null, "last hold removal also retires the carried review");
   assert.equal((await input.history(reportPath))?.body, reportBody, "carried review remains in object history");
+
+  // Archived packages can retain an active lifecycle status. Both readers must use disposition.
+  const archivedTaskId = "task-archived-active-holder",
+    archivedDecisionId = "dec_ARCHIVED_TASK_TARGET",
+    activeTask = taskCreated(revision, archivedTaskId);
+  if (activeTask.type !== "task_created") throw new Error("expected task_created fixture");
+  const activeTaskSnapshot = { ...activeTask.payload.task, status: "active" as const };
+  const activeCreated = { ...activeTask, payload: { ...activeTask.payload, task: activeTaskSnapshot } };
+  await append({ event: activeCreated, plan: taskLifecycleWritePlan(activeCreated), blobs: [] });
+  await decision(proposal(revision, archivedDecisionId));
+  await decision({
+    ...proposal(revision, archivedDecisionId),
+    type: "decision_accepted",
+    actor: { principal: { personId: "arbiter" }, executor: null },
+    payload: {
+      rationale: "approve before retirement",
+      judgmentOnlyRationale: "No load-bearing claims in this materialization fixture.",
+    },
+  });
+  await relate(`decision/${archivedDecisionId}/CH1`, "derives", `task/${archivedTaskId}`);
+  await decision({
+    ...proposal(revision, archivedDecisionId),
+    type: "decision_retired",
+    payload: { reason: "outcome met while milestone package remains active" },
+  });
+  const archivedDecisionPath = `decisions/decision-${archivedDecisionId}/decision.md`;
+  assert.ok(await input.document(archivedDecisionPath));
+  assert.equal((await input.decision(archivedDecisionId))?.materializationState, "materialized");
+  const archive = {
+    ...activeTask,
+    eventId: `event-${revision}`,
+    opId: `op-${revision}`,
+    workspaceRevision: revision,
+    type: "task_archived" as const,
+    payload: {
+      task: { ...activeTaskSnapshot, packageDisposition: "archived" as const },
+      mutation: { command: "archive", reason: "archive active milestone package", fields: ["packageDisposition"] },
+      documentClaims: [],
+    },
+  };
+  await append({ event: archive, plan: taskLifecycleWritePlan(archive), blobs: [] });
+  assert.equal(await input.document(archivedDecisionPath), null);
+  assert.equal((await input.decision(archivedDecisionId))?.materializationState, "dematerialized_terminal");
+  assert.match((await input.history(archivedDecisionPath))?.body ?? "", /outcome_retired/u);
 
   const oldDraft = { ...fact(revision), factId: "F-00000001" },
     old = compileFactWrite({ event: oldDraft });

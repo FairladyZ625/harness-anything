@@ -1,3 +1,5 @@
+import { endianness } from "node:os";
+
 /** Single-writer/single-reader completion samples on the existing shared-memory diagnostics path. */
 export interface DaemonTraceCompletion {
   readonly method: string;
@@ -11,7 +13,14 @@ const HEADER_BYTES = 64,
   TEXT_UNITS = 256,
   WRITE = 0,
   READ = 1,
-  DROPPED = 2;
+  DROPPED = 2,
+  LITTLE_ENDIAN = endianness() === "LE";
+
+function decodeText(chars: Uint16Array, start: number, length: number): string {
+  if (length === 0) return "";
+  if (LITTLE_ENDIAN) return Buffer.from(chars.buffer, chars.byteOffset + start * 2, length * 2).toString("utf16le");
+  return String.fromCharCode(...chars.subarray(start, start + length));
+}
 
 /** The producer never waits or overwrites unread samples; conn-log remains the full request record. */
 export function createDaemonTraceCompletions(capacity = 16_384) {
@@ -69,11 +78,8 @@ export function readDaemonTraceCompletions(buffer: SharedArrayBuffer) {
           endedAtMs: numbers[offset]!,
           durationMs: numbers[offset + 1]!,
           ok: numbers[offset + 2] === 1,
-          method: String.fromCharCode(...chars.subarray(text + 2, text + 2 + chars[text]!)),
-          nodeId:
-            nodeLength === TEXT_UNITS + 1
-              ? null
-              : String.fromCharCode(...chars.subarray(text + 2 + TEXT_UNITS, text + 2 + TEXT_UNITS + nodeLength)),
+          method: decodeText(chars, text + 2, chars[text]!),
+          nodeId: nodeLength === TEXT_UNITS + 1 ? null : decodeText(chars, text + 2 + TEXT_UNITS, nodeLength),
         };
         read = (read + 1) >>> 0;
         Atomics.store(header, READ, read | 0);

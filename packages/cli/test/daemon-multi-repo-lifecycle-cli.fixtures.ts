@@ -1,16 +1,18 @@
 import type { TestContext } from "node:test";
 import { after } from "node:test";
 import { spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts";
-import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
+import { deriveBasePolicyGroups, effectivePolicyGroupScopes, readDaemonRegistry } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { requestLocalDaemonJsonRpc } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
 import { openPersistentWriterEpoch } from "@harness-anything/storage";
 import { HARNESS_LEDGER_WRITER_ENV } from "@harness-anything/storage";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
+import { readDaemonPid } from "@harness-anything/daemon/internal/runtime";
+import { ownDaemonFixture } from "./daemon-cleanup.fixture.ts";
 
 export const cli = path.resolve("packages/cli/src/index.ts");
 export const builtCli = path.resolve("packages/cli/dist/cli/src/index.js");
@@ -26,7 +28,10 @@ async function authorize(userRoot: string, repoIds: readonly string[]): Promise<
   for (const resource of repoIds) await realm.control({ op: "permit", personId: "owner", resource, actions: scopes });
 }
 
-export async function setup(t: TestContext): Promise<{
+export async function setup(
+  t: TestContext,
+  sharedUserRoot?: string,
+): Promise<{
   root: string;
   userRoot: string;
   alpha: string;
@@ -36,7 +41,7 @@ export async function setup(t: TestContext): Promise<{
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const alpha = path.join(root, "alpha"),
     beta = path.join(root, "beta"),
-    userRoot = path.join(root, "user");
+    userRoot = sharedUserRoot ?? path.join(root, "user");
   for (const repo of [alpha, beta]) initialize(repo);
   await authorize(userRoot, ["alpha", "beta"]);
   return { root, userRoot, alpha, beta };
@@ -44,15 +49,64 @@ export async function setup(t: TestContext): Promise<{
 export async function setupEmpty(
   t: TestContext,
   _repoId = "fresh",
+  sharedUserRoot?: string,
 ): Promise<{ root: string; userRoot: string; repo: string }> {
   const root = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-w3-init-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const repo = path.join(root, "repo"),
-    userRoot = path.join(root, "user");
+    userRoot = sharedUserRoot ?? path.join(root, "user");
   mkdirSync(repo);
   await authorize(userRoot, []);
   return { root, userRoot, repo };
 }
+/** Share only the resident service; every scenario still owns fresh repositories. */
+export function residentCliFixture() {
+  const parent = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-w3-resident-")),
+    userRoot = path.join(parent, "user"),
+    { HARNESS_ACTOR: _actor, ...env } = process.env;
+  let pid: number | null = null;
+  let scenario = 0;
+  ownDaemonFixture({
+    parent,
+    userRoot,
+    daemonId: "default",
+    env: { ...env, HOME: path.join(parent, ".home"), HARNESS_DAEMON_USER_ROOT: userRoot },
+  });
+  const start = () => {
+    if (pid === null) {
+      // Keep the daemon's cwd/HOME alive after individual repository roots are removed.
+      assert.equal(run(parent, userRoot, ["daemon", "start", "--service"]).ok, true);
+      pid = readDaemonPid(userRoot, "default");
+      assert.ok(pid, "the resident fixture must publish its pid");
+    }
+    assert.equal(readDaemonPid(userRoot, "default"), pid, "the resident fixture must keep its daemon");
+  };
+  return {
+    setup: async (t: TestContext) => {
+      const fixture = await setup(t, userRoot),
+        repoId = `resident-${++scenario}`;
+      await authorize(userRoot, [repoId]);
+      start();
+      return { ...fixture, repoId };
+    },
+    setupEmpty: async (t: TestContext, repoId = "fresh") => {
+      const fixture = await setupEmpty(t, repoId, userRoot);
+      start();
+      return fixture;
+    },
+    release: (root: string) => {
+      const registry = readDaemonRegistry({ userRoot });
+      for (const repo of [...registry.repos, ...registry.invalidRepos]) {
+        if (repo.canonicalRoot === null || !repo.canonicalRoot.startsWith(`${root}${path.sep}`)) continue;
+        // The real unbind waits for closeCell before removing the registration. Its receipt
+        // therefore precedes Windows directory removal, including reader-handle release.
+        assert.equal(run(repo.canonicalRoot, userRoot, ["repo", "unbind", repo.repoId]).ok, true);
+      }
+      assert.equal(readDaemonPid(userRoot, "default"), pid, "unbinding a scenario must preserve the service");
+    },
+  };
+}
+
 export function makeCanary(
   root: string,
   script = 'const { title } = JSON.parse(process.env.HA_PRESET_INPUT); console.log(JSON.stringify({ schema: "preset-script-result/v1", produces: [{ capabilityId: "policy:task-create/v1", payload: { taskId: "task-canary", title } }] }));\n',
@@ -115,20 +169,7 @@ export async function waitForRun(root: string, userRoot: string, runId: string, 
   }
   throw new Error(`run ${runId} did not reach ${phase}`);
 }
-// Copy only immutable Git seed bytes. Each scenario keeps its own repository, user root,
-// daemon startup and canonical settings seed; no database or running process is shared.
-let repositorySeed: string | undefined;
-after(() => {
-  if (repositorySeed) rmSync(repositorySeed, { recursive: true, force: true });
-});
 export function initialize(root: string): void {
-  if (!repositorySeed) {
-    repositorySeed = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-w3-seed-"));
-    initializeSeed(repositorySeed);
-  }
-  cpSync(repositorySeed, root, { recursive: true });
-}
-function initializeSeed(root: string): void {
   mkdirSync(path.join(root, "harness"), { recursive: true });
   writeFileSync(path.join(root, ".gitignore"), ".home/\n", "utf8");
   writeFileSync(path.join(root, "harness/harness.yaml"), "layout:\n  authoredRoot: harness\n", "utf8");

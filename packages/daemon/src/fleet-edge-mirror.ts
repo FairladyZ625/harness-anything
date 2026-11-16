@@ -6,6 +6,8 @@ import {
   revokeCanonicalTree,
   makeTaskProjectionReader,
   openSqliteEventStore,
+  readNodeMaterializationDocuments,
+  requireTaskMaterializationMetadata,
 } from "@harness-anything/storage";
 import {
   documentPath,
@@ -15,7 +17,10 @@ import {
   sha256Bytes,
   sha256Text,
   type TaskProjectionQueries,
+  type MaterializationRequest,
 } from "@harness-anything/kernel";
+import { nodeMaterializationPolicyForMode } from "@harness-anything/kernel/internal/domain/task-wip-policy.ts";
+import { readLocalState } from "./repo-cell-settings-state.ts";
 import { BASE_BACKUP_ARCHIVE_ROOT } from "@harness-anything/storage";
 import { withReplicaGeneration, type ReplicaGeneration } from "./fleet/replica-generation.ts";
 import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
@@ -391,21 +396,85 @@ export function applyFleetMirrorCut(
     readonly kind?: string;
     readonly code?: string;
     readonly changedPaths?: readonly string[];
+    readonly request?: MaterializationRequest;
   } = {},
 ): FleetMirrorApplyResult {
-  const markerPath = path.join(resolveHarnessLayout(workspaceRoot).localRoot, "fleet-materialized.json"),
-    view = locateFleetMirrorView(viewRoot, repoId, context.viewId);
+  const view = locateFleetMirrorView(viewRoot, repoId, context.viewId, { includeEntries: false });
   if (!view) return { outcome: "no_view", fromRevision: null, toRevision: null, dirtyPaths: [], conflicts: [] };
-  const result = applyCanonicalTree({
-    authoredRoot: materializedRoot(workspaceRoot),
-    markerPath,
+  return withReplicaGeneration(view.viewDir, (generation) => {
+    if (!generation) throw new FleetMirrorError("replica_unavailable", "The mirror generation is unavailable.");
+    const reader = makeTaskProjectionReader({ rootDir: generation.rootDir, projectionPath: generation.projectionPath });
+    try {
+      return reader.withSession((projection) => {
+        const current = fleetMirrorViewAtProjection(view.viewDir, repoId, generation, projection, {
+            includeEntries: false,
+          }),
+          result = materializeFleetMirrorView(workspaceRoot, current, projection, generation, context);
+        return { outcome: "applied" as const, ...result, conflicts: [] };
+      });
+    } finally {
+      reader.close();
+    }
+  });
+}
+
+/** Automatic pulls, node-setting reconciliation and explicit restores share the same physical owner. */
+export function materializeFleetMirrorView(
+  workspaceRoot: string,
+  view: FleetMirrorView,
+  projection: TaskProjectionQueries,
+  generation: ReplicaGeneration,
+  options: { readonly request?: MaterializationRequest; readonly changedPaths?: readonly string[] } = {},
+): ReturnType<typeof applyCanonicalTree> {
+  const layout = resolveHarnessLayout(workspaceRoot),
+    policy = readLocalState(workspaceRoot, nodeMaterializationPolicyForMode("remote-edge"), layout.settingsLocalPath)
+      .value.nodeTaskMaterializationPolicy,
+    request = options.request;
+  // A headless node does not traverse document or task history on ordinary pulls.
+  if (policy === "none" && request === undefined)
+    return { fromRevision: null, toRevision: view.revision, dirtyPaths: [], settlements: [] };
+  const preserveExistingOnly = request?.reconcileNodePolicy === true && policy === "none",
+    effective = request?.paths
+      ? "none"
+      : preserveExistingOnly
+        ? "in_flight"
+        : request && !request.reconcileNodePolicy
+          ? "include_done"
+          : policy,
+    documents = readNodeMaterializationDocuments(projection, effective, request?.paths),
+    entries = new Map<string, FleetMirrorBlob>(
+      documents.map((doc) => [
+        doc.path,
+        { sha256: doc.blobSha256, size: doc.size, mediaType: doc.mediaType, policyId: doc.policyId },
+      ]),
+    ),
+    changed = options.changedPaths ? [...options.changedPaths] : undefined;
+  return applyCanonicalTree({
+    layout,
+    markerPath: path.join(layout.localRoot, "fleet-materialized.json"),
     revision: view.revision,
     generation: view.ledgerGeneration,
-    entries: view.entries,
-    changedPaths: context.changedPaths,
-    readContent: (logical) => fleetMirrorCutFile(view, logical),
+    entries,
+    preview: request?.preview,
+    selectedPaths: request?.preview ? undefined : request?.paths,
+    changedPaths: changed,
+    requirePreviousPaths: (previous) => {
+      requireTaskMaterializationMetadata(projection, previous);
+      if (preserveExistingOnly) {
+        const held = new Set(previous);
+        for (const logical of entries.keys()) if (!held.has(logical)) entries.delete(logical);
+      }
+      // A lifecycle/relationship change affects the entire hot Task package, including unchanged
+      // context files. Ordinary documents keep the transport's incremental path selection.
+      if (changed)
+        for (const logical of [...entries.keys(), ...previous])
+          if (logical.startsWith("tasks/task_")) changed.push(logical);
+    },
+    readContent: (logical) => {
+      const file = objectPath(generation, entries.get(logical)!.sha256);
+      return existsSync(file) ? readFileSync(file) : null;
+    },
   });
-  return { outcome: "applied", ...result, conflicts: [] };
 }
 
 export function revokeFleetMirrorTree(workspaceRoot: string): void {

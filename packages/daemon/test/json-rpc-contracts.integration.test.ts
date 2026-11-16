@@ -211,6 +211,7 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
     ["repo.agentRuntime.handoff", { operation: "export", dispatchId: "dispatch_" + "a".repeat(24) }],
     ["daemon.gui.control.request", { kind: "refresh", authorityRepoId: "alpha", reason: "Refresh catalog" }],
     ["repo.task.create", { title: "Create from GUI", presetId: "standard-task" }],
+    ["repo.task.materialize", { taskId: "task-a" }],
     ["repo.task.show", { taskId: "task-a" }],
     ["repo.task.rework", { taskId: "task-a", executionId: "execution-a", submissionDigest: `sha256:${"a".repeat(64)}`, takeover: true, reason: "Owner arranges this round" }],
     ["repo.task.start", { taskId: "task-a", executionId: "execution-a" }],
@@ -218,6 +219,10 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
     ["repo.task.submit", { taskId: "task-a", executionId: "execution-a" }],
     ["repo.task.assign", { taskId: "task-a", expectedVersion: 1, personId: "person-a" }],
     ["repo.task.unassign", { taskId: "task-a", expectedVersion: 2 }],
+    // dec_9C43012EBB2754D7112F618F0D / dec_13B7B846B56BFA192533011B91: named canonical aliases.
+    ["repo.task.archive", { taskIds: ["task-a"], reason: "Owner received delivery" }],
+    ["repo.agentRuntime.incidentDismiss", { dispatchId: "dispatch_" + "a".repeat(24), reason: "Handled" }],
+    ["repo.task.escalationResolve", { taskId: "task-a", dispatchId: "dispatch_" + "a".repeat(24), answer: "Continue" }],
     ["repo.task.complete", { taskId: "task-a", executionId: "execution-a" }],
     ["repo.task.consent", { taskId: "task-a", executionId: "execution-a", reviewId: "review-a" }],
     ["repo.task.attest", { taskId: "task-a", gateId: "ci", result: "pass", mode: "override", rationale: "Upstream runner outage" }],

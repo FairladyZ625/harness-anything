@@ -15,22 +15,6 @@ import { localUserDaemonEndpoint } from "../src/daemon/client.ts";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { waitForValue } from "../../../tools/fixtures/wait-for-condition.ts";
 
-type RuntimeFixture = {
-  parent: string;
-  root: string;
-  userRoot: string;
-  daemonId: string;
-  env: NodeJS.ProcessEnv;
-  version: string;
-};
-let fileFixture: RuntimeFixture | undefined;
-// File-owned setup is closed before the policy realm; all task scenarios have distinct task IDs.
-after(() => {
-  if (!fileFixture) return;
-  runMaybe(fileFixture.root, fileFixture.env, ["daemon", "stop"]);
-  rmSync(fileFixture.parent, { recursive: true, force: true });
-});
-
 const realm = await spawnKeycloak();
 after(() => realm.close());
 await realm.control({ op: "account", personId: "owner" });
@@ -135,36 +119,7 @@ export function writeProgressProvider(target: string, version: string): void {
   writeFileSync(target, next);
 }
 
-// Setup-only batches keep every command on the real CLI, amortizing its module cold start.
-// Commands exercised by the tests still use independent CLI processes through run/runMaybe.
-function runSetup(root: string, env: NodeJS.ProcessEnv, commands: readonly (readonly string[])[]): void {
-  const result = spawnSync(
-    process.execPath,
-    [
-      "--input-type=module",
-      "-e",
-      `
-    import { main } from ${JSON.stringify(new URL("../src/index.ts", import.meta.url).href)};
-    const { root, commands } = JSON.parse(await new Response(process.stdin).text());
-    for (const args of commands) {
-      const status = await main(["--root", root, "--json", ...args]);
-      if (status !== 0) { process.exitCode = status; break; }
-    }
-  `,
-    ],
-    { env, encoding: "utf8", input: JSON.stringify({ root, commands }) },
-  );
-  assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
-  const receipts = result.stdout
-    .trim()
-    .split("\n")
-    .map((line) => JSON.parse(line) as Record<string, unknown>);
-  assert.equal(receipts.length, commands.length, result.stdout);
-  for (const receipt of receipts) assert.equal(receipt.ok, true, JSON.stringify(receipt));
-}
-
-export function createRuntimeFixture(context: TestContext, batchSetup = false): RuntimeFixture {
-  if (batchSetup && fileFixture) return { ...fileFixture, env: { ...fileFixture.env } };
+export function createRuntimeFixture(context: TestContext) {
   const parent = mkdtempSync(path.join(process.platform === "win32" ? tmpdir() : "/tmp", "ha-runtime-cli-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -210,59 +165,49 @@ export function createRuntimeFixture(context: TestContext, batchSetup = false): 
     HARNESS_DAEMON_ENDPOINT: localUserDaemonEndpoint(userRoot, daemonId),
     HARNESS_ACTOR: "agent:runtime-cli-test",
   };
-  if (!batchSetup)
-    context.after(() => {
-      runMaybe(root, env, ["daemon", "stop"]);
-      rmSync(parent, { recursive: true, force: true });
-    });
+  context.after(() => {
+    runMaybe(root, env, ["daemon", "stop"]);
+    rmSync(parent, { recursive: true, force: true });
+  });
   realm.bind(userRoot);
   signInAt(userRoot, "owner");
-  const commands = [
-    ["daemon", "start", "--service"],
-    [
-      "runtime",
-      "instance",
-      "create",
-      "--id",
-      "cli-worker",
-      "--name",
-      "CLI Worker",
-      "--kind",
-      "codex",
-      "--provider",
-      "openai",
-      "--model",
-      "runtime-test-model",
-      "--auth",
-      "subscription",
-    ],
-    [
-      "runtime",
-      "instance",
-      "create",
-      "--id",
-      "claude-worker",
-      "--name",
-      "Claude Worker",
-      "--kind",
-      "claude",
-      "--provider",
-      "anthropic",
-      "--model",
-      "runtime-test-model",
-      "--auth",
-      "subscription",
-    ],
-    ["init", "--repo-id", "runtime-cli", "--person-id", "owner", "--display-name", "Owner"],
-  ];
-  if (batchSetup) runSetup(root, env, commands);
-  else {
-    assert.equal(run(root, env, commands[0]!).ok, true);
-    for (const args of commands.slice(1)) run(root, env, args);
-  }
-  const fixture = { parent, root, userRoot, daemonId, env, version };
-  if (batchSetup) fileFixture = { ...fixture, env: { ...env } };
-  return fixture;
+  assert.equal(run(root, env, ["daemon", "start", "--service"]).ok, true);
+  run(root, env, [
+    "runtime",
+    "instance",
+    "create",
+    "--id",
+    "cli-worker",
+    "--name",
+    "CLI Worker",
+    "--kind",
+    "codex",
+    "--provider",
+    "openai",
+    "--model",
+    "runtime-test-model",
+    "--auth",
+    "subscription",
+  ]);
+  run(root, env, [
+    "runtime",
+    "instance",
+    "create",
+    "--id",
+    "claude-worker",
+    "--name",
+    "Claude Worker",
+    "--kind",
+    "claude",
+    "--provider",
+    "anthropic",
+    "--model",
+    "runtime-test-model",
+    "--auth",
+    "subscription",
+  ]);
+  run(root, env, ["init", "--repo-id", "runtime-cli", "--person-id", "owner", "--display-name", "Owner"]);
+  return { parent, root, userRoot, daemonId, env, version };
 }
 
 export function seedTask(root: string, env: NodeJS.ProcessEnv, scenario: string) {
@@ -277,7 +222,7 @@ export function seedTask(root: string, env: NodeJS.ProcessEnv, scenario: string)
   return { taskId, executionId, packagePath, artifactRoot };
 }
 
-export function installIdentities(parent: string, root: string, env: NodeJS.ProcessEnv, batchSetup = false) {
+export function installIdentities(parent: string, root: string, env: NodeJS.ProcessEnv) {
   mkdirSync(path.join(root, "harness", "skills", "review"), { recursive: true });
   writeFileSync(
     path.join(root, "harness", "skills", "review", "SKILL.md"),
@@ -325,8 +270,7 @@ export function installIdentities(parent: string, root: string, env: NodeJS.Proc
         role: "worker",
       },
     ],
-    squadSource = path.join(parent, "core-squad"),
-    commands: string[][] = [];
+    squadSource = path.join(parent, "core-squad");
   for (const identity of identities) {
     const agentSource = path.join(parent, identity.id);
     writeIdentity(agentSource, {
@@ -340,7 +284,7 @@ export function installIdentities(parent: string, root: string, env: NodeJS.Proc
         preset: "standard-task",
       },
     });
-    commands.push(["agent", "install", "--source", agentSource]);
+    run(root, env, ["agent", "install", "--source", agentSource]);
   }
   writeIdentity(squadSource, {
     id: "core-squad",
@@ -355,9 +299,7 @@ export function installIdentities(parent: string, root: string, env: NodeJS.Proc
       roster: "# Core Squad\n\nFable delegates to Terra and OpenCode Worker.",
     },
   });
-  commands.push(["squad", "install", "--source", squadSource]);
-  if (batchSetup) runSetup(root, env, commands);
-  else for (const args of commands) run(root, env, args);
+  run(root, env, ["squad", "install", "--source", squadSource]);
   return { squadSource };
 }
 
@@ -626,4 +568,17 @@ export function recoverLatest(root: string, env: NodeJS.ProcessEnv, taskId: stri
     "--idempotency-key",
     `test-recovery-${String(latest.dispatchId)}-${String(shown.revision)}`,
   ];
+}
+
+// The write-boundary section every non-reviewer task-bound mission carries, immediately after the
+// ruling contract and before the reviewer note (see taskMissionSections).
+export const workerWorktreeBoundary = "# 写入边界\n只写自己的 worktree，不改主分支；主分支现有环境可读，可用于对比。";
+
+export function killProcessIfAlive(pid: number): void {
+  if (!processAlive(pid)) return;
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch (error) {
+    if (!(error && typeof error === "object" && "code" in error && error.code === "ESRCH")) throw error;
+  }
 }

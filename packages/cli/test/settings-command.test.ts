@@ -165,3 +165,13 @@ test("Settings CLI writes command interception declarations through the shared s
   assert.equal(cleared.ok, true);
   if (cleared.ok) assert.deepEqual(cleared.command.action.runtimeCommandInterceptions, []);
 });
+
+test("settings CLI derives the node-only materialization flag and rejects undeclared modes", () => {
+  for (const value of ["none", "in_flight", "include_done"]) {
+    const parsed = parseThinCommand(["settings", "update", "--task-materialization-policy", value]);
+    assert.equal(parsed.ok, true);
+    if (parsed.ok)
+      assert.deepEqual(parsed.command.action, { kind: "settings-update", taskMaterializationPolicy: value });
+  }
+  assert.equal(parseThinCommand(["settings", "update", "--task-materialization-policy", "all"]).ok, false);
+});

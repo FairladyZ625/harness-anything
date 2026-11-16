@@ -3,7 +3,7 @@ import { statSync, watch } from "node:fs";
 import { makeTaskProjectionReader } from "@harness-anything/storage";
 import { type EdgeReadFreshness, type TaskProjectionQueries } from "@harness-anything/kernel";
 import { locateFleetMirrorView, fleetMirrorViewAtProjection, type FleetMirrorView } from "./fleet-edge-mirror.ts";
-import { withReplicaGeneration } from "./fleet/replica-generation.ts";
+import { withReplicaGeneration, type ReplicaGeneration } from "./fleet/replica-generation.ts";
 import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
 
 export const DEFAULT_EDGE_READ_MAX_AGE_MS = 60_000;
@@ -31,7 +31,12 @@ export function withEdgeReadModel<T>(
     readonly maxAgeMs?: number;
     readonly maxLagRevisions?: number;
   },
-  read: (projection: TaskProjectionQueries, frame: RepositoryReadFrame, view: FleetMirrorView) => T,
+  read: (
+    projection: TaskProjectionQueries,
+    frame: RepositoryReadFrame,
+    view: FleetMirrorView,
+    generation: ReplicaGeneration,
+  ) => T,
   now: () => number = Date.now,
 ): T {
   const viewDir = path.join(input.viewRoot, "repos", input.repoId, "views", input.nodeId);
@@ -56,6 +61,7 @@ export function withEdgeReadModel<T>(
             warning: fresh.warning,
           },
           view,
+          generation,
         );
       });
     } finally {

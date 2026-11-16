@@ -1,4 +1,6 @@
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
+import { canonicalDocumentClaims } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 import { readNodeMaterializationDocuments, requireTaskMaterializationMetadata } from "../storage-backend.ts";
 import {
   ledgerCommitSha,
@@ -12,7 +14,7 @@ import {
   type CanonicalFollowerFacet,
   type PublicationWrite,
 } from "@harness-anything/kernel";
-import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
+import { sha256Bytes, sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import {
   canonicalEventCut,
   canonicalLedgerCut,
@@ -80,7 +82,8 @@ export function makePgCanonicalEventStore(
       if (options.mutable === false) throw new TaskEventStoreError("invalid_write_plan", "event reader is read-only");
     },
     fence = () => options.writerFence?.() ?? { repoId: options.repoId, holderId: "direct-store", epoch: 1 };
-  let worktree: CanonicalFollowerFacet = { status: "pending", cut: null, commitSha: null },
+  let acceptedRetired = new Map<string, string>(),
+    worktree: CanonicalFollowerFacet = { status: "pending", cut: null, commitSha: null },
     git: CanonicalFollowerFacet = {
       status: "pending",
       cut: null,
@@ -106,8 +109,14 @@ export function makePgCanonicalEventStore(
         throw new TaskEventStoreError("materialization_failed", "No authored tree is configured for this repository");
       return { status: "visible", commitSha: null, settlements: [], conflicts: [] };
     }
+    const preserveExistingOnly =
+      request?.reconcileNodePolicy && options.storage.nodeTaskMaterializationPolicy === "none";
     const requirePreviousPaths = (paths: readonly string[]) => {
-      if (paths.some((path) => path.startsWith("tasks/") && path.split("/").length > 2))
+      if (preserveExistingOnly) {
+        const prior = new Set(paths);
+        for (const path of entries.keys()) if (!prior.has(path)) entries.delete(path);
+      }
+      if (paths.some((path) => path.startsWith("tasks/task_") && path.split("/").length > 2))
         reader.withSession((q) => requireTaskMaterializationMetadata(q, paths));
     };
     const layout = resolveHarnessLayout(rootInput),
@@ -116,7 +125,7 @@ export function makePgCanonicalEventStore(
           ? reader.withSession((q) =>
               readNodeMaterializationDocuments(
                 q,
-                options.storage.nodeTaskMaterializationPolicy ?? "include_done",
+                preserveExistingOnly ? "in_flight" : (options.storage.nodeTaskMaterializationPolicy ?? "include_done"),
                 request?.paths,
               ),
             )
@@ -143,7 +152,7 @@ export function makePgCanonicalEventStore(
           : null,
       result = materializeTree
         ? applyCanonicalTree({
-            authoredRoot: layout.authoredRoot,
+            layout,
             markerPath: path.join(layout.localRoot, "fleet-materialized.json"),
             requirePreviousPaths,
             generation: 3,
@@ -151,10 +160,19 @@ export function makePgCanonicalEventStore(
             entries,
             preview: request?.preview,
             selectedPaths: request?.preview ? undefined : request?.paths,
+            acceptedRetired: new Map(acceptedRetired),
+            readHistoricalDocument: (logical) =>
+              reader.withSession((q) => q.readDocumentHistory?.(logical)?.document ?? null),
             readContent: (logical) => readContentBlob(entries.get(logical)!.sha256),
             withFence: options.withAppendFence,
           })
         : { settlements: [], dirtyPaths: [] };
+    if (materializeTree && !request?.preview) {
+      const settled = request?.paths ? new Set(request.paths) : null;
+      acceptedRetired = settled
+        ? new Map([...acceptedRetired].filter(([logical]) => !settled.has(logical)))
+        : new Map();
+    }
     if (request?.preview)
       return {
         status: "planned",
@@ -188,7 +206,7 @@ export function makePgCanonicalEventStore(
             : certifiedFollowerRevision(ledger, parent, checkpointSource),
         files = followerFilesForNodePolicy({
           ledger,
-          documents,
+          documents: preserveExistingOnly ? documents.filter(({ path }) => entries.has(path)) : documents,
           parent,
           readContent: readContentBlob,
           requirePreviousPaths,
@@ -282,6 +300,15 @@ export function makePgCanonicalEventStore(
     layout: () => "sharded-sha256-2/v1",
     append: (bundle) => {
       writable();
+      const appendAuthoredRoot = rootInput === undefined ? null : resolveHarnessLayout(rootInput).authoredRoot,
+        acceptedClaims = new Map<string, string>();
+      if (appendAuthoredRoot !== null)
+        for (const member of [...(bundle.preceding ?? []), bundle])
+          for (const claim of canonicalDocumentClaims(member.event)) {
+            const target = path.join(appendAuthoredRoot, ...claim.path.split("/"));
+            if (existsSync(target) && lstatSync(target).isFile() && sha256Bytes(readFileSync(target)) === claim.sha256)
+              acceptedClaims.set(claim.path, claim.sha256);
+          }
       const receipt = execute({
         operation: "append",
         bundle,
@@ -290,6 +317,7 @@ export function makePgCanonicalEventStore(
           : bundle.event.workspaceRevision - 1,
         writerFence: fence(),
       }) as CanonicalEventAppendReceipt;
+      for (const [logical, digest] of acceptedClaims) acceptedRetired.set(logical, digest);
       void publisher.request();
       return receipt;
     },

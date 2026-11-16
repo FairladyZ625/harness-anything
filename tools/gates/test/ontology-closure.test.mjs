@@ -127,8 +127,8 @@ test("daemon host migration and observation slice has zero frozen ontology debt"
   const classified = result.classified.filter((row) => scope.test(row.file));
   assert.equal(new Set(classified.map((row) => row.file)).size, 49);
   assert.equal(classified.filter((row) => row.category === "action").length, 181);
-  assert.equal(classified.filter((row) => row.category === "policy").length, 52);
-  assertRegistered(classified); // 50 retired policy rows plus two policies already registered on main.
+  assert.equal(classified.filter((row) => row.category === "policy").length, 53);
+  assertRegistered(classified); // Includes the node-local replica settlement branch.
   assertEmpty(result.findings.filter((row) => scope.test(row.file)));
   for (const [symbol, owner] of [
     ["runMigrationImport", "migrate-import"],
@@ -1698,7 +1698,8 @@ test("dec_7E44897ECDCAEF2B92EC66A260/CH1: non-main packages/gui action candidate
     [],
   );
   const nonMainGuiActions = result.classified.filter((row) => row.category === "action" && isNonMainGuiPath(row.file));
-  assert.equal(nonMainGuiActions.length, 322);
+  // dec_86761D79CF16E14C4583890F59: exact Agenda sources add 18 net GUI action sites.
+  assert.equal(nonMainGuiActions.length, 342);
   assert.deepEqual(
     nonMainGuiActions.filter((row) => row.status !== "registered"),
     [],
@@ -1716,6 +1717,14 @@ test("dec_7E44897ECDCAEF2B92EC66A260/CH1: non-main packages/gui action candidate
     assert.equal(matches.length, 1, `expected unique non-main GUI candidate for ${fragment}`);
     return matches[0].declarationRef;
   };
+  assert.equal(
+    declOf("TaskMaterializationControl.tsx#TaskMaterializationControl.materialize.mutationFn.receipt:"),
+    "action:doc-materialize",
+  );
+  assert.equal(
+    declOf("TaskMaterializationControl.tsx#TaskMaterializationControl.availability.queryFn.result:"),
+    "action:repository-read",
+  );
   assert.equal(declOf("api-client.ts#harnessClient.acceptDecision:"), "action:decision-accept");
   assert.equal(declOf("api-client.ts#harnessClient.submitTask:"), "action:task-submit");
   assert.equal(declOf("todos-client.ts#todosClient.add:"), "action:todo-add");

@@ -850,11 +850,9 @@ export function withAuthorizationDecision(
   };
 }
 
-/** Re-authorize runtime continuations at their current queued repository cut. */
-export async function authorizeRuntimeRepoAction(
-  input: Parameters<typeof evaluateRepoCellAction>[0] & {
-    readonly projection: import("@harness-anything/kernel").TaskProjectionQueries;
-  },
+/** The same declared Action and resource hierarchy authorize queued and host-local repository effects. */
+export async function authorizeRepoActionBinding(
+  input: Parameters<typeof evaluateRepoCellAction>[0],
 ): Promise<RepoCellBinding> {
   const { authorizationDecision: _previousDecision, ...binding } = input.binding,
     authorizationDecision = await evaluateRepoCellAction({ ...input, binding });
@@ -863,6 +861,16 @@ export async function authorizeRuntimeRepoAction(
       "authorization_denied",
       authorizationDecision.nextActions.join(" ") || `${input.action.kind} requires repository write authority.`,
     );
-  requireSquadBusinessAction(input.projection, input.action, binding);
   return { ...binding, authorizationDecision };
+}
+
+/** Re-authorize runtime continuations at their current queued repository cut. */
+export async function authorizeRuntimeRepoAction(
+  input: Parameters<typeof evaluateRepoCellAction>[0] & {
+    readonly projection: import("@harness-anything/kernel").TaskProjectionQueries;
+  },
+): Promise<RepoCellBinding> {
+  const binding = await authorizeRepoActionBinding(input);
+  requireSquadBusinessAction(input.projection, input.action, binding);
+  return binding;
 }

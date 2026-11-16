@@ -96,6 +96,7 @@ export interface SqliteTaskEventStoreOptions {
     afterRevision?: number,
     expectedRevision?: number,
     previouslyMaterializedPaths?: readonly string[],
+    reconcileNodePolicy?: boolean,
   ) => readonly MaterializationDocumentDescriptor[] | null;
 }
 
@@ -168,12 +169,13 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
           event.payload.changes.some(
             (change) => change.path === claim.path && change.policyId === "markdown-body-replaceable/v1",
           );
-        if (!task && !prose && !settings) continue;
+        if (!task && event.schema !== "doc-event/v1" && !settings) continue;
         const node = localGitWorktreeSettlement.readNode(`${authoredRoot}/${claim.path}`);
         if (!node || node.mode !== "100644") continue;
         const matches =
           task ||
-          (node.body.includes("\r\n") ? sha256Text(node.body.replace(/\r\n/gu, "\n")) : node.sha256) === claim.sha256 ||
+          node.sha256 === claim.sha256 ||
+          (prose && node.body.includes("\r\n") && sha256Text(node.body.replace(/\r\n/gu, "\n")) === claim.sha256) ||
           // A Settings write may declare the live authored bytes as its base; settling that base
           // to the event's claim is the write the event was built for, not a concurrent edit.
           (settings && node.sha256 === event.payload.baseDocumentSha256);
@@ -284,7 +286,11 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
    * worktree against what it last held. `restoreMissing` (materialize) settles the whole closure instead; `preview`
    * runs that same whole-closure read and reports the plan without writing anything.
    */
-  const publishFollower = (restoreMissing = false, preview = false): MaterializationReceipt => {
+  const publishFollower = (
+    restoreMissing = false,
+    preview = false,
+    reconcileNodePolicy = false,
+  ): MaterializationReceipt => {
     const accepted = cut();
     if (options.storage?.nodeTaskMaterializationPolicy === "none" && !restoreMissing) {
       follower = {
@@ -335,9 +341,14 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
         from,
         [],
         !restoreMissing && worktreeRevision === accepted.revision && verifiedRevision === accepted.revision,
+        reconcileNodePolicy,
+        reconcileNodePolicy && options.storage?.nodeTaskMaterializationPolicy === "none",
       ),
       files = [...closure.files, ...legacy],
       baseline = new Map(captureGitBaseline(currentLedger.rootDir, parent, files));
+    if ("recoveredBaseline" in closure && closure.recoveredBaseline)
+      for (const [target, previous] of closure.recoveredBaseline)
+        if (!baseline.has(target) || baseline.get(target) === "missing") baseline.set(target, previous);
     if (restoreMissing || worktreeRevision !== verifiedRevision) {
       // The worktree last settled at another cut than Git's parent, so it may still hold what the ledger held then.
       const held = new Map([
@@ -378,15 +389,23 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       worktree: pendingFollower("worktree settlement has not verified the Git cut").worktree,
     };
     localGitWorktreeSettlement.index(currentLedger.rootDir, files, false, options.withAppendFence);
-    const settled = settleFollowerWorktree(
-      latestAppendLayout ?? resolveHarnessLayout(input),
-      currentLedger,
-      files,
-      baseline,
-      commit,
-      followerDirectories(currentLedger, closure.events, files, from === 0 ? sqlite.directoryClaims() : undefined),
-      restoreMissing,
-    );
+    const layout = latestAppendLayout ?? resolveHarnessLayout(input),
+      settled = settleFollowerWorktree(
+        layout,
+        currentLedger,
+        files,
+        baseline,
+        commit,
+        followerDirectories(
+          currentLedger,
+          closure.events,
+          files,
+          from === 0 ? sqlite.directoryClaims() : undefined,
+          layout.decisionsRoot,
+          { cold: from === 0 },
+        ),
+        restoreMissing,
+      );
     const skipped = new Set(settled.conflicts);
     // A skipped target is never retried on its own: it stays reported until settled or its settled bytes appear.
     for (const [target, settledBytes] of worktreeConflicts)
@@ -427,7 +446,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     publish: (request) =>
       request?.paths && !request.preview
         ? restoreRequestedDocuments(materializeContext(), request.paths)
-        : publishFollower(request !== undefined, request?.preview),
+        : publishFollower(request !== undefined, request?.preview, request?.reconcileNodePolicy),
     revision: sqlite.revision,
     checkpoint: () => follower.git.cut?.revision ?? 0,
     onHealthChange: options.onMaterializationHealthChange,

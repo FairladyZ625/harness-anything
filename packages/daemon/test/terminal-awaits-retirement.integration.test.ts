@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -409,4 +409,131 @@ test("a task completing after review and consent retires the awaits Relations it
       writeFileSync(path.join(ledger, "harness.yaml"), "settings:\n  closeout:\n    profile: strict\n");
     },
   );
+});
+
+test("zero-hold outcome_retired Decision ingests stray artifacts reports via doc-submit without projection_pending and clears dir", async () => {
+  await withCell("terminal-decision-stray-sync", async (cell, rootDir) => {
+    const proposed = await cell.run(decisionProposal("Stray artifact cleanup", "Can stray artifacts archive?"), holder);
+    assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
+    const decisionId = String(JSON.parse(String(proposed.evidence)).decisionId),
+      decisionRelDir = `decisions/decision-${decisionId}`,
+      decisionDir = path.join(rootDir, "harness", decisionRelDir),
+      accepted = await cell.run(
+        {
+          kind: "decision-accept",
+          decisionId,
+          rationale: "Accepted to exercise outcome_retired settlement.",
+          judgmentOnlyRationale: "Test fixture accepts on human authority.",
+        },
+        human,
+      );
+    assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
+    await waitForFixturePublication(cell as never, String(accepted.opId), holder as never);
+
+    const retired = await cell.run({ kind: "decision-transition", decisionId, targetState: "outcome_retired" }, holder);
+    assert.equal(retired.outcome, "applied", JSON.stringify(retired));
+    await waitForFixturePublication(cell as never, String(retired.opId), holder as never);
+    assert.equal(existsSync(decisionDir), false, "zero-hold outcome_retired removes decision dir");
+    const retiredDecisionBody = String(
+      (await cell.run({ kind: "doc-show", path: `${decisionRelDir}/decision.md`, raw: true }, holder)).evidence,
+    );
+    assert.match(retiredDecisionBody, /^state: outcome_retired$/mu);
+
+    // Simulate un-ingested legacy reviewer outputs + nested empty shell inside the terminal decision dir.
+    const reportMdRel = `${decisionRelDir}/artifacts/reports/dispatch_legacy.md`,
+      reportJsonRel = `${decisionRelDir}/artifacts/reports/dispatch_legacy.json`,
+      reportMdBody = "# Legacy Decision Review\n\nArchived directly from terminal directory.\n",
+      reportJsonBody = '{"verdict":"approved","dispatch":"dispatch_legacy"}\n';
+    mkdirSync(path.join(decisionDir, "artifacts", "reports"), { recursive: true });
+    mkdirSync(path.join(decisionDir, "artifacts", "empty", "deep"), { recursive: true });
+    writeFileSync(path.join(rootDir, "harness", reportMdRel), reportMdBody);
+    writeFileSync(path.join(rootDir, "harness", reportJsonRel), reportJsonBody);
+
+    // Pre-sync doc-materialize --all must never delete un-ingested local reports.
+    const preMaterialize = await cell.run({ kind: "doc-materialize", paths: [], all: true }, holder);
+    assert.equal(preMaterialize.outcome, "applied", JSON.stringify(preMaterialize));
+    assert.equal(readFileSync(path.join(rootDir, "harness", reportMdRel), "utf8"), reportMdBody);
+    assert.equal(readFileSync(path.join(rootDir, "harness", reportJsonRel), "utf8"), reportJsonBody);
+
+    // doc-submit archives both opaque artifacts into document_history, clears the directory, and keeps raw recall intact.
+    const submitted = await cell.run({ kind: "doc-submit", paths: [reportMdRel, reportJsonRel] }, holder);
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    await waitForFixturePublication(cell as never, String(submitted.opId), holder as never);
+    assert.equal(existsSync(decisionDir), false, "post-submit settlement prunes dir and nested empty shells");
+
+    const shownDecision = await cell.run(
+        { kind: "doc-show", path: `${decisionRelDir}/decision.md`, raw: true },
+        holder,
+      ),
+      shownMd = await cell.run({ kind: "doc-show", path: reportMdRel, raw: true }, holder),
+      shownJson = await cell.run({ kind: "doc-show", path: reportJsonRel, raw: true }, holder),
+      shownMeta = JSON.parse(String((await cell.run({ kind: "decision-show", decisionId }, holder)).evidence)).decision;
+    assert.equal(shownDecision.evidence, retiredDecisionBody);
+    assert.equal(shownMd.evidence, reportMdBody);
+    assert.equal(shownJson.evidence, reportJsonBody);
+    assert.equal(shownMeta.materializationState, "dematerialized_terminal");
+  });
+});
+
+test("terminal Decision held by task implements transitions to dematerialized_terminal when task cancels and clears dir", async () => {
+  await withCell("terminal-decision-held-release", async (cell, rootDir) => {
+    const taskId = "task_hold_release",
+      proposed = await cell.run(
+        decisionProposal("Held retirement", "Does task hold keep Decision until cancel?"),
+        holder,
+      );
+    await createTask(cell, taskId, "Holder task");
+    assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
+    const decisionId = String(JSON.parse(String(proposed.evidence)).decisionId),
+      decisionDir = path.join(rootDir, "harness", `decisions/decision-${decisionId}`),
+      accepted = await cell.run(
+        {
+          kind: "decision-accept",
+          decisionId,
+          rationale: "Accepted prior to Task hold.",
+          judgmentOnlyRationale: "Test fixture accepts on human authority.",
+        },
+        human,
+      );
+    assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
+    const held = await cell.run(
+      {
+        kind: "relation-relate",
+        sourceRef: `task/${taskId}`,
+        targetRef: `decision/${decisionId}`,
+        relationType: "implements",
+        rationale: "Active Task implements this Decision.",
+        expectedVersion: 0,
+      },
+      holder,
+    );
+    assert.equal(held.outcome, "applied", JSON.stringify(held));
+
+    const retired = await cell.run({ kind: "decision-transition", decisionId, targetState: "outcome_retired" }, holder);
+    assert.equal(retired.outcome, "applied", JSON.stringify(retired));
+    await waitForFixturePublication(cell as never, String(retired.opId), holder as never);
+    const heldDecision = JSON.parse(
+      String((await cell.run({ kind: "decision-show", decisionId }, holder)).evidence),
+    ).decision;
+    assert.equal(heldDecision.materializationState, "materialized");
+    const decisionBody = readFileSync(path.join(decisionDir, "decision.md"), "utf8");
+
+    const cancelled = await cell.run(
+      { kind: "task-transition", taskId, status: "cancelled", reason: "Release held Decision." },
+      holder,
+    );
+    assert.equal(cancelled.outcome, "applied", JSON.stringify(cancelled));
+    await waitForFixturePublication(cell as never, String(cancelled.opId), holder as never);
+
+    const releasedDecision = JSON.parse(
+      String((await cell.run({ kind: "decision-show", decisionId }, holder)).evidence),
+    ).decision;
+    assert.equal(releasedDecision.materializationState, "dematerialized_terminal");
+    assert.equal(existsSync(decisionDir), false, "releasing the last hold removes the Decision directory");
+    const recalled = await cell.run(
+      { kind: "doc-show", path: `decisions/decision-${decisionId}/decision.md`, raw: true },
+      holder,
+    );
+    assert.equal(recalled.evidence, decisionBody);
+  });
 });

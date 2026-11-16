@@ -343,6 +343,9 @@ export function resolveRuntimeResume(
       "reviewTarget",
       "dispatchKey",
       "providerSessionId",
+      "preferredRuntimeInstanceId",
+      "preferredModel",
+      "avoidVendor",
       "dryRun",
     ],
     unknownField = unknownFieldViolation(payload, allowed);

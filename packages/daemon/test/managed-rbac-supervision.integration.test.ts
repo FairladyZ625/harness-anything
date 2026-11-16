@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { once } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -23,15 +24,9 @@ async function availablePort() {
 async function exchange(port: number) {
   const socket = connect(port, "127.0.0.1");
   try {
-    await new Promise<void>((resolve, reject) => {
-      socket.once("connect", resolve);
-      socket.once("error", reject);
-    });
+    await once(socket, "connect", { signal: AbortSignal.timeout(5_000) });
     socket.write("hello");
-    const [chunk] = await new Promise<[Buffer]>((resolve, reject) => {
-      socket.once("data", (data: Buffer) => resolve([data]));
-      socket.once("error", reject);
-    });
+    const [chunk] = await once(socket, "data", { signal: AbortSignal.timeout(5_000) });
     return String(chunk);
   } finally {
     socket.destroy();

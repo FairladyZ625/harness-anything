@@ -7,6 +7,17 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
+import { writeFileSync } from "node:fs";
+import { makeTaskEventReader } from "@harness-anything/storage";
+import {
+  createRuntimeFixture,
+  eventuallyFile,
+  eventuallyNotification,
+  installIdentities,
+  run as runRuntimeCli,
+  runMaybe as runRuntimeCliMaybe,
+  seedTask,
+} from "./runtime-cli.fixtures.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
@@ -209,3 +220,71 @@ function runMaybe(
     stderr: result.stderr,
   };
 }
+
+test("Repository writes commit while an exit callback is still running", { timeout: 300_000 }, async (context) => {
+  const fixture = createRuntimeFixture(context);
+  installIdentities(fixture.parent, fixture.root, fixture.env);
+  const { parent, root, env } = fixture;
+  const { taskId, executionId } = seedTask(root, env, "notification-queue");
+  runRuntimeCli(root, env, ["task", "start", taskId, "--execution-id", executionId]);
+  const notificationStarted = path.join(root, ".notify-hold-started"),
+    notificationRelease = path.join(root, ".notify-hold-release"),
+    notificationFinished = path.join(root, ".notify-hold-finished");
+  const holdNotifier = writeProviderExecutable(
+    path.join(parent, "notify-hold"),
+    'const fs = require("node:fs"); fs.readFileSync(0, "utf8"); ' +
+      'const watcher = fs.watch(".", (_, filename) => { if (filename !== ".notify-hold-release") return; ' +
+      'watcher.close(); fs.writeFileSync(".notify-hold-finished", "finished\\n"); }); ' +
+      'fs.writeFileSync(".notify-hold-started", "started\\n");\n',
+  );
+  const queueNotification = runRuntimeCli(root, env, [
+    "agent",
+    "run",
+    "terra",
+    "--prompt",
+    "notification queue hold",
+    "--cwd",
+    ".",
+    "--task",
+    taskId,
+    "--detach",
+    "--on-exit",
+    holdNotifier,
+  ]);
+  const queueSettled = runRuntimeCliMaybe(root, env, [
+    "runtime",
+    "status",
+    String(queueNotification.runtimeSessionId),
+    "--wait",
+    "--no-stream",
+  ]);
+  assert.equal(queueSettled.status, 1, "the no-delivery worker settles stopped and its wait exits 1");
+  await eventuallyFile(notificationStarted);
+  runRuntimeCli(root, env, ["task", "start", taskId, "--execution-id", executionId]);
+  const revisionBefore = makeTaskEventReader({ repoId: "runtime-cli", rootDir: root }).readHead()?.revision ?? 0,
+    queueWrite = runRuntimeCli(root, env, [
+      "task",
+      "progress",
+      "append",
+      taskId,
+      "--text",
+      "Notification queue remained writable.",
+      "--evidence",
+      "test:reports/notification-queue.txt:write progressed while callback was active",
+    ]),
+    revisionAfter = makeTaskEventReader({ repoId: "runtime-cli", rootDir: root }).readHead()?.revision ?? 0;
+  assert.ok(revisionAfter > revisionBefore, `${revisionBefore} -> ${revisionAfter}`);
+  assert.equal(
+    existsSync(notificationFinished),
+    false,
+    "the notification must still be executing when the repo write commits",
+  );
+  writeFileSync(notificationRelease, "release\n");
+  const queueNotificationTrace = await eventuallyNotification(root, String(queueNotification.dispatchId));
+  assert.equal(queueNotificationTrace.started?.phase, "started");
+  assert.equal(queueNotificationTrace.finished?.timedOut, false);
+  assert.equal(existsSync(notificationFinished), true);
+  context.diagnostic(
+    `notification queue concurrency: ${JSON.stringify({ revisionBefore, revisionAfter, writeReceiptRevision: queueWrite.revision, notifierStillRunningAtCommit: true })}`,
+  );
+});

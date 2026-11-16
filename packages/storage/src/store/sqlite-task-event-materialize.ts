@@ -10,6 +10,8 @@ import {
 import { isTaskBootstrapEvent } from "@harness-anything/kernel/internal/domain/task-bootstrap-event.ts";
 import type { LedgerCutIdentity } from "@harness-anything/kernel/internal/domain/write-chain.contract.ts";
 import type { HarnessLayout } from "@harness-anything/kernel/internal/layout/index.ts";
+import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
+import { decisionDirectoryFiles } from "./decision-directory-settlement.ts";
 import { ledgerAuthoredPath, ledgerGitPath, type LedgerGitLayout } from "./ledger-git-layout.ts";
 import { localGitObjectRefStore, localGitWorktreeSettlement } from "./local-version-control-system.ts";
 import { openSqliteEventStore } from "./sqlite-event-store.ts";
@@ -45,6 +47,7 @@ export interface MaterializeStoreContext {
     afterRevision?: number,
     expectedRevision?: number,
     previouslyMaterializedPaths?: readonly string[],
+    reconcileNodePolicy?: boolean,
   ) =>
     | readonly {
         readonly path: string;
@@ -97,7 +100,7 @@ export function planFollowerSettlement(
   const eligible = files.filter((file) => {
     const target = "target" in file ? file.target : file.delete,
       settled = settledFingerprint(file);
-    if (!restoreMissing && baseline.get(target) === settled) return false;
+    if (!restoreMissing && baseline.get(target) === settled && permitted.get(target) === settled) return false;
     const current = worktreeFingerprint(localGitWorktreeSettlement.readNode(`${currentLedger.rootDir}/${target}`));
     if (current === "missing" && (restoreMissing || !permitted.has(target))) permitted.set(target, "missing");
     if (current === settled) return false;
@@ -150,7 +153,13 @@ export function closureFiles(
   from: number,
   includePolicySkippedPaths: readonly string[] = [],
   skipUnchanged = false,
-): { readonly events: readonly CanonicalEventV1[]; readonly files: readonly (PublicationWrite | PublicationDelete)[] } {
+  reconcileNodePolicy = false,
+  preserveExistingOnly = false,
+): {
+  readonly events: readonly CanonicalEventV1[];
+  readonly files: readonly (PublicationWrite | PublicationDelete)[];
+  readonly recoveredBaseline?: ReadonlyMap<string, string>;
+} {
   const pending = from === 0 ? [] : readPendingEvents(context.sqlite, from);
   // Creation owns a new planned package, included by both disk-enabled node policies.
   // The append boundary already validates its claims; no prior terminal owner can be released.
@@ -185,15 +194,34 @@ export function closureFiles(
             .map(({ target }) => ledgerAuthoredPath(currentLedger, target))
         : [],
     unchangedPaths = new Set(skipUnchanged ? existingPaths : []),
+    existingPathSet = new Set(existingPaths),
+    recoveredBaseline = new Map<string, string>(),
     previouslyMaterializedManagedPaths =
       context.readMaterializationDocuments && from === 0
         ? existingPaths.filter((path) => projectionManagedPath(path) && context.sqlite.documentHead(path) !== undefined)
         : [];
+  if (context.readMaterializationDocuments && from === 0) {
+    for (const logical of decisionDirectoryFiles(context.layout().decisionsRoot)) {
+      if (existingPathSet.has(logical)) continue;
+      const head = context.sqlite.documentHead(logical, true);
+      if (!head || head === "retired") continue;
+      const target = ledgerGitPath(currentLedger, logical),
+        node = localGitWorktreeSettlement.readNode(`${currentLedger.rootDir}/${target}`);
+      if (!node || node.mode !== "100644") continue;
+      const matches =
+        node.sha256 === head.sha256 ||
+        (logical.endsWith(".md") && sha256Text(node.body.replace(/\r\n?/gu, "\n")) === head.sha256);
+      if (!matches) continue;
+      previouslyMaterializedManagedPaths.push(logical);
+      recoveredBaseline.set(target, worktreeFingerprint(node));
+    }
+  }
   const projectionDocuments = context.readMaterializationDocuments?.(
     includePolicySkippedPaths,
     from > 0 ? from : undefined,
     accepted.revision,
     previouslyMaterializedManagedPaths,
+    reconcileNodePolicy,
   );
   if (context.readMaterializationDocuments && projectionDocuments === null)
     throw new TaskEventStoreError(
@@ -202,15 +230,18 @@ export function closureFiles(
     );
   if (projectionDocuments !== undefined && projectionDocuments !== null) {
     const events = pending,
+      previousPaths = new Set(previouslyMaterializedManagedPaths),
       indexed = new Map(
-        projectionDocuments.map((document) => [
-          document.path,
-          {
-            sha256: document.retired ? null : document.blobSha256,
-            size: document.retired ? null : document.size,
-            nodeKind: "file" as const,
-          },
-        ]),
+        projectionDocuments
+          .filter((document) => !preserveExistingOnly || previousPaths.has(document.path))
+          .map((document) => [
+            document.path,
+            {
+              sha256: document.retired ? null : document.blobSha256,
+              size: document.retired ? null : document.size,
+              nodeKind: "file" as const,
+            },
+          ]),
       ),
       staleManagedHeads = previouslyMaterializedManagedPaths
         .filter((path) => !indexed.has(path))
@@ -237,7 +268,7 @@ export function closureFiles(
       accepted,
       context.sqlite.metadata().generation,
     );
-    return { events: from === 0 ? bootstrapBaselineEvents(context, files) : events, files };
+    return { events: from === 0 ? bootstrapBaselineEvents(context, files) : events, files, recoveredBaseline };
   }
   if (from === 0) {
     const files = followerFilesFromDocumentHeads(

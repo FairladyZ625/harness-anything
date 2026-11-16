@@ -7,7 +7,6 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { after } from "node:test";
 import path from "node:path";
 import { makeTaskEventReader, openSqliteEventStore } from "@harness-anything/storage";
 import {
@@ -118,6 +117,25 @@ function git(root: string, ...args: string[]): string {
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
+let cachedReviewRepoTemplate: string | null = null;
+function getReviewRepoTemplate(): string {
+  if (cachedReviewRepoTemplate) return cachedReviewRepoTemplate;
+  const templateRoot = mkdtempSync(path.join(tmpdir(), "ha-review-git-template-"));
+  git(templateRoot, "init", "-q", "-b", "main");
+  git(templateRoot, "config", "user.name", "Completion Review Test");
+  git(templateRoot, "config", "user.email", "review@example.invalid");
+  git(templateRoot, "commit", "--allow-empty", "-qm", "test: base");
+  git(templateRoot, "update-ref", "refs/remotes/origin/main", git(templateRoot, "rev-parse", "HEAD"));
+  writeFileSync(path.join(templateRoot, "README.md"), "# Reviewed delivery\n");
+  git(templateRoot, "add", "README.md");
+  git(templateRoot, "commit", "-qm", "docs: fixture delivery");
+  cachedReviewRepoTemplate = templateRoot;
+  process.once("exit", () => {
+    rmSync(templateRoot, { recursive: true, force: true });
+  });
+  return templateRoot;
+}
+
 function boundWorktree(root: string): string {
   const entries = git(root, "worktree", "list", "--porcelain").split("\n\n");
   const pathLine = entries
@@ -126,27 +144,6 @@ function boundWorktree(root: string): string {
   assert.ok(pathLine, `expected a task worktree for ${root}`);
   return path.resolve(pathLine.slice("worktree ".length));
 }
-// The immutable Git baseline has no worktrees, dependencies or open database handles.
-// Copy it into each independent scenario instead of spawning seven identical setup commands.
-let baseRepository: string | undefined;
-after(() => {
-  if (baseRepository) rmSync(baseRepository, { recursive: true, force: true });
-});
-function prepareRepository(root: string): void {
-  if (!baseRepository) {
-    baseRepository = mkdtempSync(path.join(tmpdir(), "ha-completion-base-"));
-    git(baseRepository, "init", "-q", "-b", "main");
-    git(baseRepository, "config", "user.name", "Completion Review Test");
-    git(baseRepository, "config", "user.email", "review@example.invalid");
-    git(baseRepository, "commit", "--allow-empty", "-qm", "test: base");
-    git(baseRepository, "update-ref", "refs/remotes/origin/main", git(baseRepository, "rev-parse", "HEAD"));
-    writeFileSync(path.join(baseRepository, "README.md"), "# Reviewed delivery\n");
-    git(baseRepository, "add", "README.md");
-    git(baseRepository, "commit", "-qm", "docs: fixture delivery");
-  }
-  cpSync(baseRepository, root, { recursive: true });
-}
-
 export async function fixture(
   failProvider: boolean | number = false,
   available = true,
@@ -206,7 +203,7 @@ export async function fixture(
       models: [row.model],
       defaultModel: row.model,
     }));
-  prepareRepository(root);
+  cpSync(getReviewRepoTemplate(), root, { recursive: true, force: true });
   const launches: {
       prompt: string;
       instanceId: string;
@@ -358,7 +355,7 @@ export async function fixture(
           onExit: (listener) => {
             pending.exit = (code) => {
               pending.exit = undefined;
-              void runtime.terminateTree().then(() => listener(code));
+              listener(code);
             };
             if (remainingProviderFailures > 0) {
               remainingProviderFailures -= 1;

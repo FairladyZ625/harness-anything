@@ -124,6 +124,11 @@ test("historical Decision amendments replay when a legacy appended claim carries
       currentDocument: { blobSha256: proposalEvent.payload.decisionDocumentClaim.sha256, body: compiledProposal.body },
     });
     assert.doesNotThrow(() => reduceDecisionEvent(db, compiledAmendment.event));
+    assert.deepEqual(
+      readDecisionDocumentState(db, decisionId)?.appliesTo,
+      current.appliesTo,
+      "historical amendment snapshots cannot reset the scope",
+    );
     assert.deepEqual(readDecisionDocumentState(db, decisionId)?.claims.at(-1), {
       id: "C2",
       text: "The historical amendment carried fulfillment.",

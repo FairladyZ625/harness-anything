@@ -1,3 +1,5 @@
+import { daemonWriterSupportsCommitPhase } from "@harness-anything/storage";
+import { createWriterRequestQueue } from "./writer-request-queue.ts";
 import { labelWorkerMemory } from "./daemon-diagnostics-memory.ts";
 import { writerLifecyclePolicy } from "@harness-anything/kernel/internal/domain/writer-lifecycle-policy.ts";
 import { fleetBaseBackupTrace, prepareStorageWorkerContext } from "@harness-anything/storage";
@@ -83,12 +85,17 @@ export async function openWriterSupervisor(
         readonly transferList?: readonly import("node:worker_threads").MessagePort[];
       },
     ) => Worker;
+    readonly rollbackGraceMs?: number;
+    readonly syncRepDrainGraceMs?: number;
+    readonly requestTimeoutMs?: number;
+    readonly onWarning?: (warning: { event: string; repoId: string; opId: string; code?: string }) => void;
     readonly onAttachStatus?: (status: RepoCellStatus) => void;
     readonly onPublishedStatus?: (status: RepoCellStatus) => void;
   } = {},
 ): Promise<WriterSupervisor> {
   const instanceScheduling = input.runtimeInstanceDispatchState ?? createRuntimeInstanceDispatchState();
-  let writerGeneration = 0,
+  let stagedWriteSlot = false,
+    writerGeneration = 0,
     users = 0,
     retiring = false,
     idleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -138,18 +145,40 @@ export async function openWriterSupervisor(
       { readonly publish: (message: RepoWriterFleetBaseBackupTraceV1) => void; span?: { repoId: string | null } }
     >();
 
+  const writes = createWriterRequestQueue({
+    repoId: input.repoId,
+    abortInFlightOnClose: options.canonicalStore !== undefined || daemonWriterSupportsCommitPhase(input.storage),
+    rollbackGraceMs: options.rollbackGraceMs,
+    syncRepDrainGraceMs: options.syncRepDrainGraceMs,
+    requestTimeoutMs: options.requestTimeoutMs,
+    warn: options.onWarning,
+    terminateAborted: async (error) => {
+      const active = worker;
+      worker = null;
+      if (active) expectedExits.add(active);
+      ready = (async () => {
+        if (active) await active.terminate();
+        if (!closed) await startWriterWorker();
+      })();
+      failActive(error);
+      await ready;
+    },
+  });
+
   ready = startWriterWorker();
   await ready;
   opened = true;
   armIdle();
 
-  const supervisor: WriterSupervisor = {
+  const supervisor = {
     request: async <T>(
       method: RepoWriterRequestV1["method"],
       payload: unknown,
-      binding?: RepoCellBinding,
-      signal?: AbortSignal,
-    ) => {
+      binding: RepoCellBinding | undefined,
+      signal: AbortSignal | undefined,
+      requestId: string,
+      markDispatched: () => void,
+    ): Promise<T> => {
       const publishFleetBackupTrace =
         method === "fleetBackup"
           ? AsyncResource.bind((message: RepoWriterFleetBaseBackupTraceV1) => {
@@ -175,8 +204,7 @@ export async function openWriterSupervisor(
       if (signal?.aborted) throw abortError(signal);
       const storeAbort = method === "canonicalStore" ? new AbortController() : undefined,
         operation = captureDaemonOperation();
-      const requestId = randomUUID(),
-        serializedBinding = binding ? serializableRepoCellBinding(binding) : undefined,
+      const serializedBinding = binding ? serializableRepoCellBinding(binding) : undefined,
         request: RepoWriterRequestV1 = {
           schema: "harness-repo-writer-request/v1",
           protocolVersion: REPO_WRITER_PROTOCOL_VERSION,
@@ -185,6 +213,9 @@ export async function openWriterSupervisor(
           payload,
           ...(serializedBinding ? { binding: serializedBinding } : {}),
           writerEpoch: serializedBinding?.writerEpochFence ?? null,
+          ...(writes.active()?.requestId === requestId
+            ? { writeRequest: { state: writes.active()!.state, id: writes.active()!.id } }
+            : {}),
         };
       status = { ...status, queueDepth: (status.queueDepth ?? 0) + 1 };
       return await new Promise<T>((resolve, reject) => {
@@ -215,6 +246,7 @@ export async function openWriterSupervisor(
             method === "presetRun" && (payload as { action: { kind: string } }).action.kind === "preset-run-start",
         });
         try {
+          markDispatched();
           worker!.postMessage(request);
           if (signal?.aborted) cancel();
         } catch (error) {
@@ -228,7 +260,7 @@ export async function openWriterSupervisor(
         }
       });
     },
-    control: async (command) => {
+    control: async (command: Exclude<RepoWriterControlV1["command"], "hibernate">) => {
       users++;
       clearTimeout(idleTimer);
       try {
@@ -239,33 +271,25 @@ export async function openWriterSupervisor(
         armIdle();
       }
     },
-    status: () => statusWithCurrentRetryElapsed(status, statusObservedAt),
+    status: () => ({
+      ...statusWithCurrentRetryElapsed(status, statusObservedAt),
+      queueDepth: Math.max(status.queueDepth ?? 0, writes.depth()),
+    }),
     bootstrapReceipt: () => publishedBootstrapReceipt,
     ledgerCut: () => publishedLedgerCut,
     close: async () => {
       if (closed) return;
       closed = true;
       clearTimeout(idleTimer);
-      for (const operation of pending.values()) operation.storeAbort?.abort(new Error("RepoWriterCell closed"));
-      try {
-        await ready;
-        if (worker) {
-          expectedExits.add(worker);
-          await sendControl("drain", true);
-        }
-      } finally {
-        const active = worker;
-        worker = null;
-        closeFleetBackupTrace();
-        if (active) await active.terminate();
-        for (const operation of pending.values()) {
-          operation.cleanup();
-          operation.reject(new Error("RepoWriterCell closed"));
-        }
-        pending.clear();
-        sessionTokens.clear();
-        status = { ...status, state: "closed", queueDepth: 0 };
+      const drained = await writes.close();
+      if (!drained && writes.active()) {
+        // Keep SyncRep's connection alive after bounded close; retire only after its real receipt.
+        worker?.unref();
+        void writes.active()!.done.promise.then(finishClose);
+        status = { ...status, state: "closed" };
+        return;
       }
+      await finishClose();
     },
   };
 
@@ -280,13 +304,48 @@ export async function openWriterSupervisor(
       users++;
       clearTimeout(idleTimer);
       try {
-        return await supervisor.request<T>(method, payload, binding, signal);
+        const opId = (payload as { opId?: string } | null)?.opId ?? `op_${randomUUID()}`;
+        return await writes.request<T>(
+          randomUUID(),
+          opId,
+          signal,
+          stagedWriteSlot && method !== "canonicalStore",
+          AsyncResource.bind(
+            (admitted) =>
+              supervisor.request<T>(
+                method,
+                payload,
+                binding,
+                admitted.abort.signal,
+                admitted.requestId,
+                admitted.markDispatched,
+              ),
+            "harness-repo-writer-request",
+          ),
+        );
       } finally {
         users--;
         armIdle();
       }
     },
   };
+
+  async function finishClose(): Promise<void> {
+    try {
+      await ready;
+      if (worker) {
+        expectedExits.add(worker);
+        await sendControl("drain", true);
+      }
+    } finally {
+      const active = worker;
+      worker = null;
+      closeFleetBackupTrace();
+      if (active) await active.terminate();
+      failActive(new Error("RepoWriterCell closed"));
+      status = { ...status, state: "closed", queueDepth: 0 };
+    }
+  }
 
   function startWriterWorker(): Promise<void> {
     if (closed) return Promise.reject(new Error("WriterSupervisor is closed"));
@@ -373,6 +432,7 @@ export async function openWriterSupervisor(
           status = { ...status, queueDepth: Math.max(0, (status.queueDepth ?? 1) - 1) };
           if (message.outcome === "ok") operation.resolve(message.value);
           else operation.reject(deserializeWriterError(message.error!));
+          armIdle();
           return;
         }
         if (isStatus(message)) {
@@ -410,6 +470,7 @@ export async function openWriterSupervisor(
             input.onBootstrap?.(message.bootstrapReceipt as never);
           }
           if (message.kind === "ready") {
+            stagedWriteSlot = message.stagedWriteSlot === true;
             restartAttempt = 0;
             settled = true;
             clearTimeout(readyWatchdog);
@@ -451,7 +512,10 @@ export async function openWriterSupervisor(
           reject(error);
         }
         closeFleetBackupTrace();
-        if (expectedExits.has(candidate)) return;
+        if (expectedExits.has(candidate)) {
+          writes.workerExited(error);
+          return;
+        }
         failActive(error);
         if (!closed) {
           status = {
@@ -470,6 +534,7 @@ export async function openWriterSupervisor(
             timer.unref?.();
           });
         }
+        writes.workerExited(error);
       });
     });
   }
@@ -586,6 +651,22 @@ export async function openWriterSupervisor(
 
   async function capabilityValue(call: RepoWriterCapabilityCallV1): Promise<unknown> {
     switch (call.capability) {
+      case "writeQueued":
+        writes.queued((call.payload as { requestId: string }).requestId);
+        return;
+      case "acquireWriteSlot": {
+        const slot = await writes.acquire((call.payload as { requestId?: string }).requestId);
+        return { state: slot.state, id: slot.id };
+      }
+      case "releaseWriteSlot":
+        writes.release((call.payload as { slotId: number }).slotId);
+        return;
+      case "writeOperation": {
+        const { requestId, slotId, opId } = call.payload as { requestId?: string; slotId?: number; opId: string };
+        const slot = writes.active();
+        if (slot && (slotId === undefined ? slot.requestId === requestId : slot.id === slotId)) slot.opId = opId;
+        return;
+      }
       case "canonicalStore": {
         if (!options.canonicalStore || call.sync)
           throw new Error("Writer canonical store capability requires an async host");

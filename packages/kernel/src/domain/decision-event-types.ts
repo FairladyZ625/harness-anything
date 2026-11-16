@@ -88,6 +88,8 @@ export interface DecisionProposalPayload {
   readonly provenance: readonly SessionProvenanceV1[];
 }
 export interface DecisionAmendableSnapshot {
+  /** Absent on historical amendment snapshots; omission preserves the current scope during replay. */
+  readonly appliesTo?: DecisionProposalPayload["appliesTo"];
   readonly title: string;
   readonly decisionClass: "ordinary" | "standing_policy";
   readonly chosen: DecisionProposalPayload["chosen"];

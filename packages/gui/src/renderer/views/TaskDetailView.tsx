@@ -1,3 +1,4 @@
+import { TaskMaterializationControl } from "../components/taskDetail/TaskMaterializationControl.tsx";
 import { TabPanel } from "../components/primitives/EntryBoundary.tsx";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, CaretRight, ChatCircleDots, PushPin, TerminalWindow } from "@phosphor-icons/react";
@@ -12,7 +13,7 @@ import {
   TaskDispatchTab,
   TaskEvidenceTab,
   TaskOverviewTab,
-  TaskTimelineRegion,
+  TaskCausalTimeline,
 } from "../components/taskDetail/TaskDetailSections.tsx";
 import { TaskAssignmentPanel } from "../components/taskDetail/TaskAssignmentPanel.tsx";
 import { TaskCloseoutTab } from "../components/taskDetail/TaskCloseoutTab.tsx";
@@ -38,6 +39,7 @@ import { AwaitsAskStrip } from "../components/AwaitsAskStrip.tsx";
 // 标签栏用 primitives/Tabs(下划线式),不再各写一套 pill。
 const tabs = [
   { id: "overview", labelKey: "views.taskDetailView.tabOverview" },
+  { id: "timeline", labelKey: "views.taskDetailView.tabTimeline" },
   { id: "dispatch", labelKey: "views.taskDetailView.tabDispatch" },
   { id: "evidence", labelKey: "views.taskDetailView.tabEvidence" },
   { id: "relations", labelKey: "views.taskDetailView.tabRelations" },
@@ -272,6 +274,7 @@ export function TaskDetailView({
           </h1>
           <span className="flex shrink-0 items-center gap-2 whitespace-nowrap">
             <StatusTag status={task.coordinationStatus} />
+            {!external && <TaskMaterializationControl repoId={task.projectId} taskId={task.taskId} />}
             <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />
           </span>
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -443,8 +446,7 @@ export function TaskDetailView({
         <AwaitsAskStrip repoId={repoId} sourceRef={`task/${task.taskId}`} onNavigateEntity={onNavigateEntity} />
       ) : null}
 
-      {/* 停靠分屏(task_033760e2…):文件|正文|时间线三块都是页级区域,标题把手可拖到
-          另一区域的边缘半区分屏,布局按连接+仓记忆;默认文件树 22%,时间线叠在正文下方。 */}
+      {/* CH1: files and content are permanent docks; settled prunes the retired timeline leaf from saved layouts. */}
       <main className="@container flex min-h-0 flex-1 overflow-hidden p-1">
         <PageRegions
           connectionId={connectionId}
@@ -452,7 +454,8 @@ export function TaskDetailView({
           slot="task-detail-docs"
           testId="task-detail-content-grid"
           defaultRatio={0.22}
-          columns={[["files"], ["content", "timeline"]]}
+          columns={[["files"], ["content"]]}
+          settled={true}
           regions={[
             {
               id: "files",
@@ -496,6 +499,17 @@ export function TaskDetailView({
                         connectionId={connectionId}
                         task={task}
                         onOpenCloseout={() => selectTab("closeout")}
+                        onOpenTimeline={() => selectTab("timeline")}
+                      />
+                    ) : activeTab === "timeline" ? (
+                      <TaskCausalTimeline
+                        key={task.taskId}
+                        task={task}
+                        tasks={tasks}
+                        onOpenRecord={openCloseoutRecord}
+                        onNavigateEntity={onNavigateEntity}
+                        onOpenSession={openSession}
+                        onFocusGraph={onFocusGraph}
                       />
                     ) : activeTab === "dispatch" ? (
                       <>
@@ -555,25 +569,6 @@ export function TaskDetailView({
                 </div>
               ),
             },
-            ...((task.events ?? []).length > 0 ||
-            (task.blockers ?? []).length > 0 ||
-            task.activeExecutionId !== undefined
-              ? [
-                  {
-                    id: "timeline",
-                    title: t("components.pageRegions.timeline"),
-                    testId: "task-progress-timeline",
-                    content: (
-                      <TaskTimelineRegion
-                        task={task}
-                        onOpenRecord={openCloseoutRecord}
-                        onNavigateEntity={onNavigateEntity}
-                        onOpenSession={openSession}
-                      />
-                    ),
-                  },
-                ]
-              : []),
           ]}
         />
       </main>

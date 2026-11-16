@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { openRuntimeInstanceStore } from "../src/agent-runtime-instance-store.ts";
 import { runtimeInstanceConfig } from "../src/agent-runtime-instance-config.ts";
-import { launchEnvironment } from "../src/agent-runtime-launch-config.ts";
+import { isolatedEnvironment, launchEnvironment } from "../src/agent-runtime-launch-config.ts";
 import { runtimeKindForId, supportsRuntimeSubscriptionMultiAccountIsolation } from "../src/runtime-inventory.ts";
 import type { RuntimeInstallationWitness } from "../src/agent-runtime-instance-types.ts";
 import { codedAs } from "./agent-runtime-instance-environment.fixture.ts";
@@ -175,6 +175,47 @@ test("Codex ACP enforces file storage over session config overrides only for iso
       .cli_auth_credentials_store,
     "keyring",
   );
+});
+
+test("AGY and AGY ACP enforce file token storage in isolatedEnvironment without leaking SSH_CONNECTION to other kinds", () => {
+  const source: NodeJS.ProcessEnv = {
+      PATH: "/opt/test/bin",
+      LANG: "C.UTF-8",
+      SSH_CONNECTION: "host-ssh-session",
+    },
+    stateRoot = "/tmp/ha-agy-isolation";
+  for (const platform of ["darwin", "linux", "win32"] as const) {
+    for (const kindId of ["agy", "agy-acp"] as const) {
+      assert.equal(isolatedEnvironment(source, stateRoot, kindId, platform).SSH_CONNECTION, "127.0.0.1 0 127.0.0.1 22");
+    }
+    for (const kindId of [
+      "claude",
+      "claude-acp",
+      "codex",
+      "codex-acp",
+      "zcode",
+      "devin",
+      "opencode",
+      "minimax-code",
+    ] as const) {
+      assert.equal(isolatedEnvironment(source, stateRoot, kindId, platform).SSH_CONNECTION, undefined);
+    }
+  }
+  const agyOperatorConfig = runtimeInstanceConfig({
+    schemaVersion: 2,
+    instanceId: "agy-operator-env",
+    name: "AGY Operator Env",
+    kindId: "agy",
+    installationId: "agy-installation",
+    providerId: "google",
+    models: ["gemini-4-hydrogen-low"],
+    defaultModel: "gemini-4-hydrogen-low",
+    enabled: true,
+    isolationState: "operator-environment",
+    auth: { mode: "subscription" },
+    agy: {},
+  });
+  assert.equal(launchEnvironment(agyOperatorConfig, { PATH: "/opt/test/bin" }).SSH_CONNECTION, undefined);
 });
 
 test("ACP account probes use native login status and record catalogs from the isolated environment", async () => {

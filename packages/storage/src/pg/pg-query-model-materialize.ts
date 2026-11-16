@@ -631,7 +631,7 @@ export async function initializePgTerminalMaterialization(
   scope: PgProjectionScope,
   revision: number,
 ): Promise<void> {
-  if (!(await getPgProjectionValue(client, scope, "materialization-index", "v1"))) {
+  if (!(await getPgProjectionValue(client, scope, "materialization-index", "v2"))) {
     const rows = await client.query<{ ref: string }>(
       `SELECT 'fact/'||fact_id AS ref FROM ha_facts WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
       UNION ALL SELECT 'decision/'||decision_id FROM ha_decisions WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
@@ -641,7 +641,7 @@ export async function initializePgTerminalMaterialization(
     const refs = rows.rows.map(({ ref }) => ref),
       candidates = await refreshPgMaterializationHolds(client, scope, refs, revision);
     await settlePgMaterializationCandidates(client, scope, candidates, revision);
-    await putPgProjectionValue(client, scope, "materialization-index", "v1", "", revision, { version: 1 });
+    await putPgProjectionValue(client, scope, "materialization-index", "v2", "", revision, { version: 2 });
   }
   if (await getPgProjectionValue(client, scope, "materialization-index", "history-v1")) return;
   const missing = await client.query<{ fact_id: string; workspace_revision: string; readers: string[] }>(

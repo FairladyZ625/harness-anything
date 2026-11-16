@@ -3,6 +3,10 @@
   "gateId": "check-fallback-boundaries",
   "baseline": "Existing CH4 fallback exits are ratcheted here; remove a key when the corresponding production exit is deleted.",
   "rationales": {
+    "packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#submit": {"task": "task_0e1d9f41b62c51a1f78809f6d9", "decision": "dec_13B7B846B56BFA192533011B91", "errors": "GUI bridge/read/write/runtime rejection shown to the caller", "reason": "Write or receipt-read rejection is displayed verbatim. After an applied answer, continuation errors stay in their separate visible spawn state; neither the durable answer nor incident closure is replayed."},
+    "packages/gui/src/renderer/views/agenda/AgendaOutboxActions.tsx#archive": {"task": "task_0e1d9f41b62c51a1f78809f6d9", "decision": "dec_9C43012EBB2754D7112F618F0D", "errors": "GUI bridge/read/write/runtime rejection shown to the caller", "reason": "Archive RPC failures are displayed on the selected card. The queue refreshes only after an applied receipt; no local signed-off state or replacement successful result is produced."},
+    "packages/gui/src/renderer/views/agenda/AgendaOutboxActions.tsx#create": {"task": "task_0e1d9f41b62c51a1f78809f6d9", "decision": "dec_9C43012EBB2754D7112F618F0D", "errors": "GUI bridge/read/write/runtime rejection shown to the caller", "reason": "Follow-up creation failures are displayed on the selected card; no task link is synthesized and no replacement task or fallback parent is created."},
+    "packages/gui/src/renderer/views/agenda/useAgendaContinuation.ts#run": {"task": "task_0e1d9f41b62c51a1f78809f6d9", "decision": "dec_9C43012EBB2754D7112F618F0D", "errors": "GUI bridge/read/write/runtime rejection shown to the caller", "reason": "Dispatch-read and runtime-spawn errors are preserved as visible continuation failures with an explicit retry. They never change an applied answer into a failed answer, replay its write, or substitute a successful runtime receipt."},
     "packages/daemon/src/fleet/replica-sync.ts#confirm": {
       "task": "task_aceaabaedfedcf9cb062ccf883",
       "decision": "dec_9284BD6119D453EEECEED62450",
@@ -413,7 +417,11 @@
       "packages/storage/src/pglite/query-owner-worker.ts#startOwner",
       "packages/storage/src/pglite/query-owner-worker.ts#connect",
       "packages/storage/src/pglite/query-owner-worker.ts#dispatch",
-      "packages/daemon/src/agent-runtime-web-search.ts#readCodexManagedPolicyTexts"
+      "packages/daemon/src/agent-runtime-web-search.ts#readCodexManagedPolicyTexts",
+      "packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#submit",
+      "packages/gui/src/renderer/views/agenda/AgendaOutboxActions.tsx#archive",
+      "packages/gui/src/renderer/views/agenda/AgendaOutboxActions.tsx#create",
+      "packages/gui/src/renderer/views/agenda/useAgendaContinuation.ts#run"
     ],
     "fullHistoryScans": [
       {

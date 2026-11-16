@@ -172,6 +172,35 @@ export const entityDeclarationGuiActions = Object.freeze([
 /** 任务收口的 GUI 写入 ingress:与 `ha task complete` 同一个 fleet `task-complete` 动作。放在这里
  * 而不是注册表文件,沿用 43aa1a51e9 的做法,让 `daemon-protocol-gui-actions.ts` 维持在 G0-5 基线内。 */
 export const taskCompletionGuiActions = Object.freeze([
+  // dec_9C43012EBB2754D7112F618F0D / dec_13B7B846B56BFA192533011B91:
+  // named GUI ingresses only; admission and persistence remain in the canonical actions.
+  guiAction(
+    "task.archive",
+    "repo.task.archive",
+    "task-archive",
+    shape({ taskIds: "array", reason: "string" }),
+    "archiveTasks",
+    "/api/tasks/archive",
+    "repo-write",
+  ),
+  guiAction(
+    "agentRuntime.incidentDismiss",
+    "repo.agentRuntime.incidentDismiss",
+    "runtime-incident-dismiss",
+    shape({ dispatchId: "string", reason: "string" }),
+    "dismissRuntimeIncident",
+    "/api/runtime/incidents/dismiss",
+    "repo-write",
+  ),
+  guiAction(
+    "task.escalationResolve",
+    "repo.task.escalationResolve",
+    "task-escalation-resolve",
+    shape({ taskId: "string", dispatchId: "string", answer: "string" }),
+    "resolveTaskEscalation",
+    "/api/tasks/:taskId/escalation/resolve",
+    "repo-write",
+  ),
   // Pure passthrough of the fleet `task-complete` action: completion is mechanical — the
   // review verdict and the owner's consent are separate explicit actions, never complete flags.
   guiAction(
@@ -225,6 +254,15 @@ const reworkFields = Object.fromEntries(
 ) as RpcShape["fields"];
 
 export const taskReworkGuiActions = Object.freeze([
+  guiAction(
+    "task.materialize",
+    "repo.task.materialize",
+    "doc-materialize",
+    shape({ taskId: "string" }),
+    "materializeTask",
+    "/api/tasks/:taskId/materialize",
+    "repo-write",
+  ),
   guiAction(
     "task.show",
     "repo.task.show",

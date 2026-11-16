@@ -44,7 +44,16 @@ export async function measureDecisionCollection(rootDir, size, actionKind, dimen
       vertical: "software/coding",
       preset: "standard-task",
       decisionClass: "ordinary",
-      appliesTo: { modules: ["daemon"], productLines: [] },
+      appliesTo: {
+        modules:
+          dimension === "scope"
+            ? counted(
+                Array.from({ length: size }, (_, i) => `module-${i}`),
+                counts,
+              )
+            : ["daemon"],
+        productLines: [],
+      },
       chosen: [{ id: "CH1", text: "Measure member visits." }],
       rejected: [{ id: "RJ1", text: "Trust elapsed time.", whyNot: "Shared runners are noisy." }],
       claims,
@@ -142,8 +151,28 @@ export async function measureDecisionCollection(rootDir, size, actionKind, dimen
   };
   try {
     assert.ok(commands[contract.id], `missing Decision command fixture: ${actionKind}`);
-    const draft = contract.execution.compile({
-        action: { kind: actionKind, decisionId: current.decisionId, ...commands[contract.id] },
+    const { prepareDecisionAmend } =
+        dimension === "scope"
+          ? await import(pathToFileURL(path.join(rootDir, "packages/daemon/src/decision-surface-actions.ts")).href)
+          : {},
+      action =
+        dimension === "scope"
+          ? prepareDecisionAmend(
+              {
+                kind: actionKind,
+                decisionId: current.decisionId,
+                reason: "Measured scope amendment.",
+                sets: [
+                  `applies_to:${JSON.stringify({ modules: [], productLines: Array.from({ length: size }, (_, i) => `product-${i}`) })}`,
+                ],
+                appends: [],
+                fulfillments: [],
+              },
+              current,
+            )
+          : { kind: actionKind, decisionId: current.decisionId, ...commands[contract.id] },
+      draft = contract.execution.compile({
+        action,
         actor,
         source: "local",
         session: { runtime: "unavailable", sessionId: null, transcriptReachability: "unavailable" },
@@ -166,8 +195,8 @@ export async function measureDecisionCollection(rootDir, size, actionKind, dimen
   return { size, counts };
 }
 
-export const DECISION_PROBES = Object.freeze(
-  Object.fromEntries(
+export const DECISION_PROBES = Object.freeze({
+  ...Object.fromEntries(
     getEntityKindContract("decision")
       .actionCatalog.actions.filter(
         ({ execution, id }) => execution?.compile && !["assign", "unassign", "reckon"].includes(id),
@@ -181,4 +210,9 @@ export const DECISION_PROBES = Object.freeze(
         },
       ]),
   ),
-);
+  "decision-amend:scope": {
+    action: "decision-amend",
+    dimension: "scope",
+    run: (root, n) => measureDecisionCollection(root, n, "decision-amend", "scope"),
+  },
+});

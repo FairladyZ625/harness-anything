@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { readRuntimeAttemptChain } from "./runtime-attempt-read.ts";
 import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { makeTaskLifecycleService } from "@harness-anything/application/internal/task-lifecycle-service";
@@ -112,6 +113,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
     afterRevision?: number,
     expectedRevision?: number,
     previouslyMaterializedPaths?: readonly string[],
+    reconcileNodePolicy?: boolean,
   ) => {
     if (!projection) return null;
     materializationReader ??= makeTaskProjectionReader({
@@ -124,7 +126,9 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
       if (cut.status !== "ready" || cut.watermark !== (expectedRevision ?? cut.sourceRevision)) return null;
       return readNodeMaterializationDocuments(
         q,
-        context.input.storage?.nodeTaskMaterializationPolicy ?? "include_done",
+        reconcileNodePolicy && context.input.storage?.nodeTaskMaterializationPolicy === "none"
+          ? "in_flight"
+          : (context.input.storage?.nodeTaskMaterializationPolicy ?? "include_done"),
         includePolicySkippedPaths,
         afterRevision,
         previouslyMaterializedPaths,
@@ -264,7 +268,9 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
       sessionIdentity: currentSessionIdentity,
       readSettings: () => readRepositorySettings(projection!),
       killpoint: context.input.killpoint,
-      nodeTaskMaterializationPolicy: context.input.storage?.nodeTaskMaterializationPolicy,
+      get nodeTaskMaterializationPolicy() {
+        return context.input.storage?.nodeTaskMaterializationPolicy;
+      },
     });
     const runtimeReads = makeAgentRuntimeReadModel({
         readAttemptChain: (runtimeSessionId) => readRuntimeAttemptChain(runtimeSessionId, projection!),
@@ -302,6 +308,17 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
   }
 }
 
+/** The worker binds the host-owned slot to every exclusive turn, including later publications. */
+type RepoCellWriteSlot = <T>(work: () => T | PromiseLike<T>) => Promise<T>;
+const writeSlotContext = new AsyncLocalStorage<{ slot: RepoCellWriteSlot; queued?: () => void }>();
+export function withRepoCellWriteSlot<T>(
+  slot: RepoCellWriteSlot,
+  operation: () => Promise<T>,
+  queued?: () => void,
+): Promise<T> {
+  return writeSlotContext.run({ slot, queued }, operation);
+}
+
 export function chainRepoCellWrite<T>(
   tail: Promise<void>,
   work: () => T | PromiseLike<T>,
@@ -309,6 +326,7 @@ export function chainRepoCellWrite<T>(
     readonly queue: RepoCellWriteQueueState;
     readonly label: RepoCellWriteQueueLabel;
     readonly observation?: RepoCellQueueObservation;
+    readonly onDequeued?: () => void;
   },
 ): Promise<T> {
   const entry: RepoCellWriteQueueEntry | null =
@@ -320,17 +338,19 @@ export function chainRepoCellWrite<T>(
   if (entry !== null && options !== undefined) options.queue.waiting.push(entry);
   // One event-loop turn between serialized writes, so timers and I/O are not starved by a write backlog.
   const turn = tail.then(() => new Promise<void>((resolve) => setImmediate(resolve)));
-  return turn.then(() => {
-    if (options === undefined || entry === null) return work();
-    entry.startedAtMs = options.queue.nowMs();
-    // A synchronous throw would skip the finally and leave a settled turn as the head forever.
-    try {
-      return Promise.resolve(work()).finally(() => remove(entry, options.queue));
-    } catch (error) {
-      remove(entry, options.queue);
-      throw error;
-    }
-  });
+  const context = writeSlotContext.getStore();
+  context?.queued?.();
+  const writeSlot: RepoCellWriteSlot = context?.slot ?? (async (work) => await work());
+  return turn
+    .then(() => {
+      options?.onDequeued?.();
+      if (entry !== null && options !== undefined) entry.startedAtMs = options.queue.nowMs();
+      return writeSlot(work);
+    })
+    .finally(() => {
+      // Slot acquisition can reject an aborted request without ever invoking work().
+      if (entry !== null && options !== undefined) remove(entry, options.queue);
+    });
 }
 
 function remove(entry: RepoCellWriteQueueEntry, queue: RepoCellWriteQueueState): void {

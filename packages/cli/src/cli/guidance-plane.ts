@@ -1,5 +1,5 @@
 import { cliOperationalPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
-import { AGENDA_PIN_CRITERIA } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import { AGENDA_PIN_CRITERIA } from "@harness-anything/daemon/internal/protocol/daemon-protocol-vocabulary";
 
 type GuidanceArgs = Readonly<Record<string, unknown>>;
 type GuidanceTemplate = (args: GuidanceArgs) => string;

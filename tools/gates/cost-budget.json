@@ -366,7 +366,8 @@
         },
         "decision-amend": {
           "measurements": [
-            "decision-amend:claims"
+            "decision-amend:claims",
+            "decision-amend:scope"
           ]
         },
         "decision-claim-add": {

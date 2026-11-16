@@ -999,22 +999,6 @@
         "reason": "Decision dec_E369B8616F50A6208B293997E7/CH5 retires the manual adjudicate forward/return surface this reviewer-instance lane exercised."
       }
     ],
-    "overBudgetFiles": [
-      {
-        "value": "packages/cli/test/daemon-multi-repo-lifecycle-cli.test.ts",
-        "ref": "task_2f953ccf18522e7a9535dd8dc3",
-        "reason": "Owner-authorized unchanged 180s boundary; 267700ms from official per-file median of three complete same-source hosted ten-shard cohorts. Existing exception slots only; no threshold increase."
-      },
-      {
-        "value": "packages/daemon/test/g38-relation-bounded.integration.test.mjs",
-        "ref": "task_2f953ccf18522e7a9535dd8dc3",
-        "reason": "Owner-authorized unchanged 180s boundary; 227500ms from official per-file median of three complete same-source hosted ten-shard cohorts. Existing exception slots only; no threshold increase."
-      },
-      {
-        "value": "packages/daemon/test/task-completion-review.integration.test.ts",
-        "ref": "task_2f953ccf18522e7a9535dd8dc3",
-        "reason": "Owner-authorized unchanged 180s boundary; 181600ms from official per-file median of three complete same-source hosted ten-shard cohorts. Existing exception slots only; no threshold increase."
-      }
-    ]
+    "overBudgetFiles": []
   }
 }

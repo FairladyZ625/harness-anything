@@ -71,7 +71,7 @@ export function useAwaitsAnswer(repoId: string) {
   const queryClient = useQueryClient(),
     [feedback, setFeedback] = useState<AwaitsAnswerFeedback | null>(null);
   const submit = useCallback(
-    async (row: AgendaAwaitsRow, reason: string): Promise<AwaitsAnswerFeedback> => {
+    async (row: AgendaAwaitsRow, reason: string, afterApplied?: () => Promise<void>): Promise<AwaitsAnswerFeedback> => {
       setFeedback({ state: "pending", opId: "awaiting-receipt", hint: t("components.awaitsAnswer.submitting") });
       // 与 task-actions 的写动作同一形状:回执落定成反馈,桥接层拒绝也原样显示成错误反馈。
       const result: AwaitsAnswerFeedback = await harnessClient
@@ -102,6 +102,8 @@ export function useAwaitsAnswer(repoId: string) {
             hint: error instanceof Error ? error.message : String(error),
           }),
         );
+      setFeedback(result);
+      if (result.state === "success" && afterApplied) await afterApplied();
       if (result.state !== "error")
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: agendaQueryKeys.read(repoId) }),

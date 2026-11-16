@@ -358,12 +358,25 @@ function amendmentOwnerConsent(
 export function amendableSnapshot(value: unknown, allowUnknownFields: boolean): value is DecisionAmendableSnapshot {
   if (
     !isRecord(value) ||
-    !matchesFields(value, ["title", "decisionClass", "chosen", "rejected", "claims"], allowUnknownFields) ||
+    !requiredWithOptional(
+      value,
+      ["title", "decisionClass", "chosen", "rejected", "claims"],
+      ["appliesTo"],
+      allowUnknownFields,
+    ) ||
     !isNonEmptyString(value.title) ||
     !includes(["ordinary", "standing_policy"] as const, value.decisionClass) ||
     !Array.isArray(value.chosen) ||
     !Array.isArray(value.rejected) ||
     !Array.isArray(value.claims)
+  )
+    return false;
+  if (
+    value.appliesTo !== undefined &&
+    (!isRecord(value.appliesTo) ||
+      !matchesFields(value.appliesTo, ["modules", "productLines"], allowUnknownFields) ||
+      !uniqueFactStrings(value.appliesTo.modules) ||
+      !uniqueFactStrings(value.appliesTo.productLines))
   )
     return false;
   const chosen = value.chosen.every(

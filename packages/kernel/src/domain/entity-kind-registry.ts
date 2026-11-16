@@ -1112,6 +1112,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
       actions: Object.freeze([
         ...taskActionCatalog.actions.filter((action) => action.id !== "assign" && action.id !== "unassign"),
         ...assignmentCatalogFor("task", taskIdentity, taskExposure),
+        declaredStreamAction("task", taskIdentity, "materialize", "doc-materialize", "Materialize this Task package on this node from canonical objects."),
       ]),
     }),
     entityStore: null,

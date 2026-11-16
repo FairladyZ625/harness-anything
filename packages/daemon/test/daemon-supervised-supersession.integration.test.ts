@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { residentReadoptionScenarios, residentReadoptionCase } from "./fixtures/resident-readoption-cases.fixture.ts";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
@@ -13,7 +14,7 @@ import { readDaemonPid } from "../src/daemon-singleton.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 
 async function eventually(predicate: () => boolean | Promise<boolean>, _message: string): Promise<void> {
-  while (!(await predicate())) await new Promise<void>((resolve) => setImmediate(resolve));
+  while (!(await predicate())) await new Promise<void>((resolve) => setTimeout(resolve, 25));
 }
 function killWorker(pid: number): void {
   try {
@@ -49,7 +50,10 @@ for (const supervised of [true, false])
         endpoint = localUserDaemonEndpoint(userRoot, daemonId),
         preload = path.join(parent, "preload.mjs");
       mkdirSync(rootDir, { recursive: true });
-      cpSync(path.resolve("packages/daemon/dist"), dist, { recursive: true });
+      cpSync(path.resolve("packages/daemon/dist"), dist, {
+        recursive: true,
+        filter: (src) => !src.endsWith(".d.ts") && !src.endsWith(".d.ts.map") && !src.endsWith(".tsbuildinfo"),
+      });
       assert.ok(existsSync(entry), `daemon build is missing at ${entry}`);
       writeFileSync(marker, "build-a\n");
       const moduleUrl = pathToFileURL(path.resolve("packages/daemon/src/runtime-spawn-process.ts")).href;
@@ -138,3 +142,10 @@ for (const supervised of [true, false])
       }
     },
   );
+
+for (const scenario of residentReadoptionScenarios.filter(
+  (scenario) => scenario.supervised && !scenario.failDeadline,
+)) {
+  const entry = residentReadoptionCase(scenario);
+  test(entry.name, entry.options, entry.run);
+}

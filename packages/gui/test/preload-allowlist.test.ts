@@ -47,6 +47,13 @@ test("preload exposes only the approved API methods", () => {
   assert.equal(isAllowedPreloadApiMethod("getTaskDetail"), false);
   assert.equal(isAllowedPreloadApiMethod("showTask"), true);
   assert.equal(isAllowedPreloadApiMethod("reworkTask"), true);
+  assert.equal(isAllowedPreloadApiMethod("materializeTask"), true);
+  assert.equal(assertPreloadPayload("materializeTask", { repoId: "repo-a", taskId: "task-a" }), true);
+  assert.throws(() => assertPreloadPayload("materializeTask", { repoId: "repo-a" }), /invalid/u);
+  assert.throws(
+    () => assertPreloadPayload("materializeTask", { repoId: "repo-a", taskId: "task-a", all: true }),
+    /invalid/u,
+  );
   assert.throws(() => assertPreloadPayload("readFile", {}), /not allowed/u);
   assert.throws(() => assertPreloadPayload("getTasks", []), /object or null/u);
   assert.throws(() => assertPreloadPayload("getTasks", null), /repoId/u);
@@ -252,12 +259,14 @@ test("preload exposes only the approved API methods", () => {
   // dec_DBF9CCB96B1A7D35A3214615E1 CH2/CH6: one dispatcher for export/claim/revoke.
   // dec_E369B8616F50A6208B293997E7/CH5 (W2-2) deletes the task.adjudicate facet with the command.
   // dec_5DBF5F2B38719E4B52003D178D/CH1: showTask + reworkTask share the canonical Task actions.
-  assert.equal(editingFacets.length, 65);
+  // dec_9C43012EBB2754D7112F618F0D CH2/CH3 and dec_13B7B846B56BFA192533011B91 CH1:
+  // three closed aliases for existing canonical actions; generic repo.task.run stays forbidden.
+  assert.equal(editingFacets.length, 69);
   assert.equal(preloadAllowlist.includes("readVerticalDeclaration"), true);
   // entity.update / entity.archive / entity.delete plus vertical kind upsert / publish-schema / retire
   // are explicit GUI facets. Todo contributes eight GUI actions from the repository todo task.
-  // The same single handoff dispatcher accounts for the approved 64 actions / 65 editing facets.
-  assert.equal(daemonGuiActionMethods.length, 64);
+  // The same single handoff dispatcher accounts for the approved 68 actions / 69 editing facets.
+  assert.equal(daemonGuiActionMethods.length, 68);
   assert.equal(daemonGuiActionMethods.find(({ method }) => method === "repo.task.create")?.actionKind, "task-create");
   assert.equal(
     daemonGuiActionMethods.some(({ method }) => method === "repo.entity.delete"),
@@ -995,4 +1004,26 @@ test("account action payloads and selection strategies fail closed", () => {
       }),
     /selectionStrategy/u,
   );
+});
+
+// Explicit negative controls for the three Decision-authorized agenda aliases.
+test("agenda write aliases retain closed preload payloads", () => {
+  for (const [method, payload] of [
+    ["archiveTasks", { taskIds: ["task-a", "task-b"], reason: "Received" }],
+    ["dismissRuntimeIncident", { dispatchId: "dispatch-a", reason: "Handled" }],
+    ["resolveTaskEscalation", { taskId: "task-a", dispatchId: "dispatch-a", answer: "Proceed" }],
+  ] as const) {
+    assert.equal(isAllowedPreloadApiMethod(method), true);
+    assert.equal(assertPreloadPayload(method, { repoId: "repo-a", ...payload }), true);
+    // Preload owns method/repository admission; the canonical RPC schema owns payload closure.
+    const facet = daemonGuiInvokeFacets.find((entry) => entry.guiBridgeMethod === method)!;
+    assert.notDeepEqual(
+      validateDaemonRpcCall({
+        method: facet.method,
+        params: { repo: { repoId: "repo-a" }, payload: { ...payload, principal: "spoof" } },
+      }),
+      [],
+    );
+    assert.throws(() => assertPreloadPayload(method, payload), /repoId/u);
+  }
 });

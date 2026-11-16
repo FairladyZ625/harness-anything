@@ -1,12 +1,25 @@
 import type { TaskDispatchProjectionRow } from "../../api/renderer-dto.ts";
-import type { EventEntry, TaskRow } from "./types.ts";
+import type { DecisionRow, EventEntry, FactRef, RelationEdge, TaskRow } from "./types.ts";
 import { dispatchActivity, dispatchDurationMs, dispatchRole, taskActivity } from "./lineage-tree.ts";
 import type { AgentActivity } from "../components/agent-ui/AgentTree.tsx";
 
 export interface TaskJourneyNode {
   readonly id: string;
   readonly lane: "control" | "worker";
-  readonly kind: "creation" | "execution" | "submit" | "review" | "gate" | "terminal";
+  readonly kind:
+    | "creation"
+    | "execution"
+    | "submit"
+    | "review"
+    | "gate"
+    | "terminal"
+    | "parent"
+    | "authorization"
+    | "dependency"
+    | "awaits"
+    | "fact"
+    | "child"
+    | "downstream";
   readonly at?: string;
   readonly summary?: string;
   readonly eventKind?: EventEntry["kind"];
@@ -17,9 +30,17 @@ export interface TaskJourneyNode {
   readonly runtimeSessionId?: string;
   readonly recordRefs: readonly string[];
   readonly entityRef?: string;
+  readonly decisionState?: DecisionRow["state"];
   readonly closeoutBlocker?: NonNullable<TaskRow["closeoutBlocker"]>;
 }
+export interface TaskJourneyEntity extends TaskJourneyNode {
+  readonly entityRef: string;
+  readonly nodeId?: string;
+}
 export interface TaskJourney {
+  readonly upstream: readonly TaskJourneyEntity[];
+  readonly attachments: readonly TaskJourneyEntity[];
+  readonly downstream: readonly TaskJourneyEntity[];
   readonly nodes: readonly TaskJourneyNode[];
   readonly edges: readonly { readonly from: string; readonly to: string; readonly reworkLoop: boolean }[];
 }
@@ -32,10 +53,18 @@ export function buildTaskJourney({
   task,
   dispatches,
   nowMs,
+  tasks = [],
+  decisions = [],
+  facts = [],
+  relations = [],
 }: {
   readonly task: TaskRow;
   readonly dispatches: readonly TaskDispatchProjectionRow[];
   readonly nowMs: number;
+  readonly tasks?: readonly TaskRow[];
+  readonly decisions?: readonly Pick<DecisionRow, "decisionId" | "title" | "state">[];
+  readonly facts?: readonly FactRef[];
+  readonly relations?: readonly RelationEdge[];
 }): TaskJourney {
   const events = task.events ?? [];
   const eventsByExecution = new Map<string, EventEntry[]>();
@@ -209,5 +238,104 @@ export function buildTaskJourney({
       pendingRework = undefined;
     }
   }
-  return { nodes: ordered, edges };
+  return { nodes: ordered, edges, ...causalContext(task, ordered, tasks, decisions, facts, relations) };
+}
+
+/** Incident edges only. Resident rows are indexed once, attachments use binary time lookup:
+ * O(T + D + F + E + N log N + A log N), with no repository graph read or per-entity fetch. */
+function causalContext(
+  task: TaskRow,
+  nodes: readonly TaskJourneyNode[],
+  tasks: readonly TaskRow[],
+  decisions: readonly Pick<DecisionRow, "decisionId" | "title" | "state">[],
+  facts: readonly FactRef[],
+  relations: readonly RelationEdge[],
+): Pick<TaskJourney, "upstream" | "attachments" | "downstream"> {
+  const focus = `task/${task.taskId}`;
+  const taskByRef = new Map(tasks.map((row) => [`task/${row.taskId}`, row]));
+  const decisionByRef = new Map(decisions.map((row) => [`decision/${row.decisionId}`, row]));
+  const factByRef = new Map(facts.map((row) => [row.anchor, row]));
+  const upstream = new Map<string, TaskJourneyEntity>(),
+    downstream = new Map<string, TaskJourneyEntity>();
+  const attachments = new Map<string, TaskJourneyEntity>();
+  const timed = nodes.filter((node) => node.at !== undefined).sort((a, b) => a.at!.localeCompare(b.at!));
+  const nodeAt = (at?: string) => {
+    if (at === undefined) return nodes.at(-1)!.id;
+    let low = 0,
+      high = timed.length;
+    while (low < high) {
+      const mid = (low + high) >>> 1;
+      if (timed[mid]!.at! <= at) low = mid + 1;
+      else high = mid;
+    }
+    return timed[low - 1]?.id ?? "creation";
+  };
+  const entity = (ref: string, kind: TaskJourneyNode["kind"]): TaskJourneyEntity => {
+    const row = taskByRef.get(ref),
+      decision = decisionByRef.get(ref),
+      fact = factByRef.get(ref);
+    return {
+      id: `${kind}:${ref}`,
+      kind,
+      entityRef: ref,
+      lane: "control",
+      recordRefs: [],
+      summary: row?.title ?? decision?.title ?? fact?.text,
+      at: row?.createdAt ?? fact?.at,
+      activity: row ? taskActivity(row.canonicalStatus) : "idle",
+      decisionState: decision?.state,
+    };
+  };
+  const attach = (ref: string, kind: TaskJourneyNode["kind"]) => {
+    const item = entity(ref, kind);
+    attachments.set(ref, { ...item, nodeId: nodeAt(item.at) });
+  };
+  for (const id of new Set([task.parentTaskId, task.workId]))
+    if (id && id !== task.taskId) upstream.set(`task/${id}`, entity(`task/${id}`, "parent"));
+  for (const id of task.spawningDecisionIds ?? [])
+    upstream.set(`decision/${id}`, entity(`decision/${id}`, "authorization"));
+  for (const blocker of task.blockers ?? []) {
+    if (blocker.kind === "depends-on") {
+      const ref = `task/${blocker.targetTaskId}`;
+      upstream.set(ref, entity(ref, "dependency"));
+    } else {
+      const ref = `relation/${blocker.relationId}`;
+      attachments.set(ref, {
+        ...entity(ref, "awaits"),
+        summary: blocker.question,
+        activity: "awaiting",
+        nodeId: `blocker:${blocker.relationId}`,
+      });
+    }
+  }
+  for (const edge of relations) {
+    if (edge.to === focus && edge.kind === "derives" && edge.from.startsWith("decision/")) {
+      const ref = edge.from.split("/").slice(0, 2).join("/");
+      upstream.set(ref, entity(ref, "authorization"));
+    }
+    if (edge.from === focus) {
+      if (edge.kind === "depends-on" && edge.to.startsWith("task/"))
+        upstream.set(edge.to, entity(edge.to, "dependency"));
+      if (edge.kind === "produces" && edge.to.startsWith("fact/")) attach(edge.to, "fact");
+      if (edge.kind === "derives" && edge.to.startsWith("task/")) attach(edge.to, "child");
+      if (edge.kind === "awaits" && edge.relationId) {
+        const ref = `relation/${edge.relationId}`;
+        if (!attachments.has(ref))
+          attachments.set(ref, {
+            ...entity(ref, "awaits"),
+            summary: edge.rationale,
+            activity: "awaiting",
+            nodeId: nodeAt(),
+          });
+      }
+    }
+    if (edge.to === focus && edge.kind === "depends-on" && edge.from.startsWith("task/"))
+      downstream.set(edge.from, entity(edge.from, "downstream"));
+  }
+  for (const child of tasks) if (child.parentTaskId === task.taskId) attach(`task/${child.taskId}`, "child");
+  return {
+    upstream: [...upstream.values()],
+    attachments: [...attachments.values()],
+    downstream: [...downstream.values()],
+  };
 }

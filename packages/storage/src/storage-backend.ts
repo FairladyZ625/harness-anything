@@ -108,7 +108,7 @@ export function readNodeMaterializationDocuments(
     page("");
     const packages = new Map<string, string>();
     for (const { path, retired } of documents.values())
-      if (path.startsWith("tasks/")) {
+      if (path.startsWith("tasks/task_")) {
         const prefix = path.split("/").slice(0, 2).join("/");
         if (!packages.has(prefix)) {
           const id = q.taskIdForDocumentPath(path);
@@ -150,7 +150,7 @@ export function readNodeMaterializationDocuments(
     return [...documents.values()].map((document) => {
       const id = packages.get(document.path.split("/").slice(0, 2).join("/")),
         included =
-          !document.path.startsWith("tasks/") ||
+          !document.path.startsWith("tasks/task_") ||
           (id &&
             (full.has(id) ||
               (held.has(id) &&
@@ -186,7 +186,7 @@ export function readNodeMaterializationDocuments(
   }
   for (const path of forced) {
     const document =
-      q.readDocument(path).document ?? (path.startsWith("tasks/") ? q.readDocumentHistory?.(path).document : null);
+      q.readDocument(path).document ?? (path.startsWith("tasks/task_") ? q.readDocumentHistory?.(path).document : null);
     if (document) documents.set(path, document);
   }
   return [...documents.values()].sort((a, b) => a.path.localeCompare(b.path));
@@ -198,7 +198,7 @@ export function requireTaskMaterializationMetadata(q: TaskProjectionQueries, pat
   // Validate only prior working-set roots, not the repository's completed Task history.
   const priorRoots = new Map<string, string>();
   for (const path of paths)
-    if (path.startsWith("tasks/") && path.split("/").length > 2) {
+    if (path.startsWith("tasks/task_") && path.split("/").length > 2) {
       const prefix = path.split("/").slice(0, 2).join("/");
       if (priorRoots.has(prefix)) continue;
       const owner = q.taskIdForDocumentPath(path);

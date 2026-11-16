@@ -14,6 +14,7 @@ import { definition, installation, initIngressRepo, spawnCli } from "./fixtures/
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
+import { createMultiVendorHarness, latestReviewerDispatchFor } from "./fixtures/reviewer-cross-vendor-lru.ts";
 
 // dec_6A77D43B8523823ABA1F5E4D3C CH1: a matching path reviewer *replaces* the default seat. The
 // old contract dispatched both and demanded two dispatches; a cut now holds exactly one seat, so
@@ -225,3 +226,81 @@ test("CLI submit of a pushed delivery seats the matching path reviewer instead o
     rmSync(parent, { recursive: true, force: true });
   }
 });
+
+test(
+  "first task review avoids impl vendor, rotates cross-row LRU, and falls back to same-vendor when exhausted",
+  { timeout: 90_000 },
+  async () => {
+    const h = await createMultiVendorHarness();
+    try {
+      await h.installAgents();
+
+      // Task 1: impl on agy-1 (google) -> avoids google -> picks deepseek-1 (row 1).
+      const t1 = await h.createAndImplementTask("task-v1", "exe-v1-1", "agy-1", "impl-v1-1");
+      await h.submitCut("task-v1", "exe-v1-1");
+      const r1 = latestReviewerDispatchFor(h, "task-v1");
+      assert.equal(r1.payload.instanceId, "deepseek-1");
+      assert.equal(r1.payload.definitionSnapshot?.model, "deepseek-v4.1-flash");
+      await h.recordReviewVerdict(
+        "task-v1",
+        t1.packagePath,
+        "exe-v1-1",
+        r1.payload.dispatchId,
+        r1.payload.runtimeSessionId,
+        "approved",
+      );
+      await h.settleLast(r1.payload.runtimeSessionId, { bindSession: true });
+
+      // Task 2: impl on agy-1 (google) -> avoids google -> LRU rotates from deepseek-1 to codex-1.
+      const t2 = await h.createAndImplementTask("task-v2", "exe-v2-1", "agy-1", "impl-v2-1");
+      await h.submitCut("task-v2", "exe-v2-1");
+      const r2 = latestReviewerDispatchFor(h, "task-v2");
+      assert.equal(r2.payload.instanceId, "codex-1");
+      assert.equal(r2.payload.definitionSnapshot?.model, "gpt-5.4");
+      await h.recordReviewVerdict(
+        "task-v2",
+        t2.packagePath,
+        "exe-v2-1",
+        r2.payload.dispatchId,
+        r2.payload.runtimeSessionId,
+        "approved",
+      );
+      await h.settleLast(r2.payload.runtimeSessionId, { bindSession: true });
+
+      // Task 3: impl on codex-1 (openai) -> avoids openai -> picks deepseek-1 (older recency than agy-1 from impl-v2-1).
+      const t3 = await h.createAndImplementTask("task-v3", "exe-v3-1", "codex-1", "impl-v3-1");
+      await h.submitCut("task-v3", "exe-v3-1");
+      const r3 = latestReviewerDispatchFor(h, "task-v3");
+      assert.equal(r3.payload.instanceId, "deepseek-1");
+      assert.equal(r3.payload.definitionSnapshot?.model, "deepseek-v4.1-flash");
+      await h.recordReviewVerdict(
+        "task-v3",
+        t3.packagePath,
+        "exe-v3-1",
+        r3.payload.dispatchId,
+        r3.payload.runtimeSessionId,
+        "approved",
+      );
+      await h.settleLast(r3.payload.runtimeSessionId, { bindSession: true });
+
+      // All heterogeneous reviewers disabled -> Task 4 implemented on agy-1 falls back smoothly to same-vendor agy-1.
+      h.instanceState["deepseek-1"] = false;
+      h.instanceState["codex-1"] = false;
+      const t5 = await h.createAndImplementTask("task-v5", "exe-v5-1", "agy-1", "impl-v5-1");
+      await h.submitCut("task-v5", "exe-v5-1");
+      const r5 = latestReviewerDispatchFor(h, "task-v5");
+      assert.equal(r5.payload.instanceId, "agy-1");
+      await h.recordReviewVerdict(
+        "task-v5",
+        t5.packagePath,
+        "exe-v5-1",
+        r5.payload.dispatchId,
+        r5.payload.runtimeSessionId,
+        "approved",
+      );
+      await h.settleLast(r5.payload.runtimeSessionId, { bindSession: true });
+    } finally {
+      await h.close();
+    }
+  },
+);

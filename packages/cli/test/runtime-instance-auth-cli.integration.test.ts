@@ -2,11 +2,22 @@
 import { signInProcessPolicyTestUser } from "../../daemon/test/keycloak-process-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
+import {
+  createRuntimeFixture,
+  eventuallyNotification,
+  installIdentities,
+  readPublishedDispatch,
+  recoverLatest,
+  run as runRuntimeCli,
+  runMaybe as runRuntimeCliMaybe,
+  runtimeInvariantEvidence,
+  seedTask,
+} from "./runtime-cli.fixtures.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
@@ -185,3 +196,168 @@ function writeProvider(target: string, version: string): void {
     `const fs = require("node:fs");\nconst args = process.argv.slice(2);\nconst authFile = (process.env.CODEX_HOME ?? "") + "/auth.json";\nif (args[0] === "--version") { console.log("codex ${version}"); process.exit(0); }\nif (args[0] === "login" && args[1] === "status") process.exit(fs.existsSync(authFile) ? 0 : 1);\nif (args[0] === "logout") { if (fs.existsSync(authFile)) fs.unlinkSync(authFile); console.log("Signed out."); process.exit(0); }\nif (args[0] === "login") { console.log("Paste the operator sign-in token:"); let buffer = ""; process.stdin.setEncoding("utf8"); process.stdin.on("data", (chunk) => { buffer += chunk; if (!buffer.includes("\\n")) return; const token = buffer.trim(); fs.mkdirSync(process.env.CODEX_HOME ?? "", { recursive: true }); fs.writeFileSync(authFile, JSON.stringify({ token })); console.log("Signed in as " + token + "."); process.exit(0); }); process.stdin.resume(); return; }\nconst prompt = fs.readFileSync(0, "utf8");\nconst session = "provider-cli-session";\nconsole.log(JSON.stringify({ type: "thread.started", thread_id: session }));\nconsole.log(JSON.stringify({ type: "item.completed", item: { id: "live", type: "agent_message", text: "live:" + prompt } }));\nconsole.log(JSON.stringify({ type: "item.completed", item: { id: "write", type: "file_change", changes: [{ path: "result.txt", kind: "add" }], status: "completed" } }));\nconsole.log(JSON.stringify({ type: "item.completed", item: { id: "final", type: "agent_message", text: "final:" + prompt } }));\nconsole.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }));\n`,
   );
 }
+
+test(
+  "Missing and nonzero callbacks preserve runtime outcome and redact callback environment",
+  { timeout: 300_000 },
+  async (context) => {
+    const fixture = createRuntimeFixture(context);
+    installIdentities(fixture.parent, fixture.root, fixture.env);
+    const { parent, root, env } = fixture;
+    const { taskId, executionId, artifactRoot } = seedTask(root, env, "notification-failure");
+    runRuntimeCli(root, env, ["task", "start", taskId, "--execution-id", executionId]);
+    const nonzeroTrace = path.join(root, ".notify-nonzero.json");
+    const nonzeroNotifier = writeProviderExecutable(
+      path.join(parent, "notify-nonzero"),
+      `const fs = require("node:fs"), payload = JSON.parse(fs.readFileSync(0, "utf8")); fs.writeFileSync(".notify-nonzero.json", JSON.stringify({ cwd: process.cwd(), environment: process.env, payload })); process.exit(23);\n`,
+    );
+    const invalidOnExit = runRuntimeCliMaybe(root, env, [
+      "runtime",
+      "run",
+      "cli-worker",
+      "--prompt",
+      "invalid callback",
+      "--on-exit",
+      nonzeroNotifier,
+    ]);
+    assert.equal(invalidOnExit.status, 2);
+    assert.equal(invalidOnExit.receipt.code, "invalid_field");
+    assert.equal((invalidOnExit.receipt.diagnostic as Record<string, unknown>).kind, "validation");
+    runRuntimeCli(root, env, ["task", "start", taskId, "--execution-id", executionId]);
+    const controlNotification = runRuntimeCli(root, env, [
+        "agent",
+        "run",
+        "terra",
+        "--prompt",
+        "notification control",
+        "--cwd",
+        ".",
+        "--task",
+        taskId,
+        ...recoverLatest(root, env, taskId),
+        "--detach",
+      ]),
+      controlNotificationWait = runRuntimeCliMaybe(root, env, [
+        "runtime",
+        "status",
+        String(controlNotification.runtimeSessionId),
+        "--wait",
+        "--no-stream",
+      ]),
+      controlInvariant = await runtimeInvariantEvidence(
+        root,
+        artifactRoot,
+        controlNotification,
+        controlNotificationWait.receipt,
+      );
+    assert.equal(controlNotificationWait.status, 1, "a stopped-settled wait must not exit 0");
+    runRuntimeCli(root, env, ["task", "start", taskId, "--execution-id", executionId]);
+    const missingNotifier = path.join(parent, "missing-notifier"),
+      missingNotification = runRuntimeCli(root, env, [
+        "agent",
+        "run",
+        "terra",
+        "--prompt",
+        "notification missing",
+        "--cwd",
+        ".",
+        "--task",
+        taskId,
+        ...recoverLatest(root, env, taskId),
+        "--detach",
+        "--on-exit",
+        missingNotifier,
+      ]),
+      missingNotificationWait = runRuntimeCliMaybe(root, env, [
+        "runtime",
+        "status",
+        String(missingNotification.runtimeSessionId),
+        "--wait",
+        "--no-stream",
+      ]),
+      missingTrace = await eventuallyNotification(root, String(missingNotification.dispatchId)),
+      missingInvariant = await runtimeInvariantEvidence(
+        root,
+        artifactRoot,
+        missingNotification,
+        missingNotificationWait.receipt,
+      );
+    runRuntimeCli(root, env, ["task", "start", taskId, "--execution-id", executionId]);
+    const nonzeroNotification = runRuntimeCli(root, env, [
+        "agent",
+        "run",
+        "terra",
+        "--prompt",
+        "notification nonzero",
+        "--cwd",
+        ".",
+        "--task",
+        taskId,
+        ...recoverLatest(root, env, taskId),
+        "--detach",
+        "--on-exit",
+        nonzeroNotifier,
+      ]),
+      nonzeroNotificationWait = runRuntimeCliMaybe(root, env, [
+        "runtime",
+        "status",
+        String(nonzeroNotification.runtimeSessionId),
+        "--wait",
+        "--no-stream",
+      ]),
+      nonzeroNotificationTrace = await eventuallyNotification(root, String(nonzeroNotification.dispatchId)),
+      nonzeroInvariant = await runtimeInvariantEvidence(
+        root,
+        artifactRoot,
+        nonzeroNotification,
+        nonzeroNotificationWait.receipt,
+      ),
+      callbackObservation = JSON.parse(readFileSync(nonzeroTrace, "utf8")) as Record<string, unknown>,
+      callbackEnvironment = callbackObservation.environment as Record<string, unknown>,
+      callbackPayload = callbackObservation.payload as Record<string, unknown>;
+    assert.deepEqual(missingInvariant, controlInvariant);
+    assert.deepEqual(nonzeroInvariant, controlInvariant);
+    assert.deepEqual(
+      missingTrace.finished && {
+        started: missingTrace.finished.started,
+        exitCode: missingTrace.finished.exitCode,
+        timedOut: missingTrace.finished.timedOut,
+        errorCode: missingTrace.finished.errorCode,
+      },
+      { started: false, exitCode: null, timedOut: false, errorCode: "ENOENT" },
+    );
+    assert.deepEqual(
+      nonzeroNotificationTrace.finished && {
+        started: nonzeroNotificationTrace.finished.started,
+        exitCode: nonzeroNotificationTrace.finished.exitCode,
+        timedOut: nonzeroNotificationTrace.finished.timedOut,
+      },
+      { started: true, exitCode: 23, timedOut: false },
+    );
+    assert.equal(callbackObservation.cwd, realpathSync(root));
+    assert.equal(callbackEnvironment.OPENAI_API_KEY, undefined);
+    assert.equal(callbackEnvironment.HARNESS_NOTIFY_TEST_SECRET, undefined);
+    assert.deepEqual(callbackPayload, {
+      schema: "runtime-session-exited/v1",
+      runtimeSessionId: nonzeroNotification.runtimeSessionId,
+      outcome: "stopped",
+      exitCode: 0,
+    });
+    assert.doesNotMatch(JSON.stringify(callbackPayload), /notification nonzero|final:|credential|token|api.?key/iu);
+    const missingArchive = JSON.parse(
+        await readPublishedDispatch(
+          path.join(artifactRoot, "dispatches", `${String(missingNotification.dispatchId)}.json`),
+        ),
+      ) as Record<string, unknown>,
+      nonzeroArchive = JSON.parse(
+        await readPublishedDispatch(
+          path.join(artifactRoot, "dispatches", `${String(nonzeroNotification.dispatchId)}.json`),
+        ),
+      ) as Record<string, unknown>;
+    assert.equal(missingArchive.onExitCommand, missingNotifier);
+    assert.equal(nonzeroArchive.onExitCommand, nonzeroNotifier);
+    context.diagnostic(
+      `failed notification trace: ${JSON.stringify({ missing: missingTrace.finished, nonzero: nonzeroNotificationTrace.finished, invariant: nonzeroInvariant })}`,
+    );
+  },
+);

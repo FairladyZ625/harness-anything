@@ -244,6 +244,12 @@
     "owner": "repository",
     "sources": [
       {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/taskDetail/TaskMaterializationControl.tsx#TaskMaterializationControl.availability.queryFn.result:f97ef35e052e77a11f385f5807ca5aa7",
+        "route": "repository-read",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      },
+      {
         "candidateId": "action:packages/cli:packages/cli/src/cli-input-codec.ts#invalid:b52c09437e1988d52bedf9e24aa699f7",
         "route": "repository-read",
         "role": "support"
@@ -5559,6 +5565,12 @@
     },
     "sources": [
       {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.publishConfirmedFollower.requirePreviousPaths:833067ea90b76f3ef0eaedda135f5fb8",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/runtime-instance-selection.ts#createRuntimeInstanceDispatchState.deactivate:09fe6f9969c5b6e690a47d9ac2fb188a",
         "route": "daemon-local-state",
         "role": "support"
@@ -6023,6 +6035,12 @@
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/storage/src/postgres/pg-writer-epoch.ts#openPgWriterEpoch.execute"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#reduceDecisionEvent:9e1ecfdd18cae098304540220c66ba53",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run"
       },
       {
         "candidateId": "action:packages/storage:packages/storage/src/projection/decision-projection-reducer.ts#reduceDecisionEvent:d41efd54c9cd78aa77b1926122cde91f",
@@ -6753,11 +6771,6 @@
         "role": "effect"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.supervisor.close:06d19a2b25a2f246a2eb20c6cd5bc384",
-        "route": "daemon:bin",
-        "role": "effect"
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.sendControl.watchdog:a533cdcf59bf5863ea1f81296726348a",
         "route": "daemon:bin",
         "role": "effect"
@@ -7396,6 +7409,12 @@
         "port": "packages/authorization-keycloak/src/managed-host.ts#ManagedRbacHost.runProcessText"
       },
       {
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-service.ts#listenPassthrough.track:6ac75a7abb2bf5f3db01f66de71054e4",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
         "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/oidc-device-confirmation-gateway.ts#proxyRequest:b4bc8e268ad2a08b551f2ca179e90bbc",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -7925,12 +7944,6 @@
         "port": "packages/daemon/src/repo-cell.ts#remove"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell.ts#chainRepoCellWrite:1bf1a85c4aacea32a818272521107e2c:2",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/daemon/src/repo-cell.ts#remove"
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-read-pool.ts#stop:f4f67a0092ae65b768463d9ff4bc7057",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -7943,12 +7956,6 @@
         "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/repo-read-worker.ts#executeRead:48732fe26292a56cb79223860f475df5",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/daemon/src/repo-read-runtime.ts#makeRepoReadRuntime.run"
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-protocol.ts#deserializeWriterError:4c3bd0c2574f452e3fd17a638185be8b",
         "route": "daemon-local-state",
         "role": "support"
@@ -7957,17 +7964,6 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker:b569c88504f365e9fbcf0b481723c9cd",
         "route": "daemon-local-state",
         "role": "support"
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker:8440c69dc1101c79ebefafbc5363d9fc",
-        "route": "daemon-local-state",
-        "role": "support"
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker:7222a08952f5ab4cd9563e1b9060a0ed",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/worker_threads.d.ts#worker_threads.MessagePort.on"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker.handleRequest:c8e44ae0e78006f274b215ee46db21c7",
@@ -11521,7 +11517,7 @@
         "port": "packages/daemon/scripts/smoke-package.mjs#run"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/scripts/smoke-package.mjs#tarballs:e642b193e9c5488ca473225523508a31",
+        "candidateId": "action:packages/daemon:packages/daemon/scripts/smoke-package.mjs#tarballs:f83572385197a8ee00871f152a3c7c53",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/scripts/smoke-package.mjs#run"
@@ -11984,6 +11980,122 @@
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/async_hooks.d.ts#async_hooks.AsyncLocalStorage.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker:056315cbd3f53337f7ef9942bba1922c",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/worker_threads.d.ts#worker_threads.MessagePort.on"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-request-queue.ts#createWriterRequestQueue.pump:4a63a334683adb3ac07d023e3552f4d0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/writer-request-queue.ts#Request.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-request-queue.ts#createWriterRequestQueue.request.onAbort:687836ffef8dae4926d515d40b5786a5",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/writer-request-queue.ts#Request.cancel"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-request-queue.ts#createWriterRequestQueue.request.request.markDispatched:1d5dedb1c3951d5eae6ac7a9243edf63",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/writer-request-queue.ts#Request.cancel"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-request-queue.ts#createWriterRequestQueue.request.request.markDispatched:f3a1a8d6a8b236c9265f72d1ee0bbcb4",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/timers.d.ts#timers.global.setTimeout"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-request-queue.ts#createWriterRequestQueue.close:fe9c42051a922789eac4dc6213f160d4",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/writer-request-queue.ts#Request.cancel"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-request-queue.ts#queueError:c6e3ef20ab1e44dd47021d577c3818c4",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.writes.terminateAborted:06d19a2b25a2f246a2eb20c6cd5bc384",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/worker_threads.d.ts#worker_threads.Worker.terminate"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-supervisor.ts#openWriterSupervisor.finishClose:06d19a2b25a2f246a2eb20c6cd5bc384",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/worker_threads.d.ts#worker_threads.Worker.terminate"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-task-query-reader.ts#withStorageWriteRequest:bc82a943f7cda6aa9fd609db7e06a903",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/async_hooks.d.ts#async_hooks.AsyncLocalStorage.run"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-task-query-reader.ts#createPgTaskQueryReader.request:aa823ba10d2665676a006c5f9e1f8ddf",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-task-query-worker.ts#startWorker.operation:aa823ba10d2665676a006c5f9e1f8ddf",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-task-query-worker.ts#startWorker:cc2748994a9e4f383cb1b3a4ba4156a8",
+        "route": "daemon-local-state",
+        "role": "support"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-read-worker.ts#executeRead:a3ce56be05e92bc3b636a7bad8908ca6",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/repo-read-runtime.ts#makeRepoReadRuntime.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell.ts#withRepoCellWriteSlot:7a2f654012437d7a9e01383407de6558",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/async_hooks.d.ts#async_hooks.AsyncLocalStorage.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker.handle:e259bf80e2cce67177b2be7da76b7baf",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/async_hooks.d.ts#async_hooks.AsyncLocalStorage.run"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-request-queue.ts#createWriterRequestQueue.pump:2952d612d18d7a65f47b48537c44b11a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-request-queue.ts#createWriterRequestQueue.request.request.cancel:4a8319b7c29e90c97ad46139ce616c8a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker:d5a4b320a250cc1b12a0adebfe473710",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-edge-mirror.ts#materializeFleetMirrorView.requirePreviousPaths:c3638a733b6e762e85a75716a06ffd60",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
       }
     ],
     "technical": true
@@ -12097,6 +12209,12 @@
   "doc-materialize": {
     "owner": "document",
     "sources": [
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/taskDetail/TaskMaterializationControl.tsx#TaskMaterializationControl.materialize.mutationFn.receipt:f34d53abf0f68551819e035cc88a16d1",
+        "route": "task.materialize",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/doc-sync-materialize-action.ts#runDocMaterialize:7c03e74857c479aa3e6a14e60dc37d6e",
         "route": "doc-materialize",
@@ -12459,6 +12577,12 @@
         "route": "task.create",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/agenda/AgendaOutboxActions.tsx#AgendaOutboxActions:a67d3018b01d054daa7aadbd8dc91d9d",
+        "route": "task.create",
+        "role": "client",
+        "port": "packages/gui/src/renderer/views/agenda/AgendaOutboxActions.tsx#AgendaOutboxActions.create"
       }
     ]
   },
@@ -12814,6 +12938,24 @@
         "route": "task-archive",
         "role": "client",
         "port": "tools/stress/entity-cli-calibration.fixture.mjs#fixture.invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.archiveTasks:2eddfc2808cf1fa08b4232baf1ce1863",
+        "route": "task.archive",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/agenda/AgendaOutboxActions.tsx#AgendaOutboxActions:635f21ba7ee172be014edcd50946f69b",
+        "route": "task.archive",
+        "role": "client",
+        "port": "packages/gui/src/renderer/views/agenda/AgendaOutboxActions.tsx#AgendaOutboxActions.archive"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/agenda/AgendaOutboxActions.tsx#AgendaOutboxActions:60f0f52c9bd07d93cdeaa13a145a87bb",
+        "route": "task.archive",
+        "role": "client",
+        "port": "packages/gui/src/renderer/views/agenda/AgendaOutboxActions.tsx#AgendaOutboxActions.archive"
       }
     ]
   },
@@ -13135,7 +13277,7 @@
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/AwaitsAnswerPanel.tsx#AnswerForm:e4c75b9412efafb3fdef302bdb2856c5",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/AwaitsAnswerPanel.tsx#AnswerForm:47858823f94f6d0cc4b96e1e63f88f20",
         "route": "relation.unrelate",
         "role": "client",
         "port": "packages/gui/src/renderer/awaits-answer.ts#useAwaitsAnswer.submit"
@@ -14141,6 +14283,66 @@
         "route": "agentRuntime.spawn",
         "role": "client",
         "port": "packages/gui/src/renderer/views/AgentSquadView.tsx#AgentSquadView.dispatch"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/AwaitsAnswerPanel.tsx#AnswerForm:3b517f68afc7d3972ed9aff33d781e4e",
+        "route": "agentRuntime.spawn",
+        "role": "client",
+        "port": "packages/gui/src/renderer/views/agenda/useAgendaContinuation.ts#AgendaContinuation.run"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/components/AwaitsAnswerPanel.tsx#AnswerForm:3b517f68afc7d3972ed9aff33d781e4e:2",
+        "route": "agentRuntime.spawn",
+        "role": "client",
+        "port": "packages/gui/src/renderer/views/agenda/useAgendaContinuation.ts#AgendaContinuation.run"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/agenda/AgendaDecisionActions.tsx#AgendaDecisionActions:04f990792161637488f54c5c10df396e",
+        "route": "agentRuntime.spawn",
+        "role": "client",
+        "port": "packages/gui/src/renderer/views/agenda/useAgendaContinuation.ts#AgendaContinuation.run"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/agenda/useAgendaContinuation.ts#useAgendaContinuation.run.settled.spawn:9cf0d2ba7fe1d34d23b96f7c22829516",
+        "route": "agentRuntime.spawn",
+        "role": "client",
+        "port": "packages/gui/src/renderer/runtime-command-client.ts#runtimeCommandClient.spawn"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/agenda/AgendaDecisionActions.tsx#AgendaDecisionActions:eb395507246588cd50edee713cc549cb",
+        "route": "agentRuntime.spawn",
+        "role": "client",
+        "port": "packages/gui/src/renderer/views/agenda/useAgendaContinuation.ts#AgendaContinuation.run"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#AgendaRuntimeActions.submit:932fd1e2222e458b4c33178a06c6d5e3",
+        "route": "agentRuntime.spawn",
+        "role": "client",
+        "port": "packages/gui/src/renderer/views/agenda/useAgendaContinuation.ts#AgendaContinuation.run"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#AgendaRuntimeActions:eab0a71d663c8a7fcaac52090fde7402",
+        "route": "agentRuntime.spawn",
+        "role": "client",
+        "port": "packages/gui/src/renderer/views/agenda/useAgendaContinuation.ts#AgendaContinuation.run"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#AgendaRuntimeActions:772af27c8efadcd2859301060669da82",
+        "route": "agentRuntime.spawn",
+        "role": "client",
+        "port": "packages/gui/src/renderer/views/agenda/useAgendaContinuation.ts#AgendaContinuation.run"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#AgendaRuntimeActions:eab0a71d663c8a7fcaac52090fde7402:2",
+        "route": "agentRuntime.spawn",
+        "role": "client",
+        "port": "packages/gui/src/renderer/views/agenda/useAgendaContinuation.ts#AgendaContinuation.run"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#AgendaRuntimeActions:46658c58922bfd71de9e12139053577b",
+        "route": "agentRuntime.spawn",
+        "role": "client",
+        "port": "packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#AgendaRuntimeActions.submit"
       }
     ],
     "execution": {
@@ -14964,6 +15166,62 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/edge-replica-doctor.ts#edgeReplicaDoctor:670825534fcc8700014b543f2b41d01b",
         "route": "daemon-fleet-edge-sync",
         "role": "support"
+      }
+    ]
+  },
+  "runtime-incident-dismiss": {
+    "owner": "runtime-session",
+    "sources": [
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.dismissRuntimeIncident:b3e4dd455b4ad070643c64e5a40fa3de",
+        "route": "agentRuntime.incidentDismiss",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#AgendaRuntimeActions:8e0e6db8add86ba7cd4e2a247bb3b2cd",
+        "route": "agentRuntime.incidentDismiss",
+        "role": "client",
+        "port": "packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#AgendaRuntimeActions.submit"
+      }
+    ],
+    "execution": {
+      "ingress": "runtime-incident-dismiss",
+      "read": false
+    },
+    "concurrency": {
+      "expectedVersion": {
+        "authority": "incident-receipt-state"
+      },
+      "leasePolicy": {
+        "authority": "daemon-host"
+      },
+      "occurrenceClaim": {
+        "authority": "incident-disposition-claim"
+      },
+      "idempotency": {
+        "authority": "dispatch-disposition"
+      },
+      "artifactOwnership": {
+        "owner": "host-local",
+        "refTemplate": "dispatch/{dispatchId}"
+      }
+    }
+  },
+  "task-escalation-resolve": {
+    "owner": "task",
+    "sources": [
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.resolveTaskEscalation:77e27a2d6473080aa9945402a8bfc70f",
+        "route": "task.escalationResolve",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#AgendaRuntimeActions:ba0fb531d328d17e8d3377aa73f7a3a8",
+        "route": "task.escalationResolve",
+        "role": "client",
+        "port": "packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#AgendaRuntimeActions.submit"
       }
     ]
   }

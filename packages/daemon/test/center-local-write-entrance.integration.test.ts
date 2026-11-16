@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
+import { waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -127,11 +127,17 @@ test("the center admits no unauthenticated source and the edge admits no local l
       createConvenienceLinks: false,
     });
     signInAt(path.join(parent, "user"), "writer");
-    await host.requestControl({ kind: "refresh", authorityRepoId: "center" }, auth);
-    await waitForArrival(
-      () => (host.status().repos.some(({ repoId }) => repoId === "bare") ? true : null),
-      watchDirectoryArrival(parent),
-    );
+    const refreshed = await host.requestControl({ kind: "refresh", authorityRepoId: "center" }, auth);
+    assert.equal(refreshed.outcome, "pending");
+    const settledRefresh = await waitForDurableValue(() => {
+      const receipt = host.controlReceipt(refreshed.operationId, auth);
+      if (receipt.phase === "failed") return receipt;
+      if (receipt.phase !== "settled") return null;
+      return host.status().repos.some(({ repoId, state }) => repoId === "bare" && state === "attached")
+        ? receipt
+        : null;
+    });
+    assert.equal(settledRefresh.phase, "settled");
     await host.attachmentsSettled();
     signOutAt(path.join(parent, "user"));
     const unauthenticated = (await host.run(

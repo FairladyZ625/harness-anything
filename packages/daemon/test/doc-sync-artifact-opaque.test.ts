@@ -146,7 +146,8 @@ test("artifact add treats every artifacts/ path as opaque while preserving media
     rmSync(path.join(rootDir, "harness", "tasks"), { recursive: true, force: true });
     const materialized = await cell.run({ kind: "doc-materialize", paths: [], all: true }, binding);
     assert.equal(materialized.outcome, "applied", JSON.stringify(materialized));
-    assert.equal(materialized.proof?.worktreeVisible, true);
+    assert.equal(materialized.status, "settled_no_write");
+    assert.equal(materialized.proof, undefined, "host-local restoration must not claim committed proof");
     assert.equal(materialized.acceptance, null);
     assert.deepEqual(reader.readHead(), beforeMaterialize, "materialization must not admit a new command");
     for (const { destination, body } of cases) {

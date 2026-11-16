@@ -1284,15 +1284,33 @@ export function openRuntimeInstanceStore(input: {
       const installationId = hasInstallation
           ? requireWitnessedInstallation(current.kindId, action.installationId, input.discover()).installationId
           : current.installationId,
-        models = hasModels ? normalizeModels(action.models, true) : [...current.models],
+        enabled = hasEnabled ? requireBoolean(action.enabled, "enabled") : current.enabled,
+        credentialSource = hasCredentialSource ? action.credentialSource : current.credentialSource,
+        autoFillObservedModels =
+          !hasModels &&
+          enabled &&
+          current.models.length === 0 &&
+          current.credentialSource === "instance" &&
+          credentialSource === "instance" &&
+          installationId === current.installationId &&
+          current.auth.mode === "subscription" &&
+          (current.availableModels?.length ?? 0) > 0,
+        models = hasModels
+          ? normalizeModels(action.models, true)
+          : autoFillObservedModels
+            ? current.kindId === "zcode"
+              ? [current.availableModels![0]!]
+              : [...current.availableModels!]
+            : [...current.models],
         defaultModel = hasDefault
           ? models.length === 0 && action.defaultModel === ""
             ? ""
             : requiredRuntimeInstanceText(action.defaultModel, "defaultModel")
           : models.length === 0
             ? ""
-            : current.defaultModel,
-        enabled = hasEnabled ? requireBoolean(action.enabled, "enabled") : current.enabled,
+            : current.defaultModel === ""
+              ? models[0]!
+              : current.defaultModel,
         // Base URL edit on the existing instance: a non-empty value replaces the current
         // endpoint (same secure validation as create); an explicit empty string clears it
         // back to the official endpoint. Omitted leaves it untouched. Effort follows the
@@ -1312,12 +1330,11 @@ export function openRuntimeInstanceStore(input: {
           "invalid_runtime_model",
           `Default model ${defaultModel} is not in the instance model set. Supported models: ${models.join(", ")}.`,
         );
-      const credentialSource = hasCredentialSource ? action.credentialSource : current.credentialSource,
-        isolationState = hasIsolation
-          ? action.isolationState
-          : hasCredentialSource && credentialSource === "instance"
-            ? "enforced"
-            : current.isolationState;
+      const isolationState = hasIsolation
+        ? action.isolationState
+        : hasCredentialSource && credentialSource === "instance"
+          ? "enforced"
+          : current.isolationState;
       const updated = runtimeInstanceConfig(
         {
           ...current,

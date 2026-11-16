@@ -21,22 +21,13 @@ export function pgEpochTransactions(pool: Pool) {
         if (!held) throw new WriterEpochError("writer_epoch_invalid", "No PG append fence is held");
         const client = held;
         held = null;
-        let committing = false,
-          releaseError: Error | undefined;
+        let releaseError: Error | undefined;
         try {
-          await commitPostgresTransaction(client, () => {
-            committing = true;
-          });
+          // The held transaction only validates and locks the epoch. Release the fence
+          // without synchronously committing its row-lock WAL; business writes own COMMIT.
+          await client.query("ROLLBACK");
         } catch (error) {
-          if (committing) releaseError = error instanceof Error ? error : new Error(String(error));
-          else {
-            try {
-              await client.query("ROLLBACK");
-            } catch (rollback) {
-              releaseError = new AggregateError([error, rollback], "PG append fence and rollback failed");
-              throw releaseError;
-            }
-          }
+          releaseError = error instanceof Error ? error : new Error(String(error));
           throw error;
         } finally {
           client.release(releaseError);
@@ -45,13 +36,16 @@ export function pgEpochTransactions(pool: Pool) {
       }
       if (held) throw new WriterEpochError("writer_epoch_invalid", "A PG append fence is already held");
       const client = await pool.connect();
+      const snapshot = request.operation === "current" || request.operation === "floor";
       let retained = false,
         committing = false,
         releaseError: Error | undefined;
       try {
-        await client.query("BEGIN");
-        await client.query("SET LOCAL statement_timeout = 0");
-        await client.query("SET LOCAL transaction_timeout = 0");
+        if (!snapshot) {
+          await client.query("BEGIN");
+          await client.query("SET LOCAL statement_timeout = 0");
+          await client.query("SET LOCAL transaction_timeout = 0");
+        }
         if (request.operation === "acquire")
           await client.query("INSERT INTO ha_repo_writer_epochs(repo_id) VALUES($1) ON CONFLICT DO NOTHING", [
             request.repoId,
@@ -63,7 +57,7 @@ export function pgEpochTransactions(pool: Pool) {
             writer_issued_at: string | null;
             migration_control: Parameters<typeof migrationWritable>[0];
           }>(
-            `SELECT writer_epoch,writer_holder_id,writer_issued_at,migration_control FROM ha_repo_writer_epochs WHERE repo_id=$1${request.operation === "acquire" || request.operation === "retire" ? " FOR UPDATE" : " FOR SHARE"}`,
+            `SELECT writer_epoch,writer_holder_id,writer_issued_at,migration_control FROM ha_repo_writer_epochs WHERE repo_id=$1${request.operation === "acquire" || request.operation === "retire" ? " FOR UPDATE" : request.operation === "begin" ? " FOR SHARE" : ""}`,
             [request.repoId],
           )
         ).rows[0];
@@ -111,14 +105,17 @@ export function pgEpochTransactions(pool: Pool) {
             [request.repoId, request.holderId],
           );
         }
-        await commitPostgresTransaction(client, () => {
-          committing = true;
-        });
+        // Snapshot checks neither produce lock WAL nor claim the enclosing write's COMMIT phase.
+        if (!snapshot)
+          await commitPostgresTransaction(client, () => {
+            committing = true;
+          });
         if (request.operation === "floor") return epoch;
         return holder && issuedAt
           ? { repoId: request.repoId, holderId: holder, epoch, version: epoch, issuedAt }
           : null;
       } catch (error) {
+        if (snapshot) throw error;
         if (committing) {
           releaseError = error instanceof Error ? error : new Error(String(error));
           throw error;

@@ -132,6 +132,8 @@ test("B13 audits integration over-budget exceptions as live test paths", () => {
     source: `check-integration-test-shards.json:entries.overBudgetFiles[${index}].ref`,
     ref: entry.ref,
   }));
-  assert.ok(refs.length > 0);
+  // dec_193D3BD6C59FCA1ECE4C820415/CH1 (task_4297bfe9135d522c2052857df3) brings every integration
+  // file within the 180s per-file budget, so overBudgetFiles is now empty.
+  assert.equal(refs.length, 0);
   assert.deepEqual(auditAllowlistRefReachability(EVIDENCE_INDEX, refs).findings, []);
 });

@@ -1,12 +1,5 @@
-import { cliContractPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
-import { renderRuntimeStatus, runRuntimeAuthCommand } from "./cli-runtime-auth.ts";
-import { runRuntimeBatch } from "./cli-runtime-batch.ts";
-import { detachedWaitGuidance, waitForRuntimeSessions, waitForSquadRun } from "./cli-runtime-wait.ts";
-import { runSquadRun } from "./cli-squad-run.ts";
 import type { ThinCommand } from "./cli/thin-command.ts";
-import { runCommandThroughDaemon } from "./daemon/client.ts";
-import { randomUUID } from "node:crypto";
 
 export function isRuntimeFacadeCommand(command: ThinCommand): boolean {
   return (
@@ -21,10 +14,12 @@ export function isRuntimeFacadeCommand(command: ThinCommand): boolean {
 export async function runRuntimeFacadeCommand(
   command: ThinCommand,
   writeActivity: (text: string) => void = (text) => process.stderr.write(text),
-  request: (command: ThinCommand) => Promise<JsonObject> = runCommandThroughDaemon,
+  request?: (command: ThinCommand) => Promise<JsonObject>,
 ): Promise<JsonObject> {
+  const { cliContractPolicy } = await import("@harness-anything/kernel/internal/domain/cli-operational-policy.ts"),
+    send = request ?? (await import("./daemon/client.ts")).runCommandThroughDaemon;
   if (command.action.claimNext === cliContractPolicy.defaultValue.claimNext) {
-    const candidates = await request({
+    const candidates = await send({
       ...command,
       method: "repo.tasks.claimable",
       action: { kind: "repository-read" },
@@ -35,7 +30,7 @@ export async function runRuntimeFacadeCommand(
       { claimNext: _claimNext, ...action } = command.action;
     let taskId: string | undefined;
     for (const task of tasks) {
-      const started = await request({
+      const started = await send({
         ...command,
         method: "repo.task.run",
         action: { kind: "task-start", taskId: task.taskId },
@@ -59,18 +54,40 @@ export async function runRuntimeFacadeCommand(
   }
   const action = command.action;
   if (action.kind === "task-submit") {
-    const submitted = await request(command);
+    const submitted = await send(command);
     if (submitted.ok !== true || submitted.outcome !== "pending") return submitted;
     return submitted;
   }
-  if (action.kind.startsWith("runtime-handoff-")) return runCommandThroughDaemon(command);
-  if (command.method.startsWith("repo.runtimeInstance.auth.")) return runRuntimeAuthCommand(command, writeActivity);
-  if (action.kind === "runtime-batch") return runRuntimeBatch(command);
-  if (action.kind === "squad-run") return runSquadRun(command, writeActivity);
-  if (action.kind === "squad-status") return waitForSquadRun(command, String(action.squadRunId));
-  if (action.kind === "runtime-sessions-await") return waitForRuntimeSessions(command, writeActivity);
+  if (action.kind.startsWith("runtime-handoff-")) {
+    const { runCommandThroughDaemon } = await import("./daemon/client.ts");
+    return runCommandThroughDaemon(command);
+  }
+  if (command.method.startsWith("repo.runtimeInstance.auth.")) {
+    const { runRuntimeAuthCommand } = await import("./cli-runtime-auth.ts");
+    return runRuntimeAuthCommand(command, writeActivity);
+  }
+  if (action.kind === "runtime-batch") {
+    const { runRuntimeBatch } = await import("./cli-runtime-batch.ts");
+    return runRuntimeBatch(command);
+  }
+  if (action.kind === "squad-run") {
+    const { runSquadRun } = await import("./cli-squad-run.ts");
+    return runSquadRun(command, writeActivity);
+  }
+  if (action.kind === "squad-status") {
+    const { waitForSquadRun } = await import("./cli-runtime-wait.ts");
+    return waitForSquadRun(command, String(action.squadRunId));
+  }
+  if (action.kind === "runtime-sessions-await") {
+    const { waitForRuntimeSessions } = await import("./cli-runtime-wait.ts");
+    return waitForRuntimeSessions(command, writeActivity);
+  }
   if (action.kind === "runtime-status") {
-    const { wait: _wait, noStream: _noStream, ...readAction } = action,
+    const [{ renderRuntimeStatus }, { runCommandThroughDaemon }] = await Promise.all([
+        import("./cli-runtime-auth.ts"),
+        import("./daemon/client.ts"),
+      ]),
+      { wait: _wait, noStream: _noStream, ...readAction } = action,
       result = await runCommandThroughDaemon({
         ...command,
         action: readAction,
@@ -84,11 +101,12 @@ export async function runRuntimeFacadeCommand(
       : result;
   }
   if (action.kind === "runtime-cancel" || action.kind === "runtime-steer") {
-    const { noStream: _noStream, ...rpcAction } = action;
-    const result = await runCommandThroughDaemon({
-      ...command,
-      action: rpcAction,
-    });
+    const { runCommandThroughDaemon } = await import("./daemon/client.ts"),
+      { noStream: _noStream, ...rpcAction } = action,
+      result = await runCommandThroughDaemon({
+        ...command,
+        action: rpcAction,
+      });
     return result.ok === true
       ? {
           ...result,
@@ -101,8 +119,9 @@ export async function runRuntimeFacadeCommand(
         }
       : result;
   }
-  const { noStream: _noStream, detach = false, ...spawnAction } = action,
-    spawned = await request({
+  const { randomUUID } = await import("node:crypto"),
+    { noStream: _noStream, detach = false, ...spawnAction } = action,
+    spawned = await send({
       ...command,
       action: {
         ...spawnAction,
@@ -121,6 +140,7 @@ export async function runRuntimeFacadeCommand(
       exitCode: 0,
     };
   if (spawned.ok !== true || typeof spawned.runtimeSessionId !== "string") return spawned;
+  const { detachedWaitGuidance, waitForRuntimeSessions } = await import("./cli-runtime-wait.ts");
   if (detach === true) {
     const nextAction = `ha runtime status ${spawned.runtimeSessionId} --wait`;
     return {

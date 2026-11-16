@@ -6,6 +6,7 @@ export {
   resolveStorageBackend,
   unsupportedStorageBackendError,
   readNodeMaterializationDocuments,
+  requireTaskMaterializationMetadata,
 } from "./storage-backend.ts";
 export type {
   PGliteStorageBackendConfig,
@@ -45,6 +46,7 @@ export type {
 } from "./projection/cold-rebuild-source.ts";
 export { eventShapeMigrations } from "./store/event-shape-migration.ts";
 export type { DaemonStorageConfig } from "./storage-daemon-composition.ts";
+export { withStorageWriteRequest } from "./pg/pg-task-query-reader.ts";
 export {
   readDaemonStorageConfig,
   prepareDaemonRepoStorage,
@@ -52,6 +54,8 @@ export {
   makeDaemonProjectionReader,
   registerDaemonRepo,
   openFleetStorage,
+  fleetBackupRequiresWriter,
+  daemonWriterSupportsCommitPhase,
   hasDaemonGitFollower,
   readDaemonHarnessConfig,
 } from "./storage-daemon-composition.ts";

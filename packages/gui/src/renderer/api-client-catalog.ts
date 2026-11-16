@@ -64,6 +64,7 @@ export interface CatalogSnapshotSuccess {
   /** settings 动作契约字段表(daemon 侧校验行 shape):仓库设置表单的派生源。
    * group/effect/defaultValue 是呈现元数据(kernel 声明源投影),驱动分组、解释与默认值比对。 */
   readonly settingsFields: ReadonlyArray<{
+    readonly ownership?: "repository" | "local";
     readonly field: string;
     readonly description?: string;
     readonly type: string;
