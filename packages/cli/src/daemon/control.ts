@@ -179,7 +179,6 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
     return finish(daemonFailure(`daemon-${command ?? "unknown"}`, code(error), message(error)), 1);
   }
 }
-
 async function runNodeAutoClaimControl(
   argv: readonly string[],
   commandIndex: number,

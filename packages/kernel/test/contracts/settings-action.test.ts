@@ -720,3 +720,24 @@ test("node materialization policy is declared local and derived into closed acti
   const written = SETTINGS_DECLARATION_RUNTIME.writeRepository(documentBody, { ...current, ...local });
   assert.doesNotMatch(written, /nodeTaskMaterializationPolicy|in_flight/u);
 });
+
+test("Execution usage setting round-trips independently of the dispatch cap", () => {
+  assert.equal(current.runtime.executionUsageLimit, 0);
+  const settings = SETTINGS_DECLARATION_RUNTIME.applyRepositoryAction(SETTINGS_DECLARATION_RUNTIME.read(documentBody), {
+      runtimeExecutionUsageLimit: 100,
+      runtimeDispatchUsageLimit: 50,
+    }),
+    written = SETTINGS_DECLARATION_RUNTIME.writeRepository(documentBody, settings),
+    reread = repositorySettings(readSettingsFacet(written));
+  assert.equal(reread.runtime.executionUsageLimit, 100);
+  assert.equal(reread.runtime.dispatchUsageLimit, 50);
+  const disabled = SETTINGS_DECLARATION_RUNTIME.actionValues(
+    SETTINGS_DECLARATION_RUNTIME.applyRepositoryAction(settings, { runtimeExecutionUsageLimit: 0 }),
+  );
+  assert.equal(disabled.runtimeExecutionUsageLimit, 0);
+  assert.equal(disabled.runtimeDispatchUsageLimit, 50);
+  assert.throws(
+    () => SETTINGS_DECLARATION_RUNTIME.applyRepositoryAction(settings, { runtimeExecutionUsageLimit: -1 }),
+    /runtimeExecutionUsageLimit/u,
+  );
+});

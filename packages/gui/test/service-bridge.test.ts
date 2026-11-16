@@ -345,6 +345,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
         commandInterceptions: [],
         agentSkills: [],
         dispatchUsageLimit: 0,
+        executionUsageLimit: 0,
         stallTimeoutMs: 300_000,
         providerMaxRetries: 3,
         providerRoundBackoffBaseSeconds: 5,

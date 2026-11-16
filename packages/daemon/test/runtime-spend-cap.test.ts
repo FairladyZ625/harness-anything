@@ -4,6 +4,8 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { runtimeExecutionBudgetRefusal } from "../src/runtime-spend-cap.ts";
+import { settleFallbackAttempt } from "../src/runtime-spawn-fallback.ts";
 import {
   attachActiveRuntime,
   createActiveRuntime,
@@ -60,6 +62,49 @@ function providerContext() {
   } as never;
 }
 
+test("reviewer dispatches neither consume implementation attempts/tokens nor face its ceiling", async () => {
+  const task = { taskId: "task-budget", executionId: "execution-budget" },
+    rows = Array.from({ length: 5 }, (_, index) => ({
+      event: { payload: { runtimeSessionId: `implementation-${index}`, role: "implementer" } },
+      metrics: { totalTokens: 1 },
+    })),
+    reviewer = {
+      event: { payload: { runtimeSessionId: "reviewer", role: "reviewer" } },
+      metrics: { totalTokens: 1000 },
+    },
+    projection = { readRuntimeDispatchesByTaskExecution: () => [...rows, reviewer] } as never,
+    budget = { maxAttempts: 6, maxTokens: 100 };
+  assert.equal(runtimeExecutionBudgetRefusal(projection, task, budget), null);
+  rows.push({
+    event: { payload: { runtimeSessionId: "implementation-5", role: "implementer" } },
+    metrics: { totalTokens: 1 },
+  });
+  assert.equal(runtimeExecutionBudgetRefusal(projection, task, budget)?.code, "execution_budget_exceeded");
+  assert.equal(runtimeExecutionBudgetRefusal(projection, { ...task, role: "reviewer" }, budget), null);
+  const result = await settleFallbackAttempt(
+    {
+      input: { now: () => "2026-11-16T00:00:00Z", readSettings: () => ({ runtime: {} }) },
+      requiredRuntimeProjection: () => projection,
+    } as never,
+    {
+      task,
+      role: "reviewer",
+      tokenLimit: 100,
+      stream: { appendFallbackState: () => undefined },
+      fallbackAttempt: { attemptIndex: 0, candidates: [{ instance: "a" }, { instance: "b" }] },
+    } as never,
+    {
+      classification: "provider_fault",
+      reason: "startup 500",
+      provider: { instance: "a", model: "fixture", kind: "agy" },
+      attemptGroupId: "reviewer-group",
+      attemptIndex: 0,
+    },
+    { outcome: "failed" } as never,
+  );
+  assert.equal(result?.fallbackState, "scheduled", "reviewer fallback retains its own bounded retry policy");
+});
+
 test("usage above the dispatch token limit marks the runtime as capped", async () => {
   const runtime = active(100);
   await consumeProviderLine(
@@ -80,6 +125,21 @@ test("usage at the limit does not stop the runtime yet", async () => {
   );
   assert.equal(runtime.inputTokens + runtime.outputTokens, 100);
   assert.equal(runtime.spendCapExceeded, false);
+});
+
+test("Execution token ceiling is opt-in and independent of each dispatch's token cap", () => {
+  const task = { taskId: "task-budget", executionId: "execution-budget" },
+    rows = [60, 40].map((totalTokens, index) => ({
+      event: { payload: { runtimeSessionId: `runtime-${index}`, role: "implementer" } },
+      metrics: { totalTokens },
+    })),
+    projection = { readRuntimeDispatchesByTaskExecution: () => rows } as never;
+  assert.equal(runtimeExecutionBudgetRefusal(projection, task), null);
+  assert.equal(
+    runtimeExecutionBudgetRefusal(projection, task, { maxAttempts: 6, maxTokens: 100 })?.code,
+    "execution_budget_exceeded",
+  );
+  assert.equal(runtimeExecutionBudgetRefusal(projection, task, { maxAttempts: 6, maxTokens: 101 }), null);
 });
 
 test("the output handler enforces the cap after the consuming chunk", async () => {
@@ -119,3 +179,123 @@ test("the output handler enforces the cap after the consuming chunk", async () =
   // test process exit instead of leaking one fs_event handle.
   disposeActiveRuntimeObservations(runtime);
 });
+
+for (const tokens of [false, true])
+  test(`Execution ${tokens ? "token opt-in leaves the per-dispatch cap independent" : "attempts exhaust fallback"}`, async () => {
+    const task = { taskId: "task-budget", executionId: "execution-budget" },
+      rows = Array.from({ length: tokens ? 2 : 6 }, (_, index) => ({
+        event: { payload: { runtimeSessionId: `runtime-${index}` } },
+        metrics: { totalTokens: tokens ? 30 : 0 },
+      })),
+      projection = {
+        readRuntimeDispatchesByTaskExecution: (taskId: string, executionId: string) => {
+          assert.equal(taskId, task.taskId);
+          assert.equal(executionId, task.executionId);
+          return rows;
+        },
+      } as never,
+      states: Record<string, unknown>[] = [],
+      current = { runtimeSessionId: tokens ? "runtime-1" : "runtime-5", inputTokens: tokens ? 70 : 0, outputTokens: 0 },
+      context = {
+        input: {
+          now: () => "2026-11-16T00:00:00Z",
+          readSettings: () => ({ runtime: {} }),
+          onAttemptTerminal: async () => undefined,
+        },
+        requiredRuntimeProjection: () => projection,
+      } as never;
+    const refusal = runtimeExecutionBudgetRefusal(
+      projection,
+      task,
+      { maxAttempts: 6, maxTokens: tokens ? 100 : null },
+      current,
+    );
+    assert.equal(refusal?.code, "execution_budget_exceeded");
+    const result = await settleFallbackAttempt(
+      context,
+      {
+        ...current,
+        task,
+        tokenLimit: tokens ? 100 : null,
+        stream: { appendFallbackState: (state: Record<string, unknown>) => states.push(state) },
+        fallbackAttempt: { attemptIndex: 0, candidates: [{ instance: "a" }, { instance: "b" }] },
+      } as never,
+      {
+        classification: "provider_fault",
+        reason: "startup 500",
+        provider: { instance: "a", model: "fixture", kind: "agy" },
+        attemptGroupId: "group",
+        attemptIndex: 0,
+      },
+      { outcome: "failed" } as never,
+    );
+    if (tokens) {
+      assert.equal(result?.fallbackState, "scheduled", "a dispatch cap does not opt into Execution token limiting");
+      assert.equal(result?.budgetRefusal, undefined);
+      assert.equal(states[0]?.state, "scheduled");
+    } else {
+      assert.equal(result?.fallbackState, "exhausted");
+      assert.equal(result?.budgetRefusal?.code, "execution_budget_exceeded");
+      assert.match(String(states[0]?.reason), /execution_budget_exceeded/u);
+      assert.equal(
+        states.some((state) => state.state === "scheduled"),
+        false,
+      );
+    }
+  });
+
+// F3: exercise the production fallback settings reader, not a direct policy argument.
+for (const [executionUsageLimit, secondTokens, expected] of [
+  [100, 40, "exhausted"],
+  [100, 39, "scheduled"],
+  [0, 40, "scheduled"],
+] as const)
+  test(`local fallback cumulative setting=${executionUsageLimit}, tokens=60+${secondTokens}`, async () => {
+    const task = { taskId: "task-budget", executionId: "execution-budget" },
+      rows = [60, secondTokens].map((totalTokens, index) => ({
+        event: { payload: { runtimeSessionId: `runtime-${index}`, role: "implementer" } },
+        metrics: { totalTokens },
+      })),
+      terminal: unknown[] = [],
+      states: Record<string, unknown>[] = [],
+      result = await settleFallbackAttempt(
+        {
+          input: {
+            now: () => "2026-11-17T00:00:00Z",
+            readSettings: () => ({ runtime: { executionUsageLimit, dispatchUsageLimit: 100 } }),
+            onAttemptTerminal: async (value: unknown) => {
+              terminal.push(value);
+            },
+          },
+          requiredRuntimeProjection: () => ({ readRuntimeDispatchesByTaskExecution: () => rows }),
+        } as never,
+        {
+          runtimeSessionId: "runtime-1",
+          inputTokens: secondTokens - 10,
+          outputTokens: 10,
+          tokenLimit: 100,
+          task,
+          role: "implementer",
+          stream: { appendFallbackState: (state: Record<string, unknown>) => states.push(state) },
+          fallbackAttempt: { attemptIndex: 0, candidates: [{ instance: "a" }, { instance: "b" }] },
+        } as never,
+        {
+          classification: "provider_fault",
+          reason: "startup 500",
+          provider: { instance: "a", model: "fixture", kind: "agy" },
+          attemptGroupId: "group",
+          attemptIndex: 0,
+        },
+        { outcome: "failed" } as never,
+      );
+    assert.equal(result?.fallbackState, expected);
+    assert.equal(states[0]?.state, expected);
+    if (expected === "exhausted") {
+      assert.equal(result?.budgetRefusal?.code, "execution_budget_exceeded");
+      assert.match(String(states[0]?.reason), /100\/100 reported tokens/u);
+      assert.equal(terminal.length, 1);
+    } else {
+      assert.equal(result?.budgetRefusal, undefined);
+      assert.equal(terminal.length, 0);
+    }
+  });

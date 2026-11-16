@@ -2,6 +2,7 @@
 import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
@@ -39,6 +40,7 @@ const repoId = "task-dispatch-recovery",
 
 type Launch = {
   readonly child: ReturnType<typeof spawn>;
+  readonly prompt: string;
   output: ((chunk: string, persisted?: boolean) => void) | null;
   exit: ((code: number | null) => void) | null;
 };
@@ -48,13 +50,26 @@ type Launch = {
  * The recovery fence replaces both with one compare-and-dispatch inside the runtime publication
  * write turn of a real RepoCell; every refusal below must leave the dispatch list unchanged.
  */
-test("a stopped dispatch is recovered once through the fenced compare-and-dispatch", async () => {
+for (const budgetCase of [false, "attempts", "per-dispatch", "execution-equal", "execution-below"])
+  test(`a stopped dispatch is recovered through the fence; cumulative budget=${budgetCase}`, () =>
+    recoveryScenario(budgetCase));
+
+async function recoveryScenario(budgetCase: boolean | string): Promise<void> {
   const root = mkdtempSync(path.join(tmpdir(), "ha-task-dispatch-recovery-")),
     launches: Launch[] = [];
   const eventually = (check: () => boolean | Promise<boolean>, ..._rest: unknown[]): Promise<void> =>
     waitForArrival(async () => ((await check()) ? true : null), watchDirectoryArrival(root));
   try {
     initRepo(root);
+    const tokenBudgetCase = ["per-dispatch", "execution-equal", "execution-below"].includes(String(budgetCase)),
+      executionUsageLimit = String(budgetCase).startsWith("execution-") ? 100 : 0,
+      secondTokens = budgetCase === "execution-below" ? 39 : 40;
+    if (tokenBudgetCase)
+      writeFileSync(
+        path.join(root, "harness/harness.yaml"),
+        `settings:\n  runtime:\n    dispatchUsageLimit: 100\n    executionUsageLimit: ${executionUsageLimit}\n`,
+        { flag: "a" },
+      );
     const cell = await openBootstrappedRepoCell({
       repoId: workspaceId(repoId),
       rootDir: canonicalRoot(root),
@@ -92,14 +107,14 @@ test("a stopped dispatch is recovered once through the fenced compare-and-dispat
         cwd: request.cwd,
         prompt: request.prompt,
       }),
-      runtimeLaunch: () => {
+      runtimeLaunch: (request) => {
         const child = spawn(process.execPath, ["-e", "process.exit(0)"], {
           detached: true,
           stdio: ["pipe", "ignore", "ignore"],
         });
         if (!child.pid) throw new Error("fixture worker child did not expose a pid");
         child.unref();
-        const launch: Launch = { child, output: null, exit: null };
+        const launch: Launch = { child, prompt: request.prompt, output: null, exit: null };
         launches.push(launch);
         return {
           pid: child.pid,
@@ -146,7 +161,15 @@ test("a stopped dispatch is recovered once through the fenced compare-and-dispat
             records = [
               { type: "thread.started", thread_id: `provider-recovery-${String(index)}` },
               { type: "item.completed", item: { id: "message", type: "agent_message", text: "stopping" } },
-              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } },
+              {
+                type: "turn.completed",
+                usage: tokenBudgetCase
+                  ? {
+                      input_tokens: index === 0 ? 50 : index === 1 ? secondTokens - 10 : 0,
+                      output_tokens: index < 2 ? 10 : 0,
+                    }
+                  : { input_tokens: 1, output_tokens: 1 },
+              },
             ];
           for (const event of records)
             appendRuntimeWorkerRecord(root, dispatchId, {
@@ -164,6 +187,20 @@ test("a stopped dispatch is recovered once through the fenced compare-and-dispat
           });
           launch.exit(0);
           await outcomeObserved(runtimeSessionId);
+          if (tokenBudgetCase) {
+            const outcome = makeTaskEventReader({ repoId, rootDir: root })
+              .read()
+              .events.findLast(
+                (event) =>
+                  event.type === "runtime_session_outcome_observed" &&
+                  event.payload.runtimeSessionId === runtimeSessionId,
+              );
+            assert.ok(outcome?.type === "runtime_session_outcome_observed");
+            assert.equal(
+              outcome.payload.runtimeMetrics?.totalTokens,
+              index === 0 ? 60 : index === 1 ? secondTokens : 0,
+            );
+          }
         },
         // The worker process ends without any provider output reaching the daemon.
         vanishWorker = async (index: number, dispatchId: string, runtimeSessionId: string) => {
@@ -226,7 +263,11 @@ test("a stopped dispatch is recovered once through the fenced compare-and-dispat
       });
       await assert.rejects(
         cell.spawnRuntime(
-          spawnPayload("stale-key", { dispatchId: firstDispatchId, executionId, expectedVersion: stoppedRevision - 1 }),
+          spawnPayload("stale-key", {
+            dispatchId: firstDispatchId,
+            executionId,
+            expectedVersion: stoppedRevision - 1,
+          }),
           ceo,
         ),
         (error: Error & { code?: string }) =>
@@ -257,7 +298,11 @@ test("a stopped dispatch is recovered once through the fenced compare-and-dispat
       );
       await assert.rejects(
         cell.spawnRuntime(
-          spawnPayload("outsider-key", { dispatchId: firstDispatchId, executionId, expectedVersion: stoppedRevision }),
+          spawnPayload("outsider-key", {
+            dispatchId: firstDispatchId,
+            executionId,
+            expectedVersion: stoppedRevision,
+          }),
           outsider,
         ),
         { code: "authorization_denied" },
@@ -272,6 +317,12 @@ test("a stopped dispatch is recovered once through the fenced compare-and-dispat
       assert.equal(recovery.sourceDispatchId, firstDispatchId);
       assert.equal(recovery.dispatchId, recoveredDispatchId);
       assert.equal(recovery.replayed, false);
+      const progress = launches[1]!.prompt.match(/<runtime-progress>[\s\S]*?<\/runtime-progress>/u)?.[0];
+      assert.ok(progress, launches[1]!.prompt);
+      assert.ok(Buffer.byteLength(progress, "utf8") <= 2048);
+      assert.match(progress, /HEAD: [a-f0-9]+ /u);
+      assert.match(progress, /Task lifecycle node: implementation/u);
+      assert.match(progress, /Last attempt: worker_stop/u);
       assert.deepEqual(dispatches(), [firstDispatchId, recoveredDispatchId]);
       const leased = JSON.parse(String((await cell.run({ kind: "task-show", taskId }, ceo)).evidence));
       assert.equal(leased.lease.executionId, executionId, "the recovery rejoins the same execution");
@@ -312,6 +363,70 @@ test("a stopped dispatch is recovered once through the fenced compare-and-dispat
           error.code === "dispatch_recovery_superseded" && error.message.includes(recoveredDispatchId),
       );
       assert.deepEqual(dispatches(), [firstDispatchId, recoveredDispatchId], "no double dispatch");
+
+      if (budgetCase) {
+        // F3: the production setting alone selects the cumulative policy. At equality,
+        // refuse the third attempt; below it or disabled, admit through the sixth.
+        // F2: the per-dispatch setting never becomes the Execution ceiling.
+        const limit = budgetCase === "execution-equal" ? 2 : 6;
+        let latestDispatchId = recoveredDispatchId;
+        for (let index = 2; index < limit; index += 1) {
+          const next = await cell.spawnRuntime(
+            spawnPayload(`budget-${index}`, {
+              dispatchId: latestDispatchId,
+              executionId,
+              expectedVersion: await revision(),
+            }),
+            ceo,
+          );
+          latestDispatchId = String(next.dispatchId);
+          await stopWorker(index, latestDispatchId, String(next.runtimeSessionId));
+        }
+        const before = dispatches();
+        await assert.rejects(
+          cell.spawnRuntime(
+            spawnPayload("budget-over-limit", {
+              dispatchId: latestDispatchId,
+              executionId,
+              expectedVersion: await revision(),
+            }),
+            ceo,
+          ),
+          (error: Error & { code?: string }) =>
+            error.code === "execution_budget_exceeded" &&
+            (budgetCase !== "execution-equal" || /2\/6 attempts, 100\/100 reported tokens/u.test(error.message)),
+        );
+        assert.equal(launches.length, limit);
+        assert.deepEqual(dispatches(), before, "the refused attempt appends no dispatch");
+        // F1: review observes the submitted work; it is not another implementation attempt.
+        // Exercise the same canonical ingress the closeout-reviewer dispatch uses at the ceiling.
+        const source = makeTaskEventReader({ repoId, rootDir: root })
+            .read()
+            .events.find((event) => event.type === "runtime_dispatch_requested" && event.payload.taskId === taskId)!,
+          dispatchKey = "review-at-implementation-ceiling",
+          hash = createHash("sha256").update(`${repoId}\0${dispatchKey}`).digest("hex"),
+          reviewerDispatchId = `dispatch_${hash.slice(0, 24)}`,
+          receipt = await cell.runtimeIngress(
+            {
+              kind: "event",
+              type: "runtime_dispatch_requested",
+              opId: "review-at-implementation-ceiling",
+              payload: {
+                ...source.payload,
+                dispatchKey,
+                dispatchId: reviewerDispatchId,
+                runtimeSessionId: `runtime_${hash.slice(24, 48)}`,
+                attemptGroupId: reviewerDispatchId,
+                attemptIndex: 0,
+                role: "reviewer",
+              },
+            },
+            ceo,
+          );
+        assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+        assert.deepEqual(dispatches(), [...before, reviewerDispatchId]);
+        return;
+      }
 
       // The task left `active` after the comparison was read: the recovery is refused.
       const parked = await cell.run(
@@ -370,7 +485,7 @@ test("a stopped dispatch is recovered once through the fenced compare-and-dispat
     for (const launch of launches) stopFixtureGroup(launch.child);
     rmSync(root, { recursive: true, force: true });
   }
-});
+}
 
 function stopFixtureGroup(child: ReturnType<typeof spawn>): void {
   if (!child.pid) return;

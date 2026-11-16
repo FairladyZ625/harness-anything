@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import test from "node:test";
 import {
   continuationContext,
-  continuationContextPrompt,
+  runtimeProgressSnapshot,
   currentWorktreeHead,
   latestRuntimeContinuationSeed,
 } from "../src/runtime-continuation-context.ts";
@@ -68,9 +68,14 @@ test("continuation context compares the settled HEAD and includes only the bound
     currentHead: "b".repeat(40),
     headStatus: "changed",
   });
-  assert.match(continuationContextPrompt(context)!, /Last conclusion: Tests passed; change is ready for review\./u);
-  assert.match(continuationContextPrompt(context)!, /HEAD comparison: changed/u);
-  assert.doesNotMatch(continuationContextPrompt(context)!, /terminal result|full transcript/iu);
+  const snapshot = runtimeProgressSnapshot({
+    node: "implementation",
+    classification: "worker_stop",
+    reason: context.lastConclusion,
+  });
+  assert.match(snapshot, /Reason: Tests passed; change is ready for review\./u);
+  assert.match(snapshot, /Last attempt: worker_stop/u);
+  assert.doesNotMatch(snapshot, /terminal result|full transcript/iu);
 });
 
 test("continuation seed selects the newest archived dispatch across task executions", () => {
@@ -143,7 +148,7 @@ test("a Git worktree without a HEAD returns unavailable", async () => {
   }
 });
 
-test("task mission includes the previous conclusion and compares it with current HEAD", async () => {
+test("task mission renders the pre-collected bounded progress snapshot (CH1)", async () => {
   const resolved = await resolveRuntimeMission({
     rootDir: process.cwd(),
     cwd: process.cwd(),
@@ -154,7 +159,7 @@ test("task mission includes the previous conclusion and compares it with current
       mission: () => "Continue the task.",
       continuationContext: {
         dispatchId: "dispatch_0123456789abcdef01234567",
-        lastConclusion: "Focused tests passed.",
+        lastConclusion: "worker_stop: Focused tests passed.",
         exitHead: "prior-head",
       },
       causalContext: null,
@@ -167,13 +172,63 @@ test("task mission includes the previous conclusion and compares it with current
     missionName: undefined,
     explicitMission: undefined,
     reviewerBinding: false,
+    workspaceProgress: { head: "abc1234 Completed focused checks", changedFiles: 2, unavailable: null },
+    lifecycleNode: "implementation",
   });
-  assert.match(resolved.mission, /Last conclusion: Focused tests passed\./u);
-  assert.match(resolved.mission, /Exit worktree HEAD: prior-head/u);
-  assert.match(resolved.mission, /Current worktree HEAD: [a-f0-9]{40}/u);
-  assert.match(resolved.mission, /HEAD comparison: changed/u);
-  assert.doesNotMatch(resolved.mission, /full terminal result/iu);
+  assert.equal(resolved.mission, "Continue the task.");
+  assert.match(resolved.progressSnapshot!, /Reason: worker_stop: Focused tests passed\./u);
+  assert.match(resolved.progressSnapshot!, /HEAD: abc1234 Completed focused checks/u);
+  assert.match(resolved.progressSnapshot!, /Changed files: 2/u);
+  assert.match(resolved.progressSnapshot!, /Task lifecycle node: implementation/u);
+  assert.match(resolved.progressSnapshot!, /Last attempt: worker_stop/u);
+  const snapshot = resolved.progressSnapshot!.match(/<runtime-progress>[\s\S]*?<\/runtime-progress>/u)![0];
+  assert.ok(Buffer.byteLength(snapshot, "utf8") <= 2048);
+  assert.doesNotMatch(resolved.progressSnapshot!, /full terminal result/iu);
+  const assembled = assembleTaskMission({
+    mission: resolved.mission,
+    progressSnapshot: snapshot,
+    repoId: "repo",
+    workerRoot: "/repo",
+    taskId: "task_x",
+    taskPackageRoot: "/repo/tasks/task_x",
+    daemonRoute,
+    runtimeActor: "worker",
+  });
+  assert.ok(assembled.endsWith("# Assigned Mission\nContinue the task."));
+  assert.ok(assembled.indexOf(snapshot) < assembled.indexOf("# Assigned Mission"));
 });
+
+for (const lifecycleNode of ["custom-recovery-stage", null])
+  test(`explicit recovery keeps progress without an archive; lifecycle=${lifecycleNode}`, async () => {
+    const resolved = await resolveRuntimeMission({
+      rootDir: process.cwd(),
+      cwd: process.cwd(),
+      taskId: "task_x",
+      projection: null,
+      remoteTask: {
+        packageRoot: "tasks/task_x",
+        mission: () => "Recover the task.",
+        continuationContext: null,
+        causalContext: null,
+        profileId: null,
+        taskClass: "standard",
+        planBody: null,
+        ownerReturnBody: null,
+      } as never,
+      taskSnapshot: null,
+      missionName: undefined,
+      explicitMission: undefined,
+      reviewerBinding: false,
+      continuationRequested: true,
+      lifecycleNode,
+      workspaceProgress: { head: "abc1234 recovery", changedFiles: 3, unavailable: null },
+    });
+    assert.equal(resolved.mission, "Recover the task.");
+    assert.match(resolved.progressSnapshot!, /HEAD: abc1234 recovery/u);
+    assert.match(resolved.progressSnapshot!, /Last attempt: none recorded/u);
+    assert.ok(resolved.progressSnapshot!.includes(`Task lifecycle node: ${lifecycleNode ?? "unavailable"}`));
+    assert.ok(Buffer.byteLength(resolved.progressSnapshot!, "utf8") <= 2048);
+  });
 
 test("a remote mission carries an escalation answer from the mirrored ruling package", async () => {
   const packageRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-escalation-mirror-"));

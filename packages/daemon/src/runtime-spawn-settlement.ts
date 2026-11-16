@@ -696,6 +696,7 @@ export async function publishExit(
       context.processes.delete(active.runtimeSessionId);
       active.process.release?.();
     }
+    const { budgetRefusal, ...fallbackDisposition } = fallback ?? { fallbackState: null };
     const terminalOutcome: DispatchTerminalOutcome = {
       payload: {
         runtimeSessionId: active.runtimeSessionId,
@@ -703,20 +704,21 @@ export async function publishExit(
         exitCode: cancelled ? null : code,
         resultRef,
         result,
-        ...(reasonCode ? { reasonCode } : {}),
+        ...(budgetRefusal ? { reasonCode: budgetRefusal.code } : reasonCode ? { reasonCode } : {}),
         dispatchId: active.dispatchId,
         endedAt,
         runtimeMetrics: kernelMetrics,
         attempt: {
           classification: attemptOutcome.classification,
           reason: attemptOutcome.reason,
-          ...(fallback ?? { fallbackState: null }),
+          ...fallbackDisposition,
+          ...(budgetRefusal ? { reason: `${budgetRefusal.code}: ${budgetRefusal.message}` } : {}),
           ...(attemptOutcome.faultClass ? { faultClass: attemptOutcome.faultClass } : {}),
           ...(attemptOutcome.resetAt ? { resetAt: attemptOutcome.resetAt } : {}),
         },
       },
       body,
-      reason: attemptOutcome.reason,
+      reason: budgetRefusal ? `${budgetRefusal.code}: ${budgetRefusal.message}` : attemptOutcome.reason,
       ...(processGroupPid === undefined ? {} : { processGroupPid }),
     };
     active.stream.appendTerminalOutcome(terminalOutcome, endedAt);

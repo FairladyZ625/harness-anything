@@ -38,11 +38,12 @@ const samples: Record<
   {
     readonly frames: readonly SkeletonFrame[];
     readonly before: "worker_stop";
-    readonly after: "provider_fault" | "worker_stop";
+    readonly after: "gate_red" | "worker_stop";
     readonly note: string;
   }
 > = {
-  // Four positives: the provider exhausted or drained its reconnect budget, then the attempt
+  // CH1: four post-tool tails must fail without provider replay. The provider exhausted
+  // or drained its reconnect budget, then the attempt
   // closed after 0-1 tool calls. The last message claims the workspace is unreachable; the
   // classification never reads that text.
   "670215fc": {
@@ -63,7 +64,7 @@ const samples: Record<
       { kind: "turn.completed" },
     ],
     before: "worker_stop",
-    after: "provider_fault",
+    after: "gate_red",
     note: "5/5 reconnect budget drained, then a final message",
   },
   f9e35de8: {
@@ -85,7 +86,7 @@ const samples: Record<
       { kind: "turn.completed" },
     ],
     before: "worker_stop",
-    after: "provider_fault",
+    after: "gate_red",
     note: "11 reconnects across the attempt; none recovered before the tail",
   },
   "4298b3f7": {
@@ -101,7 +102,7 @@ const samples: Record<
       { kind: "turn.completed" },
     ],
     before: "worker_stop",
-    after: "provider_fault",
+    after: "gate_red",
     note: "file_change-shaped successes then an unrecovered reconnect",
   },
   "8546206f": {
@@ -116,7 +117,7 @@ const samples: Record<
       { kind: "turn.completed" },
     ],
     before: "worker_stop",
-    after: "provider_fault",
+    after: "gate_red",
     note: "single reconnect immediately before the final message",
   },
   // Negative: the attempt recovered after its last reconnect and ran 285 tool calls (265 of them
@@ -163,7 +164,8 @@ test("six real Codex samples reclassify only the drained-reconnect tails", () =>
       after = classifyRuntimeExit(runtime, 0);
     assert.equal(before.classification, sample.before, `${id}: pre-change classification (${sample.note})`);
     assert.equal(after.classification, sample.after, `${id}: post-change classification (${sample.note})`);
-    if (sample.after === "provider_fault") {
+    if (sample.after === "gate_red") {
+      assert.equal(after.outcome, "failed", "CH1 preserves prior tool side effects instead of replaying");
       assert.match(after.reason, /reconnected/u, id);
       assert.match(after.reason, /without a successful tool call/u, id);
       assert.equal(runtime.providerFault, null, `${id}: the reconnect tail invents no provider fault frame`);
@@ -191,7 +193,11 @@ test("the reclassifying reason names the reconnect count and the last provider d
   assert.match(result.reason, /reconnected 6 time\(s\)/u);
   assert.match(result.reason, /5\/5/u);
   assert.match(result.reason, /Our servers are currently overloaded\. Please try again later\./u);
-  assert.equal(result.outcome, "stopped", "a drained reconnect keeps the stopped outcome, only the class moves");
+  assert.equal(
+    result.outcome,
+    "failed",
+    "dec_B9B5BF3C86195DF4186D01668D/CH1: post-tool drained tails fail without replay",
+  );
 });
 
 test("a successful tool call after the last reconnect keeps the worker stop", () => {
@@ -206,7 +212,7 @@ test("a successful tool call after the last reconnect keeps the worker stop", ()
   assert.equal(result.classification, "worker_stop");
 });
 
-test("a failed tool call after the last reconnect does not prove recovery", () => {
+test("a failed tool call after the last reconnect does not permit replay", () => {
   const frames: SkeletonFrame[] = [
       { kind: "thread.started" },
       busy,
@@ -215,7 +221,7 @@ test("a failed tool call after the last reconnect does not prove recovery", () =
       { kind: "turn.completed" },
     ],
     result = classifyRuntimeExit(replay(frames), 0);
-  assert.equal(result.classification, "provider_fault");
+  assert.equal(result.classification, "gate_red");
 });
 
 test("a web_search that returned results after the last reconnect proves recovery", () => {
@@ -234,7 +240,7 @@ test("a web_search that returned results after the last reconnect proves recover
   );
 });
 
-test("a web_search that never returned results does not prove recovery", () => {
+test("an unsettled web_search does not permit post-tool replay", () => {
   const result = classifyRuntimeExit(
     replay([
       { kind: "thread.started" },
@@ -247,8 +253,8 @@ test("a web_search that never returned results does not prove recovery", () => {
   );
   assert.equal(
     result.classification,
-    "provider_fault",
-    "80 of the archive's 286 completed web_search frames carry no results field: the call never settled",
+    "gate_red",
+    "CH1: even an unsettled tool is side-effect evidence; missing results cannot authorize replay",
   );
 });
 

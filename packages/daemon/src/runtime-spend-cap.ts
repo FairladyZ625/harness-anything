@@ -1,3 +1,9 @@
+import type { TaskProjection } from "@harness-anything/kernel";
+import {
+  executionRuntimeBudgetRefusal,
+  executionRuntimeBudgetPolicy,
+  type ExecutionRuntimeBudget,
+} from "@harness-anything/kernel/internal/domain/task-submission-policy.ts";
 import type { ActiveRuntime } from "./runtime-spawn-types.ts";
 
 /** Terminal reason code for a dispatch stopped by its declared token limit. */
@@ -24,4 +30,25 @@ export function observeRuntimeSpendCap(
 ): void {
   if (active.spendCapExceeded || active.tokenLimit === null) return;
   if (runtimeTokenTotal(active) > active.tokenLimit) active.spendCapExceeded = true;
+}
+
+/** Center projection reads only; called again at the dispatch append, never trusted from an edge.
+ * The current attempt's terminal metrics may not have been published when fallback is decided. */
+export function runtimeExecutionBudgetRefusal(
+  projection: TaskProjection,
+  task: { readonly taskId: string; readonly executionId: string; readonly role?: string | null },
+  budget: ExecutionRuntimeBudget = executionRuntimeBudgetPolicy.defaultValue,
+  current?: { readonly runtimeSessionId: string; readonly inputTokens: number; readonly outputTokens: number },
+) {
+  // Review must remain available after implementation exhausts its spending authorization.
+  if (task.role === "reviewer") return null;
+  const attempts = projection
+    .readRuntimeDispatchesByTaskExecution(task.taskId, task.executionId)
+    .filter((row) => row.event.payload.role !== "reviewer")
+    .map((row) => ({
+      runtimeSessionId: row.event.payload.runtimeSessionId,
+      totalTokens: row.metrics?.totalTokens ?? 0,
+    }));
+  if (current) attempts.push({ runtimeSessionId: current.runtimeSessionId, totalTokens: runtimeTokenTotal(current) });
+  return executionRuntimeBudgetRefusal(attempts, budget);
 }

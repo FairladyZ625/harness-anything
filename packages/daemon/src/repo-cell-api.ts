@@ -802,7 +802,8 @@ export function createRepoCellApi(
     // turn, acquire a lease, or append a dispatch event.
     if (spawn.dryRun === true) return context.runtimeSpawner.spawn(spawn, binding);
     // A task dispatch's worktree checkout and setup finish first; the queue receives only the dispatch itself.
-    const worktree = await context.runtimeSpawner.prepareWorktree(spawn);
+    const worktree = await context.runtimeSpawner.prepareWorktree(spawn),
+      progress = await context.runtimeSpawner.prepareProgress(spawn, worktree);
     return enqueueRuntimePublication(
       context,
       "runtime-run",
@@ -812,7 +813,8 @@ export function createRepoCellApi(
         executionRuntimeIngress: { kind: "runtime-run", ...payload },
       },
       binding,
-      (authorizedBinding) => context.runtimeSpawner.spawnTask(spawn, authorizedBinding, worktree, context.projection),
+      (authorizedBinding) =>
+        context.runtimeSpawner.spawnTask(spawn, authorizedBinding, worktree, context.projection, progress),
       queueObservation,
     );
   };

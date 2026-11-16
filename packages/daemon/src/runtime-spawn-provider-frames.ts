@@ -196,13 +196,15 @@ export function parseAgyFrame(value: Record<string, unknown>, providerSessionId:
     const update = value.step_update;
     if (!isPlainRecord(update)) throw new Error("agy step_update frame is incomplete");
     const text = update.text_delta;
-    if (typeof text === "string") return { signals: [{ type: "activity", activity: "message", content: text }] };
+    if (typeof text === "string" && update.step_type !== "tool")
+      return { signals: [{ type: "activity", activity: "message", content: text }] };
     // Tool steps carry no text; without them a read-only recon run looks idle until its final answer.
     if (update.step_type === "tool") {
       const tool = { ...update };
       delete tool.conversation_id;
       delete tool.step_index;
       return {
+        toolCallObserved: true,
         signals: [{ type: "activity", activity: "tool", content: JSON.stringify(tool) }],
       };
     }
