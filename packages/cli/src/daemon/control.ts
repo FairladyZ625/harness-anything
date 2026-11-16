@@ -254,16 +254,26 @@ async function metricsValidationError(
 // Only queued writes refuse a force: they are the work a forced stop destroys (2026-09-28 lost 1219
 // of them). Live runtimes are not — their workers run detached and are re-adopted by pid once a
 // replacement daemon takes the slot — so they must not hold the stop hostage.
+//
+// `queueDepth` is a live counter (durable actions increment it on enqueue and decrement it on
+// dequeue), not a settled backlog: one sample cannot tell a write that drains on its own from a
+// stuck one, and a detached worker's event append is queued and dequeued within milliseconds. Poll
+// for the same stop budget a forced exit uses and refuse only what is still backed up at its end.
 async function forceStopInUseRefusal(userRoot: string, daemonId: string): Promise<Record<string, unknown> | null> {
-  const endpoint = localUserDaemonEndpoint(userRoot, daemonId);
-  if (!(await daemonSocketProbe(endpoint))) return null;
-  const current = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 75, 75, undefined, true);
-  const queuedWrites = (Array.isArray(current.repos) ? current.repos.filter(controlRecord) : []).flatMap((repo) =>
-    typeof repo.repoId === "string" && typeof repo.queueDepth === "number" && repo.queueDepth > 0
-      ? [{ repoId: repo.repoId, queueDepth: repo.queueDepth }]
-      : [],
-  );
-  if (queuedWrites.length === 0) return null;
+  const endpoint = localUserDaemonEndpoint(userRoot, daemonId),
+    { stopAttempts, stopPollMs } = cliOperationalPolicy.defaultValue.daemon;
+  let queuedWrites: { repoId: string; queueDepth: number }[] = [];
+  for (let attempt = 0; attempt < stopAttempts; attempt += 1) {
+    if (!(await daemonSocketProbe(endpoint))) return null;
+    const current = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 75, 75, undefined, true);
+    queuedWrites = (Array.isArray(current.repos) ? current.repos.filter(controlRecord) : []).flatMap((repo) =>
+      typeof repo.repoId === "string" && typeof repo.queueDepth === "number" && repo.queueDepth > 0
+        ? [{ repoId: repo.repoId, queueDepth: repo.queueDepth }]
+        : [],
+    );
+    if (queuedWrites.length === 0) return null;
+    await new Promise((resolve) => setTimeout(resolve, stopPollMs));
+  }
   return {
     ...daemonFailure(
       "daemon-stop",
@@ -545,7 +555,13 @@ async function forceStopDaemon(userRoot: string, daemonId: string, pid: number):
   }
   writeDaemonStoppedMarker(userRoot, daemonId);
   signalStop(pid);
-  if (await waitProcessExit(pid, 2_000))
+  if (await waitProcessExit(pid, 2_000)) {
+    // A daemon that shuts down cooperatively removes its own bookkeeping. A Windows SIGTERM is
+    // TerminateProcess: it runs no handler, so the pid file and singleton lock outlive the process
+    // and the caller has to clear them (#1565). Release only files that still name this pid, which
+    // leaves the POSIX path a no-op because the daemon already removed them.
+    releaseDaemonPidFile(userRoot, daemonId, pid);
+    releaseDaemonSingletonLock(userRoot, daemonId, pid);
     return {
       ok: true,
       command: "daemon-stop",
@@ -553,6 +569,7 @@ async function forceStopDaemon(userRoot: string, daemonId: string, pid: number):
       forced: true,
       summary: `daemon-stop: pid ${pid} terminated (SIGTERM)`,
     };
+  }
   if (replaced(readDaemonPid(userRoot, daemonId)))
     return daemonFailure(
       "daemon-stop",

@@ -63,6 +63,7 @@ export const cliOperationalPolicy = {
     "policy:packages/cli:packages/cli/src/daemon/client.ts#settleRepoWarming.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
     "policy:packages/cli:packages/cli/src/daemon/control.ts#waitProcessExit.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
     "policy:packages/cli:packages/cli/src/daemon/control.ts#waitForDaemonStop.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
+    "policy:packages/cli:packages/cli/src/daemon/control.ts#forceStopInUseRefusal.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
     "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#cliOperationalPolicy.defaultValue.reconnect.unreachableAttempts:93fc8cd68bcb040fef15e6f844f86bfe",
     "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#cliOperationalPolicy.defaultValue.reconnect.backoffMs:1402e3a9db366642c9dc4eed20544900",
     "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#cliOperationalPolicy.defaultValue.reconnect.maximumBackoffMs:28a96fe4f9d6dcc1706bfdae80a151b1",
