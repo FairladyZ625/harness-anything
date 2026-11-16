@@ -5,7 +5,7 @@ import { after } from "node:test";
 import { spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes, readDaemonRegistry } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
