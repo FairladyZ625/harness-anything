@@ -112,6 +112,7 @@ import type {
   TaskQueryCell,
 } from "./repo-cell-task-query.ts";
 import type { graphView as graphViewImpl } from "./repo-cell-graph-view.ts";
+import type { traceView as traceViewImpl } from "./file-trace-read.ts";
 import type { listEvents as listEventsImpl, showEvent as showEventImpl } from "./repo-cell-event-query.ts";
 import type { makeSquadCoordinator } from "./squad-coordinator.ts";
 import type { EntityActionCatalogRuntimes, makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
@@ -560,6 +561,7 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly reviewTask: Bound<typeof reviewTaskImpl>;
   readonly taskReadSet: Bound<typeof taskReadSetImpl>;
   readonly graphView: Bound<typeof graphViewImpl>;
+  readonly traceView: Bound<typeof traceViewImpl>;
   readonly publishGeneratedArtifact: typeof publishGeneratedArtifact;
   readonly entityActionExecutor: ReturnType<typeof makeEntityActionCatalogExecutor>;
   readonly entityActionRuntimes: EntityActionCatalogRuntimes;

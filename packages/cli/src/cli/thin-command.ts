@@ -13,6 +13,7 @@ export const thinCliLocalErrorCodes = Object.freeze([
   "service_rejected",
   "duplicate_field",
   "invalid_field",
+  "invalid_trace_path",
   "invalid_runtime_fast",
   "invalid_runtime_web_search",
   "missing_field",

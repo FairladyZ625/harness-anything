@@ -28,7 +28,7 @@ export function readTaskRuntimeContext(
     schema: "task-runtime-context-read/v3" as const,
     ok: true as const,
     taskId,
-    causalContext: assembleTaskCausalContext({ projection: projection, taskId }),
+    causalContext: assembleTaskCausalContext({ projection, taskId, rootDir }),
     riskTier: task?.metadata?.riskTier ?? null,
     riskTierFlowVersion: task?.metadata?.riskTierFlowVersion ?? null,
     profileId: task?.metadata?.profileId ?? null,

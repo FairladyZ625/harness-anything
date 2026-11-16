@@ -882,6 +882,33 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     ],
   }),
   defineEdgeReplicaQueryOnlyReadCommand({
+    id: "trace",
+    phase: "W3",
+    path: ["trace", "<path>"],
+    summary:
+      "Trace reverse code-to-ledger provenance for one repository path: touching commits and Tasks, " +
+      "governing Decisions with rejected redlines (whyNot), load-bearing Facts, and active worktree collisions.",
+    method: "repo.task.read",
+    positionalInputs: [
+      {
+        name: "<path>",
+        pathKind: "non-path",
+        pathReader: "none",
+      },
+    ],
+    inputs: [
+      cliInput(
+        "--limit",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path", regex: "^(?:[1-9]|[1-9][0-9]|1[0-9]{2}|200)$", format: "<integer; 1..200>" },
+      ),
+    ],
+  }),
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "task-read-set",
     repositoryRead: true,
     phase: "Governed-Entity-W2-B",

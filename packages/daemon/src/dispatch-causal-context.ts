@@ -1,5 +1,11 @@
 import { readTaskAncestry, readTaskReadSet } from "@harness-anything/application";
-import type { DecisionProjectionRow, TaskProjectionQueries } from "@harness-anything/kernel";
+import type {
+  DecisionProjectionRow,
+  FileTraceDecisionSummary,
+  FileTraceFactSummary,
+  TaskProjectionQueries,
+} from "@harness-anything/kernel";
+import { extractReferencedCodePaths, traceFileCausalHistory } from "./file-trace-read.ts";
 import { requireSameProjectionCut, type ProjectionCut } from "./projection-cut.ts";
 
 /**
@@ -45,6 +51,10 @@ export const CAUSAL_CONTEXT_MAX_BYTES = 8192;
 const MAX_DECISIONS = 2,
   MAX_FACTS = 5,
   MAX_EVIDENCE_ANCHORS = 6,
+  MAX_TRACED_FILES = 5,
+  MAX_TRACE_DECISIONS = 2,
+  MAX_TRACE_FACTS = 3,
+  TRACE_COMMIT_DEPTH = 20,
   ROOT_OPEN = "<task-context>",
   TRUNCATED_OPEN = '<task-context truncated="yes">',
   ROOT_CLOSE = "</task-context>",
@@ -68,6 +78,8 @@ interface BudgetFit {
 export function assembleTaskCausalContext(input: {
   readonly projection: TaskProjectionQueries;
   readonly taskId: string;
+  readonly rootDir?: string;
+  readonly readGitLog?: (args: readonly string[], cwd: string) => string;
 }): string | null {
   const { projection, taskId } = input,
     ancestry = readTaskAncestry(projection, taskId),
@@ -144,8 +156,26 @@ export function assembleTaskCausalContext(input: {
   const servedFactRefs = factRefs.filter((ref) => facts.get(ref)?.archived !== true);
   const workPlan = work === null ? undefined : inheritedPlans.get(`task/${work.taskId}`),
     workGoal = workPlan === undefined ? null : planGoalSummary(workPlan.body);
+  const selfPlanBody = collectSelfPlanBody(projection, taskId, ancestry.reads, reads),
+    reverseTraced = collectReverseTracedContext({
+      projection,
+      rootDir: input.rootDir,
+      readGitLog: input.readGitLog,
+      selfPlanBody,
+      inheritedPlans: [...inheritedPlans.values()].map((plan) => plan.body),
+      forwardDecisionIds: decisionIds.slice(0, MAX_DECISIONS),
+      forwardFactRefs: servedFactRefs.slice(0, MAX_FACTS),
+      reads,
+    });
   requireSameProjectionCut("dispatch causal context", reads);
-  if (work === null && parent === null && decisionIds.length === 0) return null;
+  if (
+    work === null &&
+    parent === null &&
+    decisionIds.length === 0 &&
+    reverseTraced.decisions.length === 0 &&
+    reverseTraced.facts.length === 0
+  )
+    return null;
   // Priority order is relation distance from the dispatched task: identity lines first,
   // then the first deriving decision's header, chosen anchor and load-bearing claims,
   // then the evidence layer — a fat work title can never starve the facts of all
@@ -215,15 +245,17 @@ export function assembleTaskCausalContext(input: {
   details.push(...factLines);
   if (workGoal !== null && work !== null)
     tails.unshift(detail(`task/${work.taskId}`, `<goal ref="task/${work.taskId}">${xmlText(workGoal)}</goal>`));
+  tails.push(...reverseTraced.lines);
   details.push(...(decisionBlocks[1] ?? []), ...tails);
   const refs = [
     ...(work === null ? [] : [`task/${work.taskId}`]),
     ...(parent === null || parent.taskId === work?.taskId ? [] : [`task/${parent.taskId}`]),
     ...decisionIds.slice(0, MAX_DECISIONS).map((decisionId) => `decision/${decisionId}`),
     ...servedFactRefs,
+    ...reverseTraced.refs,
   ];
   const authorization = decisionExecutionSurface(decisionRead?.decisions ?? [], derives.rows),
-    factsNote = servedFactRefs.length > 0 ? FACTS_NOTE : null;
+    factsNote = servedFactRefs.length > 0 || reverseTraced.facts.length > 0 ? FACTS_NOTE : null;
   let remainingInlineBytes = 16 * 1024;
   const inherited = ancestors
     .slice()
@@ -437,4 +469,146 @@ function plainField(text: string, maxBytes: number): string {
 
 function byteLength(text: string): number {
   return Buffer.byteLength(text, "utf8");
+}
+
+interface ReverseTracedDecisionEntry {
+  readonly decision: FileTraceDecisionSummary;
+  readonly tracePath: string;
+}
+
+interface ReverseTracedFactEntry {
+  readonly fact: FileTraceFactSummary;
+  readonly tracePath: string;
+}
+
+function collectSelfPlanBody(
+  projection: TaskProjectionQueries,
+  taskId: string,
+  ancestryReads: readonly (
+    | { readonly status: ProjectionCut["status"]; readonly watermark: number; readonly sourceRevision: number }
+    | { readonly rows?: readonly { readonly taskId: string; readonly packagePath: string | null }[] }
+  )[],
+  reads: ProjectionCut[],
+): string {
+  let selfRow: { readonly taskId: string; readonly packagePath: string | null } | undefined;
+  for (const entry of ancestryReads) {
+    if ("rows" in entry && Array.isArray(entry.rows)) {
+      selfRow = entry.rows.find((row) => row.taskId === taskId);
+      if (selfRow) break;
+    }
+  }
+  if (!selfRow?.packagePath) return "";
+  const docPath = `${selfRow.packagePath.replace(/^harness\//u, "")}/task_plan.md`;
+  const docRead = projection.readDocument(docPath);
+  reads.push(docRead);
+  return docRead.document?.body ?? "";
+}
+
+function collectReverseTracedContext(input: {
+  readonly projection: TaskProjectionQueries;
+  readonly rootDir?: string;
+  readonly readGitLog?: (args: readonly string[], cwd: string) => string;
+  readonly selfPlanBody: string;
+  readonly inheritedPlans: readonly string[];
+  readonly forwardDecisionIds: readonly string[];
+  readonly forwardFactRefs: readonly string[];
+  readonly reads: ProjectionCut[];
+}): {
+  readonly decisions: readonly ReverseTracedDecisionEntry[];
+  readonly facts: readonly ReverseTracedFactEntry[];
+  readonly lines: readonly DetailLine[];
+  readonly refs: readonly string[];
+} {
+  const referencedPaths: string[] = [];
+  const seenPaths = new Set<string>();
+  for (const body of [input.selfPlanBody, ...input.inheritedPlans]) {
+    if (!body || referencedPaths.length >= MAX_TRACED_FILES) break;
+    for (const candidate of extractReferencedCodePaths(body, MAX_TRACED_FILES)) {
+      if (seenPaths.has(candidate)) continue;
+      seenPaths.add(candidate);
+      referencedPaths.push(candidate);
+      if (referencedPaths.length >= MAX_TRACED_FILES) break;
+    }
+  }
+  if (referencedPaths.length === 0) return { decisions: [], facts: [], lines: [], refs: [] };
+
+  const seenDecisionIds = new Set(input.forwardDecisionIds);
+  const seenFactIds = new Set(input.forwardFactRefs.map((ref) => ref.replace(/^fact\//u, "")));
+  const decisionCandidates: ReverseTracedDecisionEntry[] = [];
+  const factCandidates: ReverseTracedFactEntry[] = [];
+
+  for (const codePath of referencedPaths) {
+    const traced = traceFileCausalHistory({
+      projection: input.projection,
+      rootDir: input.rootDir,
+      path: codePath,
+      maxCommits: TRACE_COMMIT_DEPTH,
+      includeActiveRadar: false,
+      readGitLog: input.readGitLog,
+    });
+    if (!traced.ok) continue;
+    input.reads.push(traced.projectionCut);
+    for (const decision of traced.decisions) {
+      if (decision.state !== "in_effect" || seenDecisionIds.has(decision.decisionId)) continue;
+      seenDecisionIds.add(decision.decisionId);
+      decisionCandidates.push({ decision, tracePath: codePath });
+    }
+    for (const fact of traced.facts) {
+      if (seenFactIds.has(fact.factId)) continue;
+      seenFactIds.add(fact.factId);
+      factCandidates.push({ fact, tracePath: codePath });
+    }
+  }
+
+  const rankedDecisions = decisionCandidates
+    .slice()
+    .sort(
+      (a, b) =>
+        Number(b.decision.rejected.some((r) => Boolean(r.whyNot))) -
+        Number(a.decision.rejected.some((r) => Boolean(r.whyNot))),
+    )
+    .slice(0, MAX_TRACE_DECISIONS);
+  const rankedFacts = factCandidates
+    .slice()
+    .sort((a, b) => {
+      const loadDiff = Number(b.fact.loadBearing) - Number(a.fact.loadBearing);
+      if (loadDiff !== 0) return loadDiff;
+      return Number(b.fact.observedCommit !== null) - Number(a.fact.observedCommit !== null);
+    })
+    .slice(0, MAX_TRACE_FACTS);
+
+  const lines: DetailLine[] = [];
+  const refs: string[] = [];
+  for (const { decision, tracePath } of rankedDecisions) {
+    const ref = `decision/${decision.decisionId}`;
+    refs.push(ref);
+    lines.push(
+      detail(
+        ref,
+        `<decision id="${xmlText(decision.decisionId)}" state="${xmlText(decision.state)}" trace-path="${xmlText(tracePath)}">${xmlText(decision.summary)}</decision>`,
+      ),
+    );
+    for (const rejectedEntry of decision.rejected) {
+      const text = rejectedEntry.whyNot
+        ? `${rejectedEntry.summary} — Why Not: ${rejectedEntry.whyNot}`
+        : rejectedEntry.summary;
+      lines.push(
+        detail(
+          ref,
+          `<rejected id="${xmlText(`${decision.decisionId}/${rejectedEntry.id}`)}" trace-path="${xmlText(tracePath)}">${xmlText(text)}</rejected>`,
+        ),
+      );
+    }
+  }
+  for (const { fact, tracePath } of rankedFacts) {
+    const ref = `fact/${fact.factId}`;
+    refs.push(ref);
+    lines.push(
+      detail(
+        ref,
+        `<fact id="${xmlText(fact.factId)}" type="${xmlText(fact.domainType)}" trace-path="${xmlText(tracePath)}">${xmlText(fact.summary)}</fact>`,
+      ),
+    );
+  }
+  return { decisions: rankedDecisions, facts: rankedFacts, lines, refs };
 }

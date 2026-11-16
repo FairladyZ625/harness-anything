@@ -1009,3 +1009,344 @@ test("conflicting inherited restrictions remain visible in ancestor order", () =
   assert.match(context, /task\/task_outer — tasks\/outer\/task_plan\.md/u);
   assert.match(context, /task\/task_parent — tasks\/parent\/task_plan\.md/u);
 });
+
+test("Test 4 (Slice 2 Passive Awakening): task_plan.md mentioning a file injects in_effect decision, rejected whyNot, and fact with trace-path", () => {
+  const projection = stub({
+    readTaskIndex: (query: { taskIds?: string[] }) => {
+      const requested = new Set(query?.taskIds ?? []);
+      const rows = [
+        {
+          taskId: "task_leaf",
+          title: "Modify observed commit hook",
+          taskClass: "standard",
+          parentTaskId: null,
+          packagePath: "tasks/task_leaf",
+        },
+        {
+          taskId: "task_c91624aa9991224b22edd39472",
+          title: "Restore fact-observed-commit under CH4",
+          taskClass: "standard",
+          parentTaskId: null,
+          packagePath: "tasks/task_c91624aa9991224b22edd39472",
+        },
+      ];
+      return { ...cut(), rows: requested.size > 0 ? rows.filter((r) => requested.has(r.taskId)) : [] };
+    },
+    readDocument: (docPath: string) => ({
+      ...cut(),
+      document: docPath.includes("task_leaf")
+        ? {
+            body: "# Plan\n\nTarget file: `packages/daemon/src/fact-observed-commit.ts`.\n",
+            workspaceRevision: 1,
+            blobSha256: "b".repeat(64),
+          }
+        : null,
+    }),
+    readTaskRelationsByTargets: (refs: readonly string[], relType: string) => ({
+      ...cut(),
+      rows:
+        relType === "derives" && refs.includes("task/task_c91624aa9991224b22edd39472")
+          ? [
+              {
+                relationId: "rel_rev_ch4",
+                sourceRef: "decision/dec_BB2BCE9F995CD3A126E2918734/CH4",
+                targetRef: "task/task_c91624aa9991224b22edd39472",
+                relationType: "derives",
+                direction: "directed",
+                state: "active",
+              },
+            ]
+          : [],
+    }),
+    readDecisions: (ids: readonly string[]) => ({
+      ...cut(),
+      decisions: ids.includes("dec_BB2BCE9F995CD3A126E2918734")
+        ? [
+            {
+              decisionId: "dec_BB2BCE9F995CD3A126E2918734",
+              title: "Capture observedCommit",
+              state: "in_effect",
+              question: "How to anchor facts?",
+              chosen: [{ id: "CH4", text: "Auto-capture HEAD SHA in observedCommit" }],
+              rejected: [
+                {
+                  id: "RJ3",
+                  text: "Static code-doc-anchors.json",
+                  whyNot: "Static file maps cause merge conflicts and false staleness alerts.",
+                },
+              ],
+              claims: [{ id: "C1", text: "observedCommit avoids static anchors", loadBearing: true }],
+              appliesTo: { modules: ["packages/daemon/src"], productLines: [] },
+            },
+          ]
+        : [],
+    }),
+    readRelationQuery: (query: { entity?: string }) => ({
+      ...cut(),
+      rows:
+        query?.entity === "decision/dec_BB2BCE9F995CD3A126E2918734"
+          ? [
+              {
+                relationId: "rel_rev_fact",
+                sourceRef: "decision/dec_BB2BCE9F995CD3A126E2918734/C1",
+                targetRef: "fact/F-300F8791",
+                relationType: "evidenced-by",
+                direction: "directed",
+                state: "active",
+              },
+            ]
+          : [],
+    }),
+    searchFacts: () => ({
+      ...cut(),
+      facts: [
+        {
+          ref: "fact/F-300F8791",
+          factId: "F-300F8791",
+          statement: "fact-observed-commit captures HEAD commit cleanly.",
+          evidenceSource: "packages/daemon/src/fact-observed-commit.ts",
+          observedCommit: "0603933faa35e8c946f9b0bcf6f4ee243d02dfeb",
+          domainTypes: ["architecture.invariant"],
+          archived: false,
+        },
+      ],
+    }),
+  });
+
+  const block = assembleTaskCausalContext({
+    projection,
+    taskId: "task_leaf",
+    rootDir: "/mock-repo",
+    readGitLog: () =>
+      "0603933faa35e8c946f9b0bcf6f4ee243d02dfeb|7861b315|Merge pull request #3809 from FairladyZ625/task_c91624aa9991224b22edd39472\n",
+  });
+  assert.ok(block !== null);
+  assertLineGrammar(block);
+  assert.match(block, /^<task-context>\n<note>/u);
+  assert.match(
+    block,
+    /<decision id="dec_BB2BCE9F995CD3A126E2918734" state="in_effect" trace-path="packages\/daemon\/src\/fact-observed-commit\.ts">Auto-capture HEAD SHA in observedCommit<\/decision>/u,
+  );
+  assert.match(
+    block,
+    /<rejected id="dec_BB2BCE9F995CD3A126E2918734\/RJ3" trace-path="packages\/daemon\/src\/fact-observed-commit\.ts">Static code-doc-anchors\.json — Why Not: Static file maps cause merge conflicts and false staleness alerts\.<\/rejected>/u,
+  );
+  assert.match(
+    block,
+    /<fact id="F-300F8791" type="architecture\.invariant" trace-path="packages\/daemon\/src\/fact-observed-commit\.ts">fact-observed-commit captures HEAD commit cleanly\.<\/fact>/u,
+  );
+  assert.match(block, /<refs>decision\/dec_BB2BCE9F995CD3A126E2918734 fact\/F-300F8791<\/refs>/u);
+});
+
+test("Test 5 (Deduplication & 8 KiB Tail Budget Overflow): deduplicates forward entities and caps output at 8192 bytes with <omitted>", () => {
+  // Part A: Forward-linked Decision & Fact are NOT duplicated in reverse-traced tail
+  const dedupProjection = stub({
+    readTaskIndex: (query: { taskIds?: string[] }) => {
+      const requested = new Set(query?.taskIds ?? []);
+      const rows = [
+        {
+          taskId: "task_leaf",
+          title: "Leaf",
+          taskClass: "standard",
+          parentTaskId: null,
+          packagePath: "tasks/task_leaf",
+        },
+        {
+          taskId: "task_899f8c11e8b15af04328a239bf",
+          title: "Previous",
+          taskClass: "standard",
+          parentTaskId: null,
+          packagePath: "tasks/prev",
+        },
+      ];
+      return { ...cut(), rows: requested.size > 0 ? rows.filter((r) => requested.has(r.taskId)) : [] };
+    },
+    readDocument: () => ({
+      ...cut(),
+      document: {
+        body: "Touches `packages/daemon/src/fact-observed-commit.ts`.\n",
+        workspaceRevision: 1,
+        blobSha256: "c".repeat(64),
+      },
+    }),
+    readTaskRelationsByTargets: (_refs: readonly string[], relType: string) => ({
+      ...cut(),
+      rows:
+        relType === "derives"
+          ? [
+              {
+                relationId: "rel_shared",
+                sourceRef: "decision/dec_SHARED/CH1",
+                targetRef: "task/task_leaf",
+                relationType: "derives",
+                direction: "directed",
+                state: "active",
+              },
+              {
+                relationId: "rel_shared_hist",
+                sourceRef: "decision/dec_SHARED/CH1",
+                targetRef: "task/task_899f8c11e8b15af04328a239bf",
+                relationType: "derives",
+                direction: "directed",
+                state: "active",
+              },
+            ]
+          : [],
+    }),
+    readDecisions: () => ({
+      ...cut(),
+      decisions: [
+        {
+          decisionId: "dec_SHARED",
+          title: "Shared forward & reverse decision",
+          state: "in_effect",
+          question: "Shared?",
+          chosen: [{ id: "CH1", text: "Shared choice" }],
+          rejected: [],
+          claims: [{ id: "C1", text: "Shared claim", loadBearing: true }],
+        },
+      ],
+    }),
+    readRelationQuery: () => ({
+      ...cut(),
+      rows: [
+        {
+          relationId: "rel_f_shared",
+          sourceRef: "decision/dec_SHARED/C1",
+          targetRef: "fact/F-SHARED1",
+          relationType: "evidenced-by",
+          direction: "directed",
+          state: "active",
+        },
+      ],
+    }),
+    searchFacts: () => ({
+      ...cut(),
+      facts: [
+        {
+          ref: "fact/F-SHARED1",
+          factId: "F-SHARED1",
+          statement: "Shared fact",
+          evidenceSource: "packages/daemon/src/fact-observed-commit.ts",
+          archived: false,
+        },
+      ],
+    }),
+  });
+  const dedupBlock = assembleTaskCausalContext({
+    projection: dedupProjection,
+    taskId: "task_leaf",
+    rootDir: "/mock-repo",
+    readGitLog: () =>
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|bbbbbbbb|Merge pull request #1 from x/task_899f8c11e8b15af04328a239bf\n",
+  });
+  assert.ok(dedupBlock !== null);
+  assert.doesNotMatch(dedupBlock, /trace-path=/u, "forward-already-injected decision/fact must not duplicate in tail");
+
+  // Part B: Forward context fills ~7.5 KiB -> reverse-traced tail items exceeding 8192 bytes enter <omitted>
+  const largeTitle = "X".repeat(3600);
+  const largeSummary = "Y".repeat(3600);
+  const budgetProjection = stub({
+    readTaskIndex: (query: { taskIds?: string[] }) => {
+      const requested = new Set(query?.taskIds ?? []);
+      const rows = [
+        { taskId: "task_root", title: largeTitle, taskClass: "work", parentTaskId: null, packagePath: "tasks/root" },
+        {
+          taskId: "task_leaf",
+          title: "Leaf",
+          taskClass: "standard",
+          parentTaskId: "task_root",
+          packagePath: "tasks/leaf",
+        },
+        {
+          taskId: "task_899f8c11e8b15af04328a239bf",
+          title: "Hist",
+          taskClass: "standard",
+          parentTaskId: null,
+          packagePath: "tasks/hist",
+        },
+      ];
+      return { ...cut(), rows: requested.size > 0 ? rows.filter((r) => requested.has(r.taskId)) : [] };
+    },
+    readDocument: (docPath: string) => ({
+      ...cut(),
+      document: {
+        body: docPath.includes("leaf")
+          ? "# Leaf\nInspect `packages/daemon/src/fact-observed-commit.ts`.\n"
+          : "# Root\n\n## Goal\n\nKeep budget intact.\n",
+        workspaceRevision: 1,
+        blobSha256: "d".repeat(64),
+      },
+    }),
+    readTaskRelationsByTargets: (refs: readonly string[], relType: string) => ({
+      ...cut(),
+      rows:
+        relType === "derives" && refs.includes("task/task_leaf")
+          ? [
+              {
+                relationId: "rel_fwd",
+                sourceRef: "decision/dec_FWD/CH1",
+                targetRef: "task/task_leaf",
+                relationType: "derives",
+                direction: "directed",
+                state: "active",
+              },
+            ]
+          : relType === "derives" && refs.includes("task/task_899f8c11e8b15af04328a239bf")
+            ? [
+                {
+                  relationId: "rel_rev",
+                  sourceRef: "decision/dec_REVOVER/CH1",
+                  targetRef: "task/task_899f8c11e8b15af04328a239bf",
+                  relationType: "derives",
+                  direction: "directed",
+                  state: "active",
+                },
+              ]
+            : [],
+    }),
+    readDecisions: (ids: readonly string[]) => ({
+      ...cut(),
+      decisions: [
+        ...(ids.includes("dec_FWD")
+          ? [
+              {
+                decisionId: "dec_FWD",
+                title: "Forward Decision",
+                state: "in_effect",
+                question: "Forward?",
+                chosen: [{ id: "CH1", text: largeSummary }],
+                rejected: [],
+                claims: [],
+              },
+            ]
+          : []),
+        ...(ids.includes("dec_REVOVER")
+          ? [
+              {
+                decisionId: "dec_REVOVER",
+                title: "Reverse Overflow Decision",
+                state: "in_effect",
+                question: "",
+                chosen: [{ id: "CH1", text: "Z".repeat(1200) }],
+                rejected: [{ id: "RJ1", text: "No", whyNot: "W".repeat(800) }],
+                claims: [],
+              },
+            ]
+          : []),
+      ],
+    }),
+  });
+  const budgetBlock = assembleTaskCausalContext({
+    projection: budgetProjection,
+    taskId: "task_leaf",
+    rootDir: "/mock-repo",
+    readGitLog: () =>
+      "1111111111111111111111111111111111111111|22222222|Merge pull request #2 from x/task_899f8c11e8b15af04328a239bf\n",
+  });
+  assert.ok(budgetBlock !== null);
+  assertLineGrammar(budgetBlock);
+  assert.ok(backgroundByteLength(budgetBlock) <= CAUSAL_CONTEXT_MAX_BYTES, "8192 byte hard cap must hold");
+  assert.match(budgetBlock, /^<task-context truncated="yes">/u);
+  assert.match(budgetBlock, /<omitted>.*decision\/dec_REVOVER.*<\/omitted>/u);
+});

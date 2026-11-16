@@ -832,7 +832,7 @@ export function deriveTaskMission(
       ? readMissionDocument(rootDir, projection, planDocument.packagePath, taskId, missionName)
       : null,
     causalContextResolved =
-      causalContext === undefined ? assembleTaskCausalContext({ projection, taskId }) : causalContext,
+      causalContext === undefined ? assembleTaskCausalContext({ projection, taskId, rootDir }) : causalContext,
     snapshot = projection.read(taskId).snapshot,
     mission = [
       taskPlanSection(planDocument.body, packageRoot),
@@ -1041,7 +1041,7 @@ export async function resolveRuntimeMission(input: {
       remoteTask === null
         ? taskId === null
           ? null
-          : assembleTaskCausalContext({ projection, taskId })
+          : assembleTaskCausalContext({ projection, taskId, rootDir })
         : remoteTask.causalContext,
     // The tier policy version and risk tier are frozen at creation: locally from the projection,
     // remotely from the center's serving read. Historical tasks without the policy version keep

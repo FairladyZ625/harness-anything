@@ -2,6 +2,7 @@ import path from "node:path";
 import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { parseExplain } from "./thin-command-explain.ts";
 import { parseGraph } from "./thin-command-graph.ts";
+import { parseTrace } from "./thin-command-trace.ts";
 import { accepted, nonEmpty, readFlags, rejected } from "./thin-command-flags.ts";
 import { parseProjected, projectFlags } from "./thin-command-projection.ts";
 import type { ProtocolCommand, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
@@ -78,6 +79,7 @@ export function parseRoutedSpecial(
     return route.id === "explain"
       ? parseExplain(args, rootDir, repoId, json, route.method)
       : parseGraph(route, args, rootDir, repoId, json, inputs);
+  if (route.id === "trace") return parseTrace(route, args, rootDir, repoId, json, inputs);
   return undefined;
 }
 

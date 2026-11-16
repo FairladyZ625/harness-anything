@@ -84,6 +84,7 @@ import {
   wipSnapshotEntries as wipSnapshotEntriesImpl,
 } from "./repo-cell-task-query.ts";
 import { graphView as graphViewImpl } from "./repo-cell-graph-view.ts";
+import { traceView as traceViewImpl } from "./file-trace-read.ts";
 import { listEvents as listEventsImpl, showEvent as showEventImpl } from "./repo-cell-event-query.ts";
 import { type PublicPublication, type RepoTaskAction } from "./repo-cell-types.ts";
 import type { TaskQueryReadModel } from "./task-query-read.ts";
@@ -290,6 +291,7 @@ export function createRepoCellActionContext(bindings: {
     reviewTask: bind(reviewTaskImpl),
     taskReadSet: bind(taskReadSetImpl),
     graphView: bind(graphViewImpl),
+    traceView: bind(traceViewImpl),
     taskListQueryFromAction: (_action: RepoTaskAction) => unavailableTaskQuery(),
     relationQueryFromAction: (_action: RepoTaskAction) => unavailableTaskQuery(),
     queryRead: (): TaskQueryReadModel => unavailableTaskQuery(),

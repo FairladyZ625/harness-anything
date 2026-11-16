@@ -439,3 +439,10 @@ export interface TaskProjectionReader {
 
 export type TaskProjectionQueriesPort = TaskProjectionQueries;
 export type TaskProjectionReaderPort = TaskProjectionReader;
+export type {
+  FileTouchRecord,
+  FileTraceActiveTaskWarning,
+  FileTraceDecisionSummary,
+  FileTraceFactSummary,
+  FileTraceReadResult,
+} from "./projection-reads.ts";

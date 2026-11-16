@@ -192,6 +192,7 @@ export function executeRepoAction(
   }
   if (action.kind === "task-read-set") return cell.taskReadSet(action, binding);
   if (action.kind === "graph") return cell.graphView(action, binding);
+  if (action.kind === "trace") return cell.traceView(action, binding);
   if (action.kind === "task-review") return cell.reviewTask(action, binding);
   if (action.kind === "task-dispatch-review") return dispatchTaskReview(cell, action, binding);
   if (action.kind === "decision-dispatch-review") return dispatchDecisionReview(cell, action, binding);

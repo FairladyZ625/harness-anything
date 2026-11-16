@@ -125,7 +125,11 @@ export function runRuntimeHandoffAction(
     const handoffPacket = buildRuntimeHandoffPacket({
       dispatchId,
       task,
-      taskContext: assembleTaskCausalContext({ projection: cell.projection, taskId: payload.taskId }),
+      taskContext: assembleTaskCausalContext({
+        projection: cell.projection,
+        taskId: payload.taskId,
+        rootDir: cell.rootDir,
+      }),
       sourceEmployeeId: source.actor.principal.personId,
       session,
       payload,

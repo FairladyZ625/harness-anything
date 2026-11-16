@@ -279,3 +279,51 @@ export interface DecisionCoverageProjectionRead {
   readonly watermark: number;
   readonly sourceRevision: number;
 }
+export interface FileTouchRecord {
+  readonly commitSha: string;
+  readonly shortSha: string;
+  readonly prNumber: number | null;
+  readonly taskId: string | null;
+  readonly taskTitle: string | null;
+  readonly taskStatus: string | null;
+  readonly summary: string;
+}
+export interface FileTraceDecisionSummary {
+  readonly decisionId: string;
+  readonly title: string;
+  readonly state: string;
+  readonly summary: string;
+  readonly viaTaskIds: readonly string[];
+  readonly viaModulePrefix: string | null;
+  readonly chosen: readonly { readonly id: string; readonly summary: string }[];
+  readonly rejected: readonly {
+    readonly id: string;
+    readonly summary: string;
+    readonly whyNot: string | null;
+  }[];
+}
+export interface FileTraceFactSummary {
+  readonly factId: string;
+  readonly domainType: string;
+  readonly subjectRef: string;
+  readonly summary: string;
+  readonly loadBearing: boolean;
+  readonly observedCommit: string | null;
+  readonly recordedByTaskId: string | null;
+}
+export interface FileTraceActiveTaskWarning {
+  readonly taskId: string;
+  readonly title: string;
+  readonly status: import("../domain/task.ts").TaskV2["status"];
+  readonly matchReason: "plan_reference" | "execution_diff";
+}
+export interface FileTraceReadResult {
+  readonly schema: "file-trace-read/v1";
+  readonly ok: true;
+  readonly path: string;
+  readonly projectionCut: ReadSet.ReadSetProjectionCut;
+  readonly touchHistory: readonly FileTouchRecord[];
+  readonly decisions: readonly FileTraceDecisionSummary[];
+  readonly facts: readonly FileTraceFactSummary[];
+  readonly activeTasks: readonly FileTraceActiveTaskWarning[];
+}
