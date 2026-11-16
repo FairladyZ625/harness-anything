@@ -40,6 +40,7 @@ export const DISPATCH_LIFECYCLE_TABLES_SQL = `
       phase TEXT NOT NULL,
       current_instance_id TEXT NOT NULL,
       current_execution_id TEXT,
+      current_task_id TEXT,
       revision INTEGER NOT NULL,
       group_json TEXT NOT NULL
     );
@@ -67,6 +68,8 @@ export const DISPATCH_LIFECYCLE_TABLES_SQL = `
 // Created after the model check: an older table shape lacks the column until it is refolded.
 const LIFECYCLE_EXECUTION_INDEX_SQL = `CREATE INDEX IF NOT EXISTS dispatch_lifecycle_active_execution
       ON dispatch_lifecycle_group(current_execution_id) WHERE phase <> 'closed'`;
+const LIFECYCLE_TASK_INDEX_SQL = `CREATE INDEX IF NOT EXISTS dispatch_lifecycle_active_task
+      ON dispatch_lifecycle_group(current_task_id) WHERE phase <> 'closed'`;
 
 const lifecycleTypes = [...dispatchLifecycleEventTypes, ...dispatchLifecycleTaskEventTypes]
   .map((type) => `'${type}'`)
@@ -112,6 +115,14 @@ function addressedGroups(
         address.runtimeSessionId,
       )[0]?.attempt_group_id ?? null,
     ];
+  if (address.by === "task")
+    return queryRows<{ attempt_group_id: string }>(
+      db,
+      `SELECT attempt_group_id FROM dispatch_lifecycle_group
+       WHERE phase <> 'closed' AND current_task_id = ?
+       ORDER BY attempt_group_id`,
+      address.taskId,
+    ).map(({ attempt_group_id }) => attempt_group_id);
   return queryRows<{ attempt_group_id: string }>(
     db,
     `SELECT attempt_group_id FROM dispatch_lifecycle_group
@@ -165,17 +176,24 @@ function ensureDispatchLifecycleModel(db: DatabaseSync): void {
   const columns = queryRows<{ name: string }>(db, "PRAGMA table_info(dispatch_lifecycle_cursor)").map(
       ({ name }) => name,
     ),
+    groupColumns = queryRows<{ name: string }>(db, "PRAGMA table_info(dispatch_lifecycle_group)").map(
+      ({ name }) => name,
+    ),
     version = columns.includes("model_version")
       ? queryRows<{ model_version: number }>(
           db,
           "SELECT model_version FROM dispatch_lifecycle_cursor WHERE singleton = 1",
         )[0]?.model_version
       : -1;
-  if (version !== undefined && version !== DISPATCH_LIFECYCLE_MODEL_VERSION) {
+  if (
+    !groupColumns.includes("current_task_id") ||
+    (version !== undefined && version !== DISPATCH_LIFECYCLE_MODEL_VERSION)
+  ) {
     for (const table of LIFECYCLE_TABLES) runSql(db, `DROP TABLE IF EXISTS ${table}`);
     for (const statement of DISPATCH_LIFECYCLE_TABLES_SQL.split(";")) if (statement.trim()) runSql(db, statement);
   }
   runSql(db, LIFECYCLE_EXECUTION_INDEX_SQL);
+  runSql(db, LIFECYCLE_TASK_INDEX_SQL);
 }
 
 function foldedThrough(db: DatabaseSync): number {
@@ -220,15 +238,16 @@ function writeGroup(db: DatabaseSync, group: DispatchLifecycleGroup): void {
   const current = currentDispatchAttempt(group);
   runSql(
     db,
-    `INSERT INTO dispatch_lifecycle_group(attempt_group_id, phase, current_instance_id, current_execution_id, revision, group_json)
-     VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO dispatch_lifecycle_group(attempt_group_id, phase, current_instance_id, current_execution_id, current_task_id, revision, group_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(attempt_group_id) DO UPDATE SET phase = excluded.phase,
        current_instance_id = excluded.current_instance_id, current_execution_id = excluded.current_execution_id,
-       revision = excluded.revision, group_json = excluded.group_json`,
+       current_task_id = excluded.current_task_id, revision = excluded.revision, group_json = excluded.group_json`,
     group.attemptGroupId,
     group.phase,
     current.instanceId,
     current.task?.executionId ?? null,
+    current.task?.taskId ?? null,
     group.revision,
     JSON.stringify(group),
   );
@@ -313,9 +332,12 @@ function ready(
  */
 function lifecycleModelCurrent(db: DatabaseSync): boolean {
   const columns = queryRows<{ name: string }>(db, "PRAGMA table_info(dispatch_lifecycle_cursor)").map(
-    ({ name }) => name,
-  );
-  if (!columns.includes("model_version")) return false;
+      ({ name }) => name,
+    ),
+    groupColumns = queryRows<{ name: string }>(db, "PRAGMA table_info(dispatch_lifecycle_group)").map(
+      ({ name }) => name,
+    );
+  if (!columns.includes("model_version") || !groupColumns.includes("current_task_id")) return false;
   const version = queryRows<{ model_version: number }>(
     db,
     "SELECT model_version FROM dispatch_lifecycle_cursor WHERE singleton = 1",

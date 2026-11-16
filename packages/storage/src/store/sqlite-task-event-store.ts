@@ -169,12 +169,13 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
           event.payload.changes.some(
             (change) => change.path === claim.path && change.policyId === "markdown-body-replaceable/v1",
           );
-        if (!task && !prose && !settings) continue;
+        if (!task && event.schema !== "doc-event/v1" && !settings) continue;
         const node = localGitWorktreeSettlement.readNode(`${authoredRoot}/${claim.path}`);
         if (!node || node.mode !== "100644") continue;
         const matches =
           task ||
-          (node.body.includes("\r\n") ? sha256Text(node.body.replace(/\r\n/gu, "\n")) : node.sha256) === claim.sha256 ||
+          node.sha256 === claim.sha256 ||
+          (prose && node.body.includes("\r\n") && sha256Text(node.body.replace(/\r\n/gu, "\n")) === claim.sha256) ||
           // A Settings write may declare the live authored bytes as its base; settling that base
           // to the event's claim is the write the event was built for, not a concurrent edit.
           (settings && node.sha256 === event.payload.baseDocumentSha256);
@@ -345,6 +346,9 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       ),
       files = [...closure.files, ...legacy],
       baseline = new Map(captureGitBaseline(currentLedger.rootDir, parent, files));
+    if ("recoveredBaseline" in closure && closure.recoveredBaseline)
+      for (const [target, previous] of closure.recoveredBaseline)
+        if (!baseline.has(target) || baseline.get(target) === "missing") baseline.set(target, previous);
     if (restoreMissing || worktreeRevision !== verifiedRevision) {
       // The worktree last settled at another cut than Git's parent, so it may still hold what the ledger held then.
       const held = new Map([
@@ -397,7 +401,8 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
           closure.events,
           files,
           from === 0 ? sqlite.directoryClaims() : undefined,
-          from === 0 ? layout.decisionsRoot : undefined,
+          layout.decisionsRoot,
+          { cold: from === 0 },
         ),
         restoreMissing,
       );

@@ -4,7 +4,15 @@ import { execFileSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { runtimeEventContentClaims } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
-import { history, snapshot, requested, started, outcome, runtimeEvent } from "./dispatch-lifecycle.fixtures.ts";
+import {
+  history,
+  snapshot,
+  requested,
+  started,
+  outcome,
+  runtimeEvent,
+  appendTaskTerminalLifecycleHistory,
+} from "./dispatch-lifecycle.fixtures.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import { readDispatchLifecycleRows } from "../../src/projection/dispatch-lifecycle-projection.ts";
 import { canonicalEventWritePlan, makeTaskEventStore } from "../../src/store/task-event-store.ts";
@@ -199,6 +207,97 @@ test("accepted fallback schedule and exhaustion survive reopen and cold rebuild 
     const reopened = makeTaskProjection({ rootDir, eventStore: store });
     assert.deepEqual(reopened.readDispatchLifecycle(query), exhausted);
     reopened.close();
+    await store.drain();
+  });
+});
+
+test("terminal task events and execution retirements close historical groups via bounded task index and v5 upgrade refold", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const store = makeTaskEventStore({ repoId: "dispatch-lifecycle-terminal", rootDir }),
+      projection = makeTaskProjection({ rootDir, eventStore: store });
+    appendTaskTerminalLifecycleHistory(store, (event) => projection.apply(event));
+
+    const active = projection.readDispatchLifecycle({ by: "active", limit: 20 });
+    assert.ok(active.status === "ready");
+    assert.deepEqual(
+      active.rows.map((row) => [row.attemptGroupId, row.groupPhase, row.attempt.phase, row.attempt.stopProof]),
+      [
+        ["d-live", "running", "running", "unproven"],
+        ["d-nonterm", "waiting_backoff", "closed", "proven_stopped"],
+      ],
+    );
+
+    const closed = projection.readDispatchLifecycle({
+      by: "dispatch",
+      dispatchIds: ["d-done", "d-cancel", "d-supersede", "d-retire", "d-replace"],
+    });
+    assert.ok(closed.status === "ready");
+    assert.deepEqual(
+      closed.rows.map((row) => [row.attemptGroupId, row.groupPhase, row.ruling, row.successor.admissible]),
+      [
+        ["d-cancel", "closed", null, false],
+        ["d-done", "closed", null, false],
+        ["d-replace", "closed", null, false],
+        ["d-retire", "closed", null, false],
+        ["d-supersede", "closed", null, false],
+      ],
+    );
+
+    const projectionPath = projection.path;
+    projection.close();
+
+    // Verify bounded partial task index and v5 (pre-current_task_id, version=5) upgrade refold.
+    const inspectDb = new DatabaseSync(projectionPath);
+    const plan = inspectDb
+      .prepare(
+        "EXPLAIN QUERY PLAN SELECT attempt_group_id FROM dispatch_lifecycle_group WHERE phase <> 'closed' AND current_task_id = ? ORDER BY attempt_group_id",
+      )
+      .all("task-nonterm") as Array<{ detail: string }>;
+    assert.ok(
+      plan.some((row) => row.detail.includes("dispatch_lifecycle_active_task")),
+      `expected dispatch_lifecycle_active_task index usage, got ${JSON.stringify(plan)}`,
+    );
+    const indexedTasks = (
+      inspectDb
+        .prepare(
+          "SELECT attempt_group_id, current_task_id FROM dispatch_lifecycle_group WHERE phase <> 'closed' ORDER BY attempt_group_id",
+        )
+        .all() as Array<{ attempt_group_id: string; current_task_id: string | null }>
+    ).map((row) => ({ ...row }));
+    assert.deepEqual(indexedTasks, [
+      { attempt_group_id: "d-live", current_task_id: "task-live" },
+      { attempt_group_id: "d-nonterm", current_task_id: "task-nonterm" },
+    ]);
+
+    inspectDb.exec(`
+      DROP TABLE dispatch_lifecycle_group; DROP TABLE dispatch_lifecycle_attempt;
+      DROP TABLE dispatch_lifecycle_task_lease; DROP TABLE dispatch_lifecycle_cursor;
+      CREATE TABLE dispatch_lifecycle_group (attempt_group_id TEXT PRIMARY KEY, phase TEXT NOT NULL,
+        current_instance_id TEXT NOT NULL, current_execution_id TEXT, revision INTEGER NOT NULL, group_json TEXT NOT NULL);
+      CREATE TABLE dispatch_lifecycle_attempt (runtime_session_id TEXT PRIMARY KEY, dispatch_id TEXT NOT NULL,
+        attempt_group_id TEXT NOT NULL);
+      CREATE TABLE dispatch_lifecycle_task_lease (task_id TEXT PRIMARY KEY, execution_id TEXT NOT NULL, version INTEGER NOT NULL);
+      CREATE TABLE dispatch_lifecycle_cursor (singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+        revision INTEGER NOT NULL, model_version INTEGER NOT NULL);
+      INSERT INTO dispatch_lifecycle_group VALUES ('d-cancel', 'awaiting_ruling', 'codex-fixture', 'exec-cancel', 999, '{}');
+      INSERT INTO dispatch_lifecycle_cursor VALUES (1, 999, 5);`);
+    assert.equal(
+      readDispatchLifecycleRows(inspectDb, { by: "active", limit: 10 }, { watermark: 999, sourceRevision: 999 }).status,
+      "pending",
+    );
+    inspectDb.close();
+
+    const upgraded = makeTaskProjection({ rootDir, eventStore: store, projectionPath });
+    assert.deepEqual(upgraded.readDispatchLifecycle({ by: "active", limit: 20 }), active);
+    assert.deepEqual(
+      upgraded.readDispatchLifecycle({
+        by: "dispatch",
+        dispatchIds: ["d-done", "d-cancel", "d-supersede", "d-retire", "d-replace"],
+      }),
+      closed,
+    );
+    upgraded.close();
     await store.drain();
   });
 });

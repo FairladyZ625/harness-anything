@@ -20,7 +20,8 @@
  *   `awaiting_ruling` only after the stop is proven and that lease has been released.
  */
 import type { AgentRuntimeEventV1, RuntimeSession } from "./agent-runtime.ts";
-import type { TaskEventV1 } from "./task-lifecycle-event.ts";
+import { isTerminalStatus } from "./lifecycle-status.ts";
+import type { TaskEventV1, TaskMutationEvent } from "./task-lifecycle-event.ts";
 import { submissionDigest } from "./submission-digest.ts";
 import type { WriteSource } from "./write-source.ts";
 
@@ -56,7 +57,7 @@ export const dispatchLifecycleEventTypes = [
   "runtime_session_exited",
   "runtime_session_outcome_observed",
 ] as const satisfies readonly AgentRuntimeEventV1["type"][];
-/** The task event types that move a task lease or register a delivery (mirrors the task replay's `lease`). */
+/** The task event types that move a task lease, register a delivery, or retire/finish historical groups. */
 export const dispatchLifecycleTaskEventTypes = [
   "execution_started",
   "lease_renewed",
@@ -66,13 +67,16 @@ export const dispatchLifecycleTaskEventTypes = [
   "review_recorded",
   "lease_released",
   "task_completed",
+  "task_transitioned",
+  "task_superseded",
 ] as const satisfies readonly TaskEventV1["type"][];
 export type DispatchLifecycleEventType = (typeof dispatchLifecycleEventTypes)[number];
 export type DispatchLifecycleEvent = Extract<AgentRuntimeEventV1, { readonly type: DispatchLifecycleEventType }>;
-export type DispatchLifecycleTaskEvent = Extract<
-  TaskEventV1,
-  { readonly type: (typeof dispatchLifecycleTaskEventTypes)[number] }
->;
+export type DispatchLifecycleTaskEvent =
+  | Extract<TaskEventV1, { readonly type: (typeof dispatchLifecycleTaskEventTypes)[number] }>
+  | (TaskMutationEvent & {
+      readonly type: Extract<TaskMutationEvent["type"], (typeof dispatchLifecycleTaskEventTypes)[number]>;
+    });
 export type DispatchLifecycleInput = DispatchLifecycleEvent | DispatchLifecycleTaskEvent;
 
 export interface DispatchOwnerFence {
@@ -187,7 +191,8 @@ export type DispatchLifecycleStep =
 export type DispatchLifecycleAddress =
   | { readonly by: "group"; readonly attemptGroupId: string }
   | { readonly by: "session"; readonly runtimeSessionId: string }
-  | { readonly by: "execution"; readonly executionIds: readonly string[] };
+  | { readonly by: "execution"; readonly executionIds: readonly string[] }
+  | { readonly by: "task"; readonly taskId: string };
 
 /** Projection state as of the input's revision; storage keeps it with the lifecycle tables. */
 export interface DispatchLifecycleContext {
@@ -223,7 +228,17 @@ export function taskLeaseAfter(input: DispatchLifecycleInput): DispatchTaskLease
   if (!isTaskInput(input)) return undefined;
   if (input.type === "execution_started" || input.type === "lease_renewed")
     return { executionId: input.payload.execution.executionId, version: input.payload.lease.version };
+  if (input.type === "task_transitioned" || input.type === "task_superseded") return undefined;
   return null;
+}
+
+function taskEventAddressesTaskGroups(input: DispatchLifecycleTaskEvent): boolean {
+  return (
+    input.type === "task_completed" ||
+    input.type === "task_superseded" ||
+    input.type === "execution_started" ||
+    (input.type === "task_transitioned" && isTerminalStatus(input.payload.task.status))
+  );
 }
 
 export function dispatchLifecycleAddress(
@@ -231,11 +246,16 @@ export function dispatchLifecycleAddress(
   context: DispatchLifecycleContext = noContext,
 ): DispatchLifecycleAddress | null {
   if (isTaskInput(input)) {
+    if (taskEventAddressesTaskGroups(input)) return { by: "task", taskId: input.taskId };
     const ids = new Set<string>();
     const lease = taskLeaseAfter(input);
     if (lease) ids.add(lease.executionId);
     if (lease === null && context.taskLease) ids.add(context.taskLease.executionId);
-    if (input.type === "execution_submitted" || input.type === "review_recorded")
+    if (
+      input.type === "execution_submitted" ||
+      input.type === "review_recorded" ||
+      input.type === "task_completion_generation_retired"
+    )
       ids.add(input.payload.execution.executionId);
     return ids.size === 0 ? null : { by: "execution", executionIds: [...ids] };
   }
@@ -471,6 +491,17 @@ function dispatchSuccessorRefusal(
   return null;
 }
 
+function taskEventClosesStoppedGroup(input: DispatchLifecycleTaskEvent, task: DispatchAttemptTask): boolean {
+  if (task.taskId !== input.taskId) return false;
+  if (input.type === "task_completed" || input.type === "task_superseded") return true;
+  if (input.type === "task_transitioned") return isTerminalStatus(input.payload.task.status);
+  if (input.type === "task_completion_generation_retired")
+    return task.executionId !== null && input.payload.execution.executionId === task.executionId;
+  if (input.type === "execution_started")
+    return task.executionId !== null && input.payload.execution.executionId !== task.executionId;
+  return false;
+}
+
 function reduceTaskInput(
   group: DispatchLifecycleGroup,
   input: DispatchLifecycleTaskEvent,
@@ -478,39 +509,52 @@ function reduceTaskInput(
 ): DispatchLifecycleStep {
   const attempt = currentDispatchAttempt(group),
     task = attempt.task;
-  if (task === null || task.executionId === null) return ignored;
+  if (task === null) return ignored;
+  if (input.taskId !== undefined && task.taskId !== input.taskId) return ignored;
   const lease = taskLeaseAfter(input);
   let nextTask = task,
     delivery = group.delivery;
-  if (task.role === "implementer") {
-    // Once released, this attempt cannot acquire a replacement lease generation.
-    if (lease && lease.executionId === task.executionId && !task.leaseReleased)
-      nextTask = { ...task, leaseVersion: lease.version, leaseReleased: false };
-    else if (lease === null && context.taskLease?.executionId === task.executionId && task.leaseVersion !== null)
-      nextTask = { ...task, leaseReleased: true };
-    if (
-      input.type === "execution_submitted" &&
-      input.payload.execution.executionId === task.executionId &&
-      input.payload.execution.submission
+  if (task.executionId !== null) {
+    if (task.role === "implementer") {
+      // Once released, this attempt cannot acquire a replacement lease generation.
+      if (lease && lease.executionId === task.executionId && !task.leaseReleased)
+        nextTask = { ...task, leaseVersion: lease.version, leaseReleased: false };
+      else if (lease === null && context.taskLease?.executionId === task.executionId && task.leaseVersion !== null)
+        nextTask = { ...task, leaseReleased: true };
+      if (
+        input.type === "execution_submitted" &&
+        input.payload.execution.executionId === task.executionId &&
+        input.payload.execution.submission
+      )
+        delivery = registered(
+          `execution:${task.executionId}`,
+          submissionDigest(input.payload.execution.submission),
+          input,
+        );
+    } else if (
+      input.type === "review_recorded" &&
+      input.payload.review.executionId === task.executionId &&
+      input.payload.review.submissionDigest === task.reviewTargetDigest
     )
-      delivery = registered(
-        `execution:${task.executionId}`,
-        submissionDigest(input.payload.execution.submission),
-        input,
-      );
-  } else if (
-    input.type === "review_recorded" &&
-    input.payload.review.executionId === task.executionId &&
-    input.payload.review.submissionDigest === task.reviewTargetDigest
-  )
-    delivery = registered(`review:${input.payload.review.reviewId}`, input.payload.review.submissionDigest, input);
-  if (nextTask === task && delivery === group.delivery) return ignored;
+      delivery = registered(`review:${input.payload.review.reviewId}`, input.payload.review.submissionDigest, input);
+  }
+  const shouldClose =
+    group.phase !== "closed" &&
+    attempt.phase === "closed" &&
+    attempt.stopProof === "proven_stopped" &&
+    taskEventClosesStoppedGroup(input, nextTask);
+  if (nextTask === task && delivery === group.delivery && !shouldClose) return ignored;
   const next = { ...attempt, task: nextTask },
     settled = {
       ...group,
       attempts: group.attempts.map((entry) => (entry === attempt ? next : entry)),
       delivery,
       revision: input.workspaceRevision,
+    };
+  if (shouldClose)
+    return {
+      kind: "applied",
+      group: { ...settled, phase: "closed", ruling: null, successor: { admissible: false, dueAt: null } },
     };
   return {
     kind: "applied",
@@ -803,7 +847,7 @@ export function dispatchGroupIsActive(group: DispatchLifecycleGroup): boolean {
 }
 
 /** Bump when the folded group shape changes: stored lifecycle state of another version is refolded. */
-export const DISPATCH_LIFECYCLE_MODEL_VERSION = 5;
+export const DISPATCH_LIFECYCLE_MODEL_VERSION = 6;
 
 export const DISPATCH_LIFECYCLE_PAGE_LIMIT = 100;
 

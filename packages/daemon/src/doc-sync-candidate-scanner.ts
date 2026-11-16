@@ -183,10 +183,14 @@ export function scanDocCandidates(input: {
       taskDirectory = /^tasks\/([^/]+)\//u.exec(document)?.[1] ?? null,
       claimingTaskId = taskDirectory === null ? null : input.projection.taskIdForDocumentPath(document),
       target = path.join(layout.authoredRoot, ...logical.split("/")),
-      projected = input.projection.readDocument(document),
       conflicts = inventoried?.conflicts ?? conflictsByPath.get(logical) ?? [],
       safe = inventoried?.safe ?? directFile(layout.authoredRoot, logical),
       fileSize = inventoried ? inventoried.size : safe && existsSync(target) ? lstatSync(target).size : null,
+      activeProjected = input.projection.readDocument(document),
+      projected =
+        activeProjected.document !== null || fileSize === null || !document.startsWith("decisions/decision-")
+          ? activeProjected
+          : (input.projection.readDocumentHistory?.(document) ?? activeProjected),
       inspection = inspectDocCandidate(
         document,
         fileSize,

@@ -1,3 +1,5 @@
+import { AgendaOutboxActions } from "./AgendaOutboxActions.tsx";
+import type { TaskRow } from "../../model/types.ts";
 import { useState } from "react";
 import type { AgendaWorkbenchItem } from "../../model/agenda-workbench.ts";
 import { TASK_EXPLAINER_DOC, useTaskDeliveryDiffQuery, useTaskDocumentListQuery } from "../../task-data.ts";
@@ -11,7 +13,21 @@ import { t } from "../../i18n/index.tsx";
 type DeliveryTab = "explainer" | "files" | "gates";
 
 /** Mount exactly once, for the selected Outbox item. Hooks share task-detail query keys. */
-export function AgendaOutboxCard({ repoId, item }: { readonly repoId: string; readonly item: AgendaWorkbenchItem }) {
+export function AgendaOutboxCard({
+  repoId,
+  item,
+  tasks,
+  onNavigateEntity,
+  onRetain,
+  onArchived,
+}: {
+  readonly repoId: string;
+  readonly item: AgendaWorkbenchItem;
+  readonly tasks: readonly TaskRow[];
+  readonly onRetain: () => void;
+  readonly onArchived: (taskIds: readonly string[]) => void;
+  readonly onNavigateEntity: (ref: string) => void;
+}) {
   const diff = useTaskDeliveryDiffQuery(repoId, item.taskId);
   const documents = useTaskDocumentListQuery(repoId, item.taskId);
   const [tab, setTab] = useState<DeliveryTab | null>(null);
@@ -120,6 +136,14 @@ export function AgendaOutboxCard({ repoId, item }: { readonly repoId: string; re
           </div>
         </BoundedContent>
       )}
+      <AgendaOutboxActions
+        repoId={repoId}
+        item={item}
+        tasks={tasks}
+        onNavigateEntity={onNavigateEntity}
+        onRetain={onRetain}
+        onArchived={onArchived}
+      />
     </div>
   );
 }

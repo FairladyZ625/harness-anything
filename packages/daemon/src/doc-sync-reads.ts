@@ -367,7 +367,14 @@ export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1):
         ? (document: string) => document
         : (document: string) => documentWorkspacePath(input.rootDir, document, layout),
     retirement = event.payload.retirementReason === undefined ? null : event.payload.changes,
-    reads = event.payload.changes.map((change) => input.projection.readDocument(change.path)),
+    reads = event.payload.changes.map((change) => {
+      const active = input.projection.readDocument(change.path);
+      if (change.candidate === null) {
+        const history = active.document === null ? input.projection.readDocumentHistory?.(change.path) : undefined;
+        return history?.document ? history : active;
+      }
+      return active.document !== null ? active : (input.projection.readDocumentHistory?.(change.path) ?? active);
+    }),
     canonicalVisible = reads.every((read, index) => {
       const candidate = event.payload.changes[index]!.candidate;
       return (
