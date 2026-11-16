@@ -691,7 +691,7 @@ function findingsFor(rows, receipt, sourceRows) {
 /** Each worker builds its own graph and traces every count-th descriptor; rows merge in order. */
 export async function shardedAudit(rootDir, changedFiles, options = {}) {
   const { sourceRoot, only } = options,
-    count = Math.max(1, Math.min(3, availableParallelism())),
+    count = Math.max(1, Math.min(4, availableParallelism())),
     shards = await Promise.all(
       Array.from(
         { length: count },
