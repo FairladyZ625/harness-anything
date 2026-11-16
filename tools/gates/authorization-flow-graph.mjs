@@ -56,15 +56,30 @@ function workspaceSourcePaths(sourceRoot, anchorRoot = sourceRoot) {
   return paths;
 }
 
+const policyIndexes = new WeakMap();
+
+/** Share source indexes while giving each audit its own evaluator/fact-scope identity. */
+export function freshEvaluationGraph(graph) {
+  graph.resetFramePool();
+  return graph.freshQueries();
+}
+
 /** Keep the policy proof at its typed service boundary; source reachability uses the full graph. */
 export function authorizationPolicyGraph(graph) {
   const included = (file) => sourceRoots.some((root) => file.startsWith(root + "/"));
+  let indexes = policyIndexes.get(graph.modules);
+  if (!indexes) {
+    indexes = {
+      modules: new Map([...graph.modules].filter(([file]) => included(file))),
+      members: new Map(
+        [...graph.members].map(([key, entries]) => [key, entries.filter((entry) => included(entry.file))]),
+      ),
+    };
+    policyIndexes.set(graph.modules, indexes);
+  }
   return {
     ...graph,
-    modules: new Map([...graph.modules].filter(([file]) => included(file))),
-    members: new Map(
-      [...graph.members].map(([key, entries]) => [key, entries.filter((entry) => included(entry.file))]),
-    ),
+    ...indexes,
     importTarget(binding) {
       if (!binding.from.startsWith(".")) return { external: true };
       const target = graph.importTarget(binding);
@@ -77,11 +92,15 @@ export function authorizationPolicyGraph(graph) {
  * `rootDir` holds the traced sources; `anchorRoot` holds the kernel authority files the anchors
  * name (the same checkout unless a test traces a mutated copy of the sources).
  */
-export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = [], lexicalFiles = [] } = {}) {
+export function buildFlowGraph(
+  rootDir,
+  { anchorRoot = rootDir, sourceFiles = [], lexicalFiles = [] } = {},
+  compiled = null,
+) {
   const internEnv = makeEnvironmentInterner(lookup, freeParameters);
-  const modules = new Map(),
-    members = new Map(),
-    typedEntries = new Map(),
+  const modules = compiled?.modules ?? new Map(),
+    members = compiled?.members ?? new Map(),
+    typedEntries = compiled?.typedEntries ?? new Map(),
     scopes = new WeakMap(),
     identifierLookups = new WeakMap(),
     callDeclarations = new WeakMap(),
@@ -101,9 +120,9 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
     exportedBindings = new Map(),
     typeNames = new WeakMap(),
     anchorSources = new Map(),
-    assignedValues = new Map(),
-    singleAssignments = new Map(),
-    nonSimpleWrites = new Set(),
+    assignedValues = compiled?.assignedValues ?? new Map(),
+    singleAssignments = compiled?.singleAssignments ?? new Map(),
+    nonSimpleWrites = compiled?.nonSimpleWrites ?? new Set(),
     parameterQueries = new WeakMap(),
     pendingFreeParameters = [],
     activeParameters = new Set();
@@ -115,32 +134,36 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
     }
     return source;
   };
-  let files = [...new Set([...sourceRoots.flatMap((root) => walkTypeScriptFiles(rootDir, root)), ...sourceFiles])];
-  const workspacePaths = workspaceSourcePaths(rootDir, anchorRoot),
+  let files = compiled?.files ?? [
+    ...new Set([...sourceRoots.flatMap((root) => walkTypeScriptFiles(rootDir, root)), ...sourceFiles]),
+  ];
+  const workspacePaths = compiled ? {} : workspaceSourcePaths(rootDir, anchorRoot),
     // The checker answers one question only: which implementations a typed member call can reach.
-    program = ts.createProgram({
-      rootNames: files.map((file) => path.join(rootDir, file)),
-      options: {
-        noEmit: true,
-        allowJs: sourceFiles.some((file) => /\.[cm]?js$/u.test(file)),
-        skipLibCheck: true,
-        allowImportingTsExtensions: true,
-        module: ts.ModuleKind.NodeNext,
-        moduleResolution: ts.ModuleResolutionKind.NodeNext,
-        target: ts.ScriptTarget.ES2022,
-        strict: true,
-        types: [],
-        ...(Object.keys(workspacePaths).length > 0 ? { baseUrl: rootDir, paths: workspacePaths } : {}),
-      },
-    }),
+    program =
+      compiled?.program ??
+      ts.createProgram({
+        rootNames: files.map((file) => path.join(rootDir, file)),
+        options: {
+          noEmit: true,
+          allowJs: sourceFiles.some((file) => /\.[cm]?js$/u.test(file)),
+          skipLibCheck: true,
+          allowImportingTsExtensions: true,
+          module: ts.ModuleKind.NodeNext,
+          moduleResolution: ts.ModuleResolutionKind.NodeNext,
+          target: ts.ScriptTarget.ES2022,
+          strict: true,
+          types: [],
+          ...(Object.keys(workspacePaths).length > 0 ? { baseUrl: rootDir, paths: workspacePaths } : {}),
+        },
+      }),
     checker = program.getTypeChecker(),
-    programSources = new WeakSet(program.getSourceFiles()),
-    relativeFiles = new WeakMap(),
+    programSources = compiled?.programSources ?? new WeakSet(program.getSourceFiles()),
+    relativeFiles = compiled?.relativeFiles ?? new WeakMap(),
     fileOf = makeFileOf(relativeFiles, sourceFileOf);
   // Declaration fallback can call an implementation outside the indexed source roots.
   // It still belongs to this Program and must use this graph's frame pool.
   for (const sourceFile of program.getSourceFiles()) registerSourceFileInterner(sourceFile, internEnv);
-  files = [
+  files = compiled?.files ?? [
     ...new Set([
       ...files,
       ...program
@@ -155,60 +178,79 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
       ...lexicalFiles,
     ]),
   ];
-  for (const file of files) {
-    const sourceFile = program.getSourceFile(path.join(rootDir, file)) ?? parseTypeScript(rootDir, file),
-      imports = new Map();
-    relativeFiles.set(sourceFile, file);
-    registerSourceFileInterner(sourceFile, internEnv);
-    for (const statement of sourceFile.statements) {
-      if (!ts.isImportDeclaration(statement) || !statement.importClause || statement.importClause.isTypeOnly) continue;
-      const from = statement.moduleSpecifier.text,
-        named = statement.importClause.namedBindings;
-      if (statement.importClause.name) imports.set(statement.importClause.name.text, { from, exported: "default" });
-      if (named && ts.isNamespaceImport(named)) imports.set(named.name.text, { from, exported: "*" });
-      if (named && ts.isNamedImports(named))
-        for (const element of named.elements)
-          if (!element.isTypeOnly)
-            imports.set(element.name.text, { from, exported: element.propertyName?.text ?? element.name.text });
+  if (!compiled)
+    for (const file of files) {
+      const sourceFile = program.getSourceFile(path.join(rootDir, file)) ?? parseTypeScript(rootDir, file),
+        imports = new Map();
+      relativeFiles.set(sourceFile, file);
+      registerSourceFileInterner(sourceFile, internEnv);
+      for (const statement of sourceFile.statements) {
+        if (!ts.isImportDeclaration(statement) || !statement.importClause || statement.importClause.isTypeOnly)
+          continue;
+        const from = statement.moduleSpecifier.text,
+          named = statement.importClause.namedBindings;
+        if (statement.importClause.name) imports.set(statement.importClause.name.text, { from, exported: "default" });
+        if (named && ts.isNamespaceImport(named)) imports.set(named.name.text, { from, exported: "*" });
+        if (named && ts.isNamedImports(named))
+          for (const element of named.elements)
+            if (!element.isTypeOnly)
+              imports.set(element.name.text, { from, exported: element.propertyName?.text ?? element.name.text });
+      }
+      modules.set(file, { file, sourceFile, imports });
+      if (programSources.has(sourceFile)) indexMembers(sourceFile, file);
     }
-    modules.set(file, { file, sourceFile, imports });
-    if (programSources.has(sourceFile)) indexMembers(sourceFile, file);
-  }
   // Index writes once per Program. A local's initializer alone does not describe `let db`
   // or values assigned by a nested callback; retain all their actual parameter dependencies.
-  for (const { sourceFile } of modules.values())
-    (function visit(node) {
-      if (ts.isTypeNode(node)) return;
-      if (
-        ts.isBinaryExpression(node) &&
-        node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
-        node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
-      ) {
-        const simple = node.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isIdentifier(unwrap(node.left));
-        (function target(expression) {
-          if (ts.isIdentifier(expression)) {
-            if (ts.isPropertyAccessExpression(expression.parent) && expression.parent.name === expression) return;
-            const binding = lookup(expression.text, expression);
-            if (binding?.kind === "var" && !binding.moduleScoped) {
-              const values = assignedValues.get(binding.declaration) ?? [];
-              values.push(node.right);
-              assignedValues.set(binding.declaration, values);
-              if (!simple || singleAssignments.has(binding.declaration)) nonSimpleWrites.add(binding.declaration);
-              else singleAssignments.set(binding.declaration, { expression: node.right, assign: node });
-            }
-          } else ts.forEachChild(expression, target);
-        })(node.left);
-      } else if (
-        (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
-        [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(node.operator) &&
-        ts.isIdentifier(node.operand)
-      ) {
-        const binding = lookup(node.operand.text, node.operand);
-        if (binding?.kind === "var" && !binding.moduleScoped) nonSimpleWrites.add(binding.declaration);
-      }
-      ts.forEachChild(node, visit);
-    })(sourceFile);
+  if (!compiled)
+    for (const { sourceFile } of modules.values())
+      (function visit(node) {
+        if (ts.isTypeNode(node)) return;
+        if (
+          ts.isBinaryExpression(node) &&
+          node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+          node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+        ) {
+          const simple = node.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isIdentifier(unwrap(node.left));
+          (function target(expression) {
+            if (ts.isIdentifier(expression)) {
+              if (ts.isPropertyAccessExpression(expression.parent) && expression.parent.name === expression) return;
+              const binding = lookup(expression.text, expression);
+              if (binding?.kind === "var" && !binding.moduleScoped) {
+                const values = assignedValues.get(binding.declaration) ?? [];
+                values.push(node.right);
+                assignedValues.set(binding.declaration, values);
+                if (!simple || singleAssignments.has(binding.declaration)) nonSimpleWrites.add(binding.declaration);
+                else singleAssignments.set(binding.declaration, { expression: node.right, assign: node });
+              }
+            } else ts.forEachChild(expression, target);
+          })(node.left);
+        } else if (
+          (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
+          [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(node.operator) &&
+          ts.isIdentifier(node.operand)
+        ) {
+          const binding = lookup(node.operand.text, node.operand);
+          if (binding?.kind === "var" && !binding.moduleScoped) nonSimpleWrites.add(binding.declaration);
+        }
+        ts.forEachChild(node, visit);
+      })(sourceFile);
+  // Only Program/AST and completed source indexes survive an audit. Every lookup,
+  // type-query cache, environment interner and evaluator memo below is newly owned.
+  const sourceInputs = compiled ?? {
+    program,
+    programSources,
+    files,
+    relativeFiles,
+    modules,
+    members,
+    typedEntries,
+    assignedValues,
+    singleAssignments,
+    nonSimpleWrites,
+  };
+  for (const { sourceFile } of modules.values()) registerSourceFileInterner(sourceFile, internEnv);
   return {
+    freshQueries: () => buildFlowGraph(rootDir, { anchorRoot, sourceFiles, lexicalFiles }, sourceInputs),
     rootDir,
     internEnv,
     freeParameters,

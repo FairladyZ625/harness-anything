@@ -1,9 +1,50 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { bindArguments, buildFlowGraph, EMPTY_ENV, makeEvaluator } from "../authorization-flow-graph.mjs";
+import {
+  bindArguments,
+  buildFlowGraph,
+  EMPTY_ENV,
+  freshEvaluationGraph,
+  makeEvaluator,
+} from "../authorization-flow-graph.mjs";
 import { processSourceSites, sourceSite } from "../authorization-source-proof.mjs";
 import { makeRepo } from "./helpers.mjs";
+
+test("shared AST audits discard fact memo and frame identity in positive and negative order", (t) => {
+  const file = "packages/daemon/src/audit.ts",
+    { rootDir } = makeRepo({
+      [file]:
+        'import { allowed } from "@harness-anything/kernel"; function owner(callback) { if (allowed) callback(); }',
+    }),
+    graph = buildFlowGraph(rootDir),
+    owner = graph.modules.get(file).sourceFile.statements[1],
+    condition = owner.body.statements[0].expression,
+    facts = { authorityModule: "@harness-anything/kernel", constants: {}, functions: {} },
+    argument = { expression: owner.name, env: EMPTY_ENV },
+    bind = () => graph.internEnv(new Map([[owner.parameters[0], argument]]));
+  let previous = bind();
+  for (const allowed of [true, true, false, true, false, false, true]) {
+    facts.constants.allowed = allowed;
+    const auditGraph = freshEvaluationGraph(graph),
+      evaluator = makeEvaluator(auditGraph, facts),
+      frame = bind();
+    assert.equal(auditGraph.modules, graph.modules, "the source graph is reused");
+    assert.notEqual(auditGraph.internEnv, graph.internEnv, "each audit owns a new environment interner");
+    assert.notEqual(frame, previous, "the preceding audit's frame pool is empty");
+    assert.deepEqual(evaluator.fold(condition, EMPTY_ENV), { value: allowed });
+    previous = frame;
+  }
+  // Positive control: deliberately retain one audit identity after warming its allowed
+  // fold. Clearing frames alone cannot invalidate fact memo for the same constants object.
+  const pollutedGraph = freshEvaluationGraph(graph);
+  assert.deepEqual(makeEvaluator(pollutedGraph, facts).fold(condition, EMPTY_ENV), { value: true });
+  facts.constants.allowed = false;
+  pollutedGraph.resetFramePool();
+  const leaked = makeEvaluator(pollutedGraph, facts).fold(condition, EMPTY_ENV);
+  assert.throws(() => assert.deepEqual(leaked, { value: false }), { code: "ERR_ASSERTION" });
+  t.diagnostic("positive control retained proof memo: expected false, observed true; ERR_ASSERTION detected");
+});
 
 test("recursive helpers and self-updated locals capture only actual free parameters", () => {
   const file = "packages/daemon/src/frame.ts",

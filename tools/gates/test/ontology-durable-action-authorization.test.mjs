@@ -17,17 +17,18 @@ import path from "node:path";
 import test from "node:test";
 import { testOrdinalInPartition } from "../../node-test-runner-lib.mjs";
 import { buildFlowGraph } from "../authorization-flow-graph.mjs";
+import { kindRewriteViolations, loadAuthorizationInputs } from "../ontology-durable-action-authorization.mjs";
 import {
-  auditDurableActionAuthorization,
-  kindRewriteViolations,
-  loadAuthorizationInputs,
-} from "../ontology-durable-action-authorization.mjs";
+  auditWithBaseline as auditDurableActionAuthorization,
+  baselineAuthorizationInputs,
+  baselineFlowGraph,
+} from "./authorization-baseline.mjs";
 import { replaceSourceOnce, runGit } from "./helpers.mjs";
 import { scanOntologyText } from "../ontology-closure-scan.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 const tracedPackages = ["daemon", "authorization-keycloak", "application"];
-const inputs = await loadAuthorizationInputs(repoRoot);
+const inputs = await baselineAuthorizationInputs();
 
 const partitionValue = process.env.HARNESS_TEST_PARTITION;
 let partitionTestOrdinal = 0;
@@ -35,7 +36,7 @@ let partitionTestOrdinal = 0;
 // update this map; their measured durations are recorded by the test runner.
 const authorizationTestPartitionAssignments = [
   4, 2, 4, 3, 1, 2, 4, 1, 2, 2, 3, 4, 1, 3, 1, 4, 3, 4, 3, 3, 4, 1, 1, 2, 3, 4, 1, 4, 3, 2, 4, 2, 1, 3, 1, 4, 2, 2, 4,
-  4, 1,
+  4, 1, 2,
 ];
 function partitionedTest(name, testFn) {
   const ordinal = partitionTestOrdinal++;
@@ -112,9 +113,9 @@ function rows(dir, only, descriptors = inputs.descriptors, options = {}) {
   return Object.fromEntries(result.rows.map((row) => [row.id, row]));
 }
 
-/** Normal green, mutated red (for the stated reason), restored green, on the same copy. */
+/** Shared baseline green, copied mutation red, baseline green again with fresh proof state. */
 function threeStage(t, ids, mutate, { dir = sourceCopy(t), reason } = {}) {
-  const before = rows(dir, ids);
+  const before = rows(repoRoot, ids);
   for (const id of ids) assert.ok(before[id].ok, `${id}: real sources must be green`);
   const restore = mutate(dir);
   const mutated = rows(dir, ids);
@@ -123,7 +124,7 @@ function threeStage(t, ids, mutate, { dir = sourceCopy(t), reason } = {}) {
     if (reason) assert.match(mutated[id].violations.join("; "), reason, `${id}: ${mutated[id].violations}`);
   }
   restore();
-  const restored = rows(dir, ids);
+  const restored = rows(repoRoot, ids);
   for (const id of ids) assert.ok(restored[id].ok, `${id}: restoring the source must return to green`);
   return mutated;
 }
@@ -193,8 +194,8 @@ partitionedTest("a declared local-transport route is red once its transport exit
   );
 });
 
-partitionedTest("a local-process command must send the daemon only a read", (t) => {
-  const dir = sourceCopy(t);
+partitionedTest("a local-process command must send the daemon only a read", () => {
+  const dir = repoRoot;
   const start = inputs.descriptors.find((descriptor) => descriptor.id === "daemon-start");
   assert.equal(start.hostAuthority, "local-process");
   assert.ok(rows(dir, ["daemon-start"])["daemon-start"].ok);
@@ -265,15 +266,16 @@ partitionedTest("a kind-rewrite route is traced against the kind it actually aut
   // dec_2BF45FF7E52020380F5F35CE2D/CH6: agent-run and runtime-batch are authorized as runtime-run.
   // Removing that decision's denial exit turns both red even though the declaration still stands.
   const today = { today: "2026-11-07" };
-  const dir = sourceCopy(t);
+  const dir = repoRoot,
+    mutation = sourceCopy(t);
   for (const id of rewriteRows) assert.ok(rows(dir, rewriteRows, undefined, today)[id].ok, `${id}: green`);
   const restore = edit(
-    dir,
+    mutation,
     "packages/daemon/src/repo-cell-authorization.ts",
     'if (authorizationDecision.outcome === "denied")\n    throw cellCodedError(\n      "authorization_denied",\n      authorizationDecision.nextActions.join(" ") || `${input.action.kind} requires repository write authority.`,',
     'if (authorizationDecision.outcome === "denied")\n    void cellCodedError(\n      "authorization_denied",\n      authorizationDecision.nextActions.join(" ") || `${input.action.kind} requires repository write authority.`,',
   );
-  const mutated = rows(dir, ["agent-run", "runtime-batch"], undefined, today);
+  const mutated = rows(mutation, ["agent-run", "runtime-batch"], undefined, today);
   assert.equal(mutated["agent-run"].ok, false);
   assert.equal(mutated["runtime-batch"].ok, false);
   restore();
@@ -1308,3 +1310,27 @@ partitionedTest(
     assert.ok(selectedBroken.findings.some((finding) => finding.includes("settings.update")));
   },
 );
+
+// dec_88CAA23DE4907261D7ECB107ED/CH1: reusing ASTs must never reuse a proof.
+partitionedTest("shared source graph rejects a changed authority after repeated green audits in either order", () => {
+  const graph = baselineFlowGraph(),
+    only = ["task-create"],
+    current = { ...inputs, constants: { ...inputs.constants } },
+    allowedKinds = inputs.constants.durableActionKinds,
+    deniedKinds = allowedKinds.filter((kind) => kind !== "task-create");
+  assert.equal(baselineFlowGraph().modules, graph.modules, "source analysis is constructed only once");
+  // Keep the constants object's identity while changing the authority input. A fact
+  // scope retained from the preceding audit would still fold the previous array.
+  for (const sequence of [
+    [true, true, false, true],
+    [false, true, false],
+  ]) {
+    for (const allowed of sequence) {
+      current.constants.durableActionKinds = allowed ? allowedKinds : deniedKinds;
+      const result = auditDurableActionAuthorization(repoRoot, current, { graph, only }),
+        row = result.rows.find((row) => row.id === "task-create");
+      assert.equal(row?.ok, allowed, JSON.stringify(row));
+      if (!allowed) assert.ok(result.findings.length > 0);
+    }
+  }
+});

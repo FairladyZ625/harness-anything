@@ -16,6 +16,7 @@ import ts from "typescript";
 import {
   authorizationPolicyGraph,
   buildFlowGraph,
+  freshEvaluationGraph,
   isFunctionNode,
   makeEvaluator,
 } from "./authorization-flow-graph.mjs";
@@ -241,6 +242,9 @@ export function kindRewriteViolations(rewrite, today, index = EVIDENCE_INDEX) {
 }
 
 export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
+  // Reuse source analysis only. Evaluator scopes are keyed by graph identity, so each
+  // audit gets a fresh identity and an empty frame pool even when its AST is shared.
+  const preparedGraph = options.graph ? freshEvaluationGraph(options.graph) : null;
   const today = options.today ?? new Date().toISOString().slice(0, 10);
   const sourceRoot = options.sourceRoot ?? rootDir,
     durable = inputs.descriptors.filter((descriptor) => descriptor.commandClass !== "repo-read"),
@@ -305,33 +309,34 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       ]),
     ],
     declaredSourceFiles = declaredSources.map(sourceFileOf),
-    guiCallerFiles = guiCallbackCallerFiles(
-      sourceRoot,
-      declaredSourceFiles.filter((f) => /^packages\/gui\/src\/(?:renderer|preload|browser)\//u.test(f)),
-    ),
-    graph = buildFlowGraph(sourceRoot, {
-      anchorRoot: rootDir,
-      lexicalFiles: guiCallerFiles,
-      sourceFiles: [
-        ...new Set([
-          ...declaredSourceFiles,
-          ...sourceActions.flatMap((action) =>
-            Object.values(action.ontology.entries ?? {}).flatMap((entry) => [
-              entry.file,
-              ...(entry.builder ? [entry.builder] : []),
-            ]),
-          ),
-          ...declaredActions
-            .filter((action) => action.ontology?.authority)
-            .flatMap((action) =>
+    graph =
+      preparedGraph ??
+      buildFlowGraph(sourceRoot, {
+        anchorRoot: rootDir,
+        lexicalFiles: guiCallbackCallerFiles(
+          sourceRoot,
+          declaredSourceFiles.filter((f) => /^packages\/gui\/src\/(?:renderer|preload|browser)\//u.test(f)),
+        ),
+        sourceFiles: [
+          ...new Set([
+            ...declaredSourceFiles,
+            ...sourceActions.flatMap((action) =>
               Object.values(action.ontology.entries ?? {}).flatMap((entry) => [
                 entry.file,
                 ...(entry.builder ? [entry.builder] : []),
               ]),
             ),
-        ]),
-      ],
-    }),
+            ...declaredActions
+              .filter((action) => action.ontology?.authority)
+              .flatMap((action) =>
+                Object.values(action.ontology.entries ?? {}).flatMap((entry) => [
+                  entry.file,
+                  ...(entry.builder ? [entry.builder] : []),
+                ]),
+              ),
+          ]),
+        ],
+      }),
     scope = changedAuthorizationScope(graph, inputs, options.changedFiles),
     scopedSourceActions = sourceActions
       .map((action) => ({
