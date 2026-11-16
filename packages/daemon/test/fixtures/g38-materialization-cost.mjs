@@ -34,7 +34,8 @@ export async function measureTerminalMaterialization(root, size) {
         insertEdge = db.prepare(
           "INSERT INTO relation_edge(relation_id,source_ref,target_ref,relation_type,state,owner_ref,workspace_revision,updated_at,row_json) VALUES (?,?,?,'produces','active',?,2,'2026-11-14T00:00:00Z','{}')",
         ),
-        insertDoc = db.prepare("INSERT INTO document(path,workspace_revision,value_json) VALUES (?,2,?)");
+        insertDoc = db.prepare("INSERT INTO document(path,workspace_revision,value_json) VALUES (?,2,?)"),
+        insertHold = db.prepare("INSERT INTO materialization_hold VALUES (?,?)");
       // Cold, unrelated edges are a negative control against global relation scans.
       db.exec("BEGIN");
       for (let i = 0; i < size; i++) {
@@ -44,7 +45,7 @@ export async function measureTerminalMaterialization(root, size) {
         insertFact.run(id, ref, `fact-${i}`, JSON.stringify({ ...fact, factId: id, ref, archived: true }));
         insertEdge.run(`hot-${i}`, "task/task_hot", ref, "task/task_hot");
         insertEdge.run(`cold-${i}`, "task/task_cold", "fact/F-DEADBEEF", "task/task_cold");
-        db.prepare("INSERT INTO materialization_hold VALUES (?,?)").run(ref, `hot-${i}`);
+        insertHold.run(ref, `hot-${i}`);
         insertDoc.run(
           target,
           JSON.stringify({
@@ -61,7 +62,9 @@ export async function measureTerminalMaterialization(root, size) {
       );
       db.exec("COMMIT");
       resetSqliteWork();
+      db.exec("BEGIN IMMEDIATE");
       settleTerminalMaterializationForEvent(db, { ...event, type: "task_transitioned", workspaceRevision: 3 });
+      db.exec("COMMIT");
       const counts = snapshotSqliteWork();
       assert.equal(db.prepare("SELECT count(*) AS n FROM document_history WHERE path LIKE 'facts/F-0%'").get().n, size);
       assert.equal(
@@ -100,6 +103,10 @@ export async function measureColdMaterialization(root, size, policy = "in_flight
           "INSERT INTO task_snapshot(task_id,workspace_revision,snapshot_json,status,updated_at) VALUES (?,1,?,'done','2026-11-14T00:00:00Z')",
         ),
         insertDoc = db.prepare("INSERT INTO document(path,workspace_revision,value_json) VALUES (?,1,?)"),
+        insertPackage = db.prepare("INSERT INTO task_package VALUES (?,?)"),
+        insertEventIndex = db.prepare(
+          "INSERT INTO event_index(op_id,workspace_revision,task_id,event_json) VALUES (?,?,?,'{}')",
+        ),
         addDoc = (target) =>
           insertDoc.run(
             target,
@@ -118,13 +125,9 @@ export async function measureColdMaterialization(root, size, policy = "in_flight
       for (let i = 0; i < size; i++) {
         const id = `task_done_${i}`;
         insertSnapshot.run(id, JSON.stringify({ ...snapshot, task: { ...snapshot.task, taskId: id, status: "done" } }));
-        db.prepare("INSERT INTO task_package VALUES (?,?)").run(id, `tasks/${id}`);
+        insertPackage.run(id, `tasks/${id}`);
         addDoc(`tasks/${id}/task_plan.md`);
-        db.prepare("INSERT INTO event_index(op_id,workspace_revision,task_id,event_json) VALUES (?,?,?,'{}')").run(
-          `cold-${i}`,
-          i + 2,
-          id,
-        );
+        insertEventIndex.run(`cold-${i}`, i + 2, id);
       }
       if (incremental)
         db.prepare("UPDATE document SET workspace_revision=2 WHERE path IN (?,?)").run(

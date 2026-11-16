@@ -263,9 +263,16 @@ export async function measureRelations(rootDir, size) {
  * collection anchored on another endpoint must not be visited.
  */
 export async function measureAnchoredRelationFreshness(rootDir, size) {
-  const [{ DatabaseSync }, { refreshDirtyRelationFreshness }, fixtures, { withTempStore }] = await Promise.all([
+  const [
+    { DatabaseSync },
+    { refreshDirtyRelationFreshness },
+    { applyRelationProjectionEvent },
+    fixtures,
+    { withTempStore },
+  ] = await Promise.all([
     import("node:sqlite"),
     load(rootDir, "packages/storage/src/projection/relation-freshness-maintenance.ts"),
+    load(rootDir, "packages/storage/src/projection/relation-entity-projection.ts"),
     load(rootDir, "packages/storage/test/store/relation-graph-projection.fixtures.ts"),
     load(rootDir, "packages/storage/test/store/helpers.ts"),
   ]);
@@ -277,36 +284,43 @@ export async function measureAnchoredRelationFreshness(rootDir, size) {
       fixture.projection.apply(event);
     };
     for (const taskId of ["task_hot", "task_cold"]) apply(fixtures.taskCreated(++revision, taskId));
-    for (const target of ["task/task_hot", "task/task_cold"])
-      for (let index = 0; index < size; index += 1) {
-        const { strength: _strength, ...record } = fixtures.relation({
-          source: `task/task_source_${index}`,
-          target,
-          type: "relates",
-        });
-        apply({
-          schema: "relation-event/v1",
-          eventId: `event-${++revision}`,
-          workspaceRevision: revision,
-          opId: `op-${revision}`,
-          relationId: record.relation_id,
-          type: "relation_created",
-          actor: fixtures.actor,
-          source: "local",
-          occurredAt: "2026-11-06T00:00:00.000Z",
-          payload: { relation: { ...record, targetObservedVersion: null } },
-        });
-      }
     const projectionPath = fixture.projection.path;
     fixture.projection.close();
     const db = new DatabaseSync(projectionPath);
     try {
+      // Seed the 2*size relations inside one transaction (mirroring batched replay) so setup does not
+      // trigger thousands of autocommit WAL syncs and redundant freshness recomputations before measurement.
+      db.exec("BEGIN IMMEDIATE");
+      for (const target of ["task/task_hot", "task/task_cold"])
+        for (let index = 0; index < size; index += 1) {
+          const { strength: _strength, ...record } = fixtures.relation({
+            source: `task/task_source_${index}`,
+            target,
+            type: "relates",
+          });
+          applyRelationProjectionEvent(db, {
+            schema: "relation-event/v1",
+            eventId: `event-${++revision}`,
+            workspaceRevision: revision,
+            opId: `op-${revision}`,
+            relationId: record.relation_id,
+            type: "relation_created",
+            actor: fixtures.actor,
+            source: "local",
+            occurredAt: "2026-11-06T00:00:00.000Z",
+            payload: { relation: { ...record, targetObservedVersion: null } },
+          });
+        }
+      refreshDirtyRelationFreshness(db);
+      db.exec("COMMIT");
       const changes = () => Number(db.prepare("SELECT total_changes() AS n").get().n);
       assert.equal(refreshDirtyRelationFreshness(db), 0);
       db.prepare("UPDATE task_snapshot SET workspace_revision = ? WHERE task_id = 'task_hot'").run(++revision);
-      const before = changes(),
-        relationsRecomputed = refreshDirtyRelationFreshness(db),
-        rowsWritten = changes() - before,
+      const before = changes();
+      db.exec("BEGIN IMMEDIATE");
+      const relationsRecomputed = refreshDirtyRelationFreshness(db);
+      db.exec("COMMIT");
+      const rowsWritten = changes() - before,
         suspect = Number(
           db
             .prepare(
