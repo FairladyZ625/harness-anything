@@ -1487,17 +1487,23 @@ function fakeProcess(pid: number, behavior: Behavior): RuntimeProcess {
                   ]
                 : [
                     { type: "acp.session", sessionId, modes: ["read-only"], currentMode: "read-only" },
-                    {
-                      type: "acp.update",
-                      sessionId,
-                      update: {
-                        sessionUpdate: "tool_call",
-                        kind: "execute",
-                        toolCallId: "call-1",
-                        title: "Read file",
-                        status: "pending",
-                      },
-                    },
+                    // The stream-error case is the startup-fallback positive control.
+                    // CH1's all-kind matrix separately refuses post-tool server/stream faults.
+                    ...(behavior === "acp_stream_error"
+                      ? []
+                      : [
+                          {
+                            type: "acp.update",
+                            sessionId,
+                            update: {
+                              sessionUpdate: "tool_call",
+                              kind: "execute",
+                              toolCallId: "call-1",
+                              title: "Read file",
+                              status: "pending",
+                            },
+                          },
+                        ]),
                     {
                       type: "acp.error",
                       sessionId,
