@@ -13,7 +13,7 @@ export function registerSourceFileInterner(sourceFile, interner) {
 }
 
 export function releaseSourceFileInterner(sourceFile, interner) {
-  if (environmentInterners.get(sourceFile) === interner) environmentInterners.delete(sourceFile);
+  if (environmentInterners.get(sourceFile) === interner) registerSourceFileInterner(sourceFile, undefined);
 }
 
 export const isFunctionNode = (node) =>
