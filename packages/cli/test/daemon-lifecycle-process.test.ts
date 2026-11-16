@@ -284,6 +284,17 @@ test("force refuses while the daemon reports queued writes", async () => {
   }
 });
 
+test("force waits for a queue that drains instead of refusing it", async () => {
+  const fixture = await spawnLegacyDaemon("draining");
+  try {
+    const stopped = runTarget(fixture, ["daemon", "stop", "--force", "--json"]);
+    assert.equal(stopped.forced, true, JSON.stringify(stopped));
+    assert.equal(await alive(fixture.daemonPid), false, "a queue that drained must not hold the stop hostage");
+  } finally {
+    await stopCleanup(fixture);
+  }
+});
+
 // Codex uses stdin EOF to delimit its `-` prompt, so the provider stand-in starts emitting only
 // after EOF. A second child deliberately keeps daemon-owned stdio open and must exit when those
 // pipes close; that positive control proves the fixture can distinguish process-group survival
@@ -935,16 +946,19 @@ const LEGACY_DAEMON = `import net from "node:net";
 import { unlinkSync, writeFileSync } from "node:fs";
 const [mode, socketPath, pidPath] = process.argv.slice(2);
 writeFileSync(pidPath, process.pid + "\\n");
+let statusAnswers = 0;
 const server = net.createServer((socket) => {
   if (mode === "wedge") return;
   socket.on("data", (chunk) => {
     for (const line of chunk.toString("utf8").split("\\n")) {
       if (!line.startsWith("{")) continue;
       const request = JSON.parse(line);
+      const queued = mode === "in-use" || (mode === "draining" && statusAnswers === 0);
+      if (request.method === "daemon.status") statusAnswers += 1;
       const answer = request.method === "protocol.hello"
         ? { jsonrpc: "2.0", id: request.id, result: ${JSON.stringify({ ...fixtureDaemonHello(), methods: ["protocol.hello", "daemon.status"] })} }
         : request.method === "daemon.status"
-          ? { jsonrpc: "2.0", id: request.id, result: { ok: true, daemonId: mode, pid: process.pid, repos: mode === "in-use" ? [{ repoId: "busy-repo", queueDepth: 2 }] : [], summary: "daemon status: pid=" + process.pid } }
+          ? { jsonrpc: "2.0", id: request.id, result: { ok: true, daemonId: mode, pid: process.pid, repos: queued ? [{ repoId: "busy-repo", queueDepth: 2 }] : [], summary: "daemon status: pid=" + process.pid } }
           : { jsonrpc: "2.0", id: request.id, error: { code: -32601, message: "Method not found" } };
       socket.write(JSON.stringify(answer) + "\\n");
     }
