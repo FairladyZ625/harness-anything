@@ -9,7 +9,7 @@ import { currentExecutionArrangement } from "@harness-anything/kernel/internal/d
 import { readLastExecutionWorkerDispatch } from "./dispatch-read.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { reviewReportRelativePath } from "./reviewer-artifact-publication.ts";
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import type { RepoCellBinding, RepoCellContinuationWrite } from "./repo-cell-types.ts";
 import type { TaskDispatchRow } from "./protocol/task-dispatch-contract.ts";
 import type { NodeAutoDispatchCandidate } from "./node-auto-dispatch.ts";

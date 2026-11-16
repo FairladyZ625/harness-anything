@@ -13,7 +13,7 @@ import {
 import { claimBytes } from "./doc-sync-details.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 import { readDispatchStream } from "./dispatch-stream.ts";
 import { decisionWritePlan } from "@harness-anything/kernel/internal/domain/decision-event";

@@ -26,7 +26,7 @@ import { someQueryEvent } from "./repo-cell-event-query.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
 import { assertTaskTransitionDocumentReady, readOnDiskBody } from "./transition-document-access.ts";
-import type { RepoCellActionContext, RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellActionContext, RepoCellOperationalContext } from "./repo-cell-types.ts";
 import { archiveTaskOnComplete } from "./repo-cell-task-auto-archive.ts";
 import { reviewerArtifactsForReview } from "./reviewer-artifact-publication.ts";
 import { runTaskActionCatalogRuntime } from "./task-action-catalog-runtime.ts";

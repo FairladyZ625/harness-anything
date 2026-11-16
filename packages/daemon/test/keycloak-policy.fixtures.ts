@@ -1,10 +1,6 @@
+import { registerBundledVertical } from "./bundled-vertical.fixture.mjs";
 import { after } from "node:test";
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
 import {
-  compileVerticalContract,
-  decodeVerticalDefinition,
   deriveBasePolicyGroups,
   effectivePolicyGroupScopes,
   type ActorIdentity,
@@ -15,9 +11,7 @@ import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 
 // Compile the bundled vertical so the runtime Artifact kind scopes are registered before the
 // Base groups are derived; `ha migrate vertical-declaration` does the same in a real repo.
-compileVerticalContract(
-  decodeVerticalDefinition(JSON.parse(readFileSync(path.join(defaultAssets, "vertical.json"), "utf8"))),
-);
+registerBundledVertical();
 
 // Business suites explicitly provision people and Base groups in this test-file realm. The
 // production adapter still performs HTTP evaluation for each action/resource; no decision is

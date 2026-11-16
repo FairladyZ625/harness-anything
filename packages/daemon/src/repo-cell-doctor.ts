@@ -16,7 +16,7 @@ import { readTaskWipSnapshot } from "./repo-cell-task-query.ts";
 import { doctorLocalRootResidue } from "./repo-local-root-residue.ts";
 import { taskLineageExecutorCandidates } from "./dispatch-read.ts";
 import { workspaceLinkDoctorCheck } from "./workspace-link-integrity.ts";
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 export type DoctorCheckStatus = OperationalStatus.DoctorCheckStatus;

@@ -1,3 +1,15 @@
+import { createHash } from "node:crypto";
+import {
+  compileExecutionAnnotation,
+  compileTaskLifecycleWrite,
+  executionAnnotationKinds,
+  lifecycleDocumentPaths,
+  type ExecutionAnnotationKind,
+  type WriteReceiptDraft as WriteReceipt,
+} from "@harness-anything/kernel";
+import type { RepoCellBinding, RepoCellOperationalContext } from "./repo-cell-types.ts";
+import { projectedTaskWriteRefusal } from "./projection-readiness.ts";
+import { readCompletionContext } from "./task-completion-read.ts";
 import {
   approvedReviewHistoryForExecution,
   currentSubmittedExecutions,
@@ -297,4 +309,78 @@ function factHoldsFlags(value: unknown): string {
       return [` --fact-holds ${factId}:${JSON.stringify(row.rationale)}`];
     })
     .join("");
+}
+
+export function annotateExecution(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+): WriteReceipt {
+  const taskId = cell.requiredCellText(action.taskId, "taskId"),
+    executionId = cell.requiredCellText(action.executionId, "executionId"),
+    note = cell.requiredCellText(action.note, "note"),
+    annotationKind = action.annotationKind ?? "correction",
+    current = cell.projection.read(taskId),
+    snapshot = current.snapshot;
+  if (!cell.projectionReady(current) || !snapshot.task)
+    throw projectedTaskWriteRefusal(
+      cell.projection,
+      current,
+      taskId,
+      { repoId: cell.input.repoId, rootDir: cell.rootDir },
+      cell.cellCodedError(
+        "content_not_ready",
+        `Task ${taskId} is not ready for execution annotation; run ha daemon projection rebuild, then retry ` +
+          `ha task annotate ${taskId} --execution-id ${executionId} --note <note>.`,
+      ),
+    );
+  if (!(executionAnnotationKinds as readonly string[]).includes(String(annotationKind)))
+    throw cell.cellCodedError(
+      "invalid_field",
+      `annotation --kind must be one of ${executionAnnotationKinds.join(", ")}.`,
+    );
+  const canonicalAction = { ...action, annotationKind },
+    opId = cell.operationId(canonicalAction, binding, cell.input.repoId, snapshot.revision),
+    existing = cell.store.readEvent(opId);
+  if (existing) return cell.receiptForOperation(opId, binding);
+  const annotation = compileExecutionAnnotation({
+      snapshot,
+      taskId,
+      executionId,
+      actor: binding.actor,
+      source: binding.source,
+      kind: annotationKind as ExecutionAnnotationKind,
+      note,
+      opId,
+      eventId: `event-${createHash("sha256").update(opId).digest("hex")}`,
+      workspaceRevision: (cell.store.readHead()?.revision ?? 0) + 1,
+      occurredAt: cell.now(),
+    }),
+    paths = current.packagePath ? lifecycleDocumentPaths(annotation.event, current.packagePath) : [],
+    compiled = compileTaskLifecycleWrite({
+      event: annotation.event,
+      snapshot: annotation.snapshot,
+      packagePath: current.packagePath,
+      currentDocuments: paths.flatMap((target) => {
+        const document =
+          cell.projection.readDocument(target).document ?? cell.projection.readDocumentHistory?.(target).document;
+        return document ? [document] : [];
+      }),
+      completionContext: readCompletionContext(
+        cell.projection,
+        taskId,
+        annotation.snapshot,
+        current.status,
+        cell.rootDir,
+      ),
+    }),
+    appended = cell.store.append(compiled),
+    publication = cell.publicPublication(appended);
+  cell.projection.apply(compiled.event, compiled.plan);
+  return cell.lifecycleReceipt(
+    compiled.event,
+    cell.projection.read(taskId).snapshot,
+    publication,
+    cell.receiptProof(compiled.event, publication),
+  );
 }

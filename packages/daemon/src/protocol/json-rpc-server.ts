@@ -9,7 +9,7 @@ import {
 } from "../daemon-operation.ts";
 import { accessAdminOperations } from "./daemon-protocol.contract.ts";
 import { executionCredentialRejected } from "../runtime-execution-credential.ts";
-import type { DaemonHost } from "../daemon-host.ts";
+import type { DaemonHost } from "../daemon-host-types.ts";
 import { agentActorForLog, type DaemonRequestLogEntry } from "../request-log.ts";
 import type { DaemonTrafficLogEntry } from "../conn-log.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";

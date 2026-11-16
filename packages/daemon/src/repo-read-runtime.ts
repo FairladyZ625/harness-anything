@@ -1,3 +1,4 @@
+import type { RepoCellOperationalContext, RepoCellRuntimeContext, RepoCellApiContext } from "./repo-cell-types.ts";
 import { publicPublication } from "./repo-cell-receipts.ts";
 import { attachWriteReceiptAcceptance } from "./write-receipt-settlement.ts";
 import { nodeMaterializationStorage } from "./node-materialization-settings.ts";
@@ -19,17 +20,13 @@ import { nodeReviewDispatchCandidate } from "./task-review-dispatch.ts";
 import { makePersonActionRuntime } from "./person-action-runtime.ts";
 import { commandDescriptorForAction } from "./protocol/daemon-protocol-commands.ts";
 import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
-import {
-  createRepoCellActionContext,
-  type RepoCellOperationalContext,
-  type RepoCellRuntimeContext,
-} from "./repo-cell-action-context.ts";
+import { createRepoCellActionContext } from "./repo-cell-action-context.ts";
 import { executeRepoReadAction } from "./repo-cell-action-dispatch.ts";
-import { createRepoCellApi, repoCellSynchronousRead, type RepoCellApiContext } from "./repo-cell-api.ts";
+import { createRepoCellApi, repoCellSynchronousRead } from "./repo-cell-api.ts";
 import { bindVerifiedExecutorClaim } from "./repo-cell-authorization.ts";
 import { dispatchRead } from "./repo-cell-command.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
-import type { RepoCellOpenInput } from "./repo-cell-open.ts";
+import type { RepoCellOpenInput } from "./repo-cell-types.ts";
 import { makeRepoCellSettingsState } from "./repo-cell-settings-state.ts";
 import { requiredCellText } from "./repo-cell-settlement.ts";
 import type { RepoCell, RepoCellBinding, RepoCellStatus, RepoTaskAction } from "./repo-cell-types.ts";

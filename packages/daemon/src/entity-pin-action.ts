@@ -5,7 +5,7 @@ import {
   parseEntityRef,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 export function runEntityPinAction(

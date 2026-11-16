@@ -42,7 +42,7 @@ import { reviewPathSeatPrompt } from "./review-path-matching.ts";
 import { runtimeKindForId, runtimeVendorForKind } from "./runtime-inventory.ts";
 import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
 import { DecisionReviewContentConflictError } from "./repo-cell-errors.ts";
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import type { RepoCellBinding, RepoCellContinuationWrite, RepoTaskAction } from "./repo-cell-types.ts";
 import type { NodeAutoDispatchCandidate } from "./node-auto-dispatch.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";

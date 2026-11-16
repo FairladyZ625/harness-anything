@@ -39,7 +39,7 @@ import { projectedTaskIds } from "../src/repo-cell-receipts.ts";
 import { cellCodedError } from "../src/repo-cell-errors.ts";
 import { recoveryCommandPolicy } from "../src/recovery-state.ts";
 import { enqueueRuntimePublication } from "../src/runtime-publication-queue.ts";
-import type { RepoCellApiContext } from "../src/repo-cell-api.ts";
+import type { RepoCellApiContext } from "../src/repo-cell-types.ts";
 
 const actor = { principal: { personId: "person-latch" }, executor: null } as const;
 

@@ -9,7 +9,7 @@ import {
   type GateRun,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 /** An in-process source invocation, never supplied by a transport or execution credential. */

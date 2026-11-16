@@ -1,7 +1,7 @@
 import path from "node:path";
 import { runStorageMigration, type StorageMigrationLocation } from "@harness-anything/storage";
 import { workspaceText } from "./repo-cell-packets.ts";
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import type { RepoTaskAction, RepoCellBinding } from "./repo-cell-types.ts";
 
 /** Host-local admin Action, authorized before this handler and serialized by the repository writer. */

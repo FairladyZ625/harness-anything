@@ -34,7 +34,10 @@ test("every production local binding is covered by a request or cell-default wri
   const open = source("repo-cell-open.ts");
   assert.match(open, /return activeWriterEpochFence \?\? defaultWriterEpochFence/u);
   assert.match(open, /return activeWriterEpochFenceDescriptor \?\? cellWriterEpochFence \?\? null/u);
-  assert.match(open, /defaultWriterEpochFence\?: NonNullable<RepoCellBinding\["writerEpochFence"\]>/u);
+  assert.match(
+    source("repo-cell-types.ts"),
+    /defaultWriterEpochFence\?: NonNullable<RepoCellBinding\["writerEpochFence"\]>/u,
+  );
 
   assert.match(
     source("daemon-host-open.ts"),

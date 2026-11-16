@@ -17,7 +17,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fixture, resourceSnapshot } from "../stress/entity-cli-calibration.fixture.mjs";
-import { cli } from "../../packages/cli/test/daemon-multi-repo-lifecycle-cli.fixtures.ts";
+import { cli } from "../../packages/cli/test/cli-process.fixture.mjs";
 import { benchKinds, commandTable, registryId } from "./cli-entity-bench.commands.mjs";
 import { runOracles, runNegativeControls } from "./cli-entity-bench.oracles.mjs";
 import * as report from "./cli-entity-bench.report.mjs";

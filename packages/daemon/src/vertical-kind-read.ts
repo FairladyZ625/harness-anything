@@ -1,6 +1,6 @@
 import type { WriteReceiptDraft } from "@harness-anything/kernel";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import { requireCanonicalVerticalDeclaration } from "./vertical-declaration-action.ts";
 
 type AnyKind = ReturnType<typeof requireCanonicalVerticalDeclaration>["definition"]["entityKinds"][number];

@@ -13,7 +13,7 @@ import { cellCodedError } from "./repo-cell-errors.ts";
 import { receiptLayoutRoots, workspaceRelativePath } from "./receipt-guidance.ts";
 import { workReceiptLine } from "./work-read.ts";
 import type { PublicPublication, RepoCellBinding, TaskProgressReceipt } from "./repo-cell-types.ts";
-import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
+import type { RepoCellActionContext } from "./repo-cell-types.ts";
 
 export function publicPublication(value: Pick<CanonicalEventAppendReceipt, "commitSha" | "cut">): PublicPublication {
   return { commitSha: value.commitSha?.sha ?? null, cut: value.cut };

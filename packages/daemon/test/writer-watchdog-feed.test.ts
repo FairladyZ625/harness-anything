@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 import type { Worker } from "node:worker_threads";
-import type { RepoCellOpenInput } from "../src/repo-cell-open.ts";
+import type { RepoCellOpenInput } from "../src/repo-cell-types.ts";
 import type { RepoCellAttachProgress, RepoCellStatus } from "../src/repo-cell-types.ts";
 import type { DaemonStatusResult } from "../src/protocol/daemon-protocol.contract.ts";
 import {

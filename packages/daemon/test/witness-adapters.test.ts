@@ -28,7 +28,7 @@ import { attestGateWitness } from "../src/repo-cell-witness-adapters.ts";
 import { publishGateWitness } from "../src/repo-cell-completion.ts";
 import { operationId } from "../src/repo-cell-proof.ts";
 import { runProcessExitAsync } from "../src/process-port.ts";
-import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "../src/repo-cell-types.ts";
 import type { RepoCellBinding, Snapshot } from "../src/repo-cell-types.ts";
 import { projectionReady } from "../src/repo-cell-settlement.ts";
 

@@ -14,7 +14,7 @@ import { authorizeRuntimeRepoAction } from "./repo-cell-authorization.ts";
 import { commitRuntimeSessionBundle, type RuntimeSessionBundle } from "./entity-action-runtime-session.ts";
 import { publicationKillpoints } from "./entity-action-relation.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
-import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
+import type { RepoCellActionContext } from "./repo-cell-types.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 /** Accept the runtime outcome and its owned task settlement in the same center transaction. */

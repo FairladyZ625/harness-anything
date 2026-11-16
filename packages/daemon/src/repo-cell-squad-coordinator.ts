@@ -2,7 +2,7 @@ import { isSameExecution, type CanonicalEventStore, type TaskProjection } from "
 import type { EntityActionCatalogRuntimes } from "./entity-action-catalog-executor.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
-import type { RepoCellActionContext, RepoCellRuntimeContext } from "./repo-cell-action-context.ts";
+import type { RepoCellActionContext, RepoCellRuntimeContext } from "./repo-cell-types.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { publishTaskArtifact } from "./doc-sync-actions.ts";
 import { operationId } from "./repo-cell-proof.ts";

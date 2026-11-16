@@ -20,7 +20,7 @@ import {
 import { archiveRuntimeDispatch } from "./doc-sync-actions.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { RepoCellBinding, RuntimeIngressAction } from "./repo-cell-types.ts";
-import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
+import type { RepoCellActionContext } from "./repo-cell-types.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { noChanges } from "./entity-action-write-helpers.ts";
 import { requireDispatchLifecycleAdmission } from "./runtime-dispatch-admission.ts";

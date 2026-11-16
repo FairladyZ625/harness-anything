@@ -37,7 +37,7 @@ import {
 } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 import { projectedTaskSettings, resolveTaskRootThreshold } from "./task-wip-settings.ts";
 import { readEffectiveCloseoutGates, readEffectiveReviewReturnBudget } from "./repo-cell-settings-state.ts";
-import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
+import type { RepoCellActionContext } from "./repo-cell-types.ts";
 import { renderEvidencePayload } from "./repo-cell-evidence.ts";
 import { failed } from "./repo-cell-settlement.ts";
 import { projectedTaskNotFound } from "./projection-readiness.ts";

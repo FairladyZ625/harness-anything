@@ -1,5 +1,5 @@
 import type { DaemonBuildObserver } from "./build-identity.ts";
-import type { DaemonHost } from "./daemon-host.ts";
+import type { DaemonHost } from "./daemon-host-types.ts";
 import type { DaemonBuildDrainStatus, DaemonBuildStaleNotice } from "./protocol/daemon-protocol.contract.ts";
 
 export function daemonBuildStaleNotice(

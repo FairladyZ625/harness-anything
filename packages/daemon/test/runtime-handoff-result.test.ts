@@ -11,7 +11,7 @@ import {
   runRuntimeHandoffAction,
   type RuntimeHandoffCheckpoint,
 } from "../src/runtime-handoff-store.ts";
-import type { RepoCellActionContext } from "../src/repo-cell-action-context.ts";
+import type { RepoCellActionContext } from "../src/repo-cell-types.ts";
 import { buildHandoffPacket } from "@harness-anything/kernel";
 
 const dispatchId = `dispatch_${"a".repeat(24)}`;

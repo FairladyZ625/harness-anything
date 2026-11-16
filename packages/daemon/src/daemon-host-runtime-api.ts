@@ -13,7 +13,7 @@ import {
   ledgerWriteCommandTopology,
   repoReadCommandTopology,
 } from "@harness-anything/preset/internal/preset-command-contract";
-import type { DaemonHost } from "./daemon-host.ts";
+import type { DaemonHost } from "./daemon-host-types.ts";
 import {
   keycloakNodeRegistry,
   prepareFleetCenterAdmission,

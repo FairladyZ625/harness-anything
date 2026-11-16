@@ -14,7 +14,7 @@ import {
 import { validateGuiSubmission, type GuiSubmissionV1 } from "./protocol/daemon-protocol.contract.ts";
 import { reviewJsonAllowedFields, reviewJsonFields } from "./protocol/daemon-protocol-commands-task.ts";
 import { validationDiagnostic } from "./protocol/daemon-protocol-validate-entities.ts";
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import { gateChecks } from "./repo-cell-proof.ts";
 import { requiredCellText } from "./repo-cell-settlement.ts";

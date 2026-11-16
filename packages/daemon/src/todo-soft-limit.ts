@@ -1,5 +1,5 @@
 import { openTodoValueEquals, todoSoftLimitAdvisory } from "@harness-anything/kernel";
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import { projectedTaskSettings } from "./task-wip-settings.ts";
 
 /**
