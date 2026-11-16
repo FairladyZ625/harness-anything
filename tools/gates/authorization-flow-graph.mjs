@@ -93,15 +93,11 @@ export function authorizationPolicyGraph(graph) {
  * `rootDir` holds the traced sources; `anchorRoot` holds the kernel authority files the anchors
  * name (the same checkout unless a test traces a mutated copy of the sources).
  */
-export function buildFlowGraph(
-  rootDir,
-  { anchorRoot = rootDir, sourceFiles = [], lexicalFiles = [] } = {},
-  compiled = null,
-) {
+export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = [], lexicalFiles = [] } = {}) {
   const internEnv = makeEnvironmentInterner(lookup, freeParameters);
-  const modules = compiled?.modules ?? new Map(),
-    members = compiled?.members ?? new Map(),
-    typedEntries = compiled?.typedEntries ?? new Map(),
+  const modules = new Map(),
+    members = new Map(),
+    typedEntries = new Map(),
     scopes = new WeakMap(),
     identifierLookups = new WeakMap(),
     callDeclarations = new WeakMap(),
@@ -121,9 +117,9 @@ export function buildFlowGraph(
     exportedBindings = new Map(),
     typeNames = new WeakMap(),
     anchorSources = new Map(),
-    assignedValues = compiled?.assignedValues ?? new Map(),
-    singleAssignments = compiled?.singleAssignments ?? new Map(),
-    nonSimpleWrites = compiled?.nonSimpleWrites ?? new Set(),
+    assignedValues = new Map(),
+    singleAssignments = new Map(),
+    nonSimpleWrites = new Set(),
     parameterQueries = new WeakMap(),
     pendingFreeParameters = [],
     activeParameters = new Set();
@@ -135,36 +131,31 @@ export function buildFlowGraph(
     }
     return source;
   };
-  let files = compiled?.files ?? [
-    ...new Set([...sourceRoots.flatMap((root) => walkTypeScriptFiles(rootDir, root)), ...sourceFiles]),
-  ];
-  const workspacePaths = compiled ? {} : workspaceSourcePaths(rootDir, anchorRoot),
+  let files = [...new Set([...sourceRoots.flatMap((root) => walkTypeScriptFiles(rootDir, root)), ...sourceFiles])];
+  const workspacePaths = workspaceSourcePaths(rootDir, anchorRoot),
     // The checker answers one question only: which implementations a typed member call can reach.
-    program =
-      compiled?.program ??
-      ts.createProgram({
-        rootNames: files.map((file) => path.join(rootDir, file)),
-        options: {
-          noEmit: true,
-          allowJs: sourceFiles.some((file) => /\.[cm]?js$/u.test(file)),
-          skipLibCheck: true,
-          allowImportingTsExtensions: true,
-          module: ts.ModuleKind.NodeNext,
-          moduleResolution: ts.ModuleResolutionKind.NodeNext,
-          target: ts.ScriptTarget.ES2022,
-          strict: true,
-          types: [],
-          ...(Object.keys(workspacePaths).length > 0 ? { baseUrl: rootDir, paths: workspacePaths } : {}),
-        },
-      }),
+    program = ts.createProgram({
+      rootNames: files.map((file) => path.join(rootDir, file)),
+      options: {
+        noEmit: true,
+        allowJs: sourceFiles.some((file) => /\.[cm]?js$/u.test(file)),
+        skipLibCheck: true,
+        allowImportingTsExtensions: true,
+        module: ts.ModuleKind.NodeNext,
+        moduleResolution: ts.ModuleResolutionKind.NodeNext,
+        target: ts.ScriptTarget.ES2022,
+        strict: true,
+        types: [],
+        ...(Object.keys(workspacePaths).length > 0 ? { baseUrl: rootDir, paths: workspacePaths } : {}),
+      },
+    }),
     checker = program.getTypeChecker(),
-    programSources = compiled?.programSources ?? new WeakSet(program.getSourceFiles()),
-    relativeFiles = compiled?.relativeFiles ?? new WeakMap(),
+    programSources = new WeakSet(program.getSourceFiles()),
+    relativeFiles = new WeakMap(),
     fileOf = makeFileOf(relativeFiles, sourceFileOf);
   // Declaration fallback can call an implementation outside the indexed source roots.
   // It still belongs to this Program and must use this graph's frame pool.
-  for (const sourceFile of program.getSourceFiles()) registerSourceFileInterner(sourceFile, internEnv);
-  files = compiled?.files ?? [
+  files = [
     ...new Set([
       ...files,
       ...program
@@ -179,90 +170,65 @@ export function buildFlowGraph(
       ...lexicalFiles,
     ]),
   ];
-  if (!compiled)
-    for (const file of files) {
-      const sourceFile = program.getSourceFile(path.join(rootDir, file)) ?? parseTypeScript(rootDir, file),
-        imports = new Map();
-      relativeFiles.set(sourceFile, file);
-      registerSourceFileInterner(sourceFile, internEnv);
-      for (const statement of sourceFile.statements) {
-        if (!ts.isImportDeclaration(statement) || !statement.importClause || statement.importClause.isTypeOnly)
-          continue;
-        const from = statement.moduleSpecifier.text,
-          named = statement.importClause.namedBindings;
-        if (statement.importClause.name) imports.set(statement.importClause.name.text, { from, exported: "default" });
-        if (named && ts.isNamespaceImport(named)) imports.set(named.name.text, { from, exported: "*" });
-        if (named && ts.isNamedImports(named))
-          for (const element of named.elements)
-            if (!element.isTypeOnly)
-              imports.set(element.name.text, { from, exported: element.propertyName?.text ?? element.name.text });
-      }
-      modules.set(file, { file, sourceFile, imports });
-      if (programSources.has(sourceFile)) indexMembers(sourceFile, file);
+  for (const file of files) {
+    const sourceFile = program.getSourceFile(path.join(rootDir, file)) ?? parseTypeScript(rootDir, file),
+      imports = new Map();
+    relativeFiles.set(sourceFile, file);
+    for (const statement of sourceFile.statements) {
+      if (!ts.isImportDeclaration(statement) || !statement.importClause || statement.importClause.isTypeOnly) continue;
+      const from = statement.moduleSpecifier.text,
+        named = statement.importClause.namedBindings;
+      if (statement.importClause.name) imports.set(statement.importClause.name.text, { from, exported: "default" });
+      if (named && ts.isNamespaceImport(named)) imports.set(named.name.text, { from, exported: "*" });
+      if (named && ts.isNamedImports(named))
+        for (const element of named.elements)
+          if (!element.isTypeOnly)
+            imports.set(element.name.text, { from, exported: element.propertyName?.text ?? element.name.text });
     }
+    modules.set(file, { file, sourceFile, imports });
+    if (programSources.has(sourceFile)) indexMembers(sourceFile, file);
+  }
   // Index writes once per Program. A local's initializer alone does not describe `let db`
   // or values assigned by a nested callback; retain all their actual parameter dependencies.
-  if (!compiled)
-    for (const { sourceFile } of modules.values())
-      (function visit(node) {
-        if (ts.isTypeNode(node)) return;
-        if (
-          ts.isBinaryExpression(node) &&
-          node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
-          node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
-        ) {
-          const simple = node.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isIdentifier(unwrap(node.left));
-          (function target(expression) {
-            if (ts.isIdentifier(expression)) {
-              if (ts.isPropertyAccessExpression(expression.parent) && expression.parent.name === expression) return;
-              const binding = lookup(expression.text, expression);
-              if (binding?.kind === "var" && !binding.moduleScoped) {
-                const values = assignedValues.get(binding.declaration) ?? [];
-                values.push(node.right);
-                assignedValues.set(binding.declaration, values);
-                if (!simple || singleAssignments.has(binding.declaration)) nonSimpleWrites.add(binding.declaration);
-                else singleAssignments.set(binding.declaration, { expression: node.right, assign: node });
-              }
-            } else ts.forEachChild(expression, target);
-          })(node.left);
-        } else if (
-          (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
-          [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(node.operator) &&
-          ts.isIdentifier(node.operand)
-        ) {
-          const binding = lookup(node.operand.text, node.operand);
-          if (binding?.kind === "var" && !binding.moduleScoped) nonSimpleWrites.add(binding.declaration);
-        }
-        ts.forEachChild(node, visit);
-      })(sourceFile);
-  // Only Program/AST and completed source indexes survive an audit. Every lookup,
-  // type-query cache, environment interner and evaluator memo below is newly owned.
-  const sourceInputs = compiled ?? {
-    program,
-    programSources,
-    files,
-    relativeFiles,
-    modules,
-    members,
-    typedEntries,
-    assignedValues,
-    singleAssignments,
-    nonSimpleWrites,
-  };
-  for (const { sourceFile } of modules.values()) registerSourceFileInterner(sourceFile, internEnv);
-  return {
-    freshQueries: () => buildFlowGraph(rootDir, { anchorRoot, sourceFiles, lexicalFiles }, sourceInputs),
-    releaseQueries() {
-      internEnv.resetFramePool();
-      // A shared Program keeps its SourceFiles alive. Their WeakMap values must
-      // not keep the preceding audit's interner and lookup/type caches alive too.
-      for (const sourceFile of program.getSourceFiles()) releaseSourceFileInterner(sourceFile, internEnv);
-      for (const { sourceFile } of modules.values()) releaseSourceFileInterner(sourceFile, internEnv);
-    },
+  for (const { sourceFile } of modules.values())
+    (function visit(node) {
+      if (ts.isTypeNode(node)) return;
+      if (
+        ts.isBinaryExpression(node) &&
+        node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+        node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+      ) {
+        const simple = node.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isIdentifier(unwrap(node.left));
+        (function target(expression) {
+          if (ts.isIdentifier(expression)) {
+            if (ts.isPropertyAccessExpression(expression.parent) && expression.parent.name === expression) return;
+            const binding = lookup(expression.text, expression);
+            if (binding?.kind === "var" && !binding.moduleScoped) {
+              const values = assignedValues.get(binding.declaration) ?? [];
+              values.push(node.right);
+              assignedValues.set(binding.declaration, values);
+              if (!simple || singleAssignments.has(binding.declaration)) nonSimpleWrites.add(binding.declaration);
+              else singleAssignments.set(binding.declaration, { expression: node.right, assign: node });
+            }
+          } else ts.forEachChild(expression, target);
+        })(node.left);
+      } else if (
+        (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
+        [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(node.operator) &&
+        ts.isIdentifier(node.operand)
+      ) {
+        const binding = lookup(node.operand.text, node.operand);
+        if (binding?.kind === "var" && !binding.moduleScoped) nonSimpleWrites.add(binding.declaration);
+      }
+      ts.forEachChild(node, visit);
+    })(sourceFile);
+  // Source lookup/type/free-parameter metadata depends only on this fixed tree.
+  // Evaluation facts and argument frames belong to each fresh query context.
+  const graph = {
+    freshQueries: () => ({ ...graph, ...queryContext(makeEnvironmentInterner(lookup, freeParameters)) }),
     rootDir,
-    internEnv,
+    ...queryContext(internEnv),
     freeParameters,
-    resetFramePool: internEnv.resetFramePool,
     modules,
     members,
     typedEntries,
@@ -323,6 +289,22 @@ export function buildFlowGraph(
       return withinScope ? entry : null;
     },
   };
+  return graph;
+
+  function queryContext(owner) {
+    for (const sourceFile of program.getSourceFiles()) registerSourceFileInterner(sourceFile, owner);
+    for (const { sourceFile } of modules.values()) registerSourceFileInterner(sourceFile, owner);
+    return {
+      internEnv: owner,
+      resetFramePool: owner.resetFramePool,
+      releaseQueries() {
+        owner.resetFramePool();
+        // Shared SourceFile keys must not retain a completed audit's frame owner.
+        for (const sourceFile of program.getSourceFiles()) releaseSourceFileInterner(sourceFile, owner);
+        for (const { sourceFile } of modules.values()) releaseSourceFileInterner(sourceFile, owner);
+      },
+    };
+  }
 
   // This is lexical dependency analysis, independent of any descriptor's authority facts.
   // Only value references matter. Local aliases/functions/classes include their transitive
