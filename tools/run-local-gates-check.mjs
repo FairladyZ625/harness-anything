@@ -78,7 +78,13 @@ export function selectLocalGateChecks(manifest, options = {}) {
     }
     selected.push({
       id: gate.id,
-      command: gate.command,
+      // Pass the exact selection input, including staged/unstaged/renamed files, to the
+      // authorization gate. Base64 is shell-neutral on Windows and POSIX, even for paths.
+      command:
+        gate.command +
+        (gate.id === "ontology-durable-action-authorization" && Array.isArray(changedPaths)
+          ? ` --changed-files-base64 ${Buffer.from(JSON.stringify(changedPaths)).toString("base64")}`
+          : ""),
       workflowJobs: gate.executionSurfaces?.rewriteCi?.pullRequestJobs ?? [],
     });
   }

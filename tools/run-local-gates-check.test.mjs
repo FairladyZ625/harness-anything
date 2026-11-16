@@ -221,3 +221,17 @@ function makeManifest() {
     ],
   };
 }
+
+test("changed static plans pass the exact path set only to the durable authorization gate", () => {
+  const manifest = makeManifest();
+  const gate = { ...manifest.gates[0], id: "ontology-durable-action-authorization" };
+  manifest.gates.unshift(gate);
+  const changedPaths = ["packages/kernel/src/with spaces.ts", "packages/daemon/src/a'$(never).ts"];
+  const plan = selectLocalGateChecks(manifest, { changedPaths });
+  const command = plan.find((entry) => entry.id === gate.id).command;
+  const encoded = command.split(" --changed-files-base64 ")[1];
+  assert.match(encoded, /^[A-Za-z0-9+/=]+$/u);
+  assert.deepEqual(JSON.parse(Buffer.from(encoded, "base64").toString("utf8")), changedPaths);
+  assert.equal(plan.find((entry) => entry.id === manifest.gates[1].id).command, manifest.gates[1].command);
+  assert.equal(selectLocalGateChecks(manifest).find((entry) => entry.id === gate.id).command, gate.command);
+});
