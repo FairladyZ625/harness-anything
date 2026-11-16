@@ -1,3 +1,4 @@
+import { annotateExecution as annotateExecutionImpl } from "./repo-cell-execution-selection.ts";
 import type { RepoCellActionContext, RepoCellOperationalContext } from "./repo-cell-types.ts";
 import type { RepoCellCore } from "./repo-cell.ts";
 import type { makeTaskLifecycleService } from "@harness-anything/application/internal/task-lifecycle-service";
@@ -11,7 +12,6 @@ import {
 } from "@harness-anything/kernel";
 import type { NodeTaskMaterializationPolicy } from "@harness-anything/kernel/internal/domain/task-wip-policy.ts";
 import {
-  annotateExecution as annotateExecutionImpl,
   declareExecutionExecutor as declareExecutionExecutorImpl,
   executeAction as executeActionImpl,
 } from "./repo-cell-action-dispatch.ts";

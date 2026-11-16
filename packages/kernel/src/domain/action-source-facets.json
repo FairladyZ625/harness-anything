@@ -7655,7 +7655,7 @@
         "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-action-dispatch.ts#annotateExecution.appended:45d7f1624d843b4db4ce2ba40a15919d",
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-execution-selection.ts#annotateExecution.appended:45d7f1624d843b4db4ce2ba40a15919d",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
@@ -13202,7 +13202,7 @@
     "owner": "task",
     "sources": [
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-action-dispatch.ts#annotateExecution.annotation.eventId:a29f1d8dc5945125c2c24bf5941ea324",
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-cell-execution-selection.ts#annotateExecution.annotation.eventId:a29f1d8dc5945125c2c24bf5941ea324",
         "route": "task-annotate",
         "role": "support"
       }

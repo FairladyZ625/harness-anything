@@ -1,3 +1,4 @@
+import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import type { DispatchLifecycleReader } from "./runtime-dispatch-admission.ts";
 import {
   existsSync,
@@ -859,4 +860,17 @@ export async function verifyHandoffWorktree(cwd: string, acceptedCommit: string)
     throw cellCodedError("runtime_handoff_workspace_dirty", "Handoff requires a clean worktree.");
   if ((await git("rev-parse", "HEAD")).trim() !== acceptedCommit)
     throw cellCodedError("runtime_handoff_sha_mismatch", "Worktree HEAD differs from the accepted handoff SHA.");
+}
+
+export function taskWorktreeInput(
+  cell: Pick<RepoCellOperationalContext, "rootDir" | "projection" | "settings">,
+): TaskWorktreeLifecycleInput {
+  return {
+    rootDir: cell.rootDir,
+    readTask: (taskId) => cell.projection.read(taskId).snapshot.task,
+    readPresetSnapshot: presetSnapshotReader(cell.projection),
+    readWorktree: () => cell.settings.read().worktree,
+    readDispatchLifecycle: (query) => cell.projection.readDispatchLifecycle(query),
+    readLeaseAcquiredRevision: (taskId, executionId) => taskLeaseAcquiredRevision(cell.projection, taskId, executionId),
+  };
 }

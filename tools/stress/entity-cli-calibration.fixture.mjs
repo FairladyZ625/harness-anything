@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir, loadavg, availableParallelism } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { cli, git } from "../../packages/cli/test/daemon-multi-repo-lifecycle-cli.fixtures.ts";
+import { cli, git } from "../../packages/cli/test/cli-process.fixture.mjs";
 import { lastTimingRecord, percentile } from "../measure-cli-command-timing.mjs";
 
 // Freeze this workload before measuring either arm. This is a small calibration, not a scale gate.

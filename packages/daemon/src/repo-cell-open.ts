@@ -46,7 +46,7 @@ import { bootstrapRepo, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { initializeBootstrapLedger } from "./repo-cell-bootstrap-ledger.ts";
 import { createRepoCellActionContext } from "./repo-cell-action-context.ts";
 import type { RepoCellOperationalContext, RepoCellRuntimeContext } from "./repo-cell-types.ts";
-import { taskWorktreeInput } from "./repo-cell-action-dispatch.ts";
+import { taskWorktreeInput } from "./task-worktree.ts";
 import { createRepoCellApi } from "./repo-cell-api.ts";
 import { dispatchRead } from "./repo-cell-command.ts";
 import {

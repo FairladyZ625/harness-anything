@@ -322,6 +322,8 @@ partitionedTest("daemon leaf action changes stay below 60 descriptors and detect
   };
   const file = "packages/daemon/src/todo-action.ts";
   const count = () => changedAuthorizationScope(graph, durableInputs, [file]).descriptorIds?.size;
+  const selected = changedAuthorizationScope(graph, durableInputs, [file]).descriptorIds;
+  assert.ok(selected?.has("todo-add") && selected.has("todo.add"), "both todo write ingresses remain selected");
   const descriptors = count();
   console.log(
     `DAEMON_LEAF_SCOPE ${JSON.stringify({ descriptors, total: durableInputs.descriptors.length, seconds: (performance.now() - started) / 1000 })}`,
