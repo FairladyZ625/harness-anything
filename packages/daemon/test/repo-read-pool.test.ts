@@ -11,6 +11,13 @@ class Reader extends EventEmitter {
   readonly held: RepoWriterRequestV1[] = [];
   hold = false;
   stopped = false;
+  referenced = true;
+  ref() {
+    this.referenced = true;
+  }
+  unref() {
+    this.referenced = false;
+  }
   ready() {
     this.emit("message", {
       schema: "harness-repo-writer-status/v1",
@@ -95,4 +102,183 @@ test("closing a client before worker creation prevents a detached reader from st
   await Promise.all([closing, rejected]);
   await turn();
   assert.equal(created, 0);
+});
+
+test("close awaits handle release and reuses the unreferenced worker for the same repository", async () => {
+  const workers: Reader[] = [],
+    input = { repoId: "release" as never, rootDir: "/unused" as never, ownerId: "test" },
+    factory = () => {
+      const worker = new Reader();
+      workers.push(worker);
+      queueMicrotask(() => worker.ready());
+      return worker as unknown as Worker;
+    },
+    first = openRepoReadClient(input, factory);
+  try {
+    await first.request("probe", []);
+    const worker = workers[0]!;
+    worker.hold = true;
+    let closed = false;
+    const closing = first.close().then(() => {
+      closed = true;
+    });
+    await turn();
+    assert.equal(closed, false, "close must wait for the worker's handle-release receipt");
+    assert.equal(worker.stopped, false, "releasing handles must retain the warm isolate");
+    assert.equal(worker.referenced, true, "pending release must keep the process alive");
+    worker.release();
+    await closing;
+    assert.equal(worker.referenced, false, "an idle warm worker must not prevent process exit");
+    await assert.rejects(first.request("probe", []), { code: "repo_unavailable" });
+    const second = openRepoReadClient(input, factory);
+    try {
+      await second.request("probe", []);
+      assert.equal(workers.length, 1, "reopening must reuse the existing isolate");
+    } finally {
+      await second.close();
+    }
+  } finally {
+    workers.forEach((worker) => {
+      worker.release();
+      worker.emit("exit", 0);
+    });
+    await first.close();
+  }
+});
+
+test("a release failure terminates the reader and rejects close with its own error", async () => {
+  let worker!: Reader;
+  const client = openRepoReadClient(
+    { repoId: "release-error" as never, rootDir: "/unused" as never, ownerId: "test" },
+    () => {
+      worker = new Reader();
+      queueMicrotask(() => worker.ready());
+      return worker as unknown as Worker;
+    },
+  );
+  await client.request("probe", []);
+  worker.hold = true;
+  const closing = client.close(),
+    rejected = assert.rejects(closing, { code: "release_failed" });
+  await turn();
+  const release = worker.held[0]!;
+  worker.emit("message", {
+    requestId: release.requestId,
+    outcome: "error",
+    error: { code: "release_failed", message: "Native handle did not close." },
+  });
+  await rejected;
+  assert.equal(worker.stopped, true, "a failed release cannot leave native handles in the reusable pool");
+  assert.equal(client.close(), closing, "repeated close returns the same failure");
+});
+
+test("close drains an active read and reserves its worker until release is acknowledged", async () => {
+  const workers: Reader[] = [],
+    factory = () => {
+      const worker = new Reader();
+      workers.push(worker);
+      queueMicrotask(() => worker.ready());
+      return worker as unknown as Worker;
+    },
+    input = { repoId: "drain" as never, rootDir: "/unused" as never, ownerId: "test" },
+    client = openRepoReadClient(input, factory);
+  try {
+    await client.request("probe", []);
+    const worker = workers[0]!;
+    worker.hold = true;
+    const read = client.request("busy", []);
+    await turn();
+    const closing = client.close();
+    assert.equal(client.close(), closing);
+    await turn();
+    assert.equal(worker.held.length, 1, "no release may overlap the active read");
+    worker.reply(worker.held.shift()!);
+    await read;
+    await turn();
+    assert.equal((worker.held[0]!.payload as { method: string }).method, "close");
+    worker.release();
+    await closing;
+    assert.equal(worker.stopped, false);
+  } finally {
+    workers.forEach((worker) => {
+      worker.release();
+      worker.emit("exit", 0);
+    });
+    await client.close();
+  }
+});
+
+test("the previous owner waits for an in-flight repository handoff before close resolves", async () => {
+  let worker!: Reader;
+  const factory = () => {
+      worker = new Reader();
+      queueMicrotask(() => worker.ready());
+      return worker as unknown as Worker;
+    },
+    first = openRepoReadClient({ repoId: "before" as never, rootDir: "/unused" as never, ownerId: "test" }, factory),
+    second = openRepoReadClient({ repoId: "after" as never, rootDir: "/unused" as never, ownerId: "test" }, factory);
+  try {
+    await first.request("probe", []);
+    worker.hold = true;
+    const next = second.request("probe", []);
+    await turn();
+    let closed = false;
+    const closing = first.close().then(() => {
+      closed = true;
+    });
+    await turn();
+    assert.equal(closed, false, "ownership assignment alone does not prove old handles were released");
+    worker.release();
+    await Promise.all([next, closing]);
+  } finally {
+    worker.release();
+    await Promise.all([first.close(), second.close()]);
+    worker.emit("exit", 0);
+  }
+});
+
+test("a failed repository handoff quarantines the reader until termination releases old handles", async () => {
+  let worker!: Reader;
+  const terminated = Promise.withResolvers<number>(),
+    factory = () => {
+      worker = new Reader();
+      queueMicrotask(() => worker.ready());
+      return worker as unknown as Worker;
+    },
+    first = openRepoReadClient({ repoId: "old-error" as never, rootDir: "/unused" as never, ownerId: "test" }, factory),
+    second = openRepoReadClient(
+      { repoId: "new-error" as never, rootDir: "/unused" as never, ownerId: "test" },
+      factory,
+    );
+  try {
+    await first.request("probe", []);
+    worker.hold = true;
+    worker.terminate = async () => {
+      worker.stopped = true;
+      return terminated.promise;
+    };
+    const next = second.request("probe", []),
+      rejected = assert.rejects(next, { code: "handoff_failed" });
+    await turn();
+    let closed = false;
+    const closing = first.close().then(() => {
+      closed = true;
+    });
+    worker.emit("message", {
+      requestId: worker.held[0]!.requestId,
+      outcome: "error",
+      error: { code: "handoff_failed", message: "Previous query runtime did not close." },
+    });
+    await rejected;
+    await turn();
+    assert.equal(worker.stopped, true, "an error receipt does not prove the old runtime released its handles");
+    assert.equal(closed, false, "the previous owner must wait for worker termination");
+    terminated.resolve(0);
+    await closing;
+  } finally {
+    terminated.resolve(0);
+    worker.release();
+    await Promise.all([first.close(), second.close()]);
+    worker.emit("exit", 0);
+  }
 });

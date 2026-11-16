@@ -66,6 +66,7 @@ async function strict(fixture: Awaited<ReturnType<typeof pgRuntimeFixture>>, ena
     (enabled ? "*" : "")
   ) {
     /* configuration acknowledgement */
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
   }
 }
 

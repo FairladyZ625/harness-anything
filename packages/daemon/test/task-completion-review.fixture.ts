@@ -5,7 +5,7 @@ import { readSubmissionArtifact } from "../src/submission-artifacts.ts";
 import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { makeTaskEventReader, openSqliteEventStore } from "@harness-anything/storage";
@@ -117,6 +117,25 @@ function git(root: string, ...args: string[]): string {
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
+let cachedReviewRepoTemplate: string | null = null;
+function getReviewRepoTemplate(): string {
+  if (cachedReviewRepoTemplate) return cachedReviewRepoTemplate;
+  const templateRoot = mkdtempSync(path.join(tmpdir(), "ha-review-git-template-"));
+  git(templateRoot, "init", "-q", "-b", "main");
+  git(templateRoot, "config", "user.name", "Completion Review Test");
+  git(templateRoot, "config", "user.email", "review@example.invalid");
+  git(templateRoot, "commit", "--allow-empty", "-qm", "test: base");
+  git(templateRoot, "update-ref", "refs/remotes/origin/main", git(templateRoot, "rev-parse", "HEAD"));
+  writeFileSync(path.join(templateRoot, "README.md"), "# Reviewed delivery\n");
+  git(templateRoot, "add", "README.md");
+  git(templateRoot, "commit", "-qm", "docs: fixture delivery");
+  cachedReviewRepoTemplate = templateRoot;
+  process.once("exit", () => {
+    rmSync(templateRoot, { recursive: true, force: true });
+  });
+  return templateRoot;
+}
+
 function boundWorktree(root: string): string {
   const entries = git(root, "worktree", "list", "--porcelain").split("\n\n");
   const pathLine = entries
@@ -184,14 +203,7 @@ export async function fixture(
       models: [row.model],
       defaultModel: row.model,
     }));
-  git(root, "init", "-q", "-b", "main");
-  git(root, "config", "user.name", "Completion Review Test");
-  git(root, "config", "user.email", "review@example.invalid");
-  git(root, "commit", "--allow-empty", "-qm", "test: base");
-  git(root, "update-ref", "refs/remotes/origin/main", git(root, "rev-parse", "HEAD"));
-  writeFileSync(path.join(root, "README.md"), "# Reviewed delivery\n");
-  git(root, "add", "README.md");
-  git(root, "commit", "-qm", "docs: fixture delivery");
+  cpSync(getReviewRepoTemplate(), root, { recursive: true, force: true });
   const launches: {
       prompt: string;
       instanceId: string;

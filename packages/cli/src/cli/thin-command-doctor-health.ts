@@ -2,12 +2,6 @@ import type * as OperationalStatus from "@harness-anything/kernel/internal/domai
 import { existsSync, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { safePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
-import { cliFailure } from "../cli-meta.ts";
-import { cliDispatchError } from "../cli-render.ts";
-import { cliDispatchFailureCode, daemonResponseTimeoutCode, runCommandThroughDaemon } from "../daemon/client.ts";
-import { globalOption } from "./thin-command-flags.ts";
-import { daemonRequestTimer } from "./timing.ts";
 import type { ThinCommand } from "./thin-command-types.ts";
 
 interface DoctorCheck {
@@ -51,7 +45,22 @@ export async function runDoctorHealth(
   argv: readonly string[],
   emit: (receipt: Record<string, unknown>, json: boolean) => void,
 ): Promise<number> {
-  const json = argv.includes("--json"),
+  const [
+      { safePath },
+      { cliFailure },
+      { cliDispatchError },
+      { cliDispatchFailureCode, daemonResponseTimeoutCode, runCommandThroughDaemon },
+      { globalOption },
+      { daemonRequestTimer },
+    ] = await Promise.all([
+      import("@harness-anything/daemon/internal/protocol/daemon-protocol-identifiers"),
+      import("../cli-meta.ts"),
+      import("../cli-render.ts"),
+      import("../daemon/client.ts"),
+      import("./thin-command-flags.ts"),
+      import("./timing.ts"),
+    ]),
+    json = argv.includes("--json"),
     rootDir = safePath(globalOption(argv, "--root") ?? process.cwd()),
     command: ThinCommand = {
       rootDir,

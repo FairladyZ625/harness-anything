@@ -13,6 +13,7 @@ const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-package-"));
 const consumer = path.join(parent, "consumer");
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("HARNESS_")));
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+const emissionOnlyPackages = new Set(["@harness-anything/cli", "@harness-anything/application"]);
 function run(command, args, cwd = repository) {
   console.log(JSON.stringify({ command, args, cwd }));
   const result = spawnSync(command, args, { cwd, env, encoding: "utf8", timeout: 180_000 });
@@ -32,9 +33,20 @@ try {
     const directory = name.slice("@harness-anything/".length),
       source = path.join(repository, "packages", directory),
       stage = path.join(parent, directory),
-      manifest = JSON.parse(readFileSync(path.join(source, "package.json"), "utf8"));
-    if (name !== "@harness-anything/daemon")
-      run(npm, ["run", manifest.scripts["build:publish"] ? "build:publish" : "build", "-w", name]);
+      manifest = JSON.parse(readFileSync(path.join(source, "package.json"), "utf8")),
+      build = manifest.scripts["build:publish"] ? "build:publish" : "build";
+    // Required package-policy prepack hooks type-check these same build scripts.
+    // Keep normal builds where noCheck changes declaration output (kernel, preset, storage).
+    if (name !== "@harness-anything/daemon") {
+      const emissionOnly = emissionOnlyPackages.has(name) || name.startsWith("@harness-anything/authorization-");
+      run(
+        npm,
+        emissionOnly
+          ? ["exec", "--call", manifest.scripts[build].replace("tsc -p ", "tsc --noCheck -p ")]
+          : ["run", build, "-w", name],
+        emissionOnly ? source : repository,
+      );
+    }
     mkdirSync(stage);
     for (const file of new Set(["package.json", ...manifest.files]))
       cpSync(path.join(source, file), path.join(stage, file), { recursive: true });

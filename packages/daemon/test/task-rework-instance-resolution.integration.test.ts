@@ -5,6 +5,11 @@ import test from "node:test";
 import { fixture, owner, taskId, executionId } from "./task-completion-review.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { readDispatchStream } from "../src/dispatch-stream.ts";
+import {
+  createMultiVendorHarness,
+  latestReviewerDispatchFor,
+  multiVendorReviewerOwner,
+} from "./fixtures/reviewer-cross-vendor-lru.ts";
 
 type Receipt = Record<string, unknown>;
 
@@ -124,3 +129,102 @@ test("reviewer dispatches use the same project interception launch port", async 
     await f.close();
   }
 });
+
+test(
+  "same-task rework preserves instance/model on :resume-fallback and honors explicit manual override",
+  { timeout: 90_000 },
+  async () => {
+    const h = await createMultiVendorHarness(),
+      actorOwner = multiVendorReviewerOwner;
+    try {
+      await h.installAgents();
+
+      // Impl on codex-1 (openai) -> avoids openai -> picks agy-1 (row 0 tie-breaker) R1.
+      const t = await h.createAndImplementTask("task-resume-fallback", "exe-rf-1", "codex-1", "impl-rf-1");
+      await h.submitCut("task-resume-fallback", "exe-rf-1");
+      const rf1 = latestReviewerDispatchFor(h, "task-resume-fallback");
+      assert.equal(rf1.payload.instanceId, "agy-1");
+      await h.recordReviewVerdict(
+        "task-resume-fallback",
+        t.packagePath,
+        "exe-rf-1",
+        rf1.payload.dispatchId,
+        rf1.payload.runtimeSessionId,
+        "changes_requested",
+      );
+      await h.settleLast(rf1.payload.runtimeSessionId, { bindSession: true });
+
+      // Simulate runtime_resume_failed -> :resume-fallback keeps agy-1 & gemini-3.1-pro-high.
+      h.setFailNextResume(true);
+      assert.equal(
+        (await h.cell.run({ kind: "task-start", taskId: "task-resume-fallback", executionId: "exe-rf-2" }, actorOwner))
+          .outcome,
+        "applied",
+      );
+      await h.submitCut("task-resume-fallback", "exe-rf-2");
+      const rfFallback = latestReviewerDispatchFor(h, "task-resume-fallback");
+      assert.match(rfFallback.payload.dispatchKey, /:resume-fallback$/u);
+      assert.equal(rfFallback.payload.instanceId, "agy-1");
+      assert.equal(rfFallback.payload.definitionSnapshot?.model, "gemini-3.1-pro-high");
+      await h.recordReviewVerdict(
+        "task-resume-fallback",
+        t.packagePath,
+        "exe-rf-2",
+        rfFallback.payload.dispatchId,
+        rfFallback.payload.runtimeSessionId,
+        "changes_requested",
+      );
+      await h.settleLast(rfFallback.payload.runtimeSessionId, { bindSession: false });
+
+      // Explicit manual override (--instance codex-1 --model gpt-5.4) via task-dispatch-review wins over round affinity & avoidVendor.
+      assert.equal(
+        (await h.cell.run({ kind: "task-start", taskId: "task-resume-fallback", executionId: "exe-rf-3" }, actorOwner))
+          .outcome,
+        "applied",
+      );
+      const maintainer = withPolicyGroup(
+        { actor: { principal: actorOwner.actor.principal, executor: null }, source: "local" },
+        "maintainer",
+      );
+      assert.equal(
+        (
+          await h.cell.run(
+            {
+              kind: "settings-update",
+              roles: { defaultReviewer: "missing-reviewer" },
+              dispatchKey: "defer-auto-review",
+            },
+            maintainer,
+          )
+        ).outcome,
+        "applied",
+      );
+      await h.submitCut("task-resume-fallback", "exe-rf-3");
+      const manual = await h.cell.run(
+        {
+          kind: "task-dispatch-review",
+          taskIds: ["task-resume-fallback"],
+          agentId: "closeout-reviewer",
+          runtimeInstanceId: "codex-1",
+          model: "gpt-5.4",
+        },
+        maintainer,
+      );
+      assert.equal(manual.outcome, "applied", JSON.stringify(manual));
+      const explicitDispatch = latestReviewerDispatchFor(h, "task-resume-fallback");
+      assert.equal(explicitDispatch.payload.instanceId, "codex-1");
+      assert.equal(explicitDispatch.payload.definitionSnapshot?.model, "gpt-5.4");
+      await h.recordReviewVerdict(
+        "task-resume-fallback",
+        t.packagePath,
+        "exe-rf-3",
+        explicitDispatch.payload.dispatchId,
+        explicitDispatch.payload.runtimeSessionId,
+        "approved",
+      );
+      await h.settleLast(explicitDispatch.payload.runtimeSessionId, { bindSession: true });
+    } finally {
+      await h.close();
+    }
+  },
+);

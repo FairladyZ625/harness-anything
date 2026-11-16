@@ -11,7 +11,7 @@ import type * as OperationalStatus from "@harness-anything/kernel/internal/domai
 //
 // The record leaves on stderr, never stdout, so a --json invocation still
 // prints exactly one receipt line whether timing is on or off.
-import { firstCliCommandIndex } from "./thin-command-help.ts";
+import { firstCliCommandIndex } from "./command-index.ts";
 
 export type CliTimingPhase = OperationalStatus.CliTimingPhase;
 

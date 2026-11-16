@@ -569,3 +569,16 @@ export function recoverLatest(root: string, env: NodeJS.ProcessEnv, taskId: stri
     `test-recovery-${String(latest.dispatchId)}-${String(shown.revision)}`,
   ];
 }
+
+// The write-boundary section every non-reviewer task-bound mission carries, immediately after the
+// ruling contract and before the reviewer note (see taskMissionSections).
+export const workerWorktreeBoundary = "# 写入边界\n只写自己的 worktree，不改主分支；主分支现有环境可读，可用于对比。";
+
+export function killProcessIfAlive(pid: number): void {
+  if (!processAlive(pid)) return;
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch (error) {
+    if (!(error && typeof error === "object" && "code" in error && error.code === "ESRCH")) throw error;
+  }
+}

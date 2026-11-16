@@ -51,8 +51,8 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
   const command = firstCliCommand(argv),
     explainHelpOverlay = taskExplainHelpOverlay(argv);
   if (argv.includes("--version") || argv.includes("-v") || command === "version")
-    return emitMeta("version", argv.includes("--json"));
-  if (command === "capabilities") return emitMeta("capabilities", argv.includes("--json"));
+    return await emitMeta("version", argv.includes("--json"));
+  if (command === "capabilities") return await emitMeta("capabilities", argv.includes("--json"));
   if (
     (command === "restore" && !argv.includes("--drill") && !argv.includes("--help")) ||
     command === "events" ||

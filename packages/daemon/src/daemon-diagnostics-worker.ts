@@ -188,6 +188,8 @@ function percentiles(samples: readonly CompletedSample[]) {
   };
 }
 
+let lastPrunedSecond = -1;
+
 function recordCompletion(operation: DaemonTraceCompletion): void {
   const { durationMs, endedAtMs } = operation,
     second = Math.floor(endedAtMs / 1_000),
@@ -203,12 +205,15 @@ function recordCompletion(operation: DaemonTraceCompletion): void {
     if (oldest) completedByMethod.delete(oldest[0]);
   }
   perSecond.set(second, (perSecond.get(second) ?? 0) + 1);
-  pruneSecondBuckets(perSecond, second);
   const nodeId = operation.nodeId ?? "local",
     nodeBuckets = nodeSecond.get(nodeId) ?? new Map<number, number>();
   nodeBuckets.set(second, (nodeBuckets.get(second) ?? 0) + 1);
   nodeSecond.set(nodeId, nodeBuckets);
-  pruneSecondBuckets(nodeBuckets, second);
+  if (second !== lastPrunedSecond) {
+    lastPrunedSecond = second;
+    pruneSecondBuckets(perSecond, second);
+    pruneNodeBuckets(nodeSecond, second);
+  }
   if (nodeSecond.size > MAX_NODES) {
     const oldest = [...nodeSecond.entries()].sort(
       (left, right) => (left[1].keys().next().value ?? 0) - (right[1].keys().next().value ?? 0),

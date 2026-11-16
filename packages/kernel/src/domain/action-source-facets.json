@@ -7409,6 +7409,12 @@
         "port": "packages/authorization-keycloak/src/managed-host.ts#ManagedRbacHost.runProcessText"
       },
       {
+        "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/managed-rbac-service.ts#listenPassthrough.track:6ac75a7abb2bf5f3db01f66de71054e4",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete"
+      },
+      {
         "candidateId": "action:packages/authorization-keycloak:packages/authorization-keycloak/src/oidc-device-confirmation-gateway.ts#proxyRequest:b4bc8e268ad2a08b551f2ca179e90bbc",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -11511,7 +11517,7 @@
         "port": "packages/daemon/scripts/smoke-package.mjs#run"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/scripts/smoke-package.mjs#tarballs:e642b193e9c5488ca473225523508a31",
+        "candidateId": "action:packages/daemon:packages/daemon/scripts/smoke-package.mjs#tarballs:f83572385197a8ee00871f152a3c7c53",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/scripts/smoke-package.mjs#run"

@@ -229,6 +229,7 @@ test("public management backfill completes a previous-writer Decision search exp
       for (;;) {
         const state = (await peers.query("SELECT wait_event_type FROM pg_stat_activity WHERE pid=$1", [pid])).rows[0];
         if (state?.wait_event_type === "Lock") break;
+        await new Promise<void>((resolve) => setTimeout(resolve, 10));
       }
     } finally {
       release.resolve();

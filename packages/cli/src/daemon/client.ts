@@ -1,19 +1,19 @@
 import { cliOperationalPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
-import { runtimeCredentialInput } from "../cli/runtime-credential-input.ts";
-import { readPasswordInput } from "./password-input.ts";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
 import {
   canonicalRoot,
+  workspaceId,
+  type DaemonSessionEnvironment,
+} from "@harness-anything/daemon/internal/protocol/daemon-protocol-identifiers";
+import {
   maybeCommandDescriptorForAction,
   commandClassForAction,
   daemonMethodAcceptsPayload,
   daemonMethodAcceptsPayloadExecutor,
-  workspaceId,
-  type DaemonSessionEnvironment,
-} from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+} from "@harness-anything/daemon/internal/protocol/daemon-protocol-commands";
 import {
   assertRuntimeCredentialEndpoint,
   daemonIdFromEnv,
@@ -23,13 +23,10 @@ import {
   resolveLocalDaemonTarget,
 } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import type { DaemonLaunchSpec } from "@harness-anything/daemon/internal/client/daemon-autostart";
-import { materializeCommandFileInputs, serializeFleetAction } from "./fleet-payload-serializer.ts";
-import { materializeArtifactSource } from "../cli-artifact-source.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
 import { withAutostart } from "./with-autostart.ts";
 import { assertCanonicalCliEntry, cliEntryNotCanonicalCode } from "./cli-entry-guard.ts";
-import { isRepoAdminMethod, runRepoAdminCommand } from "./repo-admin-route.ts";
-import { awaitDeviceLogin } from "./device-login.ts";
+
 export {
   daemonIdFromEnv,
   daemonUserRoot,
@@ -199,7 +196,7 @@ export async function runCommandThroughDaemon(
     const userRoot = daemonUserRoot(env),
       daemonId = daemonIdFromEnv(env),
       socketPath = repoScopedDaemonEndpoint(env, command, userRoot, daemonId),
-      params = bootstrapParams(command.action, socketPath);
+      params = await bootstrapParams(command.action, socketPath);
     await prepareEdgeJoinWorkspace(command, params);
     const request = (paramsOverride?: JsonObject) =>
       withAutostart(
@@ -225,12 +222,14 @@ export async function runCommandThroughDaemon(
       );
     let receipt = await request();
     if (params.operation === "edge-join" && receipt.pending === true) {
-      const signedIn = await awaitDeviceLogin(receipt, request, onPhase);
+      const { awaitDeviceLogin } = await import("./device-login.ts"),
+        signedIn = await awaitDeviceLogin(receipt, request, onPhase);
       if (signedIn.ok === false || signedIn.pending === true) return signedIn;
       receipt = await request();
     }
     if (command.action.kind !== "rbac-bootstrap" || params.operation !== "login" || receipt.ok === false)
       return receipt;
+    const { awaitDeviceLogin } = await import("./device-login.ts");
     return awaitDeviceLogin(receipt, request, onPhase);
   }
   if (command.method.startsWith("daemon.runtimeInstance.") || command.method.startsWith("daemon.provider.")) {
@@ -240,7 +239,8 @@ export async function runCommandThroughDaemon(
       socketPath = repoScopedDaemonEndpoint(env, command, userRoot, daemonId);
     if (inputPayload.apiKeyStdin !== undefined || inputPayload.apiKeyFile !== undefined)
       assertRuntimeCredentialEndpoint(socketPath);
-    const payload = runtimeCredentialInput(inputPayload);
+    const { runtimeCredentialInput } = await import("../cli/runtime-credential-input.ts"),
+      payload = runtimeCredentialInput(inputPayload);
     return withAutostart(
       () =>
         requestLocalDaemonJsonRpcForTarget(
@@ -254,7 +254,13 @@ export async function runCommandThroughDaemon(
       daemonAutostartOptions(command, autostart, env, userRoot, daemonId),
     );
   }
-  if (isRepoAdminMethod(command.method))
+  if (
+    command.method === "daemon.repo.unbind" ||
+    command.method === "daemon.repo.purge" ||
+    command.method === "daemon.repo.backup" ||
+    command.method === "daemon.repo.restoreDrill"
+  ) {
+    const { runRepoAdminCommand } = await import("./repo-admin-route.ts");
     return runRepoAdminCommand({
       command,
       env,
@@ -263,23 +269,15 @@ export async function runCommandThroughDaemon(
       autostartOptions: (target) =>
         daemonAutostartOptions(command, autostart, env, target.userRoot, target.daemonId, "operation"),
     });
+  }
   // Only parsed CLI routes still carry CLI inputs. Programmatic actions (for example an
   // artifact --run transcript) already carry domain fields and use the daemon's closed schema.
-  const descriptor = command.id ? maybeCommandDescriptorForAction(command.action.kind) : undefined;
   const target = {
     ...(await resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId, env })),
     sessionEnvironment: interactiveSessionEnvironment(env),
     invokingCommand: command.id,
   };
-  if (
-    target.remoteEdge &&
-    descriptor &&
-    command.method !== "repo.agentRuntime.handoff" &&
-    descriptor.method === command.method &&
-    descriptor.admission["remote-edge"] === "via-center-forward"
-  )
-    command = { ...command, action: serializeFleetAction(command) };
-  command = materializeArtifactSource(materializeCommandFileInputs(command));
+  command = await prepareCommandPayload(command, target.remoteEdge);
   const requestParams = daemonRequestParams(command, target.repoId, env);
   const request = () =>
     requestLocalDaemonJsonRpcForTarget(
@@ -419,7 +417,45 @@ function daemonRequestPayload(command: ThinCommand, env: NodeJS.ProcessEnv): Rea
       : payload;
 }
 /** A first administrator's password is transient RPC input, read only at the original socket boundary. */
-function bootstrapParams(action: ThinCommand["action"], socketPath: string): JsonObject {
+async function prepareCommandPayload(command: ThinCommand, remoteEdge: unknown): Promise<ThinCommand> {
+  const descriptor = command.id ? maybeCommandDescriptorForAction(command.action.kind) : undefined,
+    needsFleet = Boolean(
+      remoteEdge &&
+        descriptor &&
+        command.method !== "repo.agentRuntime.handoff" &&
+        descriptor.method === command.method &&
+        descriptor.admission["remote-edge"] === "via-center-forward",
+    ),
+    fileDescriptor =
+      (command.id ? maybeCommandDescriptorForAction(command.id) : undefined) ??
+      maybeCommandDescriptorForAction(command.action.kind),
+    needsFileCodec = Boolean(
+      fileDescriptor &&
+        "inputs" in fileDescriptor &&
+        Array.isArray(fileDescriptor.inputs) &&
+        fileDescriptor.inputs.some(
+          (input) =>
+            typeof input === "object" &&
+            input !== null &&
+            "codec" in input &&
+            typeof input.codec === "object" &&
+            input.codec !== null &&
+            (input.codec as { readonly kind?: unknown }).kind !== "json-object",
+        ),
+    );
+  if (needsFleet || needsFileCodec) {
+    const { materializeCommandFileInputs, serializeFleetAction } = await import("./fleet-payload-serializer.ts");
+    if (needsFleet) command = { ...command, action: serializeFleetAction(command) };
+    if (needsFileCodec) command = materializeCommandFileInputs(command);
+  }
+  if (command.action.kind === "task-artifact-add" && typeof command.action.source === "string") {
+    const { materializeArtifactSource } = await import("../cli-artifact-source.ts");
+    command = materializeArtifactSource(command);
+  }
+  return command;
+}
+
+async function bootstrapParams(action: ThinCommand["action"], socketPath: string): Promise<JsonObject> {
   const { kind: _kind, passwordFile, passwordStdin, clientSecretStdin, ...params } = action;
   if (params.mode === "external") {
     if (socketPath.startsWith("tcp://"))
@@ -439,6 +475,7 @@ function bootstrapParams(action: ThinCommand["action"], socketPath: string): Jso
     return { ...params, clientSecret } as JsonObject;
   }
   if (["access-password-change", "access-password-reset"].includes(String(params.operation))) {
+    const { readPasswordInput } = await import("./password-input.ts");
     return { ...params, password: readPasswordInput(passwordFile, passwordStdin) } as JsonObject;
   }
   if (params.operation !== "bootstrap-admin") return params as JsonObject;
