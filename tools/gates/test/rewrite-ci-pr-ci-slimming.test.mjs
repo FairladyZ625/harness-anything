@@ -268,3 +268,18 @@ test("CH1 merges the G38 read matrix into two PGlite sets and one SQLite set", (
   assert.match(workflowText, /name: g38-read-pglite-set-\$\{\{ matrix\.set \}\}/u);
   assert.equal(sqlite.isPullRequestJob, true);
 });
+
+test("integration-shard records duration logs and uploads them on main push or workflow_dispatch", () => {
+  const shardStart = workflowText.indexOf("  integration-shard:");
+  const shardEnd = workflowText.indexOf("\n  pglite-node26:", shardStart);
+  const shardBlock = workflowText.slice(shardStart, shardEnd);
+  assert.match(
+    shardBlock,
+    /HARNESS_INTEGRATION_DURATION_LOG: \$\{\{ runner\.temp \}\}\/integration-durations-shard-\$\{\{ matrix\.shard \}\}\.log/u,
+  );
+  assert.match(shardBlock, /name: integration-durations-shard-\$\{\{ matrix\.shard \}\}/u);
+  assert.match(
+    shardBlock,
+    /if: always\(\) && \(github\.event_name == 'push' && github\.ref == 'refs\/heads\/main' \|\| github\.event_name == 'workflow_dispatch'\) && needs\.install\.outputs\.code != 'false'/u,
+  );
+});

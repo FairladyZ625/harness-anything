@@ -401,7 +401,7 @@
   "packages/daemon/test/task-create-plan-file.test.ts": 9400,
   "packages/daemon/test/task-create-pr-body.test.ts": 2400,
   "packages/daemon/test/task-create-preset-hint.integration.test.ts": 2400,
-  "packages/daemon/test/task-dispatch-recovery.integration.test.ts": 8200,
+  "packages/daemon/test/task-dispatch-recovery.integration.test.ts": 86300,
   "packages/daemon/test/task-document-read-sources.integration.test.ts": 62700,
   "packages/daemon/test/task-documents-list.integration.test.ts": 18200,
   "packages/daemon/test/task-execution-arrangement.integration.test.ts": 31600,

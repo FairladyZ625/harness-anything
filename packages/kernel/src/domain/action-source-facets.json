@@ -4501,6 +4501,12 @@
         "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
       },
       {
+        "candidateId": "action:tools:tools/run-node-tests.mjs#<module>:c9e31cdae625efcc73763e86339df208",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
+      },
+      {
         "candidateId": "action:tools:tools/run-node-tests.mjs#refreshActivity:3a6751d912d9060fac56baff75f6f43c",
         "route": "package-assets-build",
         "role": "support"

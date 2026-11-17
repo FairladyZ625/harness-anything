@@ -5,7 +5,7 @@
 //   gh run view <run-id> --log > run-<run-id>.log
 //   node tools/refresh-integration-test-weights.mjs run-<a>.log run-<b>.log run-<c>.log
 // Each file takes the median of its samples, so one slow runner does not move the table.
-import { readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { discoverTestTierManifest } from "./test-tier-manifest.mjs";
@@ -35,9 +35,30 @@ export function integrationWeightsFromLogs(logs, integrationFiles) {
   return weights;
 }
 
+export function collectDurationLogPaths(inputs) {
+  const files = [];
+  const visit = (target) => {
+    const stat = statSync(target);
+    if (stat.isDirectory()) {
+      for (const entry of readdirSync(target, { withFileTypes: true })) {
+        if (entry.isDirectory()) visit(path.join(target, entry.name));
+        else if (entry.isFile() && entry.name.endsWith(".log")) files.push(path.join(target, entry.name));
+      }
+      return;
+    }
+    files.push(target);
+  };
+  for (const input of inputs) visit(input);
+  return files;
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const logPaths = process.argv.slice(2);
-  if (logPaths.length === 0) throw new Error("pass at least one `gh run view <run-id> --log` output file");
+  const logInputs = process.argv.slice(2);
+  if (logInputs.length === 0) {
+    throw new Error("pass at least one `gh run view <run-id> --log` output file or artifact directory");
+  }
+  const logPaths = collectDurationLogPaths(logInputs);
+  if (logPaths.length === 0) throw new Error("no .log files found in the provided paths");
   const integrationFiles = discoverTestTierManifest(repoRoot).integration;
   const weights = integrationWeightsFromLogs(
     logPaths.map((file) => readFileSync(file, "utf8")),

@@ -21,7 +21,7 @@ import {
   integrationWeightOverruns,
   validateIntegrationTestShards,
 } from "./integration-test-shards.mjs";
-import { integrationWeightsFromLogs } from "./refresh-integration-test-weights.mjs";
+import { collectDurationLogPaths, integrationWeightsFromLogs } from "./refresh-integration-test-weights.mjs";
 
 test("integration shard declaration is non-overlapping and complete", () => {
   const result = checkIntegrationTestShards();
@@ -616,6 +616,23 @@ test("baseline git source scan handles >16MiB total test sources without ENOBUFS
     assert.equal(result.currentCount, 150 + integrationShardCount);
   } finally {
     rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test("collectDurationLogPaths expands artifact directories of .log files", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "shard-duration-logs-"));
+  try {
+    const nested = path.join(root, "integration-durations-shard-1");
+    mkdirSync(nested, { recursive: true });
+    const log1 = path.join(nested, "shard-1.log");
+    const ignored = path.join(nested, "notes.txt");
+    const direct = path.join(root, "direct.log");
+    writeFileSync(log1, "[node-test-duration] 100 tools/a.test.mjs\n", "utf8");
+    writeFileSync(ignored, "ignore me\n", "utf8");
+    writeFileSync(direct, "[node-test-duration] 200 tools/b.test.mjs\n", "utf8");
+    assert.deepEqual(collectDurationLogPaths([nested, direct]).sort(), [direct, log1].sort());
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
