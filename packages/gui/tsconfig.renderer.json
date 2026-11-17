@@ -31,6 +31,7 @@
     "src/api/center-settings-contract.ts",
     "src/api/app-command-contract.ts",
     "src/api/artifact-open-contract.ts",
+    "src/api/external-url-contract.ts",
     "src/api/connection-admin-contract.ts",
     "src/api/first-run-contract.ts",
     "src/api/html-artifact-policy.ts",

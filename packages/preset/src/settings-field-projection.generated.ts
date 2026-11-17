@@ -114,6 +114,13 @@ export const settingsFieldProtocolProjection = {
       required: false,
     },
     {
+      field: "guiTerminalBrowser",
+      description: "Browser used to open terminal HTTP(S) links on this machine.",
+      type: "string",
+      required: false,
+      enum: ["embedded", "system"],
+    },
+    {
       field: "overviewWatchedActivityDays",
       description: "How many days back the overview's watched-works activity window reaches.",
       type: "number",
@@ -511,6 +518,15 @@ export const settingsFieldProtocolProjection = {
       kind: "single",
       regex: "^[1-9][0-9]{3,}$",
       projection: "number",
+    },
+    {
+      field: "guiTerminalBrowser",
+      description: "Browser used to open terminal HTTP(S) links on this machine.",
+      group: "presentation",
+      effect: "Terminal links open in the selected browser immediately on this machine only.",
+      name: "--terminal-browser",
+      kind: "single",
+      enum: ["embedded", "system"],
     },
     {
       field: "overviewWatchedActivityDays",

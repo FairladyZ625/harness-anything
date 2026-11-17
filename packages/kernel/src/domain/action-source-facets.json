@@ -13104,6 +13104,12 @@
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/gui/src/main/update-service.ts#registerUpdaterIpc.publish"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.externalUrl.open:d0a0697684a7c606a6f301cfb1a82bff",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/gui/src/preload/electron-preload.ts#invoke"
       }
     ],
     "technical": true

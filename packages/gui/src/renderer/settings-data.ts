@@ -1,3 +1,4 @@
+import { LEDGER_PROBE_FOCUS_REFETCH, QUERY_PACING_MS } from "./query-pacing.ts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { harnessClient, type SettingsUpdateInput } from "./api-client.ts";
 import type { GuiActionResult, SettingsRead } from "../api/renderer-dto.ts";
@@ -11,7 +12,10 @@ export function useSettingsQuery(repoId: string | null) {
   return useQuery({
     queryKey: settingsQueryKeys.read(repoId ?? "unselected"),
     queryFn: () => harnessClient.getSettings({ repoId: repoId! }),
-    staleTime: 10_000,
+    staleTime: QUERY_PACING_MS.ledgerProbe,
+    // Machine-local CLI writes do not advance the shared ledger cut.
+    refetchInterval: QUERY_PACING_MS.ledgerProbe,
+    refetchOnWindowFocus: LEDGER_PROBE_FOCUS_REFETCH,
     // 无仓(首次运行空态)不发起仓库设置读;仓库与连接页不依赖它。
     enabled: repoId !== null,
   });

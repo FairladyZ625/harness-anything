@@ -1,3 +1,7 @@
+import { ArrowSquareOut } from "@phosphor-icons/react";
+import { openExternalUrl } from "../browser/open-external-url.ts";
+import { Button } from "../components/primitives/Button.tsx";
+import { t } from "../i18n/index.tsx";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   createBrowserShell,
@@ -36,6 +40,7 @@ export function BrowserView({
   const hostRef = useRef<HTMLDivElement>(null);
   const shellRef = useRef<BrowserShell | null>(null);
   const [state, setState] = useState(initialState);
+  const [externalError, setExternalError] = useState<string | null>(null);
   const [address, setAddress] = useState(ensureUrlScheme(initialUrl ?? DEFAULT_URL));
 
   useEffect(() => {
@@ -108,7 +113,21 @@ export function BrowserView({
           autoCorrect="off"
           spellCheck={false}
         />
+        <Button
+          ariaLabel={t("terminal.view.openInSystemBrowser")}
+          tip={t("terminal.view.openInSystemBrowser")}
+          testId="browser-open-external"
+          onClick={() => {
+            setExternalError(null);
+            void openExternalUrl(state.url || ensureUrlScheme(initialUrl ?? DEFAULT_URL)).catch((cause: unknown) => {
+              setExternalError(cause instanceof Error ? cause.message : String(cause));
+            });
+          }}
+        >
+          <ArrowSquareOut />
+        </Button>
       </form>
+      {externalError && <p role="alert">{externalError}</p>}
       {/* 网页自身表面直角(业主 2026-10-21 13:50):内容框直接裁切 guest,圆角会让网页
           四角被切。外框(地址栏)仍走共享圆角 token。 */}
       <div className="relative mt-2 min-h-0 min-w-0 flex-1 overflow-hidden border border-border bg-white">

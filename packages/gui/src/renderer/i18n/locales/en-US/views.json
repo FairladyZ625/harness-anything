@@ -2240,5 +2240,10 @@
   "views.agenda.receiveDelivery": "Acknowledge delivery",
   "views.agenda.receiveWork": "Acknowledge Work ({count})",
   "views.agenda.followupTitle": "Follow-up title / request",
-  "views.agenda.createFollowup": "Create follow-up task"
+  "views.agenda.createFollowup": "Create follow-up task",
+  "views.settingsView.guiTerminalBrowserLabel": "Terminal link browser",
+  "views.settingsView.guiTerminalBrowserDescription": "Browser used to open terminal HTTP(S) links on this machine.",
+  "views.settingsView.guiTerminalBrowserEffect": "Terminal links open in the selected browser immediately on this machine only.",
+  "views.settingsView.enum.guiTerminalBrowser.embedded": "Embedded browser",
+  "views.settingsView.enum.guiTerminalBrowser.system": "System browser"
 }

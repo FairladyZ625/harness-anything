@@ -214,6 +214,17 @@ test("settings writes reject catalog-inconsistent vertical, preset, and profile 
     assert.equal(localApplied.outcome, "applied", JSON.stringify(localApplied));
     assert.equal(eventStore.readHead()!.revision, beforeLocalRevision);
     assert.deepEqual(localApplied.effects, ["settings-local/locale_changed"]);
+    for (const guiTerminalBrowser of ["system", "embedded"] as const) {
+      const changed = await cell.run(
+        { kind: "settings-update", guiTerminalBrowser, idempotencyKey: `terminal-browser-${guiTerminalBrowser}` },
+        binding,
+      );
+      assert.equal(changed.outcome, "applied", JSON.stringify(changed));
+      const reread = await cell.run({ kind: "settings-read" }, binding);
+      assert.equal((reread.settings as { gui: { terminalBrowser: string } }).gui.terminalBrowser, guiTerminalBrowser);
+      assert.equal(eventStore.readHead()!.revision, beforeLocalRevision);
+      assert.equal(readFileSync(configPath, "utf8"), written);
+    }
   } finally {
     await cell?.close();
     rmSync(root, { recursive: true, force: true });

@@ -1,3 +1,4 @@
+import { EXTERNAL_URL_OPEN_CHANNEL, type ExternalUrlApi } from "../api/external-url-contract.ts";
 import { PROJECT_DIRECTORY_CHANNEL, type ProjectDirectoryApi } from "../api/project-directory-contract.ts";
 import {
   PROJECT_WINDOW_ACTIVE_CHANNEL,
@@ -124,6 +125,9 @@ const exposedHarnessApi = {
     chooseRepository: () => invoke(FIRST_RUN_CHOOSE_CHANNEL, null),
     bootstrap: (input) => invoke(FIRST_RUN_BOOTSTRAP_CHANNEL, input),
   } satisfies FirstRunApi,
+  externalUrl: {
+    open: (url) => invoke(EXTERNAL_URL_OPEN_CHANNEL, url),
+  } satisfies ExternalUrlApi,
   artifacts: {
     openExternal: (input) => invoke(ARTIFACT_OPEN_EXTERNAL_CHANNEL, input),
   } satisfies ArtifactOpenApi,

@@ -60,6 +60,7 @@ test("Task Action transport has one current build-time projection", async () => 
       "locale",
       "guiConnectTimeoutMs",
       "guiRequestTimeoutMs",
+      "guiTerminalBrowser",
       "overviewWatchedActivityDays",
       "taskScaffold",
       "repositoryScaffold",

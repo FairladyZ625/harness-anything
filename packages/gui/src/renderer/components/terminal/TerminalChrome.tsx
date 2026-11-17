@@ -1,5 +1,7 @@
+import type { SettingsRead } from "../../../api/renderer-dto.ts";
+import { SegCtl } from "../primitives/SegCtl.tsx";
 import { useState, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { Gear, Plus, PlugsConnected } from "@phosphor-icons/react";
+import { Gear, Plus, PlugsConnected, Browser, Globe } from "@phosphor-icons/react";
 import type { TerminalSessionRow } from "@harness-anything/daemon/protocol";
 import type { TerminalPreferences } from "../../terminal-preferences.ts";
 import { t } from "../../i18n/index.tsx";
@@ -48,6 +50,9 @@ export function TerminalChrome({
   repoId,
   generation,
   preferences,
+  terminalBrowser,
+  browserSettingPending,
+  onTerminalBrowserChange,
   onPreferenceChange,
   chips,
   activeGroupId,
@@ -64,6 +69,9 @@ export function TerminalChrome({
 }: {
   readonly repoId: string;
   readonly generation: number | null | undefined;
+  readonly terminalBrowser: SettingsRead["settings"]["gui"]["terminalBrowser"];
+  readonly browserSettingPending: boolean;
+  readonly onTerminalBrowserChange?: (target: SettingsRead["settings"]["gui"]["terminalBrowser"]) => void;
   readonly preferences: TerminalPreferences;
   readonly onPreferenceChange: (update: Partial<TerminalPreferences>) => void;
   readonly chips: readonly TerminalTabChip[];
@@ -155,6 +163,18 @@ export function TerminalChrome({
           )}
         </Popover>
         <span className="ml-auto" />
+        <button
+          type="button"
+          data-testid="terminal-browser-toggle"
+          aria-label={t("terminal.view.browserTarget")}
+          aria-pressed={terminalBrowser === "system"}
+          title={t(terminalBrowser === "system" ? "terminal.view.switchToEmbedded" : "terminal.view.switchToSystem")}
+          disabled={browserSettingPending || !onTerminalBrowserChange}
+          onClick={() => onTerminalBrowserChange?.(terminalBrowser === "system" ? "embedded" : "system")}
+          className="ui-control grid size-7 place-items-center rounded border border-border text-text-muted hover:bg-surface disabled:opacity-45"
+        >
+          {terminalBrowser === "system" ? <Globe /> : <Browser />}
+        </button>
         <Popover
           label={t("terminal.view.launchOptions")}
           trigger={<Gear />}
@@ -163,6 +183,9 @@ export function TerminalChrome({
         >
           {() => (
             <LaunchOptions
+              terminalBrowser={terminalBrowser}
+              browserSettingPending={browserSettingPending}
+              onTerminalBrowserChange={onTerminalBrowserChange}
               preferences={preferences}
               onPreferenceChange={onPreferenceChange}
               spawn={spawn}
@@ -220,12 +243,18 @@ export function TerminalChrome({
 /** 启动选项气泡:新会话后端 + 高级启动表单(名称 / cwd / shell / task 绑定)+ 快捷键提示。 */
 function LaunchOptions({
   preferences,
+  terminalBrowser,
+  browserSettingPending,
+  onTerminalBrowserChange,
   onPreferenceChange,
   spawn,
   onSpawnChange,
   onCreate,
   tasks,
 }: {
+  readonly terminalBrowser: SettingsRead["settings"]["gui"]["terminalBrowser"];
+  readonly browserSettingPending: boolean;
+  readonly onTerminalBrowserChange?: (target: SettingsRead["settings"]["gui"]["terminalBrowser"]) => void;
   readonly preferences: TerminalPreferences;
   readonly onPreferenceChange: (update: Partial<TerminalPreferences>) => void;
   readonly spawn: TerminalSpawnDraft;
@@ -235,6 +264,18 @@ function LaunchOptions({
 }) {
   return (
     <div className="flex flex-col gap-2">
+      <Field label={t("terminal.view.browserTarget")}>
+        <SegCtl
+          label={t("terminal.view.browserTarget")}
+          value={terminalBrowser}
+          disabled={browserSettingPending || !onTerminalBrowserChange}
+          options={[
+            { value: "embedded", label: t("terminal.view.browserEmbedded"), testId: "terminal-browser-embedded" },
+            { value: "system", label: t("terminal.view.browserSystem"), testId: "terminal-browser-system" },
+          ]}
+          onChange={(target) => onTerminalBrowserChange?.(target)}
+        />
+      </Field>
       <Field label={t("terminal.view.backendForNew")}>
         <span className="inline-flex self-start overflow-hidden rounded border border-border-strong">
           <button

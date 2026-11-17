@@ -1,3 +1,4 @@
+import type { ExternalUrlApi } from "../api/external-url-contract.ts";
 import type { ProjectDirectoryApi } from "../api/project-directory-contract.ts";
 import type { ProjectWindowApi } from "../api/project-window-contract.ts";
 import type { AppCommandApi } from "../api/app-command-contract.ts";
@@ -20,6 +21,7 @@ type GuiBridge = {
   readonly capabilities?: Readonly<Record<string, { readonly status: string; readonly reason?: string }>>;
   readonly firstRun?: FirstRunApi;
   readonly artifacts?: ArtifactOpenApi;
+  readonly externalUrl?: ExternalUrlApi;
   readonly connections?: ConnectionAdminApi;
   readonly repoAdmin?: RepoAdminApi;
   readonly projects?: ProjectDirectoryApi;

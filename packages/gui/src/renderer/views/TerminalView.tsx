@@ -1,3 +1,4 @@
+import type { SettingsRead } from "../../api/renderer-dto.ts";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { DockviewApi } from "dockview-react";
@@ -64,6 +65,9 @@ import { t } from "../i18n/index.tsx";
  * openUrl 接缝(缺省 web-links 默认行为)。
  */
 interface Props {
+  readonly terminalBrowser?: SettingsRead["settings"]["gui"]["terminalBrowser"];
+  readonly browserSettingPending?: boolean;
+  readonly onTerminalBrowserChange?: (target: SettingsRead["settings"]["gui"]["terminalBrowser"]) => void;
   readonly repoId: string;
   readonly daemonGeneration: number | null;
   readonly tasks: readonly TaskTreeNode[];
@@ -118,6 +122,9 @@ export function TerminalView({
   onNavigateEntity,
   onOpenDocument,
   openUrl,
+  terminalBrowser = "embedded",
+  browserSettingPending = false,
+  onTerminalBrowserChange,
 }: Props) {
   const queryClient = useQueryClient(),
     [tabs, setTabs] = useState<readonly TerminalTab[]>([]),
@@ -625,6 +632,9 @@ export function TerminalView({
       <TerminalChrome
         repoId={repoId}
         generation={generation}
+        terminalBrowser={terminalBrowser}
+        browserSettingPending={browserSettingPending}
+        onTerminalBrowserChange={onTerminalBrowserChange}
         preferences={preferences}
         onPreferenceChange={(update) => setPreferences((current) => ({ ...current, ...update }))}
         chips={tabChips(groups, tabs)}

@@ -1835,7 +1835,8 @@ test("dec_7E44897ECDCAEF2B92EC66A260/CH1: non-main packages/gui action candidate
   );
   const nonMainGuiActions = result.classified.filter((row) => row.category === "action" && isNonMainGuiPath(row.file));
   // dec_86761D79CF16E14C4583890F59: exact Agenda sources add 18 net GUI action sites.
-  assert.equal(nonMainGuiActions.length, 342);
+  // Terminal browser opening contributes one registered host-local GUI action.
+  assert.equal(nonMainGuiActions.length, 343);
   assert.deepEqual(
     nonMainGuiActions.filter((row) => row.status !== "registered"),
     [],
@@ -1905,7 +1906,7 @@ test("dec_7E44897ECDCAEF2B92EC66A260/CH1: non-main packages/gui action candidate
     [],
   );
   const guiLocalState = nonMainGuiActions.filter((row) => row.declarationRef === "action:daemon-local-state");
-  assert.equal(guiLocalState.length, 110);
+  assert.equal(guiLocalState.length, 111);
   assert.deepEqual(
     guiLocalState.filter((row) =>
       /api-client\.ts|todos-client\.ts|schedules-client\.ts|entity-locator-client\.ts|fleet-client\.ts|access-admin-preload\.ts/u.test(

@@ -1387,7 +1387,7 @@ test("GUI source-proof resolves omitted optional callbacks, concrete class metho
   );
 });
 
-test("all 199 live non-main GUI client sources and 110 daemon-local-state sources pass source proof and reject local evasion", async () => {
+test("all live non-main GUI client and daemon-local-state sources pass source proof and reject local evasion", async () => {
   const { clientEntryEvidence, clientEntryRequiredRoutes, resolvedGuiClientBindings, technicalPortEvidence } =
     await import("../authorization-source-proof.mjs");
   const inputs = await baselineAuthorizationInputs();
@@ -1405,7 +1405,8 @@ test("all 199 live non-main GUI client sources and 110 daemon-local-state source
   // dec_86761D79CF16E14C4583890F59: 19 Agenda bindings replace one old AnswerForm binding.
   assert.equal(guiClientPairs.length, 217);
   assert.equal(new Set(guiClientPairs.map(({ action }) => action.kind)).size, 82);
-  assert.equal(guiLocalSources.length, 110);
+  // The terminal browser IPC adds one typed host-local source, with proof required for every entry.
+  assert.equal(guiLocalSources.length, 111);
 
   const allSources = [...guiClientPairs.map(({ source }) => source), ...guiLocalSources];
   const graph = baselineFlowGraph();
