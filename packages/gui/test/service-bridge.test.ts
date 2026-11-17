@@ -388,7 +388,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       storage: { backupExecutionLimitMs: 30 * 60_000 },
       // task_40b31221b5b2a7eb539515dcf2: archived dispatch records default to 60 days, no size cap.
       dispatchArchive: { retentionDays: 60, retentionBytes: 0 },
-      gui: { connectTimeoutMs: 2_000, requestTimeoutMs: 30_000 },
+      gui: { connectTimeoutMs: 2_000, requestTimeoutMs: 30_000, terminalBrowser: "embedded" },
     });
     const settingsUpdated = parseDaemonGuiActionResponse(
       "repo.settings.update",
@@ -448,7 +448,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       schema: "settings-local/v1",
       locale: "zh-CN",
       nodeTaskMaterializationPolicy: "include_done",
-      gui: { connectTimeoutMs: 2000, requestTimeoutMs: 30000 },
+      gui: { connectTimeoutMs: 2000, requestTimeoutMs: 30000, terminalBrowser: "embedded" },
     });
     assert.match(harnessYaml, /wipLimit: 30/u);
     const observability = parseDaemonGuiReadResult("observe.tail", results.get("observe.tail"));

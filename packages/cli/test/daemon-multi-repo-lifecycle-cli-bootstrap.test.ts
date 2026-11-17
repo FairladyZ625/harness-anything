@@ -108,7 +108,7 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
       schema: "settings-local/v1",
       nodeTaskMaterializationPolicy: "include_done",
       locale: "en-US",
-      gui: { connectTimeoutMs: 2000, requestTimeoutMs: 30000 },
+      gui: { connectTimeoutMs: 2000, requestTimeoutMs: 30000, terminalBrowser: "embedded" },
     });
     assert.match(
       architecture,

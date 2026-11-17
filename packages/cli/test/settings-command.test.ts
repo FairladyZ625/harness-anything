@@ -175,3 +175,12 @@ test("settings CLI derives the node-only materialization flag and rejects undecl
   }
   assert.equal(parseThinCommand(["settings", "update", "--task-materialization-policy", "all"]).ok, false);
 });
+
+test("Settings CLI accepts only embedded/system terminal browser targets", () => {
+  for (const target of ["embedded", "system"]) {
+    const parsed = parseThinCommand(["settings", "update", "--terminal-browser", target]);
+    assert.equal(parsed.ok, true, JSON.stringify(parsed));
+    if (parsed.ok) assert.deepEqual(parsed.command.action, { kind: "settings-update", guiTerminalBrowser: target });
+  }
+  assert.equal(parseThinCommand(["settings", "update", "--terminal-browser", "firefox"]).ok, false);
+});

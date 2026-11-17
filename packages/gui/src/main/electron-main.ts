@@ -1,3 +1,4 @@
+import { registerExternalUrlIpc } from "./external-url-ipc.ts";
 import {
   activateSecondInstance,
   applyGuiAppIdentity,
@@ -473,6 +474,11 @@ export async function startGuiApp(): Promise<void> {
     };
   const registrar = withIpcDomainErrors(ipcMain);
   registerHarnessIpcHandlers(registrar, controlled, trustPolicy);
+  registerExternalUrlIpc(
+    registrar,
+    { rootDir: app.getAppPath(), openExternal: (url) => shell.openExternal(url) },
+    trustPolicy,
+  );
   registerProjectDirectoryIpc(
     registrar,
     {

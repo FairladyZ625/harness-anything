@@ -814,7 +814,8 @@ partitionedTest(
       .flatMap((action) => action.ontology?.sources ?? [])
       .filter((source) => source.role === "client" && isNonMainGui(source.candidateId)).length;
     assert.equal(expectedGuiClientCount, 217);
-    assert.equal((localState.ontology.sources ?? []).filter((source) => isNonMainGui(source.candidateId)).length, 110);
+    // The terminal browser IPC adds one typed, host-local source; all per-source proofs below remain required.
+    assert.equal((localState.ontology.sources ?? []).filter((source) => isNonMainGui(source.candidateId)).length, 111);
 
     const guiAcceptClient = decisionAccept.ontology.sources.find(
       (source) =>
@@ -883,7 +884,7 @@ partitionedTest(
       nonMainGuiRows.filter((row) => !row.ok),
       [],
     );
-    assert.equal(nonMainGuiRows.filter((row) => row.kind === "daemon-local-state").length, 110);
+    assert.equal(nonMainGuiRows.filter((row) => row.kind === "daemon-local-state").length, 111);
     assert.deepEqual(nonMainGuiRows.find((row) => row.id === guiReviewCallback.candidateId)?.clientRoutes, [
       "decision.dispatchReview",
       "decision.overrideReview",

@@ -52,7 +52,7 @@ test("local state stays local and does not append a settings event", () => {
       schema: "settings-local/v1",
       nodeTaskMaterializationPolicy: "include_done",
       locale: "zh-CN",
-      gui: { connectTimeoutMs: 2000, requestTimeoutMs: 30000 },
+      gui: { connectTimeoutMs: 2000, requestTimeoutMs: 30000, terminalBrowser: "embedded" },
     });
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
@@ -72,6 +72,7 @@ test("a local file written before the gui fields existed reads back with their d
     assert.equal(local.locale, "zh-CN");
     assert.equal(local.gui.connectTimeoutMs, 2000);
     assert.equal(local.gui.requestTimeoutMs, 30_000);
+    assert.equal(local.gui.terminalBrowser, "embedded");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

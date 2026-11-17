@@ -457,6 +457,18 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     cli: { name: "--gui-request-timeout-ms", kind: "single", regex: "^[1-9][0-9]{3,}$" },
   }),
   defineSettingsField({
+    path: ["gui", "terminalBrowser"],
+    ownership: local,
+    valueKind: "enum",
+    defaultValue: "embedded",
+    allowedValues: ["embedded", "system"],
+    description: "Browser used to open terminal HTTP(S) links on this machine.",
+    effect: "Terminal links open in the selected browser immediately on this machine only.",
+    group: "presentation",
+    action: { field: "guiTerminalBrowser", type: "string" },
+    cli: { name: "--terminal-browser", kind: "single", enum: ["embedded", "system"] },
+  }),
+  defineSettingsField({
     path: ["overview", "watchedActivityDays"],
     ownership: repository,
     valueKind: "integer",

@@ -2240,5 +2240,10 @@
   "views.agenda.receiveDelivery": "确认签收",
   "views.agenda.receiveWork": "按 Work 批量签收 ({count})",
   "views.agenda.followupTitle": "追问标题 / 要求",
-  "views.agenda.createFollowup": "追问派生后续任务"
+  "views.agenda.createFollowup": "追问派生后续任务",
+  "views.settingsView.guiTerminalBrowserLabel": "终端链接浏览器",
+  "views.settingsView.guiTerminalBrowserDescription": "本机终端中 HTTP(S) 链接的打开目标。",
+  "views.settingsView.guiTerminalBrowserEffect": "终端链接立即使用选定的浏览器，只影响本机。",
+  "views.settingsView.enum.guiTerminalBrowser.embedded": "内嵌浏览器",
+  "views.settingsView.enum.guiTerminalBrowser.system": "系统浏览器"
 }

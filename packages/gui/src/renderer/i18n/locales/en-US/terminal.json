@@ -67,5 +67,11 @@
   "terminal.view.taskTreeAll": "All",
   "terminal.view.taskTreeToggle": "Expand / collapse children",
   "terminal.view.taskTreeFocus": "Focus this subtree",
-  "terminal.view.taskTreeTruncated": "Showing the first 300 rows — narrow down further"
+  "terminal.view.taskTreeTruncated": "Showing the first 300 rows — narrow down further",
+  "terminal.view.browserTarget": "Terminal link browser",
+  "terminal.view.browserEmbedded": "Embedded browser",
+  "terminal.view.browserSystem": "System browser",
+  "terminal.view.switchToEmbedded": "Switch to embedded browser",
+  "terminal.view.switchToSystem": "Switch to system browser",
+  "terminal.view.openInSystemBrowser": "Open in default browser"
 }

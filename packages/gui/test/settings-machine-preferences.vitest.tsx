@@ -100,6 +100,7 @@ async function mountSettings(mode: SystemRepoRow["mode"]) {
       taskMaterializationPolicy: "include_done",
       guiConnectTimeoutMs: 2_000,
       guiRequestTimeoutMs: 30_000,
+      guiTerminalBrowser: "embedded",
     },
     revision: 1,
     lastChanged: "initial",
@@ -182,6 +183,7 @@ describe("settings distinguish machine preferences from repository governance", 
           "settings-taskMaterializationPolicy-select",
           "settings-guiConnectTimeoutMs-input",
           "settings-guiRequestTimeoutMs-input",
+          "settings-guiTerminalBrowser-select",
         ].includes(testId ?? "") &&
         testId !== "settings-search" &&
         testId !== "settings-advanced-toggle" &&
@@ -252,6 +254,27 @@ describe("settings distinguish machine preferences from repository governance", 
       expect(container.textContent).not.toContain("fetch failed");
     },
   );
+
+  it.each(["local", "remote-edge"] as const)("submits terminal browser as a machine preference (%s)", async (mode) => {
+    const { container, updateCalls } = await mountSettings(mode);
+    const control = container.querySelector<HTMLSelectElement>('[data-testid="settings-guiTerminalBrowser-select"]')!;
+    expect(control.disabled).toBe(false);
+    await act(async () => {
+      control.value = "system";
+      control.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>('[data-testid="settings-repository-save"]')!.click(),
+    );
+    await vi.waitFor(() => expect(updateCalls).toHaveLength(1));
+    expect(updateCalls[0]).toMatchObject({ repoId: REPO_ID, guiTerminalBrowser: "system" });
+    expect(Object.keys(updateCalls[0] as object).sort()).toEqual([
+      "expectedVersion",
+      "guiTerminalBrowser",
+      "idempotencyKey",
+      "repoId",
+    ]);
+  });
 
   it.each(["local", "remote-edge"] as const)(
     "derives the local materialization selector and submits only its change (%s)",
