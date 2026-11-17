@@ -37,20 +37,22 @@ export function resolveLoginListenerTrust(input: {
   const origin = `https://${hostname.toLowerCase()}:${port}`;
   if (new URL(input.authorizationUrl).origin !== origin) return null;
   // A configured certificate that cannot be read or parsed fails the sign-in with its own error.
+  const fingerprint256 = certificateFingerprint256(
+    typeof certificate === "string" ? certificate : input.readCertificateFile(certificateFile as string),
+  );
+  const targetUrl = (listener as Record<string, unknown>).targetUrl;
+  const proxyTarget = targetUrl === undefined ? undefined : validateProxyTarget(targetUrl, origin);
   return {
     origin,
-    fingerprint256: certificateFingerprint256(
-      typeof certificate === "string" ? certificate : input.readCertificateFile(certificateFile as string),
-    ),
-    ...((listener as Record<string, unknown>).targetUrl === undefined
-      ? {}
-      : { proxyTarget: validateProxyTarget((listener as Record<string, unknown>).targetUrl) }),
+    fingerprint256,
+    ...(proxyTarget === undefined ? {} : { proxyTarget }),
   };
 }
 
-function validateProxyTarget(value: unknown): string {
+function validateProxyTarget(value: unknown, browserOrigin: string): string | undefined {
   if (typeof value !== "string") throw new Error("The login listener proxy target must be a URL.");
   const target = new URL(value);
+  if (target.origin === browserOrigin) return undefined;
   if (target.protocol !== "https:" || !["127.0.0.1", "localhost"].includes(target.hostname))
     throw new Error("The login listener proxy target must be a loopback HTTPS URL.");
   return target.toString();
