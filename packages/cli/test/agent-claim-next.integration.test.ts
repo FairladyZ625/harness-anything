@@ -288,15 +288,24 @@ test(
       taskBatchRows.length,
       JSON.stringify(batch.receipt),
     );
-    // A row that races a live holder loses the lease; one that arrives after the holder stopped must
+    // A row that races a live writer or lease holder is refused; after the holder stopped it must
     // name the stopped dispatch instead of silently dispatching a second worker (#4376).
     assert.equal(
       rejectedTaskBatchRows.every((row) =>
-        ["runtime_task_lease_required", "dispatch_recovery_fence_required"].includes(String(row.code)),
+        ["runtime_task_writer_conflict", "runtime_task_lease_required", "dispatch_recovery_fence_required"].includes(
+          String(row.code),
+        ),
       ),
       true,
       JSON.stringify(batch.receipt),
     );
+    for (const row of rejectedTaskBatchRows.filter((entry) => entry.code === "runtime_task_writer_conflict"))
+      assert.ok(
+        settledTaskBatchRows.some((holder) =>
+          String(row.reason).includes(`runtimeSessionId=${holder.runtimeSessionId}`),
+        ),
+        JSON.stringify(row),
+      );
     assert.equal(batchRows[0]?.code, "squad_member_not_found");
     assert.equal(
       settledTaskBatchRows.every(

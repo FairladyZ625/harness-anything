@@ -21,7 +21,7 @@ export const dispatchLifecyclePolicies = [
       "packages/daemon/test/dispatch-read-lifecycle.test.ts",
     ],
     sources: [
-      "policy:packages/daemon:packages/daemon/src/repo-cell-runtime-ingress.ts#appendAuxiliaryRuntimeIngress:cc2ad10b38eff91dd6d4e20b6bf7fadb",
+      "policy:packages/daemon:packages/daemon/src/repo-cell-runtime-ingress.ts#appendAuxiliaryRuntimeIngress:bafde6c7428425b528f1814ff097ad5a",
       "policy:packages/daemon:packages/daemon/src/daemon-host-repository-api.ts#createDaemonHostRepositoryApi.readNodeAutoClaimCandidates:921904248fd7c6864080e58564307106",
       "policy:packages/daemon:packages/daemon/src/runtime-spawn-control.ts#enforceRuntimeSpendCap:75d51b45ad4eaca54efd2fc7ad7ee991",
       "policy:packages/daemon:packages/daemon/src/runtime-spawn-mission.ts#resolveRuntimeInstanceCandidates:c62f0c68b8807afea23f9471a77da597",

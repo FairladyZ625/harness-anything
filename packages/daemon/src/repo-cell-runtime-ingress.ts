@@ -255,8 +255,9 @@ export function appendAuxiliaryRuntimeIngress(
       typeof action.payload.taskId === "string" ? cell.projection.currentLease(action.payload.taskId) : null;
     if (
       action.payload.role !== "reviewer" &&
-      action.payload.role !== "read-only" &&
-      taskLease?.executionId === action.payload.executionId &&
+      taskLease !== null &&
+      taskLease.phase !== "released" &&
+      taskLease.executionId === action.payload.executionId &&
       typeof action.payload.taskId === "string"
     )
       requireTaskWriterAdmission(

@@ -489,30 +489,109 @@ test("center event ingress refuses a second task writer independently of spawn p
     assert.equal((await changes(f, "center-writer-admission")).outcome, "applied");
     const automatic = workers(f).at(-1)!;
     assert.equal(automatic.type, "runtime_dispatch_requested");
-    const dispatchKey = "raw-second-writer";
-    const [result] = await Promise.allSettled([
-      f.cell().runtimeIngress(
-        {
-          kind: "event",
-          type: "runtime_dispatch_requested",
-          opId: dispatchKey,
-          payload: {
-            ...automatic.payload,
-            ...runtimeDispatchIdentity("completion-review", dispatchKey),
-            dispatchKey,
-            attemptGroupId: undefined,
+    // A self-reported read-only role cannot bypass the task's actual implementation lease.
+    for (const role of [undefined, "read-only"]) {
+      const dispatchKey = `raw-second-writer:${role ?? "worker"}`;
+      const [result] = await Promise.allSettled([
+        f.cell().runtimeIngress(
+          {
+            kind: "event",
+            type: "runtime_dispatch_requested",
+            opId: dispatchKey,
+            payload: {
+              ...automatic.payload,
+              ...runtimeDispatchIdentity("completion-review", dispatchKey),
+              dispatchKey,
+              role,
+              attemptGroupId: undefined,
+            },
           },
-        },
-        owner,
-      ),
-    ]);
-    const refusal = result!.status === "rejected" ? result!.reason : result!.value;
-    assert.equal(refusal.code, "runtime_task_writer_conflict", JSON.stringify(refusal));
-    assert.match(
-      String(refusal.message ?? refusal.rejectionExplanation),
-      new RegExp(automatic.payload.runtimeSessionId, "u"),
-    );
+          owner,
+        ),
+      ]);
+      const refusal = result!.status === "rejected" ? result!.reason : result!.value;
+      assert.equal(refusal.code, "runtime_task_writer_conflict", JSON.stringify(refusal));
+      assert.match(
+        String(refusal.message ?? refusal.rejectionExplanation),
+        new RegExp(automatic.payload.runtimeSessionId, "u"),
+      );
+    }
     assert.equal(workers(f).length, 1);
+    assert.equal(
+      (
+        await f.cell().run(
+          {
+            kind: "task-respond-review",
+            taskId,
+            executionId: String(automatic.payload.executionId),
+            jsonInput: JSON.stringify({
+              responses: [
+                {
+                  reviewId: "review-center-writer-admission",
+                  findingId: "center-writer-admission",
+                  disposition: "adopt",
+                  rationale: "The worker addressed the returned finding before freezing its cut.",
+                },
+              ],
+            }),
+          },
+          workerBinding(automatic.payload.runtimeSessionId),
+        )
+      ).outcome,
+      "applied",
+    );
+    assert.equal(
+      (await f.submit(String(automatic.payload.executionId), workerBinding(automatic.payload.runtimeSessionId)))
+        .outcome,
+      "applied",
+    );
+    assert.equal(
+      f
+        .events()
+        .some(
+          (event) =>
+            event.type === "runtime_session_outcome_observed" &&
+            event.payload.runtimeSessionId === automatic.payload.runtimeSessionId,
+        ),
+      false,
+      "the submitted writer is still running",
+    );
+    assert.equal(
+      (
+        await f.run({
+          kind: "agent-install",
+          declaration: {
+            schema: "agent-declaration/v1",
+            id: "frozen-scanner",
+            name: "Frozen cut scanner",
+            instructions: "Observe the frozen cut.",
+            runtimes: [],
+            permissionMode: "read-only",
+          },
+        })
+      ).outcome,
+      "applied",
+    );
+    const reader = await f.cell().spawnRuntime(
+      {
+        agentId: "frozen-scanner",
+        runtimeInstanceId: "review-first",
+        taskId,
+        dispatchKey: "unleased-frozen-reader",
+        prompt: "Inspect the frozen cut without an implementation lease.",
+      },
+      owner,
+    );
+    assert.equal(reader.outcome, "applied", JSON.stringify(reader));
+    assert.equal(reader.ledgerAccess, "unavailable");
+    await f.awaitRuntimeLiveness(String(reader.runtimeSessionId));
+    const lifecycle = await f.cell().readDispatchLifecycle({
+      by: "session",
+      runtimeSessionId: String(reader.runtimeSessionId),
+    });
+    assert.equal(lifecycle.status, "ready", JSON.stringify(lifecycle));
+    if (lifecycle.status === "ready")
+      assert.equal(lifecycle.rows[0]?.attempt.task?.leaseVersion, null, "the reader reserves no implementation lease");
   } finally {
     await f.close();
   }
