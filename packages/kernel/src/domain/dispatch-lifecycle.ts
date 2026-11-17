@@ -911,3 +911,20 @@ export function dispatchLifecycleHasPendingWork(reads: readonly DispatchLifecycl
       read.status === "pending" || read.rows.length === 0 || read.rows.some(({ policy }) => !policy.groupSettled),
   );
 }
+
+/** True once the dispatch attempt reached closed settlement or verified stop proof. */
+export function isDispatchAttemptStopProven(view: DispatchLifecycleView): boolean {
+  return view.policy.attemptSettled || view.attempt.stopProof === "proven_stopped";
+}
+
+/** True when an attempt ended physically (`exited` or `proven_stopped`) while still lacking terminal outcome. */
+export function isDispatchAttemptExitedUnsettled(view: DispatchLifecycleView): boolean {
+  return (
+    view.attempt.outcome === null && (view.attempt.process === "exited" || view.attempt.stopProof === "proven_stopped")
+  );
+}
+
+/** True when the dispatch attempt closed with canonical cancellation outcome. */
+export function isDispatchAttemptCancelled(view: DispatchLifecycleView): boolean {
+  return view.attempt.outcome === "cancelled";
+}

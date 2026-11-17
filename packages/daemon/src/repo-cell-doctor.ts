@@ -2,7 +2,9 @@ import type * as OperationalStatus from "@harness-anything/kernel/internal/domai
 import { edgeReplicaDoctor } from "./edge-replica-doctor.ts";
 import { resolveLedgerGitLayout } from "@harness-anything/storage";
 import {
+  DISPATCH_LIFECYCLE_PAGE_LIMIT,
   currentExecutionCuts,
+  isDispatchAttemptExitedUnsettled,
   isNativeExecution,
   reviewsForExecution,
   taskWipOccupyingStatuses,
@@ -10,6 +12,7 @@ import {
 } from "@harness-anything/kernel";
 import type { DaemonBuildStatus } from "./build-identity.ts";
 import { scanDocCandidates } from "./doc-sync-candidate-scanner.ts";
+import { readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
 import { runProcessTextAsync } from "./process-port.ts";
 import { remoteDefaultBranch } from "./schedule-occurrence-workspace.ts";
 import { readTaskWipSnapshot } from "./repo-cell-task-query.ts";
@@ -53,6 +56,7 @@ export async function doctorHealth(
       doctorLocalRootResidue(cell.rootDir),
       await docDebtCheck(cell, binding),
       relationCyclesCheck(cell),
+      exitedUnsettledRuntimeCheck(cell),
       workspaceLinkDoctorCheck(cell.rootDir),
       doctorBuildDrift(null),
     ],
@@ -391,6 +395,82 @@ function relationCyclesCheck(cell: RepoCellOperationalContext): DoctorCheck {
     count: audit.issues.length,
     next: audit.issues.length
       ? "Retire one edge of each cycle through the normal Relation retire write after deciding which semantic edge is wrong; the audit never edits the ledger."
+      : "Nothing to do.",
+  };
+}
+
+function streamRecordedExit(summary: ReturnType<typeof readDispatchStreamSummary>): boolean {
+  return Boolean(summary?.terminalOutcome != null || summary?.records.some((record) => record.kind === "process_exit"));
+}
+
+// Exited-but-unsettled runtimes leave task/review gates stalled while the underlying process
+// already exited. Read-only check combining projection lifecycle state and local dispatch streams.
+function exitedUnsettledRuntimeCheck(cell: RepoCellOperationalContext): DoctorCheck {
+  const exited = new Map<string, string>();
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+  let scanned = 0;
+  try {
+    for (let page = 0; page < 20; page += 1) {
+      const lifecycle = cell.projection.readDispatchLifecycle({
+        by: "active",
+        limit: DISPATCH_LIFECYCLE_PAGE_LIMIT,
+        ...(cursor ? { cursor } : {}),
+      });
+      if (lifecycle.status !== "ready")
+        return {
+          id: "exited-unsettled-runtime",
+          status: "indeterminate",
+          summary: `Exited-but-unsettled runtimes could not be judged at watermark ${String(lifecycle.watermark)} of source ${String(lifecycle.sourceRevision)}; the projection cut is pending.`,
+          count: 0,
+          next: "Run ha daemon projection rebuild, then rerun ha doctor.",
+        };
+      for (const row of lifecycle.rows) {
+        scanned += 1;
+        if (row.attempt.outcome !== null) continue;
+        const summary = readDispatchStreamSummary(cell.rootDir, row.attempt.dispatchId);
+        if (isDispatchAttemptExitedUnsettled(row) || streamRecordedExit(summary))
+          exited.set(row.attempt.runtimeSessionId, row.attempt.dispatchId);
+      }
+      if (!lifecycle.nextCursor || seenCursors.has(lifecycle.nextCursor)) break;
+      seenCursors.add(lifecycle.nextCursor);
+      cursor = lifecycle.nextCursor;
+    }
+    for (const header of readDispatchStreamHeaders(cell.rootDir)) {
+      if (exited.has(header.runtimeSessionId)) continue;
+      const summary = readDispatchStreamSummary(cell.rootDir, header.dispatchId);
+      if (!streamRecordedExit(summary)) continue;
+      const lifecycle = cell.projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: [header.dispatchId] });
+      if (lifecycle.status !== "ready")
+        return {
+          id: "exited-unsettled-runtime",
+          status: "indeterminate",
+          summary: `Exited-but-unsettled runtimes could not be judged at watermark ${String(lifecycle.watermark)} of source ${String(lifecycle.sourceRevision)}; the projection cut is pending.`,
+          count: 0,
+          next: "Run ha daemon projection rebuild, then rerun ha doctor.",
+        };
+      const row = lifecycle.rows[0];
+      if (!row || row.attempt.outcome === null) exited.set(header.runtimeSessionId, header.dispatchId);
+    }
+  } catch (error) {
+    return {
+      id: "exited-unsettled-runtime",
+      status: "indeterminate",
+      summary: `Exited-but-unsettled runtimes could not be audited: ${error instanceof Error ? error.message : String(error)}`,
+      count: 0,
+      next: "Run ha daemon projection rebuild, then rerun ha doctor.",
+    };
+  }
+  const items = [...exited.entries()].map(([runtimeSessionId, dispatchId]) => `${runtimeSessionId} (${dispatchId})`);
+  return {
+    id: "exited-unsettled-runtime",
+    status: items.length ? "warn" : "ok",
+    summary: items.length
+      ? `Exited runtimes awaiting terminal settlement: ${items.join("; ")}`
+      : `No exited runtimes await terminal settlement across ${String(scanned)} active dispatches.`,
+    count: items.length,
+    next: items.length
+      ? "Run ha runtime cancel <runtime-session-id> (or ha daemon fleet edge sync on an edge node, or ha runtime cancel <id> --ruling <reason> on the center for an unreachable node)."
       : "Nothing to do.",
   };
 }

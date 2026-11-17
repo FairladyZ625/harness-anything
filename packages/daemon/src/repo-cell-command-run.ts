@@ -47,6 +47,12 @@ import { readBeforeWriteQueue } from "./write-queue-external-reads.ts";
 import { inspectScheduleProjection } from "@harness-anything/application/internal/queries/schedule-projection.ts";
 import { resolveDecisionReviewAction } from "./repo-cell-action-parse.ts";
 import { candidateSample, resolveUniquePrefix } from "./unique-id-prefix.ts";
+import { canRecoverEdgeReviewerDispatch } from "./dispatch-read.ts";
+import {
+  executionCredentialRejected,
+  readRuntimeExecutionPrincipal,
+  runtimeExecutionActor,
+} from "./runtime-execution-credential.ts";
 import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
 
 const taskWritesWithProjectionSpecificNotFound = new Set(["task-annotate", "task-attest", "task-declare-executor"]);
@@ -230,7 +236,14 @@ export function makeRepoCellCommandRunner(
           now: context.now(),
         }).then(async (decision) => {
           if (decision.outcome === "allowed")
-            binding = await bindCurrentPersonIdentityWitnesses(action, binding, context.projection, context.rootDir);
+            binding = await bindCurrentPersonIdentityWitnesses(
+              action,
+              binding,
+              context.projection,
+              context.rootDir,
+              context.input.repoId,
+              context.now(),
+            );
           return decision;
         });
       },
@@ -644,6 +657,8 @@ async function bindCurrentPersonIdentityWitnesses(
   binding: RepoCellBinding,
   projection: RepoCellApiContext["projection"],
   rootDir: string,
+  repoId: string,
+  now: string,
 ): Promise<RepoCellBinding> {
   const ids = new Set<string>();
   if (
@@ -696,13 +711,26 @@ async function bindCurrentPersonIdentityWitnesses(
       throw Object.assign(new Error(`Node ${id} is not registered and active.`), { code: "entity_not_found" });
     if (kind === "team") await adapter.readTeam(center.accessToken, id);
   }
-  if (ids.size === 0) return binding;
+  const recoveryDispatchId = edgeReviewerRecoveryDispatchId(action, binding);
+  if (ids.size === 0 && recoveryDispatchId === null) return binding;
   const credential = binding.keycloakAuthorization;
+  if (!credential && ids.size === 0) return binding;
   if (!credential)
     throw Object.assign(new Error("Person identity references require Keycloak."), { code: "authentication_required" });
   const center = credential.center ? await credential.center() : undefined,
     adapter = center ? center.provider : null,
     witnesses = new Map(binding.personIdentityWitnesses ?? []);
+  if (recoveryDispatchId !== null && center)
+    binding = await recoverEdgeReviewerExecutionBinding({
+      dispatchId: recoveryDispatchId,
+      action,
+      binding,
+      projection,
+      repoId,
+      now,
+      center,
+    });
+  if (ids.size === 0) return binding;
   for (const personId of ids) {
     if (witnesses.has(personId)) continue;
     const userId =
@@ -718,6 +746,66 @@ async function bindCurrentPersonIdentityWitnesses(
     witnesses.set(personId, userId);
   }
   return { ...binding, personIdentityWitnesses: witnesses };
+}
+
+function edgeReviewerRecoveryDispatchId(action: RepoTaskAction, binding: RepoCellBinding): string | null {
+  if (
+    action.kind !== "task-review-execution" ||
+    binding.executionPrincipal ||
+    typeof binding.source !== "object" ||
+    binding.source.kind !== "node" ||
+    typeof action.reviewId !== "string" ||
+    !action.reviewId.startsWith("review-")
+  )
+    return null;
+  return action.reviewId.slice("review-".length);
+}
+
+async function recoverEdgeReviewerExecutionBinding(input: {
+  readonly dispatchId: string;
+  readonly action: RepoTaskAction;
+  readonly binding: RepoCellBinding;
+  readonly projection: RepoCellApiContext["projection"];
+  readonly repoId: string;
+  readonly now: string;
+  readonly center: Parameters<typeof readRuntimeExecutionPrincipal>[0];
+}): Promise<RepoCellBinding> {
+  const taskId = typeof input.action.taskId === "string" ? input.action.taskId : "";
+  if (
+    !taskId ||
+    !canRecoverEdgeReviewerDispatch({
+      projection: input.projection,
+      dispatchId: input.dispatchId,
+      taskId,
+      executionId: typeof input.action.executionId === "string" ? input.action.executionId : null,
+      source: input.binding.source,
+      personId: input.binding.actor.principal.personId,
+    })
+  )
+    return input.binding;
+  const principal = await readRuntimeExecutionPrincipal(input.center, input.dispatchId);
+  if (
+    principal.repoId !== input.repoId ||
+    principal.role !== "reviewer" ||
+    principal.personId !== input.binding.actor.principal.personId
+  )
+    throw executionCredentialRejected("scope", {
+      dispatchId: input.dispatchId,
+      role: "reviewer",
+      detail: "Edge review recovery credential does not match this repository reviewer dispatch.",
+    });
+  const recoveredBinding: RepoCellBinding = {
+    ...input.binding,
+    actor: runtimeExecutionActor(principal),
+    executionPrincipal: principal,
+  };
+  requireCurrentExecutionScope({
+    action: input.action,
+    binding: recoveredBinding,
+    projection: input.projection,
+    now: input.now,
+  });
+  return recoveredBinding;
 }
 
 function requiredPublishedGitCommit(commit: { readonly sha: string } | null): string {

@@ -427,6 +427,7 @@ test(
     await assert.rejects(
       runFleetRuntimeEventClient({
         ...peer,
+        executionCredential: secret,
         opId: "expired-terminal",
         eventType: "runtime_session_exited",
         payload: { runtimeSessionId: runtimeId, exitedAt: new Date().toISOString(), exitCode: 0 },

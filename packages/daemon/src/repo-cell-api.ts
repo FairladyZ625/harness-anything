@@ -846,8 +846,13 @@ export function createRepoCellApi(
         const centerAuthority = authorizedBinding.keycloakAuthorization?.center;
         if (!centerAuthority)
           throw context.cellCodedError("execution_credential_rejected", "Execution authority is unavailable.");
+        // Host/owner exit & archive settlement for an admitted dispatch must continue even after
+        // the 12h live-worker executionPrincipal TTL expires; worker-bearing calls still enforce expiry.
+        const hostSettlement = !authorizedBinding.executionPrincipal;
         const center = await centerAuthority();
-        const principal = await readRuntimeExecutionPrincipal(center, dispatch.payload.dispatchId);
+        const principal = await readRuntimeExecutionPrincipal(center, dispatch.payload.dispatchId, undefined, {
+          hostSettlement,
+        });
         if (principal.repoId !== context.input.repoId)
           throw context.cellCodedError("execution_credential_rejected", "Execution belongs to another repository.");
         requireCurrentExecutionScope({
@@ -855,6 +860,7 @@ export function createRepoCellApi(
           binding: { ...authorizedBinding, executionPrincipal: principal },
           projection: context.projection,
           now: context.now(),
+          ...(hostSettlement ? { hostSettlement } : {}),
         });
       }
       if (

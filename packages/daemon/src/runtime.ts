@@ -251,11 +251,11 @@ export async function startDaemon(input: {
     // singleton already owns this generation, so the existing process_start covers cold imports.
     const [
       { requireExecutionRequestScope },
-      { authenticateRuntimeExecutionPrincipal },
+      { authenticateRuntimeExecutionPrincipal, executionCredentialRejected },
       { openDaemonHost },
       { createJsonRpcProtocolServer },
       { openDaemonRequestLog },
-      { readRuntimeExecutionPrincipal },
+      { inspectRuntimeExecutionPrincipal },
       { openDaemonDiagnostics },
       operations,
     ] = await Promise.all([
@@ -318,13 +318,25 @@ export async function startDaemon(input: {
                 repo.canonicalRoot !== null,
             );
             const edgeRoot = edgeRepo?.canonicalRoot;
-            const principal = edgeRoot
-              ? readRuntimeExecutionPrincipal(edgeRoot, credential)
-              : await authenticateExecutionPrincipal(credential);
-            if (!principal)
-              throw Object.assign(new Error("Execution credential is unknown or expired on this edge runtime."), {
-                code: "authorization_denied",
-              });
+            let principal;
+            if (edgeRoot) {
+              const inspected = inspectRuntimeExecutionPrincipal(edgeRoot, credential);
+              if (inspected.kind === "expired")
+                throw new EdgeAuthorizationDeniedError(
+                  executionCredentialRejected("expired", {
+                    expiresAt: inspected.principal.expiresAt,
+                    dispatchId: inspected.principal.dispatchId,
+                    role: inspected.principal.role,
+                  }).message,
+                );
+              if (inspected.kind !== "valid")
+                throw new EdgeAuthorizationDeniedError(
+                  "Execution credential is unknown or missing from local dispatch streams on this edge runtime; check the dispatch or ask the owner to re-dispatch.",
+                );
+              principal = inspected.principal;
+            } else {
+              principal = await authenticateExecutionPrincipal(credential);
+            }
             requireExecutionRequestScope(principal, method, params);
             return principal;
           },
@@ -419,4 +431,9 @@ export async function startDaemon(input: {
   }
   return { endpoint, stop };
 }
+
+class EdgeAuthorizationDeniedError extends Error {
+  readonly code = "authorization_denied" as const;
+}
+
 export { daemonPidPath, readDaemonPid } from "./daemon-singleton.ts";

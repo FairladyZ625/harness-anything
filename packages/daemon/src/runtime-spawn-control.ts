@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
-import { sameWriteSource, type TaskProjection } from "@harness-anything/kernel";
+import { isDispatchAttemptStopProven, sameWriteSource, type TaskProjection } from "@harness-anything/kernel";
 import { daemonMethodPayloadFields } from "./protocol/daemon-protocol-commands.ts";
 import { unknownFieldViolation, type JsonObject } from "./protocol/json-rpc-types.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
 import { adoptRuntimes, ownedByRuntimeSpawner, assertRuntimeRecoveryReady } from "./runtime-spawn-adoption.ts";
-import { appendRuntimeWorkerRecord, readDispatchStreamHeaders } from "./dispatch-stream.ts";
+import { appendRuntimeWorkerRecord, readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import { probeProcessGroup, processGroupRecoveryHint } from "./runtime/process-group-reconciler.ts";
 import type { ActiveRuntime, RuntimeBinding, RuntimeDispatchOwnerEvidence } from "./runtime-spawn-types.ts";
@@ -50,10 +50,22 @@ export async function cancelRuntime(
           ? await context.input.remote.readRuntimeDispatch(runtimeSessionId)
           : readRuntimeDispatchOwnerEvidence(context.requiredRuntimeProjection(context.input), runtimeSessionId),
     ownerBinding = matchingHeader?.binding ?? canonicalDispatch,
+    crossNodeCenterRuling =
+      context.input.runtimeNode === undefined &&
+      ruling !== null &&
+      matchingHeader === undefined &&
+      binding.source === "local" &&
+      !(binding as { readonly executionPrincipal?: unknown }).executionPrincipal &&
+      ownerBinding != null &&
+      typeof ownerBinding.source === "object" &&
+      ownerBinding.source !== null &&
+      ownerBinding.source.kind === "node" &&
+      ownerBinding.actor?.principal.personId === binding.actor.principal.personId,
     owned =
       ownerBinding?.actor?.principal.personId === binding.actor.principal.personId &&
-      ownedByRuntimeSpawner(ownerBinding, context.input.runtimeNode, matchingHeader) &&
-      (matchingHeader !== undefined || sameWriteSource(ownerBinding.source, binding.source));
+      (crossNodeCenterRuling ||
+        (ownedByRuntimeSpawner(ownerBinding, context.input.runtimeNode, matchingHeader) &&
+          (matchingHeader !== undefined || sameWriteSource(ownerBinding.source, binding.source))));
   const runtimeHandles = context.processes;
   let active = runtimeHandles.get(runtimeSessionId);
   // Owner authorization permits a mechanical stop even while the center is offline.
@@ -81,8 +93,12 @@ export async function cancelRuntime(
         active !== undefined ||
         context.exiting.has(runtimeSessionId) ||
         context.ownsModelSlot?.(runtimeSessionId) === true,
-      hasReadableDispatch = matchingHeader !== undefined,
-      hasRecordedProcessGroup = canonicalDispatch?.processGroupPid != null;
+      hasReadableDispatch =
+        matchingHeader !== undefined ||
+        (canonicalDispatch?.payload.dispatchId
+          ? readDispatchStreamSummary(context.input.rootDir, canonicalDispatch.payload.dispatchId) !== null
+          : false),
+      hasRecordedProcessGroup = !crossNodeCenterRuling && canonicalDispatch?.processGroupPid != null;
     if (hasLocalOwner || hasReadableDispatch || hasRecordedProcessGroup)
       throw runtimeSpawnError(
         "runtime_ruling_not_allowed",
@@ -92,8 +108,16 @@ export async function cancelRuntime(
   // Recovery observes only an admitted attempt with a local spool. Missing spools go to the
   // same fenced process-group observer below; absence never releases a reservation by itself.
   if (matchingHeader && !active && attempt?.policy.canAdoptProcess) {
-    await adoptRuntimes(context, undefined, { runtimeSessionId, authorizationBinding: binding });
-    await assertRuntimeRecoveryReady(context, runtimeSessionId);
+    await recoverRuntimeBeforeCancel({
+      context,
+      runtimeSessionId,
+      binding,
+      ruling,
+      matchingHeader,
+      canonicalDispatch,
+      ownerBinding,
+      runtimeHandles,
+    });
   }
   const currentLifecycle = await readDispatchLifecycle(context, { by: "session", runtimeSessionId });
   if (currentLifecycle.status !== "ready")
@@ -137,15 +161,18 @@ export async function cancelRuntime(
         (matchingHeader === undefined || ownerEvidence.payload.dispatchId === matchingHeader.dispatchId)
           ? ownerEvidence.processGroupPid
           : null;
-    if (
+    // Remote edge PIDs cannot be probed against center's OS PID table during cross-node ruling.
+    const stoppedOnHost =
+      !crossNodeCenterRuling &&
       probeProcessGroup({
         pgid: processGroupPid ?? undefined,
         ...(matchingHeader
           ? { dispatch: { rootDir: context.input.rootDir, dispatchId: matchingHeader.dispatchId } }
           : {}),
-      }) !== "proven_stopped"
-    ) {
+      }) === "proven_stopped";
+    if (!stoppedOnHost) {
       if (ruling !== null) {
+        const rulingBinding = crossNodeCenterRuling ? { ...binding, source: ownerBinding.source } : binding;
         const resultBody = JSON.stringify({
             schema: "runtime-ruling-resolution/v1",
             runtimeSessionId,
@@ -177,7 +204,7 @@ export async function cancelRuntime(
             endedAt: context.input.now(),
           },
           `${opId}-ruling-resolved`,
-          binding,
+          rulingBinding,
           resultBody,
         );
         return context.controlReceipt(opId, runtimeSessionId, "ruling_resolved");
@@ -209,7 +236,10 @@ export async function cancelRuntime(
       `${opId}-exited`,
       terminalBinding,
     );
-    await context.publishRuntimeEvent("runtime_session_cancelled", { runtimeSessionId }, `${opId}-cancelled`, binding);
+    await context.publishRuntimeEvent("runtime_session_cancelled", { runtimeSessionId }, `${opId}-cancelled`, {
+      ...binding,
+      source: ownerBinding.source,
+    });
     const resultBody = "Runtime session cancelled after its worker process was no longer available.",
       resultSha256 = createHash("sha256").update(resultBody).digest("hex");
     await context.publishRuntimeEvent(
@@ -239,6 +269,65 @@ export async function cancelRuntime(
     return context.controlReceipt(opId, runtimeSessionId, "cancelled");
   }
   return context.controlReceipt(opId, runtimeSessionId, "already-exited");
+}
+
+async function recoverRuntimeBeforeCancel(input: {
+  readonly context: RuntimeSpawnerContext;
+  readonly runtimeSessionId: string;
+  readonly binding: RuntimeBinding;
+  readonly ruling: string | null;
+  readonly matchingHeader: ReturnType<typeof readDispatchStreamHeaders>[number];
+  readonly canonicalDispatch: RuntimeDispatchOwnerEvidence | null;
+  readonly ownerBinding: Pick<RuntimeBinding, "actor" | "source"> | undefined;
+  readonly runtimeHandles: RuntimeSpawnerContext["processes"];
+}): Promise<{ readonly recoveryOutcome: "ready" | "stopped_unmanaged" }> {
+  const {
+    context,
+    runtimeSessionId,
+    binding,
+    ruling,
+    matchingHeader,
+    canonicalDispatch,
+    ownerBinding,
+    runtimeHandles,
+  } = input;
+  try {
+    await adoptRuntimes(context, undefined, { runtimeSessionId, authorizationBinding: binding });
+    await assertRuntimeRecoveryReady(context, runtimeSessionId);
+    return { recoveryOutcome: "ready" };
+  } catch (error) {
+    if (ruling !== null) throw error;
+    const recheck = await readDispatchLifecycle(context, { by: "session", runtimeSessionId });
+    if (recheck.status !== "ready") throw error;
+    const recheckAttempt = recheck.rows[0],
+      recheckActive = runtimeHandles.get(runtimeSessionId);
+    if (!recheckActive) {
+      if (!recheckAttempt) throw error;
+      if (!isDispatchAttemptStopProven(recheckAttempt)) {
+        if (recheckAttempt.attempt.outcome !== null) throw error;
+        const ownerEvidence =
+            canonicalDispatch ??
+            (context.input.remote?.readRuntimeDispatch
+              ? await context.input.remote.readRuntimeDispatch(runtimeSessionId)
+              : readRuntimeDispatchOwnerEvidence(context.requiredRuntimeProjection(context.input), runtimeSessionId)),
+          processGroupPid =
+            ownerBinding &&
+            ownerEvidence?.actor.principal.personId === ownerBinding.actor.principal.personId &&
+            sameWriteSource(ownerEvidence.source, ownerBinding.source) &&
+            ownerEvidence.payload.dispatchId === matchingHeader.dispatchId
+              ? ownerEvidence.processGroupPid
+              : null;
+        if (
+          probeProcessGroup({
+            pgid: processGroupPid ?? undefined,
+            dispatch: { rootDir: context.input.rootDir, dispatchId: matchingHeader.dispatchId },
+          }) !== "proven_stopped"
+        )
+          throw error;
+      }
+    }
+    return { recoveryOutcome: "stopped_unmanaged" };
+  }
 }
 
 export function readRuntimeDispatchOwnerEvidence(

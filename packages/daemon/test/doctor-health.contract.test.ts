@@ -52,6 +52,7 @@ test("doctor health reports the nine checks and degrades to indeterminate withou
         "local-root-residue",
         "doc-debt",
         "relation-cycles",
+        "exited-unsettled-runtime",
         "workspace-links",
         "build-drift",
       ],
@@ -62,7 +63,13 @@ test("doctor health reports the nine checks and degrades to indeterminate withou
     assert.equal(byId.get("stale-delivered")?.status, "indeterminate");
     assert.equal(byId.get("workspace-links")?.status, "ok");
     assert.equal(byId.get("build-drift")?.status, "indeterminate");
-    for (const id of ["executor-undeclared", "orphan-lease", "wip-pressure", "relation-cycles"])
+    for (const id of [
+      "executor-undeclared",
+      "orphan-lease",
+      "wip-pressure",
+      "relation-cycles",
+      "exited-unsettled-runtime",
+    ])
       assert.equal(byId.get(id)?.status, "ok", id);
     assert.ok(["ok", "warn"].includes(String(byId.get("doc-debt")?.status)));
     for (const check of checks) assert.ok(["ok", "warn", "fail", "indeterminate"].includes(check.status), check.id);
@@ -212,7 +219,7 @@ test("doctor host composes loaded/disk identities and remote edge never reports 
       const receipt = (await host.run("doctor-host", { kind: "doctor-health" }, auth)) as Record<string, unknown>;
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
       const checks = receipt.checks as { id: string; status: string; summary: string; next: string }[];
-      assert.equal(checks.length, 12);
+      assert.equal(checks.length, 13);
       assert.deepEqual(JSON.parse(String(receipt.evidence)).checks, checks);
       assert.equal(checks.find((check) => check.id === "build-drift")?.status, expected);
       // The host check reads the repository's selected provider and the machine-local record.
@@ -229,7 +236,7 @@ test("doctor host composes loaded/disk identities and remote edge never reports 
     const receipt = (await host.run("doctor-edge", { kind: "doctor-health" }, auth)) as Record<string, unknown>;
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     const edgeChecks = receipt.checks as { id: string; status: string }[];
-    assert.equal(edgeChecks.length, 10);
+    assert.equal(edgeChecks.length, 11);
     assert.equal(edgeChecks.find((check) => check.id === "edge-replica")?.status, "fail");
     assert.equal(receipt.failureCode, "fleet_edge_config_invalid");
     assert.ok(

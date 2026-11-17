@@ -104,6 +104,7 @@ function unavailableCenterDoctor(repoId: string) {
       "wip-pressure",
       "local-root-residue",
       "doc-debt",
+      "exited-unsettled-runtime",
       "workspace-links",
       "build-drift",
     ].map((id) => ({

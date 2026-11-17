@@ -235,7 +235,7 @@ test("independent Keycloak client authenticates only its secret, expiry, and cur
   });
   await assert.rejects(authenticateRuntimeExecutionCredential(center, credential, realm.fetch), {
     code: "execution_credential_rejected",
-    message: "Execution credential is expired.",
+    message: /Execution credential for implementation dispatch .* expired at .*20\d\d-/u,
   });
   await edit({ enabled: false, attributes: { harness_execution: JSON.stringify(p) } });
   await assert.rejects(verifyRuntimeExecutionPrincipal(center, p, realm.fetch), {
