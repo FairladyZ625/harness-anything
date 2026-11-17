@@ -145,11 +145,13 @@ export function raceLifetime<T>(operation: Promise<T>, signal: AbortSignal | und
 export async function runFleetEdgeUploadClient(
   options: Parameters<typeof peerRunFleetUploadClient>[0] & { readonly timeoutMs: number },
 ): Promise<readonly import("./fleet/command-protocol.ts").FleetDescriptor[]> {
-  const operationIds = options.changes.map(() => randomUUID());
+  // Upload request ids default to the staged bytes (see `uploadFleetChange`), so a retry inside
+  // this loop, or a restarted process retrying the same command, resumes the same claim and keeps
+  // the descriptor inside the retried command's intent unchanged.
   return runFleetEdgeRetry({
     timeoutMs: options.timeoutMs,
     ...(options.signal ? { signal: options.signal } : {}),
-    write: () => peerRunFleetUploadClient({ ...options, operationIds }),
+    write: () => peerRunFleetUploadClient(options),
   });
 }
 

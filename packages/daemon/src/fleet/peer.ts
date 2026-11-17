@@ -473,9 +473,7 @@ export async function runFleetUploadClient(
     });
     const descriptors: FleetDescriptor[] = [];
     for (const [index, input] of options.changes.entries())
-      descriptors.push(
-        await uploadFleetChange(session, options.repoId, input, options.operationIds?.[index] ?? randomUUID()),
-      );
+      descriptors.push(await uploadFleetChange(session, options.repoId, input, options.operationIds?.[index]));
     return descriptors;
   } finally {
     session.close();
@@ -549,11 +547,19 @@ export async function runFleetRuntimeEventClient(
     const result =
         options.resultBody === undefined
           ? null
-          : await uploadFleetChange(session, options.repoId, {
-              path: "runtime-result.txt",
-              body: options.resultBody,
-              mediaType: "text/plain; charset=utf-8",
-            }),
+          : await uploadFleetChange(
+              session,
+              options.repoId,
+              {
+                path: "runtime-result.txt",
+                body: options.resultBody,
+                mediaType: "text/plain; charset=utf-8",
+              },
+              // A runtime result is attempt-scoped, not command-scoped: two dispatches can publish
+              // the same failure body, and each publish must own its claim. The event request id is
+              // that identity, and a retry of the same event reuses this claim.
+              options.opId,
+            ),
       response = await session.request({
         schema: "fleet.runtime.event/v1",
         messageId: session.messageId(),
