@@ -64,6 +64,19 @@ export function tlsPeerIdentityOptions(servername?: string): {
     : { checkServerIdentity: (_host, cert) => checkServerIdentity(target, cert) };
 }
 
+/**
+ * One authority's transport. The fetcher is resolved from `globalThis.fetch` on every request so a
+ * host that installs an interceptor after the daemon opened still observes authorization traffic;
+ * the CA and SNI stay pinned to the authority the capability was serialized with.
+ */
+export function authorizationFetch(config: {
+  readonly certificate?: string;
+  readonly servername?: string;
+}): typeof fetch {
+  const ca = config.certificate ?? systemCaCertificates();
+  return (input, init) => fetchWithTlsCa(globalThis.fetch, ca, input, init, config.servername);
+}
+
 export async function fetchWithTlsCa(
   fetcher: typeof fetch,
   ca: string | readonly string[],

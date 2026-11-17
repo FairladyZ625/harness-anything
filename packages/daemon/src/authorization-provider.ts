@@ -46,11 +46,6 @@ export const createAuthorizationProvider = (
       })
     : new KeycloakPolicyAdapter(config, fetchPort, refreshAdminAccessToken);
 };
-/** The default transport must survive plain-data capability serialization, including CA and SNI. */
-function authorizationFetch(config: Pick<AuthorizationProviderConfig, "certificate" | "servername">): typeof fetch {
-  const ca = config.certificate ?? systemCaCertificates();
-  return (input, init) => fetchWithTlsCa(fetch, ca, input, init, config.servername);
-}
 export { keycloakLoginAttributes, keycloakLoginMappers };
 
 import { OidcSessionService } from "@harness-anything/authorization-keycloak";
@@ -60,6 +55,7 @@ import { reportFleetDeviceLogin, readFleetLoginAuthorityClient } from "./fleet/p
 import { oidcCenterSelections } from "./oidc-center-selection.ts";
 import { errorMessageWithCause } from "./error-cause.ts";
 import {
+  authorizationFetch,
   fetchWithTlsCa,
   probeSystemCaTrust,
   rootCaFromCertificateChain,

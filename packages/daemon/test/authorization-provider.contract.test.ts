@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { writeDaemonRegistryRepo } from "@harness-anything/kernel/daemon-registry";
 import { readArtifactActionScopes } from "../src/authorization-provider.ts";
+import { authorizationFetch } from "../src/tls-ca-certificate.ts";
 import { evaluateRepoCellAction, authorizeRepoCellAction } from "../src/repo-cell-authorization.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";
 
@@ -120,5 +121,21 @@ test("policy sync reads accepted repository declarations without the writer regi
     );
   } finally {
     rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("an authority transport reads the current global fetch on every request", async () => {
+  const original = globalThis.fetch,
+    first = async () => new Response("first"),
+    second = async () => new Response("second");
+  try {
+    globalThis.fetch = first as typeof fetch;
+    const transport = authorizationFetch({});
+    assert.equal(await (await transport("http://127.0.0.1/one")).text(), "first");
+    // A host that installs an interceptor after the daemon opened must still see authorization traffic.
+    globalThis.fetch = second as typeof fetch;
+    assert.equal(await (await transport("http://127.0.0.1/two")).text(), "second");
+  } finally {
+    globalThis.fetch = original;
   }
 });

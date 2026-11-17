@@ -303,13 +303,27 @@ for (const trusted of [true, false]) {
     }
     const bound = await service.bind({ transportKind: "unix-socket" }),
       binding = localDefaultBinding(bound),
+      answer = globalThis.fetch,
+      observed: string[] = [];
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      observed.push(String(input instanceof Request ? input.url : input));
+      return answer(input, init);
+    }) as typeof fetch;
+    let result: Awaited<ReturnType<typeof evaluateKeycloakPerson>>;
+    try {
       result = await evaluateKeycloakPerson({
         credential: binding.keycloakAuthorization!,
         personId: "tls-person",
         action: "task-push",
         resource: { kind: "repository", repoId: "tls-repo" },
       });
+    } finally {
+      globalThis.fetch = answer;
+    }
     assert.equal(result.outcome, "allowed");
+    // The evaluation rebinds to the current global fetch, so a post-open interceptor sees the
+    // request while the authority CA and SNI still decide whether it succeeds.
+    assert.ok(observed.length > 0, "authorization follows a post-open global fetch interceptor");
     assert.equal(bound.oidcPrincipal?.authority.certificate, realm.certificate);
     assert.equal(bound.oidcPrincipal?.authority.servername, realm.servername);
     for (const mode of ["external", "managed"] as const) {

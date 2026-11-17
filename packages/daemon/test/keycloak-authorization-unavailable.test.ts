@@ -252,6 +252,11 @@ for (const certificateCode of [
           personId: "tls-person",
           action: "task-push",
           resource: { kind: "repository", repoId: "repo-tls" },
+          // Evaluation defaults to the host's current global fetch + authority CA; keep the
+          // deliberately failing transport by naming it through the explicit override.
+          fetchPort: async () => {
+            throw cause;
+          },
         }),
     ])
       await assert.rejects(operation, (error: Error & { code?: string; certificateCode?: string }) => {
