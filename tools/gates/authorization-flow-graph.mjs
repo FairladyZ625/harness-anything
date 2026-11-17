@@ -4,7 +4,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";
-import { readWorkspacePackages } from "../public-workspaces.mjs";
+import { createSourceProgram } from "./authorization-source-program.mjs";
 import {
   bindArguments,
   bindingNames,
@@ -17,6 +17,7 @@ import {
   makeFileOf,
   memberName,
   registerSourceFileInterner,
+  releaseSourceFileInterner,
   unwrap,
 } from "./authorization-flow-env.mjs";
 import { parseTypeScript, walkTypeScriptFiles } from "./ontology-gate-lib.mjs";
@@ -28,43 +29,64 @@ const maxEvaluationDepth = 12;
 // A request travels through many frames before its effect; provenance is memoized per frame.
 const maxProvenanceDepth = 64;
 
-/**
- * Workspace imports must resolve to the checkout under audit. A git worktree shares the canonical
- * install, so its node_modules workspace links point at the canonical packages; following them
- * would type-check the traced sources against another checkout while the kernel anchors are read
- * from this one, and the anchor lookup then reports the interface as missing. The workspaces this
- * checkout declares are therefore resolved to this checkout's own sources.
- */
-function workspaceSourcePaths(sourceRoot, anchorRoot = sourceRoot) {
-  const manifestRoot = fs.existsSync(path.join(sourceRoot, "package.json")) ? sourceRoot : anchorRoot;
-  const manifestPath = path.join(manifestRoot, "package.json");
-  if (!fs.existsSync(manifestPath)) return {};
-  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")),
-    patterns = Array.isArray(manifest.workspaces) ? manifest.workspaces : manifest.workspaces?.packages;
-  if (!Array.isArray(patterns) || patterns.length === 0) return {};
-  const paths = {};
-  for (const entry of readWorkspacePackages(manifestRoot)) {
-    if (!fs.existsSync(path.join(sourceRoot, entry.directory))) continue;
-    for (const [subpath, target] of Object.entries(entry.manifest.exports ?? {})) {
-      const value = typeof target === "string" ? target : (target?.types ?? target?.default);
-      if (typeof value !== "string" || !value.endsWith(".ts")) continue;
-      paths[entry.manifest.name + (subpath === "." ? "" : subpath.slice(1))] = [
-        path.posix.join(entry.directory, value.replace(/^\.\//u, "")),
-      ];
-    }
+const policyIndexes = new WeakMap();
+const serverSourceIndexes = new WeakMap();
+const nonServerRoots = [
+  "packages/gui/",
+  "packages/cli/",
+  "packages/dsh-plugin/",
+  "packages/authorization-gui/",
+  "packages/authorization-keycloak-gui/",
+  "tools/",
+];
+
+/** Share source indexes while giving each audit its own evaluator/fact-scope identity. */
+export function freshEvaluationGraph(graph) {
+  graph.resetFramePool();
+  return graph.freshQueries();
+}
+
+/** Exclude client/UI/tooling modules that cannot own or execute daemon server routes. */
+export function serverSourceGraph(graph) {
+  const included = (file) => !nonServerRoots.some((prefix) => file.startsWith(prefix));
+  let indexes = serverSourceIndexes.get(graph.modules);
+  if (!indexes) {
+    indexes = {
+      modules: new Map([...graph.modules].filter(([file]) => included(file))),
+      members: new Map(
+        [...graph.members]
+          .map(([key, entries]) => [key, entries.filter((entry) => included(entry.file))])
+          .filter(([, entries]) => entries.length > 0),
+      ),
+    };
+    serverSourceIndexes.set(graph.modules, indexes);
   }
-  return paths;
+  return {
+    ...graph,
+    ...indexes,
+    importTarget(binding) {
+      const target = graph.importTarget(binding);
+      return target.file && !included(target.file) ? { external: true } : target;
+    },
+  };
 }
 
 /** Keep the policy proof at its typed service boundary; source reachability uses the full graph. */
 export function authorizationPolicyGraph(graph) {
   const included = (file) => sourceRoots.some((root) => file.startsWith(root + "/"));
+  let indexes = policyIndexes.get(graph.modules);
+  if (!indexes) {
+    indexes = {
+      modules: new Map([...graph.modules].filter(([file]) => included(file))),
+      members: new Map(
+        [...graph.members].map(([key, entries]) => [key, entries.filter((entry) => included(entry.file))]),
+      ),
+    };
+    policyIndexes.set(graph.modules, indexes);
+  }
   return {
     ...graph,
-    modules: new Map([...graph.modules].filter(([file]) => included(file))),
-    members: new Map(
-      [...graph.members].map(([key, entries]) => [key, entries.filter((entry) => included(entry.file))]),
-    ),
+    ...indexes,
     importTarget(binding) {
       if (!binding.from.startsWith(".")) return { external: true };
       const target = graph.importTarget(binding);
@@ -77,7 +99,10 @@ export function authorizationPolicyGraph(graph) {
  * `rootDir` holds the traced sources; `anchorRoot` holds the kernel authority files the anchors
  * name (the same checkout unless a test traces a mutated copy of the sources).
  */
-export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = [], lexicalFiles = [] } = {}) {
+export function buildFlowGraph(
+  rootDir,
+  { anchorRoot = rootDir, sourceFiles = [], lexicalFiles = [], sourceOverrides = new Map(), oldProgram } = {},
+) {
   const internEnv = makeEnvironmentInterner(lookup, freeParameters);
   const modules = new Map(),
     members = new Map(),
@@ -115,31 +140,20 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
     }
     return source;
   };
-  let files = [...new Set([...sourceRoots.flatMap((root) => walkTypeScriptFiles(rootDir, root)), ...sourceFiles])];
-  const workspacePaths = workspaceSourcePaths(rootDir, anchorRoot),
-    // The checker answers one question only: which implementations a typed member call can reach.
-    program = ts.createProgram({
-      rootNames: files.map((file) => path.join(rootDir, file)),
-      options: {
-        noEmit: true,
-        allowJs: sourceFiles.some((file) => /\.[cm]?js$/u.test(file)),
-        skipLibCheck: true,
-        allowImportingTsExtensions: true,
-        module: ts.ModuleKind.NodeNext,
-        moduleResolution: ts.ModuleResolutionKind.NodeNext,
-        target: ts.ScriptTarget.ES2022,
-        strict: true,
-        types: [],
-        ...(Object.keys(workspacePaths).length > 0 ? { baseUrl: rootDir, paths: workspacePaths } : {}),
-      },
-    }),
+  let files = [
+    ...new Set([
+      ...sourceRoots.flatMap((root) => walkTypeScriptFiles(rootDir, root)),
+      ...sourceFiles,
+      ...sourceOverrides.keys(),
+    ]),
+  ];
+  const program = createSourceProgram(rootDir, { anchorRoot, files, sourceFiles, sourceOverrides, oldProgram }),
     checker = program.getTypeChecker(),
     programSources = new WeakSet(program.getSourceFiles()),
     relativeFiles = new WeakMap(),
     fileOf = makeFileOf(relativeFiles, sourceFileOf);
   // Declaration fallback can call an implementation outside the indexed source roots.
   // It still belongs to this Program and must use this graph's frame pool.
-  for (const sourceFile of program.getSourceFiles()) registerSourceFileInterner(sourceFile, internEnv);
   files = [
     ...new Set([
       ...files,
@@ -156,10 +170,13 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
     ]),
   ];
   for (const file of files) {
-    const sourceFile = program.getSourceFile(path.join(rootDir, file)) ?? parseTypeScript(rootDir, file),
+    const sourceFile =
+        program.getSourceFile(path.join(rootDir, file)) ??
+        (sourceOverrides.has(file)
+          ? ts.createSourceFile(path.join(rootDir, file), sourceOverrides.get(file), ts.ScriptTarget.Latest, true)
+          : parseTypeScript(rootDir, file)),
       imports = new Map();
     relativeFiles.set(sourceFile, file);
-    registerSourceFileInterner(sourceFile, internEnv);
     for (const statement of sourceFile.statements) {
       if (!ts.isImportDeclaration(statement) || !statement.importClause || statement.importClause.isTypeOnly) continue;
       const from = statement.moduleSpecifier.text,
@@ -208,11 +225,21 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
       }
       ts.forEachChild(node, visit);
     })(sourceFile);
-  return {
+  // Source lookup/type/free-parameter metadata depends only on this fixed tree.
+  // Evaluation facts and argument frames belong to each fresh query context.
+  const graph = {
+    withSourceOverrides: (overrides) =>
+      buildFlowGraph(rootDir, {
+        anchorRoot,
+        sourceFiles,
+        lexicalFiles,
+        sourceOverrides: overrides,
+        oldProgram: program,
+      }),
+    freshQueries: () => ({ ...graph, ...queryContext(makeEnvironmentInterner(lookup, freeParameters)) }),
     rootDir,
-    internEnv,
+    ...queryContext(internEnv),
     freeParameters,
-    resetFramePool: internEnv.resetFramePool,
     modules,
     members,
     typedEntries,
@@ -273,6 +300,22 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
       return withinScope ? entry : null;
     },
   };
+  return graph;
+
+  function queryContext(owner) {
+    for (const sourceFile of program.getSourceFiles()) registerSourceFileInterner(sourceFile, owner);
+    for (const { sourceFile } of modules.values()) registerSourceFileInterner(sourceFile, owner);
+    return {
+      internEnv: owner,
+      resetFramePool: owner.resetFramePool,
+      releaseQueries() {
+        owner.resetFramePool();
+        // Shared SourceFile keys must not retain a completed audit's frame owner.
+        for (const sourceFile of program.getSourceFiles()) releaseSourceFileInterner(sourceFile, owner);
+        for (const { sourceFile } of modules.values()) releaseSourceFileInterner(sourceFile, owner);
+      },
+    };
+  }
 
   // This is lexical dependency analysis, independent of any descriptor's authority facts.
   // Only value references matter. Local aliases/functions/classes include their transitive
@@ -752,12 +795,15 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = []
   }
 }
 
+// Member/type candidates and return syntax depend only on this immutable source index.
 const evaluatorGraphScopes = new WeakMap();
+// Fact folds remain keyed by the individual audit, never by the shared member index.
+const evaluatorFactScopes = new WeakMap();
 const EMPTY_SCOPE_MAP = Object.freeze({});
 const UNSET_QUERY = Symbol("unset");
 
 function getEvaluatorScope(graph, facts) {
-  let graphScope = evaluatorGraphScopes.get(graph);
+  let graphScope = evaluatorGraphScopes.get(graph.members);
   if (!graphScope) {
     const promiseThenEntries = graph.members.get("then") ?? [];
     graphScope = {
@@ -767,10 +813,11 @@ function getEvaluatorScope(graph, facts) {
       returnExpressionCache: new WeakMap(),
       nextExpressionId: 0,
       onlyExternalPromiseThen: promiseThenEntries.every((entry) => !/\.[cm]?[jt]sx?$/u.test(entry.file)),
-      factScopes: [],
     };
-    evaluatorGraphScopes.set(graph, graphScope);
+    evaluatorGraphScopes.set(graph.members, graphScope);
   }
+  let factScopes = evaluatorFactScopes.get(graph);
+  if (!factScopes) evaluatorFactScopes.set(graph, (factScopes = []));
   const strictMembers = Boolean(facts.strictMembers);
   const authorityModule = facts.authorityModule ?? "";
   const constants = facts.constants ?? EMPTY_SCOPE_MAP;
@@ -779,7 +826,7 @@ function getEvaluatorScope(graph, facts) {
   const hasKind = Boolean(facts.kind);
   const hasMethod = facts.method !== undefined;
   const fieldKeys = facts.fields ? Object.keys(facts.fields).sort().join(",") : "";
-  let factScope = graphScope.factScopes.find(
+  let factScope = factScopes.find(
     (entry) =>
       entry.strictMembers === strictMembers &&
       entry.authorityModule === authorityModule &&
@@ -804,12 +851,13 @@ function getEvaluatorScope(graph, facts) {
       emptyValueQueries: new WeakMap(),
       emptyFoldQueries: new WeakMap(),
     };
-    graphScope.factScopes.push(factScope);
+    factScopes.push(factScope);
   }
   return { graphScope, factScope };
 }
 
 export function makeEvaluator(graph, facts) {
+  const bindFrame = (fn, args, env) => bindArguments(fn, args, env, fn.env, graph.internEnv);
   const { graphScope, factScope } = getEvaluatorScope(graph, facts);
   const { typedMemberCandidates, canonicalSignatures, expressionIds, returnExpressionCache } = graphScope;
   const { memberCache, emptyValueQueries, emptyFoldQueries } = factScope;
@@ -1219,13 +1267,13 @@ export function makeEvaluator(graph, facts) {
       const [resolved] = node.arguments;
       if (!resolved) return evaluate(callee.expression, env, depth + 1);
       return evaluate(resolved, env, depth + 1).flatMap((value) =>
-        value.fn ? returnValues(value, bindArguments(value, [callee.expression], env), depth + 1) : [unknown],
+        value.fn ? returnValues(value, bindFrame(value, [callee.expression], env), depth + 1) : [unknown],
       );
     }
     return distinct(
       evaluate(callee, env, depth + 1).flatMap((value) =>
         value.fn
-          ? returnValues(value, bindArguments(value, argumentsForBinding, env), depth + 1)
+          ? returnValues(value, bindFrame(value, argumentsForBinding, env), depth + 1)
           : value.broken
             ? [value]
             : [unknown],
@@ -1547,7 +1595,7 @@ export function makeEvaluator(graph, facts) {
       const callees = evaluate(node.expression, env, depth + 1);
       if (callees.length === 0 || !callees.every((value) => value.fn && value.node.body)) return null;
       const results = callees.flatMap((value) => {
-        const callEnv = bindArguments(value, expandArguments(node.arguments, env, depth + 1), env);
+        const callEnv = bindFrame(value, expandArguments(node.arguments, env, depth + 1), env);
         return returnExpressions(value.node).map((result) => objectLiteralsOf(result, callEnv, depth + 1));
       });
       return results.length && results.every(Boolean) ? results.flat() : null;
@@ -1789,7 +1837,7 @@ export function makeEvaluator(graph, facts) {
     if (callees.length === 0 || !callees.every((value) => value.fn && value.node.body)) return null;
     const expandedArgs = expandArguments(node.arguments, env, depth + 1),
       results = callees.map((value) => {
-        const callEnv = bindArguments(value, expandedArgs, env),
+        const callEnv = bindFrame(value, expandedArgs, env),
           body = value.node.body;
         if (!ts.isBlock(body)) return fold(body, callEnv, depth + 1);
         const outcome = foldStatements(body.statements, callEnv, depth + 1);

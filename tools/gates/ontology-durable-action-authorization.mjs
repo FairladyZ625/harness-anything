@@ -16,8 +16,10 @@ import ts from "typescript";
 import {
   authorizationPolicyGraph,
   buildFlowGraph,
+  freshEvaluationGraph,
   isFunctionNode,
   makeEvaluator,
+  serverSourceGraph,
 } from "./authorization-flow-graph.mjs";
 import { makeAuthorizationTracer } from "./authorization-flow-trace.mjs";
 import { withArtifactActionIngressDeclarations } from "./ontology-gate-lib.mjs";
@@ -313,14 +315,20 @@ function wireFields(descriptor, methods) {
   return vocabulary?.includes(descriptor.id) ? { operation: descriptor.id } : {};
 }
 
+const transportEntriesCache = new WeakMap();
+
 function transportEntries(graph) {
-  // A transport hands each decoded request to a function whose first parameter is the request.
-  const entries = [];
-  for (const { sourceFile } of graph.modules.values())
-    (function visit(node) {
-      if (isFunctionNode(node) && node.parameters[0]?.type?.getText() === "JsonRpcRequest") entries.push(node);
-      ts.forEachChild(node, visit);
-    })(sourceFile);
+  let entries = transportEntriesCache.get(graph.modules);
+  if (!entries) {
+    // A transport hands each decoded request to a function whose first parameter is the request.
+    entries = [];
+    for (const { sourceFile } of graph.modules.values())
+      (function visit(node) {
+        if (isFunctionNode(node) && node.parameters[0]?.type?.getText() === "JsonRpcRequest") entries.push(node);
+        ts.forEachChild(node, visit);
+      })(sourceFile);
+    transportEntriesCache.set(graph.modules, entries);
+  }
   return entries;
 }
 
@@ -341,7 +349,23 @@ export function kindRewriteViolations(rewrite, today, index = EVIDENCE_INDEX) {
   return violations;
 }
 
+// Tests may request named source rows (an empty ID array requests owner proofs only).
+// Keep the complete declarations as proof anchors; gate/CLI calls validate every source.
 export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
+  // Reuse source analysis only. Evaluator scopes are keyed by graph identity, so each
+  // audit gets a fresh identity and an empty frame pool even when its AST is shared.
+  if (!options.graph) return auditAuthorization(rootDir, inputs, options);
+  const graph = freshEvaluationGraph(options.graph);
+  try {
+    return auditAuthorization(rootDir, inputs, { ...options, graph });
+  } finally {
+    graph.releaseQueries();
+  }
+}
+
+function auditAuthorization(rootDir, inputs, options) {
+  const preparedGraph = options.graph;
+  const sourceProjection = options.sourceIds === undefined ? null : new Set(options.sourceIds);
   const today = options.today ?? new Date().toISOString().slice(0, 10);
   const sourceRoot = options.sourceRoot ?? rootDir,
     durable = inputs.descriptors.filter((descriptor) => descriptor.commandClass !== "repo-read"),
@@ -416,33 +440,34 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       ]),
     ],
     declaredSourceFiles = declaredSources.map(sourceFileOf),
-    guiCallerFiles = guiCallbackCallerFiles(
-      sourceRoot,
-      declaredSourceFiles.filter((f) => /^packages\/gui\/src\/(?:renderer|preload|browser|main)\//u.test(f)),
-    ),
-    graph = buildFlowGraph(sourceRoot, {
-      anchorRoot: rootDir,
-      lexicalFiles: guiCallerFiles,
-      sourceFiles: [
-        ...new Set([
-          ...declaredSourceFiles,
-          ...sourceActions.flatMap((action) =>
-            Object.values(action.ontology.entries ?? {}).flatMap((entry) => [
-              entry.file,
-              ...(entry.builder ? [entry.builder] : []),
-            ]),
-          ),
-          ...declaredActions
-            .filter((action) => action.ontology?.authority)
-            .flatMap((action) =>
+    graph =
+      preparedGraph ??
+      buildFlowGraph(sourceRoot, {
+        anchorRoot: rootDir,
+        lexicalFiles: guiCallbackCallerFiles(
+          sourceRoot,
+          declaredSourceFiles.filter((f) => /^packages\/gui\/src\/(?:renderer|preload|browser|main)\//u.test(f)),
+        ),
+        sourceFiles: [
+          ...new Set([
+            ...declaredSourceFiles,
+            ...sourceActions.flatMap((action) =>
               Object.values(action.ontology.entries ?? {}).flatMap((entry) => [
                 entry.file,
                 ...(entry.builder ? [entry.builder] : []),
               ]),
             ),
-        ]),
-      ],
-    }),
+            ...declaredActions
+              .filter((action) => action.ontology?.authority)
+              .flatMap((action) =>
+                Object.values(action.ontology.entries ?? {}).flatMap((entry) => [
+                  entry.file,
+                  ...(entry.builder ? [entry.builder] : []),
+                ]),
+              ),
+          ]),
+        ],
+      }),
     scope = changedAuthorizationScope(graph, inputs, options.changedFiles);
   options.onScope?.({
     descriptorIds:
@@ -462,7 +487,9 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
         ontology: {
           ...action.ontology,
           sources: action.ontology.sources.filter(
-            (source) => !scope.sourceIds || scope.sourceIds.has(source.candidateId),
+            (source) =>
+              (!scope.sourceIds || scope.sourceIds.has(source.candidateId)) &&
+              (!sourceProjection || sourceProjection.has(source.candidateId)),
           ),
         },
       }))
@@ -488,8 +515,17 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
           site: sourceSite(graph, witnesses.get(source.candidateId)),
         })),
     sourceResults = new Map(),
+    serverGraph = serverSourceGraph(graph),
+    migrationEvidence = new Map(),
+    migrationFor = (node, source, action) => {
+      if (!node) return null;
+      const key = source.candidateId ?? source.id;
+      if (!migrationEvidence.has(key))
+        migrationEvidence.set(key, migrationServiceEntryEvidence(serverGraph, node, source, action));
+      return migrationEvidence.get(key);
+    },
     anchors = {
-      sourceGraph: graph,
+      sourceGraph: serverGraph,
       ports: portAnchors,
       authorityModule: "@harness-anything/kernel",
       decision: decisionAnchor,
@@ -502,7 +538,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       writerFence: { file: "packages/kernel/src/domain/write-chain.contract.ts", name: "assertCurrentWriter" },
       sessions: sessionAnchors,
       services: serviceAnchors,
-      entries: transportEntries(graph),
+      entries: transportEntries(serverGraph),
       constants: inputs.constants,
       functions: inputs.functions,
       serviceCall: (node, kind, canonical) =>
@@ -518,7 +554,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
     },
     tracer = makeAuthorizationTracer(authorizationPolicyGraph(graph), anchors),
     // Source ownership retains internal service guards as well as its actual callback frames.
-    sourceTracer = makeAuthorizationTracer(graph, anchors),
+    sourceTracer = makeAuthorizationTracer(serverGraph, anchors),
     // ActionDeclaration residency: a host- or runtime-local action is not decided at a canonical cut.
     nonCanonical = new Set(
       (inputs.constants.actionDeclarations ?? [])
@@ -569,10 +605,9 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
     const ownerEvidence =
       authority === "local-transport" ? owner.local : authority === "own-session" ? owner.session : owner.authorized;
     const targets = sourceTargets(action, descriptor.id).filter((source) => {
+      if (sourceProjection && !sourceProjection.has(source.id)) return false;
       const node = witnesses.get(source.id);
-      return !(
-        hostServiceEntryRequired(graph, node, action) || migrationServiceEntryEvidence(graph, node, source, action)
-      );
+      return !(hostServiceEntryRequired(serverGraph, node, action) || migrationFor(node, source, action));
     });
     const fullTrace =
       targets.length > 0 &&
@@ -582,7 +617,6 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
         ? sourceTracer.traceDescriptor({ ...traceInput, sources: targets })
         : null;
     if (fullTrace) {
-      graph.resetFramePool();
       for (const source of fullTrace.sources.values()) sourceResults.set(source.id, source);
     }
     const remainingTargets = fullTrace
@@ -592,11 +626,17 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
         })
       : [];
     const policyTrace =
-      remainingTargets.length > 0 ? tracer.traceDescriptor({ ...traceInput, sources: remainingTargets }) : null;
+      remainingTargets.length > 0
+        ? tracer.traceDescriptor({
+            ...traceInput,
+            sources: remainingTargets,
+            sourceEvaluator: fullTrace.sourceEvaluator,
+          })
+        : null;
     if (policyTrace) {
-      graph.resetFramePool();
       for (const source of policyTrace.sources.values()) sourceResults.set(source.id, source);
     }
+    if (fullTrace || policyTrace) graph.resetFramePool();
     const trace = policyTrace ?? owner;
     const evidence =
         authority === "local-transport" ? trace.local : authority === "own-session" ? trace.session : trace.authorized,
@@ -693,10 +733,21 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       const client = rawClient && serverVerified ? rawClient : null;
       const descriptor = inputs.descriptors.find((row) => row.id === source.route),
         route = rows.find((row) => row.id === source.route),
-        repoRead = node && repoReadServiceEvidence(graph, node, source, action, inputs.descriptors),
-        delegated = node && delegatedServiceEntryEvidence(graph, node, source, action, descriptor, route, trace),
-        hostEntry = node && hostServiceEntryEvidence(graph, node, source, action, route),
-        hostRequired = node && hostServiceEntryRequired(graph, node, action),
+        repoRead = node && repoReadServiceEvidence(serverGraph, node, source, action, inputs.descriptors),
+        delegated =
+          node &&
+          delegatedServiceEntryEvidence(
+            serverGraph,
+            node,
+            source,
+            action,
+            descriptor,
+            route,
+            trace,
+            migrationFor(node, source, action),
+          ),
+        hostEntry = node && hostServiceEntryEvidence(serverGraph, node, source, action, route),
+        hostRequired = node && hostServiceEntryRequired(serverGraph, node, action),
         traceProof = !hostRequired && trace?.seen && trace.ok;
       const output =
         node &&
@@ -763,12 +814,14 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
     }),
   );
   const receipt = receiptAuthorizationContract(rootDir);
-  return {
+  const result = {
     rows,
     sourceRows,
     receipt,
     findings: findingsFor(rows, receipt, sourceRows),
   };
+  if (!preparedGraph) graph.releaseQueries();
+  return result;
 }
 
 function findingsFor(rows, receipt, sourceRows) {

@@ -4,12 +4,15 @@ import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, syml
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { auditDurableActionAuthorization, loadAuthorizationInputs } from "../ontology-durable-action-authorization.mjs";
+import {
+  auditWithBaseline as auditDurableActionAuthorization,
+  baselineAuthorizationInputs,
+} from "./authorization-baseline.mjs";
 import { replaceSourceOnce, runGit } from "./helpers.mjs";
 import { testOrdinalInPartition } from "../../node-test-runner-lib.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../.."),
-  inputs = await loadAuthorizationInputs(repoRoot),
+  inputs = await baselineAuthorizationInputs(),
   owners = ["settings-update", "task-transition"],
   effects = owners.map((kind) =>
     inputs.constants.actionDeclarations

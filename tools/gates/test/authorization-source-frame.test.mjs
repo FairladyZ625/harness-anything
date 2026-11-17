@@ -1,9 +1,89 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { bindArguments, buildFlowGraph, EMPTY_ENV, makeEvaluator } from "../authorization-flow-graph.mjs";
-import { processSourceSites, sourceSite } from "../authorization-source-proof.mjs";
+import {
+  bindArguments,
+  buildFlowGraph,
+  EMPTY_ENV,
+  freshEvaluationGraph,
+  makeEvaluator,
+} from "../authorization-flow-graph.mjs";
+import { processSourceSites, sourceSite, sourceWitnesses } from "../authorization-source-proof.mjs";
+import { scanOntologyText } from "../ontology-closure-scan.mjs";
 import { makeRepo } from "./helpers.mjs";
+
+test("shared source witnesses survive caller mutation and reject replaced syntax", () => {
+  const file = "packages/daemon/src/witness.ts",
+    text = 'function effect() { store.append("original"); }',
+    { rootDir } = makeRepo({ [file]: text }),
+    graph = buildFlowGraph(rootDir),
+    sources = scanOntologyText(file, text)
+      .filter((candidate) => candidate.category === "action")
+      .map((candidate) => ({ candidateId: candidate.id })),
+    original = [...sourceWitnesses(graph, sources)];
+  assert.equal(original.length, 1);
+  sourceWitnesses(graph, sources).clear();
+  const query = freshEvaluationGraph(graph);
+  assert.deepEqual([...sourceWitnesses(query, sources)], original);
+  query.releaseQueries();
+  const changed = graph.withSourceOverrides(new Map([[file, "function effect() {}"]]));
+  assert.equal(sourceWitnesses(changed, sources).size, 0);
+  assert.deepEqual([...sourceWitnesses(graph, sources)], original);
+  changed.releaseQueries();
+  graph.releaseQueries();
+});
+
+test("a retained source file releases its completed audit's environment owner", () => {
+  const file = "packages/daemon/src/owner.ts",
+    { rootDir } = makeRepo({ [file]: "function owner(callback) { callback(); }" }),
+    graph = buildFlowGraph(rootDir),
+    owner = graph.modules.get(file).sourceFile.statements[0],
+    bind = () => bindArguments({ node: owner, env: EMPTY_ENV }, [owner.name], EMPTY_ENV),
+    live = bind();
+  assert.equal(live, graph.internEnv(live));
+  graph.releaseQueries();
+  assert.throws(bind, TypeError, "the retained AST no longer selects the completed interner");
+  const next = freshEvaluationGraph(graph),
+    current = bind();
+  graph.releaseQueries();
+  assert.equal(current, next.internEnv(current), "a stale owner cannot release the next audit's interner");
+  next.releaseQueries();
+});
+
+test("shared AST audits discard fact memo and frame identity in positive and negative order", (t) => {
+  const file = "packages/daemon/src/audit.ts",
+    { rootDir } = makeRepo({
+      [file]:
+        'import { allowed } from "@harness-anything/kernel"; function owner(callback) { if (allowed) callback(); }',
+    }),
+    graph = buildFlowGraph(rootDir),
+    owner = graph.modules.get(file).sourceFile.statements[1],
+    condition = owner.body.statements[0].expression,
+    facts = { authorityModule: "@harness-anything/kernel", constants: {}, functions: {} },
+    argument = { expression: owner.name, env: EMPTY_ENV },
+    bind = () => graph.internEnv(new Map([[owner.parameters[0], argument]]));
+  let previous = bind();
+  for (const allowed of [true, true, false, true, false, false, true]) {
+    facts.constants.allowed = allowed;
+    const auditGraph = freshEvaluationGraph(graph),
+      evaluator = makeEvaluator(auditGraph, facts),
+      frame = bind();
+    assert.equal(auditGraph.modules, graph.modules, "the source graph is reused");
+    assert.notEqual(auditGraph.internEnv, graph.internEnv, "each audit owns a new environment interner");
+    assert.notEqual(frame, previous, "the preceding audit's frame pool is empty");
+    assert.deepEqual(evaluator.fold(condition, EMPTY_ENV), { value: allowed });
+    previous = frame;
+  }
+  // Positive control: deliberately retain one audit identity after warming its allowed
+  // fold. Clearing frames alone cannot invalidate fact memo for the same constants object.
+  const pollutedGraph = freshEvaluationGraph(graph);
+  assert.deepEqual(makeEvaluator(pollutedGraph, facts).fold(condition, EMPTY_ENV), { value: true });
+  facts.constants.allowed = false;
+  pollutedGraph.resetFramePool();
+  const leaked = makeEvaluator(pollutedGraph, facts).fold(condition, EMPTY_ENV);
+  assert.throws(() => assert.deepEqual(leaked, { value: false }), { code: "ERR_ASSERTION" });
+  t.diagnostic("positive control retained proof memo: expected false, observed true; ERR_ASSERTION detected");
+});
 
 test("recursive helpers and self-updated locals capture only actual free parameters", () => {
   const file = "packages/daemon/src/frame.ts",
@@ -168,6 +248,38 @@ function entry() { first(); }`,
   );
 });
 
+test("matchAny source queries stop at the first hit without marking unvisited targets missing", () => {
+  const file = "packages/daemon/src/match-any.ts";
+  const { rootDir } = makeRepo({
+    [file]: `function hit() { store.append("first"); }
+function later() { store.append("second"); }
+function absent() { store.append("never"); }
+function entry() { hit(); later(); }`,
+  });
+  const graph = buildFlowGraph(rootDir),
+    [hit, later, absent, entry] = graph.modules.get(file).sourceFile.statements,
+    evaluator = makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true }),
+    firstSite = sourceSite(graph, hit.body.statements[0].expression),
+    secondSite = sourceSite(graph, later.body.statements[0].expression),
+    absentSite = sourceSite(graph, absent.body.statements[0].expression);
+  const early = processSourceSites(graph, entry, {
+    evaluator,
+    targets: [firstSite, secondSite],
+    matchAny: true,
+  });
+  assert.equal(early.has(firstSite), true);
+  assert.equal(early.has(secondSite), false, "matchAny returns on the first reachable target");
+  assert.equal(
+    processSourceSites(graph, entry, { evaluator, targets: [secondSite] }).has(secondSite),
+    true,
+    "an early matchAny exit must not cache unvisited targets as missing",
+  );
+  assert.equal(
+    processSourceSites(graph, entry, { evaluator, targets: [absentSite], matchAny: true }).has(absentSite),
+    false,
+  );
+});
+
 test("source summaries reuse unchanged frames and retain separate callback bindings", () => {
   const file = "packages/daemon/src/callback.ts";
   const { rootDir } = makeRepo({
@@ -229,4 +341,58 @@ const first = 1, second = 2;`,
   const beforeRepeat = evaluations;
   assert.equal(processSourceSites(graph, nodes[2], { evaluator, env: frame(1), targets: [site] }).has(site), true);
   assert.equal(evaluations, beforeRepeat);
+});
+
+// A mutation Program reuses pristine syntax, while its checker and proof state remain separate.
+test("source overrides reuse unchanged ASTs and recheck changed imports in either order", () => {
+  const file = "packages/daemon/src/value.ts",
+    caller = "packages/daemon/src/caller.ts",
+    { rootDir } = makeRepo({
+      [file]: 'export function value() { return "green"; }',
+      [caller]: 'import { value } from "./value.ts"; export function entry() { return value(); }',
+    }),
+    baseline = buildFlowGraph(rootDir),
+    originalCaller = baseline.modules.get(caller).sourceFile,
+    expression = originalCaller.statements[1].body.statements[0].expression,
+    check = (graph, expected) => {
+      const query = freshEvaluationGraph(graph);
+      try {
+        assert.deepEqual(makeEvaluator(query, {}).fold(expression, EMPTY_ENV), { value: expected });
+      } finally {
+        query.releaseQueries();
+      }
+    };
+  check(baseline, "green");
+  assert.equal(baseline.callDeclaration(expression), baseline.modules.get(file).sourceFile.statements[0]);
+  const mutation = baseline.withSourceOverrides(
+    new Map([
+      [file, 'export function value() { return "red"; }'],
+      ["packages/daemon/src/new.ts", "export function added() { return false; }"],
+    ]),
+  );
+  assert.equal(mutation.modules.get(caller).sourceFile, originalCaller);
+  assert.notEqual(mutation.modules.get(file).sourceFile, baseline.modules.get(file).sourceFile);
+  assert.ok(mutation.modules.has("packages/daemon/src/new.ts"));
+  assert.equal(mutation.callDeclaration(expression), mutation.modules.get(file).sourceFile.statements[0]);
+  check(mutation, "red");
+  mutation.releaseQueries();
+  check(baseline, "green");
+  check(mutation, "red");
+});
+
+test("interleaved Programs bind through their own query owner on shared source files", () => {
+  const file = "packages/daemon/src/caller.ts",
+    { rootDir } = makeRepo({
+      [file]: 'function value(input) { return input; } export function entry() { return value("ok"); }',
+    }),
+    baseline = buildFlowGraph(rootDir),
+    left = freshEvaluationGraph(baseline),
+    right = freshEvaluationGraph(baseline.withSourceOverrides(new Map())),
+    expression = baseline.modules.get(file).sourceFile.statements[1].body.statements[0].expression,
+    first = makeEvaluator(left, {}),
+    second = makeEvaluator(right, {});
+  assert.deepEqual(second.fold(expression, EMPTY_ENV), { value: "ok" });
+  right.releaseQueries();
+  assert.deepEqual(first.fold(expression, EMPTY_ENV), { value: "ok" });
+  left.releaseQueries();
 });

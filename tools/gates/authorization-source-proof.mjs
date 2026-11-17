@@ -17,15 +17,27 @@ import {
 } from "./authorization-gui-source-proof.mjs";
 export { guiCallbackCallerFiles, guiClientSource, resolvedGuiClientBindings, sourceSite };
 
+// Scanner output depends only on immutable syntax and its logical repository path.
+// Keep the private index separate from each caller's mutable witness selection.
+const sourceWitnessIndexes = new WeakMap();
+
 /** Identity and AST come from the same scanner as closure, never a second fingerprint. */
 export function sourceWitnesses(graph, sources) {
   const witnesses = new Map();
   for (const file of new Set(sources.map(sourceFileOf))) {
     const source = graph.modules.get(file)?.sourceFile;
     if (!source) continue;
-    scanOntologyText(file, source, (candidate, node) => {
-      if (candidate.category === "action") witnesses.set(candidate.id, node);
-    });
+    let paths = sourceWitnessIndexes.get(source);
+    if (!paths) sourceWitnessIndexes.set(source, (paths = new Map()));
+    let index = paths.get(file);
+    if (!index) {
+      index = new Map();
+      scanOntologyText(file, source, (candidate, node) => {
+        if (candidate.category === "action") index.set(candidate.id, node);
+      });
+      paths.set(file, index);
+    }
+    for (const [id, node] of index) witnesses.set(id, node);
   }
   return witnesses;
 }
@@ -1445,7 +1457,7 @@ function invokesCallbackSource(graph, call, node) {
         callee.fn &&
         reachesSource(graph, callee.node, node, {
           evaluator,
-          env: bindArguments(callee, call.arguments, new Map()),
+          env: bindArguments(callee, call.arguments, new Map(), callee.env, graph.internEnv),
         }),
     )
   );
@@ -1523,8 +1535,11 @@ export function migrationServiceEntryEvidence(graph, node, source, action) {
       : null;
   }
   if (fn.name?.getText() === "matchesRestatedFact" && file === importFile) {
-    const addFact = functionNamed(graph, importFile, "addFact");
-    return addFact && reachesSource(graph, run, addFact) && reachesSource(graph, addFact, node)
+    const addFact = functionNamed(graph, importFile, "addFact"),
+      evaluator = addFact ? makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true }) : null;
+    return addFact &&
+      reachesSource(graph, run, addFact, { evaluator }) &&
+      reachesSource(graph, addFact, node, { evaluator })
       ? [
           "migrate-import: the registered migration entry reaches the restatement claim through its actual callback arguments",
         ]
@@ -1589,7 +1604,16 @@ export function repoReadServiceEvidence(graph, node, source, action, descriptors
 }
 
 /** A called typed service owns the nested work; the descriptor trace still owns denial and route checks. */
-export function delegatedServiceEntryEvidence(graph, node, source, action, descriptor, route, trace) {
+export function delegatedServiceEntryEvidence(
+  graph,
+  node,
+  source,
+  action,
+  descriptor,
+  route,
+  trace,
+  cachedMigration = undefined,
+) {
   if (
     !route?.ok ||
     route.id !== source.route ||
@@ -1598,7 +1622,8 @@ export function delegatedServiceEntryEvidence(graph, node, source, action, descr
     source.role !== "effect"
   )
     return null;
-  const migration = migrationServiceEntryEvidence(graph, node, source, action);
+  const migration =
+    cachedMigration === undefined ? migrationServiceEntryEvidence(graph, node, source, action) : cachedMigration;
   if (!migration && !(trace?.seen && trace.ok)) return null;
   const declaration = graph.callDeclaration(node),
     file = declaration && graph.fileOf(declaration),
@@ -1799,6 +1824,7 @@ export function processSourceSites(
     evaluator = makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true }),
     env = EMPTY_ENV,
     targets = [],
+    matchAny = false,
   } = {},
 ) {
   targets = [...targets];
@@ -1824,7 +1850,12 @@ export function processSourceSites(
     frame.edges = [];
     const linkFrame = (value, args = null) =>
       frame.edges.push({
-        frame: frameFor(value.node, args ? bindArguments(value, evaluator.expandArguments(args, env), env) : value.env),
+        frame: frameFor(
+          value.node,
+          args
+            ? bindArguments(value, evaluator.expandArguments(args, env), env, value.env, graph.internEnv)
+            : value.env,
+        ),
         // Ordering needs only declaration ranges, not argument AST arrays. These cached
         // edges are reused for different target queries, so retain no query-specific flag.
         references: args?.flatMap(referencedRanges) ?? [],
@@ -1903,11 +1934,14 @@ export function processSourceSites(
     references.set(node, found);
     return found;
   }
+  const satisfied = () =>
+    targets.length > 0 &&
+    (matchAny ? targets.some((site) => sites.has(site)) : targets.every((site) => sites.has(site)));
   function walk(frame) {
     // A dispatcher may re-enter with another argument binding. frameFor already gives
     // each binding context its identity; seen frames terminate cycles without pruning it.
     if (!frame.fn.body || seen.has(frame)) return;
-    if (targets.length > 0 && targets.every((site) => sites.has(site))) return;
+    if (satisfied()) return;
     if (targets.length > 0 && targets.every((site) => sites.has(site) || frame.missing.has(site))) return;
     seen.add(frame);
     // Upstream host/migration proofs target an invoked callback endpoint as well as calls.
@@ -1915,6 +1949,7 @@ export function processSourceSites(
     if (requestedSites.has(endpoint)) sites.add(endpoint);
     if (frame.edges === null) expand(frame);
     for (const site of frame.sites) sites.add(site);
+    if (satisfied()) return;
     // An authored callback naming the target is cheap evidence to inspect first. This only
     // orders actual call edges; every other edge remains available when the target is absent.
     const preferred = [],
@@ -1937,7 +1972,9 @@ export function processSourceSites(
   // A missing requested target forces a complete traversal (including cycles). Every
   // visited frame then has the same negative reachability fact. An early hit proves
   // no absence; an untargeted query still walks the whole graph. Never cache authority.
-  const missing = targets.filter((site) => !sites.has(site));
-  for (const frame of seen) for (const site of missing) frame.missing.add(site);
+  if (!matchAny || !targets.some((site) => sites.has(site))) {
+    const missing = targets.filter((site) => !sites.has(site));
+    for (const frame of seen) for (const site of missing) frame.missing.add(site);
+  }
   return sites;
 }
