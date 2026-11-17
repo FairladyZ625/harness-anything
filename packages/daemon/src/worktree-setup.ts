@@ -24,6 +24,7 @@ import {
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { posixShellFallback, runProcessExitAsync, runProcessTextAsync, startDetachedProcess } from "./process-port.ts";
 import { nodeModulesSetupAdapter } from "./worktree-setup-node-modules.ts";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 import type { CanonicalEventStore } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 
 // dec_8B3FCCD256CAC5B0BF3CCEDE58 CH3: the repository declares in Settings `worktree.setup` what a fresh worktree
@@ -257,18 +258,36 @@ function readSucceeded(directory: string): string[] {
 // being told the canonical checkout path. Worktrees materialized while every ledger directory was linked are swept
 // to this layout at the next setup.
 
+/** Authored root path relative to any task worktree checkout, keeping external ledgers inside the worktree. */
+export function worktreeAuthoredRelative(
+  layout: Pick<ReturnType<typeof resolveHarnessLayout>, "rootDir" | "authoredRoot">,
+): string {
+  const relative = path.relative(layout.rootDir, layout.authoredRoot);
+  if (
+    relative === "" ||
+    relative === "." ||
+    relative === ".." ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative)
+  )
+    return "harness";
+  return relative;
+}
+
 function ledgerMirror(rootDir: string, cwd: string): { readonly authoredRoot: string; readonly mirror: string } {
   const layout = resolveHarnessLayout(rootDir);
   return {
     authoredRoot: layout.authoredRoot,
-    mirror: path.join(cwd, path.relative(layout.rootDir, layout.authoredRoot)),
+    mirror: path.join(cwd, worktreeAuthoredRelative(layout)),
   };
 }
 
-/** The dispatch's own task package in the ledger, named by the unique `<taskId>-` prefix of its compiled path. */
+/** The dispatch's own task package in the ledger, named by the taskId or `<taskId>-` prefix of its compiled path. */
 function ownPackageDirectory(authoredRoot: string, taskId: string): string | null {
   const tasksRoot = path.join(authoredRoot, "tasks"),
-    name = existsSync(tasksRoot) ? readdirSync(tasksRoot).find((entry) => entry.startsWith(`${taskId}-`)) : undefined;
+    name = existsSync(tasksRoot)
+      ? readdirSync(tasksRoot).find((entry) => entry === taskId || entry.startsWith(`${taskId}-`))
+      : undefined;
   return name === undefined ? null : path.join(tasksRoot, name);
 }
 
@@ -403,12 +422,24 @@ export function taskWorktreeDocumentBase(cwd: string, logicalPath: string): stri
 }
 
 /** Advance only the node-local acknowledged base, never an authored canonical document. */
-export function acceptTaskWorktreeDocumentBase(cwd: string, logicalPath: string, bytes: Uint8Array): void {
-  writeTaskWorktreeDocumentBase(cwd, taskWorktreeDocumentBase(cwd, ""), logicalPath, bytes);
+export function acceptTaskWorktreeDocumentBase(
+  cwd: string,
+  logicalPath: string,
+  bytes: Uint8Array,
+  rootDir?: string,
+): void {
+  writeTaskWorktreeDocumentBase(cwd, taskWorktreeDocumentBase(cwd, ""), logicalPath, bytes, rootDir);
 }
 
-function writeTaskWorktreeDocumentBase(cwd: string, directory: string, logicalPath: string, bytes: Uint8Array): void {
-  detachTaskDocument(path.join(resolveHarnessLayout(cwd).authoredRoot, ...logicalPath.split("/")));
+function writeTaskWorktreeDocumentBase(
+  cwd: string,
+  directory: string,
+  logicalPath: string,
+  bytes: Uint8Array,
+  rootDir?: string,
+): void {
+  const mirrorRoot = rootDir === undefined ? resolveHarnessLayout(cwd).authoredRoot : ledgerMirror(rootDir, cwd).mirror;
+  detachTaskDocument(path.join(mirrorRoot, ...logicalPath.split("/")));
   const base = path.join(directory, ...logicalPath.split("/"));
   /* @gate-identity non-state/environment-io.0deb3794b723e626 */ mkdirSync(path.dirname(base), { recursive: true });
   /* @gate-identity non-state/environment-io.c26b78d6a3c9c571 */ writeFileSync(base, bytes);
@@ -426,6 +457,7 @@ export function recoverTaskWorktreeDocumentBases(
   documents: readonly { readonly path: string; readonly bytes: Uint8Array | null }[],
   store: CanonicalEventStore,
   executionIds: readonly string[] = [],
+  rootDir?: string,
 ): void {
   if (documents.length === 0 || store.queryEvents === undefined) return;
   const directory = taskWorktreeDocumentBase(cwd, ""),
@@ -455,7 +487,7 @@ export function recoverTaskWorktreeDocumentBases(
         }
         const candidate = pending.get(claim.path);
         if (candidate !== null && candidate !== undefined && Buffer.from(candidate).equals(bytes)) {
-          writeTaskWorktreeDocumentBase(cwd, directory, claim.path, bytes);
+          writeTaskWorktreeDocumentBase(cwd, directory, claim.path, bytes, rootDir);
           pending.delete(claim.path);
         } else if (!acknowledged.has(claim.path) && executionWrite) {
           acknowledged.set(claim.path, bytes);
@@ -466,7 +498,7 @@ export function recoverTaskWorktreeDocumentBases(
   }
   for (const logical of pending.keys()) {
     const bytes = acknowledged.get(logical);
-    if (bytes !== undefined) writeTaskWorktreeDocumentBase(cwd, directory, logical, bytes);
+    if (bytes !== undefined) writeTaskWorktreeDocumentBase(cwd, directory, logical, bytes, rootDir);
   }
 }
 
@@ -484,17 +516,35 @@ function mirrorTaskPackage(source: string, destination: string, base: string): v
       continue;
     }
     if (!entry.isFile()) throw new Error(`Task package entry ${from} is not a regular file or directory.`);
+    const original = path.join(base, entry.name);
+    let copyBase = false;
+    let copyMirror = false;
     if (!existsSync(to)) {
-      const original = path.join(base, entry.name);
-      if (!existsSync(original))
-        /* @gate-identity non-state/environment-io.cdd8a29626dba774 */ copyFileSync(from, original);
-      /* @gate-identity non-state/environment-io.d35718de7079bbb5 */ copyFileSync(original, to);
+      copyBase = true;
+      copyMirror = true;
     } else {
       const stat = lstatSync(to);
-      if (stat.isSymbolicLink()) throw new Error(`Task package mirror ${to} must not be a symbolic link.`);
-      // Detach an older mirror without inventing a base for edits whose original version is unknown.
+      if (stat.isSymbolicLink() || !stat.isFile())
+        throw new Error(`Task package mirror ${to} must be a regular file and not a symbolic link.`);
+      const originalStat = lstatSync(original, { throwIfNoEntry: false });
+      if (originalStat?.isFile() && !originalStat.isSymbolicLink()) {
+        const canonicalBytes = readAuthoredDocumentBytes(source, entry.name),
+          baseBytes = readFileSync(original),
+          worktreeBytes = readAuthoredDocumentBytes(destination, entry.name);
+        if (!Buffer.from(canonicalBytes).equals(baseBytes)) {
+          if (Buffer.from(worktreeBytes).equals(baseBytes)) {
+            copyBase = true;
+            copyMirror = true;
+          } else if (Buffer.from(worktreeBytes).equals(canonicalBytes)) {
+            copyBase = true;
+          }
+        }
+      }
+      // Detach an older mirror without inventing a base for divergent or unknown edits.
       detachTaskDocument(to);
     }
+    if (copyBase) /* @gate-identity non-state/environment-io.cdd8a29626dba774 */ copyFileSync(from, original);
+    if (copyMirror) /* @gate-identity non-state/environment-io.d35718de7079bbb5 */ copyFileSync(original, to);
   }
 }
 

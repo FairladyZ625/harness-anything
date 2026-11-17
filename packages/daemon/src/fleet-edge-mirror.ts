@@ -24,6 +24,8 @@ import { readLocalState } from "./repo-cell-settings-state.ts";
 import { BASE_BACKUP_ARCHIVE_ROOT } from "@harness-anything/storage";
 import { withReplicaGeneration, type ReplicaGeneration } from "./fleet/replica-generation.ts";
 import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
+import { taskWorktreeCandidateInventory } from "./task-worktree-candidates.ts";
+import { acceptTaskWorktreeDocumentBase, worktreeAuthoredRelative } from "./worktree-setup.ts";
 
 export interface FleetMirrorBlob {
   readonly sha256: string;
@@ -52,6 +54,8 @@ export interface FleetMirrorDirtyFile {
   readonly mediaType: string;
   /** The policy this candidate must be submitted under; the scan settled it, callers never re-derive it. */
   readonly policyId: string;
+  /** Task/review worktree checkout that authored this change when not edited in the workspace mirror. */
+  readonly worktreeRoot?: string;
 }
 export interface FleetMirrorScan {
   readonly changes: readonly FleetMirrorDirtyFile[];
@@ -297,11 +301,11 @@ export function scanFleetMirrorWorktree(
     //
     // The shared inspector owns route attribution, candidate membership, persisted-policy handling,
     // and the path-specific read cap for both the center and this edge.
-    const unchanged =
+    const originalSha = hasMaterializationBaseline ? (marker.entries?.[logical] ?? null) : (base?.sha256 ?? null),
+      unchanged =
         inspection.bytes !== null &&
-        base !== undefined &&
-        base.size === inspection.bytes.byteLength &&
-        base.sha256 === sha256Bytes(inspection.bytes),
+        (sha256Bytes(inspection.bytes) === originalSha ||
+          (base !== undefined && base.sha256 === sha256Bytes(inspection.bytes))),
       route = inspection.route;
     // Membership first, then the unchanged check: an untouched file the channel does not carry is
     // simply not a candidate, and an untouched file it does carry is clean. A dirty path outside the
@@ -349,7 +353,7 @@ export function scanFleetMirrorWorktree(
     changes.push({
       path: logical,
       bytes,
-      baseBlobSha256: base?.sha256 ?? null,
+      baseBlobSha256: originalSha,
       mediaType: docClass.mediaType,
       policyId: docClass.policyId,
     });
@@ -502,6 +506,178 @@ export function fleetConflictSideFile(
 export function restoreFleetConflictCenterBytes(_workspaceRoot: string, _id: string, _row: FleetMirrorBlob): void {
   throw new FleetMirrorError("conflict_not_found", "No staged conflict record exists.");
 }
+function edgeTaskWorktreeRoots(
+  workspaceRoot: string,
+  taskId: string,
+  includeReviewWorktrees: boolean,
+): readonly string[] {
+  const roots: string[] = [];
+  if (includeReviewWorktrees) {
+    const reviewRoot = path.join(workspaceRoot, ".worktrees", ".review", taskId);
+    const reviewStat = lstatSync(reviewRoot, { throwIfNoEntry: false });
+    if (reviewStat?.isDirectory() && !reviewStat.isSymbolicLink())
+      for (const entry of readdirSync(reviewRoot, { withFileTypes: true }).sort((a, b) =>
+        b.name.localeCompare(a.name),
+      )) {
+        const candidate = path.join(reviewRoot, entry.name);
+        if (entry.isDirectory() && !entry.isSymbolicLink()) roots.push(candidate);
+      }
+  }
+  const taskRoot = path.join(workspaceRoot, ".worktrees", taskId),
+    taskStat = lstatSync(taskRoot, { throwIfNoEntry: false });
+  if (taskStat?.isDirectory() && !taskStat.isSymbolicLink()) roots.push(taskRoot);
+  return roots;
+}
+
+/**
+ * Scan both the edge workspace mirror and the task's materialized worktree mirrors as one logical view.
+ * Untouched worktree files whose bytes match their recorded base are ignored so they never shadow or roll
+ * back newer canonical revisions; edited/new worktree files carry their true worktree base SHA.
+ */
+export function scanEdgeTaskWorktrees(options: {
+  readonly view: FleetMirrorView;
+  readonly workspaceRoot: string;
+  readonly taskId: string;
+  readonly packagePath: string;
+  readonly selection?: readonly string[];
+  readonly includeReviewWorktrees?: boolean;
+}): FleetMirrorScan {
+  const { view, workspaceRoot, taskId, packagePath, selection, includeReviewWorktrees = false } = options,
+    packagePrefix = `${packagePath}/`,
+    packageSelection =
+      selection ??
+      [...new Set([...view.entries.keys(), ...materializedPaths(materializedRoot(workspaceRoot))])].filter((p) =>
+        p.startsWith(packagePrefix),
+      ),
+    workspaceScan = scanFleetMirrorWorktree(view, workspaceRoot, packageSelection),
+    selectionSet = selection ? new Set(selection) : null,
+    authoredRelative = worktreeAuthoredRelative(resolveHarnessLayout(workspaceRoot)),
+    changesByPath = new Map<string, FleetMirrorDirtyFile>(workspaceScan.changes.map((change) => [change.path, change])),
+    conflictedPaths = new Set<string>(),
+    overriddenPaths = new Set<string>(),
+    extraInapplicable = new Set<string>(),
+    blockedByPath = new Map<string, FleetMirrorScan["blocked"][number]>(
+      workspaceScan.blocked.map((entry) => [entry.path, entry]),
+    ),
+    baseLedgerSha = {
+      repoId: view.repoId,
+      revision: view.revision,
+      headDigest: view.headDigest,
+    };
+  for (const worktreeRoot of edgeTaskWorktreeRoots(workspaceRoot, taskId, includeReviewWorktrees)) {
+    const gitEntry = lstatSync(path.join(worktreeRoot, ".git"), { throwIfNoEntry: false });
+    if (!gitEntry || (!gitEntry.isFile() && !gitEntry.isDirectory())) continue;
+    const mirrorPackage = path.join(worktreeRoot, authoredRelative, ...packagePath.split("/"));
+    if (!lstatSync(mirrorPackage, { throwIfNoEntry: false })?.isDirectory()) continue;
+    const inventory = taskWorktreeCandidateInventory(workspaceRoot, worktreeRoot, packagePath, baseLedgerSha);
+    if (!inventory) continue;
+    for (const row of inventory.rows) {
+      if (selectionSet && !selectionSet.has(row.path)) continue;
+      const base = view.entries.get(row.path),
+        inspection = inspectDocCandidate(
+          documentPath(row.path),
+          row.size,
+          base?.policyId ?? null,
+          base !== undefined,
+          () => row.bytes,
+        ),
+        route = inspection.route;
+      if (inspection.kind === "route-owned") {
+        if (!changesByPath.has(row.path)) {
+          overriddenPaths.add(row.path);
+          blockedByPath.set(row.path, {
+            path: row.path,
+            reason: `path is owned by ${route.requiredRoute}`,
+            code: "doc_route_owned",
+            requiredRoute: route.requiredRoute,
+          });
+        }
+        continue;
+      }
+      if (inspection.kind === "inapplicable") {
+        if (!changesByPath.has(row.path) && !blockedByPath.has(row.path)) {
+          overriddenPaths.add(row.path);
+          extraInapplicable.add(row.path);
+        }
+        continue;
+      }
+      if (inspection.kind === "unsupported") {
+        if (!changesByPath.has(row.path)) {
+          overriddenPaths.add(row.path);
+          blockedByPath.set(row.path, { path: row.path, reason: "path is not an allowed canonical document" });
+        }
+        continue;
+      }
+      if (inspection.kind === "too-large") {
+        if (!changesByPath.has(row.path)) {
+          overriddenPaths.add(row.path);
+          blockedByPath.set(row.path, {
+            path: row.path,
+            size: row.size ?? undefined,
+            maxInlineBytes: inspection.maxBytes,
+            reason: "document exceeds inline limit",
+            code: "doc_candidate_too_large",
+            requiredRoute: "blob-content",
+          });
+        }
+        continue;
+      }
+      if (inspection.kind !== "candidate") continue;
+      const { bytes, classification: docClass } = inspection;
+      if (bytes === null || docClass === null) continue;
+      if (base !== undefined && sha256Bytes(bytes) === base.sha256) {
+        acceptTaskWorktreeDocumentBase(worktreeRoot, row.path, bytes, workspaceRoot);
+        continue;
+      }
+      const baseBlobSha256 = row.baseBytes === null || row.baseBytes === undefined ? null : sha256Bytes(row.baseBytes),
+        candidate: FleetMirrorDirtyFile = {
+          path: row.path,
+          bytes,
+          baseBlobSha256,
+          mediaType: docClass.mediaType,
+          policyId: docClass.policyId,
+          worktreeRoot,
+        };
+      overriddenPaths.add(row.path);
+      const existing = changesByPath.get(row.path);
+      if (existing === undefined) {
+        changesByPath.set(row.path, candidate);
+      } else if (existing.worktreeRoot === undefined) {
+        if (sha256Bytes(existing.bytes) === sha256Bytes(candidate.bytes)) changesByPath.set(row.path, candidate);
+        else {
+          conflictedPaths.add(row.path);
+          blockedByPath.set(row.path, {
+            path: row.path,
+            reason: "document edited in both task worktree and edge workspace",
+            code: "worktree_workspace_conflict",
+          });
+        }
+      }
+    }
+  }
+  const cleanPaths = workspaceScan.cleanPaths.filter((p) => !overriddenPaths.has(p)),
+    changes = [...changesByPath.values()].filter((change) => !conflictedPaths.has(change.path)),
+    blocked = [...blockedByPath.values()],
+    inapplicablePaths = [
+      ...new Set([...workspaceScan.inapplicablePaths.filter((p) => !overriddenPaths.has(p)), ...extraInapplicable]),
+    ];
+  return {
+    changes,
+    cleanCount: cleanPaths.length,
+    cleanPaths,
+    inapplicablePaths,
+    deletedPaths: workspaceScan.deletedPaths,
+    blocked,
+  };
+}
+
+export function acceptEdgeWorktreeScanBases(changes: readonly FleetMirrorDirtyFile[], workspaceRoot: string): void {
+  for (const change of changes) {
+    if (change.worktreeRoot === undefined || !existsSync(change.worktreeRoot)) continue;
+    acceptTaskWorktreeDocumentBase(change.worktreeRoot, change.path, change.bytes, workspaceRoot);
+  }
+}
+
 function materializedPaths(root: string): string[] {
   const found: string[] = [],
     // The view's own state directory is not a materialized repository path; which name it has is the

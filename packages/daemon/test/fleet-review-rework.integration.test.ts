@@ -147,6 +147,16 @@ test(
       "the canonical Review must precede terminal outcome",
     );
     assert.equal(terminal.payload.outcome, "succeeded");
+    assert.equal(
+      readFileSync(path.join(fixture.repo, "harness", reportPath), "utf8"),
+      "# Review\n\nVerified the submitted cut from the edge.\n",
+    );
+    assert.equal(
+      JSON.parse(readFileSync(path.join(fixture.repo, "harness", reportPath.replace(/\.md$/u, ".json")), "utf8"))
+        .verdict,
+      "approved",
+      "review settlement accepts the JSON packet together with its Markdown report",
+    );
   },
 );
 

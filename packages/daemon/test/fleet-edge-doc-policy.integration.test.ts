@@ -777,7 +777,17 @@ test("an edge doc-status reports a stray non-member as inapplicable, like the ce
       authorizationShapeDigest: "",
       entries: new Map(),
     };
-    const receipt = readEdgeDocWorkspace(root, view, {} as never, { kind: "doc-status", paths: [logical] } as never);
+    const receipt = readEdgeDocWorkspace(
+      root,
+      view,
+      {
+        taskIdForDocumentPath: (candidate: string) => {
+          assert.equal(candidate, logical);
+          return null;
+        },
+      } as never,
+      { kind: "doc-status", paths: [logical] } as never,
+    );
     assert.deepEqual(
       receipt.rows.map(({ path: rowPath, state, reason }) => [rowPath, state, reason]),
       [[logical, "inapplicable", "path is not a supported textual document"]],

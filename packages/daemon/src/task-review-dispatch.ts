@@ -41,6 +41,7 @@ import { selectReviewSeat, type ReviewSeat, type ReviewSeatSelection } from "./r
 import { reviewPathSeatPrompt } from "./review-path-matching.ts";
 import { runtimeKindForId, runtimeVendorForKind } from "./runtime-inventory.ts";
 import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
+import { worktreeAuthoredRelative } from "./worktree-setup.ts";
 import { DecisionReviewContentConflictError } from "./repo-cell-errors.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import type { RepoCellBinding, RepoCellContinuationWrite, RepoTaskAction } from "./repo-cell-types.ts";
@@ -153,7 +154,7 @@ export function nodeReviewDispatchCandidate(
         dispatchId: ids.dispatchId,
         execution,
         gates: completionGateIds(snapshot.task.completionGateIds, execution.submission),
-        artifactPrefix: path.relative(cell.rootDir, resolveHarnessLayout(cell.rootDir).authoredRoot),
+        artifactPrefix: worktreeAuthoredRelative(resolveHarnessLayout(cell.rootDir)),
         implementationNodeId: input.requiredNodeId,
         reviewerNodeId: input.requiredNodeId,
         reverify,
@@ -581,7 +582,7 @@ export function decisionReviewDispatchPrompt(input: {
  */
 function reviewArtifactRoot(cell: RepoCellOperationalContext): string {
   const layout = resolveHarnessLayout(cell.rootDir);
-  return path.join(workerRootPathToken, path.relative(layout.rootDir, layout.authoredRoot));
+  return path.join(workerRootPathToken, worktreeAuthoredRelative(layout));
 }
 
 /** The review packet prompt every reviewer dispatch carries; each dispatch owns exactly one task. */

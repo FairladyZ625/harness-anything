@@ -431,15 +431,17 @@ export function openFleetEdgeRuntime(input: {
         : null,
       packetPath = reportPackage ? `${reportPackage}/artifacts/reports/${review.dispatchId}.json` : null,
       view = locateFleetMirrorView(request.viewRoot, request.repoId, request.nodeId),
-      reportClass = classifyTextualArtifactPath(review.report.path);
+      reportClass = classifyTextualArtifactPath(review.report.path),
+      packetClass = classifyTextualArtifactPath(review.packet.path);
     if (
       !view ||
       !reportClass ||
+      !packetClass ||
       packetPath !== review.packet.path ||
       review.report.path !== `${reportPackage}/artifacts/reports/${review.dispatchId}.md`
     )
       throw edgeRuntimeError("review_report_invalid", "Review recovery artifacts do not match the dispatch package.");
-    const [candidate] = await runFleetEdgeUploadClient({
+    const [reportCandidate, packetCandidate] = await runFleetEdgeUploadClient({
       ...writePeer,
       timeoutMs: daemonProtocolFleetPolicy.defaultValue.fleet.taskContentTimeoutMs,
       changes: [
@@ -448,9 +450,15 @@ export function openFleetEdgeRuntime(input: {
           body: Buffer.from(review.report.body, "utf8"),
           mediaType: reportClass.mediaType,
         },
+        {
+          path: review.packet.path,
+          body: Buffer.from(review.packet.body, "utf8"),
+          mediaType: packetClass.mediaType,
+        },
       ],
     });
-    if (!candidate) throw edgeRuntimeError("review_report_missing", "Review report upload returned no content claim.");
+    if (!reportCandidate || !packetCandidate)
+      throw edgeRuntimeError("review_report_missing", "Review report upload returned no content claim.");
     let packet: unknown;
     try {
       packet = JSON.parse(review.packet.body);
@@ -479,10 +487,16 @@ export function openFleetEdgeRuntime(input: {
           timeoutMs: centerWriteWaitMs + daemonProtocolFleetPolicy.defaultValue.fleet.receiptResponseOverheadMs,
           docChanges: [
             {
+              path: review.packet.path,
+              baseBlobSha256: view.entries.get(review.packet.path)?.sha256 ?? null,
+              policyId: packetClass.policyId,
+              candidate: packetCandidate,
+            },
+            {
               path: review.report.path,
               baseBlobSha256: view.entries.get(review.report.path)?.sha256 ?? null,
               policyId: reportClass.policyId,
-              candidate,
+              candidate: reportCandidate,
             },
           ],
           mirrorBaseCut: { revision: view.revision, headDigest: view.headDigest },
@@ -1375,15 +1389,6 @@ export function openFleetEdgeRuntime(input: {
       const view = locateFleetMirrorView(request.viewRoot, request.repoId, request.nodeId, {
         entriesPrefix: `tasks/${taskId}`,
       });
-      const materializedRoot = resolveHarnessLayout(request.workspaceRoot).authoredRoot;
-      const packagePresent =
-        view !== null &&
-        fleetMirrorTaskPaths(view, taskId)
-          .filter((logical) => logical.endsWith("/INDEX.md"))
-          .some((logical) =>
-            existsSync(path.join(materializedRoot, ...logical.slice(0, -"/INDEX.md".length).split("/"))),
-          );
-      if (packagePresent) return;
       requestedPaths = view === null ? [] : fleetMirrorTaskPaths(view, taskId);
     }
     const materialized = applyFleetMirrorCut(request.viewRoot, request.repoId, request.workspaceRoot, "pull", {

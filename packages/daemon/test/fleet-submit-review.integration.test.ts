@@ -4,13 +4,15 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
+import { isTaskEvent } from "@harness-anything/kernel";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
+import { locateFleetMirrorView, applyFleetMirrorCut, scanEdgeTaskWorktrees } from "../src/fleet-edge-mirror.ts";
 import { readFleetOperationalClient } from "../src/fleet/peer.ts";
 import { openNodeAutoDispatchLoop, parseNodeAutoDispatchSnapshot } from "../src/node-auto-dispatch.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
-import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
+import { taskWorktreeDocumentBase } from "../src/worktree-setup.ts";
 import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
@@ -472,6 +474,11 @@ test(
       edgeRoot = path.join(f.root, "hosted-edge"),
       viewRoot = path.join(f.root, "hosted-view");
     git(f.repo, "branch", "-M", "main");
+    // Reproduce the deployed ignored-ledger layout, rather than Git-owned ledger contents.
+    writeFileSync(path.join(f.repo, ".gitignore"), "/harness/\n/.harness/\n/.worktrees/\n");
+    git(f.repo, "rm", "-r", "--cached", "--", "harness");
+    git(f.repo, "add", ".gitignore");
+    git(f.repo, "commit", "-qm", "test: ignored task ledger");
     git(f.repo, "init", "--bare", "-q", "--initial-branch=main", remote);
     git(f.repo, "remote", "add", "origin", pathToFileURL(remote).href);
     git(f.repo, "push", "-qu", "origin", "main");
@@ -555,7 +562,8 @@ test(
       frozen = "",
       visibleHead = previous,
       prExists = false,
-      reviewerStarts = 0;
+      reviewerStarts = 0,
+      expectedPlan = "";
     const order: string[] = [],
       observed: { frozen: string; branchHead: string; prHead: string }[] = [];
     const realFetch = globalThis.fetch;
@@ -588,6 +596,15 @@ test(
         if (credential === undefined) credential = prepared.env.HARNESS_EXECUTION_CREDENTIAL;
         else {
           reviewerStarts++;
+          assert.equal(
+            readFileSync(path.join(prepared.cwd, "harness", packagePath, "task_plan.md"), "utf8"),
+            expectedPlan,
+          );
+          assert.match(prepared.prompt, /CEO rework/u, "the reviewer mission reads the latest authoritative plan");
+          assert.match(
+            readFileSync(path.join(prepared.cwd, "harness", packagePath, "closeout.md"), "utf8"),
+            /Hosted edge delivery/u,
+          );
           const heads = { frozen, branchHead: git(remote, "rev-parse", `refs/heads/${taskId}`), prHead: visibleHead };
           observed.push(heads);
           order.push(`review:${visibleHead}`);
@@ -616,10 +633,36 @@ test(
     git(workerRoot, "add", "delivery.txt");
     git(workerRoot, "commit", "-qm", "feat: edge delivery");
     frozen = git(workerRoot, "rev-parse", "HEAD");
+    // The replica advances while both physical mirrors still hold the old task plan.
+    const planPath = `${packagePath}/task_plan.md`,
+      planV1 = readFileSync(path.join(workerRoot, "harness", planPath), "utf8"),
+      planV2 = `${planV1}\n## CEO rework\nRead the updated canonical cut.\n`;
+    expectedPlan = planV2;
+    writeFileSync(path.join(f.repo, "harness", planPath), planV2);
+    const planUpdate = await f.host.run(repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture());
+    assert.equal(planUpdate.outcome, "applied", JSON.stringify(planUpdate));
+    await waitForFleetPublication(f.host, repoId, planUpdate.opId, localAuthFixture());
+    await catchUpReplica(replica);
+    const view = locateFleetMirrorView(viewRoot, repoId, nodeId);
+    assert.ok(view);
+    assert.equal(
+      scanEdgeTaskWorktrees({ view, workspaceRoot: edgeRoot, taskId, packagePath }).changes.some(
+        (c) => c.path === planPath,
+      ),
+      false,
+      "neither unchanged old workspace nor unchanged old worktree can author a rollback",
+    );
     writeFileSync(
-      path.join(edgeRoot, "harness", packagePath, "closeout.md"),
+      path.join(workerRoot, "harness", packagePath, "closeout.md"),
       "## Summary\nHosted edge delivery.\n## Verification\nFrozen head verified.\n## 摘要\n边缘交付。\n## 验证\n冻结head。\n",
     );
+    const artifactPath = `${packagePath}/artifacts/new-evidence.png`,
+      artifactBytes = Buffer.from([137, 80, 78, 71, 0, 255]);
+    mkdirSync(path.join(workerRoot, "harness", packagePath, "artifacts"), { recursive: true });
+    writeFileSync(path.join(workerRoot, "harness", artifactPath), artifactBytes);
+    const scan = scanEdgeTaskWorktrees({ view, workspaceRoot: edgeRoot, taskId, packagePath });
+    assert.ok(scan.changes.some((c) => c.path === `${packagePath}/closeout.md` && c.worktreeRoot === workerRoot));
+    assert.ok(scan.changes.some((c) => c.path === artifactPath));
     // Hosting is a local fixture declaration; all Git traffic stays on the private file remote.
     for (const root of [f.repo, edgeRoot]) {
       const config = path.join(root, "harness", "harness.yaml");
@@ -642,6 +685,25 @@ test(
       "the holder/CAS path already published the exact Git ref",
     );
     assert.equal(prExists, false, "the node still needs to create its hosted PR before review");
+    assert.equal(readFileSync(path.join(f.repo, "harness", planPath), "utf8"), planV2);
+    assert.equal(
+      readFileSync(path.join(f.repo, "harness", packagePath, "closeout.md"), "utf8"),
+      readFileSync(path.join(workerRoot, "harness", packagePath, "closeout.md"), "utf8"),
+      "one submit accepts the worktree closeout",
+    );
+    assert.deepEqual(readFileSync(path.join(f.repo, "harness", artifactPath)), artifactBytes);
+    const eventReader = makeTaskEventReader({ repoId, rootDir: f.repo });
+    const frozenEvent = eventReader
+      .read()
+      .events.find((e) => isTaskEvent(e) && e.type === "execution_submitted" && e.taskId === taskId);
+    assert.ok(frozenEvent && isTaskEvent(frozenEvent) && frozenEvent.type === "execution_submitted");
+    assert.ok(frozenEvent.payload.execution.submission?.artifacts?.some((a) => a.path === artifactPath));
+    await eventReader.drain();
+    assert.equal(
+      readFileSync(taskWorktreeDocumentBase(workerRoot, `${packagePath}/closeout.md`), "utf8"),
+      readFileSync(path.join(workerRoot, "harness", packagePath, "closeout.md"), "utf8"),
+      "the edge acknowledges accepted worker bytes as the only next base",
+    );
     const persistFailure = async (failure: Record<string, string> | null) => {
       const receipt = await runFleetEdgeTask(
         {

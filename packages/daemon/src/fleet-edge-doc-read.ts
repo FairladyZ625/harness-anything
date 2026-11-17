@@ -4,10 +4,33 @@ import {
   type TaskProjectionQueries,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
-import { scanFleetMirrorWorktree, type FleetMirrorView } from "./fleet-edge-mirror.ts";
+import {
+  scanEdgeTaskWorktrees,
+  scanFleetMirrorWorktree,
+  type FleetMirrorScan,
+  type FleetMirrorView,
+} from "./fleet-edge-mirror.ts";
 import type { DocCandidateRow } from "./doc-sync-candidate-scanner.ts";
 import type { RepoTaskAction } from "./repo-cell-types.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
+
+function selectedSingleTask(
+  projection: TaskProjectionQueries,
+  taskId: string | null,
+  selection: readonly string[] | undefined,
+): { readonly taskId: string; readonly packagePath: string } | null {
+  if (taskId !== null) {
+    const task = projection.read(taskId);
+    return task.snapshot.task && task.packagePath ? { taskId, packagePath: task.packagePath } : null;
+  }
+  if (!selection?.length) return null;
+  const owners = new Set(selection.map((logical) => projection.taskIdForDocumentPath(documentPath(logical))));
+  if (owners.size !== 1) return null;
+  const [only] = owners;
+  if (typeof only !== "string") return null;
+  const task = projection.read(only);
+  return task.snapshot.task && task.packagePath ? { taskId: only, packagePath: task.packagePath } : null;
+}
 
 /** A preview observes this edge's files against the already-authorized cut; it never pulls or materializes. */
 export function readEdgeDocWorkspace(
@@ -28,7 +51,17 @@ export function readEdgeDocWorkspace(
       Array.isArray(action.paths) && action.paths.length
         ? action.paths.map((value) => documentPath(String(value)))
         : undefined,
-    scan = scanFleetMirrorWorktree(view, rootDir, selection),
+    singleTask = selectedSingleTask(projection, taskId, selection),
+    scan: FleetMirrorScan =
+      singleTask !== null
+        ? scanEdgeTaskWorktrees({
+            view,
+            workspaceRoot: rootDir,
+            taskId: singleTask.taskId,
+            packagePath: singleTask.packagePath,
+            ...(selection ? { selection } : {}),
+          })
+        : scanFleetMirrorWorktree(view, rootDir, selection),
     prefix = task?.packagePath ? `${task.packagePath}/` : null,
     selected = (logical: string) => prefix === null || logical.startsWith(prefix),
     deleted = new Set(scan.deletedPaths),
@@ -39,12 +72,13 @@ export function readEdgeDocWorkspace(
     candidateBlobSha256: string | null,
     reason: string | null,
     size: number | null,
+    baseBlobSha256: string | null = view.entries.get(logical)?.sha256 ?? null,
   ): DocCandidateRow => ({
     path: logical,
     state,
     reason,
     size,
-    baseBlobSha256: view.entries.get(logical)?.sha256 ?? null,
+    baseBlobSha256,
     candidateBlobSha256,
     mediaType: null,
     conflicts: [],
@@ -52,7 +86,9 @@ export function readEdgeDocWorkspace(
   for (const logical of scan.cleanPaths)
     rows.push(row(logical, "clean", view.entries.get(logical)!.sha256, null, view.entries.get(logical)!.size));
   for (const change of scan.changes)
-    rows.push(row(change.path, "eligible", sha256Bytes(change.bytes), null, change.bytes.byteLength));
+    rows.push(
+      row(change.path, "eligible", sha256Bytes(change.bytes), null, change.bytes.byteLength, change.baseBlobSha256),
+    );
   // The center answers `inapplicable` for a path its classifier does not recognize and no route
   // owns; `blocked` there means "a human must resolve this". The edge reports the same state instead
   // of a refusal, so an ordinary file in a task package neither hides from `doc-status` nor wedges

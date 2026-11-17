@@ -10016,12 +10016,6 @@
         "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-execution-scope.ts#requireCurrentExecutionScope:e295323bf40ec46bde9a2462672cfb70",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign"
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/runtime-handoff.ts#runRuntimeHandoff.resumed:24d47fcf905fedae03ff2f7e1687d8ff",
         "route": "daemon-local-state",
         "role": "technical-port",

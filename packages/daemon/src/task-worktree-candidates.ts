@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   documentPath,
   isDocEvent,
+  isTaskEvent,
   resolveDocRoute,
   resolveHarnessLayout,
   type CanonicalEventV1,
@@ -15,6 +16,7 @@ import {
   acceptTaskWorktreeDocumentBase,
   recoverTaskWorktreeDocumentBases,
   taskWorktreeDocumentBase,
+  worktreeAuthoredRelative,
 } from "./worktree-setup.ts";
 import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 import type { CanonicalEventStore } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
@@ -55,12 +57,9 @@ export function taskWorktreeCandidateInventory(
   if (packagePath === null) return undefined;
   const layout = resolveHarnessLayout(rootDir),
     baseRoot = taskWorktreeDocumentBase(taskRoot, packagePath),
-    authoredRelative = path.relative(layout.rootDir, layout.authoredRoot),
-    authoredOutsideCheckout =
-      authoredRelative === ".." || authoredRelative.startsWith(`..${path.sep}`) || path.isAbsolute(authoredRelative),
-    packageRoot = authoredOutsideCheckout ? null : path.resolve(taskRoot, authoredRelative, ...packagePath.split("/")),
+    authoredRelative = worktreeAuthoredRelative(layout),
+    packageRoot = path.resolve(taskRoot, authoredRelative, ...packagePath.split("/")),
     taskRootResolved = path.resolve(taskRoot);
-  if (packageRoot === null) return undefined;
   if (packageRoot !== taskRootResolved && !packageRoot.startsWith(`${taskRootResolved}${path.sep}`))
     throw new Error(`Task package ${packagePath} escapes its bound worktree.`);
   const rows: Array<AuthoredCandidateInventoryV1["rows"][number]> = [];
@@ -74,7 +73,7 @@ export function taskWorktreeCandidateInventory(
           throwIfNoEntry: false,
         }),
     );
-    recoverTaskWorktreeDocumentBases(taskRoot, missing, history.store, history.executionIds);
+    recoverTaskWorktreeDocumentBases(taskRoot, missing, history.store, history.executionIds, rootDir);
   }
   const executions = new Set(history?.executionIds),
     accepted = new Map<number, CanonicalEventV1 | undefined>();
@@ -102,7 +101,7 @@ export function taskWorktreeCandidateInventory(
         // An already accepted copy is unchanged too. Leaving it in the overlay would hide a
         // real canonical edit before the scanner can apply its CAS and lease checks.
         if (row.safe && row.bytes !== null && Buffer.from(row.bytes).equals(currentBytes)) {
-          acceptTaskWorktreeDocumentBase(taskRoot, row.path, row.bytes);
+          acceptTaskWorktreeDocumentBase(taskRoot, row.path, row.bytes, rootDir);
           return [];
         }
         if (!accepted.has(current.workspaceRevision))
@@ -110,12 +109,15 @@ export function taskWorktreeCandidateInventory(
             current.workspaceRevision,
             history.store.queryEvents({ revisionBound: current.workspaceRevision + 1, limit: 1 })[0],
           );
-        const event = accepted.get(current.workspaceRevision);
+        const event = accepted.get(current.workspaceRevision),
+          taskExecutionId =
+            event && isTaskEvent(event) && "execution" in event.payload
+              ? event.payload.execution?.executionId
+              : undefined;
         if (
           event &&
-          isDocEvent(event) &&
-          event.payload.executionId !== null &&
-          executions.has(event.payload.executionId)
+          ((isDocEvent(event) && event.payload.executionId !== null && executions.has(event.payload.executionId)) ||
+            (taskExecutionId !== undefined && executions.has(taskExecutionId)))
         ) {
           baseBytes = Buffer.from(currentBytes);
         }
