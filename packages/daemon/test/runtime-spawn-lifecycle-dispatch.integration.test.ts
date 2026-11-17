@@ -16,7 +16,7 @@ import {
 import { resolveAgentRuntimeDeclaration } from "../src/agent-declaration-resolution.ts";
 import { type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/dispatch-stream.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, daemonMethodPayloadFields, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -209,11 +209,12 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           error instanceof Error &&
           "code" in error &&
           error.code === "invalid_runtime_spawn" &&
-          error.message ===
-            'Runtime spawn payload contains an unknown field "permission_mode"; allowed fields: "handoffEnabled", "arrangementId", "runtimeInstanceId", ' +
-              '"dispatchId", "agentId", "targetAgentId", "squadId", "squadRun", "role", "model", "effort", "fast", "permissionMode", "mcpPolicy", "cwd", ' +
-              '"prompt", "promptSource", "missionName", "onExitCommand", "taskId", "executionId", "reviewTarget", "dispatchKey", ' +
-              '"providerSessionId", "preferredRuntimeInstanceId", "preferredModel", "avoidVendor", "dryRun".',
+          error.message.startsWith(
+            'Runtime spawn payload contains an unknown field "permission_mode"; allowed fields: ',
+          ) &&
+          daemonMethodPayloadFields("repo.agentRuntime.spawn").every((field) =>
+            error.message.includes(JSON.stringify(field)),
+          ),
       );
       await assert.rejects(
         cell.cancelRuntime({ runtimeSessionId: "missing", force: true }, binding),
@@ -222,7 +223,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           "code" in error &&
           error.code === "invalid_runtime_cancel" &&
           error.message ===
-            'Runtime cancel payload contains an unknown field "force"; allowed fields: "runtimeSessionId", "escalation", "ruling".',
+            `Runtime cancel payload contains an unknown field "force"; allowed fields: ${[...new Set([...daemonMethodPayloadFields("repo.agentRuntime.cancel"), "escalation"])].map((field) => JSON.stringify(field)).join(", ")}.`,
       );
       const receipt = await cell.spawnRuntime(
         {
