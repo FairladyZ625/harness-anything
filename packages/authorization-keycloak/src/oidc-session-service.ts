@@ -85,6 +85,8 @@ interface CenterToken {
 
 /** A use this close to the access token's end renews it, so the token a request carries outlives the request. */
 const renewalMarginMs = 30_000;
+/** 144 bits (>= 128 bits) of CSPRNG entropy encoded as printable URL-safe base64url. */
+const temporaryPasswordBytes = 18;
 
 /**
  * Daemon-owned PKCE and Device session. Refresh tokens stay here; a short-lived access token may
@@ -818,7 +820,11 @@ export class OidcSessionService {
         throw coded("bootstrap_admin_closed", "The first Harness administrator already exists.");
       const { provider } = await this.center();
       await provider.syncBasePolicy(token);
-      const userId = await this.#createUser(token, input, false),
+      const userId = await this.#createUser(token, input, {
+          password: input.password,
+          temporaryPassword: false,
+          requiredActions: [],
+        }),
         groups = await provider.readPolicyGroups(token);
       await provider.writeGrant(
         token,
@@ -830,7 +836,7 @@ export class OidcSessionService {
     });
   }
 
-  async invite(
+  invite(
     input: {
       readonly username: string;
       readonly email: string;
@@ -840,13 +846,60 @@ export class OidcSessionService {
     withinWriter = false,
     loginTarget?: string,
   ): Promise<Record<string, unknown>> {
+    const candidatePassword = this.#ports.randomBytes(temporaryPasswordBytes).toString("base64url");
+    return withinWriter
+      ? this.#invite(input, true, candidatePassword, loginTarget)
+      : this.serialize(() => this.#invite(input, true, candidatePassword, loginTarget));
+  }
+
+  async #invite(
+    input: {
+      readonly username: string;
+      readonly email: string;
+      readonly displayName: string;
+      readonly personId: string;
+    },
+    withinWriter: boolean,
+    candidatePassword: string,
+    loginTarget?: string,
+  ): Promise<Record<string, unknown>> {
     await this.requireAccessManagement(loginTarget, withinWriter);
     const token = await this.#centerToken(),
-      userId = await this.#createUser(token, input, true);
-    await this.#adminJson("PUT", `/users/${encodeURIComponent(userId)}/execute-actions-email`, token, [
-      "UPDATE_PASSWORD",
-    ]);
-    return { ok: true, invited: true, personId: input.personId };
+      realm = (await this.#adminJson("GET", "", token)) as
+        | { readonly smtpServer?: { readonly host?: unknown } }
+        | undefined,
+      smtpConfigured = typeof realm?.smtpServer?.host === "string" && realm.smtpServer.host.trim() !== "";
+    if (smtpConfigured) {
+      const userId = await this.#createUser(token, input, {
+        requiredActions: ["VERIFY_EMAIL", "UPDATE_PASSWORD"],
+      });
+      try {
+        await this.#adminJson("PUT", `/users/${encodeURIComponent(userId)}/execute-actions-email`, token, [
+          "UPDATE_PASSWORD",
+        ]);
+      } catch (error) {
+        await this.#deleteUser(token, userId).catch(consumeKnownError);
+        throw error;
+      }
+      return { ok: true, invited: true, personId: input.personId };
+    }
+    await this.#createUser(token, input, {
+      password: candidatePassword,
+      temporaryPassword: true,
+      requiredActions: ["UPDATE_PASSWORD"],
+    });
+    return { ok: true, invited: true, personId: input.personId, temporaryPassword: candidatePassword };
+  }
+
+  deleteInvitedUser(personId: string, withinWriter = false): Promise<void> {
+    return withinWriter ? this.#deleteInvitedUser(personId) : this.serialize(() => this.#deleteInvitedUser(personId));
+  }
+
+  async #deleteInvitedUser(personId: string): Promise<void> {
+    const { provider } = await this.center(),
+      token = await this.#centerToken(),
+      userId = await provider.findUserId(token, personId);
+    if (userId) await this.#deleteUser(token, userId);
   }
 
   async #centerToken(rejectedAccessToken?: string): Promise<string> {
@@ -909,9 +962,12 @@ export class OidcSessionService {
       readonly email: string;
       readonly displayName: string;
       readonly personId: string;
-      readonly password?: string;
     },
-    invitation: boolean,
+    options: {
+      readonly requiredActions?: readonly string[];
+      readonly password?: string;
+      readonly temporaryPassword?: boolean;
+    } = {},
   ): Promise<string> {
     const [firstName, ...rest] = input.displayName.trim().split(/\s+/u),
       response = await this.#adminFetch("POST", "/users", token, {
@@ -922,8 +978,14 @@ export class OidcSessionService {
         enabled: true,
         emailVerified: false,
         attributes: { harness_person_id: [input.personId] },
-        requiredActions: invitation ? ["VERIFY_EMAIL", "UPDATE_PASSWORD"] : [],
-        ...(input.password ? { credentials: [{ type: "password", value: input.password, temporary: false }] } : {}),
+        requiredActions: options.requiredActions ?? [],
+        ...(options.password !== undefined
+          ? {
+              credentials: [
+                { type: "password", value: options.password, temporary: Boolean(options.temporaryPassword) },
+              ],
+            }
+          : {}),
       });
     if (!response.ok)
       throw coded("account_create_rejected", `Keycloak user creation returned HTTP ${response.status}.`);
@@ -931,6 +993,10 @@ export class OidcSessionService {
       userId = location?.split("/").pop();
     if (!userId) throw coded("account_create_rejected", "Keycloak user creation omitted the user location.");
     return userId;
+  }
+
+  async #deleteUser(token: string, userId: string): Promise<void> {
+    await this.#adminJson("DELETE", `/users/${encodeURIComponent(userId)}`, token, undefined, true);
   }
 
   async #removeBootstrapAdministrator(token: string, sessionStore: OidcSessionStorePort): Promise<void> {

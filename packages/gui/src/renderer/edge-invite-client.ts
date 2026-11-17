@@ -98,7 +98,9 @@ export function readIssued(value: unknown): EdgeJoinIssued {
     typeof value.joinId !== "string" ||
     typeof value.expiresAt !== "string" ||
     typeof value.link !== "string" ||
-    !value.link.startsWith("harness-edge://join/")
+    !value.link.startsWith("harness-edge://join/") ||
+    (value.temporaryPassword !== undefined &&
+      (typeof value.temporaryPassword !== "string" || value.temporaryPassword.length === 0))
   )
     throw rendererReadError(value, "Edge join creation returned an invalid result.");
   return {
@@ -106,6 +108,7 @@ export function readIssued(value: unknown): EdgeJoinIssued {
     state: "pending",
     expiresAt: value.expiresAt,
     link: value.link,
+    ...(typeof value.temporaryPassword === "string" ? { temporaryPassword: value.temporaryPassword } : {}),
   };
 }
 

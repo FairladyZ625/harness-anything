@@ -303,6 +303,34 @@ test("edge-join-create passes the daemon's pasteable string link to the renderer
   assert.equal(reply.joinId, "invite-9");
   assert.equal(reply.state, "pending");
   assert.equal(reply.expiresAt, "2026-10-21T00:00:00.000Z");
+  assert.equal(reply.temporaryPassword, undefined);
+});
+
+test("edge-join-create passes the daemon's one-time temporaryPassword to the renderer unchanged when returned", async () => {
+  const daemonLink = "harness-edge://join/eyJ2ZXJzaW9uIjoxLCJqb2luSWQiOiJpbnZpdGUtMTAifQ";
+  let handler!: (event: IpcMainInvokeEvent, input?: unknown) => Promise<unknown>;
+  registerAccessAdminIpc({ handle: (_channel, listener) => (handler = listener) }, policy, {
+    daemonRequest: async () => ({
+      ok: true,
+      link: daemonLink,
+      joinId: "invite-10",
+      state: "pending",
+      expiresAt: "2026-10-21T00:00:00.000Z",
+      temporaryPassword: "one-time-temp-password",
+    }),
+    operationId: () => "operation",
+  });
+  const reply = (await handler(event, {
+    operation: "edge-join-create",
+    personId: "person-new",
+    username: "new.operator",
+    email: "new@example.test",
+    displayName: "New Operator",
+    repoIds: ["repo-a"],
+    groupIds: ["contributor"],
+  })) as Record<string, unknown>;
+  assert.equal(reply.link, daemonLink);
+  assert.equal(reply.temporaryPassword, "one-time-temp-password");
 });
 
 test("edge-join-create carries a win32 platform to the daemon unchanged", async () => {

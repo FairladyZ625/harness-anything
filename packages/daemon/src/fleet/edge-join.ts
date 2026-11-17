@@ -65,6 +65,7 @@ export type EdgeJoinCreated = {
   readonly state: "pending";
   readonly expiresAt: string;
   readonly link: string;
+  readonly temporaryPassword?: string;
 };
 export interface EdgeJoinStatusResult {
   readonly joinId: string;

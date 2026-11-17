@@ -86,4 +86,6 @@ export interface IdentitySessionPort {
     withinWriter?: boolean,
     loginTarget?: string,
   ): Promise<Record<string, unknown>>;
+  /** Rolls back a newly invited user created in the current transaction if subsequent writes fail. */
+  deleteInvitedUser?(personId: string, withinWriter?: boolean): Promise<void>;
 }

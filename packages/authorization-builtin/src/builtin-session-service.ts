@@ -334,6 +334,13 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     void input;
     throw identityPluginRequired();
   }
+  async deleteInvitedUser(personId: string, withinWriter = false): Promise<void> {
+    const external = this.#externalSession();
+    if (external?.deleteInvitedUser) return external.deleteInvitedUser(personId, withinWriter);
+    void personId;
+    void withinWriter;
+    throw identityPluginRequired();
+  }
   async revokeDeviceSessions(nodeId: string): Promise<void> {
     const external = this.#externalSession();
     if (external?.revokeDeviceSessions) return external.revokeDeviceSessions(nodeId);
