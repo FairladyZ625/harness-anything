@@ -334,3 +334,41 @@ export function boundedCiSummary(text) {
   }
   return { summary, truncated: false };
 }
+
+/**
+ * Parse a delimiter-separated list of changed repository paths (e.g. HARNESS_PR_CHANGED_FILES).
+ * Returns null when unset or empty so callers can distinguish "no diff scope" from "empty diff".
+ */
+export function parseChangedFilesList(raw) {
+  if (raw === undefined || raw === null) return null;
+  const trimmed = String(raw).trim();
+  if (trimmed === "") return null;
+  const files = new Set();
+  for (const entry of trimmed.split(/[\r\n,\0]+/u)) {
+    const normalized = entry.trim().replaceAll("\\", "/");
+    if (normalized !== "") files.add(normalized);
+  }
+  return files.size > 0 ? files : null;
+}
+
+/**
+ * Partition integration-budget overruns into blocking (file touched in PR) vs warning-only
+ * (inherited weight drift in untouched files, or when no changed-files list is provided).
+ */
+export function partitionIntegrationWeightOverruns(overruns, changedFilesRaw) {
+  const changedSet = parseChangedFilesList(changedFilesRaw);
+  if (changedSet === null) {
+    return { blocking: [], warnings: [...overruns] };
+  }
+  const blocking = [];
+  const warnings = [];
+  for (const overrun of overruns) {
+    if (changedSet.has(overrun.file)) blocking.push(overrun);
+    else warnings.push(overrun);
+  }
+  return { blocking, warnings };
+}
+
+export function formatIntegrationBudgetMessage(overrun) {
+  return `[integration-budget] ${overrun.file} took ${overrun.durationMs}ms against a declared weight of ${overrun.declaredMs}ms. Record its measured duration in tools/integration-test-weights.json (the shard budget sums those weights), or make it cheaper.`;
+}

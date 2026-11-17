@@ -1,6 +1,15 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -11,8 +20,10 @@ import {
   ensureFreshBuild,
   filterTestFilesByNames,
   filterTestFilesByPrefixes,
+  formatIntegrationBudgetMessage,
   formatSlowTestSummary,
   parseRunnerArgs,
+  partitionIntegrationWeightOverruns,
   partitionTestFiles,
   resolveTestConcurrency,
   runsCliEntry,
@@ -318,17 +329,28 @@ const slowTests = collectSlowTests(output, options.slowThresholdMs);
 console.log(formatSlowTestSummary(slowTests, options.slowThresholdMs, options.slowLimit));
 // One line per finished file: tools/integration-test-weights.json is refreshed from these lines in
 // CI logs, and the shard budget is only as true as those weights.
-for (const [file, durationMs] of [...fileDurationsMs].sort(([left], [right]) => left.localeCompare(right)))
-  console.log(`[node-test-duration] ${durationMs} ${file}`);
+const durationLines = [...fileDurationsMs]
+  .sort(([left], [right]) => left.localeCompare(right))
+  .map(([file, durationMs]) => `[node-test-duration] ${durationMs} ${file}`);
+for (const line of durationLines) console.log(line);
+const durationLogPath = process.env.HARNESS_INTEGRATION_DURATION_LOG?.trim();
+if (durationLogPath) {
+  mkdirSync(dirname(durationLogPath), { recursive: true });
+  writeFileSync(durationLogPath, durationLines.map((line) => `${line}\n`).join(""), "utf8");
+}
 // Weights are measured on GitHub's ubuntu runner, so only that runner can hold a file to its weight.
+// Inherited weight drift in untouched files (or when no PR changed-files list is provided) emits a
+// GitHub Actions warning without failing unrelated PRs.
 const weightOverruns =
   options.shard !== undefined && process.env.GITHUB_ACTIONS === "true"
     ? integrationWeightOverruns(fileDurationsMs)
     : [];
-for (const overrun of weightOverruns)
-  console.error(
-    `[integration-budget] ${overrun.file} took ${overrun.durationMs}ms against a declared weight of ${overrun.declaredMs}ms. Record its measured duration in tools/integration-test-weights.json (the shard budget sums those weights), or make it cheaper.`,
-  );
+const { blocking: blockingWeightOverruns, warnings: warningWeightOverruns } = partitionIntegrationWeightOverruns(
+  weightOverruns,
+  process.env.HARNESS_PR_CHANGED_FILES,
+);
+for (const overrun of warningWeightOverruns) console.warn(`::warning::${formatIntegrationBudgetMessage(overrun)}`);
+for (const overrun of blockingWeightOverruns) console.error(formatIntegrationBudgetMessage(overrun));
 // The spec reporter names no file for a passing top-level test, so the isolated dispatcher
 // cannot attribute its forwarded output per file without these lines.
 for (const file of [...startedFiles].sort()) console.log(`[node-test-file] ${fileOutcome(file)} ${file}`);
@@ -336,7 +358,7 @@ for (const file of [...startedFiles].sort()) console.log(`[node-test-file] ${fil
 // pipe (CI log shipping): the inline ✖ lines survive because they were written earlier, while
 // the failing-tests recap — the assertion details a red lane exists to show — is written last
 // and is exactly what gets lost. Exit naturally so pending writes drain first.
-process.exitCode = weightOverruns.length > 0 && exitCode === 0 ? 1 : exitCode;
+process.exitCode = blockingWeightOverruns.length > 0 && exitCode === 0 ? 1 : exitCode;
 
 function fileOutcome(file) {
   if ((failuresByFile.get(file) ?? 0) > 0) return "fail";

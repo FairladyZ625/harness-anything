@@ -304,7 +304,16 @@ jobs:
           path: ${{ runner.temp }}
       - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
       - if: needs.install.outputs.code != 'false'
+        env:
+          HARNESS_INTEGRATION_DURATION_LOG: ${{ runner.temp }}/integration-durations-shard-${{ matrix.shard }}.log
         run: node tools/run-manifest-gates.mjs --workflow-job integration-shard --shard ${{ matrix.shard }}
+      - if: always() && (github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && needs.install.outputs.code != 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-durations-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/integration-durations-shard-${{ matrix.shard }}.log
+          if-no-files-found: ignore
+          retention-days: 14
 
   # dec_09C1CE4481EEF4096867FA034E: PGlite requires the repaired V8 in Node 26.
   # Node 24 integration shards exercise refusal; this lane runs all database assertions.

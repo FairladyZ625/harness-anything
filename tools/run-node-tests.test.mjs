@@ -2,7 +2,16 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -20,9 +29,12 @@ import {
   ensureFreshBuild,
   filterTestFilesByNames,
   filterTestFilesByPrefixes,
+  formatIntegrationBudgetMessage,
   formatSlowTestSummary,
+  parseChangedFilesList,
   parseCompletedTestLine,
   parseRunnerArgs,
+  partitionIntegrationWeightOverruns,
   partitionTestFiles,
   testOrdinalInPartition,
   testChildEnvironment,
@@ -782,5 +794,60 @@ test("ensureFreshBuild waits for a live lock owner and reuses the build it produ
   } finally {
     owner.kill();
     rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("partitionIntegrationWeightOverruns keeps inherited drift non-blocking when no changed files are given", () => {
+  const overruns = [
+    { file: "packages/daemon/test/task-dispatch-recovery.integration.test.ts", durationMs: 86_282, declaredMs: 8_200 },
+  ];
+  assert.equal(parseChangedFilesList(undefined), null);
+  assert.equal(parseChangedFilesList("   \n "), null);
+  assert.deepEqual(partitionIntegrationWeightOverruns(overruns, undefined), {
+    blocking: [],
+    warnings: overruns,
+  });
+  assert.match(
+    formatIntegrationBudgetMessage(overruns[0]),
+    /^\[integration-budget\] packages\/daemon\/test\/task-dispatch-recovery\.integration\.test\.ts took 86282ms against a declared weight of 8200ms\./u,
+  );
+});
+
+test("partitionIntegrationWeightOverruns blocks only overrun files touched in HARNESS_PR_CHANGED_FILES", () => {
+  const touched = { file: "packages/daemon/test/edited.integration.test.ts", durationMs: 90_000, declaredMs: 10_000 };
+  const inherited = {
+    file: "packages/daemon/test/task-dispatch-recovery.integration.test.ts",
+    durationMs: 86_282,
+    declaredMs: 8_200,
+  };
+  const changedRaw = "docs/README.md\npackages\\daemon\\test\\edited.integration.test.ts,tools/other.mjs";
+  const parsed = parseChangedFilesList(changedRaw);
+  assert.ok(parsed?.has("packages/daemon/test/edited.integration.test.ts"));
+  assert.deepEqual(partitionIntegrationWeightOverruns([touched, inherited], changedRaw), {
+    blocking: [touched],
+    warnings: [inherited],
+  });
+});
+
+test("run-node-tests writes [node-test-duration] lines when HARNESS_INTEGRATION_DURATION_LOG is set", () => {
+  const tempRoot = mkdtempSync(path.join(os.tmpdir(), "ha-duration-log-"));
+  const durationLog = path.join(tempRoot, "nested", "durations.log");
+  const childEnv = { ...process.env, HARNESS_INTEGRATION_DURATION_LOG: durationLog };
+  delete childEnv.NODE_TEST_CONTEXT;
+  try {
+    const result = spawnSync(
+      process.execPath,
+      ["tools/run-node-tests.mjs", "--tier", "fast", "--prefix", "tools/test-fixtures/runner-output-drain"],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: childEnv,
+      },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const written = readFileSync(durationLog, "utf8");
+    assert.match(written, /\[node-test-duration\] \d+ tools\/test-fixtures\/runner-output-drain\//u);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
   }
 });
