@@ -79,7 +79,7 @@ test("application ./commands barrel exposes pure CQRS command orchestrations and
     claims: [],
   } as Parameters<typeof prepareDecisionAmend>[1];
   const amended = prepareDecisionAmend(
-    { reason: "Clarify scope", title: "Keep pure CQRS handlers cleanly", sets: [], appends: [] },
+    { reason: "Clarify scope", title: "Keep pure CQRS handlers cleanly", sets: [], appends: [], fulfillments: [] },
     currentDecision,
   );
   assert.equal(amended.title, "Keep pure CQRS handlers cleanly");
