@@ -3,7 +3,7 @@ import {
   runtimeSteerSupported,
   codexFreshPermissionArgs,
   codexResumePermissionArgs,
-} from "@harness-anything/kernel/internal/domain/runtime-instance-contract.ts";
+} from "@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts";
 import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 // Type-only: a value import would pull the effectful kernel barrel (stable-hash → node:crypto)
 // into the GUI renderer bundle. runtimeKindIds is derived from the runtimeKinds catalog below.

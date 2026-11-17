@@ -1,4 +1,4 @@
-import type { RuntimeSteer } from "@harness-anything/kernel/internal/domain/runtime-instance-contract.ts";
+import type { RuntimeSteer } from "@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts";
 // The provider declaration contract: the shape every built-in runtime kind
 // declares. Split from the runtime-inventory catalog so the contract and the
 // data it constrains live in separately-scoped modules; the catalog file

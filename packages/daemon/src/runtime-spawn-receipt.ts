@@ -1,4 +1,4 @@
-import { runtimeSteerSupported } from "@harness-anything/kernel/internal/domain/runtime-instance-contract.ts";
+import { runtimeSteerSupported } from "@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts";
 import type { AgentRuntimeEventV1, CanonicalEventStore } from "@harness-anything/kernel";
 
 /** The durable receipt for a published dispatch, also used when an idempotent request is replayed. */

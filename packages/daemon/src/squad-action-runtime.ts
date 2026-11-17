@@ -1,4 +1,4 @@
-import { runtimeSteerSupported } from "@harness-anything/kernel/internal/domain/runtime-instance-contract.ts";
+import { runtimeSteerSupported } from "@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts";
 import { readProjectedAgentDeclaration } from "./agent-declaration-resolution.ts";
 import { makeSquadCanonicalReader } from "./squad-canonical-read.ts";
 import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";

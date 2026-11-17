@@ -20,7 +20,7 @@
  *   `awaiting_ruling` only after the stop is proven and that lease has been released.
  */
 import type { AgentRuntimeEventV1, RuntimeSession } from "./agent-runtime.ts";
-import { runtimeSteerSupported } from "./runtime-instance-contract.ts";
+import { runtimeSteerSupported } from "./runtime-instance-scheduling.ts";
 import { isTerminalStatus } from "./lifecycle-status.ts";
 import type { TaskEventV1, TaskMutationEvent } from "./task-lifecycle-event.ts";
 import { submissionDigest } from "./submission-digest.ts";
