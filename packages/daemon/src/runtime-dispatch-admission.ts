@@ -1,3 +1,4 @@
+import { taskWriterConflict } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 import {
   DISPATCH_LIFECYCLE_PAGE_LIMIT,
   dispatchAdmissionRefusal,
@@ -35,6 +36,16 @@ export function readActiveDispatchLifecycleSync(
     cursor = page.status === "ready" ? page.nextCursor : null;
   } while (cursor !== null);
   return rows;
+}
+
+/** This read and the dispatch append share the center writer turn, across all instances/nodes. */
+export function requireTaskWriterAdmission(
+  read: (query: DispatchLifecycleQuery) => DispatchLifecycleRead,
+  taskId: string,
+  error: CodedError,
+): void {
+  const refusal = taskWriterConflict(readActiveDispatchLifecycleSync(read, error), taskId);
+  if (refusal) throw error(refusal.code, refusal.message);
 }
 
 export function readDispatchLifecycle(context: RuntimeSpawnerContext, query: DispatchLifecycleQuery) {

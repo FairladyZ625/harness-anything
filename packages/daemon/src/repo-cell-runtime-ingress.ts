@@ -23,7 +23,7 @@ import type { RepoCellBinding, RuntimeIngressAction } from "./repo-cell-types.ts
 import type { RepoCellActionContext } from "./repo-cell-types.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { noChanges } from "@harness-anything/application/internal/commands/entity-action-write-helpers.ts";
-import { requireDispatchLifecycleAdmission } from "./runtime-dispatch-admission.ts";
+import { requireTaskWriterAdmission, requireDispatchLifecycleAdmission } from "./runtime-dispatch-admission.ts";
 import {
   commitRuntimeSessionBundle,
   compileRuntimeSessionDraft,
@@ -251,6 +251,19 @@ export function appendAuxiliaryRuntimeIngress(
         );
       if (refusal) throw cell.cellCodedError(refusal.code, refusal.message);
     }
+    const taskLease =
+      typeof action.payload.taskId === "string" ? cell.projection.currentLease(action.payload.taskId) : null;
+    if (
+      action.payload.role !== "reviewer" &&
+      action.payload.role !== "read-only" &&
+      taskLease?.executionId === action.payload.executionId &&
+      typeof action.payload.taskId === "string"
+    )
+      requireTaskWriterAdmission(
+        (query) => cell.projection.readDispatchLifecycle(query),
+        action.payload.taskId,
+        (code, message) => cell.cellCodedError(code, message),
+      );
     // The lifecycle aggregate decides admission here, inside the writer, before the append.
     requireDispatchLifecycleAdmission(
       (query) => cell.projection.readDispatchLifecycle(query),
