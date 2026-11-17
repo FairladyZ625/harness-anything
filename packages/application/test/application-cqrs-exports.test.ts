@@ -79,7 +79,7 @@ test("application ./commands barrel exposes pure CQRS command orchestrations and
     claims: [],
   } as Parameters<typeof prepareDecisionAmend>[1];
   const amended = prepareDecisionAmend(
-    { reason: "Clarify scope", title: "Keep pure CQRS handlers cleanly" },
+    { reason: "Clarify scope", title: "Keep pure CQRS handlers cleanly", sets: [], appends: [] },
     currentDecision,
   );
   assert.equal(amended.title, "Keep pure CQRS handlers cleanly");
@@ -112,9 +112,9 @@ test("application ./queries barrel exposes pure CQRS read assemblers and project
   const todos = readTodos({
     listEntities: () => [
       {
-        id: "todo_1",
+        id: "todo_0123456789abcdef01234567",
         workspaceRevision: 7,
-        value: { id: "todo_1", title: "Ship W1A", status: "open" },
+        value: { id: "todo_0123456789abcdef01234567", text: "Ship W1A", completed: false, archived: false },
       },
     ],
     getEntity: () => undefined,
@@ -123,6 +123,6 @@ test("application ./queries barrel exposes pure CQRS read assemblers and project
     readRelationQuery: () => ({ rows: [], page: { nextCursor: null } }),
   } as unknown as Parameters<typeof readTodos>[0]);
   assert.equal(todos.length, 1);
-  assert.equal(todos[0]?.ref, "todo/todo_1");
+  assert.equal(todos[0]?.ref, "todo/todo_0123456789abcdef01234567");
   assert.equal(todos[0]?.open, true);
 });
