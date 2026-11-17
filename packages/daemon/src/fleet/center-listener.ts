@@ -532,7 +532,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           }
         }
         if (!loaded) {
-          /* @gate-identity non-state/environment-io.22ed4ffe787ceb39 */ rmSync(snapshotDir, {
+          /* @gate-identity non-state/environment-io.5c6d7e8f90123456 */ rmSync(snapshotDir, {
             recursive: true,
             force: true,
           });
