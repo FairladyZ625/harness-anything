@@ -66,6 +66,8 @@ export interface IdentitySessionPort {
   center(rejectedAccessToken?: string): Promise<{
     readonly url: string;
     readonly realm: string;
+    readonly certificate?: string;
+    readonly servername?: string;
     readonly accessToken: string;
     readonly provider: AuthorizationProvider;
   }>;

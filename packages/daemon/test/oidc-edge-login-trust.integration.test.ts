@@ -106,14 +106,14 @@ test("edge device login trusts only the invitation's self-signed Keycloak certif
     await assert.rejects(service.pollDevice(), { code: "oidc_device_expired" });
   });
 
-  await assert.rejects(service.beginDevice(loginTarget, authority), /fetch failed/u);
+  await assert.rejects(service.beginDevice(loginTarget, authority), { code: "keycloak_tls_certificate_error" });
   await assert.rejects(
     service.beginDevice(loginTarget, {
       ...authority,
       url: `https://127.0.0.1:${address.port}`,
       certificate: listener.cert,
     }),
-    /fetch failed/u,
+    { code: "keycloak_tls_certificate_error" },
     "an invitation CA does not bypass listener hostname verification",
   );
   const accepted = await service.beginDevice(loginTarget, {
@@ -147,7 +147,9 @@ test("edge device login trusts only the invitation's self-signed Keycloak certif
     "a private-CA session renews without environment CA setup",
   );
   assert.equal(tokenRequests, 3, "device exchange, policy authorization and refresh all use the invitation CA");
-  await assert.rejects(service.beginDevice(loginTarget, { ...authority, certificate: wrong.cert }), /fetch failed/u);
+  await assert.rejects(service.beginDevice(loginTarget, { ...authority, certificate: wrong.cert }), {
+    code: "keycloak_tls_certificate_error",
+  });
 
   defaultRoots.push(listener.cert);
   const publicTrustLogin = await service.beginDevice(loginTarget, authority);

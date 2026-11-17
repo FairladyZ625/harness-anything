@@ -1,3 +1,4 @@
+import { keycloakTlsFailure } from "./keycloak-tls-error.ts";
 import type { OidcLoginAuthority } from "@harness-anything/kernel";
 
 export function clientFields(authority: OidcLoginAuthority): Record<string, string> {
@@ -32,7 +33,10 @@ export function requiredNumber(value: unknown, field: string): number {
 }
 
 export function unavailable(message: string, cause?: unknown): Error {
-  return Object.assign(coded("oidc_session_unavailable", message), cause === undefined ? {} : { cause });
+  return (
+    keycloakTlsFailure(cause) ??
+    Object.assign(coded("oidc_session_unavailable", message), cause === undefined ? {} : { cause })
+  );
 }
 
 export function coded(code: string, message: string): Error {

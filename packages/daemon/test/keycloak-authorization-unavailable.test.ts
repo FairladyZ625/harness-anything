@@ -209,3 +209,61 @@ test("a Keycloak Admin write transport failure keeps its non-retryable daemon_er
   assert.equal(rpcServerErrorCode(error), "daemon_error");
   assert.equal(hostErrorCode(error), "daemon_error");
 });
+
+for (const certificateCode of [
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "ERR_TLS_CERT_ALTNAME_INVALID",
+  "CERT_HAS_EXPIRED",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+]) {
+  test(`TLS ${certificateCode} survives UMA, userinfo, Admin and daemon error mapping`, async () => {
+    const cause = new TypeError("fetch failed", {
+        cause: Object.assign(new Error("certificate rejected"), { code: certificateCode }),
+      }),
+      provider = new KeycloakPolicyAdapter(
+        { url, realm: "harness", resourceServerClientId: "harness-center" },
+        async () => {
+          throw cause;
+        },
+      ),
+      session = {
+        provider,
+        personId: "tls-person",
+        accessToken: "user-token",
+        url,
+        realm: "harness",
+        clientId: "harness-center",
+      };
+    for (const operation of [
+      () =>
+        provider.authorize({
+          userAccessToken: "user-token",
+          action: "task-push",
+          resource: { kind: "repository", repoId: "repo-tls" },
+        }),
+      () => provider.validateUserAccessToken("user-token", "tls-person"),
+      () => provider.syncBasePolicy("center-token"),
+      () => provider.authenticateNode("tls-node", "secret"),
+      () =>
+        evaluateKeycloakPerson({
+          credential: { session },
+          personId: "tls-person",
+          action: "task-push",
+          resource: { kind: "repository", repoId: "repo-tls" },
+        }),
+    ])
+      await assert.rejects(operation, (error: Error & { code?: string; certificateCode?: string }) => {
+        assert.equal(error.code, "keycloak_tls_certificate_error");
+        assert.equal(error.certificateCode, certificateCode);
+        assert.ok(error.message.includes(certificateCode));
+        assert.match(error.message, /CA certificate/u);
+        assert.equal(isKeycloakTransportFailure(error), false);
+        assert.equal(rpcServerErrorCode(error), "keycloak_tls_certificate_error");
+        assert.equal(hostErrorCode(error), "keycloak_tls_certificate_error");
+        assert.equal(error.cause, cause);
+        return true;
+      });
+  });
+}

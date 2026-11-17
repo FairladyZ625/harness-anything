@@ -243,10 +243,10 @@ export async function evaluateKeycloakPerson(input: {
         authority: "authorization-provider",
       };
     const resourceAncestors = input.resourceAncestors ?? [];
-    const fetchPort = input.fetchPort ?? fetch,
-      decisionProvider = provider.withFetchPort ? provider.withFetchPort(fetchPort) : provider,
+    const fetchPort = input.fetchPort,
+      decisionProvider = fetchPort && provider.withFetchPort ? provider.withFetchPort(fetchPort) : provider,
       centerProvider = currentCenter
-        ? currentCenter.provider.withFetchPort
+        ? fetchPort && currentCenter.provider.withFetchPort
           ? currentCenter.provider.withFetchPort(fetchPort)
           : currentCenter.provider
         : undefined;

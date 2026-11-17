@@ -61,7 +61,9 @@ test(
     );
     assert.equal(expectedContent.outcome, "directory");
     assert.ok(expectedContent.entries.some((entry) => entry.path === "reserved" && entry.directory));
-    const e = await fleetEdgeHostFixture(t, f);
+    const e = await fleetEdgeHostFixture(t, f, {
+      oidcPorts: { fetch: (input, init) => globalThis.fetch(input, init) },
+    });
     await catchUpReplica({
       ...f.peer("node-one"),
       viewRoot: e.viewRoot,

@@ -1,3 +1,4 @@
+import { keycloakTlsFailure } from "./keycloak-tls-error.ts";
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import type { IdentityAuthenticationContext } from "@harness-anything/kernel";
 import {
@@ -39,10 +40,13 @@ export async function verifyFleetReplica<T extends IdentityAuthenticationContext
       try {
         return await input.fetch(url, init);
       } catch (cause) {
-        throw Object.assign(new Error("Keycloak could not be reached to verify the Fleet replica credential."), {
-          code: "daemon_error",
-          cause,
-        });
+        throw (
+          keycloakTlsFailure(cause) ??
+          Object.assign(new Error("Keycloak could not be reached to verify the Fleet replica credential."), {
+            code: "daemon_error",
+            cause,
+          })
+        );
       }
     };
   const response = await request(`${input.url}${realmPath}/protocol/openid-connect/token/introspect`, {
@@ -112,10 +116,11 @@ export async function verifyFleetReplica<T extends IdentityAuthenticationContext
   if (user.id !== claims[admission.subjectClaim] || user.enabled !== admission.activeValue) throw reject();
   const current = await input.readNode(node.nodeId).catch((cause: unknown) =>
     Promise.reject(
-      Object.assign(new Error("Keycloak could not be reached to verify the Fleet node registration."), {
-        code: "daemon_error",
-        cause,
-      }),
+      keycloakTlsFailure(cause) ??
+        Object.assign(new Error("Keycloak could not be reached to verify the Fleet node registration."), {
+          code: "daemon_error",
+          cause,
+        }),
     ),
   );
   if (!current || current.personId !== node.personId || current.state !== "active" || current.revocation !== "complete")
@@ -134,6 +139,8 @@ export async function verifyFleetHuman<T extends IdentityAuthenticationContext>(
   readonly realm: string;
   readonly clientId: string;
   readonly expectedAzps?: readonly { readonly clientId: string; readonly personId?: string }[];
+  readonly certificate?: string;
+  readonly servername?: string;
   readonly clientSecret: string;
   readonly adminAccessToken: string;
   readonly fetch: typeof fetch;
@@ -208,7 +215,13 @@ export async function verifyFleetHuman<T extends IdentityAuthenticationContext>(
           : [],
       expiresAt,
       accessToken: token,
-      authority: { url: input.url, realm: input.realm, clientId: input.clientId },
+      authority: {
+        url: input.url,
+        realm: input.realm,
+        clientId: input.clientId,
+        ...(input.certificate ? { certificate: input.certificate } : {}),
+        ...(input.servername ? { servername: input.servername } : {}),
+      },
     },
   };
 }

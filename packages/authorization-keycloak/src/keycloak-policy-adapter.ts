@@ -1,3 +1,4 @@
+import { keycloakTlsFailure } from "./keycloak-tls-error.ts";
 import type * as AuthorizationReceipt from "@harness-anything/kernel/internal/domain/receipt-frame.ts";
 import { validatePolicyGroupScopes } from "@harness-anything/kernel/internal/domain/policy-groups.ts";
 import type * as AccessStatus from "@harness-anything/kernel/internal/domain/access-status.ts";
@@ -255,6 +256,8 @@ export class KeycloakPolicyAdapter
         signal = init?.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal;
       try {
         return await fetchPort(input, { ...init, signal });
+      } catch (error) {
+        throw keycloakTlsFailure(error) ?? error;
       } finally {
         clearTimeout(timer);
       }
@@ -887,9 +890,12 @@ export class KeycloakPolicyAdapter
       }).catch((cause: unknown) => {
         // A fetch rejection never produced an HTTP answer; keep the adapter's transport sentinel
         // so the authorization layer can distinguish it from a policy denial.
-        throw Object.assign(new Error("Keycloak authorization endpoint could not be reached.", { cause }), {
-          code: "daemon_error",
-        });
+        throw (
+          keycloakTlsFailure(cause) ??
+          Object.assign(new Error("Keycloak authorization endpoint could not be reached.", { cause }), {
+            code: "daemon_error",
+          })
+        );
       });
       // A 5xx carries no policy decision. Do not keep trying other candidates and report
       // `keycloak_denied`: the authorization layer must turn this into an availability failure.
@@ -945,7 +951,10 @@ export class KeycloakPolicyAdapter
     const response = await this.#fetch(this.#realmUrl("/protocol/openid-connect/userinfo"), {
       headers: { authorization: `Bearer ${token}` },
     }).catch((cause: unknown) => {
-      throw Object.assign(new Error("Keycloak userinfo could not be reached.", { cause }), { code: "daemon_error" });
+      throw (
+        keycloakTlsFailure(cause) ??
+        Object.assign(new Error("Keycloak userinfo could not be reached.", { cause }), { code: "daemon_error" })
+      );
     });
     if (response.status === 401 || response.status === 403) return false;
     if (!response.ok)
@@ -1096,9 +1105,12 @@ export class KeycloakPolicyAdapter
         ...init,
         headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json", ...init.headers },
       }).catch((cause: unknown) => {
-        throw Object.assign(new Error(`Keycloak Admin REST ${path} could not be reached.`, { cause }), {
-          code: "daemon_error",
-        });
+        throw (
+          keycloakTlsFailure(cause) ??
+          Object.assign(new Error(`Keycloak Admin REST ${path} could not be reached.`, { cause }), {
+            code: "daemon_error",
+          })
+        );
       });
     let response = await send(this.#refreshedAdminAccessToken ?? token);
     // dec_B0B79908FE04BBA7766035765B/CH3: at most one refresh per evaluation, even across lookups.
