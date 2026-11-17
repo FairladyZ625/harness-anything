@@ -146,7 +146,15 @@ export async function fleetNodeClaimFixture(
       hostResults = await Promise.allSettled(hosts.splice(0).map((target) => target.close())),
       results = [...centerResults, ...hostResults];
     await owners.close();
-    rmSync(root, { recursive: true, force: true });
+    // A Windows tree can still hold a file open for a moment after the hosts close, and
+    // a throwing hook skips every later fixture's after hook (node:test stops the queue),
+    // stranding that fixture's host and its replica-sync retry timer. Retry, then report the
+    // leftover instead of aborting cleanup; the OS temp cleaner removes what remains.
+    try {
+      rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    } catch (error) {
+      console.warn(`[fleet-lease-fixture] could not remove ${root}: ${String(error)}`);
+    }
     const unexpected = results
       .filter((result): result is PromiseRejectedResult => result.status === "rejected")
       .map(({ reason }) => reason)
