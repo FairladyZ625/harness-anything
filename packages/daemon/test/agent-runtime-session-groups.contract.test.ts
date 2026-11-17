@@ -6,8 +6,10 @@ import type { AgentRuntimeEventV1, RuntimeSession, TaskProjection } from "@harne
 import { runtimeSessionInActivityWindow } from "@harness-anything/kernel";
 import {
   serializeAgentRuntimeSessionGroups,
+  validateAgentRuntimeSessionGroupMembers,
   validateAgentRuntimeSessionGroups,
   validateAgentRuntimeOverview,
+  type AgentRuntimeSessionGroupMembersResult,
 } from "../src/agent-runtime-contract.ts";
 import { makeAgentRuntimeReadModel } from "../src/agent-runtime-read.ts";
 import {
@@ -31,6 +33,21 @@ function parseSessionGroupsProjection(projection: AgentRuntimeSessionGroupsResul
     projection,
   });
   return envelope.projection as AgentRuntimeSessionGroupsResult;
+}
+
+function parseSessionGroupMembersProjection(
+  projection: AgentRuntimeSessionGroupMembersResult,
+): AgentRuntimeSessionGroupMembersResult {
+  const envelope = parseDaemonGuiReadResult("repo.projection.read", {
+    schema: "daemon.use-case-projection/v1",
+    ok: true,
+    name: "runtime-session-groups",
+    facet: "members",
+    version: 1,
+    inputs: deriveUseCaseProjectionInputs("runtime-session-groups"),
+    projection,
+  });
+  return envelope.projection as AgentRuntimeSessionGroupMembersResult;
 }
 
 test("session groups are contracted as a use-case projection with bounded daemon-side filters", () => {
@@ -275,6 +292,7 @@ test("stopped session semantics pass overview contracts while unknown words rema
     ]),
     projection = {
       ...projectionFixture(),
+      currentLease: () => null,
       readDispatchLifecycle: lifecycleReadForSync([
         {
           runtimeSessionId: stopped.runtimeSessionId,
@@ -508,6 +526,18 @@ function runtimeDispatch(
     payload: {
       runtimeSessionId: session.runtimeSessionId,
       definitionSnapshotRef: session.definitionSnapshotRef,
+      definitionSnapshot: {
+        schema: "agent-definition-snapshot/v1",
+        configVersion: 1,
+        instanceId: session.instanceId,
+        installationId: session.installationId,
+        kindId: session.kindId,
+        providerId: "openai",
+        model: "gpt-6.1-sol",
+        reasoningEffort: null,
+        baseUrl: null,
+        authMode: "subscription",
+      },
     },
   } as Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requested" }>;
 }
@@ -837,4 +867,188 @@ test("an unspecified activity window depends only on the accepted cut", () => {
     reads.sessionGroups({}).groups.some((group) => group.key === "task-b"),
     true,
   );
+});
+
+test("unattributed:no-task preserves dispatch rounds, latestRound, and expands members for all unattributed buckets", () => {
+  const unboundLive = runtimeSession(
+      "runtime_aaaaaaaaaaaaaaaaaaaaaaaa",
+      "instance-unbound-1",
+      "2026-08-26T11:30:00.000Z",
+      "live",
+      null,
+      [],
+    ),
+    unboundDone = runtimeSession(
+      "runtime_bbbbbbbbbbbbbbbbbbbbbbbb",
+      "instance-unbound-2",
+      "2026-08-26T11:00:00.000Z",
+      "exited",
+      "succeeded",
+      [],
+    ),
+    orphanDirect = runtimeSession(
+      "runtime_cccccccccccccccccccccccc",
+      "instance-direct-orphan",
+      "2026-08-26T10:30:00.000Z",
+      "live",
+      null,
+      [],
+    ),
+    taskBoundNoDispatch = runtimeSession(
+      "runtime_dddddddddddddddddddddddd",
+      "instance-task-orphan",
+      "2026-08-26T10:00:00.000Z",
+      "exited",
+      "succeeded",
+      ["task-bound-only"],
+    ),
+    localSessions = [unboundLive, unboundDone, orphanDirect, taskBoundNoDispatch],
+    localDispatches: readonly TaskDispatchRow[] = [
+      {
+        ...dispatch(
+          "dispatch_111111111111111111111111",
+          unboundLive.runtimeSessionId,
+          "",
+          unboundLive.instanceId,
+          "2026-08-26T11:25:00.000Z",
+          "running",
+          {
+            agentId: "hydrogen",
+            agentName: "Hydrogen",
+            classification: null,
+            reason: null,
+          },
+        ),
+        executionId: "",
+        attemptGroupId: "dispatch_111111111111111111111111",
+        attemptIndex: 0,
+        provider: { instance: unboundLive.instanceId, model: "gemini-4-hydrogen-high" },
+        fallbackState: null,
+        nextDispatchId: null,
+      },
+      {
+        ...dispatch(
+          "dispatch_222222222222222222222222",
+          unboundDone.runtimeSessionId,
+          "",
+          unboundDone.instanceId,
+          "2026-08-26T10:55:00.000Z",
+          "succeeded",
+          {
+            agentId: "sol",
+            agentName: "Sol",
+            classification: "worker_stop",
+            reason: "Completed direct run.",
+          },
+        ),
+        executionId: "",
+        attemptGroupId: "dispatch_222222222222222222222222",
+        attemptIndex: 0,
+        provider: { instance: unboundDone.instanceId, model: "gpt-6.1-sol" },
+        fallbackState: null,
+        nextDispatchId: null,
+      },
+    ],
+    localEvents = localSessions
+      .filter(
+        (session) =>
+          session.runtimeSessionId.startsWith("runtime_a") || session.runtimeSessionId.startsWith("runtime_b"),
+      )
+      .map(runtimeDispatch),
+    projection = {
+      ...projectionFixture(),
+      currentLease: () => null,
+      readDispatchLifecycle: lifecycleReadForSync(
+        localSessions.map((session) => ({
+          runtimeSessionId: session.runtimeSessionId,
+          dispatchId: `dispatch-${session.runtimeSessionId}`,
+          outcome: session.outcome,
+          attemptSettled: session.outcome !== null,
+          process: session.outcome === null ? "alive" : "exited",
+        })),
+      ),
+      readRuntimeSessions: () => localSessions,
+      readRuntimeDispatchEventsBySession: (runtimeSessionId: string) =>
+        localEvents.filter((event) => event.payload.runtimeSessionId === runtimeSessionId),
+      readTaskRuntimeBatch: ({ taskIds }: { readonly taskIds: readonly string[] }) => ({
+        rows: taskIds.map((taskId) => ({
+          taskId,
+          title: taskId,
+          packagePath: null,
+          sessions: localSessions.filter((session) =>
+            session.taskBindings.some((binding) => binding.taskId === taskId),
+          ),
+        })),
+      }),
+    } as unknown as TaskProjection,
+    reads = makeAgentRuntimeReadModel({
+      projection,
+      store: {} as never,
+      now: () => "2026-08-26T12:00:00.000Z",
+      readDispatches: () => localDispatches,
+    });
+
+  // 1. unattributed:no-task 必须保留真实 dispatch 记录: 2 轮且 latestRound 指向最新轮派工。
+  const taskGroups = parseSessionGroupsProjection(reads.sessionGroups({ groupBy: "task", since: SINCE_ALL }));
+  const noTaskGroup = taskGroups.groups.find((group) => group.key === "unattributed:no-task");
+  assert.ok(noTaskGroup, "unattributed:no-task group must exist");
+  assert.equal(noTaskGroup.sessionCount, 2);
+  assert.equal(noTaskGroup.roundCount, 2);
+  assert.equal(noTaskGroup.runningCount, 1);
+  assert.equal(noTaskGroup.latestRound?.dispatchId, "dispatch_111111111111111111111111");
+  assert.equal(noTaskGroup.latestRound?.agentName, "Hydrogen");
+
+  // 2. runtime-session-groups/members 按未绑定分组键读取组内派工轮次与孤立会话。
+  const noTaskMembers = parseSessionGroupMembersProjection(
+    reads.sessionGroupMembers({ groupKey: "unattributed:no-task", groupBy: "task", since: SINCE_ALL }),
+  );
+  assert.deepEqual(
+    noTaskMembers.dispatches.map((row) => row.dispatchId),
+    ["dispatch_222222222222222222222222", "dispatch_111111111111111111111111"],
+  );
+  assert.deepEqual(
+    noTaskMembers.sessions.map((session) => session.runtimeSessionId),
+    [unboundLive.runtimeSessionId, unboundDone.runtimeSessionId],
+  );
+
+  // unattributed:no-squad 缺省 groupBy 时按 squad 推断，返回无 squadId 的派工轮次。
+  const noSquadMembers = parseSessionGroupMembersProjection(
+    reads.sessionGroupMembers({ groupKey: "unattributed:no-squad", since: SINCE_ALL }),
+  );
+  assert.equal(noSquadMembers.groupBy, "squad");
+  assert.equal(noSquadMembers.dispatches.length, 2);
+
+  // unattributed:no-dispatch 在 task 维度只含无 taskBindings 的孤立会话；squad 维度含所有无派工记录的会话。
+  const noDispatchTask = parseSessionGroupMembersProjection(
+    reads.sessionGroupMembers({ groupKey: "unattributed:no-dispatch", groupBy: "task", since: SINCE_ALL }),
+  );
+  assert.deepEqual(noDispatchTask.dispatches, []);
+  assert.deepEqual(
+    noDispatchTask.sessions.map((session) => session.runtimeSessionId),
+    [orphanDirect.runtimeSessionId],
+  );
+  const noDispatchSquad = parseSessionGroupMembersProjection(
+    reads.sessionGroupMembers({ groupKey: "unattributed:no-dispatch", groupBy: "squad", since: SINCE_ALL }),
+  );
+  assert.deepEqual(
+    noDispatchSquad.sessions.map((session) => session.runtimeSessionId),
+    [orphanDirect.runtimeSessionId, taskBoundNoDispatch.runtimeSessionId],
+  );
+
+  // 3. 契约校验拒绝非法 groupKey 与夹带敏感键的结果。
+  assert.notDeepEqual(
+    validateDaemonRpcCall({
+      method: "repo.projection.read",
+      params: {
+        repo: { repoId: "runtime-groups" },
+        payload: { name: "runtime-session-groups", facet: "members", groupKey: "task-a" },
+      },
+    }),
+    [],
+  );
+  assert.throws(
+    () => reads.sessionGroupMembers({ groupKey: "task-a" }),
+    (error: unknown) => (error as { code?: string }).code === "invalid_request",
+  );
+  assert.notDeepEqual(validateAgentRuntimeSessionGroupMembers({ ...noTaskMembers, token: "secret" }), []);
 });

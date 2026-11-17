@@ -59,6 +59,7 @@ export {
   agentRuntimeSessionGroupStatusWords,
   agentRuntimeTargetForKind,
   agentRuntimeTargetSummary,
+  agentRuntimeUnattributedGroupKeys,
   successfulAgentRuntimeResult,
 } from "../agent-runtime-contract.ts";
 export type {
@@ -68,6 +69,7 @@ export type {
   AgentRuntimeSessionContextDto,
   AgentRuntimeSessionDto,
   AgentRuntimeSessionGroupDto,
+  AgentRuntimeSessionGroupMembersResult,
   AgentRuntimeSessionGroupStatus,
   AgentRuntimeSessionGroupsResult,
   AgentRuntimeSessionResult,

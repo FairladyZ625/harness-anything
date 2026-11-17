@@ -181,9 +181,9 @@ export const daemonRuntimeSessionPolicySources = [
     ".readRuntimeSessionPage({ limit: 8, afterRuntimeSessionId: runtimeSessionId })",
   ],
   [
-    "policy:packages/daemon:packages/daemon/src/agent-runtime-read.ts#makeAgentRuntimeReadModel.sessionGroups.dispatches.shallow:00191b086680e4e98da6ac785758b04a",
-    "packages/daemon/src/agent-runtime-read.ts#makeAgentRuntimeReadModel.sessionGroups.dispatches.shallow",
-    "...(query.unsettledOnly ? { shallow: true } : {}),",
+    "policy:packages/daemon:packages/daemon/src/agent-runtime-read.ts#makeAgentRuntimeReadModel.readSessionGroupInputs.dispatches.shallow:00191b086680e4e98da6ac785758b04a",
+    "packages/daemon/src/agent-runtime-read.ts#makeAgentRuntimeReadModel.readSessionGroupInputs.dispatches.shallow",
+    "...(unsettledOnly ? { shallow: true } : {}),",
   ],
   [
     "policy:packages/daemon:packages/daemon/src/agent-runtime-read.ts#makeAgentRuntimeReadModel.session.dto.attemptChain:14d0762c2a4e9497984a3bcef48b5748",

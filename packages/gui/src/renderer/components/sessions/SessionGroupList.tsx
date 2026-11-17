@@ -341,7 +341,8 @@ const GroupSection = memo(function GroupSection({
   readonly nowMs?: number;
 }) {
   const decisionGroup = group.kind === "decision" && group.decisionId !== undefined,
-    expandable = (group.kind === "task" && group.taskId !== undefined) || decisionGroup,
+    unattributedGroup = group.kind === "unattributed",
+    expandable = (group.kind === "task" && group.taskId !== undefined) || decisionGroup || unattributedGroup,
     open = expanded && expandable,
     drill = expandable || onDrill === undefined ? null : sessionDrillTarget(group),
     decisions = expandable && group.taskId ? decisionRefsFor(group.taskId) : [],
@@ -351,8 +352,8 @@ const GroupSection = memo(function GroupSection({
     visibleOrphans = (rows?.orphans ?? []).filter((row) =>
       agentRuntimeSearchMatches([row.runtimeSessionId, row.instanceId, row.taskId, row.taskTitle, row.status], terms),
     );
-  // 组头只有三种形态:任务/Decision 展开;有 agentId/squadId 的 Agent/小队钻入
-  // (读面已存在,见 sessionDrillTarget);时间组与没有 id 的 Direct/未归属桶静态。
+  // 组头只有三种形态:任务/Decision/未归属展开;有 agentId/squadId 的 Agent/小队钻入
+  // (读面已存在,见 sessionDrillTarget);时间组与没有 id 的 Direct 桶静态。
   // 时间组的日期是主体,不再挂「当天最新一轮的执行者」——那读起来像这一天属于某个 agent。
   const headerLabel =
     group.kind === "unattributed"
@@ -579,7 +580,7 @@ function RoundRow({
   const meta = [row.agentName, row.classification, row.nextAction, row.delegation].filter(Boolean).join(" · ");
   const touch = sessionTouches?.get(row.runtimeSessionId) ?? null;
   const cacheTtl = settledCacheTtl(row.status, touch, sessionCacheTtlMs?.get(row.runtimeSessionId) ?? null, nowMs ?? 0);
-  const needsYou = attentionRefs?.has(`task/${row.taskId}`) ?? false;
+  const needsYou = row.taskId !== null && (attentionRefs?.has(`task/${row.taskId}`) ?? false);
 
   return (
     <button
@@ -638,7 +639,7 @@ function OrphanRow({
 }) {
   const touch = sessionTouches?.get(row.runtimeSessionId) ?? null;
   const cacheTtl = settledCacheTtl(row.status, touch, sessionCacheTtlMs?.get(row.runtimeSessionId) ?? null, nowMs ?? 0);
-  const needsYou = attentionRefs?.has(`task/${row.taskId}`) ?? false;
+  const needsYou = row.taskId !== null && (attentionRefs?.has(`task/${row.taskId}`) ?? false);
 
   return (
     <button
@@ -652,7 +653,11 @@ function OrphanRow({
       <DenseRow
         tag={<SessionStatusTag status={row.status} needsYou={needsYou} />}
         title={row.instanceId}
-        reason={t("agentRuntime.sessionsNoDispatch", { count: 1 })}
+        reason={
+          row.taskId === null
+            ? t("agentRuntime.sessionsNoDispatchTag")
+            : t("agentRuntime.sessionsNoDispatch", { count: 1 })
+        }
         time={formatTime(row.startedAt, { style: "time" }) ?? row.startedAt}
         action={
           <div className="flex items-center gap-1.5" data-testid={`session-card-meters-${row.runtimeSessionId}`}>

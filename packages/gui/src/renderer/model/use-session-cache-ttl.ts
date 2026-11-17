@@ -36,12 +36,16 @@ export function useTaskSessionCacheTtl(
 export function sessionCacheTtlOf(
   taskSessionsByTask: ReadonlyMap<string, readonly AgentRuntimeSessionDto[]>,
   selected: AgentRuntimeSessionDto | null | undefined,
+  extraSessions: readonly AgentRuntimeSessionDto[] = [],
 ): ReadonlyMap<string, number | null> {
   const ttls = new Map<string, number | null>();
   for (const sessions of taskSessionsByTask.values()) {
     for (const session of sessions) {
       ttls.set(session.runtimeSessionId, promptCacheTtlMsForKind(session.kindId, session.definitionSnapshot?.baseUrl));
     }
+  }
+  for (const session of extraSessions) {
+    ttls.set(session.runtimeSessionId, promptCacheTtlMsForKind(session.kindId, session.definitionSnapshot?.baseUrl));
   }
   if (selected)
     ttls.set(selected.runtimeSessionId, promptCacheTtlMsForKind(selected.kindId, selected.definitionSnapshot?.baseUrl));

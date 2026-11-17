@@ -580,6 +580,7 @@ export function createRepoCellApi(
           selector.limit === undefined ? 50 : Number(selector.limit),
         ),
       };
+    if (facet === "members") return { ...envelope, projection: context.runtimeReads.sessionGroupMembers(selector) };
     return { ...envelope, projection: context.runtimeReads.sessionGroups(selector) };
   }
   function taskListQueryFromAction(action: RepoTaskAction): TaskProjectionListQuery {

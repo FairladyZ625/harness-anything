@@ -960,6 +960,50 @@ describe("agent runtime renderer", () => {
       query: "terra",
     });
   });
+  it("reads unattributed group members through the members facet and rejects malformed replies", async () => {
+    const readUseCaseProjection = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ...sessionGroupsEnvelope({ ok: true, dispatches: "bad" }),
+        facet: "members",
+      })
+      .mockResolvedValueOnce({
+        ...sessionGroupsEnvelope({
+          ok: true,
+          status: "ready",
+          groupKey: "unattributed:no-task",
+          groupBy: "task",
+          dispatches: [],
+          sessions: [],
+          watermark: 1,
+          sourceRevision: 1,
+        }),
+        facet: "members",
+      });
+    vi.stubGlobal("window", {
+      harness: {
+        getAgentRuntimeOverview: vi.fn(),
+        readUseCaseProjection,
+        getAgentRuntimeSession: vi.fn(),
+        getAgentRuntimeEvents: vi.fn(),
+      },
+    });
+    await expect(
+      agentRuntimeClient.sessionGroupMembers("repo-a", { groupKey: "unattributed:no-task", groupBy: "task" }),
+    ).rejects.toThrow(/invalid result/u);
+    const result = await agentRuntimeClient.sessionGroupMembers("repo-a", {
+      groupKey: "unattributed:no-task",
+      groupBy: "task",
+    });
+    expect(result.groupKey).toBe("unattributed:no-task");
+    expect(readUseCaseProjection).toHaveBeenLastCalledWith({
+      repoId: "repo-a",
+      name: "runtime-session-groups",
+      facet: "members",
+      groupKey: "unattributed:no-task",
+      groupBy: "task",
+    });
+  });
 });
 
 /** The wire envelope the `runtime-session-groups` use-case projection arrives in. */

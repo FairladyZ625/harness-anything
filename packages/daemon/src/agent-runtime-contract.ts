@@ -5,7 +5,15 @@ import type { DispatchAttemptOutcome } from "@harness-anything/kernel/internal/d
 import type { LeasePhase } from "@harness-anything/kernel/internal/domain/execution.ts";
 import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
-import { validDispatchLifecycleSummary } from "./protocol/daemon-protocol-validate-relation-query.ts";
+import {
+  validDispatchLifecycleSummary,
+  validTaskDispatchRow,
+} from "./protocol/daemon-protocol-validate-relation-query.ts";
+import {
+  agentRuntimeUnattributedGroupKeys,
+  type AgentRuntimeUnattributedGroupKey,
+} from "./protocol/daemon-protocol-vocabulary.ts";
+import type { TaskDispatchRow } from "./protocol/task-dispatch-contract.ts";
 import type { DispatchLifecycleSummary } from "@harness-anything/kernel";
 import type { RuntimeCapabilitySupport } from "./runtime-inventory-types.ts";
 import { isRuntimeMcpPolicy, runtimeWebSearchModes } from "./runtime-inventory.ts";
@@ -274,13 +282,7 @@ export const agentRuntimeSessionGroupStatusWordsAreExact: [
  * row at all (a direct session, or one dispatched on another node — dispatch rows are node-local
  * while sessions replicate). One bucket labelled "Unattributed" said all three at once.
  */
-export const agentRuntimeUnattributedGroupKeys = Object.freeze({
-  noTask: "unattributed:no-task",
-  noSquad: "unattributed:no-squad",
-  noDispatch: "unattributed:no-dispatch",
-} as const);
-export type AgentRuntimeUnattributedGroupKey =
-  (typeof agentRuntimeUnattributedGroupKeys)[keyof typeof agentRuntimeUnattributedGroupKeys];
+export { agentRuntimeUnattributedGroupKeys, type AgentRuntimeUnattributedGroupKey };
 export interface AgentRuntimeSessionGroupRoundDto {
   readonly runtimeSessionId: string;
   readonly dispatchId: string | null;
@@ -328,6 +330,16 @@ export type AgentRuntimeSessionGroupsResult = {
   }[];
   readonly totals: { readonly groups: number; readonly sessions: number };
   readonly truncated: boolean;
+  readonly watermark: number;
+  readonly sourceRevision: number;
+};
+export type AgentRuntimeSessionGroupMembersResult = {
+  readonly ok: true;
+  readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
+  readonly groupKey: AgentRuntimeUnattributedGroupKey;
+  readonly groupBy: AgentRuntimeSessionGroupBy;
+  readonly dispatches: readonly TaskDispatchRow[];
+  readonly sessions: readonly AgentRuntimeSessionDto[];
   readonly watermark: number;
   readonly sourceRevision: number;
 };
@@ -444,6 +456,32 @@ export function validateAgentRuntimeSessionGroups(value: unknown): readonly stri
     safeKeys(value)
     ? []
     : ["agent runtime session groups are invalid"];
+}
+export function validateAgentRuntimeSessionGroupMembers(value: unknown): readonly string[] {
+  return isAgentRuntimeContractRecord(value) &&
+    hasExactAgentRuntimeContractFields(value, [
+      "ok",
+      "status",
+      "groupKey",
+      "groupBy",
+      "dispatches",
+      "sessions",
+      "watermark",
+      "sourceRevision",
+    ]) &&
+    value.ok === true &&
+    ["ready", "pending"].includes(String(value.status)) &&
+    (Object.values(agentRuntimeUnattributedGroupKeys) as readonly string[]).includes(String(value.groupKey)) &&
+    ["task", "squad", "agent", "day"].includes(String(value.groupBy)) &&
+    Array.isArray(value.dispatches) &&
+    value.dispatches.every(validTaskDispatchRow) &&
+    Array.isArray(value.sessions) &&
+    value.sessions.every(validSession) &&
+    sessionGroupCount(value.watermark) &&
+    sessionGroupCount(value.sourceRevision) &&
+    safeKeys(value)
+    ? []
+    : ["agent runtime session group members are invalid"];
 }
 function validInstallation(value: unknown): value is AgentRuntimeInstallationDto {
   return (

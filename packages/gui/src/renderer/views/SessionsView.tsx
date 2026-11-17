@@ -39,7 +39,9 @@ import { useAgendaQuery } from "../agenda-data.ts";
 import type { RelationEdge } from "../model/types.ts";
 import type { TaskDispatchProjectionRow } from "../../api/renderer-dto.ts";
 import {
+  daemonSessionGroupBy,
   epochMsOf,
+  isUnattributedGroupKey,
   needsYouRefs,
   settledCacheTtl,
   sessionGroupNeedsYou,
@@ -57,6 +59,7 @@ import {
   type SessionGroupBy,
   type SessionOrphan,
   type SessionRound,
+  type SessionRow,
   type SessionStatusFilter,
 } from "../sessions-model.ts";
 import { NO_WORKS, type WorkIndex } from "../model/work-collections.ts";
@@ -250,7 +253,8 @@ export function SessionsView({
   // 检索单组命中时自动展开(设计稿 §7.1:命中 1 组 1 轮,组自动展开)。工作层还要
   // 展开该任务所属的工作,否则命中的组藏在收起的工作里。
   useEffect(() => {
-    if (debouncedSearch === "" || groups.length !== 1 || groups[0]?.kind !== "task") return;
+    if (debouncedSearch === "" || groups.length !== 1) return;
+    if (groups[0]?.kind !== "task" && groups[0]?.kind !== "unattributed") return;
     if (groupBy !== "task" && groupBy !== "work") return;
     const [group] = groups;
     const key = group.key;
@@ -262,8 +266,8 @@ export function SessionsView({
   }, [debouncedSearch, groupBy, groups, works]);
 
   // 组展开行集:每个已展开任务组两次读(task.dispatches 全部轮次 + overview { taskId }
-  // 绑定会话做孤儿判定)。数据在页级持有,组列表、主区与 inspector 共用缓存键。
-  // 钻入时轮次已随 useRelatedDispatches 的批量读返回,不再发这两组读。
+  // 绑定会话做孤儿判定);已展开未归属组走 runtime-session-groups/members。数据在页级持有,
+  // 组列表、主区与 inspector 共用缓存键。钻入时轮次已随 useRelatedDispatches 返回。
   const expandedTasks = useMemo(
     () =>
       drill === null
@@ -274,10 +278,44 @@ export function SessionsView({
         : [],
     [drill, groups, expandedGroups],
   );
+  const expandedUnattributed = useMemo(
+    () =>
+      drill === null
+        ? groups.filter(
+            (group) =>
+              group.kind === "unattributed" && isUnattributedGroupKey(group.key) && expandedGroups.has(group.key),
+          )
+        : [],
+    [drill, groups, expandedGroups],
+  );
   const roundsQueries = useQueries({
     queries: expandedTasks.map((group) => ({
       queryKey: runtimeQueryKeys.dispatches(repoId, group.taskId),
       queryFn: () => readAllTaskDispatches({ repoId, taskId: group.taskId }),
+      staleTime: 4_000,
+    })),
+  });
+  const daemonGroupBy = daemonSessionGroupBy(groupBy),
+    statusKey = [...status].sort().join(",");
+  const unattributedQueries = useQueries({
+    queries: expandedUnattributed.map((group) => ({
+      queryKey: [
+        ...runtimeQueryKeys.sessionGroupsAll(repoId),
+        "members",
+        group.key,
+        daemonGroupBy,
+        range,
+        debouncedSearch,
+        statusKey,
+      ],
+      queryFn: () =>
+        agentRuntimeClient.sessionGroupMembers(repoId, {
+          groupKey: group.key as Parameters<typeof agentRuntimeClient.sessionGroupMembers>[1]["groupKey"],
+          groupBy: daemonGroupBy,
+          since,
+          ...(debouncedSearch === "" ? {} : { query: debouncedSearch }),
+          ...(status.length === 0 ? {} : { status }),
+        }),
       staleTime: 4_000,
     })),
   });
@@ -291,6 +329,10 @@ export function SessionsView({
     [drill, expandedTasks, related.groups],
   );
   const taskSessionsByTask = useTaskSessionCacheTtl(repoId, ttlTaskIds);
+  const unattributedSessions = useMemo(
+    () => unattributedQueries.flatMap((query) => query.data?.sessions ?? []),
+    [unattributedQueries],
+  );
   const groupRows = useMemo(() => {
     const rows = new Map<
       string,
@@ -324,8 +366,31 @@ export function SessionsView({
         error: null,
       });
     });
+    expandedUnattributed.forEach((group, index) => {
+      const membersQuery = unattributedQueries[index],
+        data = membersQuery?.data;
+      if (data === undefined && !membersQuery?.isError) {
+        rows.set(group.key, { ...GROUP_ROWS_PENDING, pending: true, error: null });
+        return;
+      }
+      if (membersQuery?.isError) {
+        rows.set(group.key, {
+          ...GROUP_ROWS_PENDING,
+          pending: false,
+          error: membersQuery.error instanceof Error ? membersQuery.error.message : String(membersQuery.error),
+        });
+        return;
+      }
+      const rounds = sessionRounds(null, null, data?.dispatches ?? []);
+      rows.set(group.key, {
+        rounds,
+        orphans: sessionOrphans(null, null, data?.sessions ?? [], rounds),
+        pending: false,
+        error: null,
+      });
+    });
     return rows;
-  }, [expandedTasks, roundsQueries, taskSessionsByTask]);
+  }, [expandedTasks, roundsQueries, taskSessionsByTask, expandedUnattributed, unattributedQueries]);
 
   // 钻入的轮次来自同一批派工行:按任务组分好即挂到组体,点开组头不再二次读。
   const drillRowsByGroup = useMemo(() => {
@@ -333,6 +398,15 @@ export function SessionsView({
     const rounds = sessionRoundsByTask(related.groups, related.dispatchRows),
       rows = new Map<string, SessionGroupRows>();
     for (const group of related.groups) {
+      if (group.kind === "unattributed") {
+        rows.set(group.key, {
+          rounds: rounds.get(group.key) ?? [],
+          orphans: [],
+          pending: related.pending,
+          error: related.error,
+        });
+        continue;
+      }
       if (group.taskId === undefined) continue;
       rows.set(group.taskId, {
         rounds: rounds.get(group.taskId) ?? [],
@@ -514,8 +588,8 @@ export function SessionsView({
 
   const sessionTouches = useOverviewSessionTouches(repoId, touchSessionIds);
   const sessionCacheTtlMs = useMemo(
-    () => sessionCacheTtlOf(taskSessionsByTask, selectedSession.data?.session),
-    [taskSessionsByTask, selectedSession.data],
+    () => sessionCacheTtlOf(taskSessionsByTask, selectedSession.data?.session, unattributedSessions),
+    [taskSessionsByTask, selectedSession.data, unattributedSessions],
   );
   // 秒针闸门是「确有缓存触达证据」,不是「确有已知 TTL」:nowMs 同时喂排序的 Done
   // 新鲜度窗(300s)与倒计时,而触达轮询窗恰好同宽(300s)——有触达的页面才有会随
@@ -605,12 +679,16 @@ export function SessionsView({
     if (decisionFocus?.decisionId != null && attentionRefs.has(`decision/${decisionFocus.decisionId}`)) return true;
     return false;
   }, [selectedSessionId, selectedTaskId, decisionFocus, attentionRefs]);
-  const siblings =
-    selectedRow === null
-      ? []
-      : allRows.filter(
-          (row) => row.taskId === selectedRow.taskId && row.runtimeSessionId !== selectedRow.runtimeSessionId,
-        );
+  const siblings = useMemo(() => {
+    if (selectedRow === null) return [];
+    for (const { rounds, orphans } of displayedRowsByGroup.values()) {
+      const groupRows: readonly SessionRow[] = [...rounds, ...orphans];
+      if (groupRows.some((row) => row.runtimeSessionId === selectedRow.runtimeSessionId)) {
+        return groupRows.filter((row) => row.runtimeSessionId !== selectedRow.runtimeSessionId);
+      }
+    }
+    return [];
+  }, [displayedRowsByGroup, selectedRow]);
   const liveCount = displayedGroups.reduce((total, group) => total + group.runningCount, 0);
   const availableRuns = runs.filter(isAvailableSquadRunSummary);
   const activeRunCount = availableRuns.filter(

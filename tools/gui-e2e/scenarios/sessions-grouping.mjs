@@ -637,10 +637,20 @@ export default {
     assert.equal(grouping.work, "false", `the Work grouping control must be deselected: ${JSON.stringify(grouping)}`);
     await page.getByTestId(`session-group-${ROUNDS_TASK}`).waitFor();
 
-    // 1. 按缺失原因命名的桶 + task 组:判别式在 key(dec_054C39DA50CAD4D4E0D62B726E)。
+    // 1. 按缺失原因命名的桶 + task 组:判别式在 key(dec_054C39DA50CAD4D4E0D62B726E),可点击展开查看会话。
     await page.getByTestId(`session-group-${FIXTURE_TASK}`).waitFor();
     await page.getByTestId("session-group-unattributed:no-task").waitFor();
     await page.getByTestId("session-group-unattributed:no-dispatch").waitFor();
+    const noTaskToggleText = await page.getByTestId("session-group-toggle-unattributed:no-task").innerText();
+    assert.match(noTaskToggleText, /1\s*(?:轮|round)/u, `no-task header must count 1 round: ${noTaskToggleText}`);
+    await expandGroup(page, "unattributed:no-task");
+    await page.getByTestId(`rail-session-${SESSION_NOTASK}`).waitFor();
+    await expandGroup(page, "unattributed:no-dispatch");
+    await page.getByTestId(`rail-session-${SESSION_FREE}`).waitFor();
+    await page.getByTestId(`rail-session-${SESSION_NOTASK}`).click();
+    await waitForDetailSession(page, SESSION_NOTASK);
+    await page.getByTestId("session-group-toggle-unattributed:no-task").click();
+    await page.getByTestId("session-group-toggle-unattributed:no-dispatch").click();
 
     // 1b. 任务/轮次层次(task_666b2539):先拍同窗口同字号的前后对比素材(宽/窄 ×
     // 浅/深),再断言几何与交互——修前形态上断言必红,截图已先落盘。
@@ -722,7 +732,7 @@ export default {
 
     await page.getByTestId("sessions-group-squad").click();
     await page.getByTestId("session-group-drill-squad-e2e").waitFor();
-    await page.getByTestId("session-group-static-unattributed:no-squad").waitFor();
+    await page.getByTestId("session-group-toggle-unattributed:no-squad").waitFor();
     await page.getByTestId("session-group-drill-squad-e2e").click();
     await page.getByTestId("sessions-drill-breadcrumb").waitFor();
     await page.getByTestId(`session-group-${ROUNDS_TASK}`).waitFor();

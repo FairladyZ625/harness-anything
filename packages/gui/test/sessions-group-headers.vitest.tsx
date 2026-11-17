@@ -8,10 +8,10 @@ import type { SessionGroup, SessionRound, SessionWorkGroup } from "../src/render
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 /**
- * 组头只有三种诚实形态(task_4b83acdd 五条反馈):
- * - 可展开:工作/任务/Decision → button + aria-expanded;
+ * 组头只有三种诚实形态(task_4b83acdd 五条反馈 + unattributed 展开修复):
+ * - 可展开:工作/任务/Decision/未归属 → button + aria-expanded;
  * - 可钻入:有 agentId/squadId 的 Agent/小队 → button,点进去看该执行者的全部会话;
- * - 静态:时间组与没有 id 的 Direct/未归属桶 → div,无指针、无误导副行。
+ * - 静态:时间组与没有 id 的 Direct 桶 → div,无指针、无误导副行。
  * 「全页不存在点了没反应的行」由这个三分法保证,而不是给静态行加假 hover。
  */
 
@@ -288,12 +288,135 @@ describe("会话页:组头三分法", () => {
     act(() => squadDrill!.click());
     expect(onDrill).toHaveBeenLastCalledWith({ kind: "squad", id: "squad_1", label: "Squad One" });
 
-    // 没有 agentId 的 Direct 组、没有 squadId 的未归属组:静态行,点不出动作。
-    for (const key of ["instance:direct", "unattributed:no-squad"]) {
-      expect(container.querySelector(`[data-testid="session-group-drill-${key}"]`)).toBeNull();
-      expect(container.querySelector(`[data-testid="session-group-static-${key}"]`)?.tagName).toBe("DIV");
-    }
+    // 没有 agentId 的 Direct 组仍然是静态行,点不出动作;未归属组改成可展开按钮。
+    expect(container.querySelector('[data-testid="session-group-drill-instance:direct"]')).toBeNull();
+    expect(container.querySelector('[data-testid="session-group-static-instance:direct"]')?.tagName).toBe("DIV");
+    expect(container.querySelector('[data-testid="session-group-toggle-unattributed:no-squad"]')?.tagName).toBe(
+      "BUTTON",
+    );
     expect(onDrill).toHaveBeenCalledTimes(2);
+  });
+
+  it("未归属组(no-task/no-squad/no-dispatch)均为可展开按钮,点击切换展开并渲染轮次与孤立会话", () => {
+    const onToggleGroup = vi.fn();
+    const unattributedGroups: readonly SessionGroup[] = [
+      {
+        key: "unattributed:no-task",
+        kind: "unattributed",
+        label: "No task binding",
+        latestStatus: "running",
+        latestActivityAt: "2026-10-19T10:00:00.000Z",
+        runningCount: 1,
+        sessionCount: 2,
+        roundCount: 2,
+        latestRound: null,
+      },
+      {
+        key: "unattributed:no-dispatch",
+        kind: "unattributed",
+        label: "No dispatch record",
+        latestStatus: "running",
+        latestActivityAt: "2026-10-19T09:00:00.000Z",
+        runningCount: 1,
+        sessionCount: 1,
+        roundCount: 0,
+        latestRound: null,
+      },
+    ];
+    const collapsed = mount({ groups: unattributedGroups, onToggleGroup });
+    const noTaskToggle = collapsed.querySelector<HTMLButtonElement>(
+      '[data-testid="session-group-toggle-unattributed:no-task"]',
+    );
+    const noDispatchToggle = collapsed.querySelector<HTMLButtonElement>(
+      '[data-testid="session-group-toggle-unattributed:no-dispatch"]',
+    );
+    expect(noTaskToggle?.tagName).toBe("BUTTON");
+    expect(noTaskToggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(noTaskToggle?.textContent).toContain("2 rounds");
+    expect(noDispatchToggle?.tagName).toBe("BUTTON");
+    act(() => noTaskToggle!.click());
+    expect(onToggleGroup).toHaveBeenLastCalledWith("unattributed:no-task");
+
+    const expanded = mount({
+      groups: unattributedGroups,
+      expandedKeys: new Set(["unattributed:no-task", "unattributed:no-dispatch"]),
+      rowsByGroup: new Map([
+        [
+          "unattributed:no-task",
+          {
+            rounds: [
+              {
+                kind: "round",
+                roundIndex: 2,
+                runtimeSessionId: "runtime_u2",
+                dispatchId: "dispatch_u2",
+                agentId: "hydrogen",
+                agentName: "Hydrogen",
+                squadId: null,
+                instanceId: "instance_1",
+                taskId: null,
+                taskTitle: null,
+                startedAt: "2026-10-19T10:00:00.000Z",
+                endedAt: null,
+                status: "running",
+                classification: null,
+                resume: null,
+                nextAction: null,
+                delegation: null,
+                reportPath: null,
+                reviewTarget: null,
+              },
+              {
+                kind: "round",
+                roundIndex: 1,
+                runtimeSessionId: "runtime_u1",
+                dispatchId: "dispatch_u1",
+                agentId: "sol",
+                agentName: "Sol",
+                squadId: null,
+                instanceId: "instance_1",
+                taskId: null,
+                taskTitle: null,
+                startedAt: "2026-10-19T09:30:00.000Z",
+                endedAt: "2026-10-19T09:45:00.000Z",
+                status: "succeeded",
+                classification: null,
+                resume: null,
+                nextAction: null,
+                delegation: null,
+                reportPath: null,
+                reviewTarget: null,
+              },
+            ],
+            orphans: [],
+            pending: false,
+            error: null,
+          },
+        ],
+        [
+          "unattributed:no-dispatch",
+          {
+            rounds: [],
+            orphans: [
+              {
+                kind: "orphan",
+                runtimeSessionId: "runtime_orphan_1",
+                instanceId: "instance_direct",
+                taskId: null,
+                taskTitle: null,
+                startedAt: "2026-10-19T09:00:00.000Z",
+                status: "running",
+              },
+            ],
+            pending: false,
+            error: null,
+          },
+        ],
+      ]),
+    });
+    expect(expanded.querySelector('[data-testid="rail-session-runtime_u2"]')).not.toBeNull();
+    expect(expanded.querySelector('[data-testid="rail-session-runtime_u1"]')).not.toBeNull();
+    expect(expanded.querySelector('[data-testid="rail-session-runtime_orphan_1"]')).not.toBeNull();
   });
 
   it("工作组头可展开:收起时只见工作,展开后任务组挂在工作下面", () => {

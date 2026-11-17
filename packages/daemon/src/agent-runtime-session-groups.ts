@@ -12,6 +12,7 @@ import {
   type AgentRuntimeSessionGroupDto,
   type AgentRuntimeSessionGroupsResult,
   type AgentRuntimeSessionGroupStatus,
+  type AgentRuntimeUnattributedGroupKey,
 } from "./agent-runtime-contract.ts";
 import { agentRuntimeSearchMatches } from "./agent-runtime-search.ts";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
@@ -48,7 +49,7 @@ export function latestDispatchStartedAt(
   return startedAt;
 }
 
-export function buildAgentRuntimeSessionGroups(input: {
+function filteredSessionGroupMembers(input: {
   readonly sessions: readonly RuntimeSession[];
   readonly dispatches: readonly TaskDispatchRow[];
   readonly dispatchEvents: readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
@@ -56,12 +57,7 @@ export function buildAgentRuntimeSessionGroups(input: {
   readonly taskLabels: ReadonlyMap<string, string>;
   readonly entityLabel: (kind: "agent" | "squad", id: string) => string | null;
   readonly query: AgentRuntimeSessionGroupsQuery;
-  readonly cut: {
-    readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
-    readonly watermark: number;
-    readonly sourceRevision: number;
-  };
-}): AgentRuntimeSessionGroupsResult {
+}): { readonly attributed: readonly TaskDispatchRow[]; readonly filtered: readonly GroupMember[] } {
   // 精确归属:先按 agentId/squadId 过滤派工行,再只保留有匹配派工的会话——
   // 会话归属由其(过滤后的)最新派工决定,任何 groupBy 都与该过滤可组合。
   const attributed =
@@ -86,7 +82,25 @@ export function buildAgentRuntimeSessionGroups(input: {
       (member) =>
         (input.query.status.length === 0 || input.query.status.includes(member.status)) &&
         agentRuntimeSearchMatches(member.searchFields, input.query.tokens),
-    ),
+    );
+  return { attributed, filtered };
+}
+
+export function buildAgentRuntimeSessionGroups(input: {
+  readonly sessions: readonly RuntimeSession[];
+  readonly dispatches: readonly TaskDispatchRow[];
+  readonly dispatchEvents: readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
+  readonly dispatchStartedAt: ReadonlyMap<string, string>;
+  readonly taskLabels: ReadonlyMap<string, string>;
+  readonly entityLabel: (kind: "agent" | "squad", id: string) => string | null;
+  readonly query: AgentRuntimeSessionGroupsQuery;
+  readonly cut: {
+    readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
+    readonly watermark: number;
+    readonly sourceRevision: number;
+  };
+}): AgentRuntimeSessionGroupsResult {
+  const { filtered } = filteredSessionGroupMembers(input),
     accumulators = new Map<string, GroupAccumulator>();
   for (const member of filtered) addMember(accumulators, member);
   const allGroups = [...accumulators.values()].map(finishGroup).sort(compareGroups),
@@ -102,6 +116,36 @@ export function buildAgentRuntimeSessionGroups(input: {
     watermark: input.cut.watermark,
     sourceRevision: input.cut.sourceRevision,
   };
+}
+
+export function selectAgentRuntimeSessionGroupMembers(input: {
+  readonly sessions: readonly RuntimeSession[];
+  readonly dispatches: readonly TaskDispatchRow[];
+  readonly dispatchEvents: readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
+  readonly dispatchStartedAt: ReadonlyMap<string, string>;
+  readonly taskLabels: ReadonlyMap<string, string>;
+  readonly entityLabel: (kind: "agent" | "squad", id: string) => string | null;
+  readonly query: AgentRuntimeSessionGroupsQuery;
+  readonly groupKey: AgentRuntimeUnattributedGroupKey;
+}): { readonly sessions: readonly RuntimeSession[]; readonly dispatches: readonly TaskDispatchRow[] } {
+  const { attributed, filtered } = filteredSessionGroupMembers(input),
+    matching = filtered.filter((member) => member.identity.key === input.groupKey).sort(compareMembers),
+    selected = matching.slice(0, input.query.limit),
+    sessionIds = new Set(selected.map((member) => member.session.runtimeSessionId)),
+    sessions = selected.map((member) => member.session);
+  if (input.groupKey === agentRuntimeUnattributedGroupKeys.noDispatch) return { sessions, dispatches: [] };
+  const dispatches = attributed
+    .filter(
+      (row) =>
+        sessionIds.has(row.runtimeSessionId) &&
+        (input.groupKey === agentRuntimeUnattributedGroupKeys.noTask
+          ? !row.taskId && row.reviewTarget?.kind !== "decision"
+          : !row.squadId),
+    )
+    .sort(
+      (left, right) => left.startedAt.localeCompare(right.startedAt) || left.dispatchId.localeCompare(right.dispatchId),
+    );
+  return { sessions, dispatches };
 }
 
 function requestedSessionAgents(input: Parameters<typeof buildAgentRuntimeSessionGroups>[0]) {
@@ -189,7 +233,7 @@ function membersForSession(
   session: RuntimeSession,
   dispatch: TaskDispatchRow | null,
   fallbackStartedAt: string,
-  input: Parameters<typeof buildAgentRuntimeSessionGroups>[0],
+  input: Omit<Parameters<typeof buildAgentRuntimeSessionGroups>[0], "cut">,
 ): readonly GroupMember[] {
   const startedAt = dispatch?.startedAt ?? fallbackStartedAt,
     status = sessionGroupStatus(session, dispatch),
@@ -224,7 +268,7 @@ function membersForSession(
         return member(
           unattributed("task", dispatch !== null),
           session,
-          null,
+          dispatch,
           status,
           startedAt,
           agentName,
