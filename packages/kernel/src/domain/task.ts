@@ -186,6 +186,9 @@ export interface TaskReviewDispatchFailureV1 {
   readonly message: string;
   readonly failedAt: string;
 }
+export function reviewDispatchFailureWarning(failure: Pick<TaskReviewDispatchFailureV1, "code" | "message">): string {
+  return `review dispatch failed: ${failure.code}; ${failure.message}`;
+}
 export interface ContractValidationIssue {
   readonly code: string;
   readonly message: string;

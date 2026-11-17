@@ -1,4 +1,5 @@
-import type { TaskReviewDispatchFailureV1 } from "@harness-anything/kernel";
+import { reviewDispatchFailureWarning, type TaskReviewDispatchFailureV1 } from "@harness-anything/kernel";
+export { reviewDispatchFailureWarning };
 
 /** Preserve the boundary's code and explanation; recovery advice supplements the actual failure. */
 export function reviewDispatchDiagnostic(input: { readonly code: string | null; readonly message: string }) {
@@ -10,10 +11,6 @@ export function reviewDispatchDiagnostic(input: { readonly code: string | null; 
         ? " The execution credential is expired or revoked. Sign in again with ha bootstrap --operation login and ask the owner to sync the node or renew the execution before retrying."
         : "";
   return { code, message: `${input.message}${recovery}` };
-}
-
-export function reviewDispatchFailureWarning(failure: Pick<TaskReviewDispatchFailureV1, "code" | "message">) {
-  return `review dispatch failed: ${failure.code}; ${failure.message}`;
 }
 
 export function withReviewDispatchFailures<T extends Record<string, unknown>>(
