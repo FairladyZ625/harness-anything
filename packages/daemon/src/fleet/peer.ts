@@ -337,6 +337,7 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
         const prior = opened;
         opened = null;
         await prior?.close();
+        await generations.discardStaging({ preserveResumable: false });
       },
       revoke: async () => {
         revokeReplicaView(viewRoot);

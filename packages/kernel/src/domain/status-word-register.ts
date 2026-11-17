@@ -1140,4 +1140,35 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
     meaning: "Terminal stream has an unrecoverable gap.",
     divergence: "entity-scoped",
   },
+
+  // ---- Task.staging phase (replica generation staging checkpoint) ----
+  {
+    word: "unpacking",
+    entity: "Task",
+    field: "staging phase",
+    meaning: "Replica base backup archive is being unpacked into sha256-keyed staging.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "hydrating",
+    entity: "Task",
+    field: "staging phase",
+    meaning: "Replica canonical seed and projection are being hydrated in staging.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "flushing",
+    entity: "Task",
+    field: "staging phase",
+    meaning: "Replica staging tree is being fsynced before atomic activation.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "ready",
+    entity: "Task",
+    field: "staging phase",
+    meaning: "Replica staging tree is verified and ready for atomic generation switch.",
+    divergence: "divergent",
+    resolution: "Replica staging activation readiness phase, scoped to task.replica-generation.",
+  },
 ];

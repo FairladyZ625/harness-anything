@@ -414,6 +414,7 @@ const physicalSourceStoreRows = Object.freeze([
     kind: "filesystem-store",
     role: "projection",
     residency: "runtime-local",
+    vocabulary: ["task.replica-staging-phase"],
     projectionRead: {
       kind: "task",
       store: "task.task-events",

@@ -1,11 +1,9 @@
-import { createHash, randomUUID } from "node:crypto";
-import { createReadStream, existsSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { Worker } from "node:worker_threads";
+import { existsSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
-import { pipeline } from "node:stream/promises";
-import * as tar from "tar";
-import { hydrateReplicaSeed, makeTaskProjectionReader, openSqliteEventStore } from "@harness-anything/storage";
-import { syncDirectory, syncFile, writeFileDurably } from "@harness-anything/storage";
+import { consumeKnownError } from "@harness-anything/kernel";
+import { syncDirectory, writeFileDurably } from "@harness-anything/storage";
 import type { BaseBackupMetadata } from "@harness-anything/storage";
 import { BASE_BACKUP_ARCHIVE_ROOT } from "@harness-anything/storage";
 
@@ -15,6 +13,33 @@ export interface ReplicaGeneration {
   readonly ledgerPath: string;
   readonly projectionPath: string;
   readonly metadata: BaseBackupMetadata;
+}
+
+export type ReplicaStagingPhase = "unpacking" | "hydrating" | "flushing" | "ready";
+
+export interface ReplicaStagingCheckpoint {
+  readonly schema: "fleet-replica-staging/v1";
+  readonly sha256: string;
+  readonly size: number;
+  readonly repoId: string;
+  readonly ledgerGeneration: number;
+  readonly phase: ReplicaStagingPhase;
+  readonly updatedAt: string;
+}
+
+export interface ReplicaInstallProgress {
+  readonly phase: ReplicaStagingPhase;
+  readonly skippedObjects: number;
+}
+
+export interface InstallReplicaGenerationInput {
+  readonly root: string;
+  readonly archive: string;
+  readonly metadata: BaseBackupMetadata;
+  readonly sha256: string;
+  readonly size: number;
+  readonly quotaBytes: number;
+  readonly onProgress?: (progress: ReplicaInstallProgress) => void;
 }
 
 function generation(root: string, id: string, metadata: BaseBackupMetadata): ReplicaGeneration {
@@ -84,109 +109,56 @@ export function updateReplicaGenerationPosition(root: string, position: BaseBack
   writeFileDurably(pointer, JSON.stringify({ id: current.id, metadata: { ...current.metadata, position } }));
 }
 
-/** The caller has decoded metadata; this verifies bytes written after the center's acceptance boundary. */
-export async function installReplicaGeneration(input: {
-  readonly root: string;
-  readonly archive: string;
-  readonly metadata: BaseBackupMetadata;
-  readonly sha256: string;
-  readonly size: number;
-  readonly quotaBytes: number;
-}): Promise<ReplicaGeneration> {
-  const hash = createHash("sha256");
-  let received = 0;
-  for await (const chunk of createReadStream(input.archive)) {
-    received += chunk.length;
-    hash.update(chunk);
-  }
-  if (received !== input.size || hash.digest("hex") !== input.sha256)
-    throw new Error("base backup archive is incomplete or corrupt");
-  const next = generation(input.root, randomUUID(), input.metadata),
-    temporary = `${next.rootDir}.staging`;
-  await /* @gate-identity state-store/task.replica-generation */ mkdir(temporary, { recursive: true });
-  let expandedBytes = 0;
-  try {
-    const unpack = new tar.Unpack({
-      cwd: temporary,
-      strict: true,
-      preservePaths: false,
-      filter: (name, entry) => {
-        const segments = name.split("/");
-        if (
-          name.startsWith("/") ||
-          name.includes("\\") ||
-          segments.includes("..") ||
-          !("type" in entry) ||
-          !["File", "Directory"].includes(entry.type)
-        ) {
-          unpack.abort(new Error("invalid base backup archive member"));
-          return false;
-        }
-        if (
-          name !== "backup.json" &&
-          name !== BASE_BACKUP_ARCHIVE_ROOT &&
-          !name.startsWith(`${BASE_BACKUP_ARCHIVE_ROOT}/`)
-        ) {
-          unpack.abort(new Error("unexpected base backup archive member"));
-          return false;
-        }
-        expandedBytes += entry.size;
-        if (expandedBytes > input.quotaBytes) {
-          unpack.abort(new Error("base backup exceeds disk quota"));
-          return false;
-        }
-        return true;
-      },
-    });
-    await pipeline(createReadStream(input.archive), unpack);
-    // The archive can be intact but belong to another offer or an unsupported database schema.
-    // Open the actual common readers before publishing a generation; do not invent an edge schema check.
-    await hydrateReplicaSeed(temporary, input.metadata);
-    const stagedLedger = path.join(temporary, path.relative(next.rootDir, next.ledgerPath));
-    const stagedProjection = path.join(temporary, path.relative(next.rootDir, next.projectionPath));
-    if (!existsSync(stagedLedger) || !existsSync(stagedProjection)) throw new Error("base backup database missing");
-    const ledger = openSqliteEventStore({
-      databasePath: stagedLedger,
-      repoId: input.metadata.repoId,
-      generation: input.metadata.ledgerGeneration,
-      readOnly: true,
-    });
-    try {
-      const position = ledger.replicationPosition();
-      if (
-        position.history !== input.metadata.position.history ||
-        position.sequence !== input.metadata.position.sequence ||
-        position.revision !== input.metadata.position.revision
-      )
-        throw new Error("base backup position differs from offer");
-      const projection = makeTaskProjectionReader({ rootDir: temporary, projectionPath: stagedProjection });
-      try {
-        if (projection.withSession((queries) => queries.readCut().watermark) !== position.revision)
-          throw new Error("base backup projection position differs");
-      } finally {
-        projection.close();
+/** The caller has decoded metadata; this verifies bytes and stages the generation off the main thread. */
+export async function installReplicaGeneration(
+  input: InstallReplicaGenerationInput,
+  signal?: AbortSignal,
+): Promise<ReplicaGeneration> {
+  signal?.throwIfAborted();
+  const { onProgress, ...workerInput } = input;
+  return new Promise<ReplicaGeneration>((resolve, reject) => {
+    const worker = new Worker(
+      new URL(`./replica-install-worker${path.extname(import.meta.filename)}`, import.meta.url),
+      { workerData: workerInput },
+    );
+    let settled = false;
+    const abort = () => {
+      void worker.terminate();
+      if (!settled) {
+        settled = true;
+        reject(signal?.reason instanceof Error ? signal.reason : new Error("replica install aborted"));
       }
-    } finally {
-      ledger.close();
-    }
-    const flush = (directory: string): void => {
-      for (const entry of readdirSync(directory, { withFileTypes: true })) {
-        const target = path.join(directory, entry.name);
-        if (entry.isDirectory()) flush(target);
-        else syncFile(target);
-      }
-      syncDirectory(directory);
     };
-    flush(temporary);
-    // Publication cannot yield between making the directory collectible and publishing its pointer.
-    /* @gate-identity state-store/task.replica-generation */ renameSync(temporary, next.rootDir);
-    syncDirectory(path.dirname(next.rootDir));
-    writeFileDurably(path.join(input.root, "current.json"), JSON.stringify({ id: next.id, metadata: next.metadata }));
-    return next;
-  } catch (error) {
-    await /* @gate-identity state-store/task.replica-generation */ rm(temporary, { recursive: true, force: true });
-    throw error;
-  }
+    signal?.addEventListener("abort", abort, { once: true });
+    worker.on(
+      "message",
+      (
+        message:
+          | { readonly kind: "progress"; readonly phase: ReplicaStagingPhase; readonly skippedObjects: number }
+          | { readonly kind: "complete"; readonly generation: ReplicaGeneration; readonly skippedObjects: number },
+      ) => {
+        if (message.kind === "progress") {
+          onProgress?.({ phase: message.phase, skippedObjects: message.skippedObjects });
+          return;
+        }
+        settled = true;
+        signal?.removeEventListener("abort", abort);
+        resolve(message.generation);
+      },
+    );
+    worker.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener("abort", abort);
+      reject(error);
+    });
+    worker.on("exit", (code) => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener("abort", abort);
+      reject(new Error(`replica install worker exited before completion (${code})`));
+    });
+  });
 }
 
 /**
@@ -229,6 +201,69 @@ export function withReplicaGeneration<T>(root: string, read: (generation: Replic
   }
 }
 
+const STAGING_CHECKPOINT_FILE = "extract.checkpoint.json";
+const SHA256_STAGING_DIR_RE = /^([0-9a-f]{64})\.staging$/u;
+
+export function readResumableStagingCheckpoint(stagingDir: string, dirName: string): ReplicaStagingCheckpoint | null {
+  const match = SHA256_STAGING_DIR_RE.exec(dirName);
+  if (!match) return null;
+  const checkpointPath = path.join(stagingDir, STAGING_CHECKPOINT_FILE);
+  if (!existsSync(checkpointPath)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(checkpointPath, "utf8")) as Partial<ReplicaStagingCheckpoint>;
+    if (
+      parsed.schema !== "fleet-replica-staging/v1" ||
+      parsed.sha256 !== match[1] ||
+      typeof parsed.size !== "number" ||
+      !Number.isFinite(parsed.size) ||
+      parsed.size <= 0 ||
+      typeof parsed.repoId !== "string" ||
+      parsed.repoId.length === 0 ||
+      typeof parsed.ledgerGeneration !== "number" ||
+      !Number.isInteger(parsed.ledgerGeneration) ||
+      (parsed.phase !== "unpacking" &&
+        parsed.phase !== "hydrating" &&
+        parsed.phase !== "flushing" &&
+        parsed.phase !== "ready")
+    ) {
+      return null;
+    }
+    return parsed as ReplicaStagingCheckpoint;
+  } catch (error) {
+    consumeKnownError(error);
+    return null;
+  }
+}
+
+/** Staging directory mutation primitives owned by `task.replica-generation`. */
+export async function prepareStagingDirectory(directory: string): Promise<void> {
+  await /* @gate-identity state-store/task.replica-generation */ mkdir(directory, { recursive: true });
+}
+
+export async function removeStagingDirectory(directory: string): Promise<void> {
+  await /* @gate-identity state-store/task.replica-generation */ rm(directory, { recursive: true, force: true });
+}
+
+export function publishStagingGeneration(input: {
+  readonly root: string;
+  readonly temporary: string;
+  readonly checkpointPath: string;
+  readonly generationDir: string;
+  readonly generationId: string;
+  readonly metadata: BaseBackupMetadata;
+}): void {
+  if (existsSync(input.checkpointPath)) {
+    /* @gate-identity state-store/task.replica-generation */ rmSync(input.checkpointPath, { force: true });
+  }
+  // Publication cannot yield between making the directory collectible and publishing its pointer.
+  /* @gate-identity state-store/task.replica-generation */ renameSync(input.temporary, input.generationDir);
+  syncDirectory(path.dirname(input.generationDir));
+  writeFileDurably(
+    path.join(input.root, "current.json"),
+    JSON.stringify({ id: input.generationId, metadata: input.metadata }),
+  );
+}
+
 function createGenerationReaders(root: string) {
   const pins = new Map<string, number>();
   const collect = (): void => {
@@ -250,19 +285,22 @@ function createGenerationReaders(root: string) {
     }
   };
   /**
-   * Removes what a crashed install left behind (unpublished generation staging and received base
-   * backup archives) and what the retired cut/pull replica left at this view. Only the single
-   * installer of this root calls it, before it can install again.
+   * Removes corrupt/unrecognized staging and retired cut/pull artifacts, while preserving valid
+   * resumable `<sha256>.staging` directories across daemon restarts unless `preserveResumable` is false.
    */
-  const discardStaging = async (): Promise<void> => {
+  const discardStaging = async (options?: { readonly preserveResumable?: boolean }): Promise<void> => {
+    const preserveResumable = options?.preserveResumable !== false;
     const directory = path.join(root, "generations");
     if (existsSync(directory))
-      for (const entry of readdirSync(directory, { withFileTypes: true }))
-        if (entry.isDirectory() && entry.name.endsWith(".staging"))
-          await /* @gate-identity state-store/task.replica-generation */ rm(path.join(directory, entry.name), {
-            recursive: true,
-            force: true,
-          });
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        if (!entry.isDirectory() || !entry.name.endsWith(".staging")) continue;
+        const stagingDir = path.join(directory, entry.name);
+        if (preserveResumable && readResumableStagingCheckpoint(stagingDir, entry.name) !== null) continue;
+        await /* @gate-identity state-store/task.replica-generation */ rm(stagingDir, {
+          recursive: true,
+          force: true,
+        });
+      }
     await /* @gate-identity state-store/task.replica-generation */ rm(path.join(root, "staging"), {
       recursive: true,
       force: true,
