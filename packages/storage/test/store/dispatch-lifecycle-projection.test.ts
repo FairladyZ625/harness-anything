@@ -121,6 +121,48 @@ test("the lifecycle read model folds accepted runtime events and equals every re
   });
 });
 
+test("a v6 lifecycle cache refolds owner abandonment without claiming a physical stop", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const store = makeTaskEventStore({ repoId: "dispatch-owner-abandonment", rootDir }),
+      projection = makeTaskProjection({ rootDir, eventStore: store }),
+      admitted = requested("abandoned-dispatch", "abandoned-session"),
+      running = started("abandoned-session"),
+      terminal = outcome("abandoned-session", "unknown");
+    assert.equal(terminal.type, "runtime_session_outcome_observed");
+    const events = [
+      admitted,
+      running,
+      { ...terminal, payload: { ...terminal.payload, reasonCode: "ruling_resolved" } },
+    ];
+    for (const event of events) {
+      store.append({
+        event,
+        plan: canonicalEventWritePlan(event, "agent-runtime/v1", event.opId),
+        blobs: runtimeEventContentClaims(event).map((claim) => ({ ...claim, body: "" })),
+      });
+      projection.apply(event);
+    }
+    const query = { by: "session" as const, runtimeSessionId: "abandoned-session" },
+      online = projection.readDispatchLifecycle(query),
+      projectionPath = projection.path;
+    assert.ok(online.status === "ready");
+    assert.equal(online.rows[0]?.groupPhase, "closed");
+    assert.equal(online.rows[0]?.attempt.stopProof, "unproven");
+    projection.close();
+    // Model v6 promoted every outcome to physical stop proof. The current reader refolds
+    // canonical events rather than trusting that stale derived claim.
+    const db = new DatabaseSync(projectionPath);
+    db.exec(`UPDATE dispatch_lifecycle_cursor SET model_version = 6;
+      UPDATE dispatch_lifecycle_group SET group_json = json_set(group_json, '$.attempts[0].stopProof', 'proven_stopped');`);
+    db.close();
+    const reopened = makeTaskProjection({ rootDir, eventStore: store, projectionPath });
+    assert.deepEqual(reopened.readDispatchLifecycle(query), online);
+    reopened.close();
+    await store.drain();
+  });
+});
+
 test("active pages are bounded and point reads cap their key count", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);

@@ -668,7 +668,7 @@ export interface DispatchAdmissionBlocker {
  * Admission on one instance is refused while an attempt there holds its slot unresolved: this
  * owner cannot observe the process, or nobody verified the owner at all (that attempt fails closed
  * for every launcher). Every unreleased reservation also counts against the instance capacity,
- * including starting attempts and attempts on other nodes. Only an accepted stop frees a slot.
+ * including starting attempts and attempts on other nodes. An accepted stop or explicit owner abandonment frees a slot.
  */
 export function dispatchAdmissionBlocker(
   views: readonly DispatchLifecycleView[],

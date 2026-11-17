@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { sha256Text } from "@harness-anything/kernel";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { dispatchStreamPath } from "../src/dispatch-stream.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
@@ -85,6 +86,32 @@ test(
       owner = localAuthFixture();
     runtime.close();
     assert.equal(existsSync(dispatchStreamPath(fixture.repo, dispatchId)), false);
+    const unprovenBody = "An observation without physical stop proof is not an owner ruling.",
+      unprovenSha = sha256Text(unprovenBody),
+      unproven = await fixture.host.runtimeIngress(
+        fixture.subject.repoId,
+        {
+          kind: "event",
+          type: "runtime_session_outcome_observed",
+          opId: "ordinary-unproven-outcome",
+          payload: {
+            runtimeSessionId,
+            dispatchId,
+            outcome: "unknown",
+            exitCode: null,
+            resultRef: `artifact:runtime-result/sha256/${unprovenSha}`,
+            result: {
+              sha256: unprovenSha,
+              size: Buffer.byteLength(unprovenBody),
+              mediaType: "text/plain; charset=utf-8",
+            },
+          },
+          resultBody: unprovenBody,
+        },
+        fixture.owners.auth(fixture.subject),
+      );
+    assert.equal(unproven.outcome, "op_rejected", JSON.stringify(unproven));
+    assert.equal(unproven.code, "runtime_process_group_unproven", JSON.stringify(unproven));
     const receipt = await fixture.host.cancelRuntime(
       fixture.subject.repoId,
       { runtimeSessionId, ruling: "The edge is unreachable; explicitly abandon this attempt." },
@@ -102,11 +129,25 @@ test(
     assert.equal(lifecycle.rows[0]?.groupPhase, "closed");
     assert.equal(lifecycle.rows[0]?.attempt.stopProof, "unproven");
     assert.equal(lifecycle.rows[0]?.policy.groupSettled, true);
+    const repeated = await fixture.host.cancelRuntime(
+      fixture.subject.repoId,
+      { runtimeSessionId, ruling: "The same owner retries the explicit abandonment." },
+      owner,
+    );
+    assert.equal(repeated.ok, true, JSON.stringify(repeated));
+    assert.equal(repeated.detail, "already-exited");
     const events = makeTaskEventReader({ repoId: fixture.subject.repoId, rootDir: fixture.repo }).read().events,
       outcome = events.find(
         (event) =>
           event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
       );
+    assert.equal(
+      events.filter(
+        (event) =>
+          event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
+      ).length,
+      1,
+    );
     assert.ok(outcome?.type === "runtime_session_outcome_observed");
     assert.equal(outcome.payload.reasonCode, "ruling_resolved");
     assert.equal(outcome.actor.principal.personId, "person-owner");
