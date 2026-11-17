@@ -10,6 +10,7 @@ import {
   latestRuntimeActivityAt,
 } from "@harness-anything/kernel";
 import { readDecisionAnnotationsByDispatch } from "./decision-annotations.ts";
+import { readEscalationResolution } from "@harness-anything/application/internal/queries/task-escalation-context.ts";
 import { readDispatchRuling } from "./runtime-ruling.ts";
 import { incidentActionFromRecord } from "./decision-incident-receipt.ts";
 import {
@@ -895,10 +896,11 @@ function awaitingRulingFields(
   const packagePath = projection.readTaskIndex({ taskIds: [taskId] }).rows[0]?.packagePath;
   if (typeof packagePath !== "string") return {};
   if (
-    readDispatchRuling(
-      (relative) => projection.readDocument(relative).document?.body ?? null,
-      packagePath,
-      `${dispatch.dispatchId}.resolution`,
+    readEscalationResolution(
+      projection.readDocument(`${packagePath}/artifacts/rulings/${dispatch.dispatchId}.resolution.md`).document?.body ??
+        "",
+      dispatch.dispatchId,
+      taskId,
     )
   )
     return {};

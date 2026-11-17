@@ -292,6 +292,16 @@
   "task": {
     "judgments": [
       {
+        "id": "currentWorkerEscalations",
+        "symbol": "packages/kernel/src/domain/worker-escalation-context.ts#currentWorkerEscalations",
+        "inputs": ["records: readonly WorkerEscalationContext[]"],
+        "output": "readonly WorkerEscalationContext[]",
+        "failureCodes": [],
+        "explain": "Keep all resolved questions; the greatest ledger revision replaces an earlier answer only for the same trimmed question.",
+        "consumers": ["packages/application/src/queries/task-escalation-context.ts"],
+        "sources": []
+      },
+      {
         "id": "blockingOf",
         "symbol": "packages/kernel/src/domain/task-blocking.ts#blockingOf",
         "inputs": [
@@ -1067,7 +1077,7 @@
         "explain": "Wire-response validator for `repo.task.runtimeContext` execution lease, worktree path and read-set context DTOs.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/gui-result-validation.ts#validateTaskRuntimeContextRead:9e72a287cef3d57e768262ff74d33ce4",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/gui-result-validation.ts#validateTaskRuntimeContextRead:44af7fd538cf9f87d23fadcf8907853a",
             "route": "packages/daemon/src/protocol/gui-result-validation.ts#validateTaskRuntimeContextRead"
           }
         ]

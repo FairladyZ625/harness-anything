@@ -288,36 +288,6 @@ export function openFleetEdgeRuntime(input: {
       (projection) => projection.readDocument(logicalPath).document?.body ?? null,
     );
   };
-  const readMirroredEscalationAnswer = (packagePath: string): string | null => {
-    const { request } = context();
-
-    if (replicaOwner === undefined) return null;
-    const documents = withEdgeReadModel({ ...request, principalId: replicaOwner, includeEntries: true }, (projection) =>
-      projection.readDocuments(`${packagePath}/artifacts/rulings/`).documents.map((document) => ({
-        ...document,
-        body: projection.readDocument(document.path).document?.body ?? "",
-      })),
-    );
-    const answers = documents
-      .filter((document) => document.path.endsWith(".resolution.md"))
-      .flatMap((document) => {
-        try {
-          const value = JSON.parse(document.body) as Record<string, unknown>;
-          return value.schema === "worker-escalation-resolution/v1" &&
-            typeof value.dispatchId === "string" &&
-            typeof value.answer === "string" &&
-            value.answer.trim() !== "" &&
-            typeof value.answeredAt === "string"
-            ? [{ dispatchId: value.dispatchId, answer: value.answer, answeredAt: value.answeredAt }]
-            : [];
-        } catch {
-          return [];
-        }
-      })
-      .sort((left, right) => left.answeredAt.localeCompare(right.answeredAt))
-      .at(-1);
-    return answers ? `Owner answer to worker escalation ${answers.dispatchId}: ${answers.answer}` : null;
-  };
   const readReplica = async (method: Parameters<typeof readEdgeRuntimeRepository>[1], payload: JsonObject) => {
     const { request } = context();
     return readEdgeRuntimeRepository(
@@ -534,6 +504,18 @@ export function openFleetEdgeRuntime(input: {
         payload: query,
       })) as unknown as import("@harness-anything/kernel").DispatchLifecycleRead;
     };
+  const readServingTaskContext = async (taskId: string) => {
+    const { runtimeReadPeer, request } = context();
+    return taskRuntimeContext(
+      await readFleetOperationalClient({
+        ...runtimeReadPeer,
+        repoId: request.repoId,
+        method: "repo.tasks.runtimeContext.read",
+        payload: { taskId },
+      }),
+      taskId,
+    );
+  };
   const spawner = makeRuntimeSpawner({
     get repoId() {
       return input.resolveLocation().repoId;
@@ -588,10 +570,7 @@ export function openFleetEdgeRuntime(input: {
         const { request, centerWriteWaitMs, writePeer } = context();
 
         await pullRuntimeReplica();
-        let runtimeContext = taskRuntimeContext(
-          await readReplica("repo.tasks.runtimeContext.read", { taskId }),
-          taskId,
-        );
+        let runtimeContext = await readServingTaskContext(taskId);
         let current = runtimeContext.snapshot;
         if (!current.task) throw edgeRuntimeError("task_read_failed", "Task context is unavailable.");
         let executionId = review
@@ -667,7 +646,7 @@ export function openFleetEdgeRuntime(input: {
                 );
             });
           await pullRuntimeReplica();
-          runtimeContext = taskRuntimeContext(await readReplica("repo.tasks.runtimeContext.read", { taskId }), taskId);
+          runtimeContext = await readServingTaskContext(taskId);
           current = runtimeContext.snapshot;
           executionId = current.lease?.phase === "held" ? current.lease.executionId : undefined;
         }
@@ -750,7 +729,7 @@ export function openFleetEdgeRuntime(input: {
                     }
                     return body.trim() ? body.trim() : null;
                   })(),
-              readMirroredEscalationAnswer(candidates[0]!),
+              runtimeContext.escalationContext,
             ]
               .filter((value): value is string => value !== null)
               .join("\n\n") || null;
@@ -1466,6 +1445,7 @@ function taskRuntimeContext(
   readonly riskTier: "low" | "medium" | "high" | null;
   readonly riskTierFlowVersion: 1 | null;
   readonly profileId: string | null;
+  readonly escalationContext: string | null;
   readonly reviewerNote: string | null;
   readonly worktree: TaskWorktreeBindingV1 | null;
   readonly continuationContext: import("./runtime-continuation-context.ts").RuntimeContinuationSeed | null;
@@ -1482,6 +1462,9 @@ function taskRuntimeContext(
     (read.riskTier === null || ["low", "medium", "high"].includes(String(read.riskTier))) &&
     (read.riskTierFlowVersion === null || read.riskTierFlowVersion === 1) &&
     (read.profileId === null || typeof read.profileId === "string") &&
+    (read.escalationContext === undefined ||
+      read.escalationContext === null ||
+      typeof read.escalationContext === "string") &&
     (read.reviewerNote === null || typeof read.reviewerNote === "string") &&
     (worktree === null ||
       (typeof worktree === "object" && typeof worktree.branch === "string" && typeof worktree.path === "string")) &&
@@ -1490,6 +1473,7 @@ function taskRuntimeContext(
   )
     return {
       causalContext: read.causalContext,
+      escalationContext: typeof read.escalationContext === "string" ? read.escalationContext : null,
       riskTier: read.riskTier === null ? null : (read.riskTier as "low" | "medium" | "high"),
       riskTierFlowVersion: read.riskTierFlowVersion === null ? null : 1,
       profileId: read.profileId === null ? null : (read.profileId as string),

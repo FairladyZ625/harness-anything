@@ -167,8 +167,11 @@ const validateDaemonSettingsReadForClient: ResultValidator = (value) =>
     : settingsReadShapeError(value);
 const validateTaskRuntimeContextRead: ResultValidator = (value) =>
   isJsonObject(value) &&
-  Object.keys(value).length === 11 &&
+  Object.keys(value).length === 11 + Number(Object.hasOwn(value, "escalationContext")) &&
   value.schema === "task-runtime-context-read/v3" &&
+  (value.escalationContext === undefined ||
+    value.escalationContext === null ||
+    typeof value.escalationContext === "string") &&
   value.ok === true &&
   typeof value.taskId === "string" &&
   value.taskId.length > 0 &&

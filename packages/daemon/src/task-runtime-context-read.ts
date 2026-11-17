@@ -1,3 +1,7 @@
+import {
+  readTaskEscalations,
+  renderTaskEscalations,
+} from "@harness-anything/application/internal/queries/task-escalation-context.ts";
 import { resolveHarnessLayout, type TaskProjection } from "@harness-anything/kernel";
 import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
 import { openTaskWorktreeBinding, presetSnapshotReader, taskWorkspaceView } from "./task-worktree.ts";
@@ -36,6 +40,7 @@ export function readTaskRuntimeContext(
     continuationContext: latestRuntimeContinuationSeed(projection, taskId, executionIds, excludeDispatchId),
     // The same note every local worker mission carries, served to an edge that has no settings projection.
     reviewerNote: taskReviewerNote(projection, snapshot),
+    escalationContext: renderTaskEscalations(readTaskEscalations(projection, taskId)),
     snapshot: {
       ...snapshot,
       workspace: taskWorkspaceView(

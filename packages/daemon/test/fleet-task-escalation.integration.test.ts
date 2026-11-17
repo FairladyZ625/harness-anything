@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import type { AgentDefinitionSnapshot } from "@harness-anything/kernel";
@@ -46,7 +46,8 @@ test(
         version: "1.0.0",
         observedAt: "2026-08-23T00:00:00.000Z",
       },
-      launchedInstances: string[] = [];
+      launchedInstances: string[] = [],
+      launchedPrompts: string[] = [];
     let launchedCredential: string | null = null;
     mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
     initRepo(edgeRoot);
@@ -97,6 +98,7 @@ test(
       runtimeLaunch: (prepared) => {
         if (!prepared.prompt.includes("Unbound fleet session")) {
           launchedInstances.push(prepared.definition.instanceId);
+          launchedPrompts.push(prepared.prompt);
           launchedCredential = prepared.env.HARNESS_EXECUTION_CREDENTIAL ?? null;
         }
         return {
@@ -254,7 +256,8 @@ test(
       options: ["Keep the boundary", "Ask the owner to change it"],
       path: `tasks/task-fleet-fleet/artifacts/rulings/${String(spawned.dispatchId)}.md`,
     });
-    const resolved = await fixture.host.run(
+    // A failed resolution document write must leave the task awaiting its owner.
+    const refused = await fixture.host.run(
       fixture.subject.repoId,
       {
         kind: "task-escalation-resolve",
@@ -264,7 +267,39 @@ test(
       },
       fixture.auth,
     );
+    assert.equal(refused.outcome, "op_rejected", JSON.stringify(refused));
+    assert.equal(refused.code, "task_docs_require_task_command", JSON.stringify(refused));
+    const afterRefusal = await fixture.host.read(
+      fixture.subject.repoId,
+      "repo.tasks.runtimeContext.read",
+      { taskId: fixture.subject.taskId },
+      fixture.auth,
+    );
+    assert.equal(afterRefusal.snapshot.task?.status, "blocked");
+    assert.equal(afterRefusal.escalationContext, null);
+
+    // The worker RPC mutates its connection auth; the CEO uses a fresh local session.
+    const resolved = await fixture.host.run(
+      fixture.subject.repoId,
+      {
+        kind: "task-escalation-resolve",
+        taskId: fixture.subject.taskId,
+        dispatchId: String(spawned.dispatchId),
+        answer: "Keep the boundary.",
+      },
+      localAuthFixture(),
+    );
     assert.equal(resolved.outcome, "applied", JSON.stringify(resolved));
+    const served = await fixture.host.read(
+      fixture.subject.repoId,
+      "repo.tasks.runtimeContext.read",
+      { taskId: fixture.subject.taskId },
+      fixture.auth,
+    );
+    assert.ok(
+      served.escalationContext?.includes("Keep the boundary."),
+      JSON.stringify({ context: served.escalationContext }),
+    );
     const after = await fixture.host.read(
       fixture.subject.repoId,
       "repo.task.dispatches",
@@ -272,5 +307,39 @@ test(
       fixture.auth,
     );
     assert.equal(after.dispatches.length, 1, "answering must not create an ownerless dispatch");
+    const rulingPath = path.join(
+      edgeRoot,
+      "harness/tasks/task-fleet-fleet/artifacts/rulings",
+      `${String(spawned.dispatchId)}.resolution.md`,
+    );
+    assert.equal(existsSync(rulingPath), false, "the center answer has not materialized on the edge filesystem");
+    const fresh = await edgeHost.fleet.edgeRuntime(
+      {
+        host: "127.0.0.1",
+        port: center.port,
+        caPath: fixture.certFile,
+        nodeId: fixture.subject.nodeId,
+        credential: "machine-secret",
+        repoId: fixture.subject.repoId,
+        viewRoot,
+        quotaBytes: replicaQuota,
+        workspaceRoot: edgeRoot,
+        method: "repo.agentRuntime.spawn",
+        action: {
+          runtimeInstanceId: runtimeDefinition.instanceId,
+          cwd: { scope: "repo-root" },
+          taskId: fixture.subject.taskId,
+          dispatchKey: "immediately-after-owner-resolution",
+        },
+      },
+      localAuthFixture(),
+    );
+    assert.equal(fresh.outcome, "applied", JSON.stringify(fresh));
+    const prompt = launchedPrompts.at(-1)!;
+    assert.ok(prompt.includes(question));
+    assert.ok(prompt.includes("Keep the boundary."));
+    assert.ok(prompt.includes("Answered by:"));
+    assert.ok(prompt.includes("Answered at:"));
+    assert.equal(prompt.split("Owner answer to worker escalation").length - 1, 1);
   },
 );

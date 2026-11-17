@@ -295,13 +295,23 @@ for (const interrupted of [false, true])
           runtimeInstanceId: definition.instanceId,
           taskId,
           cwd: { scope: "repo-root" },
-          prompt: "Continue",
+          ...(interrupted ? { prompt: "Continue" } : {}),
           dispatchKey: "after-answer",
         },
         ceo,
       );
       assert.equal(next.outcome, "applied", JSON.stringify(next));
       assert.match(continuedPrompt, /Owner answer to worker escalation .*Keep the boundary\./u);
+      assert.ok(continuedPrompt.includes("May I change this boundary?"));
+      assert.ok(continuedPrompt.includes("person-escalation"));
+      const readSet = await cell.run({ kind: "task-read-set", taskId }, ceo);
+      assert.equal(readSet.outcome, "applied", JSON.stringify(readSet));
+      const context = JSON.parse(String(readSet.evidence));
+      assert.equal(context.escalations.length, 1);
+      assert.equal(context.escalations[0].question, "May I change this boundary?");
+      assert.equal(context.escalations[0].answer, "Keep the boundary.");
+      assert.equal(context.escalations[0].actor.principal.personId, "person-escalation");
+      assert.ok(Number.isFinite(Date.parse(context.escalations[0].answeredAt)));
       assert.equal(events().filter((event) => event.type === "runtime_dispatch_requested").length, 2);
       const status = await cell.run({ kind: "task-show", taskId }, ceo),
         snapshot = JSON.parse(String(status.evidence));

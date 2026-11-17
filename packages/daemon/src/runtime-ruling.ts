@@ -139,34 +139,10 @@ export function readDispatchRuling(
   packagePath: string,
   dispatchId: string,
 ): RuntimeRulingArtifact | null {
-  const resolution = dispatchId.endsWith(".resolution"),
-    baseDispatchId = resolution ? dispatchId.slice(0, -".resolution".length) : dispatchId,
-    relative = `${packagePath}/${resolution ? runtimeRulingResolutionPath(baseDispatchId) : runtimeRulingPath(dispatchId)}`;
+  const relative = `${packagePath}/${runtimeRulingPath(dispatchId)}`;
   try {
     const body = readDocument(relative);
     if (body === null) return null;
-    if (resolution) {
-      try {
-        const value = JSON.parse(body) as Record<string, unknown>;
-        return value.schema === "worker-escalation-resolution/v1" &&
-          value.dispatchId === baseDispatchId &&
-          typeof value.answer === "string" &&
-          value.answer.trim() !== "" &&
-          typeof value.answeredAt === "string"
-          ? {
-              question: value.answer,
-              options: [],
-              path: relative,
-              body,
-              dispatchId: value.dispatchId,
-              createdAt: value.answeredAt,
-            }
-          : null;
-      } catch (error) {
-        consumeKnownError(error);
-        return null;
-      }
-    }
     return decodeArtifactBody(body, relative);
   } catch (error) {
     consumeKnownError(error);

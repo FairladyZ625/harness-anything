@@ -75,6 +75,7 @@ import { attentionRegionWeights } from "./agenda-attention.ts";
 import { assignmentMatchesViewer, type AssignmentRelationLike } from "@harness-anything/kernel";
 import { assignmentFromRelation } from "./entity-assignment-runtime.ts";
 import { buildAttentionItems } from "./agenda-attention-projection.ts";
+import { readEscalationResolution } from "@harness-anything/application/internal/queries/task-escalation-context.ts";
 import { readDispatchRuling } from "./runtime-ruling.ts";
 import {
   latestPremiseReview,
@@ -732,10 +733,11 @@ export function makeTaskQueryReadModel(input: {
                 for (const { path } of projection.readDocuments(`${packagePath}/artifacts/rulings/`).documents) {
                   if (!path.endsWith(".md") || path.endsWith(".resolution.md")) continue;
                   const dispatchId = path.slice(path.lastIndexOf("/") + 1, -".md".length),
-                    resolved = readDispatchRuling(
-                      (relative) => projection.readDocument(relative).document?.body ?? null,
-                      packagePath,
-                      `${dispatchId}.resolution`,
+                    resolved = readEscalationResolution(
+                      projection.readDocument(`${packagePath}/artifacts/rulings/${dispatchId}.resolution.md`).document
+                        ?.body ?? "",
+                      dispatchId,
+                      row.taskId,
                     ),
                     ruling = readDispatchRuling(
                       (relative) =>

@@ -32,5 +32,10 @@ export function readTaskAncestry(
     contentVersion: planReads[index]?.document?.workspaceRevision ?? null,
     documentAvailable: planReads[index]?.document != null,
   }));
-  return { rows, ancestors, reads: [...reads, ...planReads.filter((read) => read !== null)] };
+  return {
+    packagePath: reads[0]?.rows.find((row) => row.taskId === taskId)?.packagePath ?? null,
+    rows,
+    ancestors,
+    reads: [...reads, ...planReads.filter((read) => read !== null)],
+  };
 }

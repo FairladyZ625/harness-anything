@@ -654,6 +654,7 @@ async function resolveTaskEscalation(
       now: cell.now,
       killpoint: cell.input.killpoint,
     });
+    if (artifact.outcome !== "applied") return artifact;
   }
   const terminal = cell.projection
       .readRuntimeSessionEventsByType(dispatch.payload.runtimeSessionId, ["runtime_session_outcome_observed"])
