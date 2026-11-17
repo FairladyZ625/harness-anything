@@ -857,7 +857,7 @@ export function previewDispatchLifecycleOutcome(
         kind: step.kind,
         groupPhase: step.group.phase,
         ruling: step.group.ruling,
-        ownerAbandonment: isOwnerAbandonment(event),
+        canSettle: view.attempt.stopProof === "proven_stopped" || isOwnerAbandonment(event),
       }
     : step;
 }

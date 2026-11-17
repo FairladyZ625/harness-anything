@@ -135,7 +135,8 @@ test("a v6 lifecycle cache refolds owner abandonment without claiming a physical
       running,
       { ...terminal, payload: { ...terminal.payload, reasonCode: "ruling_resolved" } },
     ];
-    for (const event of events) {
+    for (const [index, input] of events.entries()) {
+      const event = { ...input, workspaceRevision: index + 1 };
       store.append({
         event,
         plan: canonicalEventWritePlan(event, "agent-runtime/v1", event.opId),
