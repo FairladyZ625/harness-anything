@@ -29,7 +29,8 @@ async function openExplainFixture() {
     realm = await serveKeycloak(),
     provider = new KeycloakPolicyAdapter(
       { url: realm.url, realm: "harness", resourceServerClientId: "harness-center" },
-      realm.fetch,
+      // Resolve the fixture host port at request time so withFetch can inject failures.
+      (input, init) => globalThis.fetch(input, init),
     ),
     personId = actor.principal.personId,
     binding: RepoCellBinding = {
@@ -241,7 +242,7 @@ test("HTTP 5xx from the session or center authority is unavailable, not a denial
 
     const centerProvider = new KeycloakPolicyAdapter(
         { url: realm.url, realm: "harness", resourceServerClientId: "harness-center" },
-        realm.fetch,
+        (input, init) => globalThis.fetch(input, init),
       ),
       centerBinding: RepoCellBinding = {
         ...binding,

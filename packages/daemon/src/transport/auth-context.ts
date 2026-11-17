@@ -10,6 +10,8 @@ export interface KeycloakCenterCredential {
   readonly url: string;
   readonly realm: string;
   readonly clientId: string;
+  readonly certificate?: string;
+  readonly servername?: string;
   readonly accessToken: string;
 }
 

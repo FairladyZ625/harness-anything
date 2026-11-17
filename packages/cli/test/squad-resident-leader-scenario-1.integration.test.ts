@@ -300,7 +300,7 @@ test("a Claude leader dispatches Codex workers by each worker declaration and re
       ...(process.env.PATH ?? "")
         .split(path.delimiter)
         .filter((entry) =>
-          ["claude", "claude.cmd", "claude.exe", "codex", "codex.cmd", "codex.exe"].every(
+          ["claude", "claude.cmd", "claude.exe", "codex", "codex.cmd", "codex.exe", "agy", "agy.cmd", "agy.exe"].every(
             (name) => !existsSync(path.join(entry, name)),
           ),
         ),

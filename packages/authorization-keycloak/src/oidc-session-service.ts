@@ -1,3 +1,4 @@
+import { keycloakTlsFailure } from "./keycloak-tls-error.ts";
 /** @slice-activation Identity provider plugin keeps the provider-neutral daemon composition root on the Keycloak implementation boundary. */
 import type { ManagedRbacListener } from "@harness-anything/kernel";
 import { createHash, randomBytes } from "node:crypto";
@@ -39,6 +40,8 @@ interface RbacConfig {
   readonly url: string;
   readonly realm: string;
   readonly clientId?: string;
+  readonly certificate?: string;
+  readonly servername?: string;
   readonly listener?: ManagedRbacListener;
 }
 
@@ -276,9 +279,8 @@ export class OidcSessionService {
   revokeDeviceSessions(nodeId: string): Promise<void> {
     return this.serialize(async () => {
       const center = await this.center();
-      await new KeycloakPolicyAdapter(
-        { ...center, resourceServerClientId: "harness-center" },
-        this.#ports.fetch,
+      await new KeycloakPolicyAdapter({ ...center, resourceServerClientId: "harness-center" }, (input, init) =>
+        this.#fetchAuthority(center, input, init),
       ).revokeNodeConsent(center.accessToken, nodeId);
     });
   }
@@ -599,9 +601,11 @@ export class OidcSessionService {
           realm: config.realm,
           clientId: "harness-center",
           expectedAzps: auth.fleetExpectedAzps,
+          certificate: config.certificate,
+          servername: config.servername,
           clientSecret: readFileSync(path.join(this.#rbacRoot, "center-client-secret"), "utf8").trim(),
           adminAccessToken,
-          fetch: this.#ports.fetch,
+          fetch: (input, init) => this.#fetchAuthority(config, input, init),
           now: this.#ports.now(),
         });
         const principal = bound.oidcPrincipal!;
@@ -654,9 +658,8 @@ export class OidcSessionService {
         return current.accessToken;
       },
       oidcPrincipal: {
-        provider: new KeycloakPolicyAdapter(
-          { ...authority, resourceServerClientId: "harness-center" },
-          this.#ports.fetch,
+        provider: new KeycloakPolicyAdapter({ ...authority, resourceServerClientId: "harness-center" }, (input, init) =>
+          this.#fetchAuthority(authority, input, init),
         ),
         personId: session.personId,
         subject: session.subject,
@@ -681,7 +684,7 @@ export class OidcSessionService {
       adminAccessToken = await this.#centerToken(),
       provider = new KeycloakPolicyAdapter(
         { url: config.url, realm: config.realm, resourceServerClientId: "harness-center" },
-        this.#ports.fetch,
+        (input, init) => this.#fetchAuthority(config, input, init),
       );
     return verifyFleetReplica({
       auth,
@@ -691,7 +694,7 @@ export class OidcSessionService {
       clientId: "harness-center",
       clientSecret: readFileSync(path.join(this.#rbacRoot, "center-client-secret"), "utf8").trim(),
       adminAccessToken,
-      fetch: this.#ports.fetch,
+      fetch: (input, init) => this.#fetchAuthority(config, input, init),
       now: this.#ports.now(),
       readNode: (nodeId) => provider.readNode(adminAccessToken, nodeId),
     });
@@ -792,6 +795,8 @@ export class OidcSessionService {
     readonly url: string;
     readonly realm: string;
     readonly accessToken: string;
+    readonly certificate?: string;
+    readonly servername?: string;
     readonly provider: import("@harness-anything/kernel").AuthorizationProvider;
   }> {
     const config = this.#config();
@@ -800,7 +805,7 @@ export class OidcSessionService {
       accessToken: await this.#centerToken(rejectedAccessToken),
       provider: new KeycloakPolicyAdapter(
         { ...config, resourceServerClientId: "harness-center" },
-        this.#ports.fetch,
+        (input, init) => this.#fetchAuthority(config, input, init),
         (rejected) => this.#centerToken(rejected),
       ),
     };
@@ -922,8 +927,10 @@ export class OidcSessionService {
       cached.expiresAt > requestedAt
     )
       return cached.accessToken;
-    const response = await this.#ports
-      .fetch(`${config.url}/realms/${encodeURIComponent(config.realm)}/protocol/openid-connect/token`, {
+    const response = await this.#fetchAuthority(
+      config,
+      `${config.url}/realms/${encodeURIComponent(config.realm)}/protocol/openid-connect/token`,
+      {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
@@ -931,12 +938,15 @@ export class OidcSessionService {
           client_id: "harness-center",
           client_secret: readFileSync(secretFile, "utf8").trim(),
         }),
-      })
-      .catch((cause: unknown) => {
-        throw Object.assign(coded("daemon_error", "Keycloak could not be reached to acquire a center token."), {
+      },
+    ).catch((cause: unknown) => {
+      throw (
+        keycloakTlsFailure(cause) ??
+        Object.assign(coded("daemon_error", "Keycloak could not be reached to acquire a center token."), {
           cause,
-        });
-      });
+        })
+      );
+    });
     if (!response.ok)
       throw coded("rbac_admin_unavailable", `Keycloak service authentication returned HTTP ${response.status}.`);
     const payload = (await response.json()) as Record<string, unknown>,
@@ -1030,7 +1040,7 @@ export class OidcSessionService {
 
   #adminFetch(method: string, suffix: string, token: string, body?: unknown): Promise<Response> {
     const config = this.#config();
-    return this.#ports.fetch(`${config.url}/admin/realms/${encodeURIComponent(config.realm)}${suffix}`, {
+    return this.#fetchAuthority(config, `${config.url}/admin/realms/${encodeURIComponent(config.realm)}${suffix}`, {
       method,
       headers: {
         authorization: `Bearer ${token}`,
@@ -1075,6 +1085,8 @@ export class OidcSessionService {
       url: config.url,
       realm: config.realm,
       clientId: "harness-gui",
+      ...(config.certificate ? { certificate: config.certificate } : {}),
+      ...(config.servername ? { servername: config.servername } : {}),
       ...(config.listener ? { browserUrl: managedRbacListenerUrl(config.listener) } : {}),
       ...(config.listener ? { certificate: readFileSync(config.listener.certificateFile, "utf8") } : {}),
     };
@@ -1133,7 +1145,9 @@ export class OidcSessionService {
     init?: RequestInit,
     servername?: string,
   ): Promise<Response> {
-    return this.#host.fetchWithTlsCa(this.#ports.fetch, ca, input, init, servername);
+    return this.#host.fetchWithTlsCa(this.#ports.fetch, ca, input, init, servername).catch((error: unknown) => {
+      throw keycloakTlsFailure(error) ?? error;
+    });
   }
 
   /** The signed-in session holding a usable access token; fails when Keycloak could not be asked to renew it. */
@@ -1184,7 +1198,11 @@ export class OidcSessionService {
             refresh_token: session.refreshToken,
           }),
         },
-      ).catch((error: unknown) => unavailable("Keycloak could not be reached to renew the session.", error));
+      ).catch((error: unknown) => {
+        const tlsFailure = keycloakTlsFailure(error);
+        if (tlsFailure) throw tlsFailure;
+        return unavailable("Keycloak could not be reached to renew the session.", error);
+      });
     if (generation !== this.#sessionGeneration) return { session: undefined };
     if (response instanceof Error)
       return {

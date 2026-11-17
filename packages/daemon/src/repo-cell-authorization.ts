@@ -34,6 +34,7 @@ import type { ExecutionDelegationRecord } from "@harness-anything/kernel";
 import { authorizeAction } from "./authorization.ts";
 import type { AuthorizationPermissionDecision } from "@harness-anything/kernel";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import { authorizationFetch } from "./tls-ca-certificate.ts";
 
 const repositoryTarget: EntityRef = "settings/repository";
 
@@ -242,12 +243,18 @@ export async function evaluateKeycloakPerson(input: {
         policyRef: input.policyRef ?? "authorization-provider@1",
         authority: "authorization-provider",
       };
-    const resourceAncestors = input.resourceAncestors ?? [];
-    const fetchPort = input.fetchPort ?? fetch,
-      decisionProvider = provider.withFetchPort ? provider.withFetchPort(fetchPort) : provider,
+    const resourceAncestors = input.resourceAncestors ?? [],
+      // The capability may have crossed a worker boundary or been built before the host installed
+      // a fetch interceptor. Rebind evaluation to the current global fetch while keeping this
+      // authority's CA and SNI, so diagnostics see the request without losing TLS trust.
+      authority = session ?? currentCenter,
+      decisionPort =
+        input.fetchPort ?? (authority && provider.withFetchPort ? authorizationFetch(authority) : undefined),
+      decisionProvider = decisionPort && provider.withFetchPort ? provider.withFetchPort(decisionPort) : provider,
+      centerPort = input.fetchPort ?? (currentCenter ? authorizationFetch(currentCenter) : undefined),
       centerProvider = currentCenter
-        ? currentCenter.provider.withFetchPort
-          ? currentCenter.provider.withFetchPort(fetchPort)
+        ? centerPort && currentCenter.provider.withFetchPort
+          ? currentCenter.provider.withFetchPort(centerPort)
           : currentCenter.provider
         : undefined;
     if (replicaPrincipal && !currentCenter)

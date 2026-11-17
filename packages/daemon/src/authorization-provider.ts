@@ -26,11 +26,13 @@ import {
 export type AuthorizationProviderConfig = KeycloakPolicyAdapterConfig & {
   readonly mode?: "builtin" | "managed" | "external";
   readonly userRoot?: string;
+  readonly certificate?: string;
+  readonly servername?: string;
 };
 
 export const createAuthorizationProvider = (
   config: AuthorizationProviderConfig,
-  fetchPort?: typeof fetch,
+  fetchPort: typeof fetch = authorizationFetch(config),
   refreshAdminAccessToken?: (rejectedAccessToken: string) => Promise<string>,
 ): AuthorizationProvider => {
   const userRoot = config.userRoot ?? userRootFromBuiltinUrl(config.url);
@@ -53,6 +55,7 @@ import { reportFleetDeviceLogin, readFleetLoginAuthorityClient } from "./fleet/p
 import { oidcCenterSelections } from "./oidc-center-selection.ts";
 import { errorMessageWithCause } from "./error-cause.ts";
 import {
+  authorizationFetch,
   fetchWithTlsCa,
   probeSystemCaTrust,
   rootCaFromCertificateChain,

@@ -15,8 +15,9 @@ export interface IdentityAuthenticationContext {
       readonly url: string;
       readonly realm: string;
       readonly clientId: string;
-      /** Public CA root selected by the invitation; used only for matching that invitation on reuse. */
+      /** Public CA root selected by the invitation; retained across worker boundaries for authority TLS requests. */
       readonly certificate?: string;
+      readonly servername?: string;
     };
   };
   /** Resolves the bound local login token at use time; never supplied by a fleet client. */
@@ -30,6 +31,8 @@ export interface IdentityAuthenticationContext {
     readonly url: string;
     readonly realm: string;
     readonly clientId: string;
+    readonly certificate?: string;
+    readonly servername?: string;
     readonly accessToken: string;
     readonly provider: AuthorizationProvider;
   }>;
