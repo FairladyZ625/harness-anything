@@ -151,6 +151,7 @@ export interface EdgeJoinIssued {
   readonly state: "pending";
   readonly expiresAt: string;
   readonly link: string;
+  readonly temporaryPassword?: string;
 }
 
 /** Status contains no token or credential. */

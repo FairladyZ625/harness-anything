@@ -400,6 +400,23 @@ export function EdgeInvitePanel({ repos }: { readonly repos: readonly SystemRepo
           <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all font-mono ui-micro text-text">
             {issued.link}
           </pre>
+          {issued.temporaryPassword ? (
+            <div className="mt-2 flex flex-wrap items-center gap-2 rounded border border-border bg-surface px-2.5 py-2">
+              <span className="ui-meta text-text-muted">{t("views.repositories.inviteTempPasswordLabel")}</span>
+              <code
+                data-testid="edge-invite-temp-password"
+                className="select-all break-all font-mono ui-micro text-text"
+              >
+                {issued.temporaryPassword}
+              </code>
+              <CopyContextButton
+                label={t("views.repositories.inviteCopyTempPasswordAction")}
+                title={t("views.repositories.inviteCopyTempPasswordTitle")}
+                buildText={() => issued.temporaryPassword!}
+                testId="edge-invite-copy-temp-password"
+              />
+            </div>
+          ) : null}
           <div className="mt-2 flex items-center gap-2">
             <CopyContextButton
               label={t("views.repositories.inviteCopyAction")}

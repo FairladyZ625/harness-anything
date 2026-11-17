@@ -117,17 +117,14 @@ for (const kind of ["builtin", "keycloak"] as const) {
       const center = await session.center();
       await center.provider.createNode(center.accessToken, { nodeId: "remote", personId: "owner" }, "remote-secret");
       await session.revokeDeviceSessions!("remote");
-      assert.equal(
-        (
-          await session.invite({
-            username: "invited",
-            personId: "invited",
-            email: "invited@example.invalid",
-            displayName: "Invited",
-          })
-        ).invited,
-        true,
-      );
+      const invitedResult = await session.invite({
+        username: "invited",
+        personId: "invited",
+        email: "invited@example.invalid",
+        displayName: "Invited",
+      });
+      assert.equal(invitedResult.invited, true);
+      assert.equal(typeof invitedResult.temporaryPassword, "string");
       deviceApproved = true;
       now += 1000;
     } else {

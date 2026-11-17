@@ -5,6 +5,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { SystemRepoRow } from "../src/renderer/api-client.ts";
+import { readIssued } from "../src/renderer/edge-invite-client.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { EdgeInvitePanel } from "../src/renderer/views/settings/EdgeInvitePanel.tsx";
 
@@ -81,13 +82,14 @@ const PEOPLE = [
   { personId: "person-owner", username: "owner" },
 ] as const;
 
-function issuedReply(joinId = "join-1") {
+function issuedReply(joinId = "join-1", temporaryPassword?: string) {
   return {
     ok: true,
     joinId,
     state: "pending",
     expiresAt: "2030-01-01T00:00:00.000Z",
     link: LINK,
+    ...(temporaryPassword !== undefined ? { temporaryPassword } : {}),
   };
 }
 
@@ -540,10 +542,59 @@ describe("EdgeInvitePanel", () => {
       const { container } = await mountPanel();
       await pickExistingMember(container);
       await click(container, "edge-invite-issue");
+      expect(container.querySelector('[data-testid="edge-invite-temp-password"]')).toBeNull();
+      expect(container.querySelector('[data-testid="edge-invite-copy-temp-password"]')).toBeNull();
       await click(container, "edge-invite-copy");
       expect(writes).toEqual([LINK]);
     } finally {
       Object.defineProperty(globalThis.navigator, "clipboard", { configurable: true, value: undefined });
     }
+  });
+
+  it("displays and copies the one-time temporary password separately for a new member and clears it on Done", async () => {
+    const writes: string[] = [];
+    const tempPassword = "temp-password-144bit-sample";
+    Object.defineProperty(globalThis.navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (text: string) => void (text && writes.push(text)) },
+    });
+    try {
+      const { container } = await mountPanel({ issueResult: issuedReply("join-new", tempPassword) });
+      await fillNewMember(container, {
+        username: "edge.nosmtp",
+        email: "nosmtp@example.test",
+        displayName: "Edge NoSmtp",
+      });
+      await click(container, "edge-invite-issue");
+      expect(container.querySelector('[data-testid="edge-invite-temp-password"]')?.textContent).toBe(tempPassword);
+      expect(container.querySelector('[data-testid="edge-invite-issued"]')?.textContent).toContain(LINK);
+      await click(container, "edge-invite-copy");
+      await click(container, "edge-invite-copy-temp-password");
+      expect(writes).toEqual([LINK, tempPassword]);
+      await click(container, "edge-invite-done");
+      expect(container.textContent).not.toContain(LINK);
+      expect(container.textContent).not.toContain(tempPassword);
+      expect(container.querySelector('[data-testid="edge-invite-temp-password"]')).toBeNull();
+    } finally {
+      Object.defineProperty(globalThis.navigator, "clipboard", { configurable: true, value: undefined });
+    }
+  });
+
+  it("validates temporaryPassword in readIssued while omitting it when absent", () => {
+    expect(readIssued(issuedReply("j-1"))).toEqual({
+      joinId: "j-1",
+      state: "pending",
+      expiresAt: "2030-01-01T00:00:00.000Z",
+      link: LINK,
+    });
+    expect(readIssued(issuedReply("j-2", "secret-123"))).toEqual({
+      joinId: "j-2",
+      state: "pending",
+      expiresAt: "2030-01-01T00:00:00.000Z",
+      link: LINK,
+      temporaryPassword: "secret-123",
+    });
+    expect(() => readIssued(issuedReply("j-3", ""))).toThrow();
+    expect(() => readIssued({ ...issuedReply("j-4"), temporaryPassword: 42 })).toThrow();
   });
 });

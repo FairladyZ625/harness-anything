@@ -1125,3 +1125,120 @@ test("an invitation is refused at consume when its repository was disabled or re
   assert.equal(keycloak.nodeClients.size, nodeCount, "no edge node is minted for a refused repository check");
   assert.equal((await admin.edgeJoinStatus({ joinId: link.joinId, accessToken: "invited-token" })).state, "pending");
 });
+
+test("edge-join-create issues one-time temporaryPassword without SMTP, keeps links/queries clean, and rolls back on grant failure", async (t) => {
+  let failGrantWrite = false;
+  const { keycloak, run, admin, journal } = await edgeJoinCenter(
+    t,
+    await fixture(t, {
+      wrapFetch: (inner) =>
+        (async (input, init) => {
+          const url = String(input);
+          if (failGrantWrite && (url.includes("/policy/user") || url.includes("/permission/scope"))) {
+            return new Response("grant failure", { status: 500 });
+          }
+          return inner(input, init);
+        }) as typeof fetch,
+    }),
+  );
+
+  // 1. Default realm (no SMTP host): new member gets one-time temporaryPassword, no VERIFY_EMAIL, no email call.
+  const created = await run({
+    operation: "edge-join-create",
+    personId: "person-nosmtp",
+    username: "nosmtp.user",
+    email: "nosmtp@example.invalid",
+    displayName: "No Smtp",
+    repoIds: ["repo-a"],
+    groupIds: ["edge-selected"],
+  });
+  assert.equal(created.ok, true);
+  assert.equal(typeof created.temporaryPassword, "string");
+  const tempPassword = String(created.temporaryPassword);
+  assert.ok(tempPassword.length >= 22, "temporaryPassword must carry >=128 bits entropy");
+  assert.equal(keycloak.authenticatePassword("person-nosmtp", tempPassword), true);
+  const createdUser = [...keycloak.users.values()].find((user) => user.username === "nosmtp.user")!;
+  assert.deepEqual(createdUser.requiredActions, ["UPDATE_PASSWORD"]);
+  assert.deepEqual(createdUser.credentials, [{ type: "password", value: tempPassword, temporary: true }]);
+  assert.equal(keycloak.sentActionEmails.length, 0);
+
+  // Link payload, journal, edge-join-list, and edge-join-status must never contain temporaryPassword.
+  const decodedLink = Buffer.from(String(created.link).slice("harness-edge://join/".length), "base64url").toString(
+    "utf8",
+  );
+  assert.equal(decodedLink.includes(tempPassword), false);
+  assert.equal(decodedLink.includes("temporaryPassword"), false);
+  assert.equal(JSON.stringify(journal()).includes(tempPassword), false);
+  const listed = await run({ operation: "edge-join-list" });
+  assert.equal(JSON.stringify(listed).includes(tempPassword), false);
+  assert.equal(JSON.stringify(listed).includes("temporaryPassword"), false);
+  const status = await admin.edgeJoinStatus({
+    joinId: String(created.joinId),
+    accessToken: (() => {
+      keycloak.interactiveSession("person-nosmtp", "dev-1", keycloakUrl, "nosmtp-tok", "harness-gui");
+      return "nosmtp-tok";
+    })(),
+  });
+  assert.equal(JSON.stringify(status).includes(tempPassword), false);
+
+  // 2. Existing member invitation: no temporaryPassword generated or returned; password stays unchanged.
+  const existingInvite = await run({
+    operation: "edge-join-create",
+    personId: "person-nosmtp",
+    repoIds: ["repo-b"],
+    groupIds: ["edge-selected"],
+  });
+  assert.equal(existingInvite.ok, true);
+  assert.equal(existingInvite.temporaryPassword, undefined);
+  assert.equal(keycloak.authenticatePassword("person-nosmtp", tempPassword), true);
+
+  // 3. Subsequent grant failure rolls back the newly created Keycloak user so retry can recreate and obtain password.
+  failGrantWrite = true;
+  await assert.rejects(
+    run({
+      operation: "edge-join-create",
+      personId: "person-rollback",
+      username: "rollback.user",
+      email: "rollback@example.invalid",
+      displayName: "Rollback User",
+      repoIds: ["repo-a"],
+      groupIds: ["edge-selected"],
+    }),
+  );
+  assert.equal(
+    [...keycloak.users.values()].some((user) => user.attributes.harness_person_id?.[0] === "person-rollback"),
+    false,
+    "failed grant write must roll back the newly created user",
+  );
+  failGrantWrite = false;
+  const retried = await run({
+    operation: "edge-join-create",
+    personId: "person-rollback",
+    username: "rollback.user",
+    email: "rollback@example.invalid",
+    displayName: "Rollback User",
+    repoIds: ["repo-a"],
+    groupIds: ["edge-selected"],
+  });
+  assert.equal(retried.ok, true);
+  assert.equal(typeof retried.temporaryPassword, "string");
+  assert.equal(keycloak.authenticatePassword("person-rollback", String(retried.temporaryPassword)), true);
+
+  // 4. Configured SMTP host: keeps email activation flow and omits temporaryPassword.
+  keycloak.configureSmtp("smtp.example.invalid");
+  const smtpInvite = await run({
+    operation: "edge-join-create",
+    personId: "person-smtp",
+    username: "smtp.user",
+    email: "smtp@example.invalid",
+    displayName: "Smtp User",
+    repoIds: ["repo-a"],
+    groupIds: ["edge-selected"],
+  });
+  assert.equal(smtpInvite.ok, true);
+  assert.equal(smtpInvite.temporaryPassword, undefined);
+  const smtpUser = [...keycloak.users.values()].find((user) => user.username === "smtp.user")!;
+  assert.deepEqual(smtpUser.requiredActions, ["VERIFY_EMAIL", "UPDATE_PASSWORD"]);
+  assert.deepEqual(smtpUser.credentials, []);
+  assert.equal(keycloak.sentActionEmails.at(-1)?.userId, smtpUser.id);
+});

@@ -287,7 +287,7 @@ ha daemon fleet center start --bind 0.0.0.0 --port 7545 --external-url https://c
 
 daemon 会在监听前校验具体绑定地址（若适用）及对外 origin 主机名的证书 SAN。也可以在 GUI「设置 → 仓库与连接 → 中心」设置中心服务对外地址。登录服务 hostname 与 issuer 仍由上面的 Keycloak listener 独立配置。同一私钥重签 Fleet 证书时，已有邀请链接的 pin 仍然有效。替换私钥会改变 SPKI pin：换钥后重新创建邀请；旧链接会以 `pin_mismatch` 拒绝。替换 listener 会中断现有 edge 连接，直到它们信任新的 listener 证书。
 
-新 edge 通过一次性邀请接入。在中心 GUI 打开「设置 → 仓库与连接 → 中心」，邀请成员、选择一个或多个仓库及权限组，然后通过独立渠道交付 `harness-edge://join/...` 链接。pending 邀请可以在此撤销，有效期为 72 小时。edge 所有人运行：
+新 edge 通过一次性邀请接入。在中心 GUI 打开「设置 → 仓库与连接 → 中心」，邀请成员、选择一个或多个仓库及权限组，然后通过独立渠道交付 `harness-edge://join/...` 链接。当中心 Keycloak realm 未配置外发 SMTP 服务器时（包括默认托管 Keycloak），邀请新成员还会随本次签发回执单次返回一个一次性临时密码供独立交付；该临时密码不会写入邀请链接或持久化记录。pending 邀请可以在此撤销，有效期为 72 小时。edge 所有人运行：
 
 ```bash
 ha edge join '<邀请链接>'

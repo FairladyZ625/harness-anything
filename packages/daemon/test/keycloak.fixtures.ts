@@ -23,7 +23,16 @@ type Role = Named & {
   attributes?: Record<string, string[]>;
   composites: Set<string>;
 };
-type Permission = Named & { resources: string[]; scopes: string[]; policies: string[] };
+type FakeUser = {
+  id: string;
+  username: string;
+  attributes: Record<string, string[]>;
+  serviceAccountClientId?: string;
+  emailVerified?: boolean;
+  requiredActions?: string[];
+  credentials?: { type: string; value: string; temporary: boolean }[];
+};
+
 type NodeClient = {
   id: string;
   clientId: string;
@@ -51,10 +60,7 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
     resources = new Map<string, { _id: string; name: string; type?: string; scopes: { name: string }[] }>(),
     userPolicies = new Map<string, Named & { users: string[] }>(),
     permissions = new Map<string, Permission>(),
-    users = new Map<
-      string,
-      { id: string; username: string; attributes: Record<string, string[]>; serviceAccountClientId?: string }
-    >(),
+    users = new Map<string, FakeUser>(),
     passwords = new Map<string, string>(),
     tokens = new Map<string, string>(),
     tokenIssuers = new Map<string, string>(),
@@ -64,9 +70,14 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
     >(),
     nodeClients = new Map<string, NodeClient>(),
     nodeLogins: { clientId: string; ok: boolean }[] = [],
+    sentActionEmails: { userId: string; actions: readonly string[] }[] = [],
     profile = { attributes: [{ name: "username" }, { name: "email" }] as { name: string }[] },
-    // Keycloak's own defaults: a realm nobody configured idles out after half an hour.
-    realm = { ssoSessionIdleTimeout: 1_800, ssoSessionMaxLifespan: 36_000 },
+    // Keycloak's own defaults: a realm nobody configured idles out after half an hour and has no SMTP host.
+    realm: {
+      ssoSessionIdleTimeout: number;
+      ssoSessionMaxLifespan: number;
+      smtpServer?: { host?: string; from?: string };
+    } = { ssoSessionIdleTimeout: 1_800, ssoSessionMaxLifespan: 36_000 },
     writes: string[] = [];
 
   const json = (value: unknown, status = 200) => Response.json(value, { status }),
@@ -343,6 +354,16 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
       const user = users.get(tail);
       return user ? json({ ...user, enabled: true }) : json({}, 404);
     }
+    if (/^\/users\/[^/]+$/u.test(route) && method === "DELETE") {
+      if (!users.has(tail)) return json({}, 404);
+      users.delete(tail);
+      passwords.delete(tail);
+      for (const policy of userPolicies.values()) policy.users = policy.users.filter((memberId) => memberId !== tail);
+      for (const team of teams.values()) team.members.delete(tail);
+      for (const role of realmRoles.values()) role.members.delete(tail);
+      for (const [token, mappedUserId] of tokens) if (mappedUserId === tail) tokens.delete(token);
+      return new Response(null, { status: 204 });
+    }
     if (route === "/users" && method === "GET") {
       const query = url.searchParams.get("q"),
         [attribute, value] = (query ?? ":").split(":"),
@@ -354,16 +375,54 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
         ),
       );
     }
-    if (route === "/users") {
-      const user = { id: id("user"), username: String(body!.username), attributes: {} as Record<string, string[]> };
+    if (route === "/users" && method === "POST") {
+      if ([...users.values()].some((existing) => existing.username === String(body!.username)))
+        return json({ errorMessage: "User exists with same username" }, 409);
+      const requiredActions = Array.isArray(body!.requiredActions)
+          ? body!.requiredActions.filter((action): action is string => typeof action === "string")
+          : [],
+        credentials = Array.isArray(body!.credentials)
+          ? body!.credentials
+              .filter(
+                (entry): entry is { type?: unknown; value?: unknown; temporary?: unknown } =>
+                  typeof entry === "object" && entry !== null,
+              )
+              .map((entry) => ({
+                type: String(entry.type ?? ""),
+                value: String(entry.value ?? ""),
+                temporary: Boolean(entry.temporary),
+              }))
+          : [];
+      const user: FakeUser = {
+        id: id("user"),
+        username: String(body!.username),
+        attributes: {},
+        emailVerified: Boolean(body!.emailVerified),
+        requiredActions,
+        credentials,
+      };
       // Keycloak silently drops attributes its user profile does not declare.
       for (const [name, value] of Object.entries((body!.attributes ?? {}) as Record<string, string[]>))
         if (profile.attributes.some((attribute) => attribute.name === name)) user.attributes[name] = value;
       users.set(user.id, user);
+      const passwordCred = credentials.find((cred) => cred.type === "password");
+      if (passwordCred) passwords.set(user.id, passwordCred.value);
       return new Response(null, { status: 201, headers: { location: `${keycloakUrl}/users/${user.id}` } });
     }
-    if (/^\/users\/[^/]+\/execute-actions-email$/u.test(route) && method === "PUT")
+    if (/^\/users\/[^/]+\/execute-actions-email$/u.test(route) && method === "PUT") {
+      const userId = decodeURIComponent(route.split("/")[2]!);
+      if (!users.has(userId)) return json({}, 404);
+      if (typeof realm.smtpServer?.host !== "string" || realm.smtpServer.host.trim() === "")
+        return json(
+          { errorMessage: "Failed to send email", error: "KC-SERVICES0088: Invalid sender address 'null'" },
+          500,
+        );
+      sentActionEmails.push({
+        userId,
+        actions: Array.isArray(body) ? body.map(String) : [],
+      });
       return new Response(null, { status: 204 });
+    }
     if (/^\/users\/[^/]+\/reset-password$/u.test(route) && method === "PUT") {
       const userId = decodeURIComponent(route.split("/")[2]!);
       if (!users.has(userId)) return json({}, 404);
@@ -471,6 +530,11 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
     nodeClients,
     /** Every machine-credential check Keycloak was asked to make, in order. */
     nodeLogins,
+    sentActionEmails,
+    configureSmtp(host?: string, from = "noreply@example.invalid"): void {
+      if (typeof host === "string" && host.trim() !== "") realm.smtpServer = { host, from };
+      else delete realm.smtpServer;
+    },
     expireNodeTokens(): void {
       nodeTokensExpired = true;
     },

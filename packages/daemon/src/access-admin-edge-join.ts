@@ -1,6 +1,7 @@
 import { createHash, randomBytes, X509Certificate } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
+  consumeKnownError,
   effectivePolicyGroupScopes,
   encodeAuthorizationResource,
   readDaemonRegistry,
@@ -133,6 +134,8 @@ export class EdgeJoinAdminService {
       await this.#assertMemberPermissions(session, accessToken, repoIds);
     }
     const login = await this.#oidc.interactiveAuthority();
+    let createdNewUser = false;
+    let temporaryPassword: string | undefined;
     try {
       const loginAddress = new URL(login.url),
         serviceHosts = sshServiceHosts(config.bind, login.url),
@@ -146,10 +149,10 @@ export class EdgeJoinAdminService {
             })
           : undefined,
         tunnelFields = sshTarget && tunnel ? sshJoinFields(config.externalUrl!, login.url, tunnel) : undefined;
-      if (mode === "invitation" && !(await session.adapter.findUserId(session.token, personId)))
+      if (mode === "invitation" && !(await session.adapter.findUserId(session.token, personId))) {
         // Already inside the edge-join-create write queue; invite renews the session in place.
         // Username, email, and displayName are new-user fields: an existing member needs none.
-        await this.#oidc.invite(
+        const invited = await this.#oidc.invite(
           {
             personId,
             username: newUserField(request.username, "username", personId),
@@ -158,6 +161,10 @@ export class EdgeJoinAdminService {
           },
           true,
         );
+        createdNewUser = true;
+        if (typeof invited.temporaryPassword === "string" && invited.temporaryPassword.length > 0)
+          temporaryPassword = invited.temporaryPassword;
+      }
       if (mode === "invitation") {
         const userId = await requiredUserId(session.adapter, session.token, personId),
           grants: readonly AuthorizationGrant[] = await session.adapter.readGrants(session.token);
@@ -209,8 +216,10 @@ export class EdgeJoinAdminService {
         state: "pending",
         expiresAt: created.record.expiresAt,
         link: encodeEdgeJoinLink(created.link),
+        ...(temporaryPassword !== undefined ? { temporaryPassword } : {}),
       };
     } catch (error) {
+      if (createdNewUser) await this.#oidc.deleteInvitedUser?.(personId, true).catch(consumeKnownError);
       if (sshTarget && !this.#hasActiveTarget(sshTarget)) this.#sshTunnels.release(sshTarget);
       throw error;
     }

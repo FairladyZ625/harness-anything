@@ -522,14 +522,99 @@ test("first administrator closes after one success and fleet policy admin withou
   keycloak.interactiveSession("person-owner", "local", "http://127.0.0.1:8080", jwt);
   const login = await service.begin("http://127.0.0.1:1234/callback");
   await service.complete("code", String(login.state));
-  assert.deepEqual(
-    await service.invite({
-      username: "alice",
-      email: "alice@example.invalid",
-      displayName: "Alice",
-      personId: "person-alice",
+  const aliceInvite = await service.invite({
+    username: "alice",
+    email: "alice@example.invalid",
+    displayName: "Alice",
+    personId: "person-alice",
+  });
+  assert.equal(aliceInvite.ok, true);
+  assert.equal(aliceInvite.invited, true);
+  assert.equal(aliceInvite.personId, "person-alice");
+  assert.equal(typeof aliceInvite.temporaryPassword, "string");
+  assert.ok(String(aliceInvite.temporaryPassword).length >= 22, "temporaryPassword has >=128 bits entropy");
+  const aliceUser = [...keycloak.users.values()].find((user) => user.username === "alice")!;
+  assert.deepEqual(aliceUser.requiredActions, ["UPDATE_PASSWORD"]);
+  assert.deepEqual(aliceUser.credentials, [
+    { type: "password", value: String(aliceInvite.temporaryPassword), temporary: true },
+  ]);
+  assert.equal(keycloak.sentActionEmails.length, 0);
+  // Negative control: calling execute-actions-email directly without SMTP fails with HTTP 500.
+  const noSmtpEmail = await keycloak.fetch(
+    `http://127.0.0.1:8080/admin/realms/harness/users/${aliceUser.id}/execute-actions-email`,
+    { method: "PUT", body: JSON.stringify(["UPDATE_PASSWORD"]) },
+  );
+  assert.equal(noSmtpEmail.status, 500);
+
+  // When SMTP host is configured, invite sends execute-actions-email and omits temporaryPassword.
+  keycloak.configureSmtp("smtp.example.invalid");
+  const bobInvite = await service.invite({
+    username: "bob",
+    email: "bob@example.invalid",
+    displayName: "Bob",
+    personId: "person-bob",
+  });
+  assert.deepEqual(bobInvite, { ok: true, invited: true, personId: "person-bob" });
+  const bobUser = [...keycloak.users.values()].find((user) => user.username === "bob")!;
+  assert.deepEqual(bobUser.requiredActions, ["VERIFY_EMAIL", "UPDATE_PASSWORD"]);
+  assert.deepEqual(bobUser.credentials, []);
+  assert.equal(keycloak.sentActionEmails.length, 1);
+  assert.equal(keycloak.sentActionEmails[0]?.userId, bobUser.id);
+});
+
+test("SMTP email delivery failure rolls back the newly invited Keycloak user", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-oidc-smtp-rollback-")),
+    rbac = path.join(root, "rbac"),
+    keycloak = fakeKeycloak();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(rbac, { recursive: true });
+  writeFileSync(path.join(rbac, "config.json"), JSON.stringify({ url: "http://127.0.0.1:8080", realm: "harness" }));
+  writeFileSync(path.join(rbac, "center-client-secret"), "fixture-secret");
+  keycloak.accessAdmin("person-admin");
+  keycloak.configureSmtp("smtp.example.invalid");
+  const jwt = `x.${Buffer.from(JSON.stringify({ iss: testIssuer, realm_access: { roles: ["access-admin"] } })).toString("base64url")}.x`;
+  keycloak.interactiveSession("person-admin", "local", "http://127.0.0.1:8080", jwt);
+  sessionStore(root).write(
+    JSON.stringify({
+      schema: "harness-oidc-session/v3",
+      issuer: testIssuer,
+      accessToken: jwt,
+      refreshToken: jwt,
+      subject: "person-admin",
+      personId: "person-admin",
+      expiresAt: Date.now() + 3_600_000,
+      sessionExpiresAt: Date.now() + 3_600_000,
+      roles: ["access-admin"],
     }),
-    { ok: true, invited: true, personId: "person-alice" },
+  );
+  const service = createIdentitySession(root, {
+    fetch: (async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/.well-known/openid-configuration")) return Response.json({ issuer: testIssuer });
+      if (url.endsWith("/protocol/openid-connect/token")) {
+        const body = String(init?.body ?? "");
+        if (body.includes("uma-ticket")) return keycloak.fetch(input, init);
+        return Response.json({ access_token: "center-token" });
+      }
+      if (url.endsWith("/protocol/openid-connect/userinfo"))
+        return Response.json({ sub: "person-admin", harness_person_id: "person-admin" });
+      if (url.endsWith("/execute-actions-email")) return new Response("smtp rejected", { status: 500 });
+      return keycloak.fetch(input, init);
+    }) as typeof fetch,
+  });
+  await assert.rejects(
+    service.invite({
+      username: "charlie",
+      email: "charlie@example.invalid",
+      displayName: "Charlie",
+      personId: "person-charlie",
+    }),
+    { code: "keycloak_admin_rejected" },
+  );
+  assert.equal(
+    [...keycloak.users.values()].some((user) => user.username === "charlie"),
+    false,
+    "failed SMTP email delivery must roll back the newly created Keycloak user",
   );
 });
 
@@ -592,7 +677,10 @@ test("an invitation inside the OIDC write queue renews a lapsing session in plac
       true,
     ),
   );
-  assert.deepEqual(invitation, { ok: true, invited: true, personId: "person-alice" });
+  assert.equal(invitation.ok, true);
+  assert.equal(invitation.invited, true);
+  assert.equal(invitation.personId, "person-alice");
+  assert.equal(typeof invitation.temporaryPassword, "string");
   assert.equal(refreshes, 1, "the lapsing session renewed once in place, never queued behind the caller");
 });
 

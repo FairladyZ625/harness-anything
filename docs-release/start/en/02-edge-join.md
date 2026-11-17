@@ -26,7 +26,9 @@ page; that opens the invitation form directly:
    name; optionally set an **Edge node label (optional)**.
 2. Tick the **Repositories** and **Permission groups** to grant.
 3. Click **Issue invitation**. The one-time link is shown once: click **Copy link** and send it to that person over a
-   separate channel (chat or email); after **Done** the link cannot be retrieved again.
+   separate channel (chat or email); after **Done** the link cannot be retrieved again. When inviting a new member
+   against a realm without an SMTP server configured (including the default managed Keycloak), a one-time temporary
+   password is also shown once with its own **Copy password** button for separate delivery.
 
 If this machine cannot act as the center yet (the login service certificate is not configured), the entry does not hide
 the invitation; it names the missing step first: click **Configure the login service**, finish the certificate setup,
