@@ -715,13 +715,14 @@ function makeFixtureRoot() {
     ["packages/cli", "@harness-anything/cli"],
     ["packages/gui", "@harness-anything/gui"],
   ]) {
-    mkdirSync(path.join(root, packageRoot, "src"), { recursive: true });
+    const source = packageRoot === "packages/daemon" ? "src/daemon-host" : "src";
+    mkdirSync(path.join(root, packageRoot, source), { recursive: true });
     writeFileSync(
       path.join(root, packageRoot, "package.json"),
       JSON.stringify({
         name,
         type: "module",
-        exports: { ".": "./src/index.ts" },
+        exports: { ".": `./${source}/index.ts` },
       }),
       "utf8",
     );

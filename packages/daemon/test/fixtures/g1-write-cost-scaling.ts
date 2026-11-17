@@ -4,8 +4,8 @@
 // daemon request path (a warm-up call, then the steady-state call the gate judges), measuring
 // deterministic cost (SQL rows read, sha256 calls/bytes, git subprocess count, file-read bytes)
 // at the point each operation actually executes:
-//   - writes and receipt-show execute inside the writer worker thread (instrumented via the
-//     `--import` preload g1-writer-probe-import.mjs, mirroring writer-request-cost.integration.test.ts);
+//   - writes span the canonical Writer and orchestration host; both are instrumented via the
+//     `--import` preload g1-writer-probe-import.mjs and their counters are added after publication;
 //   - task-list/task-show/agenda/workspace-summary are intercepted host-side by the RepoCell
 //     proxy (packages/daemon/src/daemon-host/repo-cell-proxy.ts) and are instrumented in this process directly.
 // No production hook is added anywhere; every patch lives in g1-cost-probe.mjs.
@@ -13,7 +13,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { Worker } from "node:worker_threads";
+import { MessageChannel, Worker, type MessagePort, type WorkerOptions } from "node:worker_threads";
+import { probedOrchestrationHost } from "./orchestration-probe.ts";
 import assert from "node:assert/strict";
 import {
   compileDecisionWrite,
@@ -411,6 +412,7 @@ async function seedLedger(
 interface RequestHandle {
   readonly supervisor: Awaited<ReturnType<typeof openWriterSupervisor>>;
   readonly worker: Worker;
+  readonly probes: readonly MessagePort[];
 }
 
 async function openProbedSupervisor(
@@ -420,22 +422,35 @@ async function openProbedSupervisor(
   fence: WriterEpochFenceDescriptor,
 ): Promise<RequestHandle> {
   const probeUrl = new URL("./g1-writer-probe-import.mjs", import.meta.url).href;
+  const probes: MessagePort[] = [];
+  const instrument = (options: WorkerOptions): WorkerOptions => {
+    const channel = new MessageChannel();
+    probes.push(channel.port1);
+    return {
+      ...options,
+      execArgv: [...(options.execArgv ?? []), "--import", probeUrl],
+      workerData: { ...options.workerData, g1CostProbePort: channel.port2 },
+      transferList: [...(options.transferList ?? []), channel.port2],
+    };
+  };
   let capturedWorker: Worker | undefined;
   const supervisor = await openWriterSupervisor(
     { repoId: repoId as never, rootDir: rootDir as never, ownerId, defaultWriterEpochFence: fence },
     {
       createWorker: (url, options) => {
-        const worker = new Worker(url, { ...options, execArgv: [...options.execArgv, "--import", probeUrl] });
+        const worker = new Worker(url, instrument({ ...options, execArgv: [...options.execArgv] }));
         capturedWorker = worker;
         return worker;
       },
+      connectHost: probedOrchestrationHost(instrument),
     },
   );
   if (!capturedWorker) throw new Error("G1 probed worker was not captured");
-  return { supervisor, worker: capturedWorker };
+  if (probes.length !== 2) throw new Error("G1 must instrument both canonical Writer and orchestration host");
+  return { supervisor, worker: capturedWorker, probes };
 }
 
-function probeControl(worker: Worker, command: "reset" | "snapshot"): Promise<Record<string, number> | void> {
+function probeControl(worker: MessagePort, command: "reset" | "snapshot"): Promise<Record<string, number> | void> {
   const requestId = randomUUID();
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`G1 probe ${command} timed out`)), 10_000);
@@ -460,13 +475,16 @@ function probeControl(worker: Worker, command: "reset" | "snapshot"): Promise<Re
 type Measure = (run: () => Promise<unknown>) => Promise<{ readonly result: unknown; readonly counters: Counters }>;
 type Counters = Record<string, number>;
 
-// The worker snapshots after the follower settlement the request queued (g1-writer-probe-import.mjs),
-// so a write's window is the request plus the Git/worktree publication it triggered.
-function writerMeasure(worker: Worker): Measure {
+// dec_04A9211B073F29F0FC1E1CA573 CH2: moving Git to the host cannot make its cost disappear.
+// Keep the original end-to-end window: canonical commit plus settled host Git/worktree publication.
+function writerMeasure(handle: RequestHandle): Measure {
   return async (run) => {
-    await probeControl(worker, "reset");
+    await Promise.all(handle.probes.map((probe) => probeControl(probe, "reset")));
     const result = await run();
-    const counters = (await probeControl(worker, "snapshot")) as Counters;
+    const snapshots = (await Promise.all(handle.probes.map((probe) => probeControl(probe, "snapshot")))) as Counters[];
+    const counters = Object.fromEntries(
+      G1_METRICS.map((metric) => [metric, snapshots.reduce((sum, value) => sum + value[metric], 0)]),
+    );
     return { result, counters };
   };
 }
@@ -573,7 +591,7 @@ export async function measureWriteCostScaling(
     writeFileSync(path.join(repoDir, "harness", seeded.editedPath), "G1 local edit kept dirty through every write.\n");
 
     const handle = await openProbedSupervisor(repoId, rootDir, "g1-cost-measure", fence),
-      measure = writerMeasure(handle.worker);
+      measure = writerMeasure(handle);
     try {
       await handle.supervisor.request("settlePendingMaterialization", "g1 warmup");
       const run = (action: Record<string, unknown>, binding = writeBinding) => {
@@ -688,7 +706,11 @@ export async function measureWriteCostScaling(
       );
       await each("receipt-show", measure, (subject) => run({ kind: "receipt-show", opId: subject.createOpId }));
     } finally {
-      await handle.supervisor.close();
+      try {
+        await handle.supervisor.close();
+      } finally {
+        for (const probe of handle.probes) probe.close();
+      }
     }
 
     const readCell = await openRepoCell({

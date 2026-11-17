@@ -6,12 +6,14 @@ import path from "node:path";
 import test from "node:test";
 import { policyTestCenter, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { Worker } from "node:worker_threads";
+import { once } from "node:events";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openPersistentWriterEpoch } from "@harness-anything/storage";
 import { openWriterSupervisor } from "../src/daemon-host/writer-supervisor.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./task-surface.fixtures.ts";
+import { probedOrchestrationHost } from "./fixtures/orchestration-probe.ts";
 
 const openProbe = new URL("./fixtures/writer-epoch-open-probe.mjs", import.meta.url).href;
 
@@ -60,7 +62,7 @@ test("production writer requests open the epoch database once and never block on
             "message",
             (message: { readonly schema?: string; readonly capability?: string; sync?: unknown }) => {
               if (message?.schema === "writer-epoch-open-probe/v1") epochOpens.push(message);
-              else if (message?.schema === "harness-repo-writer-capability-call/v1" && message.sync)
+              else if (message?.schema === "writer-physical-capability-probe/v1")
                 blockingCalls.push(String(message.capability));
             },
           );
@@ -104,9 +106,27 @@ test("production writer requests open the epoch database once and never block on
   }
 });
 
+test("the native Writer probe reports a forbidden synchronous capability post", async () => {
+  const worker = new Worker(
+    new URL(
+      `data:text/javascript,${encodeURIComponent('import { parentPort } from "node:worker_threads"; parentPort.postMessage({schema:"harness-repo-writer-capability-call/v1",capability:"now",sync:{}});')}`,
+    ),
+    { execArgv: ["--import", openProbe] },
+  );
+  const messages: { schema?: string; capability?: string }[] = [];
+  worker.on("message", (message) => messages.push(message));
+  const [code] = await once(worker, "exit");
+  assert.equal(code, 0);
+  assert.ok(
+    messages.some(
+      (message) => message.schema === "writer-physical-capability-probe/v1" && message.capability === "now",
+    ),
+  );
+});
+
 const sabProbe = new URL("./fixtures/writer-sab-allocation-probe.mjs", import.meta.url).href;
 
-test("sync capability round trips reuse one shared buffer pair for the writer's whole life", async () => {
+test("host sync capability round trips reuse one shared buffer pair for the orchestration lifetime", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-writer-sab-cost-")),
     repoId = workspaceId("writer-sab-cost"),
     stateRoot = path.join(parent, "writer-epochs"),
@@ -137,8 +157,7 @@ test("sync capability round trips reuse one shared buffer pair for the writer's 
       })
     ).close();
     supervisor = await openWriterSupervisor(
-      // An injected clock is what wires the sync capability: every event stamp crosses the fence
-      // through syncCapability, so writes are the round trips this test counts allocations against.
+      // Injected clock capabilities live in the orchestration host, outside the canonical Writer.
       {
         repoId,
         rootDir,
@@ -165,6 +184,10 @@ test("sync capability round trips reuse one shared buffer pair for the writer's 
           );
           return worker;
         },
+        connectHost: probedOrchestrationHost((options) => ({
+          ...options,
+          execArgv: [...(options.execArgv ?? []), "--import", sabProbe],
+        })),
       },
     );
     const binding = withPolicyGroup(

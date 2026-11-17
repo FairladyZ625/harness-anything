@@ -2,9 +2,12 @@ import { consumeKnownError } from "@harness-anything/kernel/internal/error-consu
 import { parentPort, workerData } from "node:worker_threads";
 import type { CanonicalEventStore } from "@harness-anything/kernel";
 import type { CanonicalCommitCall, CanonicalCommitResponse } from "./canonical-commit-protocol.ts";
-import type { WriterEpochFenceDescriptor } from "@harness-anything/storage/sqlite";
+import type { SqliteAppendPreparation, WriterEpochFenceDescriptor } from "@harness-anything/storage/sqlite";
 import { freezeDeclaredWritePlan } from "@harness-anything/kernel/internal/domain/write-chain.contract.ts";
-import type { CanonicalEventWriteBundle } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
+import type {
+  CanonicalEventWriteBundle,
+  CanonicalWriteBundle,
+} from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 
 export interface CanonicalCommitBootstrap {
   readonly repoId: string;
@@ -20,6 +23,10 @@ export function startCanonicalCommitWorker(adapter: {
     config: CanonicalCommitBootstrap,
     fence: () => WriterEpochFenceDescriptor,
   ) => CanonicalEventStore & {
+    readonly append: (
+      bundle: CanonicalWriteBundle,
+      preparation?: SqliteAppendPreparation,
+    ) => ReturnType<CanonicalEventStore["append"]>;
     readonly pruneReplicationLog?: (beforeSequence: number) => void;
   };
   readonly withFence: <T>(fence: WriterEpochFenceDescriptor, work: () => T) => T;
@@ -65,10 +72,13 @@ export function startCanonicalCommitWorker(adapter: {
                     ...member,
                     plan: freezeDeclaredWritePlan(member.plan, [member.plan.commandType]),
                   });
-                return current.append({
-                  ...freeze(bundle),
-                  ...(bundle.preceding ? { preceding: bundle.preceding.map(freeze) } : {}),
-                });
+                return current.append(
+                  {
+                    ...freeze(bundle),
+                    ...(bundle.preceding ? { preceding: bundle.preceding.map(freeze) } : {}),
+                  },
+                  call.request.preparation,
+                );
               }
               case "reject":
                 return current.appendRejection!(call.request.rejection);

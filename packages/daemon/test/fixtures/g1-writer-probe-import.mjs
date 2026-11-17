@@ -1,22 +1,21 @@
 // Worker preload for the G1 write-cost-scaling gate: installs the shared cost probe inside the
-// writer worker thread (where durable writes actually execute) and answers reset/snapshot
-// control messages from the parent thread over the existing worker message channel.
-import { parentPort } from "node:worker_threads";
+// canonical Writer and orchestration host, with a separate test-owned control port in each.
+import { parentPort, workerData } from "node:worker_threads";
 import { installCostProbe, resetCostProbe, snapshotCostProbe } from "./g1-cost-probe.mjs";
 
 installCostProbe();
 
-parentPort?.on("message", (message) => {
+const control = workerData?.g1CostProbePort ?? parentPort;
+control?.on("message", (message) => {
   if (message?.schema !== "g1-cost-probe-control/v1") return;
   if (message.command === "reset") {
     resetCostProbe();
-    parentPort.postMessage({ schema: "g1-cost-probe-ack/v1", requestId: message.requestId });
+    control.postMessage({ schema: "g1-cost-probe-ack/v1", requestId: message.requestId });
   } else if (message.command === "snapshot") {
-    // An append settles the Git/worktree follower from a setImmediate it queues before the
-    // response goes out (sqlite-task-event-store.ts scheduleFollower). Snapshotting one immediate
-    // turn later closes the window after that settlement without scheduling another one.
+    // The request queued the host publication turn before returning its receipt.
+    // Snapshot one immediate later without issuing another production request.
     setImmediate(() =>
-      parentPort.postMessage({
+      control.postMessage({
         schema: "g1-cost-probe-result/v1",
         requestId: message.requestId,
         counters: snapshotCostProbe(),

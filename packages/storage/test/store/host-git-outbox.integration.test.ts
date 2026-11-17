@@ -11,7 +11,7 @@ import { activateEmptyCanonicalGeneration, makeSqliteTaskEventStore } from "../.
 import { publishPendingSqliteGitOutbox } from "../../src/store/sqlite-git-outbox-publisher.ts";
 import { localGitProcessCount } from "../../src/store/local-version-control-system.ts";
 import { openPersistentWriterEpoch } from "../../src/writer-epoch.ts";
-import { eventAt, git, initRepo } from "./task-event-store.fixtures.ts";
+import { docBundle, eventAt, git, initRepo } from "./task-event-store.fixtures.ts";
 
 // dec_04A9211B073F29F0FC1E1CA573 CH2: authority, restart recovery, and stale-owner negative control.
 test("SQLite acceptance spawns no Git and host recovery publishes the durable outbox exactly once", async (t) => {
@@ -126,5 +126,39 @@ test("delegated acceptance rejects an unfrozen write plan before sending it to t
     assert.equal(store.readHead(), null);
   } finally {
     await store.drain();
+  }
+});
+
+test("delegated acceptance validates corrupted content at the authoritative storage boundary", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "host-commit-content-")),
+    repoId = "host-commit-content";
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  activateEmptyCanonicalGeneration({ rootInput: rootDir, repoId });
+  const writer = makeSqliteTaskEventStore({ repoId, rootDir });
+  let transported = 0;
+  const host = makeSqliteTaskEventStore({
+    repoId,
+    rootDir,
+    canonicalWriter: {
+      ...writer,
+      append: (bundle, preparation) => {
+        transported++;
+        assert.equal(preparation?.authoredRoot, path.join(rootDir, "harness"));
+        return writer.append(bundle, preparation);
+      },
+    },
+  });
+  try {
+    const valid = docBundle(writer, "# Shared\nbody\n", 1, "content-admission", "notes/shared.md");
+    assert.throws(
+      () => host.append({ ...valid, blobs: valid.blobs.map((blob) => ({ ...blob, body: "# Shared\nevil\n" })) }),
+      { code: "invalid_write_plan" },
+    );
+    assert.equal(transported, 1, "content validation must be proven at the real storage boundary");
+    assert.equal(writer.readHead(), null, "rejected bytes cannot produce a canonical event");
+    assert.equal(host.append(valid).revision, 1, "the same declaration with correct bytes remains admissible");
+  } finally {
+    await host.drain();
+    await writer.drain();
   }
 });

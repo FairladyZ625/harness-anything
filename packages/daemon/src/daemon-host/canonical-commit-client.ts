@@ -1,7 +1,7 @@
 import { activeStorageWriteRequest } from "@harness-anything/storage";
 import { MessageChannel, receiveMessageOnPort, type Worker } from "node:worker_threads";
 import type { CanonicalEventStore } from "@harness-anything/kernel";
-import type { WriterEpochFenceDescriptor } from "@harness-anything/storage/sqlite";
+import type { SqliteAppendPreparation, WriterEpochFenceDescriptor } from "@harness-anything/storage/sqlite";
 import type {
   CanonicalCommitCall,
   CanonicalCommitRequest,
@@ -54,8 +54,10 @@ export function canonicalCommitClient(post: Worker["postMessage"], sharedState?:
   };
   return {
     forFence: (writerFence: () => WriterEpochFenceDescriptor) => ({
-      append: (bundle: Parameters<CanonicalEventStore["append"]>[0]) =>
-        call({ operation: "append", bundle }, writerFence()) as ReturnType<CanonicalEventStore["append"]>,
+      append: (bundle: Parameters<CanonicalEventStore["append"]>[0], preparation?: SqliteAppendPreparation) =>
+        call({ operation: "append", bundle, ...(preparation ? { preparation } : {}) }, writerFence()) as ReturnType<
+          CanonicalEventStore["append"]
+        >,
       appendRejection: (rejection: Parameters<NonNullable<CanonicalEventStore["appendRejection"]>>[0]) =>
         call({ operation: "reject", rejection }, writerFence()) as ReturnType<
           NonNullable<CanonicalEventStore["appendRejection"]>

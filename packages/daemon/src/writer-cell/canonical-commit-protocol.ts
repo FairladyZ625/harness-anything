@@ -1,10 +1,14 @@
 import type { MessagePort } from "node:worker_threads";
 import type { CanonicalEventStore } from "@harness-anything/kernel";
-import type { WriterEpochFenceDescriptor } from "@harness-anything/storage/sqlite";
+import type { SqliteAppendPreparation, WriterEpochFenceDescriptor } from "@harness-anything/storage/sqlite";
 
 /** A closed commit vocabulary. There is no callback, read RPC, or host capability in this port. */
 export type CanonicalCommitRequest =
-  | { readonly operation: "append"; readonly bundle: Parameters<CanonicalEventStore["append"]>[0] }
+  | {
+      readonly operation: "append";
+      readonly bundle: Parameters<CanonicalEventStore["append"]>[0];
+      readonly preparation?: SqliteAppendPreparation;
+    }
   | {
       readonly operation: "reject";
       readonly rejection: Parameters<NonNullable<CanonicalEventStore["appendRejection"]>>[0];

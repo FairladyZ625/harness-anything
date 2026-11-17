@@ -3570,7 +3570,7 @@
         "candidateId": "action:tools:tools/gates/cost-budget.mjs#measureProjectionRebuild:766e193fc233a1d8dc72555108501fc3",
         "route": "package-assets-build",
         "role": "technical-port",
-        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
+        "port": "packages/storage/src/store/sqlite-task-event-store.ts#SqliteCanonicalEventStore.append"
       },
       {
         "candidateId": "action:tools:tools/gates/cost-budget.mjs#canonicalWriteActions.sourceDigest:76d0d607b60c1addc47fad9578849052",
@@ -5208,7 +5208,7 @@
         "candidateId": "action:tools:tools/stress/daemon/writer-projection-scenarios.mjs#runProjectionOwnerScenario:0cf17de1d527ad1dffdd3a69b9a6914c",
         "route": "package-assets-build",
         "role": "technical-port",
-        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
+        "port": "packages/storage/src/store/sqlite-task-event-store.ts#SqliteCanonicalEventStore.append"
       },
       {
         "candidateId": "action:tools:tools/stress/daemon/writer-projection-scenarios.mjs#runProjectionOwnerScenario:a5406086392850ad15722ee2d46758d8",
@@ -5290,7 +5290,7 @@
         "candidateId": "action:tools:tools/stress/entity-v2-scale.generator.mjs#generateEventStream:9507eda1d06631cb344df04dc4cf4edf",
         "route": "package-assets-build",
         "role": "technical-port",
-        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
+        "port": "packages/storage/src/store/sqlite-task-event-store.ts#SqliteCanonicalEventStore.append"
       },
       {
         "candidateId": "action:tools:tools/stress/entity-v2-scale.projection-worker.mjs#<module>:e7af9e1841a05e8da5e0f7ca9ece7cad",
@@ -5478,7 +5478,7 @@
         "candidateId": "action:tools:tools/stress/storage/storage-boundary-fixture.mjs#<module>:1aace946487576b4f4a29bf4d7501c36",
         "route": "package-assets-build",
         "role": "technical-port",
-        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
+        "port": "packages/storage/src/store/sqlite-task-event-store.ts#SqliteCanonicalEventStore.append"
       },
       {
         "candidateId": "action:tools:tools/stress/storage/strace-injector.mjs#spawnCapture.child:fa2028e5857482c641d2a62325ff30e5",
@@ -13076,10 +13076,10 @@
         "port": "packages/storage/src/store/durable-follower-publisher.ts#createDurableFollowerPublisher.publish"
       },
       {
-        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-task-event-store.ts#makeSqliteTaskEventStore.append.receipt:884eaf859130e506eb9eb431e53e6922",
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-task-event-store.ts#makeSqliteTaskEventStore.append.receipt:9d03d718aa1e037022c197ec32d2d0e4",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
+        "port": "packages/storage/src/store/sqlite-task-event-store.ts#SqliteCanonicalEventStore.append"
       },
       {
         "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-task-event-store.ts#makeSqliteTaskEventStore.append:5450f82fbb898d30dd532ba52c4cadfd:2",
@@ -13091,13 +13091,13 @@
         "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.append.receipt:884eaf859130e506eb9eb431e53e6922",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
+        "port": "packages/storage/src/store/sqlite-task-event-store.ts#SqliteCanonicalEventStore.append"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/writer-cell/canonical-commit-worker.ts#startCanonicalCommitWorker.commit:8530c4c45332335e06f2bb5c3c25fc48",
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-cell/canonical-commit-worker.ts#startCanonicalCommitWorker.commit:8376d48a59c92077ffc9e20ca99bd7f7",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append"
+        "port": "packages/daemon/src/writer-cell/canonical-commit-worker.ts#startCanonicalCommitWorker.adapter.open.append"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/fleet-sync/fleet/replica-generation.ts#revokeReplicaView:b1766914ef8622cac71f519ff1227a78",
@@ -13184,7 +13184,7 @@
         "port": "node_modules/@types/node/worker_threads.d.ts#worker_threads.Worker.terminate"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/writer-cell/canonical-commit-worker.ts#startCanonicalCommitWorker:da78f73fb197be29c0df75bd416bbad4",
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-cell/canonical-commit-worker.ts#startCanonicalCommitWorker:333d5ffbab739a6bd72b4b7afbb0a37d",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/worker_threads.d.ts#worker_threads.MessagePort.on"

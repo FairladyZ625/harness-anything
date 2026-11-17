@@ -145,9 +145,16 @@ for (const { gitFollower, materialize } of [
         const one = start("edge-one"),
           two = start("edge-two");
         await Promise.all([converge(one), converge(two)]);
-        await waitForState(
-          () => existsSync(path.join(one.workspaceRoot, "harness", packagePath, "task_plan.md")),
-          "agent task plan before authoring",
+        await Promise.all(
+          [one, two].map((edge) =>
+            waitForState(() => {
+              const view = locateFleetMirrorView(edge.viewRoot, replicationRepoId);
+              return (
+                view !== null &&
+                [...view.entries].every(([logical]) => existsSync(path.join(edge.workspaceRoot, "harness", logical)))
+              );
+            }, "every authored file materialized on both PG edges"),
+          ),
         );
         const authoritative = makeTaskEventReader({
           rootDir: fixture.repo,
@@ -168,10 +175,6 @@ for (const { gitFollower, materialize } of [
         } finally {
           await authoritative.drain();
         }
-        await waitForState(
-          () => existsSync(path.join(one.workspaceRoot, "harness", packagePath, "task_plan.md")),
-          "complete agent harness tree",
-        );
         for (const edge of [one, two])
           writeFileSync(
             path.join(edge.workspaceRoot, "harness", packagePath, "task_plan.md"),

@@ -1,5 +1,5 @@
 import { authoredNodeFingerprint, readAuthoredNode } from "../authored-node-read.ts";
-import { type EventHead } from "@harness-anything/kernel/internal/domain/write-chain.contract.ts";
+import { isFrozenWritePlan, type EventHead } from "@harness-anything/kernel/internal/domain/write-chain.contract.ts";
 import {
   isTaskEvent,
   ledgerCommitSha,
@@ -39,7 +39,13 @@ export interface DaemonWriterFence {
   readonly epoch: number;
 }
 
+/** Per-append layout already resolved by the trusted host; never a cross-thread callback. */
+export interface SqliteAppendPreparation {
+  readonly authoredRoot: string;
+}
+
 export interface SqliteCanonicalEventStore extends CanonicalEventStore {
+  readonly append: (bundle: CanonicalWriteBundle, preparation?: SqliteAppendPreparation) => CanonicalEventAppendReceipt;
   readonly readCommandOutcome: (opId: string) => SqliteCommandOutcome | null;
   /** Drops replication-log rows below the sequence; the writer's retention call, never a reader's. */
   readonly pruneReplicationLog: (beforeSequence: number) => void;
@@ -79,7 +85,7 @@ export interface SqliteGitFollowerMountContext {
 export interface SqliteTaskEventStoreOptions {
   readonly storage?: SqliteStorageBackendConfig;
   /** Host adapter: canonical mutations are accepted only by its dedicated Writer Isolate. */
-  readonly canonicalWriter?: Required<Pick<CanonicalEventStore, "append" | "appendRejection">> & {
+  readonly canonicalWriter?: Required<Pick<SqliteCanonicalEventStore, "append" | "appendRejection">> & {
     readonly pruneReplicationLog: (beforeSequence: number) => void;
   };
   readonly repoId: string;
@@ -140,16 +146,21 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     latestAppendLayout: () => latestAppendLayout,
   });
 
-  const append = (bundle: CanonicalWriteBundle): CanonicalEventAppendReceipt => {
+  const append = (bundle: CanonicalWriteBundle, preparation?: SqliteAppendPreparation): CanonicalEventAppendReceipt => {
     if (options.mutable === false) throw new TaskEventStoreError("invalid_write_plan", "event reader is read-only");
-    validateCanonicalWriteBundle(bundle);
     if (options.canonicalWriter) {
+      // Clone erases freeze markers, so this check belongs before transport.
+      // Event/content validation belongs to the authoritative store reached by
+      // the commit port; hashing the same blobs here duplicates that boundary.
+      for (const member of [...(bundle.preceding ?? []), bundle])
+        if (!isFrozenWritePlan(member.plan))
+          throw new TaskEventStoreError("invalid_write_plan", "canonical write bundle requires one frozen write plan");
       latestAppendLayout = resolveHarnessLayout(input);
       // Host fault hooks can veto preparation, but cannot call back from the isolated transaction.
       // Transaction-internal rollback hooks remain on the direct storage contract under test.
       options.killpoint?.("before_event_write");
       options.killpoint?.("after_event_write");
-      const receipt = options.canonicalWriter.append(bundle);
+      const receipt = options.canonicalWriter.append(bundle, { authoredRoot: latestAppendLayout.authoredRoot });
       try {
         options.killpoint?.("after_store_commit");
         gitFollower?.request();
@@ -163,15 +174,16 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
         );
       }
     }
+    validateCanonicalWriteBundle(bundle);
     options.killpoint?.("before_event_write");
     const members = [...(bundle.preceding ?? []), bundle],
       appended = members.map((member) => member.event),
       blobs = members.flatMap((member) => member.blobs),
-      revisionBeforeAcceptance = sqlite.revision(),
-      appendLayout = resolveHarnessLayout(input),
-      authoredRoot = appendLayout.authoredRoot,
+      revisionBeforeAcceptance = gitFollower ? sqlite.revision() : 0,
+      appendLayout = preparation && !gitFollower ? null : resolveHarnessLayout(input),
+      authoredRoot = appendLayout?.authoredRoot ?? preparation!.authoredRoot,
       acceptedBaseline = new Map<string, SqliteOutboxBaseline>();
-    latestAppendLayout = appendLayout;
+    if (appendLayout) latestAppendLayout = appendLayout;
     assertAuthorizedReplacements(
       {
         eventExists: (opId) => sqlite.event(opId) !== null,
@@ -216,7 +228,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
         });
     if (options.withAppendFence) options.withAppendFence(accept);
     else accept();
-    if (sqlite.revision() > revisionBeforeAcceptance) gitFollower?.onAppend(acceptedBaseline);
+    if (gitFollower && sqlite.revision() > revisionBeforeAcceptance) gitFollower.onAppend(acceptedBaseline);
     try {
       options.killpoint?.("after_store_commit");
       gitFollower?.request();

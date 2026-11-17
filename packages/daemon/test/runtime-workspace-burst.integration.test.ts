@@ -13,6 +13,7 @@ import { dispatchStreamPath, readDispatchStream } from "../src/daemon-host/dispa
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./task-surface.fixtures.ts";
+import { probedOrchestrationHost } from "./fixtures/orchestration-probe.ts";
 
 test(
   "ordinary writes remain available while an active runtime workspace continuously changes thousands of files",
@@ -180,6 +181,11 @@ syncBuiltinESMExports();
         },
         {
           onPublishedStatus: (status) => publishedQueueDepths.push(status.queueDepth),
+          connectHost: probedOrchestrationHost((options) => ({
+            ...options,
+            workerData: { ...options.workerData, shutdownGate: shutdownGate.buffer, stopChurn: stopChurn.buffer },
+            execArgv: [...(options.execArgv ?? []), "--import", `data:text/javascript,${encodeURIComponent(preload)}`],
+          })),
           createWorker: (url, options) => {
             const worker = new Worker(url, {
               ...options,

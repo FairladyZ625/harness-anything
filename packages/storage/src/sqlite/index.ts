@@ -7,6 +7,7 @@ export {
   type DaemonWriterFence,
   type MaterializationDocumentDescriptor,
   type SqliteCanonicalEventStore,
+  type SqliteAppendPreparation,
   type SqliteGitFollowerHandle,
   type SqliteGitFollowerMountContext,
   type SqliteTaskEventStoreOptions,

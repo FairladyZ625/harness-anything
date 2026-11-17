@@ -1,6 +1,15 @@
 // Worker preload: report every writer-epoch database open to the parent thread.
 import { DatabaseSync } from "node:sqlite";
-import { parentPort } from "node:worker_threads";
+import { MessagePort, parentPort } from "node:worker_threads";
+
+// Observe the native isolate port. The supervised facade also forwards host
+// capability messages, which are not calls made by the canonical Writer.
+const post = MessagePort.prototype.postMessage;
+MessagePort.prototype.postMessage = function (message, ...args) {
+  if (this === parentPort && message?.schema === "harness-repo-writer-capability-call/v1" && message.sync)
+    post.call(this, { schema: "writer-physical-capability-probe/v1", capability: message.capability });
+  return post.call(this, message, ...args);
+};
 
 const exec = DatabaseSync.prototype.exec;
 DatabaseSync.prototype.exec = function (sql) {

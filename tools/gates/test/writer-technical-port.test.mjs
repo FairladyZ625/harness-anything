@@ -14,7 +14,7 @@ test("isolated commit and orchestration ports retain exact typed technical owner
     sources = owner.ontology.sources.filter(
       (source) =>
         source.role === "technical-port" &&
-        /(?:canonical-commit-(?:client|worker)|repo-orchestration-(?:host|worker)|repo-writer-host|commit-worker-client|sqlite-git-outbox-publisher)\.ts#/u.test(
+        /(?:canonical-commit-(?:client|worker)|repo-orchestration-(?:host|worker)|repo-writer-host|commit-worker-client|sqlite-git-outbox-publisher|sqlite-task-event-store|pg-canonical-event-store)\.ts#/u.test(
           source.candidateId,
         ),
     ),
@@ -32,6 +32,34 @@ test("isolated commit and orchestration ports retain exact typed technical owner
     );
     assert.equal(
       technicalPortEvidence(graph, node, { ...source, port: "unrelated.ts#write" }, owner, inputs.descriptors),
+      null,
+    );
+  }
+});
+
+// The returned SQLite interface is also consumed by tooling owned by other declarations.
+// Check existing certificates alongside the new Worker calls.
+test("every registered canonical append technical port names its actual typed declaration", async () => {
+  const root = process.cwd(),
+    inputs = await loadAuthorizationInputs(root),
+    entries = inputs.constants.actionDeclarations.flatMap((owner) =>
+      (owner.ontology?.sources ?? [])
+        .filter((source) => source.role === "technical-port" && source.port?.includes("CanonicalEventStore.append"))
+        .map((source) => ({ owner, source })),
+    ),
+    graph = buildFlowGraph(root, { sourceFiles: [...new Set(entries.map(({ source }) => sourceFileOf(source)))] }),
+    witnesses = sourceWitnesses(
+      graph,
+      entries.map(({ source }) => source),
+    );
+  assert.ok(entries.length > 0);
+  for (const { owner, source } of entries) {
+    const node = witnesses.get(source.candidateId);
+    assert.ok(node, source.candidateId);
+    assert.equal(source.port, declaredPortKey(graph, node), source.candidateId);
+    assert.ok(technicalPortEvidence(graph, node, source, owner, inputs.descriptors), source.candidateId);
+    assert.equal(
+      technicalPortEvidence(graph, node, { ...source, port: "unrelated.ts#append" }, owner, inputs.descriptors),
       null,
     );
   }
