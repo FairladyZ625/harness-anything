@@ -1304,3 +1304,176 @@ test(
     );
   },
 );
+
+test(
+  "edge runtime accepts contracted executor and recovery spawn fields while rejecting bogusField",
+  { timeout: 60_000 },
+  async (t) => {
+    const fixture = await fleetFixture(t);
+    t.after(() => fixture.close());
+    const center = await fixture.center(),
+      workspaceRoot = path.join(fixture.root, "edge-allowlist-workspace"),
+      viewRoot = path.join(fixture.root, "edge-allowlist-view"),
+      callerExecutor = { kind: "agent", id: "claude-session:edge-allowlist-1" } as const;
+    mkdirSync(path.join(workspaceRoot, "harness"), { recursive: true });
+    initRepo(workspaceRoot);
+    writeFileSync(
+      path.join(workspaceRoot, "harness/harness.yaml"),
+      readFileSync(path.join(fixture.repo, "harness/harness.yaml")),
+    );
+    git(workspaceRoot, "add", "harness");
+    git(workspaceRoot, "commit", "-qm", "edge allowlist harness");
+    await catchUpReplica({
+      readAccessToken: fixture.owners.readAccessToken(fixture.subject.nodeId),
+      port: center.port,
+      ca: fixture.cert,
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      repoId: fixture.subject.repoId,
+      viewRoot,
+      diskQuotaBytes: replicaQuota,
+    });
+    assert.equal(applyFleetMirrorCut(viewRoot, fixture.subject.repoId, workspaceRoot, "pull").outcome, "applied");
+    const replicaSync = startResidentReplicaSync({
+      readAccessToken: fixture.owners.readAccessToken(fixture.subject.nodeId),
+      port: center.port,
+      ca: fixture.cert,
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      repoId: fixture.subject.repoId,
+      viewRoot,
+      diskQuotaBytes: replicaQuota,
+    });
+    t.after(() => replicaSync.close());
+    const ownerBinding = await fixture.owners.binding(fixture.subject.nodeId);
+    const runtime = openFleetEdgeRuntime({
+      readBinding: () => ownerBinding,
+      readAccessToken: fixture.owners.readAccessToken(fixture.subject.nodeId),
+      controlBinding: () => ({
+        ...ownerBinding,
+        actor: { ...ownerBinding.actor, executor: callerExecutor },
+      }),
+      resolveLocation: () => ({
+        host: "127.0.0.1",
+        port: center.port,
+        caPath: fixture.certFile,
+        nodeId: fixture.subject.nodeId,
+        credential: "machine-secret",
+        repoId: fixture.subject.repoId,
+        viewRoot,
+        quotaBytes: replicaQuota,
+        workspaceRoot,
+        method: "repo.agentRuntime.spawn",
+        action: {},
+      }),
+      daemonGeneration: 1,
+      daemonRoute: {
+        userRoot: path.join(fixture.root, "edge-allowlist-user"),
+        daemonId: "edge-allowlist-daemon",
+        endpoint: path.join(fixture.root, "edge-allowlist.sock"),
+      },
+      ports: scheduleRuntimePorts(),
+      launch: () => {
+        const proc = runtimeProcessFixture(t);
+        let output: ((chunk: string) => void) | null = null;
+        return {
+          ...proc,
+          onOutput: (listener) => {
+            output = listener;
+          },
+          onErrorOutput: () => undefined,
+          onExit: (listener) => {
+            proc.onExit(listener);
+            queueMicrotask(() => {
+              output?.(
+                `${JSON.stringify({ type: "thread.started", thread_id: "edge-allowlist-provider" })}\n${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "edge exited" } })}\n${JSON.stringify({ type: "turn.completed" })}\n`,
+              );
+              proc.exit(0);
+            });
+          },
+        };
+      },
+    });
+    fixture.track(() => runtime.close());
+    await assert.rejects(
+      runtime.run("repo.agentRuntime.spawn", {
+        runtimeInstanceId: definition.instanceId,
+        cwd: { scope: "repo-root" },
+        prompt: "Reject unknown field.",
+        dispatchKey: "edge-bogus",
+        bogusField: true,
+      }),
+      { code: "invalid_runtime_spawn" },
+    );
+    const first = await runtime.run("repo.agentRuntime.spawn", {
+      runtimeInstanceId: definition.instanceId,
+      cwd: { scope: "repo-root" },
+      prompt: "First edge dispatch with caller executor.",
+      taskId: fixture.subject.taskId,
+      dispatchKey: "edge-exec-first",
+      executor: callerExecutor,
+    });
+    assert.equal(first.outcome, "applied", JSON.stringify(first));
+    await fixture.host.awaitRuntimeSessions(
+      fixture.subject.repoId,
+      { runtimeSessionIds: [String(first.runtimeSessionId)] },
+      { ...localAuthFixture(), connectionSignal: t.signal },
+    );
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      await runtime.reconcile();
+      await catchUpReplica({
+        readAccessToken: fixture.owners.readAccessToken(fixture.subject.nodeId),
+        port: center.port,
+        ca: fixture.cert,
+        nodeId: fixture.subject.nodeId,
+        credential: "machine-secret",
+        repoId: fixture.subject.repoId,
+        viewRoot,
+        diskQuotaBytes: replicaQuota,
+      });
+      const shown = await fixture.host.read(
+        fixture.subject.repoId,
+        "repo.task.dispatches",
+        { taskId: fixture.subject.taskId },
+        localAuthFixture(),
+      );
+      const row = (shown.dispatches as Array<Record<string, unknown>>).find(
+        (entry) => entry.dispatchId === first.dispatchId,
+      );
+      if (row?.status === "stopped") break;
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+    const taskShow = await fixture.host.run(
+        fixture.subject.repoId,
+        { kind: "task-show", taskId: fixture.subject.taskId },
+        localAuthFixture(),
+      ),
+      taskRevision = Number(JSON.parse(String(taskShow.evidence)).revision);
+    const recovered = await runtime.run("repo.agentRuntime.spawn", {
+      runtimeInstanceId: definition.instanceId,
+      cwd: { scope: "repo-root" },
+      prompt: "Recover edge dispatch with recovery + executor.",
+      taskId: fixture.subject.taskId,
+      dispatchKey: "edge-exec-recover",
+      executor: callerExecutor,
+      recovery: {
+        dispatchId: String(first.dispatchId),
+        executionId: fixture.subject.executionId,
+        expectedVersion: taskRevision,
+      },
+    });
+    assert.equal(recovered.outcome, "applied", JSON.stringify(recovered));
+    assert.notEqual(recovered.dispatchId, first.dispatchId);
+    assert.deepEqual(recovered.recovery, {
+      schema: "task-dispatch-recovery/v1",
+      taskId: fixture.subject.taskId,
+      executionId: fixture.subject.executionId,
+      expectedVersion: taskRevision,
+      sourceDispatchId: String(first.dispatchId),
+      idempotencyKey: "edge-exec-recover",
+      dispatchId: String(recovered.dispatchId),
+      runtimeSessionId: String(recovered.runtimeSessionId),
+      replayed: false,
+    });
+  },
+);

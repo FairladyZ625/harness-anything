@@ -477,3 +477,104 @@ test(
     );
   },
 );
+
+test(
+  "ha agent run with CLAUDE_CODE_SESSION_ID hands off a bare-person lease and supports --recover-dispatch and --resume-dispatch",
+  { timeout: 300_000 },
+  async (context) => {
+    const fixture = createRuntimeFixture(context);
+    installIdentities(fixture.parent, fixture.root, fixture.env);
+    const { root, env } = fixture,
+      { taskId, executionId } = seedTask(root, env, "claude-session-executor-recovery"),
+      workerRelative = ".worktrees/worker-claude",
+      humanEnv: NodeJS.ProcessEnv = { ...env },
+      claudeEnv: NodeJS.ProcessEnv = {
+        ...env,
+        CLAUDE_CODE_SESSION_ID: "claude-session-e2e-1",
+      };
+    delete humanEnv.HARNESS_ACTOR;
+    delete claudeEnv.HARNESS_ACTOR;
+    mkdirSync(path.join(root, workerRelative), { recursive: true });
+    run(root, humanEnv, ["task", "start", taskId, "--execution-id", executionId]);
+    const initialRun = runMaybe(root, claudeEnv, [
+      "agent",
+      "run",
+      "terra",
+      "--task",
+      taskId,
+      "--cwd",
+      workerRelative,
+      "--prompt",
+      "first claude session run",
+      "--no-stream",
+    ]);
+    assert.equal(initialRun.status, 1, `${initialRun.stderr}\n${JSON.stringify(initialRun.receipt)}`);
+    assert.notEqual(initialRun.receipt.code, "invalid_runtime_spawn", JSON.stringify(initialRun.receipt));
+    assert.notEqual(initialRun.receipt.code, "lease_conflict", JSON.stringify(initialRun.receipt));
+    assert.ok(initialRun.receipt.spawn, JSON.stringify(initialRun.receipt));
+    const firstDispatchId = String((initialRun.receipt.spawn as Record<string, unknown>).dispatchId),
+      firstSessionId = String(initialRun.receipt.runtimeSessionId);
+    assert.ok(firstDispatchId.length > 0 && firstSessionId.length > 0, JSON.stringify(initialRun.receipt));
+    assert.equal(initialRun.receipt.outcome, "stopped", JSON.stringify(initialRun.receipt));
+    const shownBeforeRecover = JSON.parse(String(run(root, humanEnv, ["task", "show", taskId]).evidence)) as {
+        readonly revision: number;
+      },
+      revisionBeforeRecover = Number(shownBeforeRecover.revision);
+    assert.equal(Number.isInteger(revisionBeforeRecover), true, JSON.stringify(shownBeforeRecover));
+    const dispatchesAfterInitial = runMaybe(root, humanEnv, ["task", "dispatches", taskId]).receipt.dispatches as Array<
+      Record<string, unknown>
+    >;
+    assert.equal(
+      dispatchesAfterInitial.find((row) => row.dispatchId === firstDispatchId)?.status,
+      "stopped",
+      JSON.stringify(dispatchesAfterInitial),
+    );
+    const recoveredRun = runMaybe(root, claudeEnv, [
+      "agent",
+      "run",
+      "terra",
+      "--task",
+      taskId,
+      "--cwd",
+      workerRelative,
+      "--recover-dispatch",
+      firstDispatchId,
+      "--execution-id",
+      executionId,
+      "--expected-version",
+      String(revisionBeforeRecover),
+      "--idempotency-key",
+      "e2e-recover-1",
+      "--prompt",
+      "recover stopped claude worker",
+      "--no-stream",
+    ]);
+    assert.equal(recoveredRun.status, 1, `${recoveredRun.stderr}\n${JSON.stringify(recoveredRun.receipt)}`);
+    assert.notEqual(recoveredRun.receipt.code, "invalid_runtime_spawn", JSON.stringify(recoveredRun.receipt));
+    assert.ok(recoveredRun.receipt.spawn, JSON.stringify(recoveredRun.receipt));
+    const recoveredDispatchId = String((recoveredRun.receipt.spawn as Record<string, unknown>).dispatchId);
+    assert.notEqual(recoveredDispatchId, firstDispatchId);
+    assert.equal(recoveredRun.receipt.outcome, "stopped", JSON.stringify(recoveredRun.receipt));
+    const recoveredHeader = readDispatchRecords(root, recoveredDispatchId)[0];
+    assert.equal(recoveredHeader?.resumedFromDispatchId, undefined);
+    const resumedRun = runMaybe(root, claudeEnv, [
+      "agent",
+      "run",
+      "terra",
+      "--resume-dispatch",
+      recoveredDispatchId,
+      "--prompt",
+      "continue after recovery",
+      "--no-stream",
+    ]);
+    assert.equal(resumedRun.status, 1, `${resumedRun.stderr}\n${JSON.stringify(resumedRun.receipt)}`);
+    assert.notEqual(resumedRun.receipt.code, "invalid_runtime_spawn", JSON.stringify(resumedRun.receipt));
+    assert.ok(resumedRun.receipt.spawn, JSON.stringify(resumedRun.receipt));
+    const resumedDispatchId = String((resumedRun.receipt.spawn as Record<string, unknown>).dispatchId),
+      resumedHeader = readDispatchRecords(root, resumedDispatchId)[0];
+    assert.equal(resumedHeader?.resumedFromDispatchId, recoveredDispatchId);
+    context.diagnostic(
+      `claude session e2e: ${JSON.stringify({ firstDispatchId, firstSessionId, recoveredDispatchId, resumedDispatchId })}`,
+    );
+  },
+);

@@ -1538,8 +1538,28 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       worktree: TaskWorktreeCheckout | null = null,
       rollout?: Uint8Array,
     ) => spawnAttempt(payload, binding, undefined, undefined, undefined, "runtime", worktree, checkpoint, rollout),
-    spawn: (payload: JsonObject, binding: RuntimeBinding, worktree: TaskWorktreeCheckout | null = null) =>
-      spawnAttempt(payload, binding, undefined, undefined, undefined, "runtime", worktree),
+    spawn: (
+      payload: JsonObject,
+      binding: RuntimeBinding,
+      worktree: TaskWorktreeCheckout | null = null,
+      recoveryRequested = false,
+    ) =>
+      spawnAttempt(
+        payload,
+        binding,
+        undefined,
+        undefined,
+        undefined,
+        "runtime",
+        worktree,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        recoveryRequested,
+      ),
     /** The direct RepoCell runtime.run route owns admission and reuses its task projection read. */
     spawnTask: async (
       payload: JsonObject,

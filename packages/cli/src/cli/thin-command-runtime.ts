@@ -1,3 +1,4 @@
+import { daemonMethodPayloadFields } from "@harness-anything/daemon/internal/protocol/daemon-protocol-commands";
 import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { accepted, nonEmpty, promptInput, readFlags, rejectInput, rejected } from "./thin-command-flags.ts";
 import { parseRuntimeStatus } from "./thin-command-runtime-status.ts";
@@ -246,4 +247,23 @@ export function agentRunRecovery(one: ReadonlyMap<string, string>): Record<strin
     },
     dispatchKey: one.get("--idempotency-key"),
   };
+}
+
+export const runtimeSpawnCliOnlyFields = Object.freeze(["claimNext", "detach", "noStream", "promptFile"] as const);
+
+/** Project parsed CLI runtime-run actions strictly onto the daemon-declared `repo.agentRuntime.spawn` payload surface. */
+export function projectRuntimeSpawnRpcPayload(
+  action: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
+  const allowed = daemonMethodPayloadFields("repo.agentRuntime.spawn"),
+    projected: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(action)) {
+    if (key === "kind" || (runtimeSpawnCliOnlyFields as readonly string[]).includes(key)) {
+      if (key === "promptFile" && value !== undefined) projected[key] = value;
+      continue;
+    }
+    if (!allowed.includes(key)) throw new Error(`CLI runtime spawn action emitted undeclared protocol field: ${key}`);
+    if (value !== undefined) projected[key] = value;
+  }
+  return projected;
 }

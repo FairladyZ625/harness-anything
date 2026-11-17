@@ -50,6 +50,7 @@ export const taskLeasePolicy = {
     "policy:packages/daemon:packages/daemon/src/repo-cell-open.ts#openRepoWriterCell:14f3d9075eae879f34b4a5a385c27894",
     "policy:packages/daemon:packages/daemon/src/repo-cell-open.ts#openRepoWriterCell:eb837e703c9fef500c087bef7e47e22f",
     "policy:packages/daemon:packages/daemon/src/repo-cell-open.ts#openRepoWriterCell:e52dc87590da4c3bd457dedb2e69b387",
+    "policy:packages/daemon:packages/daemon/src/repo-cell-open.ts#openRepoWriterCell:bee4db59fdff9f4ecbbe1efa9d79695c",
     "policy:packages/daemon:packages/daemon/src/repo-cell-proof.ts#proofFor:6091bf995cf37c5804fdb7f643f85478",
     "policy:packages/daemon:packages/daemon/src/repo-cell-proof.ts#completeProof.noActiveLease:7a2d1202b14404915124f1fd3c39de29",
     "policy:packages/daemon:packages/daemon/src/repo-cell-proof.ts#completeProof.noActiveLease:7a2d1202b14404915124f1fd3c39de29:2",

@@ -264,6 +264,7 @@ async function autoDeclareSubmittedExecutor(
   executionId: string,
   binding: RepoCellBinding,
   enqueuePublication: RepoCellContinuationWrite,
+  submittingActor: RepoCellBinding["actor"] = binding.actor,
 ): Promise<WriteReceiptDraft | null> {
   const snapshot = (await cell.service.read(taskId)).snapshot,
     execution = snapshot.executions.find((candidate) => candidate.executionId === executionId);
@@ -294,8 +295,16 @@ async function autoDeclareSubmittedExecutor(
   const candidates = new Map(
     rows.map((dispatch) => [dispatch.runtimeSessionId, { executorId: `runtime-session:${dispatch.runtimeSessionId}` }]),
   );
-  if (candidates.size !== 1) return null;
-  const [candidate] = candidates.values();
+  const submittingRuntimeSessionId =
+      submittingActor.executor?.kind === "agent" && submittingActor.executor.id.startsWith("runtime-session:")
+        ? submittingActor.executor.id.slice("runtime-session:".length)
+        : null,
+    candidate =
+      candidates.size === 1
+        ? [...candidates.values()][0]
+        : submittingRuntimeSessionId !== null
+          ? candidates.get(submittingRuntimeSessionId)
+          : undefined;
   if (!candidate) return null;
   const action = {
     kind: "task-declare-executor",
@@ -359,6 +368,7 @@ export async function continueSubmittedTask(
       event.payload.execution.executionId,
       principalBinding,
       enqueuePublication,
+      binding.actor,
     ),
     review = await submittedCutReview(
       cell,
