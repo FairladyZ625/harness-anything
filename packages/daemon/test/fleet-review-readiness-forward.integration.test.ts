@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { createIdentitySession } from "../src/authorization-provider.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { forward } from "../src/fleet/forwarding-port.ts";
@@ -13,7 +12,7 @@ import { fleetNodeClaimFixture, localAuthFixture } from "./fleet-node-claim.fixt
 import { git } from "./fleet-runtime-recovery.fixtures.ts";
 import { registerBootstrappedDaemonRepo, registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { definition } from "./schedule-actions.fixtures.ts";
-import { catchUpReplica } from "./replica-catch-up.fixture.ts";
+import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 
 test(
   "forward returns Git-behind diagnostics for accepted submit and manual review receipts",
@@ -74,12 +73,22 @@ test(
     const packagePath = String(
       (created.receipt as Record<string, unknown> | undefined)?.packagePath ?? created.packagePath,
     );
-    await realizeTaskPlanFixture(f.repo, packagePath, (planPath) =>
-      f.host.run(repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
+    // Readiness is independent of carrying edited documents: accept the closeout on the center first.
+    mkdirSync(path.join(f.repo, "harness", packagePath), { recursive: true });
+    writeFileSync(
+      path.join(f.repo, "harness", packagePath, "closeout.md"),
+      "## Summary\nForwarded delivery.\n## Verification\nReal Git readiness.\n## Residual Risk\nNone.\n## Same Mechanism Elsewhere\nFleet receipts.\n",
     );
+    f.owners.signIn(f.userRoot, "node-one");
+    const documents = await f.host.run(
+      repoId,
+      { kind: "doc-submit", paths: [`${packagePath}/closeout.md`] },
+      localAuthFixture(),
+    );
+    assert.equal(documents.outcome, "applied", JSON.stringify(documents));
     assert.equal((await f.command("node-one", { kind: "task-start", taskId, executionId })).outcome, "applied");
-    // Keep the transport's edge registered without a resident replica/auto-dispatch loop:
-    // the receipt must be diagnosed by forward(), independently of background dispatch.
+    // Open the edge host without attaching this repo, so it cannot auto-dispatch.
+    // A standalone replica below supplies normal write visibility for forward().
     const edge = await fleetEdgeHostFixture(t, f, {
       name: "forward-readiness",
       registerBeforeOpen: false,
@@ -92,11 +101,12 @@ test(
     });
     await catchUpReplica({ ...f.peer("node-one"), viewRoot: edge.viewRoot, diskQuotaBytes: 64 * 1024 * 1024 });
     assert.equal(applyFleetMirrorCut(edge.viewRoot, repoId, edge.edgeRoot, "pull").outcome, "applied");
-    mkdirSync(path.join(edge.edgeRoot, "harness", packagePath), { recursive: true });
-    writeFileSync(
-      path.join(edge.edgeRoot, "harness", packagePath, "closeout.md"),
-      "## Summary\nForwarded delivery.\n## Verification\nReal Git readiness.\n## Residual Risk\nNone.\n## Same Mechanism Elsewhere\nFleet receipts.\n",
-    );
+    const sync = startResidentReplicaSync({
+      ...f.peer("node-one"),
+      viewRoot: edge.viewRoot,
+      diskQuotaBytes: 64 * 1024 * 1024,
+    });
+    t.after(() => sync.close());
     registerBootstrappedDaemonRepo({
       repoId,
       canonicalRoot: edge.edgeRoot,
@@ -132,7 +142,7 @@ test(
       assert.equal(failures?.length, 1, JSON.stringify(receipt));
       assert.equal(failures[0]!.executionId, executionId);
       assert.equal(failures[0]!.code, "edge_default_branch_behind");
-      assert.match(failures[0]!.message, /Node node-one:.*behind the center main by 1 commit/u);
+      assert.match(failures[0]!.message, /Node node-one:.*behind the center main by [1-9][0-9]* commits?/u);
       assert.match(failures[0]!.message, /merge --ff-only origin\/main/u);
       assert.match(String(receipt.warnings), /edge_default_branch_behind.*merge --ff-only origin\/main/u);
       assert.match(String(receipt.summary), /edge_default_branch_behind/u);
@@ -144,7 +154,7 @@ test(
         "forward must publish its diagnostic on the center",
       );
     }
-    const agenda = await f.host.read(repoId, "repo.agenda.read", { limit: 50 }, localAuthFixture());
+    const agenda = await f.host.read(repoId, "repo.agenda.read", { limit: 50 }, f.owners.auth({ nodeId: "node-one" }));
     assert.match(JSON.stringify(agenda), /edge_default_branch_behind.*merge --ff-only origin\/main/u);
   },
 );

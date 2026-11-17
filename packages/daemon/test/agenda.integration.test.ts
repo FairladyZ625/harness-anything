@@ -216,7 +216,11 @@ test("agenda splits awaiting work by next action, pins first, and rejects a miss
     assert.match(alert.title, /review dispatch failed.*protocol_version_unsupported.*aaaa.*bbbb.*git pull --ff-only/u);
     assert.match(failedAgenda.summary, /review dispatch failed/u);
     const leanAgenda = await cell.read("repo.agenda.read", { attentionOnly: true });
-    assert.deepEqual(leanAgenda.undispatchedReviews, [], "home consumes lifecycle buckets, not dispatch alerts");
+    assert.equal(
+      leanAgenda.attentionItems.some(({ title }) => title.includes(reviewFailure.code)),
+      false,
+      "the lean home query must not compute unused dispatch diagnostics",
+    );
     const cleared = await cell.run(
       { kind: "task-amend", taskId: "task_review", patches: [{ field: "reviewDispatchFailure", value: "null" }] },
       binding,

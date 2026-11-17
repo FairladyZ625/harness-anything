@@ -382,7 +382,7 @@ test(
     assert.match(failure.message, /Node node-one:.*reviewer executable is unavailable/u);
     assert.ok(failure.dispatchKey.startsWith("task-review:"), JSON.stringify(failure));
     assert.ok(failure.failedAt);
-    const agenda = await f.host.read(repoId, "repo.agenda.read", { limit: 50 }, localAuthFixture());
+    const agenda = await f.host.read(repoId, "repo.agenda.read", { limit: 50 }, f.owners.auth({ nodeId: "node-one" }));
     assert.match(JSON.stringify(agenda), /review dispatch failed.*ENOENT.*reviewer executable is unavailable/u);
     rejectReviewer = false;
     const retried = await edge.command({ kind: "task-dispatch-review", taskIds: [taskId] });
