@@ -1245,6 +1245,7 @@ test("expired credentials block worker writes with exact reason while hostSettle
       source: { kind: "node" as const, nodeId: "edge-one" },
       expiresAt: "2020-01-01T00:00:00.000Z",
     };
+  realm.node("edge-one", p.personId);
   await issueRuntimeExecutionCredential(center, p, realm.fetch);
   await issueRuntimeExecutionCredential(center, implPrincipal, realm.fetch);
 
