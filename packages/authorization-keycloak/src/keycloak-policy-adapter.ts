@@ -1219,3 +1219,10 @@ function requiredId(value: unknown, name: string, field = "id"): string {
   if (typeof id !== "string" || !id) throw new Error(`Keycloak did not return an id for ${name}.`);
   return id;
 }
+
+export function policyAdapterConfigFromAuthority<
+  T extends { readonly url: string; readonly realm: string; readonly clientId: string },
+>(authority: T): Omit<T, "clientId"> & KeycloakPolicyAdapterConfig {
+  const { clientId, ...rest } = authority;
+  return { ...rest, resourceServerClientId: clientId };
+}

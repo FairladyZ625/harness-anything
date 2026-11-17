@@ -538,6 +538,27 @@ export async function scheduleFallbackContinuation(args: {
                 binding,
                 `runtime-continuation:${header.dispatchId}:${nextAttemptIndex}`,
               )) ?? binding;
+          const resumedProviderSessionId = header.resumeProviderSessionId ?? stream.providerSessionId;
+          if (resumedProviderSessionId)
+            await context.publishRuntimeEvent(
+              "runtime_session_resume_degraded",
+              {
+                runtimeSessionId: header.runtimeSessionId,
+                dispatchId: header.dispatchId,
+                sourceDispatchId: header.resumedFromDispatchId ?? header.dispatchId,
+                providerSessionId: resumedProviderSessionId,
+                taskId: header.taskId ?? null,
+                agentId: header.agentId ?? null,
+                degradedTo: "fresh",
+                reasonCode: stream.attemptOutcome?.classification ?? "provider_fallback",
+                reason:
+                  (stream.attemptOutcome?.reason ?? "").trim() ||
+                  "Fallback switched from resumed session to fresh attempt.",
+                observedAt: input.now(),
+              },
+              `fallback-resume-degraded-${header.dispatchId}-${nextAttemptIndex}`,
+              binding,
+            );
           await args.launch(
             continuationPayload,
             continuationBinding,

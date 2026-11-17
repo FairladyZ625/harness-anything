@@ -6,6 +6,7 @@ import { readyDeferredEvents } from "./projection-deferred-events.ts";
 import { projectEventSummary } from "./event-summary-projection.ts";
 import { projectSquadRunEvent } from "./rebuildable-task-projection-squad-runs.ts";
 import { projectDispatchLifecycleEvent } from "./dispatch-lifecycle-projection.ts";
+import { projectRuntimeInboxEvent } from "./runtime-inbox-projection.ts";
 import { upsertPresetSnapshot } from "./rebuildable-task-projection-preset-snapshots.ts";
 import {
   normalizeHistoricalEvent,
@@ -200,6 +201,7 @@ function applyEventProjection(
   if (isRetiredCiRunObservationEvent(event)) return;
   projectEventSummary(db, event);
   projectDispatchLifecycleEvent(db, event);
+  projectRuntimeInboxEvent(db, event);
   projectArtifactEntityState(db, event);
   if (isEntityPinEvent(event)) {
     runSql(
@@ -554,7 +556,11 @@ function applyEventProjection(
   }
   if (isAgentRuntimeEvent(event)) {
     projectSquadRunEvent(db, event);
-    const taskId = runtimeExecutionLinkForEvent(event)?.taskId ?? null;
+    const taskId =
+      runtimeExecutionLinkForEvent(event)?.taskId ??
+      (event.type === "runtime_inbox_enqueued" || event.type === "runtime_session_resume_degraded"
+        ? event.payload.taskId
+        : null);
     runSql(
       db,
       "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)",

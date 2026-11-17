@@ -196,7 +196,7 @@ export const taskCompletionGuiActions = Object.freeze([
     "task.escalationResolve",
     "repo.task.escalationResolve",
     "task-escalation-resolve",
-    shape({ taskId: "string", dispatchId: "string", answer: "string" }),
+    shape({ taskId: "string", dispatchId: "string", answer: "string", noAutoResume: "boolean?" }),
     "resolveTaskEscalation",
     "/api/tasks/:taskId/escalation/resolve",
     "repo-write",

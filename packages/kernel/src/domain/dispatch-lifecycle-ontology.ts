@@ -1,4 +1,5 @@
 import { DEFAULT_DISPATCH_INSTANCE_CAPACITY, DISPATCH_LIFECYCLE_PAGE_LIMIT } from "./dispatch-lifecycle.ts";
+import { RUNTIME_INBOX_PAGE_LIMIT } from "./runtime-inbox.ts";
 import type { OntologyPolicyDeclaration, OntologyJudgmentDeclaration } from "./ontology-source.ts";
 
 /** Runtime aggregate declarations for dec_AEB05951C69E47FCE53E53C341/CH1 consumer cutover. */
@@ -153,6 +154,63 @@ export const dispatchLifecyclePolicies = [
       "policy:packages/daemon:packages/daemon/src/protocol/agent-entity-gui-contract.ts#agentMcpPolicyError:bd365f101f6f79b1c33bdd657352fb50",
       "policy:packages/daemon:packages/daemon/src/gui-s3-control.ts#validateRuntimeSpawnReceipt.errors.mcpPolicy:4d74ef4f44eaba9c914694bf5b0f17c9",
     ].map((candidateId) => ({ candidateId, route: "runtime mcp policy" })),
+  },
+  {
+    id: "runtime-inbox-admission",
+    ownerRef: "runtime-session/run",
+    unit: "inbox lease / batch window",
+    bounds:
+      "inboxId matches (task|agent):<id>; claim lease defaults to 60000ms with monotonic claimFence; page limit is 200; queue-after-turn items wait while an attempt lacks proven_stopped unless midRunPolicy='interrupt'; ruling_resolved defaults to queue-after-turn.",
+    defaultValue: RUNTIME_INBOX_PAGE_LIMIT,
+    version: 1,
+    scope: "canonical runtime inbox events, projection, and daemon InboxDispatcher",
+    reason:
+      "dec_E0CB793DAA21F49FF1E98D5067/CH1: durable event-folded inbox replaces volatile hints with fenced lease and deterministic batch evaluation.",
+    fixtures: ["packages/kernel/test/runtime-inbox.test.ts", "packages/daemon/test/inbox-dispatcher.test.ts"],
+    sources: [
+      "policy:packages/daemon:packages/daemon/src/inbox-dispatcher.ts#INBOX_CLAIM_LEASE_MS:1b182dc6b133541513c75b29e7776151",
+      "policy:packages/daemon:packages/daemon/src/inbox-dispatcher.ts#makeInboxDispatcher.processGroup:10d15a2fbe0e10d4eb7457a208394227",
+      "policy:packages/daemon:packages/daemon/src/inbox-dispatcher.ts#inspectGroupExecutionState:2b7e412c91cd1135f25c2e7857599234",
+      "policy:packages/daemon:packages/daemon/src/repo-cell-action-dispatch.ts#resolveTaskEscalation.payload.midRunPolicy:2247f696e1fe23357bb67fe46d862119",
+      "policy:packages/gui:packages/gui/src/renderer/model/workspace-readable.ts#EVENT_TYPE_KEYS.runtime_inbox_claimed:bdcb38e1585f9ecc018c648eccf3b440",
+      "policy:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateRuntimeInboxEnqueuedPayload:c08ecdbca43399d79e10532e48aea98f",
+      "policy:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateRuntimeInboxClaimedPayload:d3879e751c8b4c0370c30bf3483e2fdc",
+      "policy:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateRuntimeInboxSettledPayload:775322ac1aa50fc5e5b97168904c679b",
+      "policy:packages/kernel:packages/kernel/src/domain/runtime-inbox.ts#RUNTIME_INBOX_PAGE_LIMIT:f34fb1c00b5d66edc71c56ab1c9508c9",
+      "policy:packages/kernel:packages/kernel/src/domain/runtime-inbox.ts#reduceRuntimeInbox.inbox.currentClaimFence:67c908b9079a4e6f701ef2e5d42e1a18",
+      "policy:packages/kernel:packages/kernel/src/domain/runtime-inbox.ts#reduceRuntimeInbox:5e5ddc5e6e1ae2951e54e9731fd5c45a",
+      "policy:packages/kernel:packages/kernel/src/domain/runtime-inbox.ts#reduceRuntimeInbox.items:db144ffaad42f58d8ed69a153948a3ad",
+      "policy:packages/kernel:packages/kernel/src/domain/runtime-inbox.ts#evaluateRuntimeInboxBatch:203e29e448d07d8f433112699eebe9ed",
+    ].map((candidateId) => ({ candidateId, route: "runtime inbox admission" })),
+  },
+  {
+    id: "runtime-session-continuation",
+    ownerRef: "runtime-session/run",
+    unit: "session continuation mode (continue | fresh | handoff)",
+    bounds:
+      "Provider --resume requires matching (employeeId, taskId, dispatchLineage) and healthy prior terminal state (completed_turn or escalated_awaiting_ruling); cross-employee switches require HandoffPacketV1; cancelled, stalled, or unreachable prior sessions degrade to fresh cold-start with runtime_session_resume_degraded.",
+    defaultValue: "continue",
+    version: 1,
+    scope: "kernel continuation decision, daemon resume admission, inbox wakeup, squad coordinator, and spawn fallback",
+    reason:
+      "dec_E0CB793DAA21F49FF1E98D5067/CH1 & RJ2/RJ4: prevent cross-employee transcript contamination and poisoned resume loops while recording explicit degradation evidence.",
+    fixtures: ["packages/kernel/test/runtime-inbox.test.ts", "packages/daemon/test/inbox-dispatcher.test.ts"],
+    sources: [
+      "policy:packages/daemon:packages/daemon/src/inbox-dispatcher.ts#makeInboxDispatcher.executeDirectWorkerResume:b81e3427f1658f09ff6dfe32bfd7ccd7",
+      "policy:packages/daemon:packages/daemon/src/inbox-dispatcher.ts#makeInboxDispatcher.executeDirectWorkerResume.dispatchId:08f921295a4337c3de1aebd9a82118ea",
+      "policy:packages/daemon:packages/daemon/src/inbox-dispatcher.ts#makeInboxDispatcher.executeDirectWorkerResume:4e98898246223f155d0fbed73017a911",
+      "policy:packages/daemon:packages/daemon/src/inbox-dispatcher.ts#derivePriorTerminalKind:4c94e308ef41196567809b41feae5e0b",
+      "policy:packages/daemon:packages/daemon/src/runtime-resume-admission.ts#assertSessionContinuationFence:2884d6157622eedc6db7ad6e767b3588",
+      "policy:packages/daemon:packages/daemon/src/runtime-resume-admission.ts#sessionPreviousTerminalKind:e4f853b6601a44e464d23c391f2a87bf",
+      "policy:packages/daemon:packages/daemon/src/runtime-resume-admission.ts#sessionPreviousTerminalKind:74783a322275cc2d551984ddeb5a4127",
+      "policy:packages/daemon:packages/daemon/src/squad-coordinator.ts#makeSquadCoordinator.spawnLeader:f5e6a8d67fbbd29196b0fdc4e1e31eda",
+      "policy:packages/daemon:packages/daemon/src/squad-coordinator.ts#makeSquadCoordinator.spawnLeader:1d8ce7a362e66ec872943d0825317ccc",
+      "policy:packages/kernel:packages/kernel/src/domain/runtime-session-continuation.ts#resolveSessionContinuationMode.allowProviderResume:bf2b974adca870804a09c3f4e1366a61",
+      "policy:packages/kernel:packages/kernel/src/domain/runtime-session-continuation.ts#resolveSessionContinuationMode.allowProviderResume:bf2b974adca870804a09c3f4e1366a61:2",
+      "policy:packages/kernel:packages/kernel/src/domain/runtime-session-continuation.ts#resolveSessionContinuationMode.allowProviderResume:bf2b974adca870804a09c3f4e1366a61:3",
+      "policy:packages/kernel:packages/kernel/src/domain/runtime-session-continuation.ts#resolveSessionContinuationMode.allowProviderResume:bf2b974adca870804a09c3f4e1366a61:4",
+      "policy:packages/kernel:packages/kernel/src/domain/runtime-session-continuation.ts#resolveSessionContinuationMode.allowProviderResume:e36e491d50bc85d7011d69d5e2dc0ad3",
+    ].map((candidateId) => ({ candidateId, route: "runtime session continuation" })),
   },
 ] as const satisfies readonly OntologyPolicyDeclaration[];
 

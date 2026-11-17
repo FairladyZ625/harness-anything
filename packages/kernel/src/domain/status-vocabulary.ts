@@ -103,6 +103,7 @@ import {
   dispatchDeliveryStatuses,
   dispatchDisplayStatuses,
 } from "./dispatch-lifecycle.ts";
+import { runtimeInboxItemStatuses } from "./runtime-inbox.ts";
 
 export { statusWordRegister } from "./status-word-register.ts";
 
@@ -215,6 +216,14 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     module: "packages/kernel/src/domain/agent-runtime.ts",
     anchor: "#fallbackState",
     words: ["scheduled", "exhausted"],
+  },
+  {
+    id: "runtime-session.inbox-status",
+    entity: "RuntimeSession",
+    field: "inbox.status",
+    module: "packages/kernel/src/domain/runtime-inbox.ts",
+    anchor: "runtimeInboxItemStatuses",
+    words: runtimeInboxItemStatuses,
   },
   // Existing daemon phases moved to the canonical run contract (dec_FB7DE6338E7D3D94ED2A4C05A2).
   {

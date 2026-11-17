@@ -482,6 +482,16 @@ export function makeRepoCellCommandRunner(
                   : undefined,
               )) as WriteReceipt;
           }
+          if (
+            continueOnApplied &&
+            "outcome" in receipt &&
+            receipt.outcome === "applied" &&
+            action.kind === "task-escalation-resolve" &&
+            (action as { readonly noAutoResume?: unknown }).noAutoResume !== true
+          )
+            context.inboxDispatcher.wake(
+              queuedDecision ? { ...binding, authorizationDecision: queuedDecision } : binding,
+            );
           if (continueOnApplied && (action.kind === "task-submit" || action.kind === "task-settle")) {
             const submitted =
               "outcome" in receipt && receipt.outcome === "applied"

@@ -1,4 +1,5 @@
 import type { RepoCellCore } from "./repo-cell.ts";
+import type { InboxDispatcher } from "./inbox-dispatcher.ts";
 import type { SquadControlResult } from "./squad-control-result.ts";
 import type { makeTaskLifecycleService } from "@harness-anything/application/internal/task-lifecycle-service";
 import type {
@@ -593,6 +594,7 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly lifecycleAction: Bound<typeof lifecycleActionImpl>;
   readonly service: ReturnType<typeof makeTaskLifecycleService>;
   readonly squadCoordinator: ReturnType<typeof makeSquadCoordinator>;
+  readonly inboxDispatcher: InboxDispatcher;
   readonly workspaceText: typeof workspaceText;
   readonly buildCommand: typeof buildCommand;
   readonly withServerMeta: typeof withServerMeta;
@@ -698,6 +700,7 @@ export interface RepoCellApiContext {
   readonly onlineBinding: (binding: RepoCellBinding) => Promise<RepoCellBinding>;
   readonly executeAction: RepoCellOperationalContext["executeAction"];
   readonly squadCoordinator: ReturnType<typeof makeSquadCoordinator>;
+  readonly inboxDispatcher: InboxDispatcher;
   readonly presetProcess: ReturnType<typeof createPresetProcessService>;
   readonly runtimeReads: ReturnType<typeof makeAgentRuntimeReadModel>;
   readonly runtimeSpawner: ReturnType<typeof makeRuntimeSpawner>;

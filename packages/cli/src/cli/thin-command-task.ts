@@ -144,12 +144,14 @@ function parseTaskEscalate(
   if (!flags.ok) return rejected(flags.code, flags.nextAction, json);
   if (resolve) {
     const dispatchId = flags.one.get("--dispatch-id"),
-      answer = flags.one.get("--answer");
+      answer = flags.one.get("--answer"),
+      noAutoResume = flags.booleans.has("--no-auto-resume");
     return accepted(rootDir, repoId, json, {
       kind: "task-escalation-resolve",
       taskId,
       dispatchId,
       answer,
+      ...(noAutoResume ? { noAutoResume: true } : {}),
     });
   }
   const question = flags.one.get("--question");

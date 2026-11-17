@@ -83,6 +83,7 @@ export type WorkerPlan = {
   readonly workerId: string;
   readonly prompt: string;
   readonly ownedPaths?: readonly string[];
+  readonly continuationMode?: "continue" | "fresh" | "handoff";
 };
 
 /** Squad attempt 状态的唯一判定:admission 拒绝(rejection 非空)优先于派工台账行,
@@ -212,14 +213,22 @@ export function parseLeaderDecision(text: string, workers: readonly string[]): L
         prompt = requiredLeaderText(item.prompt, "worker prompt");
       if (!workers.includes(workerId) || seen.has(workerId))
         throw new Error(`Leader selected invalid or duplicate worker ${workerId}.`);
-      const allowed = new Set(["to", "prompt", "ownedPaths"]);
+      const allowed = new Set(["to", "prompt", "ownedPaths", "continuationMode"]);
       if (Object.keys(item).some((key) => !allowed.has(key)))
         throw new Error("Leader dispatch contains harness-owned fields.");
+      if (
+        item.continuationMode !== undefined &&
+        !["continue", "fresh", "handoff"].includes(String(item.continuationMode))
+      )
+        throw new Error("Leader dispatch continuationMode must be continue, fresh, or handoff.");
       seen.add(workerId);
       return {
         workerId,
         prompt,
         ...(item.ownedPaths === undefined ? {} : { ownedPaths: parseWorkerOwnedPaths(item.ownedPaths) }),
+        ...(item.continuationMode === undefined
+          ? {}
+          : { continuationMode: item.continuationMode as "continue" | "fresh" | "handoff" }),
       };
     });
   return { kind: "plan", dispatches };

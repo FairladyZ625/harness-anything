@@ -9,7 +9,9 @@ import {
   isSameExecution,
   isTerminalStatus,
   parseSquadDeclarationV1,
+  resolveSessionContinuationMode,
   type AgentRuntimeEventV1,
+  type PriorTerminalDispositionKind,
   type ScheduleRunOutcome,
   type TaskProjection,
 } from "@harness-anything/kernel";
@@ -167,6 +169,11 @@ export function makeSquadCoordinator(input: {
     },
     binding: RuntimeBinding,
   ) => Promise<void>;
+  readonly publishResumeDegraded?: (
+    payload: Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_resume_degraded" }>["payload"],
+    binding: RuntimeBinding,
+    opId: string,
+  ) => Promise<void> | void;
   readonly runtimeSpawner: () => SquadRuntimeSpawnerPort;
 }) {
   const readDispatchLifecycle =
@@ -1036,11 +1043,32 @@ export function makeSquadCoordinator(input: {
       const scheduleRuntime = state.scheduleRuntime,
         drainedTriggers = trigger.kind === "initial" ? [] : state.pendingLeaderTriggers,
         turnId = `leader-${state.leaderTurns.length + 1}`,
+        lastTurn = state.leaderTurns.at(-1),
+        lastRow = lastTurn ? dispatchRows(state).find((row) => row.dispatchId === lastTurn.dispatchId) : undefined,
+        continuationDecision =
+          trigger.kind !== "initial" && state.leaderProviderSessionId
+            ? resolveSessionContinuationMode({
+                requestedAgentId: state.leaderAgentId,
+                previousAgentId: state.leaderAgentId,
+                taskId: squadTaskRef(state)?.taskId ?? null,
+                previousTaskId: squadTaskRef(state)?.taskId ?? null,
+                lineageMatches: true,
+                providerSessionId: state.leaderProviderSessionId,
+                runtimeSupportsResume: true,
+                previousTerminalKind: squadLeaderTerminalKind(lastRow),
+                hasHandoffPacket: false,
+              })
+            : null,
+        allowLeaderResume = continuationDecision?.allowProviderResume === true,
         prompt =
           trigger.kind === "initial"
             ? initialLeaderPrompt(state)
             : callbackLeaderPrompt(state, drainedTriggers, dispatchRows(state), resultText),
-        payload: JsonObject = {
+        baseDispatchKey =
+          trigger.kind === "initial"
+            ? `${state.squadRunId}:leader:initial`
+            : `${state.squadRunId}:leader:${triggerKey(trigger)}`,
+        buildLeaderPayload = (withResume: boolean, suffix = ""): JsonObject => ({
           ...(state.runtimeInstanceId ? { runtimeInstanceId: state.runtimeInstanceId } : {}),
           agentId: state.leaderAgentId,
           squadId: state.squadId,
@@ -1061,14 +1089,9 @@ export function makeSquadCoordinator(input: {
           ...(squadTaskRef(state) ? { taskId: squadTaskRef(state)!.taskId } : {}),
           ...(state.model ? { model: state.model } : {}),
           ...(state.effort ? { effort: state.effort } : {}),
-          ...(trigger.kind !== "initial" && state.leaderProviderSessionId
-            ? { providerSessionId: state.leaderProviderSessionId }
-            : {}),
-          dispatchKey:
-            trigger.kind === "initial"
-              ? `${state.squadRunId}:leader:initial`
-              : `${state.squadRunId}:leader:${triggerKey(trigger)}`,
-        },
+          ...(withResume && state.leaderProviderSessionId ? { providerSessionId: state.leaderProviderSessionId } : {}),
+          dispatchKey: `${baseDispatchKey}${suffix}`,
+        }),
         onPrepared =
           trigger.kind === "initial"
             ? (dispatchId: string) => {
@@ -1076,10 +1099,47 @@ export function makeSquadCoordinator(input: {
                 recordState(state);
               }
             : undefined,
-        receipt = scheduleRuntime
-          ? await input.runtimeSpawner().spawnScheduled(payload, scheduleRuntime, state.binding, onPrepared)
-          : await input.runtimeSpawner().spawn(payload, state.binding, onPrepared),
-        dispatchId = requiredReceiptText(receipt, "dispatchId"),
+        emitLeaderDegraded = async (reasonCode: string, reason: string) => {
+          if (!state.leaderProviderSessionId || !input.publishResumeDegraded) return;
+          await input.publishResumeDegraded(
+            {
+              runtimeSessionId: lastTurn?.runtimeSessionId ?? state.currentLeaderRuntimeSessionId ?? state.squadRunId,
+              dispatchId: lastTurn?.dispatchId ?? state.stateDispatchId ?? state.squadRunId,
+              sourceDispatchId: lastTurn?.dispatchId ?? state.stateDispatchId ?? null,
+              providerSessionId: state.leaderProviderSessionId,
+              taskId: squadTaskRef(state)?.taskId ?? null,
+              agentId: state.leaderAgentId,
+              degradedTo: "fresh",
+              reasonCode,
+              reason: reason.slice(0, 500) || reasonCode,
+              observedAt: input.now(),
+            },
+            state.binding,
+            `squad-leader-resume-degraded-${state.squadRunId}-${turnId}`,
+          );
+        },
+        spawnOnce = (payload: JsonObject) =>
+          scheduleRuntime
+            ? input.runtimeSpawner().spawnScheduled(payload, scheduleRuntime, state.binding, onPrepared)
+            : input.runtimeSpawner().spawn(payload, state.binding, onPrepared);
+      if (trigger.kind !== "initial" && state.leaderProviderSessionId && !allowLeaderResume && continuationDecision)
+        await emitLeaderDegraded(
+          continuationDecision.reason,
+          `Leader continuation selected fresh cold-start (${continuationDecision.reason}).`,
+        );
+      const attempt = await spawnOnce(buildLeaderPayload(allowLeaderResume)).then(
+        (value) => ({ resumed: true as const, value }),
+        (error: unknown) => ({ resumed: false as const, error }),
+      );
+      let receipt: JsonObject;
+      if (attempt.resumed) {
+        receipt = attempt.value;
+      } else {
+        if (!(trigger.kind !== "initial" && state.leaderProviderSessionId && allowLeaderResume)) throw attempt.error;
+        await emitLeaderDegraded(errorCode(attempt.error, "leader_resume_failed"), errorText(attempt.error));
+        receipt = await spawnOnce(buildLeaderPayload(false, ":fresh"));
+      }
+      const dispatchId = requiredReceiptText(receipt, "dispatchId"),
         runtimeSessionId = requiredReceiptText(receipt, "runtimeSessionId"),
         updated = revise(state, {
           stateDispatchId: state.stateDispatchId ?? dispatchId,
@@ -1180,4 +1240,15 @@ export function makeSquadCoordinator(input: {
       await publication.flushPublications();
     },
   };
+}
+
+function squadLeaderTerminalKind(row: TaskDispatchRow | undefined): PriorTerminalDispositionKind {
+  if (!row) return "none";
+  if (row.outcome === "cancelled") return "cancelled";
+  if (row.providerUnreachable) return "unreachable";
+  if (row.classification === "dispatch_stalled") return "stalled";
+  if (row.classification === "awaiting_ruling") return "awaiting_ruling";
+  if (row.outcome === "succeeded") return "succeeded";
+  if (row.outcome === "failed") return "failed";
+  return "none";
 }

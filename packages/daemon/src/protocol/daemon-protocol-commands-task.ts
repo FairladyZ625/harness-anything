@@ -159,6 +159,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
       { field: "taskId", type: "string", required: true, regex: "^[A-Za-z0-9_-]{1,96}$" },
       { field: "dispatchId", type: "string", required: true, regex: "^dispatch_[a-f0-9]{24}$" },
       { field: "answer", type: "string", required: true, wire: { maxLength: 8 * 1024 } },
+      { field: "noAutoResume", type: "boolean", required: false },
     ],
     phase: "W3",
     path: ["task", "escalation", "resolve", "<task-id>"],
@@ -168,6 +169,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--dispatch-id", "single", true, { code: "missing_field" }, { pathKind: "non-path" }),
       cliInput("--answer", "single", true, { code: "missing_field" }, { pathKind: "non-path" }),
+      cliInput("--no-auto-resume", "boolean", false, { code: "invalid_option" }, { pathKind: "non-path" }),
     ],
   }),
   defineCliCommand({

@@ -1,16 +1,18 @@
 import type { SquadRunProjectionRow } from "@harness-anything/kernel";
 
-/**
- * The next command for a ruling a Squad leader raised. The leader turn is the run's parent edge, so
- * the run that must be restarted after the owner answers is the one whose `leaderTurns` name this
- * dispatch — never a task-level guess. A direct worker dispatch has no such run and keeps the
- * task-level next step alone.
- */
-export function squadRulingResumeNext(input: {
+export interface SquadRulingResumeTarget {
+  readonly squadId: string;
+  readonly squadRunId: string;
+  readonly taskId: string;
+  readonly runtimeInstanceId: string | null;
+}
+
+/** Locate the unfinished Squad run whose leader turn raised the escalated dispatch. */
+export function findSquadRulingResumeTarget(input: {
   readonly runs: readonly SquadRunProjectionRow[];
   readonly dispatchId: string;
   readonly runtimeInstanceId: string | null;
-}): { readonly command: string; readonly reason: string } | null {
+}): SquadRulingResumeTarget | null {
   for (const { state } of input.runs) {
     const run = state as {
       readonly squadId?: unknown;
@@ -30,13 +32,34 @@ export function squadRulingResumeNext(input: {
     )
       continue;
     return {
-      command:
-        `ha squad run ${run.squadId} --instance ${input.runtimeInstanceId ?? "<runtime-instance-id>"} ` +
-        `--task ${run.subject.taskId}`,
-      reason:
-        `restart Squad run ${run.squadRunId}: its leader stopped for this ruling, and an answered task ` +
-        "needs a new run under its next execution",
+      squadId: run.squadId,
+      squadRunId: run.squadRunId,
+      taskId: run.subject.taskId,
+      runtimeInstanceId: input.runtimeInstanceId,
     };
   }
   return null;
+}
+
+/**
+ * The next command for a ruling a Squad leader raised. The leader turn is the run's parent edge, so
+ * the run that must be restarted after the owner answers is the one whose `leaderTurns` name this
+ * dispatch — never a task-level guess. A direct worker dispatch has no such run and keeps the
+ * task-level next step alone.
+ */
+export function squadRulingResumeNext(input: {
+  readonly runs: readonly SquadRunProjectionRow[];
+  readonly dispatchId: string;
+  readonly runtimeInstanceId: string | null;
+}): { readonly command: string; readonly reason: string } | null {
+  const target = findSquadRulingResumeTarget(input);
+  if (!target) return null;
+  return {
+    command:
+      `ha squad run ${target.squadId} --instance ${target.runtimeInstanceId ?? "<runtime-instance-id>"} ` +
+      `--task ${target.taskId}`,
+    reason:
+      `restart Squad run ${target.squadRunId}: its leader stopped for this ruling, and an answered task ` +
+      "needs a new run under its next execution",
+  };
 }

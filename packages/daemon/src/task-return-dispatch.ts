@@ -473,7 +473,10 @@ async function dispatchContinuation(
           )) as unknown as WriteReceiptDraft;
         });
       if (spawned.outcome !== "applied" && spawned.outcome !== "no_changes") {
-        if (retryResume(attempt, continuation.mode, spawned.code)) continue;
+        if (retryResume(attempt, continuation.mode, spawned.code)) {
+          await recordReturnResumeDegraded(cell, input, previous, spawned.code ?? "runtime_resume_failed", binding);
+          continue;
+        }
         return failedReturn(input, continuation, spawned);
       }
       return {
@@ -492,7 +495,10 @@ async function dispatchContinuation(
       };
     } catch (error) {
       const failure = cell.failed(input.opId, error);
-      if (retryResume(attempt, continuation.mode, failure.code)) continue;
+      if (retryResume(attempt, continuation.mode, failure.code)) {
+        await recordReturnResumeDegraded(cell, input, previous, failure.code ?? "runtime_resume_failed", binding);
+        continue;
+      }
       const rejected = failedReturn(input, continuation, failure);
       return rejected;
     }
@@ -506,6 +512,43 @@ function retryResume(attempt: number, mode: string, code: string | undefined): b
     attempt === 0 &&
     mode === "resume" &&
     ["runtime_resume_failed", "runtime_dispatch_not_resumable"].includes(code ?? "")
+  );
+}
+
+async function recordReturnResumeDegraded(
+  cell: RepoCellOperationalContext,
+  input: ReworkContext & { readonly write: RepoCellContinuationWrite },
+  previous: TaskDispatchRow | undefined,
+  reasonCode: string,
+  binding: RepoCellBinding,
+): Promise<void> {
+  if (!previous?.providerSessionId || typeof cell.appendAuxiliaryRuntimeIngress !== "function") return;
+  const opId = `return-resume-degraded-${input.taskId}-${input.execution.executionId}`;
+  await input.write(
+    { kind: "runtime-run", runtimeEventType: "runtime_session_resume_degraded", taskId: input.taskId },
+    binding,
+    async (authorizedBinding) =>
+      cell.appendAuxiliaryRuntimeIngress(
+        {
+          kind: "event",
+          type: "runtime_session_resume_degraded",
+          opId,
+          payload: {
+            runtimeSessionId: previous.runtimeSessionId,
+            dispatchId: previous.dispatchId,
+            sourceDispatchId: previous.dispatchId,
+            providerSessionId: previous.providerSessionId!,
+            taskId: input.taskId,
+            agentId: previous.agentId ?? null,
+            degradedTo: "fresh",
+            reasonCode,
+            reason: `Return continuation degraded from resume (${reasonCode}) to fresh cold-start.`,
+            observedAt: cell.now(),
+          },
+        },
+        authorizedBinding,
+        true,
+      ) as unknown as WriteReceiptDraft,
   );
 }
 

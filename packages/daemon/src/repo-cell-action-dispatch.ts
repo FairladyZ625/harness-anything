@@ -48,7 +48,7 @@ import { readWork } from "@harness-anything/application/internal/queries/work-re
 import { runAssignmentMigrationAction } from "@harness-anything/application/internal/commands/assignment-migration-action.ts";
 import { readVerticalKindAction } from "./vertical-kind-read.ts";
 import { parseRulingArtifact, runtimeRulingPath, runtimeRulingResolutionPath } from "./runtime-ruling.ts";
-import { squadRulingResumeNext } from "./squad-ruling-resume.ts";
+import { findSquadRulingResumeTarget, squadRulingResumeNext } from "./squad-ruling-resume.ts";
 import { dispatchLifecyclePendingError } from "./runtime-dispatch-admission.ts";
 import { commitRuntimeSessionAction } from "./runtime-session-action-runtime.ts";
 import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
@@ -700,17 +700,72 @@ async function resolveTaskEscalation(
             binding,
           ),
     escalatedDispatch = cell.projection.readRuntimeDispatchById(dispatchId)?.event,
+    runtimeInstanceId =
+      escalatedDispatch?.type === "runtime_dispatch_requested" ? escalatedDispatch.payload.instanceId : null,
+    runs = cell.projection.readSquadRuns(),
     // A leader turn owns its ruling. The answered task is planned, but its old execution is
     // consumed: the run can only continue as a new Squad run under the execution `ha task start`
     // opens next, so the receipt names that continuation instead of leaving the operator to bridge
     // it by hand.
     squadResume = squadRulingResumeNext({
-      runs: cell.projection.readSquadRuns(),
+      runs,
       dispatchId,
-      runtimeInstanceId:
-        escalatedDispatch?.type === "runtime_dispatch_requested" ? escalatedDispatch.payload.instanceId : null,
+      runtimeInstanceId,
     }),
     next = Array.isArray(transitioned.next) ? transitioned.next : [];
+  if (
+    (action as { readonly noAutoResume?: unknown }).noAutoResume !== true &&
+    !cell.store.readEvent(`inbox-enqueue-ruling-${dispatchId}`)
+  ) {
+    const escalatedPayload =
+        escalatedDispatch?.type === "runtime_dispatch_requested" ? escalatedDispatch.payload : null,
+      agentId = escalatedPayload?.agentId ?? null,
+      priorSession = escalatedPayload ? cell.projection.readRuntimeSession(escalatedPayload.runtimeSessionId) : null,
+      squadTarget = findSquadRulingResumeTarget({
+        runs,
+        dispatchId,
+        runtimeInstanceId,
+      }),
+      inboxId = `task:${taskId}`,
+      compactAnswer =
+        answer
+          .replace(/[\r\n]+/gu, " ")
+          .trim()
+          .slice(0, 200) || "answered";
+    cell.appendAuxiliaryRuntimeIngress(
+      {
+        kind: "event",
+        type: "runtime_inbox_enqueued",
+        opId: `inbox-enqueue-ruling-${dispatchId}`,
+        payload: {
+          inboxId,
+          itemId: `inbox-item-ruling-${dispatchId}`,
+          source: "ruling_resolved",
+          dedupeKey: `ruling:${dispatchId}`,
+          coalesceWindowMs: 0,
+          midRunPolicy: "defer_next_run",
+          taskId,
+          dispatchId,
+          squadRunId: squadTarget?.squadRunId ?? null,
+          agentId,
+          summary: `Owner resolved escalation ${dispatchId}: ${compactAnswer}`,
+          data: {
+            kind: "ruling_resolved",
+            taskId,
+            dispatchId,
+            answer,
+            runtimeInstanceId,
+            providerSessionId: priorSession?.providerSessionId ?? null,
+            ...(squadTarget ? { squadId: squadTarget.squadId, squadRunId: squadTarget.squadRunId } : {}),
+          },
+          contextRef: null,
+          enqueuedAt: cell.now(),
+        },
+      },
+      binding,
+      true,
+    );
+  }
   return {
     ...transitioned,
     ...(squadResume === null ? {} : { next: [...next, squadResume] }),

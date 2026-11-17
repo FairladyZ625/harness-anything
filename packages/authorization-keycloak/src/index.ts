@@ -1,5 +1,6 @@
 export {
   KeycloakPolicyAdapter,
+  policyAdapterConfigFromAuthority,
   type KeycloakGrant,
   type KeycloakNode,
   type KeycloakPermissionDecision,

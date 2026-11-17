@@ -8,6 +8,7 @@ import {
 import { ensureRuntimeMemberIndex } from "./runtime-member-index.ts";
 import { ensureWorkspaceTaskCensus } from "./workspace-task-census.ts";
 import { catchUpDispatchLifecycle, DISPATCH_LIFECYCLE_TABLES_SQL } from "./dispatch-lifecycle-projection.ts";
+import { catchUpRuntimeInbox, RUNTIME_INBOX_TABLES_SQL } from "./runtime-inbox-projection.ts";
 /** Shared query tables in the center projection and its full physical replica. */
 export const TASK_INDEX_TABLES_SQL = `
     /* @gate-identity state-store/task.projection.task_snapshot */ CREATE TABLE IF NOT EXISTS task_snapshot (
@@ -35,6 +36,7 @@ export const TASK_INDEX_TABLES_SQL = `
 
 export const REPOSITORY_READ_TABLES_SQL = `
     ${DISPATCH_LIFECYCLE_TABLES_SQL}
+    ${RUNTIME_INBOX_TABLES_SQL}
     /* @gate-identity state-store/task.projection.artifact_entity_state */ CREATE TABLE IF NOT EXISTS artifact_entity_state (
       entity_kind TEXT NOT NULL, entity_id TEXT NOT NULL, state_json TEXT NOT NULL,
       PRIMARY KEY(entity_kind, entity_id)
@@ -286,4 +288,5 @@ export function createProjectionTables(db: DatabaseSync): void {
   ensureRuntimeMemberIndex(db);
   backfillEventSummaryReadIndex(db);
   catchUpDispatchLifecycle(db);
+  catchUpRuntimeInbox(db);
 }

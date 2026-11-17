@@ -935,9 +935,16 @@ export function createRepoCellApi(
             : {}),
         } as unknown as JsonObject;
       }
-      return action.kind === "event" && action.type === "runtime_squad_run_observed"
-        ? appendSquadRunObservation(context.extracted, action, authorizedBinding)
-        : context.appendAuxiliaryRuntimeIngress(action, authorizedBinding);
+      if (action.kind === "event" && action.type === "runtime_squad_run_observed")
+        return appendSquadRunObservation(context.extracted, action, authorizedBinding);
+      const receipt = context.appendAuxiliaryRuntimeIngress(action, authorizedBinding);
+      if (
+        action.kind === "event" &&
+        action.type === "runtime_inbox_enqueued" &&
+        (receipt as { readonly outcome?: unknown }).outcome === "applied"
+      )
+        context.inboxDispatcher.wake(authorizedBinding);
+      return receipt;
     };
     return enqueueRuntimePublication(
       context,
@@ -1076,6 +1083,7 @@ export function createRepoCellApi(
     // issues.
     while (builtinRuns.size > 0) await Promise.allSettled([...builtinRuns.values()]);
     context.state = "closed";
+    context.inboxDispatcher.close();
     context.runtimeSpawner.close();
     context.runtimeStream.close();
     await context.presetProcess.close();

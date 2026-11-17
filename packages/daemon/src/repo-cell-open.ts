@@ -81,6 +81,7 @@ import type {
 import { makeRuntimeSpawner, type RuntimeAttemptTerminal } from "./runtime-spawn.ts";
 import { withOnlineRuntimeSession } from "./runtime-online-binding.ts";
 import { makeRepoCellSquadCoordinator } from "./repo-cell-squad-coordinator.ts";
+import { makeInboxDispatcher } from "./inbox-dispatcher.ts";
 import { reconcileAbandonedTaskWorktrees } from "./task-worktree.ts";
 import { makeAgentActionRuntime, makeSquadActionRuntime } from "./squad-action-runtime.ts";
 
@@ -475,6 +476,7 @@ export async function openRepoWriterCell(
       }),
     onRuntimeOutcome: (event) => {
       schedule(() => squadCoordinator.observeOutcome(event));
+      inboxDispatcher.wake();
       outcomeWaiters.notify();
       input.onRuntimeOutcome?.(event);
     },
@@ -524,6 +526,7 @@ export async function openRepoWriterCell(
       // first leader session; the coordinator's terminal settlement owns the claim.
       if (terminal.schedule && scheduleOccurrenceSettlementOwner(projection, terminal.dispatchId) === "runtime-attempt")
         schedule(() => settleScheduledOutcome(terminal), terminal.binding);
+      inboxDispatcher.wake(terminal.binding);
       outcomeWaiters.notify();
       return input.onAttemptTerminal?.(terminal);
     },
@@ -654,6 +657,7 @@ export async function openRepoWriterCell(
       knownTaskIds = value;
     },
     getSquadCoordinator: () => squadCoordinator,
+    getInboxDispatcher: () => inboxDispatcher,
   });
   const runtimeContext = Object.assign(extracted, { mode, runtimeSpawner });
   runtimeContext satisfies RepoCellRuntimeContext;
@@ -738,6 +742,20 @@ export async function openRepoWriterCell(
     authorizeRuntimeAction,
     onlineBinding,
     ...(input.killpoint ? { killpoint: input.killpoint } : {}),
+  });
+  const inboxDispatcher = makeInboxDispatcher({
+    rootDir,
+    repoId: input.repoId,
+    mode,
+    now,
+    projection,
+    store,
+    schedule,
+    appendAuxiliaryRuntimeIngress: extracted.appendAuxiliaryRuntimeIngress,
+    runtimeSpawner,
+    squadCoordinator,
+    authorizeRuntimeAction,
+    onlineBinding,
   });
   const operationalContext = Object.defineProperty(runtimeContext, "settings", {
     value: settings,
@@ -869,6 +887,7 @@ export async function openRepoWriterCell(
       )
       .finally(() => {
         restoringRuntimes = false;
+        if (state !== "closed") inboxDispatcher.wake();
       });
   });
   // Retention first: pruning doomed streams before the compaction pass keeps it from rewriting
@@ -992,6 +1011,7 @@ export async function openRepoWriterCell(
     now,
     executeAction: extracted.executeAction,
     squadCoordinator,
+    inboxDispatcher,
     presetProcess,
     get runtimeReads() {
       return runtimeReads;

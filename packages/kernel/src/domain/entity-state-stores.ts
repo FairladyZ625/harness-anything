@@ -170,6 +170,8 @@ const taskProjectionTables = Object.freeze(
     "dispatch_lifecycle_attempt",
     "dispatch_lifecycle_task_lease",
     "dispatch_lifecycle_cursor",
+    "runtime_inbox_group",
+    "runtime_inbox_cursor",
     "fact",
     "fact_fts",
     "fact_domain_type",

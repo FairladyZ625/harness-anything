@@ -12130,7 +12130,7 @@
         "port": "node_modules/@types/node/async_hooks.d.ts#async_hooks.AsyncLocalStorage.run"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker:056315cbd3f53337f7ef9942bba1922c",
+        "candidateId": "action:packages/daemon:packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker:6349a27be1ca024bc8b2559eac3a083c",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/worker_threads.d.ts#worker_threads.MessagePort.on"
@@ -12965,6 +12965,24 @@
         "port": "packages/daemon/src/repo-cell-types.ts#RepoCellContinuationWrite"
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/inbox-dispatcher.ts#makeInboxDispatcher.executeDirectWorkerResume.resumedAttempt:5bd328028a281658d956486c819453e1",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-spawner.ts#makeRuntimeSpawner.spawn"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/inbox-dispatcher.ts#makeInboxDispatcher.executeDirectWorkerResume.receipt:922e8b9d8a7231f162b76a2c0c565132",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/runtime-spawner.ts#makeRuntimeSpawner.spawn"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/task-return-dispatch.ts#recordReturnResumeDegraded:806057153130d9fbdfe6ebc6017d303a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/repo-cell-types.ts#RepoCellContinuationWrite"
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/agent-runtime-credential-port.ts#credentialPort.store:cfb22cbb198a835c1210c43e9026964e",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -13001,7 +13019,7 @@
         "port": "packages/daemon/src/squad-coordinator.ts#SquadRuntimeSpawnerPort.cancel"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/squad-coordinator.ts#makeSquadCoordinator.spawnLeader.receipt:5723e77c6978dbd3e09effd67320f392",
+        "candidateId": "action:packages/daemon:packages/daemon/src/squad-coordinator.ts#makeSquadCoordinator.spawnLeader.spawnOnce:5723e77c6978dbd3e09effd67320f392",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/squad-coordinator.ts#SquadRuntimeSpawnerPort.spawn"

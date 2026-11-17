@@ -4083,7 +4083,7 @@
         "explain": "RuntimeSessionEntityV1: Accepted session/event identity and provenance fields.",
         "sources": [
           {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:24c55c043e947588d4f2d4e974b40fdd",
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:ac8d0ae076b5d6d2fb987c7c1c9e8275",
             "route": "packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields"
           }
         ]
@@ -4118,6 +4118,72 @@
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateSessionProvenance:21a75fbf8d8275d9e51b9488bf537d85",
             "route": "packages/kernel/src/domain/agent-runtime.ts#validateSessionProvenance"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/agent-runtime.ts#RuntimeSessionEntityV1.validateRuntimeInboxEnqueuedPayload",
+        "symbol": "packages/kernel/src/domain/agent-runtime.ts#validateRuntimeInboxEnqueuedPayload",
+        "explain": "RuntimeSessionEntityV1: Canonical runtime_inbox_enqueued wire payload validator.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateRuntimeInboxEnqueuedPayload:f2381866922104e129564b371905bcfc",
+            "route": "packages/kernel/src/domain/agent-runtime.ts#validateRuntimeInboxEnqueuedPayload"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/agent-runtime.ts#RuntimeSessionEntityV1.validateRuntimeInboxClaimedPayload",
+        "symbol": "packages/kernel/src/domain/agent-runtime.ts#validateRuntimeInboxClaimedPayload",
+        "explain": "RuntimeSessionEntityV1: Canonical runtime_inbox_claimed wire payload validator.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateRuntimeInboxClaimedPayload:2481c335d73cf0bc786416c5808da1e3",
+            "route": "packages/kernel/src/domain/agent-runtime.ts#validateRuntimeInboxClaimedPayload"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/agent-runtime.ts#RuntimeSessionEntityV1.validateRuntimeInboxSettledPayload",
+        "symbol": "packages/kernel/src/domain/agent-runtime.ts#validateRuntimeInboxSettledPayload",
+        "explain": "RuntimeSessionEntityV1: Canonical runtime_inbox_settled wire payload validator.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateRuntimeInboxSettledPayload:916f824c232219588c10398a13ed5394",
+            "route": "packages/kernel/src/domain/agent-runtime.ts#validateRuntimeInboxSettledPayload"
+          }
+        ]
+      },
+      {
+        "id": "kernel/src/domain/agent-runtime.ts#RuntimeSessionEntityV1.validateRuntimeSessionResumeDegradedPayload",
+        "symbol": "packages/kernel/src/domain/agent-runtime.ts#validateRuntimeSessionResumeDegradedPayload",
+        "explain": "RuntimeSessionEntityV1: Canonical runtime_session_resume_degraded wire payload validator.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateRuntimeSessionResumeDegradedPayload:75bd421155fe29c2e0bf92c2a2c4a5fc",
+            "route": "packages/kernel/src/domain/agent-runtime.ts#validateRuntimeSessionResumeDegradedPayload"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/inbox-dispatcher.ts#shouldSkipForPlacement",
+        "symbol": "packages/daemon/src/inbox-dispatcher.ts#shouldSkipForPlacement",
+        "explain": "Daemon placement guard skipping local inbox claim when the target dispatch is owned by a remote edge node or center relay mode.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/inbox-dispatcher.ts#shouldSkipForPlacement:382a0de11965a09fc44d39a35e7ac2c0",
+            "route": "packages/daemon/src/inbox-dispatcher.ts#shouldSkipForPlacement"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/runtime-resume-admission.ts#assertSessionContinuationFence",
+        "symbol": "packages/daemon/src/runtime-resume-admission.ts#assertSessionContinuationFence",
+        "explain": "Daemon spawn admission adapter enforcing kernel resolveSessionContinuationMode identity and prior-terminal fences before provider --resume.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/runtime-resume-admission.ts#assertSessionContinuationFence:9a5dc6a3a26a8d4d903229a8803c4bad",
+            "route": "packages/daemon/src/runtime-resume-admission.ts#assertSessionContinuationFence"
           }
         ]
       },

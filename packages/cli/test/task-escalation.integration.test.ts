@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { makeTaskEventReader } from "@harness-anything/storage";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
+import { waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
 import {
   cli,
   createRuntimeFixture,
@@ -126,7 +128,17 @@ test("a worker escalation blocks its task until the owner answers and resumes wi
     "--destination",
     `${task.packagePath}/artifacts/rulings/${dispatchId}.resolution.md`,
   ]);
-  run(root, env, ["task", "escalation", "resolve", task.taskId, "--dispatch-id", dispatchId, "--answer", answer]);
+  run(root, env, [
+    "task",
+    "escalation",
+    "resolve",
+    task.taskId,
+    "--dispatch-id",
+    dispatchId,
+    "--answer",
+    answer,
+    "--no-auto-resume",
+  ]);
   const shownAfterResolution = run(root, env, ["task", "show", task.taskId]);
   assert.equal(JSON.parse(String(shownAfterResolution.evidence)).task.status, "planned");
   const readSetAfter = run(root, env, ["task", "read-set", task.taskId]);
@@ -287,6 +299,103 @@ test(
         wildcardText.indexOf("prompt://review") < wildcardText.indexOf("# Standard Task") &&
         wildcardText.indexOf("# Standard Task") < wildcardText.indexOf("# Mission"),
       "the role prompt, declared prompts, and preset must reach the real CLI dispatch in declaration order",
+    );
+  },
+);
+
+test(
+  "resolving a worker escalation automatically wakes InboxDispatcher with --resume and the owner answer",
+  { timeout: 300_000 },
+  async (context) => {
+    const fixture = createRuntimeFixture(context),
+      { parent, root, env } = fixture,
+      task = seedTask(root, env, "auto-resume"),
+      answer = "Proceed with the isolated adapter in Slice 1.",
+      question = "May the worker continue into the isolated adapter?",
+      resumeLogPath = path.join(parent, "auto-resume-invocations.jsonl");
+
+    writeProviderExecutable(
+      path.join(parent, "bin", "codex"),
+      [
+        'const childProcess = require("node:child_process");',
+        'const fs = require("node:fs");',
+        "const args = process.argv.slice(2);",
+        'if (args[0] === "--version") { console.log("codex 0.0.0-runtime-cli-fixture"); process.exit(0); }',
+        'if (args[0] === "login" && args[1] === "status") process.exit(0);',
+        'const prompt = fs.readFileSync(0, "utf8");',
+        `fs.appendFileSync(${JSON.stringify(resumeLogPath)}, JSON.stringify({ args, prompt }) + "\\n");`,
+        `const cli = ${JSON.stringify(cli)}, taskId = prompt.match(/^Canonical Task ID: (\\S+)$/mu)?.[1];`,
+        'if (!taskId) { process.stderr.write("dispatch task id missing"); process.exit(7); }',
+        'const resumed = args.includes("exec") && args.includes("resume");',
+        'fs.writeSync(1, JSON.stringify({ type: "thread.started", thread_id: "provider-auto-resume" }) + "\\n");',
+        "if (!resumed) {",
+        `  const esc = childProcess.spawnSync(process.execPath, [cli, "--root", process.cwd(), "--json", "task", "escalate", taskId, "--question", ${JSON.stringify(question)}], { encoding: "utf8", env: process.env });`,
+        '  if (esc.status !== 0) { process.stderr.write("escalate failed: " + esc.stderr + esc.stdout); process.exit(8); }',
+        "}",
+        `console.log(JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: resumed ? "auto-resumed:" + prompt.includes(${JSON.stringify(answer)}) : "escalated" } }));`,
+        'console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }));',
+      ].join("\n"),
+    );
+
+    installIdentities(parent, root, env);
+    run(root, env, ["task", "start", task.taskId, "--execution-id", task.executionId]);
+    const first = runMaybe(root, env, [
+      "agent",
+      "run",
+      "terra",
+      "--cwd",
+      ".",
+      "--task",
+      task.taskId,
+      "--prompt",
+      "escalate first",
+      "--no-stream",
+    ]);
+    assert.equal(first.status, 1, `${first.stderr}\n${JSON.stringify(first.receipt)}`);
+    const dispatchId = String((first.receipt.spawn as Record<string, unknown>).dispatchId);
+
+    run(root, env, ["task", "escalation", "resolve", task.taskId, "--dispatch-id", dispatchId, "--answer", answer]);
+
+    const reader = makeTaskEventReader({ rootDir: root, repoId: "runtime-cli" });
+    const settled = await waitForDurableValue(() => {
+      const events = reader.read().events,
+        settledEvent = events.find(
+          (event) => event.type === "runtime_inbox_settled" && event.payload.inboxId === `task:${task.taskId}`,
+        );
+      if (settledEvent && settledEvent.payload.settlement !== "consumed")
+        throw new Error(`Unexpected inbox settlement: ${JSON.stringify(settledEvent)}`);
+      const resumedDispatch = events.find(
+        (event) =>
+          event.type === "runtime_dispatch_requested" &&
+          event.payload.taskId === task.taskId &&
+          event.payload.dispatchId !== dispatchId,
+      );
+      return resumedDispatch && settledEvent ? { resumedDispatch, settledEvent, events } : null;
+    });
+    assert.equal(settled.settledEvent.type, "runtime_inbox_settled");
+    assert.equal(settled.settledEvent.payload.settlement, "consumed");
+    assert.equal(settled.resumedDispatch.type, "runtime_dispatch_requested");
+    assert.equal(settled.resumedDispatch.payload.resumeProviderSessionId, "provider-auto-resume");
+
+    const invocations = await waitForDurableValue(() => {
+      try {
+        const rows = readFileSync(resumeLogPath, "utf8")
+          .trim()
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => JSON.parse(line) as { readonly args: readonly string[]; readonly prompt: string });
+        return rows.length >= 2 ? rows : null;
+      } catch {
+        return null;
+      }
+    });
+    const resumedCall = invocations[1]!;
+    assert.ok(resumedCall.args.includes("resume"), JSON.stringify(resumedCall.args));
+    assert.ok(resumedCall.args.includes("provider-auto-resume"), JSON.stringify(resumedCall.args));
+    assert.ok(
+      resumedCall.prompt.includes(`Owner answer to worker escalation ${dispatchId}`) &&
+        resumedCall.prompt.includes(answer),
+      resumedCall.prompt,
     );
   },
 );

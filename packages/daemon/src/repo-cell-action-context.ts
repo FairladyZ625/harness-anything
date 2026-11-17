@@ -91,6 +91,7 @@ import {
 } from "@harness-anything/application/internal/queries/repo-cell-event-query.ts";
 import { type PublicPublication, type RepoTaskAction } from "./repo-cell-types.ts";
 import type { TaskQueryReadModel } from "./task-query-read.ts";
+import type { InboxDispatcher } from "./inbox-dispatcher.ts";
 import type { makeSquadCoordinator } from "./squad-coordinator.ts";
 import type {
   EntityActionCatalogRuntimes,
@@ -123,6 +124,7 @@ export function createRepoCellActionContext(bindings: {
   readonly getKnownTaskIds: () => Set<string> | null;
   readonly setKnownTaskIds: (value: Set<string> | null) => void;
   readonly getSquadCoordinator: () => ReturnType<typeof makeSquadCoordinator>;
+  readonly getInboxDispatcher: () => InboxDispatcher;
 }): RepoCellActionContext {
   const actionContext: { current: object | null } = { current: null };
   const bind =
@@ -334,6 +336,9 @@ export function createRepoCellActionContext(bindings: {
     },
     get squadCoordinator() {
       return bindings.getSquadCoordinator();
+    },
+    get inboxDispatcher() {
+      return bindings.getInboxDispatcher();
     },
     workspaceText,
     buildCommand,

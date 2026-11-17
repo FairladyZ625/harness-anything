@@ -10,6 +10,8 @@ import {
   currentSubmittedExecutions,
   isSamePerson,
   isReturnedRuntimeContinuation,
+  isRuntimeInboxInput,
+  reduceRuntimeInbox,
   runtimeEventContentClaims,
   dispatchOwner,
   getExecutableEntityAction,
@@ -38,6 +40,10 @@ const auxiliaryEventTypes = Object.freeze([
   "runtime_dispatch_outcome_unknown",
   "runtime_handoff_exported",
   "runtime_handoff_revoked",
+  "runtime_inbox_enqueued",
+  "runtime_inbox_claimed",
+  "runtime_inbox_settled",
+  "runtime_session_resume_degraded",
 ] as const satisfies readonly AgentRuntimeEventV1["type"][]);
 
 /**
@@ -275,6 +281,31 @@ export function appendAuxiliaryRuntimeIngress(
     occurredAt: cell.now(),
     payload: action.payload,
   }) as AgentRuntimeEventV1;
+  if (isRuntimeInboxInput(value)) {
+    const read = cell.projection.readRuntimeInbox({ by: "inbox", inboxId: value.payload.inboxId });
+    if (read.status !== "ready")
+      throw cell.cellCodedError(
+        "runtime_inbox_pending",
+        `Runtime inbox read model is at revision ${read.watermark} of ${read.sourceRevision}; retry.`,
+      );
+    const step = reduceRuntimeInbox(read.rows[0] ?? null, value);
+    if (step.kind === "ignored") {
+      if (value.type === "runtime_inbox_enqueued")
+        return noChanges({
+          opId: action.opId,
+          revision: cell.store.readHead()?.revision ?? 0,
+          headRevision: read.watermark,
+          evidence: JSON.stringify({
+            schema: "runtime-inbox-no-changes/v1",
+            inboxId: value.payload.inboxId,
+            itemId: value.payload.itemId,
+            reason: step.reason,
+          }),
+          origin: "runtime-inbox-ingress",
+        }) as unknown as JsonObject;
+      throw cell.cellCodedError("op_conflict", `Runtime inbox event was ignored (${step.reason}).`);
+    }
+  }
   const claims = runtimeEventContentClaims(value),
     blobs =
       action.resultBody === undefined

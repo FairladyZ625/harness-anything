@@ -33,6 +33,34 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
     meaning: "The historical terminal attempt exhausted its provider continuation options.",
     divergence: "entity-scoped",
   },
+  {
+    word: "pending",
+    entity: "RuntimeSession",
+    field: "inbox.status",
+    meaning: "Inbox item is queued and eligible for dispatch claim once cooldown and stop proof allow.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "leased",
+    entity: "RuntimeSession",
+    field: "inbox.status",
+    meaning: "Inbox item is currently claimed under a monotonic claimFence until leaseUntil.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "consumed",
+    entity: "RuntimeSession",
+    field: "inbox.status",
+    meaning: "Inbox item has been delivered to and consumed by a runtime dispatch.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "dead_letter",
+    entity: "RuntimeSession",
+    field: "inbox.status",
+    meaning: "Inbox item reached a terminal non-retryable disposition.",
+    divergence: "entity-scoped",
+  },
   ...squadRunStatusWordRegister,
   // Artifact reference declarations have no observed source content until snapshot import.
   {

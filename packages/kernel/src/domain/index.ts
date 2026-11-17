@@ -488,3 +488,21 @@ export {
   type DispatchLifecycleSummary,
   type DispatchLifecycleView,
 } from "./dispatch-lifecycle.ts";
+
+export {
+  RUNTIME_INBOX_MODEL_VERSION,
+  RUNTIME_INBOX_PAGE_LIMIT,
+  runtimeInboxEventTypes,
+  isRuntimeInboxInput,
+  reduceRuntimeInbox,
+  inboxHasOpenItems,
+  evaluateRuntimeInboxBatch,
+  type RuntimeInboxInput,
+  type RuntimeInboxItem,
+  type RuntimeInboxGroup,
+  type RuntimeInboxQuery,
+  type RuntimeInboxRead,
+  type RuntimeInboxSettlementKind,
+} from "./runtime-inbox.ts";
+
+export { resolveSessionContinuationMode, type PriorTerminalDispositionKind } from "./runtime-session-continuation.ts";

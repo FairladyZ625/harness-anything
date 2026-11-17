@@ -3,6 +3,7 @@ import path from "node:path";
 import { defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
 import {
   KeycloakPolicyAdapter,
+  policyAdapterConfigFromAuthority,
   keycloakLoginAttributes,
   keycloakLoginMappers,
   type KeycloakPolicyAdapterConfig,
@@ -181,4 +182,18 @@ export function readProviderMode(userRoot: string): "builtin" | "managed" | "ext
   } catch {
     return "legacy";
   }
+}
+
+export function attachOperatorSessionProvider<T>(value: T): T {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("personId" in value) ||
+    !("accessToken" in value) ||
+    !("url" in value) ||
+    "provider" in value
+  )
+    return value;
+  const authority = value as unknown as Parameters<typeof policyAdapterConfigFromAuthority>[0];
+  return { ...value, provider: createAuthorizationProvider(policyAdapterConfigFromAuthority(authority)) };
 }

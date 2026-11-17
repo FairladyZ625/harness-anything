@@ -187,6 +187,28 @@ export function makeRepoCellSquadCoordinator(deps: {
           `Squad synthesis report was ${receipt.outcome}.`,
         );
     },
+    publishResumeDegraded: async (payload, binding, opId) => {
+      const authorized = await authorizeRuntimeAction(
+        {
+          kind: "runtime-run",
+          runtimeEventType: "runtime_session_resume_degraded",
+          ...(payload.taskId ? { taskId: payload.taskId } : {}),
+        },
+        binding,
+        `squad-resume-degraded:${opId}`,
+      );
+      if (authorized.authorizationDecision?.outcome === "denied")
+        throw cellCodedError(
+          "authorization_denied",
+          authorized.authorizationDecision.nextActions.join(" ") ||
+            "Squad runtime event requires repo-write authority.",
+        );
+      extracted.appendAuxiliaryRuntimeIngress(
+        { kind: "event", type: "runtime_session_resume_degraded", opId, payload },
+        authorized,
+        true,
+      );
+    },
     runtimeSpawner: () => ({
       spawn: async (payload, binding, onPrepared) => {
         const action = { kind: "runtime-spawn", ...payload },

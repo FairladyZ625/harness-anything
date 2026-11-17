@@ -189,7 +189,7 @@ for (const interrupted of [false, true])
           },
         );
       const resolving = cell.run(
-        { kind: "task-escalation-resolve", taskId, dispatchId, answer: "Keep the boundary." },
+        { kind: "task-escalation-resolve", taskId, dispatchId, answer: "Keep the boundary.", noAutoResume: true },
         ceo,
       );
       // Give the competing command its own microtask turn while complete-tree cleanup is held.
@@ -212,7 +212,7 @@ for (const interrupted of [false, true])
         cell = await openBootstrappedRepoCell(options);
         const beforeReplay = events().length;
         resolved = await cell.run(
-          { kind: "task-escalation-resolve", taskId, dispatchId, answer: "Keep the boundary." },
+          { kind: "task-escalation-resolve", taskId, dispatchId, answer: "Keep the boundary.", noAutoResume: true },
           ceo,
         );
         assert.equal(events().length, beforeReplay + 1, "resume writes only the unfinished Task transition");
@@ -220,13 +220,13 @@ for (const interrupted of [false, true])
       assert.equal(resolved.outcome, "applied", JSON.stringify(resolved));
       const beforeDuplicate = events().length,
         duplicate = await cell.run(
-          { kind: "task-escalation-resolve", taskId, dispatchId, answer: "Keep the boundary." },
+          { kind: "task-escalation-resolve", taskId, dispatchId, answer: "Keep the boundary.", noAutoResume: true },
           ceo,
         );
       assert.equal(duplicate.outcome, "applied", JSON.stringify(duplicate));
       assert.equal(events().length, beforeDuplicate, "a completed answer is replayed without another write");
       const conflicting = await cell.run(
-        { kind: "task-escalation-resolve", taskId, dispatchId, answer: "Change the boundary." },
+        { kind: "task-escalation-resolve", taskId, dispatchId, answer: "Change the boundary.", noAutoResume: true },
         ceo,
       );
       assert.equal(conflicting.code, "invalid_escalation_resolution", "a recovered answer remains immutable");
@@ -255,8 +255,12 @@ for (const interrupted of [false, true])
       assert.equal(reblocked.outcome, "applied", JSON.stringify(reblocked));
       const beforeOldAnswer = events().length;
       assert.equal(
-        (await cell.run({ kind: "task-escalation-resolve", taskId, dispatchId, answer: "Keep the boundary." }, ceo))
-          .outcome,
+        (
+          await cell.run(
+            { kind: "task-escalation-resolve", taskId, dispatchId, answer: "Keep the boundary.", noAutoResume: true },
+            ceo,
+          )
+        ).outcome,
         "applied",
       );
       assert.equal(events().length, beforeOldAnswer, "an old answer cannot reopen a later owner block");

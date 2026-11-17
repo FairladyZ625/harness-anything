@@ -1,4 +1,10 @@
-import { resolveHarnessLayout, validSquadDispatchContext } from "@harness-anything/kernel";
+import {
+  resolveHarnessLayout,
+  resolveSessionContinuationMode,
+  validSquadDispatchContext,
+  type PriorTerminalDispositionKind,
+  type RuntimeSession,
+} from "@harness-anything/kernel";
 import { daemonMethodPayloadFields } from "./protocol/daemon-protocol-commands.ts";
 import { unknownFieldViolation } from "./protocol/json-rpc-types.ts";
 import { readHandoffCheckpoint } from "./runtime-handoff-store.ts";
@@ -155,6 +161,86 @@ export function assertResumeAgent(
     "runtime_resume_agent_mismatch",
     `Dispatch ${dispatchId} belongs to agent ${inheritedAgentId}, not ${resolvedAgentId}.`,
   );
+}
+
+/**
+ * Identity-fenced selective session continuation (`dec_E0CB793DAA21F49FF1E98D5067`):
+ * block cross-employee raw `--resume` without `HandoffPacketV1`, cross-task mismatches,
+ * and direct `--resume` of sessions terminated by cancel, stall, or unreachable provider.
+ */
+export function assertSessionContinuationFence(
+  projection: Pick<TaskProjection, "readRuntimeSessions" | "readRuntimeDispatch" | "readRuntimeSessionEventsByType">,
+  input: {
+    readonly providerSessionId: string;
+    readonly taskId: string | null;
+    readonly agentId: string | null;
+    readonly dispatchId?: string;
+  },
+): void {
+  const kindSupported = (kindId: string): boolean => {
+    const declaration = runtimeKindForId(kindId);
+    return declaration.capabilities.resume === "supported" || declaration.declaredCapabilities.includes("resume");
+  };
+  for (const session of projection.readRuntimeSessions({ providerSessionId: input.providerSessionId })) {
+    const dispatch = projection.readRuntimeDispatch(session.runtimeSessionId),
+      previousAgentId = dispatch?.payload.agentId ?? null,
+      previousTaskId = dispatch?.payload.taskId ?? null,
+      decision = resolveSessionContinuationMode({
+        requestedAgentId: input.agentId ?? previousAgentId,
+        previousAgentId,
+        taskId: input.taskId,
+        previousTaskId,
+        lineageMatches: previousTaskId === null || input.taskId === previousTaskId,
+        providerSessionId: input.providerSessionId,
+        runtimeSupportsResume: kindSupported(session.kindId),
+        previousTerminalKind: sessionPreviousTerminalKind(projection, session),
+        hasHandoffPacket: false,
+      });
+    if (decision.blockedWithoutHandoff)
+      throw runtimeSpawnError(
+        "runtime_resume_agent_mismatch",
+        `Provider session ${input.providerSessionId} belongs to agent ${previousAgentId ?? "unknown"}, ` +
+          `not ${input.agentId ?? "unknown"}; cross-employee resume requires HandoffPacketV1.`,
+      );
+    if (!decision.allowProviderResume && decision.reason === "lineage_mismatch")
+      throw runtimeSpawnError(
+        "runtime_resume_binding_mismatch",
+        `Provider session ${input.providerSessionId} is bound to task ${previousTaskId ?? "none"}, not ${input.taskId ?? "none"}.`,
+      );
+    if (!decision.allowProviderResume)
+      throw runtimeSpawnError(
+        "runtime_dispatch_not_resumable",
+        `Provider session ${input.providerSessionId} cannot be directly resumed (${decision.reason}); start a fresh session.`,
+      );
+  }
+}
+
+function sessionPreviousTerminalKind(
+  projection: Pick<TaskProjection, "readRuntimeSessionEventsByType">,
+  session: RuntimeSession,
+): PriorTerminalDispositionKind {
+  if (session.providerUnreachable) return "unreachable";
+  const outcomes = projection.readRuntimeSessionEventsByType(session.runtimeSessionId, [
+    "runtime_session_outcome_observed",
+  ]);
+  if (
+    outcomes.some(
+      (event) =>
+        event.type === "runtime_session_outcome_observed" &&
+        event.payload.attempt?.classification === "dispatch_stalled",
+    )
+  )
+    return "stalled";
+  const hasRulingOutcome = outcomes.some(
+    (event) =>
+      event.type === "runtime_session_outcome_observed" &&
+      (event.payload.reasonCode === "ruling_resolved" || event.payload.attempt?.classification === "awaiting_ruling"),
+  );
+  if (session.outcome === "cancelled" || (session.cancelledBy !== null && !hasRulingOutcome)) return "cancelled";
+  if (hasRulingOutcome) return "awaiting_ruling";
+  if (session.outcome === "succeeded") return "succeeded";
+  if (session.outcome === "failed") return "failed";
+  return "none";
 }
 
 /**

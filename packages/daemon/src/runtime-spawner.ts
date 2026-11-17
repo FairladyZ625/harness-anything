@@ -134,6 +134,7 @@ import {
   assertNativeResumeNotExported,
   assertRuntimeHandoffLaunch,
   assertResumeAgent,
+  assertSessionContinuationFence,
   readOnlyAttachDispatch,
   prepareDispatchWorktree,
   projectedWorktreeBinding,
@@ -366,6 +367,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           ? requiredRuntimeSpawnText(payload.providerSessionId, "providerSessionId")
           : (handoff?.providerSessionId ?? resumed?.providerSessionId);
     assertResumeAgent(requestedDispatchId, inherited?.agentId, payload.agentId, agentId);
+    if (!handoff && providerSessionId && input.projection)
+      assertSessionContinuationFence(input.projection(), {
+        providerSessionId,
+        taskId,
+        agentId: agentId ?? null,
+        dispatchId: requestedDispatchId,
+      });
     if (!taskId && requestedExecutionId !== undefined)
       throw runtimeSpawnError(
         "runtime_execution_binding_forbidden",

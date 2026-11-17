@@ -12,6 +12,9 @@ export const privateRuntimeEventTypes = [
   "runtime_session_provider_bound",
   "runtime_session_task_bound",
   "runtime_squad_run_observed",
+  "runtime_inbox_enqueued",
+  "runtime_inbox_claimed",
+  "runtime_inbox_settled",
 ] as const;
 
 /** Validate a runtime event type filter before it becomes SQL; empty or unknown filters fail closed. */

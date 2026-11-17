@@ -758,6 +758,10 @@ const runtimeEventType = one(
   "runtime_session_exited",
   "runtime_session_outcome_observed",
   "runtime_dispatch_outcome_unknown",
+  "runtime_inbox_enqueued",
+  "runtime_inbox_claimed",
+  "runtime_inbox_settled",
+  "runtime_session_resume_degraded",
 );
 const runtimeDispatchContext = optionalShape(
   { role: nullable(text), taskId: nullable(id), executionId: nullable(id), launchGeneration: uint },

@@ -42,6 +42,10 @@ export const agentRuntimeEventTypes = [
   "runtime_dispatch_outcome_unknown",
   "runtime_handoff_exported",
   "runtime_handoff_revoked",
+  "runtime_inbox_enqueued",
+  "runtime_inbox_claimed",
+  "runtime_inbox_settled",
+  "runtime_session_resume_degraded",
 ] as const;
 
 export function runtimeTaskExecutionRelation(runtimeSessionId: string, taskId: string): EntityRelationRecord {
@@ -477,6 +481,51 @@ interface RuntimePayloads {
   };
   readonly runtime_handoff_revoked: { readonly dispatchId: string; readonly runtimeSessionId: string };
   readonly runtime_dispatch_outcome_unknown: { readonly dispatchId: string; readonly runtimeSessionId: string };
+  readonly runtime_inbox_enqueued: {
+    readonly inboxId: string;
+    readonly itemId: string;
+    readonly source: "ruling_resolved" | "timer_fired" | "task_stalled" | "inbound_message" | "system";
+    readonly dedupeKey: string;
+    readonly coalesceWindowMs: number;
+    readonly midRunPolicy: "defer_next_run" | "fold" | "interrupt";
+    readonly taskId: string | null;
+    readonly dispatchId: string | null;
+    readonly squadRunId: string | null;
+    readonly agentId: string | null;
+    readonly summary: string;
+    readonly data: Readonly<Record<string, unknown>>;
+    readonly contextRef?: string | null;
+    readonly enqueuedAt: string;
+  };
+  readonly runtime_inbox_claimed: {
+    readonly inboxId: string;
+    readonly itemIds: readonly string[];
+    readonly claimFence: number;
+    readonly claimedByDispatchId: string | null;
+    readonly leaseUntil: string;
+    readonly claimedAt: string;
+  };
+  readonly runtime_inbox_settled: {
+    readonly inboxId: string;
+    readonly itemIds: readonly string[];
+    readonly claimFence: number;
+    readonly settlement: "consumed" | "dead_letter" | "released";
+    readonly settledByDispatchId: string | null;
+    readonly reason: string | null;
+    readonly settledAt: string;
+  };
+  readonly runtime_session_resume_degraded: {
+    readonly runtimeSessionId: string;
+    readonly dispatchId: string;
+    readonly sourceDispatchId: string | null;
+    readonly providerSessionId: string;
+    readonly taskId: string | null;
+    readonly agentId: string | null;
+    readonly degradedTo: "fresh" | "handoff";
+    readonly reasonCode: string;
+    readonly reason: string;
+    readonly observedAt: string;
+  };
 }
 export interface RuntimeDispatchMetrics {
   readonly inputTokens: number;
@@ -539,7 +588,53 @@ const payloadFields: Record<AgentRuntimeEventType, readonly string[]> = {
   runtime_handoff_exported: ["dispatchId", "runtimeSessionId", "taskId", "executionId", "commit", "sha256"],
   runtime_handoff_revoked: ["dispatchId", "runtimeSessionId"],
   runtime_dispatch_outcome_unknown: ["dispatchId", "runtimeSessionId"],
+  runtime_inbox_enqueued: [
+    "inboxId",
+    "itemId",
+    "source",
+    "dedupeKey",
+    "coalesceWindowMs",
+    "midRunPolicy",
+    "taskId",
+    "dispatchId",
+    "squadRunId",
+    "agentId",
+    "summary",
+    "data",
+    "enqueuedAt",
+  ],
+  runtime_inbox_claimed: ["inboxId", "itemIds", "claimFence", "claimedByDispatchId", "leaseUntil", "claimedAt"],
+  runtime_inbox_settled: [
+    "inboxId",
+    "itemIds",
+    "claimFence",
+    "settlement",
+    "settledByDispatchId",
+    "reason",
+    "settledAt",
+  ],
+  runtime_session_resume_degraded: [
+    "runtimeSessionId",
+    "dispatchId",
+    "sourceDispatchId",
+    "providerSessionId",
+    "taskId",
+    "agentId",
+    "degradedTo",
+    "reasonCode",
+    "reason",
+    "observedAt",
+  ],
 };
+const nullableRuntimeIdFields = new Set([
+  "taskId",
+  "dispatchId",
+  "squadRunId",
+  "agentId",
+  "claimedByDispatchId",
+  "settledByDispatchId",
+  "sourceDispatchId",
+]);
 export function validateAgentRuntimePayload(type: AgentRuntimeEventType, value: unknown): readonly string[] {
   return validateAgentRuntimePayloadFields(type, value, false);
 }
@@ -584,27 +679,29 @@ function validateAgentRuntimePayloadFields(
         ? ["taskBinding"]
         : type === "runtime_session_liveness_changed"
           ? ["processGroupPid", "providerUnreachable"]
-          : type === "runtime_dispatch_requested"
-            ? [
-                "startedAt",
-                "resumedFromDispatchId",
-                "handoffEnabled",
-                "handoffCheckpointId",
-                "acceptedCommit",
-                "resumeProviderSessionId",
-                "taskId",
-                "executionId",
-                "attemptGroupId",
-                "attemptIndex",
-                "agentId",
-                "agentName",
-                "squadId",
-                "squadRun",
-                "cwd",
-                "role",
-                "reviewTarget",
-              ]
-            : [];
+          : type === "runtime_inbox_enqueued"
+            ? ["contextRef"]
+            : type === "runtime_dispatch_requested"
+              ? [
+                  "startedAt",
+                  "resumedFromDispatchId",
+                  "handoffEnabled",
+                  "handoffCheckpointId",
+                  "acceptedCommit",
+                  "resumeProviderSessionId",
+                  "taskId",
+                  "executionId",
+                  "attemptGroupId",
+                  "attemptIndex",
+                  "agentId",
+                  "agentName",
+                  "squadId",
+                  "squadRun",
+                  "cwd",
+                  "role",
+                  "reviewTarget",
+                ]
+              : [];
   if (
     !isRecord(value) ||
     !hasRequiredFields(value, requiredFields) ||
@@ -617,8 +714,12 @@ function validateAgentRuntimePayloadFields(
     (!/^[a-f0-9]{40}$/u.test(String(value.commit)) || !/^[a-f0-9]{64}$/u.test(String(value.sha256)))
   )
     return ["runtime handoff audit binding is invalid"];
-  const ids = acceptedFields.filter((field) => /(?:Id|Key)$/u.test(field));
+  const ids = acceptedFields.filter((field) => /(?:Id|Key)$/u.test(field) && !nullableRuntimeIdFields.has(field));
   if (ids.some((field) => !isNonEmptyString(value[field]))) return ["agent runtime payload identity is invalid"];
+  if (type === "runtime_inbox_enqueued") return validateRuntimeInboxEnqueuedPayload(value);
+  if (type === "runtime_inbox_claimed") return validateRuntimeInboxClaimedPayload(value);
+  if (type === "runtime_inbox_settled") return validateRuntimeInboxSettledPayload(value);
+  if (type === "runtime_session_resume_degraded") return validateRuntimeSessionResumeDegradedPayload(value);
   if (
     type === "runtime_installation_observed" &&
     (!isNonEmptyString(value.protocolFamily) ||
@@ -775,6 +876,75 @@ function validRuntimeProviderUnreachable(value: unknown): value is RuntimeProvid
     isNonEmptyString(value.lastError)
   );
 }
+function isValidNullableId(value: unknown): boolean {
+  return value === null || isNonEmptyString(value);
+}
+function isValidInboxId(value: unknown): boolean {
+  return typeof value === "string" && /^(?:task|agent):[^\s]{1,128}$/u.test(value);
+}
+function validateRuntimeInboxEnqueuedPayload(value: Readonly<Record<string, unknown>>): readonly string[] {
+  if (
+    !isValidInboxId(value.inboxId) ||
+    !isNonEmptyString(value.itemId) ||
+    !["ruling_resolved", "timer_fired", "task_stalled", "inbound_message", "system"].includes(String(value.source)) ||
+    !isNonEmptyString(value.dedupeKey) ||
+    !Number.isInteger(value.coalesceWindowMs) ||
+    Number(value.coalesceWindowMs) < 0 ||
+    !["defer_next_run", "fold", "interrupt"].includes(String(value.midRunPolicy)) ||
+    ![value.taskId, value.dispatchId, value.squadRunId, value.agentId].every(isValidNullableId) ||
+    !isNonEmptyString(value.summary) ||
+    !isRecord(value.data) ||
+    (value.contextRef !== undefined && !isValidNullableId(value.contextRef)) ||
+    !timestamp(String(value.enqueuedAt))
+  )
+    return ["runtime inbox enqueue payload is invalid"];
+  return [];
+}
+function validateRuntimeInboxClaimedPayload(value: Readonly<Record<string, unknown>>): readonly string[] {
+  if (
+    !isValidInboxId(value.inboxId) ||
+    !Array.isArray(value.itemIds) ||
+    value.itemIds.length === 0 ||
+    !value.itemIds.every(isNonEmptyString) ||
+    new Set(value.itemIds).size !== value.itemIds.length ||
+    !Number.isInteger(value.claimFence) ||
+    Number(value.claimFence) < 1 ||
+    !isValidNullableId(value.claimedByDispatchId) ||
+    !timestamp(String(value.leaseUntil)) ||
+    !timestamp(String(value.claimedAt))
+  )
+    return ["runtime inbox claim payload is invalid"];
+  return [];
+}
+function validateRuntimeInboxSettledPayload(value: Readonly<Record<string, unknown>>): readonly string[] {
+  if (
+    !isValidInboxId(value.inboxId) ||
+    !Array.isArray(value.itemIds) ||
+    value.itemIds.length === 0 ||
+    !value.itemIds.every(isNonEmptyString) ||
+    new Set(value.itemIds).size !== value.itemIds.length ||
+    !Number.isInteger(value.claimFence) ||
+    Number(value.claimFence) < 1 ||
+    !["consumed", "dead_letter", "released"].includes(String(value.settlement)) ||
+    !isValidNullableId(value.settledByDispatchId) ||
+    !isValidNullableId(value.reason) ||
+    !timestamp(String(value.settledAt))
+  )
+    return ["runtime inbox settled payload is invalid"];
+  return [];
+}
+function validateRuntimeSessionResumeDegradedPayload(value: Readonly<Record<string, unknown>>): readonly string[] {
+  if (
+    ![value.runtimeSessionId, value.dispatchId, value.providerSessionId, value.reasonCode, value.reason].every(
+      isNonEmptyString,
+    ) ||
+    ![value.sourceDispatchId, value.taskId, value.agentId].every(isValidNullableId) ||
+    !["fresh", "handoff"].includes(String(value.degradedTo)) ||
+    !timestamp(String(value.observedAt))
+  )
+    return ["runtime session resume degraded payload is invalid"];
+  return [];
+}
 export function validateAgentRuntimeEvent(value: unknown): readonly string[] {
   return validateAgentRuntimeEventFields(value, true);
 }
@@ -912,7 +1082,11 @@ export function reduceRuntimeSession(
     event.type === "runtime_dispatch_outcome_unknown" ||
     event.type === "runtime_handoff_exported" ||
     event.type === "runtime_handoff_revoked" ||
-    event.type === "runtime_installation_observed"
+    event.type === "runtime_installation_observed" ||
+    event.type === "runtime_inbox_enqueued" ||
+    event.type === "runtime_inbox_claimed" ||
+    event.type === "runtime_inbox_settled" ||
+    event.type === "runtime_session_resume_degraded"
   )
     return current;
   const sessionId = runtimeSessionId(event);

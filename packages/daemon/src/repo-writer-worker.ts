@@ -1,5 +1,5 @@
 import { observeWorkerMemory } from "./daemon-diagnostics-memory.ts";
-import { createAuthorizationProvider } from "./authorization-provider.ts";
+import { attachOperatorSessionProvider, createAuthorizationProvider } from "./authorization-provider.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
@@ -115,7 +115,7 @@ async function startRepoWriterWorker(): Promise<void> {
       const pending = asyncCapabilities.get(message.callId);
       if (!pending) return;
       asyncCapabilities.delete(message.callId);
-      if (message.outcome === "ok") pending.resolve(message.value);
+      if (message.outcome === "ok") pending.resolve(attachOperatorSessionProvider(message.value));
       else pending.reject(deserializeWriterError(message.error!));
       return;
     }

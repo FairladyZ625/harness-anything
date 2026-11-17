@@ -45,6 +45,7 @@ export function makePgTaskProjection(
       // claims readiness; the marker makes every later catch-up a single cheap check.
       reader.backfillArtifactTimeline();
       reader.backfillDispatchLifecycle();
+      reader.backfillRuntimeInbox();
       const metrics = { storeTransactions: 0, reducedItems: 0, maxBatchItems: 0 };
       for (;;) {
         const page = reader.warmIndexes(limit);
@@ -78,6 +79,12 @@ export function makePgTaskProjection(
       if (read.status !== "pending" || read.watermark !== read.sourceRevision) return read;
       reader.backfillDispatchLifecycle();
       return queries.readDispatchLifecycle(query);
+    },
+    readRuntimeInbox: (query) => {
+      const read = queries.readRuntimeInbox(query);
+      if (read.status !== "pending" || read.watermark !== read.sourceRevision) return read;
+      reader.backfillRuntimeInbox();
+      return queries.readRuntimeInbox(query);
     },
     path: reader.path,
     close: reader.close,

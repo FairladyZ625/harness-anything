@@ -185,6 +185,11 @@ export function makeRepoReadRuntime(
         flushPublications: unsupportedWrite,
         observeOutcome: unsupportedWrite,
       },
+      inboxDispatcher = {
+        wake: unsupportedWrite,
+        drain: unsupportedWrite,
+        close: () => undefined,
+      },
       runtimeReads = repositoryRuntimeReads(writableProjection, readStore, input.now, input.rootDir),
       now = input.now ?? (() => new Date().toISOString());
     const runtimeSpawner: RepoCellRuntimeContext["runtimeSpawner"] = {
@@ -230,6 +235,7 @@ export function makeRepoReadRuntime(
           knownTaskIds = value;
         },
         getSquadCoordinator: () => squadCoordinator,
+        getInboxDispatcher: () => inboxDispatcher,
       }),
       runtimeContext = Object.assign(actionContext, {
         mode: input.mode ?? "local",
@@ -280,6 +286,7 @@ export function makeRepoReadRuntime(
         settings,
         ...(edgeView ? {} : { withReadSession: query }),
         squadCoordinator,
+        inboxDispatcher,
         runtimeReads,
         dispatchRead,
         requiredCellText,
