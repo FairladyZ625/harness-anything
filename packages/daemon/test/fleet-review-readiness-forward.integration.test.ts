@@ -25,18 +25,29 @@ test(
       version: "1.0.0",
       observedAt: "2026-11-07T00:00:00.000Z",
     };
-    const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, false, {
-        runtimeDiscover: () => [installation],
-      }),
+    let origin = "";
+    const f = await fleetNodeClaimFixture(
+        t,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        false,
+        {
+          runtimeDiscover: () => [installation],
+        },
+        async (repo) => {
+          origin = path.join(path.dirname(repo), "origin.git");
+          git(repo, "branch", "-M", "main");
+          git(repo, "init", "--bare", "-q", "--initial-branch=main", origin);
+          git(repo, "remote", "add", "origin", origin);
+          git(repo, "push", "-qu", "origin", "main");
+          git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
+        },
+      ),
       repoId = "lease-repo",
       taskId = "task-forward-review-readiness",
-      executionId = "execution-forward-review-readiness",
-      origin = path.join(f.root, "origin.git");
-    git(f.repo, "branch", "-M", "main");
-    git(f.repo, "init", "--bare", "-q", "--initial-branch=main", origin);
-    git(f.repo, "remote", "add", "origin", origin);
-    git(f.repo, "push", "-qu", "origin", "main");
-    git(f.repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
+      executionId = "execution-forward-review-readiness";
     await registerFixtureRuntimeInstance(f.host, repoId, localAuthFixture(), {
       instanceId: definition.instanceId,
       name: "Forward review runtime",
