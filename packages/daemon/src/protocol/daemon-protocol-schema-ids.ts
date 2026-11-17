@@ -370,8 +370,9 @@ export const GUI_SYSTEM_STATUS_SCHEMA = Object.freeze({
  */
 export const daemonUseCaseProjectionPayloadShape = shape({
   name: { values: useCaseProjectionNameWords, optional: false },
-  facet: optionalEnum(["plane", "runs", "groups"]),
+  facet: optionalEnum(["plane", "runs", "groups", "members"]),
   scheduleId: "string?",
+  groupKey: "string?",
   groupBy: optionalEnum(["task", "squad", "agent", "day"]),
   agentId: "string?",
   squadId: "string?",

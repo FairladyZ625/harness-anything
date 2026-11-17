@@ -125,23 +125,25 @@ function SessionFacts({
             </KVRow>
             <KVRow name="status">{t(sessionStatusKey[row.status] as never)}</KVRow>
           </KV>
-          <button
-            type="button"
-            data-testid="inspector-open-task"
-            data-task={row.taskId}
-            title={t("agentRuntime.openTask")}
-            onClick={() => onOpenTask(row.taskId)}
-            className={
-              "mt-2 flex w-full items-center gap-1.5 rounded border border-border px-2 py-1 text-left " +
-              "hover:border-accent hover:text-accent"
-            }
-          >
-            <span className="min-w-0 flex-1 truncate ui-micro">{row.taskTitle ?? row.taskId}</span>
-            <span className="shrink-0 font-mono ui-micro text-text-faint">{shortRef(row.taskId, 14)}</span>
-            <span aria-hidden className="shrink-0 ui-micro text-text-faint">
-              ↗
-            </span>
-          </button>
+          {row.taskId !== null && (
+            <button
+              type="button"
+              data-testid="inspector-open-task"
+              data-task={row.taskId}
+              title={t("agentRuntime.openTask")}
+              onClick={() => onOpenTask(row.taskId!)}
+              className={
+                "mt-2 flex w-full items-center gap-1.5 rounded border border-border px-2 py-1 text-left " +
+                "hover:border-accent hover:text-accent"
+              }
+            >
+              <span className="min-w-0 flex-1 truncate ui-micro">{row.taskTitle ?? row.taskId}</span>
+              <span className="shrink-0 font-mono ui-micro text-text-faint">{shortRef(row.taskId, 14)}</span>
+              <span aria-hidden className="shrink-0 ui-micro text-text-faint">
+                ↗
+              </span>
+            </button>
+          )}
         </>
       )}
     </section>

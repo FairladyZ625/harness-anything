@@ -25,7 +25,11 @@ import {
 import { validateCatalogActionPayload, validateSessionEnvironment } from "./daemon-protocol-validate-task.ts";
 import { validateDaemonQueryPayload } from "./daemon-protocol-validate-relation-query.ts";
 import { type DaemonRpcCall, type DaemonRpcMethod, type DaemonRpcWireParams } from "./daemon-protocol.contract.ts";
-import { decisionStateWords, isRuntimeMcpPolicy } from "./daemon-protocol-vocabulary.ts";
+import {
+  agentRuntimeUnattributedGroupKeyWords,
+  decisionStateWords,
+  isRuntimeMcpPolicy,
+} from "./daemon-protocol-vocabulary.ts";
 import { DaemonProtocolContractError, isJsonObject, rejectSecretKeys, type JsonObject } from "./json-rpc-types.ts";
 
 export {
@@ -197,6 +201,11 @@ function validateUseCaseProjectionPayload(value: unknown): string[] {
   if (typeof admitted === "string") return [admitted];
   if (admitted.name === "schedule-run-history" && !nonEmpty(value.scheduleId))
     return ["schedule run history requires a scheduleId"];
+  if (admitted.facet === "members") {
+    if (!(agentRuntimeUnattributedGroupKeyWords as readonly string[]).includes(String(value.groupKey)))
+      return ["runtime session group members requires a valid unattributed groupKey"];
+    return validateRuntimeSessionGroupsPayload(value);
+  }
   return admitted.facet === "groups" ? validateRuntimeSessionGroupsPayload(value) : [];
 }
 

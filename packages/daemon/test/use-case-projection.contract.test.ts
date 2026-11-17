@@ -119,6 +119,22 @@ test("the selector boundary admits and rejects identically for every projection"
     name: "runtime-session-groups",
     facet: "groups",
   });
+  assert.deepEqual(
+    admitUseCaseProjectionSelector({
+      name: "runtime-session-groups",
+      facet: "members",
+      groupKey: "unattributed:no-task",
+      groupBy: "task",
+    }),
+    {
+      name: "runtime-session-groups",
+      facet: "members",
+    },
+  );
+  assert.match(
+    admitUseCaseProjectionSelector({ name: "runtime-session-groups", facet: "members", sessionIds: ["s1"] }) as string,
+    /does not accept sessionIds/u,
+  );
   assert.match(admitUseCaseProjectionSelector({ name: "repo.schedules.list" }) as string, /name is unknown/u);
   assert.match(admitUseCaseProjectionSelector({ name: "schedule-plane", facet: "runs" }) as string, /has no facet/u);
   // A selector that belongs to another projection is refused rather than quietly dropped.

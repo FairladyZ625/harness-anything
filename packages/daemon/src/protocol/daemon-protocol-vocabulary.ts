@@ -342,7 +342,24 @@ export const useCaseProjectionNameWordsAreServed: [(typeof useCaseProjectionName
   ? true
   : never = true;
 
-export const useCaseProjectionFacetWords = Object.freeze(["plane", "runs", "groups"] as const);
+export const useCaseProjectionFacetWords = Object.freeze(["plane", "runs", "groups", "members"] as const);
+
+/**
+ * A session lands outside every named group for one of three reasons, and they are not the same
+ * question for the operator: no task binding, a dispatch row that names no squad, or no dispatch
+ * row at all (a direct session, or one dispatched on another node — dispatch rows are node-local
+ * while sessions replicate). One bucket labelled "Unattributed" said all three at once.
+ */
+export const agentRuntimeUnattributedGroupKeys = Object.freeze({
+  noTask: "unattributed:no-task",
+  noSquad: "unattributed:no-squad",
+  noDispatch: "unattributed:no-dispatch",
+} as const);
+export type AgentRuntimeUnattributedGroupKey =
+  (typeof agentRuntimeUnattributedGroupKeys)[keyof typeof agentRuntimeUnattributedGroupKeys];
+export const agentRuntimeUnattributedGroupKeyWords = Object.freeze(
+  Object.values(agentRuntimeUnattributedGroupKeys) as readonly AgentRuntimeUnattributedGroupKey[],
+);
 
 /**
  * Use-case projection transport contract (dec_5B135F46 CH4 layer two).
@@ -366,7 +383,7 @@ export type UseCaseProjectionName = (typeof useCaseProjectionNameWords)[number];
 export const useCaseProjectionFacets = Object.freeze({
   "schedule-plane": Object.freeze(["plane"] as const),
   "schedule-run-history": Object.freeze(["runs"] as const),
-  "runtime-session-groups": Object.freeze(["groups"] as const),
+  "runtime-session-groups": Object.freeze(["groups", "members"] as const),
 });
 
 export type UseCaseProjectionFacet = (typeof useCaseProjectionFacetWords)[number];
@@ -376,10 +393,15 @@ export type UseCaseProjectionFacet = (typeof useCaseProjectionFacetWords)[number
  * payload is rejected at the boundary rather than silently ignored by one layer and honoured by
  * the next.
  */
-function useCaseProjectionSelectorFields(name: UseCaseProjectionName): readonly string[] {
+function useCaseProjectionSelectorFields(
+  name: UseCaseProjectionName,
+  facet: UseCaseProjectionFacet,
+): readonly string[] {
   const base = ["name", "facet"];
   if (name === "schedule-plane") return base;
   if (name === "schedule-run-history") return [...base, "scheduleId", "limit"];
+  if (facet === "members")
+    return [...base, "groupKey", "groupBy", "since", "query", "agentId", "squadId", "status", "limit"];
   return [...base, "groupBy", "since", "query", "agentId", "squadId", "status", "sessionIds", "unsettledOnly", "limit"];
 }
 
@@ -406,7 +428,7 @@ export function admitUseCaseProjectionSelector(
       `Use-case projection ${name} has no facet ${String(facet)}; ` +
       `expected ${useCaseProjectionFacets[name].join(", ")}.`
     );
-  const allowed = useCaseProjectionSelectorFields(name);
+  const allowed = useCaseProjectionSelectorFields(name, facet);
   const unexpected = Object.keys(payload).filter((field) => !allowed.includes(field));
   if (unexpected.length > 0)
     return (

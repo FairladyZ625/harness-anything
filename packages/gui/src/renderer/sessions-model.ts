@@ -237,6 +237,10 @@ export const sessionUnattributedKey: Readonly<Record<AgentRuntimeUnattributedGro
   "unattributed:no-dispatch": "agentRuntime.unattributedNoDispatch",
 };
 
+export function isUnattributedGroupKey(key: string): key is AgentRuntimeUnattributedGroupKey {
+  return Object.hasOwn(sessionUnattributedKey, key);
+}
+
 export const sessionInstallationBadgeKey: Readonly<
   Record<RuntimeInstallationState, "agentRuntime.installationMissing" | null>
 > = {
@@ -344,7 +348,7 @@ export type SessionRound = {
   readonly agentName: string | null;
   readonly squadId: string | null;
   readonly instanceId: string;
-  readonly taskId: string;
+  readonly taskId: string | null;
   readonly taskTitle: string | null;
   readonly startedAt: string;
   /** dispatch 行的收口时刻;终态新鲜度窗口(Done 级)的真实判据,未收口为 null。 */
@@ -360,12 +364,12 @@ export type SessionRound = {
    *  而不是该会话最后一条消息。实现派工为 null。 */
   readonly reviewTarget: TaskDispatchProjectionRow["reviewTarget"] | null;
 };
-/** 组展开行之二:绑定了任务但没有派工记录的会话(「无派工记录」小节)。 */
+/** 组展开行之二:没有派工记录的会话(绑定任务或未归属桶内的「无派工记录」)。 */
 export type SessionOrphan = {
   readonly kind: "orphan";
   readonly runtimeSessionId: string;
   readonly instanceId: string;
-  readonly taskId: string;
+  readonly taskId: string | null;
   readonly taskTitle: string | null;
   readonly startedAt: string;
   readonly status: SessionStatus;
@@ -396,9 +400,9 @@ export function sessionDelegation(row: TaskDispatchProjectionRow): string | null
   return `${leader} → ${worker}`;
 }
 
-/** 一个任务组的全部轮次行:dispatch 台账顺序(新→旧)即编号顺序,第 1 轮最新。 */
+/** 一个任务组或未归属组的全部轮次行:dispatch 台账顺序(新→旧)即编号顺序,第 1 轮最新。 */
 export function sessionRounds(
-  taskId: string,
+  taskId: string | null,
   taskTitle: string | null,
   dispatches: readonly TaskDispatchProjectionRow[],
 ): readonly SessionRound[] {
@@ -412,8 +416,8 @@ export function sessionRounds(
     agentName: row.agentName ?? row.agentId ?? null,
     squadId: row.squadId ?? null,
     instanceId: row.instanceId,
-    taskId,
-    taskTitle,
+    taskId: (row.taskId || null) ?? taskId,
+    taskTitle: row.taskTitle ?? taskTitle,
     startedAt: row.startedAt,
     endedAt: row.endedAt ?? null,
     status: row.status,
@@ -431,22 +435,29 @@ export function sessionRoundsByTask(
   groups: readonly SessionGroup[],
   dispatches: readonly TaskDispatchProjectionRow[],
 ): ReadonlyMap<string, readonly SessionRound[]> {
-  const byTask = new Map<string, TaskDispatchProjectionRow[]>();
+  const byTask = new Map<string, TaskDispatchProjectionRow[]>(),
+    unattributed: TaskDispatchProjectionRow[] = [];
   for (const row of dispatches) {
+    if (!row.taskId) {
+      unattributed.push(row);
+      continue;
+    }
     const rows = byTask.get(row.taskId);
     if (rows === undefined) byTask.set(row.taskId, [row]);
     else rows.push(row);
   }
   const result = new Map<string, readonly SessionRound[]>();
-  for (const group of groups)
+  for (const group of groups) {
     if (group.taskId !== undefined)
       result.set(group.taskId, sessionRounds(group.taskId, group.label, byTask.get(group.taskId) ?? []));
+    else if (group.kind === "unattributed") result.set(group.key, sessionRounds(null, null, unattributed));
+  }
   return result;
 }
 
-/** 与任务绑定但派工台账没有记录的会话:组尾「无派工记录」小节的来源。 */
+/** 派工台账没有记录的会话:组内「无派工记录」小节或 unattributed:no-dispatch 组的来源。 */
 export function sessionOrphans(
-  taskId: string,
+  taskId: string | null,
   taskTitle: string | null,
   sessions: readonly AgentRuntimeSessionDto[],
   rounds: readonly SessionRound[],
@@ -456,13 +467,13 @@ export function sessionOrphans(
     .filter(
       (session) =>
         !dispatched.has(session.runtimeSessionId) &&
-        session.associations.some((association) => association.taskId === taskId),
+        (taskId === null || session.associations.some((association) => association.taskId === taskId)),
     )
     .map((session) => ({
       kind: "orphan" as const,
       runtimeSessionId: session.runtimeSessionId,
       instanceId: session.instanceId,
-      taskId,
+      taskId: taskId ?? session.associations[0]?.taskId ?? null,
       taskTitle,
       startedAt: session.activity.lastObservedAt,
       status: session.lifecycle?.displayStatus ?? "unavailable",

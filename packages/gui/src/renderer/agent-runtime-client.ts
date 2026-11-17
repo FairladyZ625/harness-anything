@@ -1,9 +1,11 @@
 import type {
   AgentRuntimeEventsResult,
   AgentRuntimeOverviewResult,
+  AgentRuntimeSessionGroupMembersResult,
   AgentRuntimeSessionGroupsResult,
   AgentRuntimeSessionGroupStatus,
   AgentRuntimeSessionResult,
+  AgentRuntimeUnattributedGroupKey,
 } from "@harness-anything/daemon/protocol";
 import type {
   AgentRuntimeTokenUsageDetailResult,
@@ -30,6 +32,16 @@ export type SessionGroupsQuery = {
   /** 状态维度筛选:成员级,与 groupBy/since/query 同一条读的入参,不是第二个读。 */
   readonly status?: readonly AgentRuntimeSessionGroupStatus[];
   readonly sessionIds?: readonly string[];
+  readonly limit?: number;
+};
+export type SessionGroupMembersQuery = {
+  readonly groupKey: AgentRuntimeUnattributedGroupKey;
+  readonly groupBy?: "task" | "squad" | "agent" | "day";
+  readonly since?: string;
+  readonly query?: string;
+  readonly agentId?: string;
+  readonly squadId?: string;
+  readonly status?: readonly AgentRuntimeSessionGroupStatus[];
   readonly limit?: number;
 };
 /**
@@ -89,6 +101,13 @@ export const agentRuntimeClient = {
     checkedSessionGroups(
       await readUseCaseProjection({ repoId, name: "runtime-session-groups", ...query }),
     ) as AgentRuntimeSessionGroupsResult,
+  sessionGroupMembers: async (
+    repoId: string,
+    query: SessionGroupMembersQuery,
+  ): Promise<AgentRuntimeSessionGroupMembersResult> =>
+    checkedSessionGroupMembers(
+      await readUseCaseProjection({ repoId, name: "runtime-session-groups", facet: "members", ...query }),
+    ) as AgentRuntimeSessionGroupMembersResult,
   session: async (repoId: string, runtimeSessionId: string): Promise<AgentRuntimeSessionResult> =>
     checked(
       await invoke(
@@ -168,6 +187,16 @@ function checkedSessionGroups(value: unknown): Record<string, unknown> {
     typeof value.truncated !== "boolean"
   )
     throw new Error(rendererErrorHint(value, "Agent runtime session groups bridge returned an invalid result."));
+  return value;
+}
+function checkedSessionGroupMembers(value: unknown): Record<string, unknown> {
+  if (
+    !isRendererRecord(value) ||
+    value.ok !== true ||
+    !Array.isArray(value.dispatches) ||
+    !Array.isArray(value.sessions)
+  )
+    throw new Error(rendererErrorHint(value, "Agent runtime session group members bridge returned an invalid result."));
   return value;
 }
 

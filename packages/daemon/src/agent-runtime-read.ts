@@ -15,20 +15,24 @@ import {
 import type { AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
 import {
   agentRuntimeSessionGroupStatusWords,
+  agentRuntimeUnattributedGroupKeys,
   coded,
   type AgentRuntimeEventsResult,
   type AgentRuntimeInstallationDto,
   type AgentRuntimeOverviewResult,
   type AgentRuntimeSessionDto,
+  type AgentRuntimeSessionGroupMembersResult,
   type AgentRuntimeSessionGroupsResult,
   type AgentRuntimeSessionGroupStatus,
   type AgentRuntimeSessionResult,
+  type AgentRuntimeUnattributedGroupKey,
 } from "./agent-runtime-contract.ts";
 import {
   buildAgentRuntimeSessionGroups,
   latestDispatchStartedAt,
   latestEntityNames,
   runtimeTaskLabels,
+  selectAgentRuntimeSessionGroupMembers,
 } from "./agent-runtime-session-groups.ts";
 import { runtimeKindForInstallation } from "./runtime-inventory.ts";
 import { isRuntimeKindId } from "./runtime-inventory.ts";
@@ -268,66 +272,50 @@ export function makeAgentRuntimeReadModel(input: {
     },
     sessionGroups: (payload: Readonly<Record<string, unknown>>): AgentRuntimeSessionGroupsResult => {
       const query = sessionGroupsQuery(payload),
-        active = query.unsettledOnly ? activeLifecycleSessions(input.projection) : null,
-        cut = active ?? input.projection.readCut();
-      const sessions =
-          active?.sessions ??
-          input.projection
-            // The home aggregate asks for the current in-flight set: PG serves it from a
-            // write-maintained current-set table so settled history (and its dead index entries)
-            // never enters the read.
-            .readRuntimeSessions({
-              activitySince: query.since,
-            }),
-        // In-flight aggregation reads one newest dispatch per live session, never the session's
-        // dispatch history. The full page (not unsettledOnly) still reads the history it renders.
-        windowedDispatchEvents = query.unsettledOnly
-          ? sessions.flatMap((session) => {
-              const latest = input.projection.readLatestRuntimeDispatchBySession(session.runtimeSessionId);
-              return latest === null ? [] : [latest];
-            })
-          : sessions.flatMap((session) =>
-              input.projection.readRuntimeDispatchEventsBySession(session.runtimeSessionId),
-            ),
-        dispatchStartedAt = latestDispatchStartedAt(windowedDispatchEvents),
-        // The in-flight aggregation needs the same grouping fields (reviewTarget, agent/squad)
-        // as the full page; a shallow row keeps those bounded and drops the task-snapshot,
-        // document and delivered/blocked derivations that made this read follow history.
-        dispatches =
-          input.readDispatches?.({
-            sessions,
-            events: windowedDispatchEvents,
-            ...(query.unsettledOnly ? { shallow: true } : {}),
-          }) ?? [],
-        taskIds = [
-          ...new Set([
-            ...sessions.flatMap((session) => session.taskBindings.map(({ taskId }) => taskId)),
-            ...dispatches.flatMap((dispatch) => (dispatch.taskId ? [dispatch.taskId] : [])),
-          ]),
-        ],
-        taskLabels = runtimeTaskLabels(input.projection, taskIds),
-        // One entity listing per kind, not one getEntity per member: each getEntity opened its
-        // own withDatabase, so a 400-member read paid 400 SQLite opens for two small tables.
-        entityNames = new Map<string, ReadonlyMap<string, string>>();
-      const entityLabel = (kind: "agent" | "squad", id: string): string | null => {
-        if (cut.status !== "ready") return null;
-        let names = entityNames.get(kind);
-        if (names === undefined) {
-          names = latestEntityNames(input.projection.listEntities(kind));
-          entityNames.set(kind, names);
-        }
-        return names.get(id) ?? null;
-      };
+        inputs = readSessionGroupInputs(query.since, query.unsettledOnly);
       return buildAgentRuntimeSessionGroups({
-        sessions,
-        dispatches,
-        dispatchEvents: windowedDispatchEvents,
-        dispatchStartedAt,
-        taskLabels,
-        entityLabel,
+        ...inputs,
         query,
-        cut,
       });
+    },
+    sessionGroupMembers: (payload: Readonly<Record<string, unknown>>): AgentRuntimeSessionGroupMembersResult => {
+      const query = sessionGroupMembersQuery(payload),
+        inputs = readSessionGroupInputs(query.since, false),
+        selected = selectAgentRuntimeSessionGroupMembers({
+          ...inputs,
+          query,
+          groupKey: query.groupKey,
+        }),
+        installations = input.projection.readRuntimeInstallations(),
+        installationsById = new Map(installations.map((installation) => [installation.installationId, installation])),
+        dispatchEventFor = (session: RuntimeSession) =>
+          inputs.dispatchEvents.findLast(
+            (event) =>
+              event.payload.runtimeSessionId === session.runtimeSessionId &&
+              event.payload.definitionSnapshotRef === session.definitionSnapshotRef,
+          ) ??
+          inputs.dispatchEvents.findLast((event) => event.payload.runtimeSessionId === session.runtimeSessionId) ??
+          input.projection.readRuntimeDispatch?.(session.runtimeSessionId, session.definitionSnapshotRef) ??
+          null;
+      return {
+        ok: true,
+        status: inputs.cut.status,
+        groupKey: query.groupKey,
+        groupBy: query.groupBy,
+        dispatches: selected.dispatches,
+        sessions: selected.sessions.map((session) => {
+          const dispatch = dispatchEventFor(session);
+          return sessionDto(
+            session,
+            installationsById.get(session.installationId),
+            definitionFor(dispatch),
+            {},
+            dispatch,
+          );
+        }),
+        watermark: inputs.cut.watermark,
+        sourceRevision: inputs.cut.sourceRevision,
+      };
     },
     session: (payload: Readonly<Record<string, unknown>>): AgentRuntimeSessionResult => {
       const cut = input.projection.readCut(),
@@ -390,6 +378,65 @@ export function makeAgentRuntimeReadModel(input: {
       };
     },
   };
+  function readSessionGroupInputs(since: string, unsettledOnly: boolean) {
+    const active = unsettledOnly ? activeLifecycleSessions(input.projection) : null,
+      cut = active ?? input.projection.readCut();
+    const sessions =
+        active?.sessions ??
+        input.projection
+          // The home aggregate asks for the current in-flight set: PG serves it from a
+          // write-maintained current-set table so settled history (and its dead index entries)
+          // never enters the read.
+          .readRuntimeSessions({
+            activitySince: since,
+          }),
+      // In-flight aggregation reads one newest dispatch per live session, never the session's
+      // dispatch history. The full page (not unsettledOnly) still reads the history it renders.
+      windowedDispatchEvents = unsettledOnly
+        ? sessions.flatMap((session) => {
+            const latest = input.projection.readLatestRuntimeDispatchBySession(session.runtimeSessionId);
+            return latest === null ? [] : [latest];
+          })
+        : sessions.flatMap((session) => input.projection.readRuntimeDispatchEventsBySession(session.runtimeSessionId)),
+      dispatchStartedAt = latestDispatchStartedAt(windowedDispatchEvents),
+      // The in-flight aggregation needs the same grouping fields (reviewTarget, agent/squad)
+      // as the full page; a shallow row keeps those bounded and drops the task-snapshot,
+      // document and delivered/blocked derivations that made this read follow history.
+      dispatches =
+        input.readDispatches?.({
+          sessions,
+          events: windowedDispatchEvents,
+          ...(unsettledOnly ? { shallow: true } : {}),
+        }) ?? [],
+      taskIds = [
+        ...new Set([
+          ...sessions.flatMap((session) => session.taskBindings.map(({ taskId }) => taskId)),
+          ...dispatches.flatMap((dispatch) => (dispatch.taskId ? [dispatch.taskId] : [])),
+        ]),
+      ],
+      taskLabels = runtimeTaskLabels(input.projection, taskIds),
+      // One entity listing per kind, not one getEntity per member: each getEntity opened its
+      // own withDatabase, so a 400-member read paid 400 SQLite opens for two small tables.
+      entityNames = new Map<string, ReadonlyMap<string, string>>();
+    const entityLabel = (kind: "agent" | "squad", id: string): string | null => {
+      if (cut.status !== "ready") return null;
+      let names = entityNames.get(kind);
+      if (names === undefined) {
+        names = latestEntityNames(input.projection.listEntities(kind));
+        entityNames.set(kind, names);
+      }
+      return names.get(id) ?? null;
+    };
+    return {
+      sessions,
+      dispatches,
+      dispatchEvents: windowedDispatchEvents,
+      dispatchStartedAt,
+      taskLabels,
+      entityLabel,
+      cut,
+    };
+  }
   function resultFor(session: RuntimeSession): AgentRuntimeSessionResult["result"] {
     if (session.resultRef === null) return null;
     const match = /^artifact:runtime-result\/sha256\/([0-9a-f]{64})$/u.exec(session.resultRef);
@@ -472,6 +519,24 @@ function sessionGroupsQuery(payload: Readonly<Record<string, unknown>>): {
     unsettledOnly: unsettledOnly === true,
     limit: typeof limit === "number" ? limit : 200,
   };
+}
+
+function sessionGroupMembersQuery(payload: Readonly<Record<string, unknown>>) {
+  const { groupKey, ...rest } = payload,
+    validKeys: readonly string[] = Object.values(agentRuntimeUnattributedGroupKeys);
+  if (typeof groupKey !== "string" || !validKeys.includes(groupKey))
+    throw coded(
+      "invalid_request",
+      `Agent runtime session group members require groupKey among ${validKeys.join(", ")}.`,
+    );
+  const resolvedGroupKey = groupKey as AgentRuntimeUnattributedGroupKey;
+  const parsed = sessionGroupsQuery({
+    ...rest,
+    ...(rest.groupBy === undefined && resolvedGroupKey === agentRuntimeUnattributedGroupKeys.noSquad
+      ? { groupBy: "squad" }
+      : {}),
+  });
+  return { ...parsed, groupKey: resolvedGroupKey };
 }
 
 /**

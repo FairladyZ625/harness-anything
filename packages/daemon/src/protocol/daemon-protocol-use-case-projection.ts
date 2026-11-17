@@ -1,5 +1,9 @@
 import { deriveUseCaseProjectionInputs, type UseCaseProjectionName } from "@harness-anything/kernel";
-import { validateAgentRuntimeSessionGroups } from "../agent-runtime-contract.ts";
+import {
+  validateAgentRuntimeSessionGroupMembers,
+  validateAgentRuntimeSessionGroups,
+} from "../agent-runtime-contract.ts";
+import type { AgentRuntimeUnattributedGroupKey } from "./daemon-protocol-vocabulary.ts";
 import { validateScheduleRuns } from "../schedule-runs-read.ts";
 import { isJsonObject } from "./json-rpc-types.ts";
 import { validationError } from "./daemon-protocol-validate-entities.ts";
@@ -29,6 +33,7 @@ const innerValidators: Readonly<Record<string, ProjectionValidator>> = Object.fr
   "schedule-plane/plane": validateSchedulesList,
   "schedule-run-history/runs": validateScheduleRuns,
   "runtime-session-groups/groups": validateAgentRuntimeSessionGroups,
+  "runtime-session-groups/members": validateAgentRuntimeSessionGroupMembers,
 });
 
 export interface DaemonUseCaseProjectionResult {
@@ -46,6 +51,7 @@ export interface DaemonUseCaseProjectionPayload {
   readonly name: UseCaseProjectionName;
   readonly facet?: UseCaseProjectionFacet;
   readonly scheduleId?: string;
+  readonly groupKey?: AgentRuntimeUnattributedGroupKey;
   readonly groupBy?: "task" | "squad" | "agent" | "day";
   readonly agentId?: string;
   readonly squadId?: string;

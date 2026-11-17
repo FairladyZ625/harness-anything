@@ -3716,7 +3716,7 @@
         "explain": "Closed JSON-RPC request parameter validator for `repo.useCaseProjection` view name and filter inputs.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateUseCaseProjectionPayload:f00c2bd06d7f747eacf82afcabd71970",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateUseCaseProjectionPayload:fae4463af82b3f955f92f3f79589485a",
             "route": "packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts#validateUseCaseProjectionPayload"
           }
         ]
@@ -4328,6 +4328,17 @@
           {
             "candidateId": "judgment:packages/daemon:packages/daemon/src/agent-runtime-contract.ts#validateAgentRuntimeSessionGroups:15d7cfdf0442774762daa61afab082c0",
             "route": "packages/daemon/src/agent-runtime-contract.ts#validateAgentRuntimeSessionGroups"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/agent-runtime-contract.ts#validateAgentRuntimeSessionGroupMembers",
+        "symbol": "packages/daemon/src/agent-runtime-contract.ts#validateAgentRuntimeSessionGroupMembers",
+        "explain": "Daemon read-DTO structural validator for `runtime-session-groups/members` unattributed group rounds and orphan sessions.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/agent-runtime-contract.ts#validateAgentRuntimeSessionGroupMembers:b500639df8ca3cee0ea67141b0f3661d",
+            "route": "packages/daemon/src/agent-runtime-contract.ts#validateAgentRuntimeSessionGroupMembers"
           }
         ]
       },

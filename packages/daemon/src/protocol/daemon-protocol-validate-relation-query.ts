@@ -216,14 +216,9 @@ export function validTaskDispatchAttempt(value: unknown): value is TaskDispatchA
 export function validTaskDispatchRow(value: unknown): value is TaskDispatchRow {
   return (
     isJsonObject(value) &&
-    [
-      value.dispatchId,
-      value.taskId,
-      value.executionId,
-      value.runtimeSessionId,
-      value.instanceId,
-      value.attemptGroupId,
-    ].every(dispatchText) &&
+    [value.dispatchId, value.runtimeSessionId, value.instanceId, value.attemptGroupId].every(dispatchText) &&
+    typeof value.taskId === "string" &&
+    typeof value.executionId === "string" &&
     validTaskDispatchAttemptValues(value) &&
     (value.taskTitle === undefined || dispatchText(value.taskTitle)) &&
     (value.squadRunId === undefined || dispatchText(value.squadRunId)) &&
