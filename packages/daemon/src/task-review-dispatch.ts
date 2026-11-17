@@ -1,3 +1,4 @@
+import { reviewDispatchFailureWarning } from "@harness-anything/application/queries";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { createEntityStore } from "@harness-anything/storage";
@@ -18,6 +19,7 @@ import {
   type ReviewReverifyRoute,
   type ReviewV1,
   type TaskReviewDispatchIntentV1,
+  type TaskReviewDispatchFailureV1,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
 import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
@@ -703,6 +705,7 @@ type DispatchStep = {
   readonly instanceId?: string;
   readonly outcome: OperationalStatus.ReviewDispatchStepOutcome;
   readonly error?: string;
+  readonly reviewDispatchFailure?: TaskReviewDispatchFailureV1;
 };
 
 /**
@@ -1096,8 +1099,13 @@ export async function dispatchInReviewCutReview(
     };
   const placement = taskExecutionPlacement(cell, taskId, execution.executionId);
   if (placement.kind === "node") {
+    const failure =
+      current.snapshot.task.reviewDispatchFailure?.executionId === execution.executionId
+        ? current.snapshot.task.reviewDispatchFailure
+        : undefined;
     const step = {
       ...receipt,
+      ...(failure ? { reviewDispatchFailure: failure } : {}),
       outcome: "pending",
       continuation: {
         mode: "pending",
@@ -1108,14 +1116,18 @@ export async function dispatchInReviewCutReview(
       },
       warnings: [
         ...((receipt as { readonly warnings?: readonly string[] }).warnings ?? []),
-        `Task ${taskId} review is pending on implementation node ${placement.nodeId}; the center did not create a runtime dispatch.`,
+        failure
+          ? reviewDispatchFailureWarning(failure)
+          : `Task ${taskId} review is pending on implementation node ${placement.nodeId}; the center did not create a runtime dispatch.`,
       ],
     } as WriteReceiptDraft;
     return {
       seat: selection.seat,
       step,
       warnings: [
-        `Task ${taskId} review is pending on implementation node ${placement.nodeId}; it will dispatch when that node is online.`,
+        failure
+          ? reviewDispatchFailureWarning(failure)
+          : `Task ${taskId} review is pending on implementation node ${placement.nodeId}; it will dispatch when that node is online.`,
       ],
     };
   }
@@ -1425,14 +1437,23 @@ export async function dispatchTaskReview(
         );
         continue;
       }
+      const failure =
+        snapshot.task?.reviewDispatchFailure?.executionId === execution.executionId
+          ? snapshot.task.reviewDispatchFailure
+          : undefined;
       steps.push({
         taskId,
         executionId: execution.executionId,
         requiredNodeId: placement.nodeId,
         agentId: reviewerId,
         outcome: "pending",
+        ...(failure ? { reviewDispatchFailure: failure } : {}),
       });
-      warnings.push(`Task ${taskId} review is pending on implementation node ${placement.nodeId}.`);
+      warnings.push(
+        failure?.executionId === execution.executionId
+          ? `Previous attempt: ${reviewDispatchFailureWarning(failure)}`
+          : `Task ${taskId} review is pending on implementation node ${placement.nodeId}.`,
+      );
       continue;
     }
     const seatPrompt = seat.source === "path" ? reviewPathSeatPrompt({ seat }) : null,

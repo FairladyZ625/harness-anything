@@ -19,6 +19,8 @@ export * from "./premise-review.ts";
 export * from "./reckoning-signals.ts";
 export * from "./schedule-projection.ts";
 export * from "./todo-read.ts";
+export * from "./review-dispatch-failure-read.ts";
+export * from "./fleet-version-warning-read.ts";
 
 export { makePersonActionExplanationService } from "../person-action-explanation-service.ts";
 export { makeSquadActionExplanationService } from "../squad-action-explanation-service.ts";

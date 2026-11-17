@@ -1,3 +1,4 @@
+import { runtimeErrorCode } from "../runtime-spawn-errors.ts";
 import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import type { createReplicaStatusTracker } from "./replica-status.ts";
 import type { createNodeSessionStatus } from "./node-session-status.ts";
@@ -453,12 +454,7 @@ export async function serve(
       error instanceof FleetFault
         ? error
         : new FleetFault(
-            contractError
-              ? "invalid_frame"
-              : (frame.schema === "fleet.edge.join/v1" || frame.schema === "fleet.edge.join.status/v1") &&
-                  typeof (error as { code?: unknown })?.code === "string"
-                ? (error as { code: string }).code
-                : "handler_failed",
+            contractError ? "invalid_frame" : (runtimeErrorCode(error) ?? "handler_failed"),
             error instanceof Error ? error.message : String(error),
           );
     if (frame.schema === "fleet.session.hello/v1" || contractError) recordFailure(fault, fault.code);
@@ -550,7 +546,9 @@ export async function serve(
         if (!isFleetProtocolVersionCompatible(frame.protocolVersion))
           throw new FleetFault(
             "protocol_version_unsupported",
-            `Fleet protocol ${frame.protocolVersion} is incompatible with center ${currentFleetProtocolVersion}; upgrade the edge node to the same version as the center.`,
+            `Fleet protocol ${frame.protocolVersion} is incompatible with center ${currentFleetProtocolVersion}; ` +
+              `node ${nodeId} build=${frame.buildCommit ?? "unknown"}, center build=${daemonBuildStamp().commit ?? "unknown"}. ` +
+              "Run git pull --ff-only, then build CLI and daemon on the node and center before retrying.",
           );
         accessToken = frame.accessToken;
         if (pendingReplicationStart) {

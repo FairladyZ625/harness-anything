@@ -21,6 +21,7 @@ export {
   relationRows,
 } from "./entity-action-relation.ts";
 export * from "./terminal-awaits-retirement.ts";
+export * from "./node-review-dispatch-preflight.ts";
 export * from "./decision-review-awaits.ts";
 export * from "./entity-action-catalog-executor.ts";
 

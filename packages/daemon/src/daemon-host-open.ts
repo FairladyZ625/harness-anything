@@ -1,3 +1,4 @@
+import { reviewDispatchDiagnostic } from "@harness-anything/application/queries";
 import type { DaemonHostOpenInput } from "./daemon-host-types.ts";
 import { createFleetMemberDeviceLink } from "./fleet/peer.ts";
 import { forward, resolveRuntimeLocation, type RuntimeForwardingRequest } from "./fleet/forwarding-port.ts";
@@ -133,7 +134,7 @@ import type { DaemonHostApiContext, DaemonHostRegistryContext } from "./daemon-h
 import { openRemoteProxyManager } from "./remote-proxy.ts";
 import { credentialPort } from "./agent-runtime-credential-port.ts";
 import { runtimeInstanceCredentialService } from "./runtime-instance-credentials.ts";
-import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
+import { runtimeErrorCode, runtimeErrorMessage, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { openRuntimeRecoveryWatch, runReplicaConfirmedRound } from "./runtime-recovery-watch.ts";
 import { openDecisionProviderService } from "./decision-provider.ts";
 import { openDecisionPointExecutorFactory } from "./decision-point-executor.ts";
@@ -497,11 +498,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         receipt = (await spawn(candidate.fallbackPayload)) ?? {};
       const runtimeSessionId = typeof receipt.runtimeSessionId === "string" ? receipt.runtimeSessionId : null;
       if (!runtimeSessionId || !["applied", "no_changes"].includes(String(receipt.outcome)))
-        throw Object.assign(
-          new Error(
-            `Node runtime spawn did not start ${candidate.dispatchKey}: ${String(receipt.code ?? receipt.outcome)}.`,
-          ),
-          { code: typeof receipt.code === "string" ? receipt.code : "node_auto_dispatch_failed" },
+        throw runtimeSpawnError(
+          typeof receipt.code === "string" ? receipt.code : "node_auto_dispatch_failed",
+          `Node ${candidate.requiredNodeId} runtime spawn did not start ${candidate.dispatchKey}: ` +
+            String(receipt.rejectionExplanation ?? receipt.summary ?? receipt.code ?? receipt.outcome),
         );
       return {
         completion: forwardRuntime({
@@ -517,17 +517,24 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     },
     onFailure: async (candidate, error, signal) => {
       if (candidate.kind !== "review") return;
-      const rawCode = runtimeErrorCode(error),
-        failure = {
-          executionId: candidate.executionId,
-          dispatchKey: candidate.dispatchKey,
-          code: rawCode && /^[a-z][a-z0-9_]{0,79}$/u.test(rawCode) ? rawCode : "node_auto_dispatch_failed",
-          message:
-            `Node ${candidate.requiredNodeId} could not start the automatic reviewer. ` +
-            `Ask the task owner to retry with ha task dispatch-review ${candidate.taskId}.`,
-          failedAt: now(),
-        };
-      await writeNodeReviewDispatchFailure(candidate, failure, signal);
+      const failure = {
+        executionId: candidate.executionId,
+        dispatchKey: candidate.dispatchKey,
+        ...reviewDispatchDiagnostic({
+          code: runtimeErrorCode(error),
+          message: `Node ${candidate.requiredNodeId}: ${runtimeErrorMessage(error)}`,
+        }),
+        failedAt: now(),
+      };
+      try {
+        await writeNodeReviewDispatchFailure(candidate, failure, signal);
+      } catch (publicationError) {
+        throw runtimeSpawnError(
+          failure.code,
+          `review dispatch failed: ${failure.code}; ${failure.message} ` +
+            `Recording the failure also failed: ${runtimeErrorCode(publicationError) ?? "review_dispatch_state_rejected"}; ${runtimeErrorMessage(publicationError)}`,
+        );
+      }
     },
     onSuccess: async (candidate, signal) => {
       if (candidate.kind === "review") await writeNodeReviewDispatchFailure(candidate, null, signal);

@@ -1,3 +1,8 @@
+import { preflightNodeReviewDispatch } from "@harness-anything/application/commands";
+import { reviewDispatchDiagnostic, withReviewDispatchFailures } from "@harness-anything/application/queries";
+import { assertFleetEdgeRepositoryGit } from "../fleet-edge-git-preflight.ts";
+import { parseNodeAutoDispatchSnapshot } from "../node-auto-dispatch.ts";
+import { runtimeErrorCode, runtimeErrorMessage, runtimeSpawnError } from "../runtime-spawn-errors.ts";
 import { getExecutableEntityAction, readDaemonRegistry, type IdentitySessionPort } from "@harness-anything/kernel";
 import path from "node:path";
 import { readFileSync } from "node:fs";
@@ -10,7 +15,7 @@ import { executionCredentialRejected } from "../runtime-execution-credential.ts"
 import type { RepoTaskAction } from "../repo-cell-types.ts";
 import type { FleetEdgeRuntimeRequest } from "../fleet-edge-runtime.ts";
 import { FleetEdgeTaskError, runFleetEdgeTask } from "../fleet-edge-task.ts";
-import { readFleetOperationalClient, raceLifetime } from "../fleet-edge-write.ts";
+import { readFleetOperationalClient, readFleetRepositoryMetadataClient, raceLifetime } from "../fleet-edge-write.ts";
 import { forwardingIntentIssue, type ForwardingIntent } from "./forwarding-intent.ts";
 
 export type RuntimeForwardingRequest = {
@@ -158,6 +163,20 @@ export async function forward(input: {
     );
     return { ...receipt, edgeCancellation };
   }
+  if (
+    ["task-submit", "task-dispatch-review"].includes(action.kind) &&
+    ["applied", "no_changes", "pending"].includes(String(receipt.outcome))
+  ) {
+    const { runtimeReadPeer } = runtimeForwardingContext(config, readAccessToken);
+    return observeForwardedReviewReadiness({
+      receipt,
+      config,
+      principalId: personId,
+      readAccessToken,
+      peer: { ...runtimeReadPeer, signal },
+      taskIds: action.kind === "task-submit" ? [String(action.taskId)] : (action.taskIds as readonly string[]),
+    });
+  }
   return receipt;
 }
 
@@ -225,4 +244,83 @@ async function bindPersonSession(
 ) {
   if (input.auth.oidcPrincipal) return input.auth;
   return input.oidc.bind(input.auth, workspaceRoot);
+}
+
+/** Physical readiness observation uses exactly the metadata and Git validator used by runtime spawn. */
+async function observeForwardedReviewReadiness(input: {
+  readonly receipt: Record<string, unknown>;
+  readonly taskIds: readonly string[];
+  readonly config: Omit<FleetEdgeRuntimeRequest["payload"], "method" | "action">;
+  readonly principalId: string;
+  readonly peer: FleetPeerOptions;
+  readonly readAccessToken: () => Promise<string | undefined>;
+}): Promise<Record<string, unknown>> {
+  const diagnostic = (error: unknown) =>
+      reviewDispatchDiagnostic({
+        code: runtimeErrorCode(error),
+        message: `Node ${input.config.nodeId}: ${runtimeErrorMessage(error)}`,
+      }),
+    taskIds = new Set(input.taskIds);
+  let candidates;
+  try {
+    candidates = parseNodeAutoDispatchSnapshot(
+      await readFleetOperationalClient({
+        ...input.peer,
+        method: "repo.tasks.autoDispatchCandidates",
+        payload: {},
+      }),
+    ).candidates.filter(
+      (row) => row.kind === "review" && row.requiredNodeId === input.config.nodeId && taskIds.has(row.taskId),
+    );
+  } catch (error) {
+    const failure = diagnostic(error);
+    return {
+      ...input.receipt,
+      reviewDispatchError: failure,
+      warnings: [
+        ...(Array.isArray(input.receipt.warnings) ? input.receipt.warnings : []),
+        `Review dispatch readiness could not be checked: ${failure.code}; ${failure.message}`,
+      ],
+    };
+  }
+  const observed = await preflightNodeReviewDispatch({
+    candidates,
+    diagnostic,
+    now: () => new Date().toISOString(),
+    preflight: async () =>
+      assertFleetEdgeRepositoryGit({
+        rootDir: input.config.workspaceRoot,
+        center: await readFleetRepositoryMetadataClient({ ...input.peer, includeGitMetadata: true }),
+        operation: "runtime dispatch",
+      }),
+    writeFailure: async (candidate, failure) => {
+      const receipt = await runFleetEdgeTask(
+        {
+          payload: {
+            ...input.config,
+            principalId: input.principalId,
+            action: {
+              kind: "task-amend",
+              taskId: candidate.taskId,
+              patches: [{ field: "reviewDispatchFailure", value: JSON.stringify(failure) }],
+            },
+          },
+        },
+        input.readAccessToken,
+        "domain",
+      );
+      if (!["applied", "no_changes"].includes(String(receipt.outcome)))
+        throw runtimeSpawnError(
+          typeof receipt.code === "string" ? receipt.code : "review_dispatch_state_rejected",
+          String(receipt.rejectionExplanation ?? receipt.summary ?? receipt.code),
+        );
+    },
+  });
+  const receipt = withReviewDispatchFailures(input.receipt, observed.failures);
+  return observed.publicationWarnings.length === 0
+    ? receipt
+    : {
+        ...receipt,
+        warnings: [...(Array.isArray(receipt.warnings) ? receipt.warnings : []), ...observed.publicationWarnings],
+      };
 }

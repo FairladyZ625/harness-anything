@@ -194,6 +194,39 @@ test("agenda splits awaiting work by next action, pins first, and rejects a miss
       ).outcome,
       "applied",
     );
+    const reviewFailure = {
+      executionId: "exe_review",
+      dispatchKey: "review:agenda:failed",
+      code: "fleet_build_mismatch",
+      message: "Node edge-one build aaaa differs from center bbbb; run git pull --ff-only, then build CLI and daemon.",
+      failedAt: "2026-11-17T00:00:00.000Z",
+    };
+    const failureWrite = await cell.run(
+      {
+        kind: "task-amend",
+        taskId: "task_review",
+        patches: [{ field: "reviewDispatchFailure", value: JSON.stringify(reviewFailure) }],
+      },
+      binding,
+    );
+    assert.equal(failureWrite.outcome, "applied", JSON.stringify(failureWrite));
+    for (const attentionOnly of [false, true]) {
+      const failedAgenda = await cell.read("repo.agenda.read", { limit: 50, attentionOnly });
+      const alert = failedAgenda.attentionItems.find(({ ref }) => ref === "task/task_review");
+      assert.ok(alert, `failed review must be visible, attentionOnly=${attentionOnly}`);
+      assert.match(alert.title, /review dispatch failed.*fleet_build_mismatch.*aaaa.*bbbb.*git pull --ff-only/u);
+      assert.match(failedAgenda.summary, /review dispatch failed/u);
+    }
+    const cleared = await cell.run(
+      { kind: "task-amend", taskId: "task_review", patches: [{ field: "reviewDispatchFailure", value: "null" }] },
+      binding,
+    );
+    assert.equal(cleared.outcome, "applied", JSON.stringify(cleared));
+    const recoveredAgenda = await cell.read("repo.agenda.read", { attentionOnly: true });
+    assert.equal(
+      recoveredAgenda.attentionItems.some(({ title }) => title.includes("fleet_build_mismatch")),
+      false,
+    );
     // task_wait_adjudicate 提交后停住(submitted),派审与返工两条对照线各自走到位:
     // 一个只等派审,一个走完 forward → changes_requested → return。
     for (const [taskId, executionId] of [

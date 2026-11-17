@@ -47,6 +47,53 @@ test("Fleet sessions stay connected across build identities and return an upgrad
       .versionWarnings.some((warning) => warning.includes("git pull --ff-only, then build CLI and daemon")),
   );
 });
+test("Fleet preserves structured dispatch and expired personal-token failures across build drift", async (t) => {
+  const fixture = await fleetFixture(t);
+  t.after(() => fixture.close());
+  let failure: Error = new Error("unexpected handler error");
+  Object.defineProperty(fixture.host, "read", {
+    value: async () => {
+      throw failure;
+    },
+  });
+  const center = await fixture.center(),
+    peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret", {
+      buildCommit: "0".repeat(40),
+    });
+  for (const [code, message] of [
+    ["edge_default_branch_behind", "Edge main is behind center; run git merge --ff-only origin/main."],
+    ["human_confirmation_required", "Personal Keycloak access token or session has expired; sign in again."],
+    [
+      "fleet_build_mismatch",
+      `Node ${fixture.subject.nodeId} build ${"0".repeat(40)} differs from center ${daemonBuildStamp().commit}; run git pull --ff-only, then build CLI and daemon.`,
+    ],
+  ]) {
+    failure = Object.assign(new Error(message), { code });
+    const response = await peer.request({
+      schema: "fleet.operational.read/v1",
+      messageId: `failure-${code}`,
+      repoId: fixture.subject.repoId,
+      method: "repo.task.dispatches",
+      payload: { taskId: fixture.subject.taskId },
+    });
+    assert.equal(response.schema, "fleet.error/v1");
+    if (response.schema !== "fleet.error/v1") throw new Error(JSON.stringify(response));
+    assert.equal(response.code, code, JSON.stringify(response));
+    assert.equal(response.message, message);
+  }
+  failure = new Error("uncoded failure stays visible");
+  const unexpected = await peer.request({
+    schema: "fleet.operational.read/v1",
+    messageId: "uncoded-error",
+    repoId: fixture.subject.repoId,
+    method: "repo.task.dispatches",
+    payload: { taskId: fixture.subject.taskId },
+  });
+  assert.equal(unexpected.schema, "fleet.error/v1");
+  if (unexpected.schema !== "fleet.error/v1") throw new Error(JSON.stringify(unexpected));
+  assert.equal(unexpected.code, "handler_failed");
+  assert.equal(unexpected.message, failure.message);
+});
 test("version metadata stays outside the closed dispatch read result", async (t) => {
   const fixture = await fleetFixture(t);
   t.after(() => fixture.close());
