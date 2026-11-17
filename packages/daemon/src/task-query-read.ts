@@ -825,33 +825,32 @@ export function makeTaskQueryReadModel(input: {
         .sort(compareAwaitingExecutions),
       // The durable cut is the blocker: a missing/failed dispatch needs no separate mutable flag.
       // Reuse dispatch admission's definition of an active review so recovery removes this attention row.
-      undispatchedReviews = (attentionOnly ? [...underReview, ...awaitingAdjudication] : underReview).flatMap((row) => {
-        const snapshot = projection.read(row.taskId).snapshot,
-          execution = snapshot.executions.find((candidate) => candidate.executionId === row.executionId);
-        if (
-          !execution?.submission ||
-          reviewsForExecution(snapshot.reviews, execution).length > 0 ||
-          activeCutReviewDispatches({ projection }, row.taskId, execution).length > 0
-        )
-          return [];
-        const failure =
-          snapshot.task?.reviewDispatchFailure?.executionId === row.executionId
-            ? snapshot.task.reviewDispatchFailure
-            : undefined;
-        // The lean home query reads lifecycle status: a frozen review cut can still be
-        // listed under submitted. Its canonical failure is sufficient to raise attention.
-        if (attentionOnly && !failure) return [];
-        return [
-          {
-            taskId: row.taskId,
-            since: row.submittedAt,
-            title:
-              `${row.title} — CEO: required review has no active dispatch` +
-              (failure ? `; ${reviewDispatchFailureWarning(failure)}` : "") +
-              `; run ha task dispatch-review ${row.taskId}.`,
-          },
-        ];
-      }),
+      undispatchedReviews = attentionOnly
+        ? []
+        : underReview.flatMap((row) => {
+            const snapshot = projection.read(row.taskId).snapshot,
+              execution = snapshot.executions.find((candidate) => candidate.executionId === row.executionId);
+            if (
+              !execution?.submission ||
+              reviewsForExecution(snapshot.reviews, execution).length > 0 ||
+              activeCutReviewDispatches({ projection }, row.taskId, execution).length > 0
+            )
+              return [];
+            const failure =
+              snapshot.task?.reviewDispatchFailure?.executionId === row.executionId
+                ? snapshot.task.reviewDispatchFailure
+                : undefined;
+            return [
+              {
+                taskId: row.taskId,
+                since: row.submittedAt,
+                title:
+                  `${row.title} — CEO: required review has no active dispatch` +
+                  (failure ? `; ${reviewDispatchFailureWarning(failure)}` : "") +
+                  `; run ha task dispatch-review ${row.taskId}.`,
+              },
+            ];
+          }),
       // 形状信号:同一任务第二次 escalation 起,默认视为同一族问题(实测问句文本相似度分不出族:
       // task_9e275cf8 八次同族两两 0.02–0.20,别的任务不同族可达 0.42),由 CEO 的前提复核判定;
       // 晚于最近一次 escalation 的 continue/narrow 复核使其出列。

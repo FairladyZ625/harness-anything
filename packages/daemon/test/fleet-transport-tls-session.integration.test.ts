@@ -5,7 +5,10 @@ import { spawn } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { createServer } from "node:tls";
+import { connect, createServer } from "node:tls";
+import { once } from "node:events";
+import { createInterface } from "node:readline";
+import { reviewDispatchDiagnostic } from "@harness-anything/application/internal/queries/review-dispatch-failure-read.ts";
 import { sha256Bytes, type LedgerCutIdentity } from "@harness-anything/kernel";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
@@ -72,10 +75,6 @@ test("Fleet preserves structured dispatch and expired personal-token failures ac
   for (const [code, message] of [
     ["edge_default_branch_behind", "Edge main is behind center; run git merge --ff-only origin/main."],
     ["human_confirmation_required", "Personal Keycloak access token or session has expired; sign in again."],
-    [
-      "fleet_build_mismatch",
-      `Node ${fixture.subject.nodeId} build ${"0".repeat(40)} differs from center ${daemonBuildStamp().commit}; run git pull --ff-only, then build CLI and daemon.`,
-    ],
   ]) {
     failure = Object.assign(new Error(message), { code });
     const response = await peer.request({
@@ -102,6 +101,37 @@ test("Fleet preserves structured dispatch and expired personal-token failures ac
   if (unexpected.schema !== "fleet.error/v1") throw new Error(JSON.stringify(unexpected));
   assert.equal(unexpected.code, "handler_failed");
   assert.equal(unexpected.message, failure.message);
+});
+test("incompatible Fleet hello rejects with the actual node and center builds and upgrade command", async (t) => {
+  const fixture = await fleetFixture(t);
+  t.after(() => fixture.close());
+  const center = await fixture.center(),
+    edgeBuild = "0".repeat(40),
+    socket = connect({ host: "127.0.0.1", port: center.port, ca: fixture.cert, servername: "localhost" });
+  fixture.track(() => socket.destroy());
+  await once(socket, "secureConnect");
+  const lines = createInterface({ input: socket });
+  t.after(() => lines.close());
+  const response = once(lines, "line");
+  socket.write(
+    serializeFleetFrame({
+      schema: "fleet.session.hello/v1",
+      messageId: "unsupported-protocol",
+      protocolVersion: { major: 2, minor: 0 },
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      buildCommit: edgeBuild,
+    }),
+  );
+  const [line] = await response,
+    frame = parseFleetFrame(line);
+  assert.equal(frame.schema, "fleet.error/v1");
+  if (frame.schema !== "fleet.error/v1") throw new Error(JSON.stringify(frame));
+  assert.equal(frame.code, "protocol_version_unsupported");
+  assert.ok(frame.message.includes(`node ${fixture.subject.nodeId} build=${edgeBuild}`), frame.message);
+  assert.ok(frame.message.includes(`center build=${daemonBuildStamp().commit ?? "unknown"}`), frame.message);
+  assert.match(frame.message, /git pull --ff-only, then build CLI and daemon on the node and center/u);
+  assert.deepEqual(reviewDispatchDiagnostic(frame), { code: frame.code, message: frame.message });
 });
 test("version metadata stays outside the closed dispatch read result", async (t) => {
   const fixture = await fleetFixture(t);
