@@ -1,4 +1,4 @@
-import { reviewDispatchFailureWarning } from "@harness-anything/application/queries";
+import { reviewDispatchFailureWarning } from "@harness-anything/application/internal/queries/review-dispatch-failure-read.ts";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { createEntityStore } from "@harness-anything/storage";

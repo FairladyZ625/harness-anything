@@ -1,4 +1,4 @@
-import { reviewDispatchDiagnostic } from "@harness-anything/application/queries";
+import { reviewDispatchDiagnostic } from "@harness-anything/application/internal/queries/review-dispatch-failure-read.ts";
 import type { DaemonHostOpenInput } from "./daemon-host-types.ts";
 import { createFleetMemberDeviceLink } from "./fleet/peer.ts";
 import { forward, resolveRuntimeLocation, type RuntimeForwardingRequest } from "./fleet/forwarding-port.ts";

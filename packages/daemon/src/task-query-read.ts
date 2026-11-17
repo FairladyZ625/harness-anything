@@ -1,4 +1,4 @@
-import { reviewDispatchFailureWarning } from "@harness-anything/application/queries";
+import { reviewDispatchFailureWarning } from "@harness-anything/application/internal/queries/review-dispatch-failure-read.ts";
 import { readTodos } from "@harness-anything/application/internal/queries/todo-read.ts";
 import { activeCutReviewDispatches } from "./review-dispatch-state.ts";
 import { createHash } from "node:crypto";

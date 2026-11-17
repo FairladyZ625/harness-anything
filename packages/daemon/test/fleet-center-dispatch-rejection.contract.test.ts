@@ -91,7 +91,7 @@ test(
         schema: (JSON.parse(socket.writes[1]!) as { readonly schema?: unknown }).schema,
         code: (JSON.parse(socket.writes[1]!) as { readonly code?: unknown }).code,
       },
-      { schema: "fleet.error/v1", code: "handler_failed" },
+      { schema: "fleet.error/v1", code: "client_disconnected" },
     );
   },
 );

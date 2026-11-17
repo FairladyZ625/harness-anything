@@ -46,6 +46,15 @@ test("Fleet sessions stay connected across build identities and return an upgrad
       .status()
       .versionWarnings.some((warning) => warning.includes("git pull --ff-only, then build CLI and daemon")),
   );
+  // Host status reads these warnings too; consulting host status here would recurse in a real host.
+  const status = t.mock.method(fixture.host, "status", () => {
+    assert.fail("version warnings must read repository associations without re-entering host status");
+  });
+  const warnings = center.versionWarnings();
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0]!, new RegExp(`node=${fixture.subject.nodeId} role=edge repoIds=unknown`, "u"));
+  assert.deepEqual(center.versionWarnings("unrelated-repository"), []);
+  status.mock.restore();
 });
 test("Fleet preserves structured dispatch and expired personal-token failures across build drift", async (t) => {
   const fixture = await fleetFixture(t);

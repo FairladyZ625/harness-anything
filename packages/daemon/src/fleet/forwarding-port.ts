@@ -1,5 +1,8 @@
-import { preflightNodeReviewDispatch } from "@harness-anything/application/commands";
-import { reviewDispatchDiagnostic, withReviewDispatchFailures } from "@harness-anything/application/queries";
+import { preflightNodeReviewDispatch } from "@harness-anything/application/internal/commands/node-review-dispatch-preflight.ts";
+import {
+  reviewDispatchDiagnostic,
+  withReviewDispatchFailures,
+} from "@harness-anything/application/internal/queries/review-dispatch-failure-read.ts";
 import { assertFleetEdgeRepositoryGit } from "../fleet-edge-git-preflight.ts";
 import { parseNodeAutoDispatchSnapshot } from "../node-auto-dispatch.ts";
 import { runtimeErrorCode, runtimeErrorMessage, runtimeSpawnError } from "../runtime-spawn-errors.ts";

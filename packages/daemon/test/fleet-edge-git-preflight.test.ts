@@ -5,8 +5,11 @@ import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { preflightNodeReviewDispatch } from "@harness-anything/application/commands";
-import { reviewDispatchDiagnostic, withReviewDispatchFailures } from "@harness-anything/application/queries";
+import { preflightNodeReviewDispatch } from "@harness-anything/application/internal/commands/node-review-dispatch-preflight.ts";
+import {
+  reviewDispatchDiagnostic,
+  withReviewDispatchFailures,
+} from "@harness-anything/application/internal/queries/review-dispatch-failure-read.ts";
 import {
   assertFleetEdgeRepositoryGit,
   readFleetCenterGitMetadata,

@@ -1,5 +1,5 @@
 import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
-import { fleetVersionWarningMessages } from "@harness-anything/application/queries";
+import { fleetVersionWarningMessages } from "@harness-anything/application/internal/queries/fleet-version-warning-read.ts";
 import { validDispatchLifecycleQuery } from "../runtime-dispatch-admission.ts";
 import { previousDispatchLifecycleReadResult } from "../protocol/json-rpc-dispatch-support.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -1905,7 +1905,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     return fleetVersionWarningMessages({
       warnings: [...versionWarnings].map(([nodeId, message]) => ({ nodeId, message })),
       sessions: nodeSessions.snapshot([], new Set()),
-      replicas: replicaStatus.snapshot(),
+      replicas: replicationSlots.list(),
       ...(repoId === undefined ? {} : { repoId }),
     });
   }

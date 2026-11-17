@@ -12,6 +12,17 @@ import { fleetVersionWarningMessages } from "../src/queries/fleet-version-warnin
 const candidate = { taskId: "task-review", executionId: "execution-review", dispatchKey: "review:cut:one" },
   now = () => "2026-11-17T01:00:00.000Z";
 
+for (const code of ["human_confirmation_required", "authentication_required", "oidc_device_expired"]) {
+  test(`${code} preserves the provider explanation and adds provider-neutral login recovery`, () => {
+    const message = "The configured identity provider rejected the expired session.",
+      diagnostic = reviewDispatchDiagnostic({ code, message });
+    assert.equal(diagnostic.code, code);
+    assert.ok(diagnostic.message.startsWith(message));
+    assert.match(diagnostic.message, /ha bootstrap --operation login.*sync this node/u);
+    assert.doesNotMatch(diagnostic.message, /Keycloak/iu);
+  });
+}
+
 for (const [code, message, expected] of [
   [
     "protocol_version_unsupported",
