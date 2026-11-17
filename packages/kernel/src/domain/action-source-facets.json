@@ -6849,12 +6849,6 @@
         "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.rm"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/walsender.ts#streamObjectPack:6639f47c442b784d7ea1327592eef06e",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/buffer.d.ts#Buffer.write"
-      },
-      {
         "candidateId": "action:packages/storage:packages/storage/src/durable-file.ts#openTemporaryFile.close:fe2dd164e2953bc3a73ed350f9390bac",
         "route": "daemon-local-state",
         "role": "technical-port",

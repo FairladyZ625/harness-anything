@@ -159,9 +159,17 @@ export function fleetReplicaDiskUsage(root: string): number {
   };
   return visit(root);
 }
-/** Received frames held before the stream stops reading; at 64 KiB per data frame about 16 MiB. */
+/** Received frames/bytes held before the stream stops reading; 16 MiB high / 4 MiB low. */
 const queuedFramesHigh = 256,
-  queuedFramesLow = 64;
+  queuedFramesLow = 64,
+  queuedBytesHigh = 16 * 1024 * 1024,
+  queuedBytesLow = 4 * 1024 * 1024;
+const queuedFrameBytes = (frame: ReplicationFrame): number =>
+  frame.type === "replica.data.bin"
+    ? frame.data.byteLength
+    : frame.type === "replica.data"
+      ? Buffer.byteLength(frame.data, "base64")
+      : 1024;
 /**
  * One resident replication stream for this node and repository: base backup when needed, then
  * ordered commits until the connection fails or the signal aborts. It never returns normally;
@@ -176,6 +184,7 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
     queue: ReplicationFrame[] = [],
     waiters: { readonly resolve: (frame: ReplicationFrame) => void; readonly reject: (error: Error) => void }[] = [];
   let closed: Error | null = null,
+    queuedBytes = 0,
     replicationAdmitted = false,
     failureReport: Promise<void> | undefined;
   socket.on("error", (error) => {
@@ -255,11 +264,14 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
                     for (const replicated of decoder.push(data)) {
                       const waiter = waiters.shift();
                       if (waiter) waiter.resolve(replicated);
-                      else queue.push(replicated);
+                      else {
+                        queue.push(replicated);
+                        queuedBytes += queuedFrameBytes(replicated);
+                      }
                     }
                     // Stop reading while frames wait: the unread TCP window is what makes the center's
                     // drain wait, so a base backup flows at the speed this node writes it.
-                    if (queue.length >= queuedFramesHigh) socket.pause();
+                    if (queue.length >= queuedFramesHigh || queuedBytes >= queuedBytesHigh) socket.pause();
                   })
                   .catch(failReplicationSession);
               });
@@ -367,7 +379,8 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
       receive: async (receiveSignal) => {
         receiveSignal?.throwIfAborted();
         const queued = queue.shift();
-        if (socket.isPaused() && queue.length <= queuedFramesLow) socket.resume();
+        if (queued) queuedBytes = Math.max(0, queuedBytes - queuedFrameBytes(queued));
+        if (socket.isPaused() && queue.length <= queuedFramesLow && queuedBytes <= queuedBytesLow) socket.resume();
         if (queued) return queued;
         if (closed) throw closed;
         return new Promise<ReplicationFrame>((resolve, reject) => {

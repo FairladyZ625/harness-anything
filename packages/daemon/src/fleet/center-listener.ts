@@ -382,7 +382,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     readonly size: number;
     readonly sha256: string;
     readonly archiveFile: string;
-    readonly objectsFile?: string;
+    readonly objects?: readonly import("@harness-anything/storage").BaseBackupObjectEntry[];
     readonly objectCount?: number;
     readonly createdAt: string;
     readonly expiresAt: string;
@@ -503,11 +503,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             ) {
               const archivePath = path.join(snapshotDir, pin.archiveFile);
               const pinMode: "monolithic" | "split" = pin.mode === "split" ? "split" : "monolithic";
-              const objectsPath =
-                pinMode === "split" && typeof pin.objectsFile === "string" && !path.isAbsolute(pin.objectsFile)
-                  ? path.join(snapshotDir, pin.objectsFile)
-                  : undefined;
-              const objectsValid = pinMode !== "split" || (objectsPath !== undefined && existsSync(objectsPath));
+              const objectsValid = pinMode !== "split" || Array.isArray(pin.objects);
               if (existsSync(archivePath) && statSync(archivePath).size === pin.size && objectsValid) {
                 const unpin = retentionFor(repoId).pin(pin.position);
                 let retained = true;
@@ -517,7 +513,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
                   size: pin.size,
                   sha256: pin.sha256,
                   mode: pinMode,
-                  ...(objectsPath ? { objectsFile: objectsPath } : {}),
+                  ...(pin.objects ? { objects: pin.objects } : {}),
                   ...(typeof pin.objectCount === "number" ? { objectCount: pin.objectCount } : {}),
                 };
                 const cached: CachedBackup = {
@@ -824,7 +820,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
                 size: built.size,
                 sha256: built.sha256,
                 archiveFile: path.basename(built.file),
-                ...(built.objectsFile ? { objectsFile: path.basename(built.objectsFile) } : {}),
+                ...(built.objects ? { objects: built.objects } : {}),
                 ...(built.objectCount !== undefined ? { objectCount: built.objectCount } : {}),
                 createdAt: new Date(createdAtMs).toISOString(),
                 expiresAt: new Date(expiresAtMs).toISOString(),

@@ -40,6 +40,11 @@ const sqlBackup = async () => {
 const mode = input.mode ?? "monolithic";
 const metadata = "storage" in input ? await sqlBackup() : await prepareSqliteBackup(input);
 const payload = path.join(input.directory, "payload");
+const payloadObjectsPath = path.join(payload, "objects.json");
+const splitObjects =
+  mode === "split" && existsSync(payloadObjectsPath)
+    ? (JSON.parse(readFileSync(payloadObjectsPath, "utf8")) as readonly BaseBackupObjectEntry[])
+    : undefined;
 writeFileDurably(path.join(payload, "backup.json"), JSON.stringify(metadata));
 const file = path.join(input.directory, "base.tar.gz");
 await tar.create({ file, cwd: payload, gzip: true, portable: true, strict: true }, [
@@ -50,13 +55,12 @@ syncFile(file);
 await /* @gate-identity state-store/task.backup-sqlite */ rm(payload, { recursive: true, force: true });
 const digest = createHash("sha256");
 for await (const chunk of createReadStream(file)) digest.update(chunk);
-const objectsFilePath = path.join(input.directory, "objects.json");
 const splitMeta =
-  mode === "split" && existsSync(objectsFilePath)
+  mode === "split" && splitObjects !== undefined
     ? {
         mode: "split" as const,
-        objectsFile: objectsFilePath,
-        objectCount: (JSON.parse(readFileSync(objectsFilePath, "utf8")) as readonly BaseBackupObjectEntry[]).length,
+        objects: splitObjects,
+        objectCount: splitObjects.length,
       }
     : { mode: "monolithic" as const };
 const archive: BaseBackupArchive = {
@@ -129,7 +133,7 @@ async function prepareSqliteBackup(input: SqliteBaseBackupInput): Promise<BaseBa
       }
     }
     if (mode === "split") {
-      writeFileDurably(path.join(input.directory, "objects.json"), JSON.stringify(splitObjects));
+      writeFileDurably(path.join(payload, "objects.json"), JSON.stringify(splitObjects));
     }
     return metadata;
   } finally {

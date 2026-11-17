@@ -349,8 +349,6 @@ test("snapshot-object-pack/v1 deduplicates existing local objects and streams mi
     { sha256: sha1, size: obj1.length },
     { sha256: sha2, size: obj2.length },
   ];
-  const objectsFile = path.join(root, "objects.json");
-  writeFileSync(objectsFile, JSON.stringify(manifestEntries));
 
   const metadata: BaseBackupMetadata = {
     schema: "fleet-basebackup/v3",
@@ -405,7 +403,7 @@ test("snapshot-object-pack/v1 deduplicates existing local objects and streams mi
         size: tarBytes.length,
         sha256: tarSha,
         mode: "split",
-        objectsFile,
+        objects: manifestEntries,
         objectCount: manifestEntries.length,
         snapshotId: "snap-pack-001",
         resumeOffset: 0,

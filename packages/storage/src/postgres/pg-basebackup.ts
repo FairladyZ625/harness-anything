@@ -84,7 +84,7 @@ export async function prepareSqlBaseBackup(
                 [scope.tenantId, scope.projectId, claimed],
               )
             ).rows.map((row) => ({ sha256: row.sha256, size: Number(row.size) }));
-        writeFileDurably(path.join(input.directory, "objects.json"), JSON.stringify(objects));
+        writeFileDurably(path.join(payload, "objects.json"), JSON.stringify(objects));
       } else {
         const objects = (
           await client.query<{ sha256: string; body: Buffer }>(

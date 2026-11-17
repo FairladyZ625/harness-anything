@@ -1722,14 +1722,24 @@ export const nonStateIoDeclarations = Object.freeze([
     scope: "receivePackStream",
   },
   {
-    id: "environment-io.5e6f708192a3b4c5",
+    id: "environment-io.0e61dbc95383ec54",
     path: "packages/daemon/src/fleet/walreceiver.ts",
     category: "environment-io",
     subtype: "replica-snapshot-staging",
     reason:
-      "Atomically promotes a digest-verified packed object into snapshot object staging. Signal: rename in receivePackStream.",
+      "Cleans up temporary pack object staging file on digest mismatch in finalizeCurrentObject. Signal: rm in finalizeCurrentObject.",
+    api: "rm",
+    scope: "finalizeCurrentObject",
+  },
+  {
+    id: "environment-io.05c64932e0127603",
+    path: "packages/daemon/src/fleet/walreceiver.ts",
+    category: "environment-io",
+    subtype: "replica-snapshot-staging",
+    reason:
+      "Atomically promotes a digest-verified packed object into snapshot object staging. Signal: rename in finalizeCurrentObject.",
     api: "rename",
-    scope: "receivePackStream",
+    scope: "finalizeCurrentObject",
   },
   {
     id: "environment-io.6f708192a3b4c5d6",

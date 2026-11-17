@@ -282,11 +282,11 @@ async function receivePackStream(input: {
       await handle.close();
     }
     if (digest.digest("hex") !== sha) {
-      await /* @gate-identity non-state/environment-io.4d5e6f708192a3b4 */ rm(tmpPath, { force: true });
+      await /* @gate-identity non-state/environment-io.0e61dbc95383ec54 */ rm(tmpPath, { force: true });
       throw new ReplicationError("replication pack object digest differs", "replica_protocol_error");
     }
     const targetPath = path.join(stagedObjectsDir, sha.slice(0, 2), sha.slice(2));
-    await /* @gate-identity non-state/environment-io.5e6f708192a3b4c5 */ rename(tmpPath, targetPath);
+    await /* @gate-identity non-state/environment-io.05c64932e0127603 */ rename(tmpPath, targetPath);
     objectsReceived += 1;
   };
 

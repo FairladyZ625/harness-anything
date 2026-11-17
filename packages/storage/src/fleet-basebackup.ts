@@ -23,7 +23,7 @@ export interface BaseBackupArchive {
   readonly size: number;
   readonly sha256: string;
   readonly mode?: BaseBackupMode;
-  readonly objectsFile?: string;
+  readonly objects?: readonly BaseBackupObjectEntry[];
   readonly objectCount?: number;
 }
 export interface SqliteBaseBackupInput {

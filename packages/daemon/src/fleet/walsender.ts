@@ -1,5 +1,5 @@
 import type { ReplicaSyncPhase } from "./replica-status.ts";
-import { createReadStream, readFileSync } from "node:fs";
+import { createReadStream } from "node:fs";
 import {
   replicationCommitBytes,
   replicationCommitChunks,
@@ -83,7 +83,7 @@ async function* streamObjectPack(
   for (const entry of entries) {
     signal.throwIfAborted();
     const header = Buffer.allocUnsafe(72);
-    header.write(entry.sha256, 0, 64, "ascii");
+    Buffer.from(entry.sha256, "ascii").copy(header, 0);
     header.writeBigUInt64BE(BigInt(entry.size), 64);
     yield header;
     let written = 0;
@@ -200,9 +200,7 @@ export async function runWalSender(input: {
         }
         await peer.send({ type: "replica.backup.end" });
         if (isSplitPack) {
-          const allObjects: readonly BaseBackupObjectEntry[] = archive.objectsFile
-            ? (JSON.parse(readFileSync(archive.objectsFile, "utf8")) as readonly BaseBackupObjectEntry[])
-            : [];
+          const allObjects: readonly BaseBackupObjectEntry[] = archive.objects ?? [];
           if (allObjects.length === 0) {
             await peer.send({ type: "replica.objects.manifest", entries: [], done: true });
             const want = await receiveExpecting();
