@@ -7,6 +7,12 @@ type FleetUploadSession = {
   readonly messageId: () => string;
   readonly request: (frame: FleetFrameV1) => Promise<FleetFrameV1>;
 };
+/**
+ * Stage one change and return the claim descriptor the next frame references. `opId` is part of
+ * the claim identity: two publishes of identical bytes stage two claims, so one consumer cannot
+ * invalidate the other. A retry that lost its reply must therefore pass the same `opId` to resume
+ * the durable prefix instead of starting a second copy.
+ */
 export async function uploadFleetChange(
   session: FleetUploadSession,
   repoId: string,

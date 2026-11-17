@@ -47,6 +47,7 @@ import {
 } from "@harness-anything/storage";
 import { runtimeErrorCode, runtimeErrorMessage } from "../runtime-spawn-errors.ts";
 import {
+  describeClaimMiss,
   discardOwnedClaims as discardOwnedClaimsImpl,
   findOwnedClaim as findOwnedClaimImpl,
   reclaimConsumedClaims,
@@ -817,9 +818,15 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     if (frame.schema === "fleet.upload.begin/v1") {
       return runFleetCenterWrite(frame, async () => {
         const a = await nodeContext(nodeId, frame.repoId, frame.accessToken),
+          // The caller's request id belongs to the upload identity. Two logically distinct
+          // publishes that happen to produce the same bytes (a repeated runtime failure body is
+          // the common case) are two claims, so one publish consuming its claim can never
+          // invalidate the other's. A retry that lost the ready frame resends the same opId and
+          // therefore still resumes the same durable prefix instead of staging a second copy.
           uploadId = digestId(
             nodeId,
             a.repoId,
+            frame.opId,
             frame.content.sha256,
             String(frame.content.size),
             frame.content.mediaType,
@@ -1227,7 +1234,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         let resultBody: string | undefined, uploadId: string | undefined;
         if (frame.result) {
           const owned = findOwnedClaim(nodeId, a.repoId, frame.result);
-          if (!owned) throw new FleetFault("claim_not_owned", "Runtime result descriptor was not issued to this node.");
+          if (!owned)
+            throw new FleetFault(
+              "claim_not_owned",
+              `Runtime result descriptor was not issued to this node (${describeClaimMiss(extracted, nodeId, a.repoId, frame.result)}).`,
+            );
           uploadId = owned[0];
           const claim = path.join(safeLocal(a.repoId, "doc-sync-claims"), path.basename(frame.result.ref)),
             bytes = readFileSync(claim);
