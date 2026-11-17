@@ -41,6 +41,7 @@ test("a worker escalation blocks its task until the owner answers and resumes wi
       'if (args[0] === "login" && args[1] === "status") process.exit(0);',
       'const prompt = fs.readFileSync(0, "utf8");',
       `fs.writeFileSync(${JSON.stringify(path.join(parent, "observed-worker-prompt.md"))}, prompt);`,
+      `if (prompt.includes(${JSON.stringify(answer)})) { console.log(JSON.stringify({ type: "thread.started", thread_id: "provider-after-ruling" })); console.log(JSON.stringify({ type: "item.completed", item: { id: "answered", type: "agent_message", text: "owner-answer-injected" } })); console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })); process.exit(0); }`,
       `const cli = ${JSON.stringify(cli)}, taskId = prompt.match(/^Canonical Task ID: (\\S+)$/mu)?.[1];`,
       'if (!taskId) { process.stderr.write("dispatch task id missing"); process.exit(7); }',
       'const run = (argv, env = process.env) => { const result = childProcess.spawnSync(process.execPath, [cli, "--root", process.cwd(), "--json", ...argv], { encoding: "utf8", env }); const receipt = result.stdout.trim() ? JSON.parse(result.stdout) : {}; return { status: result.status, code: receipt.code ?? null }; };',
@@ -128,6 +129,8 @@ test("a worker escalation blocks its task until the owner answers and resumes wi
   run(root, env, ["task", "escalation", "resolve", task.taskId, "--dispatch-id", dispatchId, "--answer", answer]);
   const shownAfterResolution = run(root, env, ["task", "show", task.taskId]);
   assert.equal(JSON.parse(String(shownAfterResolution.evidence)).task.status, "planned");
+  const readSetAfter = run(root, env, ["task", "read-set", task.taskId]);
+  assert.ok(String(readSetAfter.evidence).includes(answer), JSON.stringify(readSetAfter));
   run(root, env, ["task", "start", task.taskId]);
   const next = runMaybe(root, env, [
     "agent",
@@ -148,6 +151,13 @@ test("a worker escalation blocks its task until the owner answers and resumes wi
     (await readPublishedDispatch(path.join(parent, "observed-worker-prompt.md"))).includes(answer),
     "the next worker process must receive the owner's ruling answer",
   );
+  const afterFreshWorker = run(root, env, ["task", "show", task.taskId]);
+  assert.notEqual(
+    JSON.parse(String(afterFreshWorker.evidence)).task.status,
+    "blocked",
+    "an answered worker must not ask the same question again",
+  );
+
   assert.match(
     await readPublishedDispatch(path.join(task.artifactRoot, "missions", `${nextDispatchId}.md`)),
     new RegExp(`Owner answer to worker escalation ${dispatchId}: ${answer}`, "u"),

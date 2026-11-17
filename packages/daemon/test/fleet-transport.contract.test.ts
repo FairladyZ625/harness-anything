@@ -438,6 +438,8 @@ test("fleet operational read admits dispatches, node auto-dispatch and auto-clai
   };
   assert.deepEqual(parseFleetFrame(frame), frame);
   const dispatches = { ...frame, method: "repo.task.dispatches", payload: { taskId: "task-one" } };
+  const taskContext = { ...frame, method: "repo.tasks.runtimeContext.read", payload: { taskId: "task-one" } };
+  assert.deepEqual(parseFleetFrame(taskContext), taskContext);
   assert.deepEqual(parseFleetFrame(dispatches), dispatches);
   const overview = { ...frame, method: "repo.fleet.overview.read", payload: {} };
   assert.deepEqual(parseFleetFrame(overview), overview);

@@ -921,18 +921,20 @@ async function runtimeRulingRequest(
   const ruling = (value: RuntimeRulingArtifact | null) => ({ ruling: value, reviewTargetWithdrawn: null });
   if (!active.task) return ruling(null);
   if (context.input.remote && typeof context.input.remote.taskContext === "function") {
-    // The execution credential writes the escalation at the center. Pull the serving cut before
-    // edge settlement reads the mirrored package, otherwise the edge would archive an ordinary
-    // stop and the center could not distinguish a waiting worker from a failed one.
+    // Settlement uses the existing replica and worker package, including while the center is
+    // disconnected. It must reach the durable archive/publication retry path without requiring
+    // the fresh serving context that only a new mission needs.
     let remoteTask: Awaited<ReturnType<NonNullable<RuntimeSpawnerContext["input"]["remote"]>["taskContext"]>>;
     try {
       remoteTask = await context.input.remote.taskContext(
         active.task.taskId,
         undefined,
         active.role === "reviewer" ? { executionId: active.task.executionId } : undefined,
+        undefined,
+        "settlement",
       );
     } catch (error) {
-      // The center re-admits the review target on this read. A target that left review can no
+      // Task context rechecks the review target on this read. A target that left review can no
       // longer take this reviewer's verdict, so its settlement is final instead of retried forever.
       if (
         active.role === "reviewer" &&

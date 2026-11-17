@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -230,48 +230,34 @@ for (const lifecycleNode of ["custom-recovery-stage", null])
     assert.ok(Buffer.byteLength(resolved.progressSnapshot!, "utf8") <= 2048);
   });
 
-test("a remote mission carries an escalation answer from the mirrored ruling package", async () => {
-  const packageRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-escalation-mirror-"));
-  try {
-    mkdirSync(path.join(packageRoot, "artifacts", "rulings"), { recursive: true });
-    writeFileSync(
-      path.join(packageRoot, "artifacts", "rulings", "dispatch_0123456789abcdef01234567.resolution.md"),
-      JSON.stringify({
-        schema: "worker-escalation-resolution/v1",
-        dispatchId: "dispatch_0123456789abcdef01234567",
-        taskId: "task_x",
-        answer: "Keep the boundary.",
-        answeredAt: "2026-11-02T00:00:00.000Z",
-      }),
-    );
-    const resolved = await resolveRuntimeMission({
-      rootDir: process.cwd(),
-      cwd: process.cwd(),
-      taskId: "task_x",
-      projection: null,
-      remoteTask: {
-        packageRoot,
-        mission: () => "Continue the task.",
-        continuationContext: null,
-        causalContext: null,
-        profileId: null,
-        taskClass: "standard",
-        planBody: null,
-        ownerReturnBody: null,
-      } as never,
-      taskSnapshot: null,
-      missionName: undefined,
-      explicitMission: undefined,
-      reviewerBinding: false,
+for (const explicitMission of [undefined, "Continue explicitly."])
+  for (const continuationRequested of [false, true])
+    test(`remote ruling comes from the serving context without materialized files: prompt=${String(explicitMission)} continuation=${continuationRequested}`, async () => {
+      const answer = "Owner answer to worker escalation dispatch_0123456789abcdef01234567: Keep the boundary.",
+        resolved = await resolveRuntimeMission({
+          rootDir: process.cwd(),
+          cwd: process.cwd(),
+          taskId: "task_x",
+          projection: null,
+          remoteTask: {
+            packageRoot: path.join(tmpdir(), "not-materialized-ruling-package"),
+            mission: () => "Continue the task.",
+            continuationContext: null,
+            causalContext: null,
+            profileId: null,
+            taskClass: "standard",
+            planBody: null,
+            ownerReturnBody: answer,
+          } as never,
+          taskSnapshot: null,
+          missionName: undefined,
+          explicitMission,
+          reviewerBinding: false,
+          continuationRequested,
+        });
+      assert.ok(resolved.mission.includes(answer), "the serving context must survive every mission branch");
+      assert.equal(resolved.mission.split(answer).length - 1, 1);
     });
-    assert.match(
-      resolved.mission,
-      /Owner answer to worker escalation dispatch_0123456789abcdef01234567: Keep the boundary\./u,
-    );
-  } finally {
-    rmSync(packageRoot, { recursive: true, force: true });
-  }
-});
 
 test("task-bound explicit prompts carry the lookup guidance, living protocol and PR note", () => {
   const mission = explicitPromptMission("task_x", null, "Finish the leaf task.", "medium"),

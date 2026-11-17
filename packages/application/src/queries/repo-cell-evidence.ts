@@ -1,3 +1,5 @@
+import { renderTaskEscalations } from "./task-escalation-context.ts";
+import type { WorkerEscalationContext } from "@harness-anything/kernel/internal/domain/worker-escalation-context.ts";
 export { decodeEvidencePayload } from "./evidence-payload.ts";
 import { renderTaskIndexPayload } from "./task-index-query.ts";
 import { renderWorkPayload } from "./work-read.ts";
@@ -92,6 +94,9 @@ function renderTaskReadSetPayload(payload: unknown): string | null {
     ...gaps,
     "read-set:",
     rows || "(none)",
+    ...(Array.isArray(record.escalations) && record.escalations.length > 0
+      ? ["Effective owner rulings:", renderTaskEscalations(record.escalations as WorkerEscalationContext[])!]
+      : []),
     `task=${String(record.taskRef)}  count=${entries.length}  blocked=${String(record.blocked)}  ` +
       `status=${String(record.status ?? "unknown")}  watermark=${String(record.watermark ?? "unknown")}  ` +
       `sourceRevision=${String(record.sourceRevision ?? "unknown")}`,

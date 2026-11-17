@@ -302,6 +302,7 @@ export type FleetFrameV1 =
       {
         repoId: string;
         method:
+          | "repo.tasks.runtimeContext.read"
           | "repo.agentRuntime.lifecycle.read"
           | "repo.agentRuntime.sessions.await"
           | "repo.task.dispatches"
@@ -992,6 +993,7 @@ const schemas: Readonly<Record<string, Check>> = {
     ...common,
     repoId: id,
     method: one(
+      "repo.tasks.runtimeContext.read",
       "repo.agentRuntime.lifecycle.read",
       "repo.agentRuntime.sessions.await",
       "repo.task.dispatches",

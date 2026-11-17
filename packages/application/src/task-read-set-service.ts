@@ -6,12 +6,19 @@ import {
   type TaskReadSet,
   type TaskReadSetCounterpart,
 } from "@harness-anything/kernel";
+import { readTaskEscalations } from "./queries/task-escalation-context.ts";
 import { readTaskAncestry } from "./task-ancestry-read.ts";
 
 /** The read side this assembler needs; it writes nothing and takes no lease. */
 export type TaskReadSetProjection = Pick<
   TaskProjection,
-  "readRelationQuery" | "readEntityVersionWitness" | "readTaskIndex" | "readDocumentMetadata"
+  | "readRelationQuery"
+  | "readEntityVersionWitness"
+  | "readTaskIndex"
+  | "readDocumentMetadata"
+  | "readDocuments"
+  | "readDocument"
+  | "readEventWitness"
 >;
 
 /**
@@ -24,7 +31,7 @@ export function readTaskReadSet(
   projection: TaskReadSetProjection,
   taskId: string,
   ancestry = readTaskAncestry(projection, taskId),
-): TaskReadSet {
+): TaskReadSet & { readonly escalations: ReturnType<typeof readTaskEscalations> } {
   const taskRef = `task/${taskId}`,
     relations = projection.readRelationQuery({ entity: taskRef, state: "active" }),
     edges = taskReadSetRelationCandidates(relations.rows),
@@ -86,5 +93,5 @@ export function readTaskReadSet(
       documentAvailable: read.document !== null,
     });
   }
-  return deriveTaskReadSet(input);
+  return { ...deriveTaskReadSet(input), escalations: readTaskEscalations(projection, taskId, ancestry.packagePath) };
 }

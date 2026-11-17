@@ -13,6 +13,7 @@ function stub(overrides: Record<string, unknown> = {}): TaskProjection {
     readTaskRelationsByTargets: () => ({ ...cut(), rows: [] }),
     readDecisions: () => ({ ...cut(), decisions: [] }),
     readRelationQuery: () => ({ ...cut(), rows: [] }),
+    readDocuments: () => ({ ...cut(), documents: [] }),
     searchFacts: () => ({ ...cut(), facts: [] }),
     readEntityVersionWitness: (entityRef: string) => ({ entityRef, freshness: "current", currentVersion: 1 }),
     read: () => ({ ...cut(), packagePath: "tasks/mock", snapshot: { task: null } }),
@@ -790,6 +791,7 @@ test("a block with no served facts carries no facts note", () => {
       ],
     }),
     readRelationQuery: () => ({ ...cut(), rows: [] }),
+    readDocuments: () => ({ ...cut(), documents: [] }),
     readDocument: () => ({ ...cut(), document: { body: "# Root\n\n## Goal\n\nShip.\n" } }),
   });
   const block = assembleTaskCausalContext({ projection, taskId: "task_leaf" });

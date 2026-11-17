@@ -126,6 +126,10 @@ test("runtime task context v3 requires tier policy and rejects the retired v2 sh
     snapshot: {},
   };
   assert.equal(parseDaemonGuiReadResult("repo.tasks.runtimeContext.read", result), result);
+  const withRuling = { ...result, escalationContext: "Question: boundary?\nAnswer: keep it" };
+  assert.equal(parseDaemonGuiReadResult("repo.tasks.runtimeContext.read", withRuling), withRuling);
+  assert.throws(() => parseDaemonGuiReadResult("repo.tasks.runtimeContext.read", { ...result, escalationContext: 42 }));
+
   assert.throws(() =>
     parseDaemonGuiReadResult("repo.tasks.runtimeContext.read", { ...result, schema: "task-runtime-context-read/v2" }),
   );
