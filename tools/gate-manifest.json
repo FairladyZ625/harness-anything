@@ -77,6 +77,7 @@
         "check-entity-doc-contract",
         "check-format",
         "check-import-boundaries",
+        "check-c4-architecture",
         "check-poll-spin-boundary",
         "check-fallback-boundaries",
         "authorization-provider-boundary",
@@ -132,6 +133,7 @@
         "check-entity-doc-contract",
         "check-format",
         "check-import-boundaries",
+        "check-c4-architecture",
         "check-poll-spin-boundary",
         "check-fallback-boundaries",
         "authorization-provider-boundary",
@@ -168,7 +170,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 44
+      "harnessLeafGateCount": 45
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -1828,6 +1830,70 @@
       "positiveControl": {
         "status": "covered",
         "evidence": ["tools/check-import-boundaries.test.mjs"]
+      }
+    },
+    {
+      "id": "check-c4-architecture",
+      "command": "npm run harness:check-c4-architecture",
+      "category": "boundary",
+      "tier": "pr-required",
+      "tierReason": null,
+      "localPathGlobs": [
+        "package.json",
+        "packages/**",
+        "tools/check-c4-architecture.mjs",
+        ".harness/ledger-files/context/architecture/**"
+      ],
+      "authoritySource": [
+        "decision/dec_04A9211B073F29F0FC1E1CA573#CH1",
+        "decision/dec_04A9211B073F29F0FC1E1CA573#CH3",
+        "decision/dec_7C93DEBCFB2D1A94C6FA07AAAD#CH2"
+      ],
+      "consumerScope": [
+        "closed-world 12 workspace packages under packages/*/package.json",
+        "four-way reconciliation of C4 relations, package manifests, source AST imports, and model.c4 (--scope packages in W1A until W1B task_557b9975f04b275d492f25c1cb)"
+      ],
+      "githubContext": {
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Zero allowlists: closed-world package boundaries, four-way manifest reconciliation, and ghost internal dependency checks fail closed without exceptions."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-c4-architecture.mjs",
+          "package.json:scripts.harness:check-c4-architecture",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-c4-architecture"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": ["quick-gates"]
+        },
+        "classes": ["local", "pr", "main-full"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/check-c4-architecture.test.mjs"]
       }
     },
     {

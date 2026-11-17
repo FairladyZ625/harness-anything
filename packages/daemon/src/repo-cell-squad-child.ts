@@ -21,7 +21,7 @@ import { cellCriterionError } from "./repo-cell-errors.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { appendAuxiliaryRuntimeIngress } from "./repo-cell-runtime-ingress.ts";
 import { publishDocIntent } from "./doc-sync-publication.ts";
-import { noChanges } from "./entity-action-write-helpers.ts";
+import { noChanges } from "@harness-anything/application/internal/commands/entity-action-write-helpers.ts";
 
 /**
  * A refused squad child step reports what it was doing and the code the child returned. The

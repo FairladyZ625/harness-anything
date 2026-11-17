@@ -23,7 +23,7 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { truncateSync } from "node:fs";
-import { readSubmissionArtifact } from "../src/submission-artifacts.ts";
+import { readSubmissionArtifact } from "@harness-anything/application/commands";
 import {
   documentPath,
   DOC_SYNC_INLINE_MAX_BYTES,

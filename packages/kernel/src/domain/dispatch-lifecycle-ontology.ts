@@ -231,8 +231,8 @@ export const daemonRuntimeSessionPolicySources = [
     "return isRecord(value) &&",
   ],
   [
-    "policy:packages/daemon:packages/daemon/src/entity-action-runtime-session.ts#compileRuntimeSessionDraft:d03e2d428abfb3b4114994b23051f290",
-    "packages/daemon/src/entity-action-runtime-session.ts#compileRuntimeSessionDraft",
+    "policy:packages/application:packages/application/src/commands/entity-action-runtime-session.ts#compileRuntimeSessionDraft:d03e2d428abfb3b4114994b23051f290",
+    "packages/application/src/commands/entity-action-runtime-session.ts#compileRuntimeSessionDraft",
     'if (draft.event.type === "runtime_session_outcome_observed" && (!claim || draft.resultBody === undefined))',
   ],
 ] as const;

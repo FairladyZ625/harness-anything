@@ -23,7 +23,8 @@ import {
   publishGateWitness as publishGateWitnessImpl,
 } from "./repo-cell-completion.ts";
 import { cellCodedError, errorOperationId, publishGeneratedArtifact } from "./repo-cell-errors.ts";
-import { decodeEvidencePayload, renderEvidencePayload } from "./repo-cell-evidence.ts";
+import { decodeEvidencePayload } from "@harness-anything/application/internal/queries/evidence-payload.ts";
+import { renderEvidencePayload } from "@harness-anything/application/internal/queries/repo-cell-evidence.ts";
 import {
   completeRetryCommand,
   explicitExecutionId,
@@ -83,12 +84,18 @@ import {
   taskWipEnteringAction as taskWipEnteringActionImpl,
   wipSnapshotEntries as wipSnapshotEntriesImpl,
 } from "./repo-cell-task-query.ts";
-import { graphView as graphViewImpl } from "./repo-cell-graph-view.ts";
-import { listEvents as listEventsImpl, showEvent as showEventImpl } from "./repo-cell-event-query.ts";
+import { graphView as graphViewImpl } from "@harness-anything/application/internal/queries/repo-cell-graph-view.ts";
+import {
+  listEvents as listEventsImpl,
+  showEvent as showEventImpl,
+} from "@harness-anything/application/internal/queries/repo-cell-event-query.ts";
 import { type PublicPublication, type RepoTaskAction } from "./repo-cell-types.ts";
 import type { TaskQueryReadModel } from "./task-query-read.ts";
 import type { makeSquadCoordinator } from "./squad-coordinator.ts";
-import type { EntityActionCatalogRuntimes, makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
+import type {
+  EntityActionCatalogRuntimes,
+  makeEntityActionCatalogExecutor,
+} from "@harness-anything/application/internal/commands/entity-action-catalog-executor.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 
 export function createRepoCellActionContext(bindings: {

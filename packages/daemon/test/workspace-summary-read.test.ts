@@ -4,7 +4,7 @@ import test from "node:test";
 import { summarizeWorkspace } from "@harness-anything/kernel";
 import { validateDaemonWorkspaceSummary } from "../src/protocol/daemon-protocol.contract.ts";
 import type { TaskProjection } from "@harness-anything/kernel";
-import { workspaceSummaryFromProjection } from "../src/workspace-summary-read.ts";
+import { workspaceSummaryFromProjection } from "@harness-anything/application/queries";
 
 test("workspace summary uses the native projection aggregate without listing task or decision entities", () => {
   let nativeReads = 0;

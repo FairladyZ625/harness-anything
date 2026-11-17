@@ -8,7 +8,7 @@ import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { premiseReviewCommand } from "../src/premise-review.ts";
+import { premiseReviewCommand } from "@harness-anything/application/queries";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";

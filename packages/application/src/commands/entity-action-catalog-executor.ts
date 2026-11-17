@@ -1,11 +1,15 @@
 import { createHash } from "node:crypto";
-import { makeDecisionService, makeFactService, type ArtifactSourceResolution } from "@harness-anything/application";
+import { makeDecisionService } from "../decision-service.ts";
+import { makeFactService } from "../fact-service.ts";
 import {
+  actionReceiptGuidance,
   compileEntityUpsert,
   compileEntityDeleted,
   compileAgentRetired,
   compileDecisionWrite,
   compileFactWrite,
+  decisionRelationLinkResolver,
+  decisionReviewState,
   documentWorkspacePath,
   resolveHarnessLayout,
   getExecutableEntityAction,
@@ -19,6 +23,7 @@ import {
   type AuthorizationDecision,
   type CanonicalWriteBundle,
   type CanonicalEventStore,
+  type CanonicalRelationDirection,
   type RepositorySettingsV1,
   type EntityActionContract,
   type EntityActionDraft,
@@ -35,7 +40,13 @@ import {
 import { docByteLength, type DocumentState } from "@harness-anything/kernel/internal/domain/doc-sync.contract";
 import { relationStrengthForType } from "@harness-anything/kernel/internal/domain/entity-relation";
 import type { NodeTaskMaterializationPolicy } from "@harness-anything/kernel/internal/domain/task-wip-policy.ts";
-import { prepareDecisionAmend, validateDecisionPackages } from "./decision-surface-actions.ts";
+import {
+  decisionAmendmentConsent,
+  decisionApproval,
+  entityPreview,
+  prepareDecisionAmend,
+  validateDecisionPackages,
+} from "./decision-surface-actions.ts";
 import {
   decisionFilters,
   decisionPreview,
@@ -45,7 +56,6 @@ import {
   factReceipt,
   preparedEntityReport,
   preparedEntityWarnings,
-  previewReceipt,
   readReceipt,
 } from "./entity-action-catalog-receipts.ts";
 import { supersededFactDocumentSource } from "./fact-supersede-document.ts";
@@ -55,7 +65,7 @@ import {
   factObservationPreload,
   factUnarchiveBundle,
 } from "./fact-archive-document.ts";
-import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import type { CommandAction, CommandBinding } from "./command-ports.ts";
 import {
   commitRuntimeSessionBundle,
   compileRuntimeSessionDraft,
@@ -65,20 +75,10 @@ import {
 } from "./entity-action-runtime-session.ts";
 import { noChanges } from "./entity-action-write-helpers.ts";
 import { matchingReplayBundle } from "./entity-action-replay.ts";
-import {
-  executeArtifactEntityImport,
-  executeArtifactEntityMutation,
-  artifactImportSourceResolution,
-} from "./artifact-entity-action.ts";
 import { executeRelationAction, publicationKillpoints, reject } from "./entity-action-relation.ts";
-import { decisionRelationLinkResolver } from "./entity-document-links.ts";
-import { actionReceiptGuidance } from "./receipt-guidance.ts";
-import { attachDecisionReviewerArtifact } from "./reviewer-artifact-publication.ts";
-import { decisionReviewState } from "./decision-review-read.ts";
 import { assertDecisionReviewerIndependent } from "@harness-anything/kernel/internal/domain/decision-event-document.ts";
 import { reconcileDecisionReviewAwaitAfterWrite } from "./decision-review-awaits.ts";
 import { retireDecisionAwaitsAfterWrite } from "./terminal-awaits-retirement.ts";
-import { resolveDecisionReviewAction } from "./repo-cell-action-parse.ts";
 
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
 type FactBundle = ReturnType<typeof compileFactWrite>;
@@ -87,21 +87,21 @@ type EntityCatalogBundle = EntityUpsertBundle | EntityDeletedBundle | AgentRetir
 type CatalogBundle = FactBundle | DecisionBundle | EntityCatalogBundle | RuntimeSessionBundle | RuntimeSessionNoChanges;
 export type EntityActionCatalogRunner = (
   contract: ExecutableAction,
-  action: RepoTaskAction,
-  binding: RepoCellBinding,
+  action: CommandAction,
+  binding: CommandBinding,
   opId: string,
 ) => WriteReceipt | Promise<WriteReceipt>;
 export type EntityActionCatalogPreparer = (
   contract: ExecutableAction,
-  action: RepoTaskAction,
-  binding: RepoCellBinding,
+  action: CommandAction,
+  binding: CommandBinding,
   opId: string,
-) => RepoTaskAction;
+) => CommandAction;
 export interface EntityActionCatalogRuntimes {
   readonly entity?: Readonly<Record<string, EntityActionCatalogRunner>>;
   readonly task?: (...args: Parameters<EntityActionCatalogRunner>) => Promise<WriteReceipt>;
   readonly prepare?: Readonly<Record<string, EntityActionCatalogPreparer>>;
-  readonly commitRuntimeSession?: (bundle: RuntimeSessionBundle, binding: RepoCellBinding) => Promise<WriteReceipt>;
+  readonly commitRuntimeSession?: (bundle: RuntimeSessionBundle, binding: CommandBinding) => Promise<WriteReceipt>;
 }
 
 export function makeEntityActionCatalogExecutor(input: {
@@ -110,17 +110,40 @@ export function makeEntityActionCatalogExecutor(input: {
   readonly store: CanonicalEventStore;
   readonly projection: TaskProjection;
   readonly now: () => string;
-  readonly sessionIdentity: (binding: RepoCellBinding) => SessionIdentity;
+  readonly sessionIdentity: (binding: CommandBinding) => SessionIdentity;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
   readonly readSettings: () => RepositorySettingsV1;
   readonly nodeTaskMaterializationPolicy?: NodeTaskMaterializationPolicy;
+  readonly artifactActions?: {
+    readonly importEntity: (input: {
+      readonly action: CommandAction;
+      readonly binding: CommandBinding;
+      readonly authorizationDecision: AuthorizationDecision;
+    }) => Promise<{
+      readonly contract: EntityActionContract;
+      readonly action: CommandAction;
+      readonly receipt: WriteReceipt;
+    }>;
+    readonly mutateEntity: (input: {
+      readonly action: CommandAction;
+      readonly binding: CommandBinding;
+      readonly authorizationDecision: AuthorizationDecision;
+    }) => { readonly contract: EntityActionContract; readonly action: CommandAction; readonly receipt: WriteReceipt };
+  };
+  readonly resolveDecisionReviewAction?: (action: CommandAction) => CommandAction;
+  readonly attachDecisionReviewerArtifact?: (
+    bundle: DecisionBundle,
+    input: { readonly action: CommandAction; readonly binding: CommandBinding },
+  ) => DecisionBundle;
+  readonly relationDirections?: () => readonly CanonicalRelationDirection[];
+  readonly readWorkspaceText?: (requestedValue: unknown, field: string) => string;
 }) {
   const decisions = makeDecisionService({ eventStore: input.store, projection: input.projection }),
     facts = makeFactService({ eventStore: input.store, projection: input.projection });
 
   const runCompiled = (
-    action: RepoTaskAction,
-    binding: RepoCellBinding,
+    action: CommandAction,
+    binding: CommandBinding,
     opId: string,
     runtimes: EntityActionCatalogRuntimes,
   ): WriteReceipt | Promise<WriteReceipt> => {
@@ -174,6 +197,7 @@ export function makeEntityActionCatalogExecutor(input: {
           projection: input.projection,
           now: input.now,
           killpoint: input.killpoint,
+          readWorkspaceText: input.readWorkspaceText,
           authorize: () => decisionAuthorization(action, binding, opId, input),
           compile: (preloaded, memberOpId, occurredAt, allocatedRevision) =>
             compileAction(contract, preloaded, binding, memberOpId, occurredAt, allocatedRevision) as FactBundle,
@@ -195,41 +219,22 @@ export function makeEntityActionCatalogExecutor(input: {
   };
 
   const run = (
-    action: RepoTaskAction,
-    binding: RepoCellBinding,
+    action: CommandAction,
+    binding: CommandBinding,
     opId: string,
     runtimes: EntityActionCatalogRuntimes = {},
   ): WriteReceipt | Promise<WriteReceipt> => {
     if (action.kind === "entity-import") {
+      if (!input.artifactActions) reject("invalid_store", "Artifact entity runtime is required.");
       const authorizationDecision = decisionAuthorization(action, binding, opId, input);
-      return executeArtifactEntityImport({
-        rootDir: input.rootDir ?? process.cwd(),
-        repositoryId: input.repositoryId ?? "repository",
-        action,
-        binding,
-        store: input.store,
-        projection: input.projection,
-        now: input.now,
-        authorizationDecision,
-        sourceResolution: (
-          action as RepoTaskAction & {
-            readonly [artifactImportSourceResolution]?: ArtifactSourceResolution;
-          }
-        )[artifactImportSourceResolution],
-      }).then((result) => deriveActionResult(result.contract, result.action, result.receipt));
+      return input.artifactActions
+        .importEntity({ action, binding, authorizationDecision })
+        .then((result) => deriveActionResult(result.contract, result.action, result.receipt));
     }
     if (action.kind === "entity-update" || action.kind === "entity-archive" || action.kind === "entity-delete") {
+      if (!input.artifactActions) reject("invalid_store", "Artifact entity runtime is required.");
       const authorizationDecision = decisionAuthorization(action, binding, opId, input),
-        result = executeArtifactEntityMutation({
-          rootDir: input.rootDir ?? process.cwd(),
-          repositoryId: input.repositoryId ?? "repository",
-          action,
-          binding,
-          store: input.store,
-          projection: input.projection,
-          now: input.now,
-          authorizationDecision,
-        });
+        result = input.artifactActions.mutateEntity({ action, binding, authorizationDecision });
       return deriveActionResult(result.contract, result.action, result.receipt);
     }
     const contract = getExecutableEntityAction(action.kind);
@@ -261,7 +266,7 @@ export function makeEntityActionCatalogExecutor(input: {
       .then((receipt) => deriveActionResult(contract, action, receipt));
   };
 
-  const repinAll = (action: RepoTaskAction, binding: RepoCellBinding, opId: string): WriteReceipt => {
+  const repinAll = (action: CommandAction, binding: CommandBinding, opId: string): WriteReceipt => {
     const ids = decisions.list({}).decisions.map(({ decisionId }) => decisionId),
       initialRevision = input.store.readHead()?.revision ?? 0,
       existingOutcome = readAcceptedCommandOutcome(input.store, opId),
@@ -330,16 +335,16 @@ export function makeEntityActionCatalogExecutor(input: {
 
   const runWrite = (
     contract: ExecutableAction,
-    rawAction: RepoTaskAction,
-    binding: RepoCellBinding,
+    rawAction: CommandAction,
+    binding: CommandBinding,
     opId: string,
     runtimes: EntityActionCatalogRuntimes,
   ): WriteReceipt | Promise<WriteReceipt> => {
-    rawAction = resolveDecisionReviewAction(input.rootDir ?? "", rawAction);
+    rawAction = input.resolveDecisionReviewAction ? input.resolveDecisionReviewAction(rawAction) : rawAction;
     const assignment = contract.id === "assign" || contract.id === "unassign";
     if (contract.id === "assign" && typeof rawAction.expiresAt !== "string" && contract.target.kind !== "relation") {
       const ttl = input.readSettings().tasks.assignmentTtlMs;
-      rawAction = { ...rawAction, expiresAt: new Date(Date.parse(input.now()) + ttl).toISOString() } as RepoTaskAction;
+      rawAction = { ...rawAction, expiresAt: new Date(Date.parse(input.now()) + ttl).toISOString() } as CommandAction;
     }
     const authorizationDecision = decisionAuthorization(rawAction, binding, opId, input),
       action = (
@@ -355,7 +360,7 @@ export function makeEntityActionCatalogExecutor(input: {
           : contract.id === "reclassify" || rawAction.kind === "fact-archive" || rawAction.kind === "fact-unarchive"
             ? factObservationPreload(input.projection, rawAction, requiredCommandText(rawAction.factId, "factId"))
             : rawAction
-      ) as RepoTaskAction,
+      ) as CommandAction,
       dryRun = action.dryRun === true,
       existing = dryRun || contract.target.kind === "runtime-session" ? null : input.store.readEvent(opId),
       requestedTime = typeof action.decidedAt === "string" ? action.decidedAt : undefined,
@@ -384,6 +389,7 @@ export function makeEntityActionCatalogExecutor(input: {
         store: input.store,
         projection: input.projection,
         sessionIdentity: input.sessionIdentity,
+        ...(input.relationDirections ? { relationDirections: input.relationDirections } : {}),
         compileSupersededDecision: ({
           decisionId,
           opId: decisionOpId,
@@ -421,13 +427,13 @@ export function makeEntityActionCatalogExecutor(input: {
     let bundle =
       matchingReplayBundle(input.store, contract, action, existing) ??
       compileAction(contract, action, binding, opId, occurredAt, undefined, readReviewRequirement);
-    if (existing === null && action.kind === "decision-review" && isDecisionBundle(bundle)) {
-      bundle = attachDecisionReviewerArtifact(bundle, {
-        rootDir: input.rootDir ?? "",
-        projection: input.projection,
-        action,
-        binding,
-      });
+    if (
+      existing === null &&
+      action.kind === "decision-review" &&
+      isDecisionBundle(bundle) &&
+      input.attachDecisionReviewerArtifact
+    ) {
+      bundle = input.attachDecisionReviewerArtifact(bundle, { action, binding });
     }
     if ("noChanges" in bundle)
       return deriveActionResult(
@@ -466,7 +472,7 @@ export function makeEntityActionCatalogExecutor(input: {
       if (dryRun) {
         if (!isEntityUpsertBundle(bundle))
           reject("invalid_command", `${contract.execution.ingress} does not support --dry-run.`);
-        return entityPreview(contract, action, bundle, input.store.readHead()?.revision ?? 0, authorizationDecision);
+        return entityPreview(action, bundle, input.store.readHead()?.revision ?? 0, authorizationDecision);
       }
       return deriveActionResult(
         contract,
@@ -507,7 +513,7 @@ export function makeEntityActionCatalogExecutor(input: {
 
   const runEntityWrite = (
     bundle: EntityCatalogBundle,
-    action: RepoTaskAction,
+    action: CommandAction,
     replay: boolean,
     authorizationDecision: AuthorizationDecision,
   ): WriteReceipt => {
@@ -572,7 +578,7 @@ export function makeEntityActionCatalogExecutor(input: {
   const compileAction = (
     contract: ExecutableAction,
     action: Readonly<Record<string, unknown>>,
-    binding: RepoCellBinding,
+    binding: CommandBinding,
     opId: string,
     occurredAt: string,
     allocatedRevision?: number,
@@ -649,7 +655,7 @@ function withNodeMaterializationState<T extends { readonly materializationState?
 
 export function deriveActionResult(
   contract: EntityActionContract,
-  action: RepoTaskAction,
+  action: CommandAction,
   receipt: WriteReceipt,
 ): WriteReceipt {
   const rejected = receipt.outcome === "op_rejected" || receipt.outcome === "indeterminate",
@@ -874,8 +880,8 @@ function decisionCoverage(action: Readonly<Record<string, unknown>>, service: Re
 }
 
 function decisionAuthorization(
-  action: RepoTaskAction,
-  binding: RepoCellBinding,
+  action: CommandAction,
+  binding: CommandBinding,
   opId: string,
   input: {
     readonly store: CanonicalEventStore;
@@ -921,103 +927,6 @@ function decisionAuthorization(
       `Decision ${action.kind === "decision-accept" ? "acceptance" : "deferral"} requires explicit human approval.`,
     );
   return authorizationDecision;
-}
-
-function decisionApproval(
-  action: Readonly<Record<string, unknown>>,
-  binding: RepoCellBinding,
-): Parameters<typeof compileDecisionWrite>[0]["approval"] {
-  if (action.kind === "decision-amend") return undefined;
-  if ([action.consentBy, action.consentAt, action.consentChannel].every((value) => value === undefined))
-    return undefined;
-  if (
-    action.kind !== "decision-accept" &&
-    action.kind !== "decision-reject" &&
-    action.kind !== "decision-defer" &&
-    action.kind !== "decision-override-review"
-  )
-    reject(
-      "invalid_command",
-      "Human consent is only valid for Decision acceptance, rejection, deferral, or review override.",
-    );
-  if (action.consentBy !== binding.actor.principal.personId)
-    reject("actor_unauthorized", "Human consent must name the authenticated principal person.");
-  if (
-    typeof action.consentAt !== "string" ||
-    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u.test(action.consentAt) ||
-    !Number.isFinite(Date.parse(action.consentAt)) ||
-    !["chat", "cli", "gui"].includes(String(action.consentChannel))
-  )
-    reject("invalid_command", "Human consent requires an ISO UTC consentAt and a chat, cli, or gui consentChannel.");
-  return {
-    approvedBy: binding.actor.principal.personId,
-    at: action.consentAt,
-    channel: action.consentChannel as "chat" | "cli" | "gui",
-  };
-}
-
-function decisionAmendmentConsent(
-  action: Readonly<Record<string, unknown>>,
-  decision: ReturnType<ReturnType<typeof makeDecisionService>["show"]>["decision"],
-  binding: RepoCellBinding,
-) {
-  const values = [action.consentBy, action.consentAt, action.consentChannel],
-    supplied = values.some((value) => value !== undefined),
-    required = decision.state === "in_effect";
-  if (!supplied && !required) return undefined;
-  if (values.some((value) => value === undefined))
-    reject("invalid_command", "Decision amendment consent requires --consent-by, --consent-at, and --consent-channel.");
-  if (
-    action.consentBy !== binding.actor.principal.personId ||
-    action.consentBy !== decision.proposer.principal.personId
-  )
-    reject("actor_unauthorized", "Decision amendment consent must come from the authenticated proposal owner.");
-  if (
-    typeof action.consentAt !== "string" ||
-    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u.test(action.consentAt) ||
-    !timestamp(action.consentAt) ||
-    !["chat", "cli", "gui"].includes(String(action.consentChannel))
-  )
-    reject(
-      "invalid_command",
-      "Decision amendment consent requires an ISO UTC consentAt and a chat, cli, or gui consentChannel.",
-    );
-  return {
-    consentBy: action.consentBy,
-    consentAt: action.consentAt,
-    consentChannel: action.consentChannel as "chat" | "cli" | "gui",
-    recordedBy: binding.actor,
-  };
-}
-
-function entityPreview(
-  contract: ExecutableAction,
-  action: RepoTaskAction,
-  bundle: EntityUpsertBundle,
-  revision: number,
-  authorizationDecision: AuthorizationDecision,
-): WriteReceipt {
-  const claim = bundle.event.payload.declarationDocumentClaim;
-  return {
-    ...previewReceipt(
-      bundle.event.opId,
-      revision,
-      JSON.stringify({
-        report: preparedEntityReport(action),
-        eventType: bundle.event.type,
-        targetRevision: bundle.event.workspaceRevision,
-        declaration: claim,
-        writePlan: bundle.plan,
-        dryRun: true,
-      }),
-      authorizationDecision,
-    ),
-    unmetCriteria: [],
-    effects: [],
-    updatedProjection: null,
-    rejectionExplanation: null,
-    nextActions: ["Remove --dry-run to publish this Agent declaration through the canonical event stream."],
-  };
 }
 
 function requiredCommandText(value: unknown, field: string): string {

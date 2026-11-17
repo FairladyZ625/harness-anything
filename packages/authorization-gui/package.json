@@ -15,6 +15,9 @@
     "./oidc-auth-contract": "./src/oidc-auth-contract.ts",
     "./ui-component-contract": "./src/ui-component-contract.ts"
   },
+  "dependencies": {
+    "@harness-anything/kernel": "0.1.0"
+  },
   "peerDependencies": {
     "react": "^19.0.0"
   }

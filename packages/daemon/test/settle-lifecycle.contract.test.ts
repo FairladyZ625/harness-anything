@@ -12,7 +12,7 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { removeTemporaryDirectory } from "../../../tools/temporary-directory-cleanup.mjs";
-import { readSubmissionArtifact } from "../src/submission-artifacts.ts";
+import { readSubmissionArtifact } from "@harness-anything/application/commands";
 
 const worker = {
     principal: { personId: "person-owner" },

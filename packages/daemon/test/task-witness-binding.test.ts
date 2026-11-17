@@ -10,7 +10,7 @@ import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture
 import { completionSnapshot } from "../../kernel/test/domain/completion.fixtures.ts";
 import type { RepoCellOperationalContext } from "../src/repo-cell-types.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";
-import { centerWitnessAction, runTaskWitnessAction } from "../src/task-witness-action.ts";
+import { centerWitnessAction, runTaskWitnessAction } from "@harness-anything/application/commands";
 
 const requirement: FrozenGateRequirement = {
   gateId: "lint",

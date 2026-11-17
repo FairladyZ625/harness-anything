@@ -23,7 +23,18 @@ import {
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
 import { readSessionGroupDispatches, readTaskDispatchSession } from "./dispatch-read.ts";
-import { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
+import {
+  artifactImportSourceResolution,
+  executeArtifactEntityImport,
+  executeArtifactEntityMutation,
+  relationDirectionRegistry,
+} from "./artifact-entity-action.ts";
+import { workspaceText } from "./repo-cell-packets.ts";
+import { resolveDecisionReviewAction } from "./repo-cell-action-parse.ts";
+import { attachDecisionReviewerArtifact } from "./reviewer-artifact-publication.ts";
+import { makeEntityActionCatalogExecutor } from "@harness-anything/application/internal/commands/entity-action-catalog-executor.ts";
+import type { ArtifactSourceResolution } from "@harness-anything/application";
+import type { CommandAction } from "@harness-anything/application/internal/commands/command-ports.ts";
 import { cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
 import { readEffectiveCloseoutGates, readRepositorySettings } from "./repo-cell-settings-state.ts";
 import { readCompletionDeliveryStatus } from "./task-completion-read.ts";
@@ -268,6 +279,43 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
       sessionIdentity: currentSessionIdentity,
       readSettings: () => readRepositorySettings(projection!),
       killpoint: context.input.killpoint,
+      artifactActions: {
+        importEntity: ({ action, binding, authorizationDecision }) =>
+          executeArtifactEntityImport({
+            rootDir: context.rootDir,
+            repositoryId: context.input.repoId,
+            action,
+            binding,
+            store,
+            projection: projection!,
+            now: context.now,
+            authorizationDecision,
+            sourceResolution: (
+              action as CommandAction & { readonly [artifactImportSourceResolution]?: ArtifactSourceResolution }
+            )[artifactImportSourceResolution],
+          }),
+        mutateEntity: ({ action, binding, authorizationDecision }) =>
+          executeArtifactEntityMutation({
+            rootDir: context.rootDir,
+            repositoryId: context.input.repoId,
+            action,
+            binding,
+            store,
+            projection: projection!,
+            now: context.now,
+            authorizationDecision,
+          }),
+      },
+      resolveDecisionReviewAction: (action) => resolveDecisionReviewAction(context.rootDir, action),
+      attachDecisionReviewerArtifact: (bundle, { action, binding }) =>
+        attachDecisionReviewerArtifact(bundle, {
+          rootDir: context.rootDir,
+          projection: projection!,
+          action,
+          binding,
+        }),
+      relationDirections: () => relationDirectionRegistry(projection!, context.input.repoId),
+      readWorkspaceText: (value, field) => workspaceText(context.rootDir, value, field),
       get nodeTaskMaterializationPolicy() {
         return context.input.storage?.nodeTaskMaterializationPolicy;
       },

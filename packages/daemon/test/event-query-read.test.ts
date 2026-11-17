@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { CanonicalEventV1 } from "@harness-anything/kernel";
-import { eventListQueryFromAction, findLedgerEvent } from "../src/repo-cell-event-query.ts";
+import { eventListQueryFromAction, findLedgerEvent } from "@harness-anything/application/queries";
 function event(overrides: Partial<CanonicalEventV1> & { readonly workspaceRevision: number }): CanonicalEventV1 {
   return {
     schema: "task-event/v1",

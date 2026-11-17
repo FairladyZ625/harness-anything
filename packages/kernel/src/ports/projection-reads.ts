@@ -52,6 +52,40 @@ export interface TaskProjectionListRead {
   readonly warnings: readonly TaskProjectionWarning[];
   readonly page?: ProjectionPage;
 }
+export interface CursorPage {
+  readonly limit: number;
+  readonly cursor: string | null;
+  readonly nextCursor: string | null;
+}
+
+export type CursorPageReceipt = {
+  readonly nextCursor?: string | null;
+};
+
+export function cursorStep(receipt: CursorPageReceipt, consumed: Set<string>, label: string): string | undefined {
+  const next = receipt.nextCursor;
+  if (!next) return undefined;
+  if (consumed.has(next)) throw new Error(`${label}: cursor did not advance`);
+  consumed.add(next);
+  return next;
+}
+
+export function drainCursorPagesSync<Page extends { readonly page: CursorPageReceipt }>(
+  readPage: (facets: { readonly cursor?: string }) => Page,
+  label: string,
+): [Page, ...Page[]] {
+  const pages: Page[] = [];
+  const cursors = new Set<string>();
+  let cursor: string | undefined;
+  while (true) {
+    const page = readPage(cursor === undefined ? {} : { cursor });
+    pages.push(page);
+    const next = cursorStep(page.page, cursors, label);
+    if (next === undefined) return pages as [Page, ...Page[]];
+    cursor = next;
+  }
+}
+
 export interface TaskIndexProjectionRow {
   readonly supersededBy: string | null;
   readonly taskId: string;

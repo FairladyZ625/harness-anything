@@ -458,17 +458,34 @@ for (const file of packageSourceFiles) {
 
   if (rel.startsWith("packages/application/")) {
     for (const specifier of imports) {
+      const target = resolveImport(file, specifier);
       if (
-        importedPathViolates(
-          file,
-          specifier,
-          (target) =>
-            /packages\/kernel\/src\/store\//.test(target) ||
-            /packages\/(?:cli|gui|adapters)\//.test(target) ||
-            /^@harness-anything\/(?:cli|gui|adapter-)/.test(target),
-        )
+        /packages\/kernel\/src\/store\//.test(target) ||
+        /packages\/(?:cli|gui|adapters)\//.test(target) ||
+        /^@harness-anything\/(?:cli|gui|adapter-)/.test(target)
       ) {
         record(file, `application layer imports store/adapter/controller implementation via ${specifier}`);
+      }
+      if (!rel.startsWith("packages/application/src/") || isTestOrFixture) continue;
+      // dec_04A9211B073F29F0FC1E1CA573 CH1/CH3 & dec_7C93DEBCFB2D1A94C6FA07AAAD:
+      // Application pure use cases/CQRS handlers must not pull daemon, storage, keycloak,
+      // or process/network/thread/pty runtime modules.
+      if (
+        /packages\/(?:daemon|storage|authorization-keycloak)\//.test(target) ||
+        /^@harness-anything\/(?:daemon|storage|authorization-keycloak)(?:\/|$)/.test(specifier) ||
+        /^@harness-anything\/(?:daemon|storage|authorization-keycloak)(?:\/|$)/.test(target) ||
+        /^(?:node:)?(?:child_process|http|http2|https|net|tls|worker_threads)(?:\/|$)/.test(specifier) ||
+        /^(?:ws|undici|node-pty)(?:\/|$)/.test(specifier)
+      ) {
+        record(file, `application layer imports forbidden host/storage/runtime dependency via ${specifier}`);
+      }
+      if (
+        rel.startsWith("packages/application/src/commands/") &&
+        (target.startsWith("packages/application/src/queries/") ||
+          /^@harness-anything\/application\/queries(?:\/|$)/.test(specifier) ||
+          /^@harness-anything\/application\/queries(?:\/|$)/.test(target))
+      ) {
+        record(file, `application commands must not import queries (${specifier})`);
       }
     }
   }

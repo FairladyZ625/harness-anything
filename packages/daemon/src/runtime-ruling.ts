@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError, readFrontmatter, readScalar } from "@harness-anything/kernel";
-import { decodeEvidencePayload } from "./evidence-payload.ts";
+import { decodeEvidencePayload } from "@harness-anything/application/internal/queries/evidence-payload.ts";
 
 /** A worker's request for an owner ruling, read from the task package. */
 export interface RuntimeRulingRequest {

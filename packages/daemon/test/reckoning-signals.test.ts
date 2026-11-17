@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { CanonicalEventV1, RuntimeSession } from "@harness-anything/kernel";
-import { collectReckoningSignals, readReckoningSignals } from "../src/reckoning-signals.ts";
+import { collectReckoningSignals, readReckoningSignals } from "@harness-anything/application/queries";
 
 const now = Date.parse("2026-09-19T23:30:00.000Z");
 

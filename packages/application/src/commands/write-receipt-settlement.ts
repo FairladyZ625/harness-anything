@@ -10,7 +10,7 @@ import {
   type DaemonRepoMode,
 } from "@harness-anything/kernel";
 import type { ReceiptAcceptanceFields } from "@harness-anything/kernel/internal/domain/receipt-acceptance.ts";
-import type { RepoTaskAction, TaskCreateReceipt } from "./repo-cell-types.ts";
+import type { CommandAction, TaskCreateReceipt } from "./command-ports.ts";
 
 const canonicalSettlementActions = new Set(
   actionDeclarations
@@ -31,7 +31,7 @@ const ledgerFreeActions = new Set(
  */
 export async function settleWriteReceipt(
   context: { readonly mode: DaemonRepoMode; readonly store: CanonicalEventStore; readonly projection: TaskProjection },
-  action: RepoTaskAction,
+  action: CommandAction,
   receipt: WriteReceipt,
   signal?: AbortSignal,
 ): Promise<WriteReceipt> {
@@ -93,7 +93,7 @@ export async function settleWriteReceipt(
 /** The same synchronous receipt judgment serves writer settlement and independent read sessions. */
 export function attachWriteReceiptAcceptance<R extends WriteReceiptDraft>(
   context: { readonly store: CanonicalEventStore; readonly projection: TaskProjection },
-  action: RepoTaskAction,
+  action: CommandAction,
   receipt: R,
 ): R & ReceiptAcceptanceFields {
   return relationWorktreeSettlement(
@@ -103,7 +103,7 @@ export function attachWriteReceiptAcceptance<R extends WriteReceiptDraft>(
   );
 }
 
-export function settleHostLocalReceipt(action: RepoTaskAction, receipt: WriteReceipt): WriteReceipt {
+export function settleHostLocalReceipt(action: CommandAction, receipt: WriteReceipt): WriteReceipt {
   const { proof: _committedProof, ...local } = receipt;
   if (action.kind === "doc-materialize" && receipt.outcome === "pending")
     return {
@@ -116,7 +116,7 @@ export function settleHostLocalReceipt(action: RepoTaskAction, receipt: WriteRec
 }
 
 function relationWorktreeSettlement<R extends WriteReceiptDraft & ReceiptAcceptanceFields>(
-  action: RepoTaskAction,
+  action: CommandAction,
   receipt: R,
   store: CanonicalEventStore,
 ): R {
@@ -133,7 +133,7 @@ function relationWorktreeSettlement<R extends WriteReceiptDraft & ReceiptAccepta
   } as R;
 }
 
-function isRelationWrite(action: RepoTaskAction): boolean {
+function isRelationWrite(action: CommandAction): boolean {
   return (
     action.kind === "relation-relate" || action.kind === "relation-unrelate" || action.kind === "relation-reconfirm"
   );

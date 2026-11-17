@@ -501,7 +501,7 @@
           "actions": [
             "agent-delete"
           ],
-          "reason": "compiled entity-delete event has one agent id and scalar reason; packages/daemon/src/entity-action-catalog-executor.ts does not enumerate an agent collection."
+          "reason": "compiled entity-delete event has one agent id and scalar reason; packages/application/src/commands/entity-action-catalog-executor.ts does not enumerate an agent collection."
         },
         {
           "actions": [

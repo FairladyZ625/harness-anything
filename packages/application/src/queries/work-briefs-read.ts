@@ -1,11 +1,14 @@
 import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
-import { isTerminalStatus, relationIsCurrent } from "@harness-anything/kernel";
+import type { AwaitsAskKind } from "@harness-anything/kernel/internal/domain/task-blocking";
+import {
+  drainCursorPagesSync,
+  isTerminalStatus,
+  relationIsCurrent,
+  type CursorPageReceipt,
+  type TaskProjection,
+} from "@harness-anything/kernel";
 import { taskPresentationReads } from "./task-presentation-read.ts";
 import { workIndexFromProjection } from "./work-read.ts";
-import { drainCursorPagesSync } from "./paginated-read.ts";
-import type { AgendaAwaitsRow } from "./protocol/daemon-protocol-gui-types.ts";
-import type { DaemonAgendaResult } from "./protocol/daemon-protocol.contract.ts";
-import type { TaskProjection } from "@harness-anything/kernel";
 
 /**
  * 「你交代的事」读模型(task_a3ffd5ceb;dec_C612E69B7C7E3480A5F9D2CAD3 重构区):每个工作根
@@ -20,11 +23,29 @@ import type { TaskProjection } from "@harness-anything/kernel";
  * (只剩没开工的成员)。已完成只认「全体成员终态」——根自身呈终态而子树未收口时,按
  * 子树实况归上三桶,否则会把挂着活提问的工作折进已完成(实测:PLT-Honest,2026-10-18)。
  */
+export interface WorkBriefAwaitsRow {
+  readonly relationId: string;
+  readonly relationRevision: number;
+  readonly sourceRef: string;
+  readonly title: string;
+  readonly status: string;
+  readonly personId: string;
+  readonly askKind: AwaitsAskKind;
+  readonly question: string;
+  readonly askedAt: string;
+  readonly askedBy: string;
+}
+
+export interface WorkBriefAgendaPage {
+  readonly page: CursorPageReceipt;
+  readonly awaitingYou: readonly WorkBriefAwaitsRow[];
+}
+
 export type WorkBriefBucket = "waiting" | "stuck" | "running" | "unclear" | "done";
 
 /** 分句素材:已按重要性排序并截到两句,GUI 只翻译不定序。 */
 export type WorkBriefSentencePart =
-  | { readonly kind: "ask"; readonly title: string; readonly askKind: AgendaAwaitsRow["askKind"] }
+  | { readonly kind: "ask"; readonly title: string; readonly askKind: WorkBriefAwaitsRow["askKind"] }
   | { readonly kind: "blocked"; readonly title: string }
   | { readonly kind: "executing"; readonly title: string }
   | { readonly kind: "review"; readonly title: string }
@@ -56,7 +77,7 @@ export interface WorkBrief {
   readonly deliveredAt: string | null;
   readonly sentenceParts: readonly WorkBriefSentencePart[];
   /** 等你的提问原文(议程同源行),抽屉就地答复复用议程答复面板。 */
-  readonly asks: readonly AgendaAwaitsRow[];
+  readonly asks: readonly WorkBriefAwaitsRow[];
   readonly openTasks: readonly WorkBriefDrawerTask[];
   readonly deliveredTasks: readonly WorkBriefDrawerTask[];
   readonly pullRequests: readonly WorkBriefPullRequest[];
@@ -88,7 +109,7 @@ export interface WorkBriefsReadResult {
 export function workBriefsFromProjection(input: {
   readonly projection: TaskProjection;
   /** 议程读面的同源入口;分页在内部沿游标排空到末页,游标停滞抛错不发布部分读面。 */
-  readonly agendaPage: (query: { readonly limit?: number; readonly cursor?: string }) => DaemonAgendaResult;
+  readonly agendaPage: (query: { readonly limit?: number; readonly cursor?: string }) => WorkBriefAgendaPage;
   /** 读者的 person id;缺省时不过滤(单仓单业主仍是全集,多业主仓必须传)。 */
   readonly principalId?: string;
   readonly ciRuns?: readonly WorkBriefCiRun[];
@@ -170,7 +191,7 @@ export function workBriefsFromProjection(input: {
 const BUCKET_ORDER: readonly WorkBriefBucket[] = ["waiting", "stuck", "running", "unclear", "done"];
 
 function sentenceParts(
-  asks: readonly AgendaAwaitsRow[],
+  asks: readonly WorkBriefAwaitsRow[],
   blocked: readonly { readonly title: string }[],
   active: readonly { readonly title: string }[],
   review: readonly { readonly title: string }[],
@@ -212,13 +233,13 @@ function pullRequestsOf(
 function asksByWorkRoot(
   projection: TaskProjection,
   works: readonly { readonly taskId: string; readonly memberTaskIds: readonly string[] }[],
-  agendaPage: (query: { readonly limit?: number; readonly cursor?: string }) => DaemonAgendaResult,
+  agendaPage: (query: { readonly limit?: number; readonly cursor?: string }) => WorkBriefAgendaPage,
   principalId: string | undefined,
-): ReadonlyMap<string, AgendaAwaitsRow[]> {
+): ReadonlyMap<string, WorkBriefAwaitsRow[]> {
   // 「等你」行的扫取:沿服务端游标排空到末页,与 #3869 的关系图完整读同一策略
   // (cursorStep,同步壳见 ./paginated-read.ts);重复游标表示异常循环,抛错且不发布
   // 部分读面。
-  const asks: readonly AgendaAwaitsRow[] =
+  const asks: readonly WorkBriefAwaitsRow[] =
     principalId === undefined
       ? []
       : drainCursorPagesSync(
@@ -241,7 +262,7 @@ function asksByWorkRoot(
       if (decisionId !== undefined && workId !== undefined && !workOfDecision.has(decisionId))
         workOfDecision.set(decisionId, workId);
     }
-  const byWork = new Map<string, AgendaAwaitsRow[]>();
+  const byWork = new Map<string, WorkBriefAwaitsRow[]>();
   for (const ask of asks) {
     const sourceTaskId = /^task\/([^/]+)$/u.exec(ask.sourceRef)?.[1],
       workId =

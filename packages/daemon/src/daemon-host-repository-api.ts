@@ -56,7 +56,7 @@ import type { DaemonHostApiContext } from "./daemon-host-context.ts";
 import { localDefaultBinding, localSystemActionBinding } from "./daemon-host-binding.ts";
 import { requireAuthorizedFleetAction, requireAuthorizedHostAction } from "./host-action-authorization.ts";
 import { entityActionCommandTopology } from "./repo-mode.ts";
-import { resolveVerticalKindCommandAction } from "./vertical-kind-command-action.ts";
+import { resolveVerticalKindCommandAction } from "@harness-anything/application/commands";
 import { cachePurgePreservedPaths, purgeRepoCache } from "./repo-cache-purge.ts";
 import { backupReceipt } from "./offline-storage.ts";
 import {
@@ -67,7 +67,7 @@ import {
   validateRepoAllPurge,
 } from "./repo-all-purge.ts";
 import { removeFileDurably } from "../../storage/src/durable-file.ts";
-import { readPolicyMetadata } from "./policy-metadata-read.ts";
+import { readPolicyMetadata } from "@harness-anything/application/queries";
 import { renderStuckRuntimeRecoveries } from "./runtime-recovery-watch.ts";
 
 function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCellReadMethod {

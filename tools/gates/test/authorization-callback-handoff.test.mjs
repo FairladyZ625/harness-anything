@@ -708,7 +708,7 @@ test("the real catalog executor reaches its bound todo runtime directly", async 
   const source = action.ontology.sources.find((source) => source.role === "effect");
   const graph = buildFlowGraph(root);
   const factory = graph.modules
-    .get("packages/daemon/src/entity-action-catalog-executor.ts")
+    .get("packages/application/src/commands/entity-action-catalog-executor.ts")
     .sourceFile.statements.find(
       (node) => ts.isFunctionDeclaration(node) && node.name?.text === "makeEntityActionCatalogExecutor",
     );

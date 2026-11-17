@@ -1,7 +1,7 @@
 /** Shared fixture for completion-review dispatch tests: repo cell, fake reviewer providers,
  * settlement drivers, and outcome polling. `failProvider` true fails every launch; a number
  * fails only that many first launches, then hangs. */
-import { readSubmissionArtifact } from "../src/submission-artifacts.ts";
+import { readSubmissionArtifact } from "@harness-anything/application/commands";
 import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";

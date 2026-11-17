@@ -4,7 +4,9 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "homepage": "https://github.com/FairladyZ625/harness-anything#readme",
-  "bugs": { "url": "https://github.com/FairladyZ625/harness-anything/issues" },
+  "bugs": {
+    "url": "https://github.com/FairladyZ625/harness-anything/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/FairladyZ625/harness-anything.git",
@@ -14,25 +16,59 @@
     "access": "public",
     "exports": {
       ".": "./dist/index.js",
+      "./commands": "./dist/commands/index.js",
+      "./queries": "./dist/queries/index.js",
+      "./internal/commands/*.ts": {
+        "types": "./dist/commands/*.d.ts",
+        "default": "./dist/commands/*.js"
+      },
+      "./internal/queries/*.ts": {
+        "types": "./dist/queries/*.d.ts",
+        "default": "./dist/queries/*.js"
+      },
       "./internal/artifact-entity-service": "./dist/artifact-entity-service.js",
       "./internal/durable-action-envelope": "./dist/durable-action-envelope.js",
       "./internal/task-action-explanation-service": "./dist/task-action-explanation-service.js",
-      "./internal/task-lifecycle-service": "./dist/task-lifecycle-service.js"
+      "./internal/task-lifecycle-service": "./dist/task-lifecycle-service.js",
+      "./internal/*.ts": {
+        "types": "./dist/*.d.ts",
+        "default": "./dist/*.js"
+      }
     }
   },
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "build:publish": "tsc -p tsconfig.publish.json",
     "prepack": "npm run build:publish && node ../../tools/package-exports-lifecycle.mjs prepare",
     "postpack": "node ../../tools/package-exports-lifecycle.mjs restore"
   },
-  "files": ["dist", "README.md", "package.json"],
+  "files": [
+    "dist",
+    "README.md",
+    "package.json"
+  ],
   "exports": {
     ".": "./src/index.ts",
+    "./commands": "./src/commands/index.ts",
+    "./queries": "./src/queries/index.ts",
+    "./internal/commands/*.ts": {
+      "types": "./src/commands/*.ts",
+      "default": "./src/commands/*.ts"
+    },
+    "./internal/queries/*.ts": {
+      "types": "./src/queries/*.ts",
+      "default": "./src/queries/*.ts"
+    },
     "./internal/artifact-entity-service": "./src/artifact-entity-service.ts",
     "./internal/durable-action-envelope": "./src/durable-action-envelope.ts",
     "./internal/task-action-explanation-service": "./src/task-action-explanation-service.ts",
-    "./internal/task-lifecycle-service": "./src/task-lifecycle-service.ts"
+    "./internal/task-lifecycle-service": "./src/task-lifecycle-service.ts",
+    "./internal/*.ts": {
+      "types": "./src/*.ts",
+      "default": "./src/*.ts"
+    }
   },
   "dependencies": {
     "@harness-anything/kernel": "0.1.0"

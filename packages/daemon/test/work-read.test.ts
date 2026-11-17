@@ -7,7 +7,7 @@ import {
   workListFromProjection,
   workReceiptLine,
   workShowFromProjection,
-} from "../src/work-read.ts";
+} from "@harness-anything/application/queries";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 
 const task = (

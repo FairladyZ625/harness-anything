@@ -44,7 +44,11 @@ import { leaseTtlMs } from "./repo-cell-types.ts";
 import { isCutReturningRework } from "@harness-anything/kernel/internal/domain/task-lifecycle-command-transitions.ts";
 import { readCompletionDeliveryStatus } from "./task-completion-read.ts";
 import { readEffectiveCloseoutGates, readEffectiveReviewReturnBudget } from "./repo-cell-settings-state.ts";
-import { latestPremiseReview, PREMISE_REVIEW_SOURCE, premiseReviewCommand } from "./premise-review.ts";
+import {
+  latestPremiseReview,
+  PREMISE_REVIEW_SOURCE,
+  premiseReviewCommand,
+} from "@harness-anything/application/internal/queries/premise-review.ts";
 
 const START_VALIDATION_CRITERION = "task-lifecycle-command-transitions/start.validate";
 const SUBMIT_PROOF_CRITERION = "repo-cell-proof/proofFor.SubmitExecution";

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { makeTaskActionExplanationService } from "@harness-anything/application/internal/task-action-explanation-service";
 import { lifecycleHarness, owner } from "../../application/test/task-lifecycle-test-harness.ts";
-import { deriveActionResult } from "@harness-anything/daemon/internal/entity-action-catalog-executor";
+import { deriveActionResult } from "@harness-anything/application/commands";
 import { taskActionCommandUsage } from "@harness-anything/daemon/internal/protocol/daemon-protocol-commands";
 import { taskActionHelpRows } from "@harness-anything/daemon/internal/protocol/daemon-protocol-commands-task";
 import {

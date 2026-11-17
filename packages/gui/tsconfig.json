@@ -36,9 +36,6 @@
       "path": "../authorization-gui"
     },
     {
-      "path": "../application"
-    },
-    {
       "path": "../daemon"
     },
     {

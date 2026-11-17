@@ -8,7 +8,10 @@ import path from "node:path";
 import { resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { writeFileDurably, removeFileDurably } from "../../storage/src/durable-file.ts";
-import { queryPayloadFacets as sharedQueryPayloadFacets, taskListQueryFromPayload } from "./repo-query-payload.ts";
+import {
+  queryPayloadFacets as sharedQueryPayloadFacets,
+  taskListQueryFromPayload,
+} from "@harness-anything/application/internal/queries/repo-query-payload.ts";
 import { runRuntimeHandoff } from "./runtime-handoff.ts";
 import { requireCurrentExecutionScope, taskExecutionSurfaces } from "./runtime-execution-scope.ts";
 import {
@@ -21,7 +24,7 @@ import {
 import { assertWriterEpochFenceDescriptor } from "@harness-anything/storage";
 import { executeBuiltinScheduleOccurrence, type BuiltinExecutorCell } from "./schedule-builtin-executor.ts";
 import { readTaskCompletion } from "./task-completion-read.ts";
-import { readReckoningSignals } from "./reckoning-signals.ts";
+import { readReckoningSignals } from "@harness-anything/application/internal/queries/reckoning-signals.ts";
 import { readTaskRuntimeContext } from "./task-runtime-context-read.ts";
 import { enqueueRuntimePublication } from "./runtime-publication-queue.ts";
 import { isSquadControlCommand, isSquadControlResult, squadControlRejected } from "./squad-control-result.ts";
@@ -30,7 +33,7 @@ import { readDecisionPointSettings } from "./decision-point-settings-read.ts";
 import { daemonSettingsRead } from "./protocol/daemon-settings-read-types.ts";
 import { decisionStateWords } from "./protocol/daemon-protocol-vocabulary.ts";
 import { settingsLastChanged, settingsSingletonRevision } from "./repo-cell-settings-state.ts";
-import { settleWriteReceipt } from "./write-receipt-settlement.ts";
+import { settleWriteReceipt } from "@harness-anything/application/internal/commands/write-receipt-settlement.ts";
 import { repoCellStatus, repoCellStatusCuts } from "./repo-cell-status.ts";
 import { projectDecisionReadiness } from "@harness-anything/storage";
 import {
@@ -69,7 +72,10 @@ import { readEntityLocator } from "./entity-locator-read.ts";
 import { readAgentSkillsGui } from "./agent-skills.ts";
 import { readTaskDispatches } from "./dispatch-read.ts";
 import { readTaskDeliveryDiff } from "./task-delivery-diff-read.ts";
-import { decisionFullListRows, decisionReviewSummaryRow } from "./decision-review-read.ts";
+import {
+  decisionFullListRows,
+  decisionReviewSummaryRow,
+} from "@harness-anything/application/internal/queries/decision-review-read.ts";
 import { agentRuntimeTokenUsageReadHandlers } from "./agent-runtime-token-usage.ts";
 import {
   admitUseCaseProjectionSelector,
@@ -101,16 +107,19 @@ import { evaluateRepoCellAction, bindVerifiedExecutorClaim } from "./repo-cell-a
 import { admitRepoMode } from "./repo-mode.ts";
 import { makeTaskQueryReadModel } from "./task-query-read.ts";
 import { chainRepoCellWrite, repoCellTaskQueryJudgmentsFor } from "./repo-cell.ts";
-import { workspaceSummaryFromProjection } from "./workspace-summary-read.ts";
-import { workspaceScopeFromProjection } from "./workspace-scope-read.ts";
-import { workIndexFromProjection } from "./work-read.ts";
-import { workTopologyFromProjection } from "./work-topology-read.ts";
-import { workBriefsFromProjection } from "./work-briefs-read.ts";
+import { workspaceSummaryFromProjection } from "@harness-anything/application/internal/queries/workspace-summary-read.ts";
+import { workspaceScopeFromProjection } from "@harness-anything/application/internal/queries/workspace-scope-read.ts";
+import { workIndexFromProjection } from "@harness-anything/application/internal/queries/work-read.ts";
+import { workTopologyFromProjection } from "@harness-anything/application/internal/queries/work-topology-read.ts";
+import { workBriefsFromProjection } from "@harness-anything/application/internal/queries/work-briefs-read.ts";
 
 import { explainAuthenticationRequired, readTaskActionExplanation } from "./task-action-explanation-read.ts";
 import { commitRuntimeSessionAction, settleUnlaunchedRuntimeSession } from "./runtime-session-action-runtime.ts";
 import { readTaskWipSnapshot, type TaskQueryCell } from "./repo-cell-task-query.ts";
-import { agendaQueryFromPayload, taskDispatchesPayloadFromCell } from "./repo-cell-read-payloads.ts";
+import {
+  agendaQueryFromPayload,
+  taskDispatchesPayloadFromCell,
+} from "@harness-anything/application/internal/queries/repo-cell-read-payloads.ts";
 
 export const repoCellSynchronousRead = Symbol("repoCellSynchronousRead");
 

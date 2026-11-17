@@ -19,7 +19,7 @@ import { readTaskWipSnapshot, wipSnapshotEntries, type TaskQueryCell } from "../
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import { blockingOf, submissionDigest } from "@harness-anything/kernel";
 import { makeTaskQueryReadModel } from "../src/task-query-read.ts";
-import { taskListQueryFromPayload } from "../src/repo-query-payload.ts";
+import { taskListQueryFromPayload } from "@harness-anything/application/queries";
 import { appendIncidentActionReceipt } from "../src/decision-incident-receipt.ts";
 import { openDispatchStream } from "../src/dispatch-stream.ts";
 import {

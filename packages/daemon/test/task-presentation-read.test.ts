@@ -4,8 +4,8 @@ import { presentationQueryFixture } from "../../storage/test/store/presentation-
 import assert from "node:assert/strict";
 import { type TaskProjection, type TaskProjectionListQuery, allowsTaskStatusMove } from "@harness-anything/kernel";
 import { listTasks, type TaskQueryCell } from "../src/repo-cell-task-query.ts";
-import { taskPresentationReads } from "../src/task-presentation-read.ts";
-import { workListFromProjection } from "../src/work-read.ts";
+import { taskPresentationReads } from "@harness-anything/application/queries";
+import { workListFromProjection } from "@harness-anything/application/queries";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 
 export function presentationFixture() {

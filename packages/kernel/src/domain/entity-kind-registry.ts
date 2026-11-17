@@ -1083,18 +1083,18 @@ const daemonHostPolicy = daemonDomainPolicy(
       "const ARTIFACT_SOURCE_FETCH_TIMEOUT_MS = 10_000;",
     ],
     [
-      "policy:packages/daemon:packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.runWrite:ed37612883c2e0639d581e416d2ab6f4",
-      "packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.runWrite",
+      "policy:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.runWrite:ed37612883c2e0639d581e416d2ab6f4",
+      "packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.runWrite",
       'if (lease && ["held", "reserving"].includes(lease.phase))',
     ],
     [
-      "policy:packages/daemon:packages/daemon/src/entity-action-catalog-executor.ts#compileDraft:2cd9dab3f18abfab0502c9c5fcc91009",
-      "packages/daemon/src/entity-action-catalog-executor.ts#compileDraft",
+      "policy:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#compileDraft:2cd9dab3f18abfab0502c9c5fcc91009",
+      "packages/application/src/commands/entity-action-catalog-executor.ts#compileDraft",
       'if (lifecycle.status === "ready" && lifecycle.rows.some(({ attempt }) => attempt.stopProof === "proven_stopped"))',
     ],
     [
-      "policy:packages/daemon:packages/daemon/src/entity-pin-action.ts#runEntityPinAction.guidance:6432d7607fac0093129d2f236d52fbc6",
-      "packages/daemon/src/entity-pin-action.ts#runEntityPinAction.guidance",
+      "policy:packages/application:packages/application/src/commands/entity-pin-action.ts#runEntityPinAction.guidance:6432d7607fac0093129d2f236d52fbc6",
+      "packages/application/src/commands/entity-pin-action.ts#runEntityPinAction.guidance",
       'pinned && used / pinLimit >= 0.8 ? [{ kind: "pin-agenda" as const, args: { used, limit: pinLimit } }] : undefined;',
     ],
     [
@@ -1278,7 +1278,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
           "packages/storage/src/projection/fact-event-projection.ts",
           "packages/storage/src/projection/rebuildable-task-projection-knowledge-queries.ts",
           "packages/storage/src/pg/pg-task-projection.ts",
-          "packages/daemon/src/fact-archive-document.ts",
+          "packages/application/src/commands/fact-archive-document.ts",
         ],
         sources: [
           {

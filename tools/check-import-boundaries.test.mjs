@@ -297,8 +297,8 @@ test("import boundary check permits storage implementations to depend on kernel 
       "utf8",
     );
     writeFileSync(
-      path.join(root, "packages/application/src/index.ts"),
-      ["import { makeStore } from '@harness-anything/storage';", "export const appStore = makeStore;"].join("\n"),
+      path.join(root, "packages/daemon/src/index.ts"),
+      ["import { makeStore } from '@harness-anything/storage';", "export const daemonStore = makeStore;"].join("\n"),
       "utf8",
     );
 
@@ -1045,6 +1045,67 @@ test("import boundary rejects domain value edges into the schema and Effect runt
     writeFileSync(contract, typeOnly, "utf8");
     const restored = runChecker(root);
     assert.equal(restored.status, 0, restored.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// dec_04A9211B073F29F0FC1E1CA573 CH1/CH3 & dec_7C93DEBCFB2D1A94C6FA07AAAD:
+// application/src/** must stay free of daemon, storage, keycloak, host runtime modules, and commands -> queries edges.
+test("import boundary rejects application runtime/storage/keycloak and commands-to-queries edges", () => {
+  const root = makeFixtureRoot();
+  try {
+    mkdirSync(path.join(root, "packages/application/src/commands"), { recursive: true });
+    mkdirSync(path.join(root, "packages/application/src/queries"), { recursive: true });
+    mkdirSync(path.join(root, "packages/authorization-keycloak/src"), { recursive: true });
+    writeFileSync(
+      path.join(root, "packages/authorization-keycloak/package.json"),
+      JSON.stringify({ name: "@harness-anything/authorization-keycloak", exports: { ".": "./src/index.ts" } }),
+    );
+    writeFileSync(path.join(root, "packages/authorization-keycloak/src/index.ts"), "export const k = 1;\n");
+    writeFileSync(path.join(root, "packages/application/src/queries/q.ts"), "export const q = 1;\n");
+    writeFileSync(
+      path.join(root, "packages/application/src/commands/c.ts"),
+      'import { q } from "../queries/q.ts";\nexport const c = q;\n',
+    );
+    const cqrsViolation = runChecker(root);
+    assert.notEqual(cqrsViolation.status, 0);
+    assert.match(cqrsViolation.stderr, /application commands must not import queries/);
+
+    writeFileSync(
+      path.join(root, "packages/application/src/commands/c.ts"),
+      'import { q } from "@harness-anything/application/queries";\nexport const c = q;\n',
+    );
+    const subpathCqrsViolation = runChecker(root);
+    assert.notEqual(subpathCqrsViolation.status, 0);
+    assert.match(subpathCqrsViolation.stderr, /application commands must not import queries/);
+
+    for (const badImport of [
+      'import "@harness-anything/daemon";\n',
+      'import "@harness-anything/storage";\n',
+      'import "@harness-anything/authorization-keycloak";\n',
+      'import { spawn } from "node:child_process"; void spawn;\n',
+      'import { Worker } from "node:worker_threads"; void Worker;\n',
+      'import http from "node:http"; void http;\n',
+      'import WebSocket from "ws"; void WebSocket;\n',
+    ]) {
+      writeFileSync(path.join(root, "packages/application/src/commands/c.ts"), `${badImport}export const c = 1;\n`);
+      const res = runChecker(root);
+      assert.notEqual(res.status, 0, badImport);
+      assert.match(res.stderr, /application layer imports forbidden host\/storage\/runtime dependency/, badImport);
+    }
+
+    writeFileSync(path.join(root, "packages/application/src/commands/c.ts"), "export const c = 1;\n");
+    writeFileSync(
+      path.join(root, "packages/application/src/index.ts"),
+      'export * from "./commands/c.ts";\nexport * from "./queries/q.ts";\n',
+    );
+    writeFileSync(
+      path.join(root, "packages/daemon/src/index.ts"),
+      'import { c, q } from "@harness-anything/application";\nexport const used = [c, q];\n',
+    );
+    const clean = runChecker(root);
+    assert.equal(clean.status, 0, clean.stderr);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

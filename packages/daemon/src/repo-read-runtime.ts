@@ -1,14 +1,20 @@
 import type { RepoCellOperationalContext, RepoCellRuntimeContext, RepoCellApiContext } from "./repo-cell-types.ts";
 import { publicPublication } from "./repo-cell-receipts.ts";
-import { attachWriteReceiptAcceptance } from "./write-receipt-settlement.ts";
+import { attachWriteReceiptAcceptance } from "@harness-anything/application/commands";
 import { nodeMaterializationStorage } from "./node-materialization-settings.ts";
 import { readRuntimeCanAttach } from "./agent-runtime-read.ts";
-import { taskListQueryFromPayload } from "./repo-query-payload.ts";
+import { taskListQueryFromPayload } from "@harness-anything/application/queries";
 import { type TaskProjection, type TaskProjectionQueries, type WriteReceiptDraft } from "@harness-anything/kernel";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { makeDaemonProjectionReader, makeTaskEventReader } from "@harness-anything/storage";
 import type { FleetEdgeConfig } from "./client/fleet-edge-config.ts";
-import { makeEntityActionCatalogExecutor, type EntityActionCatalogRuntimes } from "./entity-action-catalog-executor.ts";
+import { relationDirectionRegistry } from "./artifact-entity-action.ts";
+import { workspaceText } from "./repo-cell-packets.ts";
+import { resolveDecisionReviewAction } from "./repo-cell-action-parse.ts";
+import {
+  makeEntityActionCatalogExecutor,
+  type EntityActionCatalogRuntimes,
+} from "@harness-anything/application/commands";
 import { readEntityLocator } from "./entity-locator-read.ts";
 import { readEdgeDocWorkspace } from "./fleet-edge-doc-read.ts";
 import type { FleetMirrorView } from "./fleet-edge-mirror.ts";
@@ -238,6 +244,9 @@ export function makeRepoReadRuntime(
         now,
         sessionIdentity: unsupportedWrite,
         readSettings: () => settings.readRepository(),
+        resolveDecisionReviewAction: (action) => resolveDecisionReviewAction(input.rootDir, action),
+        relationDirections: () => relationDirectionRegistry(writableProjection, input.repoId),
+        readWorkspaceText: (value, field) => workspaceText(input.rootDir, value, field),
         get nodeTaskMaterializationPolicy() {
           return input.storage?.nodeTaskMaterializationPolicy;
         },

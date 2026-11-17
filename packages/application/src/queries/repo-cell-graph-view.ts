@@ -8,8 +8,7 @@ import {
 } from "@harness-anything/kernel";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { requireSameProjectionCut, type ProjectionCut } from "./projection-cut.ts";
-import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-import type { TaskQueryCell } from "./repo-cell-task-query.ts";
+import type { QueryAction, QueryBinding, WorkQueryCell } from "./query-ports.ts";
 
 const GRAPH_MAX_DEPTH = 16,
   GRAPH_NODE_BUDGET = storageReadPolicy.defaultValue.pageSizes.standard,
@@ -24,7 +23,7 @@ const GRAPH_MAX_DEPTH = 16,
  * parent/child structure, and per-ref labels — then wraps the view in a read receipt.
  * Nothing here writes.
  */
-export function graphView(cell: TaskQueryCell, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
+export function graphView(cell: WorkQueryCell, action: QueryAction, binding: QueryBinding): WriteReceipt {
   const rawRef = cell.requiredCellText(action.ref, "ref"),
     depth = graphDepth(cell, action.depth),
     initialCut = cell.projection.readCut(),
@@ -200,7 +199,7 @@ export function graphView(cell: TaskQueryCell, action: RepoTaskAction, binding: 
   );
 }
 
-function graphDepth(cell: TaskQueryCell, value: unknown): number {
+function graphDepth(cell: WorkQueryCell, value: unknown): number {
   // Default spans the Task -> anchor -> Decision -> anchor -> Fact chain: each anchor hop
   // costs two rendered levels because the owning decision renders between sibling anchors.
   if (value === undefined) return 4;
@@ -217,7 +216,7 @@ interface GraphRoot {
 }
 
 /** Normalize `task_x`, `dec_x[/C1]`, `F-x`, or a work/task slug to a canonical entity ref. */
-function resolveGraphRoot(cell: TaskQueryCell, raw: string, cut: ProjectionCut): GraphRoot {
+function resolveGraphRoot(cell: WorkQueryCell, raw: string, cut: ProjectionCut): GraphRoot {
   const normalized = raw
       .replace(/^(task_[0-9A-Za-z_-]+)$/u, "task/$1")
       .replace(/^(dec_[0-9A-Za-z]+)((?:\/[A-Za-z0-9_-]+)*)$/u, "decision/$1$2")
@@ -258,7 +257,7 @@ function resolveGraphRoot(cell: TaskQueryCell, raw: string, cut: ProjectionCut):
 }
 
 function hydrateGraphNodes(
-  cell: TaskQueryCell,
+  cell: WorkQueryCell,
   refs: ReadonlySet<string>,
   taskByRef: ReadonlyMap<string, { readonly title: string; readonly status: string; readonly taskClass: string }>,
   read: ProjectionCut & {

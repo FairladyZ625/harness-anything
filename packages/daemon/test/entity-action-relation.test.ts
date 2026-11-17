@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readRelationCycleWitnessAtCut } from "../src/entity-action-relation.ts";
+import { readRelationCycleWitnessAtCut } from "@harness-anything/application/commands";
 
 test("relation cycle admission fails closed when its canonical projection cut is pending", () => {
   const projection = {

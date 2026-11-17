@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 import {
   decisionAcceptReviewReadiness,
+  decisionReviewAwaitRationale,
   deriveRelationId,
+  type CanonicalRelationDirection,
   getExecutableEntityAction,
   type AuthorizationDecision,
   type CanonicalEventStore,
@@ -10,13 +12,12 @@ import {
   type TaskProjection,
   type RepositorySettingsV1,
 } from "@harness-anything/kernel";
-import { decisionReviewAwaitRationale } from "./decision-review-read.ts";
 import { executeRelationAction, reject } from "./entity-action-relation.ts";
-import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import type { CommandAction, CommandBinding } from "./command-ports.ts";
 
 interface DecisionReviewAwaitInput {
   readonly decisionId: string;
-  readonly binding: RepoCellBinding;
+  readonly binding: CommandBinding;
   readonly opId: string;
   readonly authorizationDecision: AuthorizationDecision;
   readonly rootDir: string;
@@ -24,8 +25,9 @@ interface DecisionReviewAwaitInput {
   readonly store: CanonicalEventStore;
   readonly projection: TaskProjection;
   readonly now: () => string;
-  readonly sessionIdentity: (binding: RepoCellBinding) => SessionIdentity;
+  readonly sessionIdentity: (binding: CommandBinding) => SessionIdentity;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
+  readonly relationDirections?: () => readonly CanonicalRelationDirection[];
   readonly readSettings: () => RepositorySettingsV1;
 }
 
@@ -35,8 +37,9 @@ interface DecisionWriteContext {
   readonly store: CanonicalEventStore;
   readonly projection: TaskProjection;
   readonly now: () => string;
-  readonly sessionIdentity: (binding: RepoCellBinding) => SessionIdentity;
+  readonly sessionIdentity: (binding: CommandBinding) => SessionIdentity;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
+  readonly relationDirections?: () => readonly CanonicalRelationDirection[];
   readonly readSettings: () => RepositorySettingsV1;
 }
 
@@ -46,8 +49,8 @@ interface DecisionWriteContext {
  * main write has already authorized this binding.
  */
 export function reconcileDecisionReviewAwaitAfterWrite(
-  action: RepoTaskAction,
-  binding: RepoCellBinding,
+  action: CommandAction,
+  binding: CommandBinding,
   opId: string,
   context: DecisionWriteContext,
 ): void {
@@ -70,6 +73,7 @@ export function reconcileDecisionReviewAwaitAfterWrite(
     now: context.now,
     sessionIdentity: context.sessionIdentity,
     readSettings: context.readSettings,
+    ...(context.relationDirections ? { relationDirections: context.relationDirections } : {}),
     ...(context.killpoint ? { killpoint: context.killpoint } : {}),
   });
 }
@@ -137,6 +141,7 @@ function runRelation(
     store: input.store,
     projection: input.projection,
     sessionIdentity: input.sessionIdentity,
+    ...(input.relationDirections ? { relationDirections: input.relationDirections } : {}),
     ...(input.killpoint ? { killpoint: input.killpoint } : {}),
   });
 }

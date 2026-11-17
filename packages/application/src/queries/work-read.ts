@@ -6,9 +6,7 @@ import type {
   WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { isTerminalStatus, isWorkRoot } from "@harness-anything/kernel";
-import { planGoalSummary } from "./dispatch-causal-context.ts";
-import type { TaskQueryCell } from "./repo-cell-task-query.ts";
-import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import type { QueryAction, QueryBinding, WorkQueryCell } from "./query-ports.ts";
 import {
   emptyScopeCounts,
   scopeStatus,
@@ -357,7 +355,7 @@ function renderCounts(counts: WorkspaceScopeStatusCounts): string {
     .join(" · ");
 }
 
-export function readWork(cell: TaskQueryCell, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
+export function readWork(cell: WorkQueryCell, action: QueryAction, binding: QueryBinding): WriteReceipt {
   const taskId = action.kind === "work-show" ? cell.requiredCellText(action.taskId, "taskId") : null;
   if (taskId !== null && !cell.projection.readTaskExists(taskId))
     throw cell.cellCodedError("task_not_found", `No task ${taskId}; list works with ha work list.`);
@@ -376,4 +374,22 @@ export function readWork(cell: TaskQueryCell, action: RepoTaskAction, binding: R
       payload,
     );
   return { ...receipt, ...payload } as WriteReceipt;
+}
+
+/**
+ * The one-paragraph goal/mission statement of a task plan, if the plan declares one. Returns plain
+ * compacted text — the caller's render line is the single XML-escape point, so this must not pre-escape.
+ */
+export function planGoalSummary(body: string): string | null {
+  for (const heading of ["Goal", "Brief", "Mission"]) {
+    const section = new RegExp(`^## ${heading}\\s*\\r?\\n([\\s\\S]*?)(?=^## |$)`, "mu").exec(body)?.[1],
+      text = section
+        ?.split(/\r?\n/u)
+        .map((line) => line.replace(/^\s*(?:[-*]|\d+[.)])\s*/u, "").trim())
+        .filter(Boolean)
+        .slice(0, 2)
+        .join(" ");
+    if (text) return text.replace(/\*\*/gu, "").replace(/\s+/gu, " ").trim();
+  }
+  return null;
 }

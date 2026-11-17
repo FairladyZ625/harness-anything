@@ -207,7 +207,10 @@ export async function measureDocuments(rootDir, size, bodyUnits = 1) {
 }
 
 export async function measureRelations(rootDir, size) {
-  const { readRelationCycleWitnessAtCut } = await load(rootDir, "packages/daemon/src/entity-action-relation.ts"),
+  const { readRelationCycleWitnessAtCut } = await load(
+      rootDir,
+      "packages/application/src/commands/entity-action-relation.ts",
+    ),
     counts = { queries: 0, rowsExamined: 0 },
     // A single owner has N outgoing edges; each target is a distinct leaf. This crosses the
     // production page boundary (100), unlike seeding N unrelated one-edge owners.
@@ -338,7 +341,7 @@ export async function measureAnchoredRelationFreshness(rootDir, size) {
 }
 
 export async function measureEntityPins(rootDir, size, actionKind) {
-  const { runEntityPinAction } = await load(rootDir, "packages/daemon/src/entity-pin-action.ts"),
+  const { runEntityPinAction } = await load(rootDir, "packages/application/src/commands/entity-pin-action.ts"),
     entityRef = "task/task_cost",
     counts = { pinsExamined: 0, appendedEvents: 0 },
     rows = Array.from({ length: size }, (_, index) => ({
@@ -573,7 +576,7 @@ export async function measureTaskAmendPatches(rootDir, size) {
 // unrelated subjects would leave this production scan at size 1 and conceal its cost entirely.
 export async function measureAssignmentHistory(rootDir, size, actionKind) {
   const [{ makeEntityActionCatalogExecutor }, { deriveRelationId }] = await Promise.all([
-      load(rootDir, "packages/daemon/src/entity-action-catalog-executor.ts"),
+      load(rootDir, "packages/application/src/commands/entity-action-catalog-executor.ts"),
       load(rootDir, "packages/kernel/src/domain/entity-relation.ts"),
     ]),
     contract = getExecutableEntityAction(actionKind),
@@ -650,7 +653,7 @@ export async function measureAssignmentHistory(rootDir, size, actionKind) {
 
 export async function measureCatalogBatch(rootDir, size, actionKind) {
   const [{ makeEntityActionCatalogExecutor }, { reduceDecisionDocument }] = await Promise.all([
-      load(rootDir, "packages/daemon/src/entity-action-catalog-executor.ts"),
+      load(rootDir, "packages/application/src/commands/entity-action-catalog-executor.ts"),
       load(rootDir, "packages/kernel/src/domain/decision-event.ts"),
     ]),
     actor = { principal: { personId: "cost-writer" }, executor: null },

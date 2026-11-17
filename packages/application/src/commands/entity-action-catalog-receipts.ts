@@ -11,7 +11,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { reject } from "./entity-action-relation.ts";
-import type { RepoTaskAction } from "./repo-cell-types.ts";
+import type { CommandAction } from "./command-ports.ts";
 
 /** Receipt shaping for the entity action catalog: durable write receipts, dry-run previews,
  *  read receipts, and the Decision list filter/summary projections. The executor keeps
@@ -213,7 +213,7 @@ export function factPreview(
   );
 }
 
-export function preparedEntityReport(action: RepoTaskAction): Readonly<Record<string, unknown>> {
+export function preparedEntityReport(action: CommandAction): Readonly<Record<string, unknown>> {
   const prepared = action.preparedEntityAction;
   if (!prepared || typeof prepared !== "object" || Array.isArray(prepared)) return {};
   const report = (prepared as Readonly<Record<string, unknown>>).report;
@@ -229,7 +229,7 @@ export function preparedEntityReport(action: RepoTaskAction): Readonly<Record<st
  * it. Lifting them to the receipt's top-level `warnings` puts the same sentence on both surfaces
  * and on the CLI's existing `warning:` channel; the code stays in the line so it stays greppable.
  */
-export function preparedEntityWarnings(action: RepoTaskAction): readonly string[] {
+export function preparedEntityWarnings(action: CommandAction): readonly string[] {
   const warnings = preparedEntityReport(action).warnings;
   if (!Array.isArray(warnings)) return [];
   return warnings.flatMap((entry) => {

@@ -16,7 +16,9 @@ import {
 } from "@harness-anything/kernel";
 import { TaskLifecycleContractError } from "@harness-anything/kernel/internal/domain/task-lifecycle-event.ts";
 import { actionCriterionFailure, attributeCellCriterion } from "./repo-cell-errors.ts";
-import { retireTaskAwaitsAtTerminalStatus } from "./terminal-awaits-retirement.ts";
+import { relationDirectionRegistry } from "./artifact-entity-action.ts";
+import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
+import { retireTaskAwaitsAtTerminalStatus } from "@harness-anything/application/internal/commands/terminal-awaits-retirement.ts";
 import { actorHint, runtimeSessionDispatchRole } from "./repo-cell-proof.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 import { assertCurrentSubmittedExecution } from "./repo-cell-execution-selection.ts";
@@ -351,6 +353,8 @@ export async function runTaskActionCatalogRuntime(
         store: cell.store,
         projection: cell.projection,
         now: cell.now,
+        sessionIdentity: (value) => resolveWriteSessionIdentity(value, cell.projection),
+        relationDirections: () => relationDirectionRegistry(cell.projection, cell.input.repoId),
         ...(cell.input.killpoint ? { killpoint: cell.input.killpoint } : {}),
       },
     });

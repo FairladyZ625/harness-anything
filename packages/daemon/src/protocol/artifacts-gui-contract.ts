@@ -1,6 +1,6 @@
 import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import { queryPageRow } from "./daemon-protocol-validate-task.ts";
-import type { CursorPage } from "../task-index-query.ts";
+import type { CursorPage } from "@harness-anything/kernel/internal/ports/projection-reads.ts";
 import { isJsonObject, rejectSecretKeys } from "./json-rpc-types.ts";
 import { nullableNonEmpty, utcTimestamp } from "./schedules-gui-contract.ts";
 

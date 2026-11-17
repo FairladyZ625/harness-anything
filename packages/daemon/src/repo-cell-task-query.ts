@@ -1,6 +1,6 @@
 import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import { mergedCloseoutCandidates } from "./task-merged-closeout.ts";
-import { taskPresentationReads } from "./task-presentation-read.ts";
+import { taskPresentationReads } from "@harness-anything/application/internal/queries/task-presentation-read.ts";
 import {
   admitTaskExecutionWip,
   allowsTaskStatusMove,
@@ -21,12 +21,12 @@ import {
   type TaskWipSnapshotEntryV1,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
-import { readTaskReadSet } from "@harness-anything/application";
+import { readTaskReadSet } from "@harness-anything/application/internal/task-read-set-service.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { taskPackageDisposition, type TaskQueryReadModel } from "./task-query-read.ts";
 import { projectedTaskSettings, resolveTaskRootThreshold, resolveTaskWipLimit } from "./task-wip-settings.ts";
-import { selectTaskIndex } from "./task-index-query.ts";
+import { selectTaskIndex } from "@harness-anything/application/internal/queries/task-index-query.ts";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 
 export const DEFAULT_TASK_LIST_LIMIT = storageReadPolicy.defaultValue.listDefaults.taskLimit;

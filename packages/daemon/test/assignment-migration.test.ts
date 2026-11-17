@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { runAssignmentMigrationAction } from "../src/assignment-migration-action.ts";
+import { runAssignmentMigrationAction } from "@harness-anything/application/commands";
 
 const actor = { principal: { personId: "person-migration" }, executor: null } as const;
 

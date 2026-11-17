@@ -11,7 +11,7 @@ import {
 import { readDocReceipt } from "./doc-sync-actions.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import { receiptLayoutRoots, workspaceRelativePath } from "./receipt-guidance.ts";
-import { workReceiptLine } from "./work-read.ts";
+import { workReceiptLine } from "@harness-anything/application/internal/queries/work-read.ts";
 import type { PublicPublication, RepoCellBinding, TaskProgressReceipt } from "./repo-cell-types.ts";
 import type { RepoCellActionContext } from "./repo-cell-types.ts";
 

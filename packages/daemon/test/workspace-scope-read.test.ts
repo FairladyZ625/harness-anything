@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { TaskProjection, TaskProjectionListQuery } from "@harness-anything/kernel";
 import { readRepoInFlightWork } from "../src/repo-in-flight-work.ts";
-import { workspaceScopeFromProjection } from "../src/workspace-scope-read.ts";
+import { workspaceScopeFromProjection } from "@harness-anything/application/queries";
 
 test("repo in-flight lease reads use filtered bounded list pages instead of the task index", () => {
   const taskIds = Array.from({ length: 501 }, (_, index) => `task_lease_${String(index).padStart(3, "0")}`),

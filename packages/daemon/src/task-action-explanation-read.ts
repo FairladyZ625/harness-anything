@@ -1,8 +1,6 @@
-import {
-  makePersonActionExplanationService,
-  makeSquadActionExplanationService,
-  makeTaskActionExplanationService,
-} from "@harness-anything/application";
+import { makePersonActionExplanationService } from "@harness-anything/application/internal/person-action-explanation-service.ts";
+import { makeSquadActionExplanationService } from "@harness-anything/application/internal/squad-action-explanation-service.ts";
+import { makeTaskActionExplanationService } from "@harness-anything/application/internal/task-action-explanation-service";
 import {
   ENTITY_ACTION_EXPLANATION_SCHEMA,
   getEntityKindContract,

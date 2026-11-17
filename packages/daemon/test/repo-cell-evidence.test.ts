@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { renderEvidencePayload } from "../src/repo-cell-evidence.ts";
+import { renderEvidencePayload } from "@harness-anything/application/queries";
 
 test("renderEvidencePayload renders expected-version on agent and squad inspection receipts", () => {
   const agentInspection = {

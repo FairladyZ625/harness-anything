@@ -287,19 +287,19 @@ test("daemon source declarations preserve actual driver and business owners", ()
       "packages/daemon/src/decision-point-executor.ts#openDecisionPointExecutor.settle",
     ],
     [
-      "action:packages/daemon:packages/daemon/src/fact-archive-document.ts#archiveAllFacts:f62e63de0d5257051d2b5b71ac126b0d",
+      "action:packages/application:packages/application/src/commands/fact-archive-document.ts#archiveAllFacts:f62e63de0d5257051d2b5b71ac126b0d",
       "fact-archive",
       "fact-archive",
       "effect",
     ],
     [
-      "action:packages/daemon:packages/daemon/src/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.repinAll:f62e63de0d5257051d2b5b71ac126b0d",
+      "action:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.repinAll:f62e63de0d5257051d2b5b71ac126b0d",
       "decision-repin",
       "decision-repin",
       "effect",
     ],
     [
-      "action:packages/daemon:packages/daemon/src/task-witness-action.ts#runTaskWitnessAction.appended:45d7f1624d843b4db4ce2ba40a15919d",
+      "action:packages/application:packages/application/src/commands/task-witness-action.ts#runTaskWitnessAction.appended:45d7f1624d843b4db4ce2ba40a15919d",
       "task-witness-rerun",
       "task-witness-rerun",
       "effect",

@@ -910,7 +910,7 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
       (file) =>
         !file.startsWith("packages/daemon/src/protocol/") &&
         file !== "packages/daemon/src/repo-cell-authorization.ts" &&
-        file !== "packages/daemon/src/write-receipt-settlement.ts",
+        file !== "packages/application/src/commands/write-receipt-settlement.ts",
     ),
     writerTexts = writerSources.map((file) => [file, readFileSync(path.join(REPO_ROOT, file), "utf8")] as const);
   assert.ok(localDeclarations.length > 0, "local declaration census must not be empty");

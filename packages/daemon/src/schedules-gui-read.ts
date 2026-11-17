@@ -29,7 +29,10 @@ import type {
 } from "./protocol/schedules-gui-contract.ts";
 import { isAvailableScheduleGuiAgentOption } from "./protocol/schedules-gui-contract.ts";
 import { defaultLedgerBackupRetention } from "./schedule-builtin-executor.ts";
-import { emptyScheduleHealthRollup, scheduleHealthRollupsFromEvents } from "./schedule-projection.ts";
+import {
+  emptyScheduleHealthRollup,
+  scheduleHealthRollupsFromEvents,
+} from "@harness-anything/application/internal/queries/schedule-projection.ts";
 import { admitRepoMode } from "./repo-mode.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 

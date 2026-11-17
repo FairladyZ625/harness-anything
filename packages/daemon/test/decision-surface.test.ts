@@ -12,7 +12,7 @@ import {
   repositorySettings,
   type TaskProjection,
 } from "@harness-anything/kernel";
-import { makeEntityActionCatalogExecutor } from "../src/entity-action-catalog-executor.ts";
+import { makeEntityActionCatalogExecutor } from "@harness-anything/application/commands";
 import { assembleTaskCausalContext } from "../src/dispatch-causal-context.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";

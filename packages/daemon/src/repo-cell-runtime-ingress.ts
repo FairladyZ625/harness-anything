@@ -22,10 +22,13 @@ import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { RepoCellBinding, RuntimeIngressAction } from "./repo-cell-types.ts";
 import type { RepoCellActionContext } from "./repo-cell-types.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
-import { noChanges } from "./entity-action-write-helpers.ts";
+import { noChanges } from "@harness-anything/application/internal/commands/entity-action-write-helpers.ts";
 import { requireDispatchLifecycleAdmission } from "./runtime-dispatch-admission.ts";
-import { commitRuntimeSessionBundle, compileRuntimeSessionDraft } from "./entity-action-runtime-session.ts";
-import { publicationKillpoints } from "./entity-action-relation.ts";
+import {
+  commitRuntimeSessionBundle,
+  compileRuntimeSessionDraft,
+} from "@harness-anything/application/internal/commands/entity-action-runtime-session.ts";
+import { publicationKillpoints } from "@harness-anything/application/internal/commands/entity-action-relation.ts";
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
 
 const auxiliaryEventTypes = Object.freeze([

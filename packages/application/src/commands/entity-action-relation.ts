@@ -3,6 +3,7 @@ import {
   compileRelationDocumentWrite,
   compileRelationRetiredEvent,
   DECISION_DOCUMENT_POLICY_ID,
+  decisionRelationLinkResolver,
   deriveRelationId,
   derivesRelationClause,
   FACT_DOCUMENT_POLICY_ID,
@@ -30,15 +31,14 @@ import {
   type RelationEventV1,
   type RelationCycleEdge,
   type RelationCycleWitness,
+  type CanonicalRelationDirection,
   type SessionIdentity,
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
-import { relationDirectionRegistry } from "./artifact-entity-action.ts";
-import { decisionRelationLinkResolver } from "./entity-document-links.ts";
 import { noChanges, reject } from "./entity-action-write-helpers.ts";
 export { reject } from "./entity-action-write-helpers.ts";
-import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import type { CommandAction, CommandBinding } from "./command-ports.ts";
 
 type ExecutableRelationAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
 
@@ -46,14 +46,14 @@ export function executeRelationAction(input: {
   readonly rootDir: string;
   readonly repositoryId: string;
   readonly contract: ExecutableRelationAction;
-  readonly action: RepoTaskAction;
-  readonly binding: RepoCellBinding;
+  readonly action: CommandAction;
+  readonly binding: CommandBinding;
   readonly opId: string;
   readonly occurredAt: string;
   readonly authorizationDecision: AuthorizationDecision;
   readonly store: CanonicalEventStore;
   readonly projection: TaskProjection;
-  readonly sessionIdentity: (binding: RepoCellBinding) => SessionIdentity;
+  readonly sessionIdentity: (binding: CommandBinding) => SessionIdentity;
   readonly compileSupersededDecision?: (input: {
     readonly decisionId: string;
     readonly opId: string;
@@ -62,6 +62,7 @@ export function executeRelationAction(input: {
     readonly relationBundle: CanonicalWriteBundle | null;
   }) => CanonicalWriteBundle;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
+  readonly relationDirections?: () => readonly CanonicalRelationDirection[];
 }): WriteReceipt {
   const { action, authorizationDecision, binding, contract, opId, occurredAt } = input,
     expectedVersion = action.expectedVersion,
@@ -251,9 +252,7 @@ export function executeRelationAction(input: {
           workspaceRevision: eventRevision,
           priorTargetVersion: current?.targetObservedVersion ?? null,
           currentTargetVersion: target?.currentVersion ?? null,
-          ...(assignment
-            ? {}
-            : { relationDirections: relationDirectionRegistry(input.projection, input.repositoryId) }),
+          ...(assignment ? {} : input.relationDirections ? { relationDirections: input.relationDirections() } : {}),
         }),
     compiled = replay ?? (draft?.kind === "relation" ? draft.event : null);
   if (!compiled || !isRelationEvent(compiled))
@@ -656,7 +655,7 @@ function requireRelationEndpointRef(ref: string, endpoint: "source" | "target"):
   );
 }
 
-function supersedesDecisionTargetId(action: RepoTaskAction): string | null {
+function supersedesDecisionTargetId(action: CommandAction): string | null {
   if (action.kind !== "relation-relate" || action.relationType !== "supersedes") return null;
   const source = parseEntityRef(typeof action.sourceRef === "string" ? action.sourceRef : ""),
     target = parseEntityRef(typeof action.targetRef === "string" ? action.targetRef : "");
@@ -667,14 +666,14 @@ function derivedRelationOperationId(parentOpId: string, purpose: string, relatio
   return `op_${createHash("sha256").update(`${parentOpId}:${purpose}:${relationId}`).digest("hex")}`;
 }
 
-function assignmentTargetRef(action: RepoTaskAction): string {
+function assignmentTargetRef(action: CommandAction): string {
   if (typeof action.personId === "string" && action.personId.trim()) return `person/${action.personId}`;
   if (typeof action.nodeId === "string" && action.nodeId.trim()) return `node/${action.nodeId}`;
   if (typeof action.teamId === "string" && action.teamId.trim()) return `team/${action.teamId}`;
   reject("invalid_command", "Assignment requires one of personId, nodeId or teamId.");
 }
 
-function assignmentSourceRef(action: RepoTaskAction, kind: string): string {
+function assignmentSourceRef(action: CommandAction, kind: string): string {
   if (typeof action.entityRef === "string" && action.entityRef.trim()) return action.entityRef;
   const idField = `${kind.replace(/-([a-z])/gu, (_match, letter: string) => letter.toUpperCase())}Id`;
   const id = action[idField];

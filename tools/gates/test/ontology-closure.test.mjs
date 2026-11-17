@@ -163,7 +163,7 @@ test("daemon host migration and observation slice has zero frozen ontology debt"
 // and business effects stay attached to their owning ActionDeclaration.
 test("daemon domain service actions and policies are closed under the shared ontology", () => {
   const domainPath =
-    /^packages\/daemon\/src\/(?:schedule-|squad-|decision-|fact-|artifact-|agent-(?!runtime-instance)|task-|todo-|work-|person-|settings-|vertical-|entity-action-|entity-pin-|assignment-|distill-|reckoning-|home\/)/u;
+    /^(?:packages\/daemon\/src|packages\/application\/src\/(?:commands|queries))\/(?:schedule-|squad-|decision-|fact-|artifact-|agent-(?!runtime-instance)|task-|todo-|work-|person-|settings-|vertical-|entity-action-|entity-pin-|assignment-|distill-|reckoning-|home\/)/u;
   const baseline = loadGateAllowlist("ontology-closure", { report: false }).candidates;
   assert.deepEqual(
     baseline.filter((row) => domainPath.test(row.path)),
@@ -216,7 +216,7 @@ test("daemon domain service actions and policies are closed under the shared ont
       "action:daemon-local-state",
     ],
     [
-      "action:packages/daemon:packages/daemon/src/fact-archive-document.ts#archiveAllFacts:f62e63de0d5257051d2b5b71ac126b0d",
+      "action:packages/application:packages/application/src/commands/fact-archive-document.ts#archiveAllFacts:f62e63de0d5257051d2b5b71ac126b0d",
       "action:fact-archive",
     ],
     [

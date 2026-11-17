@@ -43,7 +43,7 @@ import {
   validateDaemonWorkspaceSummary,
 } from "../../packages/daemon/src/protocol/daemon-protocol.contract.ts";
 import { makeTaskQueryReadModel } from "../../packages/daemon/src/task-query-read.ts";
-import { workspaceSummaryFromReads } from "../../packages/daemon/src/workspace-summary-read.ts";
+import { workspaceSummaryFromReads } from "@harness-anything/application/queries";
 import { git, pathExistsAt, pullRequestBase, repoRoot } from "./git.mjs";
 
 const FIXTURE_ROOT = "packages/kernel/fixtures/canonical-events";

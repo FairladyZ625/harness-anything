@@ -16,8 +16,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { factDocumentRecord, publicationKillpoints, reject } from "./entity-action-relation.ts";
-import { workspaceText } from "./repo-cell-packets.ts";
-import type { RepoTaskAction } from "./repo-cell-types.ts";
+import type { CommandAction } from "./command-ports.ts";
 
 /** Compile an admitted Fact archive with the projected document hash as its delete proof. */
 export function factArchiveBundle(
@@ -77,12 +76,18 @@ export function factObservationPreload(
 
 /** Batch id source: `--ids-file` (one Fact id per line, `#` comments and blanks ignored) or a
  * literal `factIds` array. Every id is validated individually before any write is compiled. */
-export function factArchiveIds(rootDir: string, action: RepoTaskAction): readonly string[] {
+export function factArchiveIds(
+  _rootDir: string,
+  action: CommandAction,
+  readWorkspaceText?: (requestedValue: unknown, field: string) => string,
+): readonly string[] {
   const listed = Array.isArray(action.factIds) ? action.factIds.map(String) : null,
     fromFile = typeof action.idsFile === "string" ? action.idsFile : null;
   if (listed !== null && fromFile !== null)
     reject("invalid_command", "Use either factIds or --ids-file for fact archive, not both.");
-  const raw = fromFile !== null ? workspaceText(rootDir, fromFile, "idsFile") : null,
+  if (fromFile !== null && !readWorkspaceText)
+    reject("invalid_command", "Workspace text reader is required for --ids-file.");
+  const raw = fromFile !== null ? readWorkspaceText!(fromFile, "idsFile") : null,
     ids =
       raw !== null
         ? raw
@@ -107,6 +112,7 @@ export function archiveAllFacts(
     readonly projection: TaskProjection;
     readonly now: () => string;
     readonly killpoint?: (point: EventPublicationKillpoint) => void;
+    readonly readWorkspaceText?: (requestedValue: unknown, field: string) => string;
     readonly authorize: () => AuthorizationDecision;
     readonly compile: (
       action: Readonly<Record<string, unknown>>,
@@ -115,10 +121,10 @@ export function archiveAllFacts(
       allocatedRevision: number,
     ) => CompiledFactWrite;
   },
-  action: RepoTaskAction,
+  action: CommandAction,
   opId: string,
 ): WriteReceipt {
-  const ids = factArchiveIds(input.rootDir ?? process.cwd(), action),
+  const ids = factArchiveIds(input.rootDir ?? "", action, input.readWorkspaceText),
     initialRevision = input.store.readHead()?.revision ?? 0,
     existingOutcome = readAcceptedCommandOutcome(input.store, opId),
     authorizationDecision = input.authorize(),

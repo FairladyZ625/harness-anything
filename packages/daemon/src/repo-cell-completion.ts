@@ -1,5 +1,5 @@
 import { readTaskCompletion } from "./task-completion-read.ts";
-import { readTaskReviewAttribution } from "@harness-anything/application";
+import { readTaskReviewAttribution } from "@harness-anything/application/internal/task-review-attribution.ts";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { existsSync } from "node:fs";
@@ -38,7 +38,7 @@ import {
 import { projectedTaskSettings, resolveTaskRootThreshold } from "./task-wip-settings.ts";
 import { readEffectiveCloseoutGates, readEffectiveReviewReturnBudget } from "./repo-cell-settings-state.ts";
 import type { RepoCellActionContext } from "./repo-cell-types.ts";
-import { renderEvidencePayload } from "./repo-cell-evidence.ts";
+import { renderEvidencePayload } from "@harness-anything/application/internal/queries/repo-cell-evidence.ts";
 import { failed } from "./repo-cell-settlement.ts";
 import { projectedTaskNotFound } from "./projection-readiness.ts";
 import { candidateSample, resolveUniquePrefix } from "./unique-id-prefix.ts";

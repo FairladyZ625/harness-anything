@@ -9,15 +9,14 @@ import {
   type GateRun,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
-import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
-import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import type { CommandAction, CommandBinding, TaskWitnessCommandCell } from "./command-ports.ts";
 
 /** An in-process source invocation, never supplied by a transport or execution credential. */
 export const centerWitnessAction = Symbol("centerWitnessAction");
 export function runTaskWitnessAction(
-  cell: RepoCellOperationalContext,
-  action: RepoTaskAction,
-  binding: RepoCellBinding,
+  cell: TaskWitnessCommandCell,
+  action: CommandAction,
+  binding: CommandBinding,
 ): WriteReceiptDraft {
   const taskId = cell.requiredCellText(action.taskId, "taskId"),
     read = cell.projection.read(taskId),

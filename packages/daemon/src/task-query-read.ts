@@ -1,4 +1,4 @@
-import { readTodos } from "./todo-read.ts";
+import { readTodos } from "@harness-anything/application/internal/queries/todo-read.ts";
 import { activeCutReviewDispatches } from "./review-dispatch-state.ts";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -41,7 +41,7 @@ import {
   decisionReviewAwaitRationale,
   decisionReviewState,
   readDecisionReviewDispatches,
-} from "./decision-review-read.ts";
+} from "@harness-anything/application/internal/queries/decision-review-read.ts";
 import { dispatchStreamRelativePath, type DispatchStreamHeader } from "./dispatch-stream.ts";
 import { readRepositorySettings } from "./repo-cell-settings-state.ts";
 import { taskDeliveryStage } from "./task-delivery-stage.ts";
@@ -67,16 +67,26 @@ import {
   type ExecutionEvidenceProjection,
   type TaskPlacementSupplement,
 } from "./protocol/daemon-protocol.contract.ts";
-import { workRootOf, workspaceStructureFromProjection } from "./workspace-scope-read.ts";
+import {
+  workRootOf,
+  workspaceStructureFromProjection,
+} from "@harness-anything/application/internal/queries/workspace-scope-read.ts";
 import { attentionRegionWeights } from "./agenda-attention.ts";
 import { assignmentMatchesViewer, type AssignmentRelationLike } from "@harness-anything/kernel";
 import { assignmentFromRelation } from "./entity-assignment-runtime.ts";
 import { buildAttentionItems } from "./agenda-attention-projection.ts";
 import { readDispatchRuling } from "./runtime-ruling.ts";
-import { latestPremiseReview, premiseReviewCommand } from "./premise-review.ts";
+import {
+  latestPremiseReview,
+  premiseReviewCommand,
+} from "@harness-anything/application/internal/queries/premise-review.ts";
 import { readIncidentActionReceipt } from "./decision-incident-receipt.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
-import { projectionCut, requireSameProjectionCut, type ProjectionCut } from "./projection-cut.ts";
+import {
+  projectionCut,
+  requireSameProjectionCut,
+  type ProjectionCut,
+} from "@harness-anything/application/internal/queries/projection-cut.ts";
 import { readReckoningAgenda } from "./reckoning-agenda-read.ts";
 import {
   decodeAgendaCursor,

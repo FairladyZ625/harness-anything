@@ -153,7 +153,9 @@ export async function measureDecisionCollection(rootDir, size, actionKind, dimen
     assert.ok(commands[contract.id], `missing Decision command fixture: ${actionKind}`);
     const { prepareDecisionAmend } =
         dimension === "scope"
-          ? await import(pathToFileURL(path.join(rootDir, "packages/daemon/src/decision-surface-actions.ts")).href)
+          ? await import(
+              pathToFileURL(path.join(rootDir, "packages/application/src/commands/decision-surface-actions.ts")).href
+            )
           : {},
       action =
         dimension === "scope"

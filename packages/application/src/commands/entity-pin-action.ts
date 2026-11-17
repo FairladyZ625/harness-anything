@@ -5,13 +5,12 @@ import {
   parseEntityRef,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
-import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
-import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import type { CommandAction, CommandBinding, EntityPinCommandCell } from "./command-ports.ts";
 
 export function runEntityPinAction(
-  cell: RepoCellOperationalContext,
-  action: RepoTaskAction,
-  binding: RepoCellBinding,
+  cell: EntityPinCommandCell,
+  action: CommandAction,
+  binding: CommandBinding,
 ): WriteReceipt {
   const entityRef =
       typeof action.entityRef === "string"
