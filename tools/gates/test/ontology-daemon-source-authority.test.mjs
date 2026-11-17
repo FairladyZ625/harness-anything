@@ -358,7 +358,7 @@ test("return continuation queue and automatic spawner use their actual technical
       "packages/daemon/src/repo-cell-types.ts#RepoCellContinuationWrite",
     ],
     [
-      "dispatchContinuation.spawned:b47b8c859ed44d25e279d344244854b7",
+      "dispatchContinuation.spawned:0945e48785ee4398118a84514b3a6fbf",
       "packages/daemon/src/repo-cell-types.ts#RepoCellContinuationWrite",
     ],
     [
