@@ -73,11 +73,79 @@ function productionFilesInScope(changedFiles) {
   return files.filter((file) => /\.[cm]?[jt]sx?$/u.test(file) && !/(?:\/test(?:s)?\/|\.(?:test|spec)\.)/u.test(file));
 }
 
+function pureNamedReexportMap(graph, file, sourceFile) {
+  if (!sourceFile?.statements?.length) return null;
+  const byName = new Map();
+  for (const stmt of sourceFile.statements) {
+    if (
+      !ts.isExportDeclaration(stmt) ||
+      !stmt.moduleSpecifier ||
+      !ts.isStringLiteralLike(stmt.moduleSpecifier) ||
+      !stmt.exportClause ||
+      !ts.isNamedExports(stmt.exportClause)
+    )
+      return null;
+    const target = graph.importTarget({ file, from: stmt.moduleSpecifier.text }).file;
+    for (const el of stmt.exportClause.elements)
+      byName.set(el.name.text, { target: target ?? file, exported: (el.propertyName ?? el.name).text });
+  }
+  return byName;
+}
+
+function dynamicImportNamedMembers(sourceFile, node) {
+  if (!ts.isCallExpression(node) || node.expression.kind !== ts.SyntaxKind.ImportKeyword) return null;
+  const cast = node.parent && ts.isAsExpression(node.parent) ? node.parent.type : null;
+  const promised =
+    cast && ts.isTypeReferenceNode(cast) && cast.typeName.getText(sourceFile) === "Promise"
+      ? cast.typeArguments?.[0]
+      : null;
+  if (!promised) return null;
+  const members = ts.isTypeLiteralNode(promised)
+    ? promised.members
+    : ts.isTypeReferenceNode(promised) && ts.isIdentifier(promised.typeName)
+      ? sourceFile.statements.find(
+          (stmt) =>
+            ts.isInterfaceDeclaration(stmt) && stmt.name.text === promised.typeName.text && !stmt.heritageClauses,
+        )?.members
+      : null;
+  if (!members?.length) return null;
+  const names = [];
+  for (const member of members) {
+    if (
+      (!ts.isPropertySignature(member) && !ts.isMethodSignature(member)) ||
+      !member.name ||
+      (!ts.isIdentifier(member.name) && !ts.isStringLiteralLike(member.name))
+    )
+      return null;
+    names.push(member.name.text);
+  }
+  return names;
+}
+
 export function changedAuthorizationScope(graph, inputs, changedFiles) {
   const full = { descriptorIds: null, sourceIds: null };
   const production = productionFilesInScope(changedFiles);
   if (!production) return full;
   if (production.some((file) => !graph.modules.has(file))) return full;
+  const productionSet = new Set(production),
+    barrels = new Map();
+  for (const [file, { sourceFile }] of graph.modules) {
+    const map = pureNamedReexportMap(graph, file, sourceFile);
+    if (map) barrels.set(file, map);
+  }
+  const resolveBarrelTarget = (barrelFile, symbolName, seen = new Set()) => {
+    if (productionSet.has(barrelFile) || seen.has(barrelFile)) return barrelFile;
+    const entry = barrels.get(barrelFile)?.get(symbolName);
+    if (!entry) return barrelFile;
+    if (!barrels.has(entry.target)) return entry.target;
+    seen.add(barrelFile);
+    return resolveBarrelTarget(entry.target, entry.exported, seen);
+  };
+  const addReverse = (reverse, target, importer) => {
+    if (!target) return;
+    if (!reverse.has(target)) reverse.set(target, new Set());
+    reverse.get(target).add(importer);
+  };
   const reverse = new Map();
   for (const [file, { sourceFile }] of graph.modules) {
     (function visit(node) {
@@ -91,9 +159,26 @@ export function changedAuthorizationScope(graph, inputs, changedFiles) {
               : null;
       if (specifier && ts.isStringLiteralLike(specifier)) {
         const target = graph.importTarget({ file, from: specifier.text }).file;
-        if (target) {
-          if (!reverse.has(target)) reverse.set(target, new Set());
-          reverse.get(target).add(file);
+        const dynamicNames =
+          target && barrels.has(target) && !productionSet.has(target)
+            ? dynamicImportNamedMembers(sourceFile, node)
+            : null;
+        if (
+          target &&
+          barrels.has(target) &&
+          !productionSet.has(target) &&
+          ts.isImportDeclaration(node) &&
+          node.importClause &&
+          !node.importClause.name &&
+          node.importClause.namedBindings &&
+          ts.isNamedImports(node.importClause.namedBindings)
+        ) {
+          for (const el of node.importClause.namedBindings.elements)
+            addReverse(reverse, resolveBarrelTarget(target, (el.propertyName ?? el.name).text), file);
+        } else if (dynamicNames) {
+          for (const name of dynamicNames) addReverse(reverse, resolveBarrelTarget(target, name), file);
+        } else {
+          addReverse(reverse, target, file);
         }
       }
       ts.forEachChild(node, visit);
@@ -302,9 +387,15 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
             ...action,
             ontology: {
               ...action.ontology,
-              sources: action.ontology.sources.filter((source) => {
+              sources: action.ontology.sources.filter((source, sourceIndex) => {
                 const owner = durable.findIndex((descriptor) => descriptor.id === source.route);
-                return (owner < 0 ? durable.length + index : owner) % options.shard.count === options.shard.index;
+                const bucket =
+                  owner < 0
+                    ? source.role === "effect"
+                      ? durable.length + index
+                      : durable.length + index + sourceIndex
+                    : owner;
+                return bucket % options.shard.count === options.shard.index;
               }),
             },
           }))
@@ -697,34 +788,45 @@ function findingsFor(rows, receipt, sourceRows) {
 }
 
 const SHARD_WORKER_MEMORY_BUDGET_BYTES = 6 * 1024 ** 3;
+const DEFAULT_SHARD_COUNT = 4;
 
 export function shardWorkerCount(parallelism = availableParallelism(), memoryBytes = totalmem()) {
   return Math.max(1, Math.min(4, parallelism, Math.floor(memoryBytes / SHARD_WORKER_MEMORY_BUDGET_BYTES)));
 }
 
-/** Each worker builds its own graph and traces every count-th descriptor; rows merge in order. */
+/** Each worker builds its own graph, traces every count-th descriptor, and exits to free its heap. */
 export async function shardedAudit(rootDir, changedFiles, options = {}) {
-  const { sourceRoot, only } = options,
-    count = shardWorkerCount(),
-    shards = await Promise.all(
-      Array.from(
-        { length: count },
-        (_, index) =>
-          new Promise((resolve, reject) => {
-            const worker = new Worker(new URL(import.meta.url), {
-              workerData: {
-                durableAuthorizationShard: { rootDir, sourceRoot, only, changedFiles, shard: { index, count } },
-              },
-            });
-            worker.once("message", resolve);
-            worker.once("error", reject);
-            worker.once("exit", (code) => {
-              if (code !== 0) reject(new Error(`authorization shard ${index} exited with ${code}`));
-            });
-          }),
-      ),
-    ),
-    rows = shards.flatMap((shard) => shard.rows).sort((left, right) => left.index - right.index),
+  const { sourceRoot, only, shardCount, concurrency: requestedConcurrency } = options,
+    count = shardCount ?? (only ? Math.min(4, shardWorkerCount()) : DEFAULT_SHARD_COUNT),
+    concurrency = Math.max(1, Math.min(count, requestedConcurrency ?? shardWorkerCount())),
+    shards = new Array(count);
+  let nextIndex = 0;
+  async function runWorkerSlot() {
+    while (nextIndex < count) {
+      const index = nextIndex++;
+      shards[index] = await new Promise((resolve, reject) => {
+        let message;
+        let hasMessage = false;
+        const worker = new Worker(new URL(import.meta.url), {
+          workerData: {
+            durableAuthorizationShard: { rootDir, sourceRoot, only, changedFiles, shard: { index, count } },
+          },
+        });
+        worker.once("message", (payload) => {
+          message = payload;
+          hasMessage = true;
+        });
+        worker.once("error", reject);
+        worker.once("exit", (code) => {
+          if (code !== 0) reject(new Error(`authorization shard ${index} exited with ${code}`));
+          else if (!hasMessage) reject(new Error(`authorization shard ${index} exited without result`));
+          else resolve(message);
+        });
+      });
+    }
+  }
+  await Promise.all(Array.from({ length: concurrency }, () => runWorkerSlot()));
+  const rows = shards.flatMap((shard) => shard.rows).sort((left, right) => left.index - right.index),
     receipt = shards[0].receipt,
     scopedDescriptorIds = shards.some((shard) => shard.scopeInfo?.descriptorIds === null)
       ? null

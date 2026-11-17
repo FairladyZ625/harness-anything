@@ -3,13 +3,18 @@ import assert from "node:assert/strict";
 import { readFileSync, realpathSync, symlinkSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import ts from "typescript";
 import { buildFlowGraph } from "../authorization-flow-graph.mjs";
 import { loadGateAllowlist } from "../../gate-allowlists/load-gate-allowlist.mjs";
 import { auditOntologyClosure } from "../ontology-closure-audit.mjs";
 import { scanOntologyText } from "../ontology-closure-scan.mjs";
 import { evaluateOntologyClosure } from "../ontology-closure.mjs";
 import { loadOntologyClosureSnapshot } from "../ontology-gate-lib.mjs";
-import { loadAuthorizationInputs, shardWorkerCount } from "../ontology-durable-action-authorization.mjs";
+import {
+  changedAuthorizationScope,
+  loadAuthorizationInputs,
+  shardWorkerCount,
+} from "../ontology-durable-action-authorization.mjs";
 import {
   clientEntryEvidence,
   clientEntryRequiredRoutes,
@@ -319,4 +324,72 @@ test("dec_88CAA23DE4907261D7ECB107ED/CH1: shardedAudit worker count stays within
   assert.equal(shardWorkerCount(4, 5 * gib), 1);
   assert.equal(shardWorkerCount(8, 22 * gib), 3);
   assert.equal(shardWorkerCount(8, 32 * gib), 4);
+});
+
+test("dec_88CAA23DE4907261D7ECB107ED/CH1: changedAuthorizationScope resolves named and typed dynamic imports through pure re-export barrels", () => {
+  const texts = {
+    "packages/daemon/src/server-leaf.ts": "export const openHost = () => {};",
+    "packages/daemon/src/client/rpc.ts": "export const sendRpc = () => {};",
+    "packages/daemon/src/client/index.ts": [
+      'export { openHost } from "../server-leaf.ts";',
+      'export { sendRpc } from "./rpc.ts";',
+    ].join("\n"),
+    "packages/gui/src/main/caller.ts": [
+      "interface ClientShape { readonly sendRpc: () => void }",
+      "export async function call() {",
+      '  const c = await (import("@harness-anything/daemon/client") as Promise<ClientShape>);',
+      "  return c.sendRpc();",
+      "}",
+    ].join("\n"),
+  };
+  const modules = new Map(
+    Object.entries(texts).map(([file, text]) => [
+      file,
+      { sourceFile: ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true) },
+    ]),
+  );
+  const graph = {
+    modules,
+    importTarget({ file, from }) {
+      if (from === "@harness-anything/daemon/client") return { file: "packages/daemon/src/client/index.ts" };
+      if (from.startsWith(".")) {
+        const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(file), from));
+        return { file: modules.has(resolved) ? resolved : null };
+      }
+      return { file: null };
+    },
+  };
+  const inputs = {
+    descriptors: [
+      { id: "server.write", actionKind: "server-write" },
+      { id: "gui.write", actionKind: "gui-write" },
+    ],
+    constants: {
+      actionDeclarations: [
+        {
+          kind: "server-write",
+          ontology: {
+            sources: [
+              {
+                candidateId: "action:packages/daemon:packages/daemon/src/server-leaf.ts#openHost:1",
+                route: "server.write",
+              },
+            ],
+          },
+        },
+        {
+          kind: "gui-write",
+          ontology: {
+            sources: [
+              { candidateId: "action:packages/gui:packages/gui/src/main/caller.ts#call:2", route: "gui.write" },
+            ],
+          },
+        },
+      ],
+    },
+  };
+  const serverScope = changedAuthorizationScope(graph, inputs, ["packages/daemon/src/server-leaf.ts"]);
+  assert.deepEqual([...serverScope.descriptorIds], ["server.write"]);
+  const clientScope = changedAuthorizationScope(graph, inputs, ["packages/daemon/src/client/rpc.ts"]);
+  assert.deepEqual([...clientScope.descriptorIds], ["gui.write"]);
 });
