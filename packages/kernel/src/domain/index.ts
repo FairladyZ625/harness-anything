@@ -480,7 +480,6 @@ export {
   dispatchLifecycleHasPendingWork,
   isDispatchAttemptCancelled,
   isDispatchAttemptExitedUnsettled,
-  isDispatchAttemptStopProven,
   dispatchOwner,
   dispatchOwnerForNode,
   previewDispatchLifecycleOutcome,

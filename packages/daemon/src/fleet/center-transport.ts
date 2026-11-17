@@ -455,7 +455,9 @@ export async function serve(
         : new FleetFault(
             contractError
               ? "invalid_frame"
-              : (frame.schema === "fleet.edge.join/v1" || frame.schema === "fleet.edge.join.status/v1") &&
+              : (frame.schema === "fleet.edge.join/v1" ||
+                    frame.schema === "fleet.edge.join.status/v1" ||
+                    (error as { code?: unknown })?.code === "execution_credential_rejected") &&
                   typeof (error as { code?: unknown })?.code === "string"
                 ? (error as { code: string }).code
                 : "handler_failed",

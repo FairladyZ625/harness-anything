@@ -912,11 +912,6 @@ export function dispatchLifecycleHasPendingWork(reads: readonly DispatchLifecycl
   );
 }
 
-/** True once the dispatch attempt reached closed settlement or verified stop proof. */
-export function isDispatchAttemptStopProven(view: DispatchLifecycleView): boolean {
-  return view.policy.attemptSettled || view.attempt.stopProof === "proven_stopped";
-}
-
 /** True when an attempt ended physically (`exited` or `proven_stopped`) while still lacking terminal outcome. */
 export function isDispatchAttemptExitedUnsettled(view: DispatchLifecycleView): boolean {
   return (

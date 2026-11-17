@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { isDispatchAttemptStopProven, sameWriteSource, type TaskProjection } from "@harness-anything/kernel";
+import { sameWriteSource, type TaskProjection } from "@harness-anything/kernel";
 import { daemonMethodPayloadFields } from "./protocol/daemon-protocol-commands.ts";
 import { unknownFieldViolation, type JsonObject } from "./protocol/json-rpc-types.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "./runtime-spawn-errors.ts";
@@ -108,16 +108,7 @@ export async function cancelRuntime(
   // Recovery observes only an admitted attempt with a local spool. Missing spools go to the
   // same fenced process-group observer below; absence never releases a reservation by itself.
   if (matchingHeader && !active && attempt?.policy.canAdoptProcess) {
-    await recoverRuntimeBeforeCancel({
-      context,
-      runtimeSessionId,
-      binding,
-      ruling,
-      matchingHeader,
-      canonicalDispatch,
-      ownerBinding,
-      runtimeHandles,
-    });
+    await adoptRuntimes(context, undefined, { runtimeSessionId, authorizationBinding: binding });
   }
   const currentLifecycle = await readDispatchLifecycle(context, { by: "session", runtimeSessionId });
   if (currentLifecycle.status !== "ready")
@@ -209,6 +200,9 @@ export async function cancelRuntime(
         );
         return context.controlReceipt(opId, runtimeSessionId, "ruling_resolved");
       }
+      // Preserve recovery failures while the stop is unproven; an observed stop above
+      // reaches owner cancellation without depending on successful recovery.
+      await assertRuntimeRecoveryReady(context, runtimeSessionId);
       throw runtimeSpawnError(
         "runtime_process_group_unproven",
         `Owner process group ${String(processGroupPid ?? "unknown")} could not be proven stopped.${processGroupRecoveryHint()}`,
@@ -269,65 +263,6 @@ export async function cancelRuntime(
     return context.controlReceipt(opId, runtimeSessionId, "cancelled");
   }
   return context.controlReceipt(opId, runtimeSessionId, "already-exited");
-}
-
-async function recoverRuntimeBeforeCancel(input: {
-  readonly context: RuntimeSpawnerContext;
-  readonly runtimeSessionId: string;
-  readonly binding: RuntimeBinding;
-  readonly ruling: string | null;
-  readonly matchingHeader: ReturnType<typeof readDispatchStreamHeaders>[number];
-  readonly canonicalDispatch: RuntimeDispatchOwnerEvidence | null;
-  readonly ownerBinding: Pick<RuntimeBinding, "actor" | "source"> | undefined;
-  readonly runtimeHandles: RuntimeSpawnerContext["processes"];
-}): Promise<{ readonly recoveryOutcome: "ready" | "stopped_unmanaged" }> {
-  const {
-    context,
-    runtimeSessionId,
-    binding,
-    ruling,
-    matchingHeader,
-    canonicalDispatch,
-    ownerBinding,
-    runtimeHandles,
-  } = input;
-  try {
-    await adoptRuntimes(context, undefined, { runtimeSessionId, authorizationBinding: binding });
-    await assertRuntimeRecoveryReady(context, runtimeSessionId);
-    return { recoveryOutcome: "ready" };
-  } catch (error) {
-    if (ruling !== null) throw error;
-    const recheck = await readDispatchLifecycle(context, { by: "session", runtimeSessionId });
-    if (recheck.status !== "ready") throw error;
-    const recheckAttempt = recheck.rows[0],
-      recheckActive = runtimeHandles.get(runtimeSessionId);
-    if (!recheckActive) {
-      if (!recheckAttempt) throw error;
-      if (!isDispatchAttemptStopProven(recheckAttempt)) {
-        if (recheckAttempt.attempt.outcome !== null) throw error;
-        const ownerEvidence =
-            canonicalDispatch ??
-            (context.input.remote?.readRuntimeDispatch
-              ? await context.input.remote.readRuntimeDispatch(runtimeSessionId)
-              : readRuntimeDispatchOwnerEvidence(context.requiredRuntimeProjection(context.input), runtimeSessionId)),
-          processGroupPid =
-            ownerBinding &&
-            ownerEvidence?.actor.principal.personId === ownerBinding.actor.principal.personId &&
-            sameWriteSource(ownerEvidence.source, ownerBinding.source) &&
-            ownerEvidence.payload.dispatchId === matchingHeader.dispatchId
-              ? ownerEvidence.processGroupPid
-              : null;
-        if (
-          probeProcessGroup({
-            pgid: processGroupPid ?? undefined,
-            dispatch: { rootDir: context.input.rootDir, dispatchId: matchingHeader.dispatchId },
-          }) !== "proven_stopped"
-        )
-          throw error;
-      }
-    }
-    return { recoveryOutcome: "stopped_unmanaged" };
-  }
 }
 
 export function readRuntimeDispatchOwnerEvidence(
