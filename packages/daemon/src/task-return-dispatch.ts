@@ -15,6 +15,7 @@ import type { TaskDispatchRow } from "./protocol/task-dispatch-contract.ts";
 import type { NodeAutoDispatchCandidate } from "./node-auto-dispatch.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { taskExecutionPlacement } from "./task-execution-placement.ts";
+import { recordReturnResumeDegraded } from "./runtime-resume-admission.ts";
 
 /** The receipt extension a rework continuation contributes to the recorded review's receipt. */
 type ReviewReworkStep = {
@@ -512,43 +513,6 @@ function retryResume(attempt: number, mode: string, code: string | undefined): b
     attempt === 0 &&
     mode === "resume" &&
     ["runtime_resume_failed", "runtime_dispatch_not_resumable"].includes(code ?? "")
-  );
-}
-
-async function recordReturnResumeDegraded(
-  cell: RepoCellOperationalContext,
-  input: ReworkContext & { readonly write: RepoCellContinuationWrite },
-  previous: TaskDispatchRow | undefined,
-  reasonCode: string,
-  binding: RepoCellBinding,
-): Promise<void> {
-  if (!previous?.providerSessionId || typeof cell.appendAuxiliaryRuntimeIngress !== "function") return;
-  const opId = `return-resume-degraded-${input.taskId}-${input.execution.executionId}`;
-  await input.write(
-    { kind: "runtime-run", runtimeEventType: "runtime_session_resume_degraded", taskId: input.taskId },
-    binding,
-    async (authorizedBinding) =>
-      cell.appendAuxiliaryRuntimeIngress(
-        {
-          kind: "event",
-          type: "runtime_session_resume_degraded",
-          opId,
-          payload: {
-            runtimeSessionId: previous.runtimeSessionId,
-            dispatchId: previous.dispatchId,
-            sourceDispatchId: previous.dispatchId,
-            providerSessionId: previous.providerSessionId!,
-            taskId: input.taskId,
-            agentId: previous.agentId ?? null,
-            degradedTo: "fresh",
-            reasonCode,
-            reason: `Return continuation degraded from resume (${reasonCode}) to fresh cold-start.`,
-            observedAt: cell.now(),
-          },
-        },
-        authorizedBinding,
-        true,
-      ) as unknown as WriteReceiptDraft,
   );
 }
 

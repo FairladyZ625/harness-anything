@@ -3,6 +3,14 @@ import { assertPgReadIndexReady, pgRuntimeObservedAtSql } from "./pg-read-index-
 import { assertPgEventReadIndexReady } from "./pg-event-read-index-migration.ts";
 import type { RuntimeSession, RuntimeSessionReadQuery } from "@harness-anything/kernel";
 import { runtimeSessionInActivityWindow } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
+import {
+  RUNTIME_INBOX_MODEL_VERSION,
+  inboxHasOpenItems,
+  isRuntimeInboxInput,
+  reduceRuntimeInbox,
+  type RuntimeInboxGroup,
+  type RuntimeInboxInput,
+} from "@harness-anything/kernel/internal/domain/runtime-inbox.ts";
 import { canonicalJson } from "../projection/rebuildable-task-projection-sql.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 
@@ -209,4 +217,71 @@ export async function listPgRuntimeSessions(
         (query.observedAfter === undefined || Date.parse(session.lastObservedAt) >= Date.parse(query.observedAfter)) &&
         (query.observedBefore === undefined || Date.parse(session.lastObservedAt) <= Date.parse(query.observedBefore)),
     );
+}
+
+export const INBOX_MODEL_GROUP = "runtime-inbox-group",
+  INBOX_MODEL_OPEN = "runtime-inbox-open";
+const INBOX_MODELS = [INBOX_MODEL_GROUP, INBOX_MODEL_OPEN] as const;
+
+/** Fold one accepted event into PG/PGlite projection values using the shared kernel reducer. */
+export async function projectPgRuntimeInbox(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  event: { readonly schema: string; readonly type: string },
+): Promise<void> {
+  if (!isRuntimeInboxInput(event)) return;
+  const input = event as RuntimeInboxInput,
+    revision = input.workspaceRevision,
+    previous = await getPgProjectionValue<RuntimeInboxGroup>(client, scope, INBOX_MODEL_GROUP, input.payload.inboxId),
+    step = reduceRuntimeInbox(previous, input);
+  if (step.kind !== "applied") return;
+  const group = step.group;
+  await putPgProjectionValue(client, scope, INBOX_MODEL_GROUP, group.inboxId, "", revision, group);
+  if (inboxHasOpenItems(group))
+    await putPgProjectionValue(client, scope, INBOX_MODEL_OPEN, group.inboxId, "", revision, group);
+  else await deletePgProjectionValue(client, scope, INBOX_MODEL_OPEN, group.inboxId, "");
+}
+
+export async function pgInboxModelCurrent(client: PoolClient, scope: PgProjectionScope): Promise<boolean> {
+  const meta = await client.query<{ runtime_inbox_version: number }>(
+    `SELECT runtime_inbox_version FROM ha_projection_meta
+     WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND projection_name='task/v1'`,
+    [scope.tenantId, scope.projectId, scope.policyEpoch],
+  );
+  return (meta.rows[0]?.runtime_inbox_version ?? RUNTIME_INBOX_MODEL_VERSION) === RUNTIME_INBOX_MODEL_VERSION;
+}
+
+/** Refold historical `runtime_inbox_*` events when opening a PG projection written before this model existed. */
+export async function backfillPgRuntimeInbox(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  repoId: string,
+): Promise<number> {
+  const keys = [scope.tenantId, scope.projectId, repoId];
+  await client.query(
+    "SELECT revision FROM ha_repo_heads WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 FOR UPDATE",
+    keys,
+  );
+  if (await pgInboxModelCurrent(client, scope)) return 0;
+  await client.query(
+    "DELETE FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model = ANY($4::text[])",
+    [scope.tenantId, scope.projectId, scope.policyEpoch, [...INBOX_MODELS]],
+  );
+  const events = await client.query<{ event_json: string; readers: string[] }>(
+    "SELECT event_json, readers FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 ORDER BY revision",
+    keys,
+  );
+  let folded = 0;
+  for (const row of events.rows) {
+    const event = JSON.parse(row.event_json) as { readonly schema: string; readonly type: string };
+    if (!isRuntimeInboxInput(event)) continue;
+    await projectPgRuntimeInbox(client, { ...scope, readers: row.readers }, event);
+    folded += 1;
+  }
+  await client.query(
+    `UPDATE ha_projection_meta SET runtime_inbox_version=$4
+     WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND projection_name='task/v1'`,
+    [scope.tenantId, scope.projectId, scope.policyEpoch, RUNTIME_INBOX_MODEL_VERSION],
+  );
+  return folded;
 }

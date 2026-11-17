@@ -13,6 +13,7 @@ import {
   type TaskProjection,
 } from "@harness-anything/kernel";
 import { makeInboxDispatcher } from "../src/inbox-dispatcher.ts";
+import { assertSessionContinuationFence } from "../src/runtime-resume-admission.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
 
 const ACTOR = { principal: { personId: "person-owner" }, executor: null } as const;
@@ -420,4 +421,136 @@ test("InboxDispatcher distinguishes escalated stopped sessions from explicitly c
     assert.equal(degraded.payload.reasonCode, "unclean_prior_terminal");
   }
   hCancelled.dispatcher.close();
+});
+
+test("continuation fence blocks null-agent spoofing and enforces target worker identity on Squad dispatches", async () => {
+  const hNullBypass = createHarness({ dispatchAgentId: "terra" });
+  hNullBypass.enqueue({ agentId: null });
+  await hNullBypass.dispatcher.drain();
+  assert.equal(hNullBypass.spawnCalls.length, 0);
+  const dead = hNullBypass.appendedEvents.find((e) => e.type === "runtime_inbox_settled");
+  assert.equal(dead?.type, "runtime_inbox_settled");
+  if (dead?.type === "runtime_inbox_settled") assert.equal(dead.payload.settlement, "dead_letter");
+  hNullBypass.dispatcher.close();
+
+  const makeDispatch = (agentId: string | undefined, taskId: string, squadTurnId?: string) =>
+    ({
+      schema: "agent-runtime-event/v1",
+      eventId: `event-${taskId}`,
+      workspaceRevision: 1,
+      opId: `op-${taskId}`,
+      actor: ACTOR,
+      source: "local",
+      occurredAt: "2026-11-17T00:00:00.000Z",
+      type: "runtime_dispatch_requested",
+      payload: {
+        dispatchId: "dispatch_000000000000000000000001",
+        runtimeSessionId: "runtime-sess-1",
+        instanceId: "inst-codex",
+        installationId: "install-codex",
+        kindId: "codex",
+        dispatchKey: "k-1",
+        definitionSnapshotRef: "artifact:runtime-definition/sha256/" + "a".repeat(64),
+        definitionSnapshot: {
+          schema: "agent-definition-snapshot/v1",
+          configVersion: 1,
+          instanceId: "inst-codex",
+          installationId: "install-codex",
+          kindId: "codex",
+          providerId: "openai",
+          model: "gpt-5",
+          reasoningEffort: null,
+          baseUrl: null,
+          authMode: "subscription",
+        },
+        taskId,
+        executionId: "exe-1",
+        cwd: "/tmp/repo",
+        ...(agentId ? { agentId } : {}),
+        ...(squadTurnId
+          ? {
+              squadId: "core-squad",
+              squadRun: {
+                squadRunId: "squad_0123456789abcdef01234567",
+                ownerDispatchId: "dispatch_000000000000000000000099",
+                turnId: squadTurnId,
+              },
+            }
+          : {}),
+      },
+    }) as Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>;
+
+  const makeFenceProjection = (dispatch: ReturnType<typeof makeDispatch>) => {
+    const session: RuntimeSession = {
+      schema: "runtime-session/v1",
+      runtimeSessionId: dispatch.payload.runtimeSessionId,
+      instanceId: "inst-codex",
+      installationId: "install-codex",
+      kindId: "codex",
+      definitionSnapshotRef: dispatch.payload.definitionSnapshotRef,
+      launchGeneration: 1,
+      attachable: false,
+      liveness: "exited",
+      providerSessionId: "prov-fence-1",
+      transcriptRef: null,
+      providerUnreachable: null,
+      taskBindings: [],
+      cancelledBy: null,
+      outcome: "stopped",
+      exitCode: 0,
+      resultRef: null,
+      reasonCode: "ruling_resolved",
+      startedAt: "2026-11-17T00:00:00.000Z",
+      lastObservedAt: "2026-11-17T00:00:00.000Z",
+    };
+    return {
+      readRuntimeSessions: () => [session],
+      readRuntimeDispatch: () => dispatch,
+      readRuntimeSessionEventsByType: () => [],
+    };
+  };
+
+  const namedProjection = makeFenceProjection(makeDispatch("terra", "task-1"));
+  assert.throws(
+    () =>
+      assertSessionContinuationFence(namedProjection, {
+        providerSessionId: "prov-fence-1",
+        taskId: "task-1",
+        agentId: null,
+      }),
+    { code: "runtime_resume_agent_mismatch" },
+  );
+
+  const anonymousProjection = makeFenceProjection(makeDispatch(undefined, "task-1"));
+  assert.throws(
+    () =>
+      assertSessionContinuationFence(anonymousProjection, {
+        providerSessionId: "prov-fence-1",
+        taskId: "task-1",
+        agentId: "hydrogen",
+      }),
+    { code: "runtime_resume_agent_mismatch" },
+  );
+
+  const squadWorkerProjection = makeFenceProjection(makeDispatch("terra", "task-child-1", "worker-1"));
+  assert.doesNotThrow(() =>
+    assertSessionContinuationFence(squadWorkerProjection, {
+      providerSessionId: "prov-fence-1",
+      taskId: "task-child-2",
+      agentId: "terra",
+      squadRunId: "squad_0123456789abcdef01234567",
+      squadTurnId: "worker-2",
+    }),
+  );
+  assert.throws(
+    () =>
+      assertSessionContinuationFence(squadWorkerProjection, {
+        providerSessionId: "prov-fence-1",
+        taskId: "task-child-2",
+        agentId: "fable",
+        squadRunId: "squad_0123456789abcdef01234567",
+        squadTurnId: "worker-2",
+      }),
+    { code: "runtime_resume_agent_mismatch" },
+  );
 });

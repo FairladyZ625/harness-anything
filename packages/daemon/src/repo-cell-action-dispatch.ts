@@ -48,7 +48,6 @@ import { readWork } from "@harness-anything/application/internal/queries/work-re
 import { runAssignmentMigrationAction } from "@harness-anything/application/internal/commands/assignment-migration-action.ts";
 import { readVerticalKindAction } from "./vertical-kind-read.ts";
 import { parseRulingArtifact, runtimeRulingPath, runtimeRulingResolutionPath } from "./runtime-ruling.ts";
-import { findSquadRulingResumeTarget, squadRulingResumeNext } from "./squad-ruling-resume.ts";
 import { dispatchLifecyclePendingError } from "./runtime-dispatch-admission.ts";
 import { commitRuntimeSessionAction } from "./runtime-session-action-runtime.ts";
 import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
@@ -703,6 +702,7 @@ async function resolveTaskEscalation(
     runtimeInstanceId =
       escalatedDispatch?.type === "runtime_dispatch_requested" ? escalatedDispatch.payload.instanceId : null,
     runs = cell.projection.readSquadRuns(),
+    { findSquadRulingResumeTarget, squadRulingResumeNext } = await import("./squad-ruling-resume.ts"),
     // A leader turn owns its ruling. The answered task is planned, but its old execution is
     // consumed: the run can only continue as a new Squad run under the execution `ha task start`
     // opens next, so the receipt names that continuation instead of leaving the operator to bridge
@@ -714,6 +714,8 @@ async function resolveTaskEscalation(
     }),
     next = Array.isArray(transitioned.next) ? transitioned.next : [];
   if (
+    cell.mode === "local" &&
+    (!escalatedDispatch || escalatedDispatch.source === "local") &&
     (action as { readonly noAutoResume?: unknown }).noAutoResume !== true &&
     !cell.store.readEvent(`inbox-enqueue-ruling-${dispatchId}`)
   ) {

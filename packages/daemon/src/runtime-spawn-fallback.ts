@@ -538,7 +538,22 @@ export async function scheduleFallbackContinuation(args: {
                 binding,
                 `runtime-continuation:${header.dispatchId}:${nextAttemptIndex}`,
               )) ?? binding;
-          const resumedProviderSessionId = header.resumeProviderSessionId ?? stream.providerSessionId;
+          await args.launch(
+            continuationPayload,
+            continuationBinding,
+            nextFallback,
+            header.schedule,
+            header.runtimeSessionId,
+            header.publicationOwner,
+            (dispatchId, runtimeSessionId) => {
+              writer.appendFallbackState(
+                { state: "dispatched", nextDispatchId: dispatchId, nextRuntimeSessionId: runtimeSessionId },
+                input.now(),
+              );
+            },
+            workspaceProgress,
+          );
+          const resumedProviderSessionId = header.resumeProviderSessionId;
           if (resumedProviderSessionId)
             await context.publishRuntimeEvent(
               "runtime_session_resume_degraded",
@@ -559,21 +574,6 @@ export async function scheduleFallbackContinuation(args: {
               `fallback-resume-degraded-${header.dispatchId}-${nextAttemptIndex}`,
               binding,
             );
-          await args.launch(
-            continuationPayload,
-            continuationBinding,
-            nextFallback,
-            header.schedule,
-            header.runtimeSessionId,
-            header.publicationOwner,
-            (dispatchId, runtimeSessionId) => {
-              writer.appendFallbackState(
-                { state: "dispatched", nextDispatchId: dispatchId, nextRuntimeSessionId: runtimeSessionId },
-                input.now(),
-              );
-            },
-            workspaceProgress,
-          );
         } catch (error) {
           consumeKnownError(error);
           const reason = String(

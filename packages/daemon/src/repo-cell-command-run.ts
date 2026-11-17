@@ -483,6 +483,7 @@ export function makeRepoCellCommandRunner(
               )) as WriteReceipt;
           }
           if (
+            context.mode === "local" &&
             continueOnApplied &&
             "outcome" in receipt &&
             receipt.outcome === "applied" &&

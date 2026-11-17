@@ -10,13 +10,15 @@ import { unknownFieldViolation } from "./protocol/json-rpc-types.ts";
 import { readHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import { verifiedHandoffVersions } from "./runtime-handoff-native.ts";
 import path from "node:path";
-import type { SettingsV1, TaskProjection, TaskWorktreeBindingV1 } from "@harness-anything/kernel";
+import type { SettingsV1, TaskProjection, TaskWorktreeBindingV1, WriteReceiptDraft } from "@harness-anything/kernel";
 import { readDispatchStream } from "./dispatch-stream.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { resolveRuntimeCwd } from "./runtime-spawn-mission.ts";
 import { requiredRuntimeProjection } from "./runtime-spawn-process.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
+import type { TaskDispatchRow } from "./protocol/task-dispatch-contract.ts";
+import type { RepoCellBinding, RepoCellContinuationWrite, RepoCellOperationalContext } from "./repo-cell-types.ts";
 import type { RuntimeSpawnerInput } from "./runtime-spawn-types.ts";
 import {
   checkoutTaskWorktree,
@@ -169,50 +171,121 @@ export function assertResumeAgent(
  * and direct `--resume` of sessions terminated by cancel, stall, or unreachable provider.
  */
 export function assertSessionContinuationFence(
-  projection: Pick<TaskProjection, "readRuntimeSessions" | "readRuntimeDispatch" | "readRuntimeSessionEventsByType">,
+  projection: Pick<TaskProjection, "readRuntimeSessions" | "readRuntimeDispatch" | "readRuntimeSessionEventsByType"> &
+    Partial<Pick<TaskProjection, "readRuntimeSession" | "readRuntimeDispatchById">>,
   input: {
     readonly providerSessionId: string;
     readonly taskId: string | null;
     readonly agentId: string | null;
     readonly dispatchId?: string;
+    readonly squadRunId?: string | null;
+    readonly squadTurnId?: string | null;
   },
 ): void {
   const kindSupported = (kindId: string): boolean => {
     const declaration = runtimeKindForId(kindId);
     return declaration.capabilities.resume === "supported" || declaration.declaredCapabilities.includes("resume");
   };
-  for (const session of projection.readRuntimeSessions({ providerSessionId: input.providerSessionId })) {
+  let sessions: readonly RuntimeSession[] | undefined;
+  if (input.dispatchId && projection.readRuntimeDispatchById && projection.readRuntimeSession) {
+    const byDispatch = projection.readRuntimeDispatchById(input.dispatchId)?.event;
+    if (byDispatch?.type === "runtime_dispatch_requested") {
+      const target = projection.readRuntimeSession(byDispatch.payload.runtimeSessionId);
+      sessions = target ? [target] : [];
+    }
+  }
+  const candidates = sessions ?? projection.readRuntimeSessions({ providerSessionId: input.providerSessionId });
+  if (candidates.length === 0) return;
+
+  const evaluated = candidates.map((session) => {
     const dispatch = projection.readRuntimeDispatch(session.runtimeSessionId),
       previousAgentId = dispatch?.payload.agentId ?? null,
       previousTaskId = dispatch?.payload.taskId ?? null,
+      previousSquadRun = dispatch?.payload.squadRun,
+      previousSquadRunId = previousSquadRun?.squadRunId ?? null,
+      previousSquadTurnId = previousSquadRun && "ownerDispatchId" in previousSquadRun ? previousSquadRun.turnId : null,
+      sameSquadWorkerLineage =
+        Boolean(input.squadRunId) &&
+        previousSquadRunId === input.squadRunId &&
+        previousTaskId !== null &&
+        input.taskId !== null &&
+        previousSquadTurnId !== null &&
+        !previousSquadTurnId.startsWith("leader-") &&
+        Boolean(input.squadTurnId) &&
+        !input.squadTurnId!.startsWith("leader-"),
       decision = resolveSessionContinuationMode({
-        requestedAgentId: input.agentId ?? previousAgentId,
+        requestedAgentId: input.agentId,
         previousAgentId,
-        taskId: input.taskId,
-        previousTaskId,
-        lineageMatches: previousTaskId === null || input.taskId === previousTaskId,
+        taskId: sameSquadWorkerLineage ? input.squadRunId! : input.taskId,
+        previousTaskId: sameSquadWorkerLineage ? previousSquadRunId : previousTaskId,
+        lineageMatches: sameSquadWorkerLineage || input.taskId === previousTaskId,
         providerSessionId: input.providerSessionId,
         runtimeSupportsResume: kindSupported(session.kindId),
         previousTerminalKind: sessionPreviousTerminalKind(projection, session),
         hasHandoffPacket: false,
       });
-    if (decision.blockedWithoutHandoff)
-      throw runtimeSpawnError(
-        "runtime_resume_agent_mismatch",
-        `Provider session ${input.providerSessionId} belongs to agent ${previousAgentId ?? "unknown"}, ` +
-          `not ${input.agentId ?? "unknown"}; cross-employee resume requires HandoffPacketV1.`,
-      );
-    if (!decision.allowProviderResume && decision.reason === "lineage_mismatch")
-      throw runtimeSpawnError(
-        "runtime_resume_binding_mismatch",
-        `Provider session ${input.providerSessionId} is bound to task ${previousTaskId ?? "none"}, not ${input.taskId ?? "none"}.`,
-      );
-    if (!decision.allowProviderResume)
-      throw runtimeSpawnError(
-        "runtime_dispatch_not_resumable",
-        `Provider session ${input.providerSessionId} cannot be directly resumed (${decision.reason}); start a fresh session.`,
-      );
-  }
+    return { session, previousAgentId, previousTaskId, decision };
+  });
+
+  if (evaluated.some(({ decision }) => !decision.blockedWithoutHandoff && decision.reason !== "lineage_mismatch"))
+    return;
+
+  const latest = evaluated.toSorted(
+    (left, right) => Date.parse(right.session.lastObservedAt) - Date.parse(left.session.lastObservedAt),
+  )[0]!;
+  if (latest.decision.blockedWithoutHandoff)
+    throw runtimeSpawnError(
+      "runtime_resume_agent_mismatch",
+      `Provider session ${input.providerSessionId} belongs to agent ${latest.previousAgentId ?? "unknown"}, ` +
+        `not ${input.agentId ?? "unknown"}; cross-employee resume requires HandoffPacketV1.`,
+    );
+  if (latest.decision.reason === "lineage_mismatch")
+    throw runtimeSpawnError(
+      "runtime_resume_binding_mismatch",
+      `Provider session ${input.providerSessionId} is bound to task ${latest.previousTaskId ?? "none"}, not ${input.taskId ?? "none"}.`,
+    );
+}
+
+/** Record an immutable degradation event when return continuation falls back from `--resume` to fresh start. */
+export async function recordReturnResumeDegraded(
+  cell: RepoCellOperationalContext,
+  input: {
+    readonly taskId: string;
+    readonly execution: { readonly executionId: string };
+    readonly write: RepoCellContinuationWrite;
+  },
+  previous: TaskDispatchRow | undefined,
+  reasonCode: string,
+  binding: RepoCellBinding,
+): Promise<void> {
+  if (!previous?.providerSessionId || typeof cell.appendAuxiliaryRuntimeIngress !== "function") return;
+  const opId = `return-resume-degraded-${input.taskId}-${input.execution.executionId}`;
+  await input.write(
+    { kind: "runtime-run", runtimeEventType: "runtime_session_resume_degraded", taskId: input.taskId },
+    binding,
+    async (authorizedBinding) =>
+      cell.appendAuxiliaryRuntimeIngress(
+        {
+          kind: "event",
+          type: "runtime_session_resume_degraded",
+          opId,
+          payload: {
+            runtimeSessionId: previous.runtimeSessionId,
+            dispatchId: previous.dispatchId,
+            sourceDispatchId: previous.dispatchId,
+            providerSessionId: previous.providerSessionId!,
+            taskId: input.taskId,
+            agentId: previous.agentId ?? null,
+            degradedTo: "fresh",
+            reasonCode,
+            reason: `Return continuation degraded from resume (${reasonCode}) to fresh cold-start.`,
+            observedAt: cell.now(),
+          },
+        },
+        authorizedBinding,
+        true,
+      ) as unknown as WriteReceiptDraft,
+  );
 }
 
 function sessionPreviousTerminalKind(
@@ -236,7 +309,11 @@ function sessionPreviousTerminalKind(
       event.type === "runtime_session_outcome_observed" &&
       (event.payload.reasonCode === "ruling_resolved" || event.payload.attempt?.classification === "awaiting_ruling"),
   );
-  if (session.outcome === "cancelled" || (session.cancelledBy !== null && !hasRulingOutcome)) return "cancelled";
+  if (
+    session.outcome === "cancelled" ||
+    (session.cancelledBy !== null && session.cancelledBy !== undefined && !hasRulingOutcome)
+  )
+    return "cancelled";
   if (hasRulingOutcome) return "awaiting_ruling";
   if (session.outcome === "succeeded") return "succeeded";
   if (session.outcome === "failed") return "failed";

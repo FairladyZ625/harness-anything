@@ -18,7 +18,18 @@ import { readRelationsInTransaction } from "./pg-relation-queries.ts";
 import { checkedPageLimit } from "./pg-query-page.ts";
 import { pgRuntimeDispatchQueries, type PgRuntimeDispatchQueries } from "./pg-runtime-dispatch-queries.ts";
 import { pgDispatchLifecycleQueries, type PgDispatchLifecycleQueries } from "./pg-dispatch-lifecycle.ts";
-import { pgRuntimeInboxQueries } from "./pg-runtime-inbox.ts";
+import {
+  INBOX_MODEL_GROUP,
+  INBOX_MODEL_OPEN,
+  getPgProjectionValue,
+  pgInboxModelCurrent,
+} from "./pg-projection-values.ts";
+import {
+  RUNTIME_INBOX_PAGE_LIMIT,
+  type RuntimeInboxGroup,
+  type RuntimeInboxQuery,
+  type RuntimeInboxRead,
+} from "@harness-anything/kernel/internal/domain/runtime-inbox.ts";
 import type { Pool } from "pg";
 import { pgEventQueries, readCutInTransaction } from "./pg-event-queries.ts";
 import type {
@@ -674,4 +685,70 @@ async function hydrateSnapshots(
         })),
     };
   });
+}
+
+interface PgRuntimeInboxQueries {
+  readonly readRuntimeInbox: (query: RuntimeInboxQuery) => Promise<RuntimeInboxRead>;
+}
+
+function pgRuntimeInboxQueries(options: {
+  readonly pool: Pool;
+  readonly scope: PostgresScopeClaims & { readonly readers?: readonly string[] };
+  readonly repoId: string;
+}): PgRuntimeInboxQueries {
+  const scope = options.scope,
+    readers = [...(scope.readers ?? [])];
+  return {
+    readRuntimeInbox: (query) =>
+      withPostgresTransaction(
+        options.pool,
+        async (client) => {
+          const cut = await readCutInTransaction(client, scope, readers, options.repoId);
+          if (cut.status !== "ready" || !(await pgInboxModelCurrent(client, scope)))
+            return { status: "pending", watermark: cut.watermark, sourceRevision: cut.sourceRevision };
+          const base = { status: "ready" as const, watermark: cut.watermark, sourceRevision: cut.sourceRevision };
+          if (query.by === "inbox") {
+            const group = await getPgProjectionValue<RuntimeInboxGroup>(
+              client,
+              scope,
+              INBOX_MODEL_GROUP,
+              query.inboxId,
+            );
+            return { ...base, rows: group ? [group] : [], nextCursor: null };
+          }
+          const limit = Math.min(
+              Math.max(1, Math.trunc(query.limit ?? RUNTIME_INBOX_PAGE_LIMIT)),
+              RUNTIME_INBOX_PAGE_LIMIT,
+            ),
+            values: unknown[] = [scope.tenantId, scope.projectId, scope.policyEpoch, readers],
+            predicates = [
+              "tenant_id=$1",
+              "project_id=$2",
+              "policy_epoch=$3",
+              `model='${INBOX_MODEL_OPEN}'`,
+              "(cardinality($4::text[])=0 OR readers && $4::text[])",
+            ];
+          if (query.cursor !== undefined) {
+            values.push(query.cursor);
+            predicates.push(`entity_id COLLATE "C">$${values.length}`);
+          }
+          values.push(limit + 1);
+          const groups = (
+              await client.query<{ value: string }>(
+                `SELECT value FROM ha_projection_values WHERE ${predicates.join(" AND ")}
+                 ORDER BY entity_id COLLATE "C" LIMIT $${values.length}`,
+                values,
+              )
+            ).rows.map(({ value }) => JSON.parse(value) as RuntimeInboxGroup),
+            page = groups.slice(0, limit);
+          return {
+            ...base,
+            rows: page,
+            nextCursor: groups.length > limit ? page.at(-1)!.inboxId : null,
+          };
+        },
+        scope,
+        { isolationLevel: "repeatable read" },
+      ),
+  };
 }

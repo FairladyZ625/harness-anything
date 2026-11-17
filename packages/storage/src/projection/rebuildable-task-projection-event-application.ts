@@ -6,7 +6,7 @@ import { readyDeferredEvents } from "./projection-deferred-events.ts";
 import { projectEventSummary } from "./event-summary-projection.ts";
 import { projectSquadRunEvent } from "./rebuildable-task-projection-squad-runs.ts";
 import { projectDispatchLifecycleEvent } from "./dispatch-lifecycle-projection.ts";
-import { projectRuntimeInboxEvent } from "./runtime-inbox-projection.ts";
+import { projectRuntimeInboxEvent } from "./rebuildable-task-projection-sql.ts";
 import { upsertPresetSnapshot } from "./rebuildable-task-projection-preset-snapshots.ts";
 import {
   normalizeHistoricalEvent,

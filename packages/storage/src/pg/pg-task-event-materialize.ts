@@ -14,10 +14,9 @@ import {
   refreshPgDirtyRelationFreshness,
   refreshPgRelationFreshnessForRefs,
 } from "./pg-relation-freshness.ts";
-import { putPgProjectionValue } from "./pg-projection-values.ts";
+import { projectPgRuntimeInbox, putPgProjectionValue } from "./pg-projection-values.ts";
 import { projectPgDispatchLifecycle } from "./pg-dispatch-lifecycle.ts";
 import { DISPATCH_LIFECYCLE_MODEL_VERSION } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
-import { projectPgRuntimeInbox } from "./pg-runtime-inbox.ts";
 import { RUNTIME_INBOX_MODEL_VERSION } from "@harness-anything/kernel/internal/domain/runtime-inbox.ts";
 import { derivedRelationRecordsForReplay } from "../projection/relation-entity-projection.ts";
 import { materializePgQueryModels, initializePgTerminalMaterialization } from "./pg-query-model-materialize.ts";

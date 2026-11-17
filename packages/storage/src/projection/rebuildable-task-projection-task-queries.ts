@@ -41,6 +41,7 @@ import {
 import {
   prepareQuery,
   readProjectionCut,
+  readRuntimeInboxRows,
   watermark,
   queryTransaction,
   queryRows,
@@ -49,7 +50,6 @@ import { readWorkspaceSummaryRows } from "./workspace-summary-projection.ts";
 import { readRelationProjectionRow } from "./relation-entity-projection.ts";
 import { readEntityVersionWitness } from "./entity-freshness-projection.ts";
 import { readDispatchLifecycleRows } from "./dispatch-lifecycle-projection.ts";
-import { readRuntimeInboxRows } from "./runtime-inbox-projection.ts";
 export type {
   ProjectionPage,
   TaskProjectionListQuery,

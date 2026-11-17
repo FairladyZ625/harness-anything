@@ -367,12 +367,18 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           ? requiredRuntimeSpawnText(payload.providerSessionId, "providerSessionId")
           : (handoff?.providerSessionId ?? resumed?.providerSessionId);
     assertResumeAgent(requestedDispatchId, inherited?.agentId, payload.agentId, agentId);
+    const squadRunPayload =
+      payload.squadRun && typeof payload.squadRun === "object" && !Array.isArray(payload.squadRun)
+        ? (payload.squadRun as { readonly squadRunId?: unknown; readonly turnId?: unknown })
+        : null;
     if (!handoff && providerSessionId && input.projection)
       assertSessionContinuationFence(input.projection(), {
         providerSessionId,
         taskId,
-        agentId: agentId ?? null,
+        agentId: targetAgentId ?? agentId ?? null,
         dispatchId: requestedDispatchId,
+        squadRunId: typeof squadRunPayload?.squadRunId === "string" ? squadRunPayload.squadRunId : null,
+        squadTurnId: typeof squadRunPayload?.turnId === "string" ? squadRunPayload.turnId : null,
       });
     if (!taskId && requestedExecutionId !== undefined)
       throw runtimeSpawnError(

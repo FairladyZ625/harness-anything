@@ -81,7 +81,7 @@ import type {
 import { makeRuntimeSpawner, type RuntimeAttemptTerminal } from "./runtime-spawn.ts";
 import { withOnlineRuntimeSession } from "./runtime-online-binding.ts";
 import { makeRepoCellSquadCoordinator } from "./repo-cell-squad-coordinator.ts";
-import { makeInboxDispatcher } from "./inbox-dispatcher.ts";
+import type { InboxDispatcher, InboxDispatcherDeps } from "./inbox-dispatcher.ts";
 import { reconcileAbandonedTaskWorktrees } from "./task-worktree.ts";
 import { makeAgentActionRuntime, makeSquadActionRuntime } from "./squad-action-runtime.ts";
 
@@ -743,7 +743,7 @@ export async function openRepoWriterCell(
     onlineBinding,
     ...(input.killpoint ? { killpoint: input.killpoint } : {}),
   });
-  const inboxDispatcher = makeInboxDispatcher({
+  const inboxDeps: InboxDispatcherDeps = {
     rootDir,
     repoId: input.repoId,
     mode,
@@ -756,7 +756,52 @@ export async function openRepoWriterCell(
     squadCoordinator,
     authorizeRuntimeAction,
     onlineBinding,
-  });
+  };
+  let inboxImpl: InboxDispatcher | null = null,
+    inboxLoading: Promise<InboxDispatcher> | null = null,
+    inboxClosed = false,
+    inboxPendingBinding: RepoCellBinding | undefined;
+  const loadInboxDispatcher = (): Promise<InboxDispatcher> =>
+    (inboxLoading ??= import("./inbox-dispatcher.ts").then(({ makeInboxDispatcher }) => {
+      const dispatcher = makeInboxDispatcher(inboxDeps);
+      inboxImpl = dispatcher;
+      if (inboxClosed) dispatcher.close();
+      return dispatcher;
+    }));
+  const inboxDispatcher: InboxDispatcher = {
+    wake: (binding) => {
+      if (inboxClosed || mode !== "local") return;
+      if (inboxImpl) {
+        inboxImpl.wake(binding);
+        return;
+      }
+      const openProbe = projection.readRuntimeInbox({
+        by: "open",
+        limit: writerLifecyclePolicy.defaultValue.activeProbeLimit,
+      });
+      if (openProbe.status === "ready" && openProbe.rows.length === 0) return;
+      if (binding) inboxPendingBinding = binding;
+      void loadInboxDispatcher().then((dispatcher) => {
+        if (!inboxClosed) dispatcher.wake(inboxPendingBinding);
+      });
+    },
+    drain: async () => {
+      if (inboxClosed || mode !== "local") return;
+      if (!inboxImpl) {
+        const openProbe = projection.readRuntimeInbox({
+          by: "open",
+          limit: writerLifecyclePolicy.defaultValue.activeProbeLimit,
+        });
+        if (openProbe.status === "ready" && openProbe.rows.length === 0) return;
+      }
+      const dispatcher = await loadInboxDispatcher();
+      if (!inboxClosed) await dispatcher.drain();
+    },
+    close: () => {
+      inboxClosed = true;
+      inboxImpl?.close();
+    },
+  };
   const operationalContext = Object.defineProperty(runtimeContext, "settings", {
     value: settings,
     writable: true,
@@ -924,7 +969,12 @@ export async function openRepoWriterCell(
         by: "active",
         limit: writerLifecyclePolicy.defaultValue.activeProbeLimit,
       });
-      return active.status === "ready" && active.rows.length === 0;
+      if (active.status !== "ready" || active.rows.length > 0) return false;
+      const inboxOpen = projection.readRuntimeInbox({
+        by: "open",
+        limit: writerLifecyclePolicy.defaultValue.activeProbeLimit,
+      });
+      return inboxOpen.status === "ready" && inboxOpen.rows.length === 0;
     },
     onlineBinding,
     extracted: operationalContext,

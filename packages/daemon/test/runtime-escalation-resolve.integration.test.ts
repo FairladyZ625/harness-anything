@@ -7,15 +7,26 @@ import test from "node:test";
 import { runtimeDefinitionSnapshotArtifact, sha256Text } from "@harness-anything/kernel";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
+import {
+  waitForArrival,
+  waitForDurableCondition,
+  watchDirectoryArrival,
+} from "../../../tools/fixtures/event-arrival.ts";
 import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
 import { authenticateRuntimeExecutionCredential } from "../src/runtime-execution-credential.ts";
+import { acquireWorkspaceLock } from "../src/repo-cell-lock.ts";
+import { openRepoWriterCell } from "../src/repo-cell-open.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { runtimeDispatchIdentity } from "../src/task-dispatch-recovery.ts";
 import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 import { definition, installation, initIngressRepo } from "./fixtures/runtime-ingress.ts";
-import { policyTestCenter, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
+import { policyTestCenter, provisionPolicyTestRepository, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import {
+  fixtureFence,
+  openBootstrappedRepoCell,
+  settleSettingsEvent,
+  waitForFixturePublication,
+} from "./repo-settings.fixture.ts";
 
 for (const interrupted of [false, true])
   test(`self escalation resolves and redispatches${interrupted ? " after an interrupted resolution" : ""}`, async (t) => {
@@ -377,6 +388,117 @@ test("dispatch and session creation commit together and an invalid start publish
       session = await cell.read("repo.agentRuntime.sessions.read", { runtimeSessionId: id });
     assert.equal(session.session.runtimeSessionId, id);
     assert.equal(dispatches().length, 1);
+  } finally {
+    await cell.close();
+  }
+});
+
+test("RepoWriterCell.hibernate vetoes retirement while runtime_inbox has pending or leased items", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-inbox-hibernate-")),
+    repoId = workspaceId("inbox-hibernate"),
+    rootDir = canonicalRoot(root),
+    ceo = withPolicyGroup(
+      { actor: { principal: { personId: "person-hibernate" }, executor: null }, source: "local" as const },
+      "admin",
+    );
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  initIngressRepo(root, 0);
+  provisionPolicyTestRepository(repoId);
+  const fence = fixtureFence(repoId, rootDir, path.join(root, ".harness", "fixture-writer-epochs"));
+  await settleSettingsEvent({ repoId, rootDir, writerEpochFence: fence });
+
+  const openWriter = async () => {
+    const lock = await acquireWorkspaceLock(rootDir);
+    return openRepoWriterCell(
+      {
+        repoId,
+        rootDir,
+        ownerId: "inbox-hibernate",
+        now: () => "2026-11-17T00:00:00.000Z",
+        defaultWriterEpochFence: fence,
+        keycloakCenter: policyTestCenter,
+      },
+      lock,
+    );
+  };
+
+  // Baseline: an empty inbox allows hibernation once adopt finishes.
+  const emptyCell = await openWriter();
+  try {
+    await waitForDurableCondition(() => emptyCell.hibernate());
+  } finally {
+    await emptyCell.close();
+  }
+
+  const cell = await openWriter();
+  try {
+    const enqueued = await cell.runtimeIngress(
+      {
+        kind: "event",
+        type: "runtime_inbox_enqueued",
+        opId: "op-hibernate-enqueue-1",
+        payload: {
+          inboxId: "task:task-hib-1",
+          itemId: "item-hib-1",
+          source: "timer_fired",
+          dedupeKey: "timer:hib:1",
+          coalesceWindowMs: 60_000,
+          midRunPolicy: "defer_next_run",
+          taskId: "task-hib-1",
+          dispatchId: null,
+          squadRunId: null,
+          agentId: null,
+          summary: "Coalescing timer item",
+          data: {},
+          contextRef: null,
+          enqueuedAt: "2026-11-17T00:00:00.000Z",
+        },
+      },
+      ceo,
+    );
+    assert.equal(enqueued.outcome, "applied", JSON.stringify(enqueued));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(await cell.hibernate(), false, "pending coalescing inbox item must veto hibernation");
+
+    const claimed = await cell.runtimeIngress(
+      {
+        kind: "event",
+        type: "runtime_inbox_claimed",
+        opId: "op-hibernate-claim-1",
+        payload: {
+          inboxId: "task:task-hib-1",
+          itemIds: ["item-hib-1"],
+          claimFence: 1,
+          claimedByDispatchId: null,
+          claimedAt: "2026-11-17T00:00:00.000Z",
+          leaseUntil: "2026-11-17T00:05:00.000Z",
+        },
+      },
+      ceo,
+    );
+    assert.equal(claimed.outcome, "applied", JSON.stringify(claimed));
+    assert.equal(await cell.hibernate(), false, "leased inbox item must veto hibernation");
+
+    const settled = await cell.runtimeIngress(
+      {
+        kind: "event",
+        type: "runtime_inbox_settled",
+        opId: "op-hibernate-settle-1",
+        payload: {
+          inboxId: "task:task-hib-1",
+          itemIds: ["item-hib-1"],
+          claimFence: 1,
+          settlement: "consumed",
+          settledByDispatchId: null,
+          reason: "completed",
+          settledAt: "2026-11-17T00:00:01.000Z",
+        },
+      },
+      ceo,
+    );
+    assert.equal(settled.outcome, "applied", JSON.stringify(settled));
+    await waitForDurableCondition(() => cell.hibernate());
   } finally {
     await cell.close();
   }

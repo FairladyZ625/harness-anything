@@ -8,7 +8,7 @@ import {
 import { ensureRuntimeMemberIndex } from "./runtime-member-index.ts";
 import { ensureWorkspaceTaskCensus } from "./workspace-task-census.ts";
 import { catchUpDispatchLifecycle, DISPATCH_LIFECYCLE_TABLES_SQL } from "./dispatch-lifecycle-projection.ts";
-import { catchUpRuntimeInbox, RUNTIME_INBOX_TABLES_SQL } from "./runtime-inbox-projection.ts";
+import { catchUpRuntimeInbox, RUNTIME_INBOX_TABLES_SQL } from "./rebuildable-task-projection-sql.ts";
 /** Shared query tables in the center projection and its full physical replica. */
 export const TASK_INDEX_TABLES_SQL = `
     /* @gate-identity state-store/task.projection.task_snapshot */ CREATE TABLE IF NOT EXISTS task_snapshot (

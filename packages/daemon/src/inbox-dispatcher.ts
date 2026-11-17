@@ -347,7 +347,7 @@ export function makeInboxDispatcher(deps: InboxDispatcherDeps): InboxDispatcher 
     if (!runtimeInstanceId) return { settlement: "dead_letter", dispatchId: null, reason: "missing_runtime_instance" };
 
     const previousAgentId = escalatedDispatch?.payload.agentId ?? null,
-      requestedAgentId = primary.agentId ?? previousAgentId,
+      requestedAgentId = primary.agentId,
       agentId = requestedAgentId,
       priorSession = escalatedDispatch
         ? deps.projection.readRuntimeSession(escalatedDispatch.payload.runtimeSessionId)
@@ -626,10 +626,10 @@ function shouldSkipForPlacement(
   items: readonly RuntimeInboxItem[],
   primaryDispatch: DispatchRequestedEvent | null,
 ): boolean {
-  if (mode === "remote-center") return true;
-  if (primaryDispatch && primaryDispatch.source !== "local" && mode !== "remote-edge") return true;
+  if (mode !== "local") return true;
+  if (primaryDispatch && primaryDispatch.source !== "local") return true;
   const taskId = latestNonEmptyField(items, (item) => item.taskId);
-  if (!taskId || mode === "remote-edge") return false;
+  if (!taskId) return false;
   const activeExecutionId = projection
     .read(taskId, false, false)
     .snapshot.executions.find((e) => e.state === "active")?.executionId;

@@ -237,6 +237,27 @@ test("resolveSessionContinuationMode enforces (employeeId, taskId, dispatchLinea
     reason: "employee_switched_with_handoff",
   });
 
+  assert.deepEqual(resolveSessionContinuationMode({ ...base, requestedAgentId: null }), {
+    mode: "handoff",
+    allowProviderResume: false,
+    blockedWithoutHandoff: true,
+    reason: "employee_switched_requires_handoff_packet",
+  });
+
+  assert.deepEqual(resolveSessionContinuationMode({ ...base, previousAgentId: null, requestedAgentId: "hydrogen" }), {
+    mode: "handoff",
+    allowProviderResume: false,
+    blockedWithoutHandoff: true,
+    reason: "employee_switched_requires_handoff_packet",
+  });
+
+  assert.deepEqual(resolveSessionContinuationMode({ ...base, previousAgentId: null, requestedAgentId: null }), {
+    mode: "continue",
+    allowProviderResume: true,
+    blockedWithoutHandoff: false,
+    reason: "same_employee_clean_continuation",
+  });
+
   for (const terminal of ["cancelled", "stalled", "unreachable"] as const)
     assert.deepEqual(resolveSessionContinuationMode({ ...base, previousTerminalKind: terminal }), {
       mode: "fresh",

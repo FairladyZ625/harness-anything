@@ -2395,7 +2395,7 @@
         "explain": "Own-process lifecycle probe: retain the writer during runtime restoration, process settlement or an indexed active dispatch, including fallback backoff. This is a resource-lifetime contract, not a domain eligibility judgment.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/repo-cell-open.ts#openRepoWriterCell.apiContext.canHibernate:b2e20e0637db019e1f3424b4d89fc96f",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/repo-cell-open.ts#openRepoWriterCell.apiContext.canHibernate:afa199b0c789f78df92d7cc6dc3e0309",
             "route": "packages/daemon/src/repo-cell-open.ts#openRepoWriterCell.apiContext.canHibernate"
           }
         ]
@@ -4171,7 +4171,7 @@
         "explain": "Daemon placement guard skipping local inbox claim when the target dispatch is owned by a remote edge node or center relay mode.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/inbox-dispatcher.ts#shouldSkipForPlacement:382a0de11965a09fc44d39a35e7ac2c0",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/inbox-dispatcher.ts#shouldSkipForPlacement:b18d711813d43231cb3ed1327bf83a4d",
             "route": "packages/daemon/src/inbox-dispatcher.ts#shouldSkipForPlacement"
           }
         ]
@@ -4179,10 +4179,10 @@
       {
         "id": "daemon/src/runtime-resume-admission.ts#assertSessionContinuationFence",
         "symbol": "packages/daemon/src/runtime-resume-admission.ts#assertSessionContinuationFence",
-        "explain": "Daemon spawn admission adapter enforcing kernel resolveSessionContinuationMode identity and prior-terminal fences before provider --resume.",
+        "explain": "Daemon spawn admission adapter enforcing kernel resolveSessionContinuationMode identity and lineage fences before provider --resume.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/runtime-resume-admission.ts#assertSessionContinuationFence:9a5dc6a3a26a8d4d903229a8803c4bad",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/runtime-resume-admission.ts#assertSessionContinuationFence:e97f69f71038de0c6d019bf64390cf9c",
             "route": "packages/daemon/src/runtime-resume-admission.ts#assertSessionContinuationFence"
           }
         ]

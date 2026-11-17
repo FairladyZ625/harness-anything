@@ -15,7 +15,7 @@ import { initializePgTerminalMaterialization } from "./pg-query-model-materializ
 import { rebuildPgProjection } from "./pg-task-event-materialize.ts";
 import { backfillPgArtifactDocuments } from "./pg-artifact-timeline.ts";
 import { backfillPgDispatchLifecycle } from "./pg-dispatch-lifecycle.ts";
-import { backfillPgRuntimeInbox } from "./pg-runtime-inbox.ts";
+import { backfillPgRuntimeInbox } from "./pg-projection-values.ts";
 import { maintainPgRelationCycleAuditPage } from "./pg-relation-cycle-audit.ts";
 import { backfillPgRelationReaderIndexPage } from "./pg-relation-queries.ts";
 import { borrowPostgresCommitWork, withPostgresTransaction, withPostgresCommitGuard } from "../postgres/transaction.ts";

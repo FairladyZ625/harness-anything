@@ -20,9 +20,9 @@ import { createTaskRelationProjectionTable } from "./task-query-projection.ts";
 import { ensureLeaseTaskActiveColumn, REPOSITORY_READ_TABLES_SQL, TASK_INDEX_TABLES_SQL } from "./projection-tables.ts";
 import { ensureWorkspaceTaskCensus } from "./workspace-task-census.ts";
 import { catchUpDispatchLifecycle } from "./dispatch-lifecycle-projection.ts";
-import { catchUpRuntimeInbox } from "./runtime-inbox-projection.ts";
 import type { EventStreamPort } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
 import {
+  catchUpRuntimeInbox,
   closeProjectionConnection,
   prepareQuery,
   queryRows,

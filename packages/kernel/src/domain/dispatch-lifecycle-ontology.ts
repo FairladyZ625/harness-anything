@@ -194,7 +194,11 @@ export const dispatchLifecyclePolicies = [
     scope: "kernel continuation decision, daemon resume admission, inbox wakeup, squad coordinator, and spawn fallback",
     reason:
       "dec_E0CB793DAA21F49FF1E98D5067/CH1 & RJ2/RJ4: prevent cross-employee transcript contamination and poisoned resume loops while recording explicit degradation evidence.",
-    fixtures: ["packages/kernel/test/runtime-inbox.test.ts", "packages/daemon/test/inbox-dispatcher.test.ts"],
+    fixtures: [
+      "packages/kernel/test/runtime-inbox.test.ts",
+      "packages/daemon/test/inbox-dispatcher.test.ts",
+      "packages/daemon/test/squad-coordinator.test.ts",
+    ],
     sources: [
       "policy:packages/daemon:packages/daemon/src/inbox-dispatcher.ts#makeInboxDispatcher.executeDirectWorkerResume:b81e3427f1658f09ff6dfe32bfd7ccd7",
       "policy:packages/daemon:packages/daemon/src/inbox-dispatcher.ts#makeInboxDispatcher.executeDirectWorkerResume.dispatchId:08f921295a4337c3de1aebd9a82118ea",
@@ -203,13 +207,15 @@ export const dispatchLifecyclePolicies = [
       "policy:packages/daemon:packages/daemon/src/runtime-resume-admission.ts#assertSessionContinuationFence:2884d6157622eedc6db7ad6e767b3588",
       "policy:packages/daemon:packages/daemon/src/runtime-resume-admission.ts#sessionPreviousTerminalKind:e4f853b6601a44e464d23c391f2a87bf",
       "policy:packages/daemon:packages/daemon/src/runtime-resume-admission.ts#sessionPreviousTerminalKind:74783a322275cc2d551984ddeb5a4127",
+      "policy:packages/daemon:packages/daemon/src/squad-coordinator-helpers.ts#buildSquadWorkerHandoffPrompt.built.attempt:9bb512385be0a7599b4a2fa83f2559de",
+      "policy:packages/daemon:packages/daemon/src/squad-coordinator.ts#makeSquadCoordinator.resolveWorkerContinuation:ec11bb90e9b6666e503f08ffd2b5befd",
       "policy:packages/daemon:packages/daemon/src/squad-coordinator.ts#makeSquadCoordinator.spawnLeader:f5e6a8d67fbbd29196b0fdc4e1e31eda",
       "policy:packages/daemon:packages/daemon/src/squad-coordinator.ts#makeSquadCoordinator.spawnLeader:1d8ce7a362e66ec872943d0825317ccc",
-      "policy:packages/kernel:packages/kernel/src/domain/runtime-session-continuation.ts#resolveSessionContinuationMode.allowProviderResume:bf2b974adca870804a09c3f4e1366a61",
-      "policy:packages/kernel:packages/kernel/src/domain/runtime-session-continuation.ts#resolveSessionContinuationMode.allowProviderResume:bf2b974adca870804a09c3f4e1366a61:2",
-      "policy:packages/kernel:packages/kernel/src/domain/runtime-session-continuation.ts#resolveSessionContinuationMode.allowProviderResume:bf2b974adca870804a09c3f4e1366a61:3",
-      "policy:packages/kernel:packages/kernel/src/domain/runtime-session-continuation.ts#resolveSessionContinuationMode.allowProviderResume:bf2b974adca870804a09c3f4e1366a61:4",
-      "policy:packages/kernel:packages/kernel/src/domain/runtime-session-continuation.ts#resolveSessionContinuationMode.allowProviderResume:e36e491d50bc85d7011d69d5e2dc0ad3",
+      "policy:packages/kernel:packages/kernel/src/domain/runtime-inbox.ts#resolveSessionContinuationMode.allowProviderResume:bf2b974adca870804a09c3f4e1366a61",
+      "policy:packages/kernel:packages/kernel/src/domain/runtime-inbox.ts#resolveSessionContinuationMode.allowProviderResume:bf2b974adca870804a09c3f4e1366a61:2",
+      "policy:packages/kernel:packages/kernel/src/domain/runtime-inbox.ts#resolveSessionContinuationMode.allowProviderResume:bf2b974adca870804a09c3f4e1366a61:3",
+      "policy:packages/kernel:packages/kernel/src/domain/runtime-inbox.ts#resolveSessionContinuationMode.allowProviderResume:bf2b974adca870804a09c3f4e1366a61:4",
+      "policy:packages/kernel:packages/kernel/src/domain/runtime-inbox.ts#resolveSessionContinuationMode.allowProviderResume:e36e491d50bc85d7011d69d5e2dc0ad3",
     ].map((candidateId) => ({ candidateId, route: "runtime session continuation" })),
   },
 ] as const satisfies readonly OntologyPolicyDeclaration[];

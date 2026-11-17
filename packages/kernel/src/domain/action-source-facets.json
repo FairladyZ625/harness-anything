@@ -7990,7 +7990,7 @@
         "port": "packages/daemon/src/runtime-spawner.ts#makeRuntimeSpawner.cancel"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/squad-coordinator.ts#makeSquadCoordinator.spawnWorker.receipt:95c90577f2b2203f704299f02cbcc8be",
+        "candidateId": "action:packages/daemon:packages/daemon/src/squad-coordinator.ts#makeSquadCoordinator.spawnWorker.spawnWorkerOnce.result:4f6dfe905eb92921776d019ceb7815d7",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/squad-coordinator.ts#SquadRuntimeSpawnerPort.spawn"
@@ -12977,7 +12977,7 @@
         "port": "packages/daemon/src/runtime-spawner.ts#makeRuntimeSpawner.spawn"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/task-return-dispatch.ts#recordReturnResumeDegraded:806057153130d9fbdfe6ebc6017d303a",
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-resume-admission.ts#recordReturnResumeDegraded:806057153130d9fbdfe6ebc6017d303a",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/repo-cell-types.ts#RepoCellContinuationWrite"

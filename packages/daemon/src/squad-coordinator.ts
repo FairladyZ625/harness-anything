@@ -11,7 +11,6 @@ import {
   parseSquadDeclarationV1,
   resolveSessionContinuationMode,
   type AgentRuntimeEventV1,
-  type PriorTerminalDispositionKind,
   type ScheduleRunOutcome,
   type TaskProjection,
 } from "@harness-anything/kernel";
@@ -58,6 +57,7 @@ import {
 import { checkWorkerOwnership, overlappingWorkerPaths, type WorkerOwnershipCheck } from "./squad-worker-ownership.ts";
 import {
   abandonedSquadRunError,
+  buildSquadWorkerHandoffPrompt,
   convergenceError,
   dispatchRows as squadDispatchRows,
   errorCode,
@@ -68,6 +68,8 @@ import {
   requiredSquadText,
   resultText as squadResultText,
   revise,
+  squadAttemptTerminalKind,
+  squadRuntimeSupportsResume,
   terminalRow as squadTerminalRow,
   workerRows as squadWorkerRows,
 } from "./squad-coordinator-helpers.ts";
@@ -831,7 +833,14 @@ export function makeSquadCoordinator(input: {
         if (overlap) throw new Error(`Ownership conflict with ${other.taskId ?? other.attemptId}: ${overlap}`);
       }
       await admitRunSubject(state);
-      const parentTask = squadTaskRef(state);
+      const parentTask = squadTaskRef(state),
+        continuation = await resolveWorkerContinuation(
+          state,
+          plan,
+          leaderTurnId,
+          attemptId,
+          parentTask?.taskId ?? null,
+        );
       const taskId = await input.createChildTask(
         {
           parentTaskId: parentTask?.taskId ?? null,
@@ -875,31 +884,68 @@ export function makeSquadCoordinator(input: {
             );
       attempt = { ...attempt, worktree, executionId };
       state = await save(state);
-      const receipt = await input.runtimeSpawner().spawn(
-          {
-            agentId: state.leaderAgentId,
-            squadId: state.squadId,
-            squadRun: state.stateDispatchId
-              ? { squadRunId: state.squadRunId, ownerDispatchId: state.stateDispatchId, turnId: attemptId }
-              : {
-                  squadRunId: state.squadRunId,
-                  squadId: state.squadId,
-                  subject: state.subject,
-                  mission: state.publicMission,
-                  leaderAgentId: state.leaderAgentId,
-                },
-            targetAgentId: plan.workerId,
-            prompt: workerPrompt(plan.prompt, worktree, attempt.ownedPaths),
-            cwd: cwdPayload(input.rootDir, worktree?.cwd ?? state.cwd),
-            taskId,
-            ...(state.effort ? { effort: state.effort } : {}),
-            ...(state.permissionMode ? { permissionMode: state.permissionMode } : {}),
-            ...(state.mcpPolicy ? { mcpPolicy: state.mcpPolicy } : {}),
-            dispatchKey: `${state.squadRunId}:${leaderTurnId}:${attemptId}`,
-          },
-          state.binding,
-        ),
-        dispatchId = requiredReceiptText(receipt, "dispatchId"),
+      const basePrompt = workerPrompt(plan.prompt, worktree, attempt.ownedPaths),
+        effectivePrompt = continuation.promptSuffix ? `${basePrompt}\n\n${continuation.promptSuffix}` : basePrompt,
+        buildWorkerPayload = (providerSessionId: string | null, suffix = ""): JsonObject => ({
+          agentId: state.leaderAgentId,
+          squadId: state.squadId,
+          squadRun: state.stateDispatchId
+            ? { squadRunId: state.squadRunId, ownerDispatchId: state.stateDispatchId, turnId: attemptId }
+            : {
+                squadRunId: state.squadRunId,
+                squadId: state.squadId,
+                subject: state.subject,
+                mission: state.publicMission,
+                leaderAgentId: state.leaderAgentId,
+              },
+          targetAgentId: plan.workerId,
+          prompt: effectivePrompt,
+          cwd: cwdPayload(input.rootDir, worktree?.cwd ?? state.cwd),
+          taskId,
+          ...(state.effort ? { effort: state.effort } : {}),
+          ...(state.permissionMode ? { permissionMode: state.permissionMode } : {}),
+          ...(state.mcpPolicy ? { mcpPolicy: state.mcpPolicy } : {}),
+          ...(providerSessionId ? { providerSessionId } : {}),
+          dispatchKey: `${state.squadRunId}:${leaderTurnId}:${attemptId}${suffix}`,
+        }),
+        spawnWorkerOnce = async (payload: JsonObject): Promise<JsonObject> => {
+          const result = await input.runtimeSpawner().spawn(payload, state.binding);
+          requiredReceiptText(result, "dispatchId");
+          return result;
+        };
+      let receipt: JsonObject;
+      if (continuation.providerSessionId) {
+        const resumedAttempt = await spawnWorkerOnce(buildWorkerPayload(continuation.providerSessionId)).then(
+          (value) => ({ resumed: true as const, value }),
+          (error: unknown) => ({ resumed: false as const, error }),
+        );
+        if (resumedAttempt.resumed) {
+          receipt = resumedAttempt.value;
+        } else {
+          const failureCode = errorCode(resumedAttempt.error, "worker_resume_failed");
+          if (
+            failureCode === "authorization_denied" ||
+            failureCode === "lease_conflict" ||
+            failureCode === "execution_scope_mismatch"
+          )
+            throw resumedAttempt.error;
+          await emitWorkerResumeDegraded({
+            state,
+            leaderTurnId,
+            attemptId,
+            workerId: plan.workerId,
+            priorAttempt: continuation.priorAttempt!,
+            providerSessionId: continuation.providerSessionId,
+            degradedTo: "fresh",
+            reasonCode: failureCode,
+            reason: errorText(resumedAttempt.error),
+          });
+          receipt = await spawnWorkerOnce(buildWorkerPayload(null, ":fresh"));
+        }
+      } else {
+        receipt = await spawnWorkerOnce(buildWorkerPayload(null));
+      }
+      const dispatchId = requiredReceiptText(receipt, "dispatchId"),
         runtimeSessionId = requiredReceiptText(receipt, "runtimeSessionId"),
         completed = { ...attempt, dispatchId, runtimeSessionId };
       attempt = completed;
@@ -1055,7 +1101,7 @@ export function makeSquadCoordinator(input: {
                 lineageMatches: true,
                 providerSessionId: state.leaderProviderSessionId,
                 runtimeSupportsResume: true,
-                previousTerminalKind: squadLeaderTerminalKind(lastRow),
+                previousTerminalKind: squadAttemptTerminalKind(lastRow),
                 hasHandoffPacket: false,
               })
             : null,
@@ -1220,6 +1266,156 @@ export function makeSquadCoordinator(input: {
     if (terminal(state)) await publication.settleScheduleSubjectRun(state);
   }
 
+  async function emitWorkerResumeDegraded(args: {
+    readonly state: SquadState;
+    readonly leaderTurnId: string;
+    readonly attemptId: string;
+    readonly workerId: string;
+    readonly priorAttempt: WorkerAttempt;
+    readonly providerSessionId: string;
+    readonly degradedTo: "fresh" | "handoff";
+    readonly reasonCode: string;
+    readonly reason: string;
+  }): Promise<void> {
+    if (!input.publishResumeDegraded) return;
+    await input.publishResumeDegraded(
+      {
+        runtimeSessionId: args.priorAttempt.runtimeSessionId ?? args.priorAttempt.attemptId,
+        dispatchId: args.priorAttempt.dispatchId ?? args.priorAttempt.attemptId,
+        sourceDispatchId: args.priorAttempt.dispatchId ?? null,
+        providerSessionId: args.providerSessionId,
+        taskId: args.priorAttempt.taskId ?? squadTaskRef(args.state)?.taskId ?? null,
+        agentId: args.workerId,
+        degradedTo: args.degradedTo,
+        reasonCode: args.reasonCode,
+        reason: args.reason.slice(0, 500) || args.reasonCode,
+        observedAt: input.now(),
+      },
+      args.state.binding,
+      `squad-worker-resume-degraded-${args.state.squadRunId}-${args.leaderTurnId}-${args.attemptId}`,
+    );
+  }
+
+  async function resolveWorkerContinuation(
+    state: SquadState,
+    plan: WorkerPlan,
+    leaderTurnId: string,
+    attemptId: string,
+    parentTaskId: string | null,
+  ): Promise<{
+    readonly providerSessionId: string | null;
+    readonly promptSuffix: string | null;
+    readonly priorAttempt: WorkerAttempt | null;
+  }> {
+    const requestedMode = plan.continuationMode ?? "fresh";
+    if (requestedMode === "fresh") return { providerSessionId: null, promptSuffix: null, priorAttempt: null };
+
+    const priorAttempts = state.workerAttempts.filter(
+        (candidate) =>
+          candidate.attemptId !== attemptId && candidate.rejection === null && candidate.dispatchId !== null,
+      ),
+      priorSameWorker = [...priorAttempts].reverse().find((candidate) => candidate.workerId === plan.workerId) ?? null,
+      priorAnyWorker = priorAttempts.at(-1) ?? null,
+      priorAttempt = requestedMode === "continue" ? (priorSameWorker ?? priorAnyWorker) : priorAnyWorker,
+      rows = priorAttempt ? dispatchRows(state) : [],
+      priorRow = priorAttempt ? rows.find((row) => row.dispatchId === priorAttempt.dispatchId) : undefined,
+      priorProviderSessionId =
+        priorRow?.providerSessionId ??
+        (priorAttempt?.runtimeSessionId
+          ? input.query((projection) =>
+              typeof projection.readRuntimeSession === "function"
+                ? (projection.readRuntimeSession(priorAttempt.runtimeSessionId!)?.providerSessionId ?? null)
+                : null,
+            )
+          : null);
+
+    if (requestedMode === "handoff") {
+      const handoff = buildSquadWorkerHandoffPrompt({
+        state,
+        plan,
+        attemptId,
+        priorAttempt,
+        priorRow,
+        nowIso: input.now(),
+        readResult: input.readResult,
+      });
+      const decision = resolveSessionContinuationMode({
+        requestedAgentId: plan.workerId,
+        previousAgentId: priorAttempt ? priorAttempt.workerId : "__none__",
+        taskId: parentTaskId ?? state.squadRunId,
+        previousTaskId: parentTaskId ?? state.squadRunId,
+        lineageMatches: true,
+        providerSessionId: priorProviderSessionId,
+        runtimeSupportsResume: false,
+        previousTerminalKind: squadAttemptTerminalKind(priorRow),
+        hasHandoffPacket: handoff !== null,
+      });
+      if (handoff === null || decision.blockedWithoutHandoff)
+        throw new Error(`Squad worker handoff for ${plan.workerId} requires a verified HandoffPacketV1.`);
+      return { providerSessionId: null, promptSuffix: handoff.promptSection, priorAttempt };
+    }
+
+    if (!priorAttempt) return { providerSessionId: null, promptSuffix: null, priorAttempt: null };
+    const lifecycle = await readDispatchLifecycle({ by: "dispatch", dispatchIds: [priorAttempt.dispatchId!] }),
+      provenStopped = lifecycle.status === "ready" && lifecycle.rows[0]?.attempt.stopProof === "proven_stopped",
+      priorKindId = priorAttempt.runtimeSessionId
+        ? input.query((projection) =>
+            typeof projection.readRuntimeDispatch === "function"
+              ? (projection.readRuntimeDispatch(priorAttempt.runtimeSessionId!)?.payload.kindId ?? null)
+              : null,
+          )
+        : null,
+      decision = resolveSessionContinuationMode({
+        requestedAgentId: plan.workerId,
+        previousAgentId: priorAttempt.workerId,
+        taskId: parentTaskId ?? state.squadRunId,
+        previousTaskId: parentTaskId ?? state.squadRunId,
+        lineageMatches: true,
+        providerSessionId: priorProviderSessionId,
+        runtimeSupportsResume:
+          provenStopped && squadRuntimeSupportsResume(priorKindId, Boolean(priorProviderSessionId)),
+        previousTerminalKind: squadAttemptTerminalKind(priorRow),
+        hasHandoffPacket: false,
+      });
+
+    if (decision.blockedWithoutHandoff) {
+      if (priorProviderSessionId)
+        await emitWorkerResumeDegraded({
+          state,
+          leaderTurnId,
+          attemptId,
+          workerId: plan.workerId,
+          priorAttempt,
+          providerSessionId: priorProviderSessionId,
+          degradedTo: "handoff",
+          reasonCode: decision.reason,
+          reason: `Cross-employee continuation (${priorAttempt.workerId} -> ${plan.workerId}) requires HandoffPacketV1.`,
+        });
+      throw new Error(
+        `Cross-employee worker continuation from ${priorAttempt.workerId} to ${plan.workerId} requires continuationMode "handoff" with HandoffPacketV1.`,
+      );
+    }
+
+    if (decision.mode === "continue" && decision.allowProviderResume && priorProviderSessionId)
+      return { providerSessionId: priorProviderSessionId, promptSuffix: null, priorAttempt };
+
+    if (priorProviderSessionId) {
+      const reasonCode = !provenStopped ? "prior_attempt_not_proven_stopped" : decision.reason;
+      await emitWorkerResumeDegraded({
+        state,
+        leaderTurnId,
+        attemptId,
+        workerId: plan.workerId,
+        priorAttempt,
+        providerSessionId: priorProviderSessionId,
+        degradedTo: "fresh",
+        reasonCode,
+        reason: `Worker continuation selected fresh cold-start (${reasonCode}).`,
+      });
+    }
+    return { providerSessionId: null, promptSuffix: null, priorAttempt };
+  }
+
   return {
     hydrate: ensureHydrated,
     retentionProtectedDispatchIds: async (): Promise<readonly string[]> => {
@@ -1240,15 +1436,4 @@ export function makeSquadCoordinator(input: {
       await publication.flushPublications();
     },
   };
-}
-
-function squadLeaderTerminalKind(row: TaskDispatchRow | undefined): PriorTerminalDispositionKind {
-  if (!row) return "none";
-  if (row.outcome === "cancelled") return "cancelled";
-  if (row.providerUnreachable) return "unreachable";
-  if (row.classification === "dispatch_stalled") return "stalled";
-  if (row.classification === "awaiting_ruling") return "awaiting_ruling";
-  if (row.outcome === "succeeded") return "succeeded";
-  if (row.outcome === "failed") return "failed";
-  return "none";
 }

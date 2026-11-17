@@ -1,3 +1,4 @@
+import type { HandoffPacketV1 } from "@harness-anything/kernel";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
 import { parseWorkerOwnedPaths, type WorkerOwnershipCheck } from "./squad-worker-ownership.ts";
 
@@ -84,6 +85,7 @@ export type WorkerPlan = {
   readonly prompt: string;
   readonly ownedPaths?: readonly string[];
   readonly continuationMode?: "continue" | "fresh" | "handoff";
+  readonly handoffPacket?: HandoffPacketV1;
 };
 
 /** Squad attempt 状态的唯一判定:admission 拒绝(rejection 非空)优先于派工台账行,
@@ -213,7 +215,7 @@ export function parseLeaderDecision(text: string, workers: readonly string[]): L
         prompt = requiredLeaderText(item.prompt, "worker prompt");
       if (!workers.includes(workerId) || seen.has(workerId))
         throw new Error(`Leader selected invalid or duplicate worker ${workerId}.`);
-      const allowed = new Set(["to", "prompt", "ownedPaths", "continuationMode"]);
+      const allowed = new Set(["to", "prompt", "ownedPaths", "continuationMode", "handoffPacket"]);
       if (Object.keys(item).some((key) => !allowed.has(key)))
         throw new Error("Leader dispatch contains harness-owned fields.");
       if (
@@ -221,6 +223,8 @@ export function parseLeaderDecision(text: string, workers: readonly string[]): L
         !["continue", "fresh", "handoff"].includes(String(item.continuationMode))
       )
         throw new Error("Leader dispatch continuationMode must be continue, fresh, or handoff.");
+      const handoffPacket =
+        item.handoffPacket === undefined ? undefined : parseWorkerHandoffPacket(item.handoffPacket, workerId);
       seen.add(workerId);
       return {
         workerId,
@@ -229,6 +233,7 @@ export function parseLeaderDecision(text: string, workers: readonly string[]): L
         ...(item.continuationMode === undefined
           ? {}
           : { continuationMode: item.continuationMode as "continue" | "fresh" | "handoff" }),
+        ...(handoffPacket === undefined ? {} : { handoffPacket }),
       };
     });
   return { kind: "plan", dispatches };
@@ -319,4 +324,25 @@ function describePendingTrigger(attempts: readonly WorkerAttempt[], trigger: Lea
 function requiredLeaderText(value: unknown, field: string): string {
   if (typeof value !== "string" || !value) throw new Error(`${field} is required.`);
   return value;
+}
+
+function parseWorkerHandoffPacket(value: unknown, workerId: string): HandoffPacketV1 {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("Leader dispatch handoffPacket must be an object.");
+  const packet = value as Partial<HandoffPacketV1>;
+  if (
+    packet.schemaVersion !== 1 ||
+    typeof packet.handoffId !== "string" ||
+    !packet.handoffId ||
+    !packet.goal ||
+    typeof packet.goal.workItemId !== "string" ||
+    !packet.goal.workItemId ||
+    !packet.source ||
+    !packet.target ||
+    packet.target.employeeId !== workerId ||
+    typeof packet.expiresAt !== "string" ||
+    !packet.expiresAt
+  )
+    throw new Error(`Leader dispatch handoffPacket must be a valid HandoffPacketV1 targeting ${workerId}.`);
+  return packet as HandoffPacketV1;
 }

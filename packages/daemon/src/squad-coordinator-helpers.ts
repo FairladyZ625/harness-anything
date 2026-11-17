@@ -1,9 +1,22 @@
-import type { TaskProjection } from "@harness-anything/kernel";
+import {
+  buildHandoffPacket,
+  sha256Text,
+  stableStringify,
+  type HandoffPacketV1,
+  type PriorTerminalDispositionKind,
+  type TaskProjection,
+} from "@harness-anything/kernel";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
 import { readDispatchRowsByIds, readTaskDispatches } from "./dispatch-read.ts";
+import { runtimeKindForId } from "./runtime-inventory.ts";
 import { squadTaskRef, type SquadState } from "./squad-run-state.ts";
-import { synthesisReportPath, type LeaderDecision, type WorkerAttempt } from "./squad-leader-decision.ts";
+import {
+  synthesisReportPath,
+  type LeaderDecision,
+  type WorkerAttempt,
+  type WorkerPlan,
+} from "./squad-leader-decision.ts";
 
 export function revise(
   state: SquadState,
@@ -146,4 +159,77 @@ export function convergenceError(
     return missing.length ? `Leader declared convergence without ${missing.join(" and ")}.` : null;
   missing.push("a non-empty synthesis report");
   return missing.length ? `Leader declared convergence without ${missing.join(" and ")}.` : null;
+}
+
+export function squadAttemptTerminalKind(row: TaskDispatchRow | undefined): PriorTerminalDispositionKind {
+  if (!row) return "none";
+  if (row.outcome === "cancelled") return "cancelled";
+  if (row.providerUnreachable) return "unreachable";
+  if (row.classification === "dispatch_stalled") return "stalled";
+  if (row.classification === "awaiting_ruling") return "awaiting_ruling";
+  if (row.outcome === "succeeded") return "succeeded";
+  if (row.outcome === "failed") return "failed";
+  return "none";
+}
+
+export function squadRuntimeSupportsResume(kindId: string | null, hasProviderSession: boolean): boolean {
+  if (!kindId) return hasProviderSession;
+  const declaration = runtimeKindForId(kindId);
+  return declaration.capabilities.resume === "supported" || declaration.declaredCapabilities.includes("resume");
+}
+
+export function buildSquadWorkerHandoffPrompt(input: {
+  readonly state: SquadState;
+  readonly plan: WorkerPlan;
+  readonly attemptId: string;
+  readonly priorAttempt: WorkerAttempt | null;
+  readonly priorRow: TaskDispatchRow | undefined;
+  readonly nowIso: string;
+  readonly readResult: (ref: string) => string;
+}): { readonly packet: HandoffPacketV1; readonly digest: string; readonly promptSection: string } | null {
+  if (input.plan.handoffPacket) {
+    const packet = input.plan.handoffPacket,
+      digest = sha256Text(stableStringify(packet));
+    return {
+      packet,
+      digest,
+      promptSection: `# HandoffPacketV1 (sha256=${digest})\n${JSON.stringify(packet, null, 2)}`,
+    };
+  }
+  if (!input.priorAttempt) return null;
+  const taskContext = input.priorRow?.resultRef ? input.readResult(input.priorRow.resultRef).slice(0, 4000) : null;
+  const nowMs = Date.parse(input.nowIso),
+    expiresAt = new Date((Number.isFinite(nowMs) ? nowMs : Date.now()) + 86_400_000).toISOString(),
+    taskId = input.priorAttempt.taskId ?? squadTaskRef(input.state)?.taskId ?? input.state.squadRunId,
+    built = buildHandoffPacket({
+      handoffId: `${input.state.squadRunId}:${input.attemptId}`,
+      revision: 1,
+      mode: "transfer",
+      expiresAt,
+      work: {
+        id: taskId,
+        title: `Squad assignment for ${input.plan.workerId}`,
+        description: input.plan.prompt.slice(0, 500),
+        specRevision: 1,
+        specDigest: `sha256:${sha256Text(input.plan.prompt)}`,
+      },
+      attempt: {
+        id: input.priorAttempt.runtimeSessionId ?? input.priorAttempt.attemptId,
+        status: input.priorRow?.outcome ?? "stopped",
+        sessionId: input.priorAttempt.runtimeSessionId,
+        runtime: input.priorRow?.provider.instance ?? null,
+        artifactId: input.priorRow?.resultRef ?? null,
+        artifactDigest: input.priorRow?.resultRef?.split("/sha256/")[1] ?? null,
+        error: input.priorRow?.reason ?? null,
+      },
+      sourceEmployeeId: input.priorAttempt.workerId,
+      sideEffects: "Squad handoff cold-start; prior providerSessionId is excluded.",
+      target: { employeeId: input.plan.workerId, name: input.plan.workerId },
+      taskContext,
+    });
+  return {
+    packet: built.packet,
+    digest: built.digest,
+    promptSection: `# HandoffPacketV1 (sha256=${built.digest})\n${built.text}`,
+  };
 }

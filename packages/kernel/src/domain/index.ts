@@ -497,12 +497,12 @@ export {
   reduceRuntimeInbox,
   inboxHasOpenItems,
   evaluateRuntimeInboxBatch,
+  resolveSessionContinuationMode,
   type RuntimeInboxInput,
   type RuntimeInboxItem,
   type RuntimeInboxGroup,
   type RuntimeInboxQuery,
   type RuntimeInboxRead,
   type RuntimeInboxSettlementKind,
+  type PriorTerminalDispositionKind,
 } from "./runtime-inbox.ts";
-
-export { resolveSessionContinuationMode, type PriorTerminalDispositionKind } from "./runtime-session-continuation.ts";
