@@ -38,6 +38,12 @@ export interface FleetCenterOptions {
   readonly replicaDiskQuotaBytes?: number;
   /** Maximum simultaneous base-backup archive builds across every repository in this center. */
   readonly replicationBaseBackupConcurrency?: number;
+  /** How long a built snapshot remains pinned on disk for byte-range resume (default 24h). */
+  readonly replicationSnapshotPinTtlMs?: number;
+  /** Maximum number of pinned snapshots retained across all repositories (default 16). */
+  readonly replicationSnapshotMaxPins?: number;
+  /** Maximum total bytes of pinned snapshots retained across all repositories (default 16 GiB). */
+  readonly replicationSnapshotMaxBytes?: number;
   /** Number of replication log commits retained for incremental receivers. */
   readonly replicationRetentionWindowCommits?: number;
   /** An idle replication stream sends `replica.progress` this often, so a dead peer is noticed. */

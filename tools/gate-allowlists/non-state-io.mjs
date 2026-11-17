@@ -1262,6 +1262,46 @@ export const nonStateIoDeclarations = Object.freeze([
     scope: "cleanup",
   },
   {
+    id: "environment-io.1f2e3d4c5b6a7980",
+    path: "packages/daemon/src/fleet/center-listener.ts",
+    category: "environment-io",
+    subtype: "fleet-replication-scratch",
+    reason:
+      "Removes empty per-repo basebackup staging directory after pinned snapshot retirement; stores no durable domain state. Signal: rmSync in removeEmptyRepoBackupDir.",
+    api: "rmSync",
+    scope: "removeEmptyRepoBackupDir",
+  },
+  {
+    id: "environment-io.5c6d7e8f90123456",
+    path: "packages/daemon/src/fleet/center-listener.ts",
+    category: "environment-io",
+    subtype: "fleet-replication-scratch",
+    reason:
+      "Removes expired or corrupt basebackup snapshot staging directory on center boot; stores no durable domain state. Signal: rmSync in listenFleetTls.",
+    api: "rmSync",
+    scope: "listenFleetTls",
+  },
+  {
+    id: "environment-io.3a4b5c6d7e8f9012",
+    path: "packages/daemon/src/fleet/center-listener.ts",
+    category: "environment-io",
+    subtype: "fleet-replication-scratch",
+    reason:
+      "Writes temporary pin.json.tmp metadata for resumable basebackup snapshot cache; stores no durable domain state. Signal: writeFileSync in source.",
+    api: "writeFileSync",
+    scope: "source",
+  },
+  {
+    id: "environment-io.4b5c6d7e8f901234",
+    path: "packages/daemon/src/fleet/center-listener.ts",
+    category: "environment-io",
+    subtype: "fleet-replication-scratch",
+    reason:
+      "Atomically renames pin.json.tmp to pin.json for resumable basebackup snapshot cache; stores no durable domain state. Signal: renameSync in source.",
+    api: "renameSync",
+    scope: "source",
+  },
+  {
     id: "environment-io.6cc0d5c726eb11a2",
     path: "packages/daemon/src/fleet/edge-join-client.ts",
     category: "environment-io",
@@ -1340,6 +1380,66 @@ export const nonStateIoDeclarations = Object.freeze([
       "Stages an in-flight basebackup download tarball in an ephemeral directory hydrated into the replica seed and deleted in finally; stores no durable domain state. Signal: rm in runWalReceiver.",
     api: "rm",
     scope: "runWalReceiver",
+  },
+  {
+    id: "environment-io.7a1c9e2b4d6f8012",
+    path: "packages/daemon/src/fleet/walreceiver.ts",
+    category: "environment-io",
+    subtype: "fleet-replication-scratch",
+    reason:
+      "Writes temporary transfer.json.tmp progress metadata for resumable snapshot download staging; stores no durable domain state. Signal: writeFile in writeTransferState.",
+    api: "writeFile",
+    scope: "writeTransferState",
+  },
+  {
+    id: "environment-io.8b2d0f3c5e7a9123",
+    path: "packages/daemon/src/fleet/walreceiver.ts",
+    category: "environment-io",
+    subtype: "fleet-replication-scratch",
+    reason:
+      "Atomically renames transfer.json.tmp to transfer.json for resumable snapshot download staging; stores no durable domain state. Signal: rename in writeTransferState.",
+    api: "rename",
+    scope: "writeTransferState",
+  },
+  {
+    id: "environment-io.9c3e1a4d6f8b0234",
+    path: "packages/daemon/src/fleet/walreceiver.ts",
+    category: "environment-io",
+    subtype: "fleet-replication-scratch",
+    reason:
+      "Removes resumable snapshot download staging directory after install/ack or resync; stores no durable domain state. Signal: rm in clearStagedSnapshots.",
+    api: "rm",
+    scope: "clearStagedSnapshots",
+  },
+  {
+    id: "environment-io.ad4f2b5e7c9d1345",
+    path: "packages/daemon/src/fleet/walreceiver.ts",
+    category: "environment-io",
+    subtype: "fleet-replication-scratch",
+    reason:
+      "Creates resumable snapshot download staging directory; stores no durable domain state. Signal: mkdir in runWalReceiver.",
+    api: "mkdir",
+    scope: "runWalReceiver",
+  },
+  {
+    id: "environment-io.be503c6f8dae2456",
+    path: "packages/daemon/src/fleet/walreceiver.ts",
+    category: "environment-io",
+    subtype: "fleet-replication-scratch",
+    reason:
+      "Opens partial snapshot download archive.part to truncate to verified resumeOffset; stores no durable domain state. Signal: open in truncateHandle.",
+    api: "open",
+    scope: "truncateHandle",
+  },
+  {
+    id: "environment-io.cf614d7e9fbf3567",
+    path: "packages/daemon/src/fleet/walreceiver.ts",
+    category: "environment-io",
+    subtype: "fleet-replication-scratch",
+    reason:
+      "Opens partial snapshot download archive.part for resumable append or initial write; stores no durable domain state. Signal: open in handle.",
+    api: "open",
+    scope: "handle",
   },
   {
     id: "environment-io.ef127f14027bb02f",

@@ -6795,6 +6795,24 @@
         "port": "packages/daemon/src/fleet/commit-file.ts#openReplicationCommitFile.write"
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/walreceiver.ts#writeTransferState:99c99a58a7da7a823798323eaa27f47d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.writeFile"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/walreceiver.ts#clearStagedSnapshots:8140ef33989aeaa09cbc19985d9b6358",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.rm"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/walreceiver.ts#runWalReceiver:a77eb421fd2da20b8fe7890d7b274403:3",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.FileHandle.writeFile"
+      },
+      {
         "candidateId": "action:packages/storage:packages/storage/src/durable-file.ts#openTemporaryFile.close:fe2dd164e2953bc3a73ed350f9390bac",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -8780,16 +8798,40 @@
         "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls:c3afea6da008ab09aa7769e5ab0dbec0",
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.removeEmptyRepoBackupDir:6909a8e3295d26d04df380330a753621",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.retireBackup:bc5df1bec773e4d90ab025c284b74783",
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.retireBackup:94b609ff788c72cd3a26cb7798bb9320",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.retireBackup:919b939a264659c4211c0002b1194c74",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls:00568e3d898341206996a09804c3d349",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls:c6dac27b48abb543ea4759ba43b5ce15",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.onReplicationStart.source.backup:48e37d3543fe10bb12e76cad7c8a9ad3",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.retireBackup.cleanup:d646581bd3582838d998384cc433a2da",

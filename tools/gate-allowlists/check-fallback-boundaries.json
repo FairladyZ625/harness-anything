@@ -3,10 +3,30 @@
   "gateId": "check-fallback-boundaries",
   "baseline": "Existing CH4 fallback exits are ratcheted here; remove a key when the corresponding production exit is deleted.",
   "rationales": {
-    "packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#submit": {"task": "task_0e1d9f41b62c51a1f78809f6d9", "decision": "dec_13B7B846B56BFA192533011B91", "errors": "GUI bridge/read/write/runtime rejection shown to the caller", "reason": "Write or receipt-read rejection is displayed verbatim. After an applied answer, continuation errors stay in their separate visible spawn state; neither the durable answer nor incident closure is replayed."},
-    "packages/gui/src/renderer/views/agenda/AgendaOutboxActions.tsx#archive": {"task": "task_0e1d9f41b62c51a1f78809f6d9", "decision": "dec_9C43012EBB2754D7112F618F0D", "errors": "GUI bridge/read/write/runtime rejection shown to the caller", "reason": "Archive RPC failures are displayed on the selected card. The queue refreshes only after an applied receipt; no local signed-off state or replacement successful result is produced."},
-    "packages/gui/src/renderer/views/agenda/AgendaOutboxActions.tsx#create": {"task": "task_0e1d9f41b62c51a1f78809f6d9", "decision": "dec_9C43012EBB2754D7112F618F0D", "errors": "GUI bridge/read/write/runtime rejection shown to the caller", "reason": "Follow-up creation failures are displayed on the selected card; no task link is synthesized and no replacement task or fallback parent is created."},
-    "packages/gui/src/renderer/views/agenda/useAgendaContinuation.ts#run": {"task": "task_0e1d9f41b62c51a1f78809f6d9", "decision": "dec_9C43012EBB2754D7112F618F0D", "errors": "GUI bridge/read/write/runtime rejection shown to the caller", "reason": "Dispatch-read and runtime-spawn errors are preserved as visible continuation failures with an explicit retry. They never change an applied answer into a failed answer, replay its write, or substitute a successful runtime receipt."},
+    "packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#submit": {
+      "task": "task_0e1d9f41b62c51a1f78809f6d9",
+      "decision": "dec_13B7B846B56BFA192533011B91",
+      "errors": "GUI bridge/read/write/runtime rejection shown to the caller",
+      "reason": "Write or receipt-read rejection is displayed verbatim. After an applied answer, continuation errors stay in their separate visible spawn state; neither the durable answer nor incident closure is replayed."
+    },
+    "packages/gui/src/renderer/views/agenda/AgendaOutboxActions.tsx#archive": {
+      "task": "task_0e1d9f41b62c51a1f78809f6d9",
+      "decision": "dec_9C43012EBB2754D7112F618F0D",
+      "errors": "GUI bridge/read/write/runtime rejection shown to the caller",
+      "reason": "Archive RPC failures are displayed on the selected card. The queue refreshes only after an applied receipt; no local signed-off state or replacement successful result is produced."
+    },
+    "packages/gui/src/renderer/views/agenda/AgendaOutboxActions.tsx#create": {
+      "task": "task_0e1d9f41b62c51a1f78809f6d9",
+      "decision": "dec_9C43012EBB2754D7112F618F0D",
+      "errors": "GUI bridge/read/write/runtime rejection shown to the caller",
+      "reason": "Follow-up creation failures are displayed on the selected card; no task link is synthesized and no replacement task or fallback parent is created."
+    },
+    "packages/gui/src/renderer/views/agenda/useAgendaContinuation.ts#run": {
+      "task": "task_0e1d9f41b62c51a1f78809f6d9",
+      "decision": "dec_9C43012EBB2754D7112F618F0D",
+      "errors": "GUI bridge/read/write/runtime rejection shown to the caller",
+      "reason": "Dispatch-read and runtime-spawn errors are preserved as visible continuation failures with an explicit retry. They never change an applied answer into a failed answer, replay its write, or substitute a successful runtime receipt."
+    },
     "packages/daemon/src/fleet/replica-sync.ts#confirm": {
       "task": "task_aceaabaedfedcf9cb062ccf883",
       "decision": "dec_9284BD6119D453EEECEED62450",
@@ -77,6 +97,18 @@
       "decision": null,
       "errors": "defaults read com.openai.codex requirements_toml_base64 exits non-zero when the managed key is absent",
       "reason": "An unmanaged macOS host has no managed-preferences key, which is the normal no-policy state rather than a policy verdict. The catch only skips that optional preference read; /etc/codex requirements files are read separately, an unreadable existing file throws runtime_web_search_policy_unreadable, and an absent policy never substitutes an allowed tier. If a key is present, the decoded requirements text is parsed by the same policy gate and a conflicting mode is refused."
+    },
+    "packages/daemon/src/fleet/center-listener.ts#listenFleetTls": {
+      "task": "feat-snapshot-resume-v1",
+      "decision": null,
+      "errors": "corrupt or unreadable pin.json during center boot recovery",
+      "reason": "A corrupt or partially written snapshot pin.json on disk cannot be resumed safely; center boot discards that pin directory and falls back to building a fresh snapshot on demand."
+    },
+    "packages/daemon/src/fleet/walreceiver.ts#findResumableSnapshot": {
+      "task": "feat-snapshot-resume-v1",
+      "decision": null,
+      "errors": "ENOENT or corrupt transfer.json/archive.part in staging/snapshots",
+      "reason": "An absent or corrupt partial snapshot download cannot be resumed; the edge skips the corrupt staging entry and falls back to a fresh byte-0 snapshot download."
     }
   },
   "packages/daemon/src/task-worktree.ts#prepareTaskStartWorktree": {
@@ -87,6 +119,8 @@
   },
   "entries": {
     "consumeKnownError": [
+      "packages/daemon/src/fleet/center-listener.ts#listenFleetTls",
+      "packages/daemon/src/fleet/walreceiver.ts#findResumableSnapshot",
       "packages/storage/src/pg/pg-task-query-worker.ts#handle",
       "packages/storage/src/pg/pg-task-query-worker.ts#startWorker",
       "packages/dsh-plugin/src/client.ts#openTabWhenSessionMounts",

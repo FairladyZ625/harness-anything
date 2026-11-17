@@ -9,7 +9,7 @@ import {
 } from "@harness-anything/storage";
 import { type PersistedCanonicalEventV1 } from "@harness-anything/kernel";
 import type { BaseBackupArchive } from "@harness-anything/storage";
-import { REPLICATION_CHUNK_BYTES, type ReplicationPeer } from "./protocol.ts";
+import { REPLICATION_CHUNK_BYTES, SNAPSHOT_RESUME_CAPABILITY, type ReplicationPeer } from "./protocol.ts";
 import type { ReplicationSlotLease, ReplicationSlots } from "@harness-anything/storage";
 
 export interface ReplicationSource {
@@ -22,8 +22,17 @@ export interface ReplicationSource {
   /** Register the waiter and recheck sequence under the same owner; never lose a commit between read and wait. */
   readonly wait: (after: ReplicationPosition, signal: AbortSignal) => Promise<void>;
   /** The slot advanced; retention may release the log below the slowest slot. */
-  readonly acknowledged: () => Promise<void>;
-  readonly backup: (signal: AbortSignal) => Promise<BaseBackupArchive & { readonly release: () => Promise<void> }>;
+  readonly acknowledged: (sequence?: number) => Promise<void>;
+  readonly backup: (
+    signal: AbortSignal,
+    resumeSnapshot?: { readonly snapshotId: string; readonly offset: number },
+  ) => Promise<
+    BaseBackupArchive & {
+      readonly snapshotId?: string;
+      readonly resumeOffset?: number;
+      readonly release: () => Promise<void>;
+    }
+  >;
   readonly object: (sha256: string) => AsyncIterable<Uint8Array>;
 }
 
@@ -32,8 +41,9 @@ async function sendBytes(
   chunks: AsyncIterable<Uint8Array> | Iterable<Uint8Array>,
   signal: AbortSignal,
   onProgress?: (bytes: number) => void,
+  initialOffset = 0,
 ): Promise<void> {
-  let offset = 0;
+  let offset = initialOffset;
   for await (const chunk of chunks) {
     for (let start = 0; start < chunk.byteLength; start += REPLICATION_CHUNK_BYTES) {
       signal.throwIfAborted();
@@ -82,12 +92,14 @@ export async function runWalSender(input: {
     )
       throw new Error("replication ACK does not match completed page");
     slots.acknowledge(lease, frame, sent);
-    await source.acknowledged();
+    await source.acknowledged(sent.sequence);
     input.onAcknowledged?.();
   };
   const start = await peer.receive(signal);
   if (start.type !== "replica.start") throw new Error("replication start required");
+  const supportsSnapshotResume = start.capabilities?.includes(SNAPSHOT_RESUME_CAPABILITY) ?? false;
   let position = start.position;
+  let pendingResumeSnapshot = supportsSnapshotResume ? start.resumeSnapshot : undefined;
   for (;;) {
     assertOwner();
     input.onActivity?.("authorizing");
@@ -98,26 +110,39 @@ export async function runWalSender(input: {
     if (page === null) {
       if (position !== null) await peer.send({ type: "replica.resync", reason });
       input.onActivity?.("waiting_backup");
-      const archive = await source.backup(signal);
+      const resumeRequest = position === null ? pendingResumeSnapshot : undefined;
+      pendingResumeSnapshot = undefined;
+      const archive = await source.backup(signal, resumeRequest);
       try {
         assertOwner();
         if (archive.metadata.position.history !== lease.history)
           throw new Error("replication history changed during backup");
+        const resumeOffset =
+          supportsSnapshotResume &&
+          archive.resumeOffset !== undefined &&
+          archive.resumeOffset > 0 &&
+          archive.resumeOffset <= archive.size
+            ? archive.resumeOffset
+            : 0;
         await peer.send({
           type: "replica.backup",
           metadata: archive.metadata,
           size: archive.size,
           sha256: archive.sha256,
+          ...(supportsSnapshotResume && archive.snapshotId ? { snapshotId: archive.snapshotId, resumeOffset } : {}),
         });
         const progress = (bytesSent: number) =>
           input.onActivity?.("sending_backup", { bytesSent, totalBytes: archive.size });
-        progress(0);
-        await sendBytes(
-          peer,
-          createReadStream(archive.file, { highWaterMark: REPLICATION_CHUNK_BYTES }),
-          signal,
-          progress,
-        );
+        progress(resumeOffset);
+        if (resumeOffset < archive.size) {
+          await sendBytes(
+            peer,
+            createReadStream(archive.file, { start: resumeOffset, highWaterMark: REPLICATION_CHUNK_BYTES }),
+            signal,
+            progress,
+            resumeOffset,
+          );
+        }
         await peer.send({ type: "replica.backup.end" });
         await acknowledge(archive.metadata.position);
         position = archive.metadata.position;
