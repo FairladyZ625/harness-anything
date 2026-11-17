@@ -73,7 +73,7 @@ export function attachSqliteGitFollower(context: SqliteGitFollowerMountContext):
   const materializeContext = () => ({
     repoId: options.repoId,
     killpoint: options.killpoint,
-    withFence: options.withAppendFence,
+    withFence: options.withFollowerFence,
     cut,
     ledger,
     authoredRef,
@@ -107,10 +107,10 @@ export function attachSqliteGitFollower(context: SqliteGitFollowerMountContext):
         options.killpoint,
         plan.preserve,
         commit,
-        options.withAppendFence,
+        options.withFollowerFence,
       );
     conflicts.push(...first.conflicts);
-    settleWorktreeDirectories(currentLedger.rootDir, directories, options.withAppendFence);
+    settleWorktreeDirectories(currentLedger.rootDir, directories, options.withFollowerFence);
     const second = settleWorktree(
       layout,
       currentLedger.rootDir,
@@ -119,7 +119,7 @@ export function attachSqliteGitFollower(context: SqliteGitFollowerMountContext):
       options.killpoint,
       undefined,
       undefined,
-      options.withAppendFence,
+      options.withFollowerFence,
     );
     conflicts.push(...second.conflicts);
     acceptedWorktree.clear();
@@ -231,14 +231,14 @@ export function attachSqliteGitFollower(context: SqliteGitFollowerMountContext):
     }
     const commit = publishFollowerCut(currentLedger.rootDir, currentRef, parent, verifiedRevision, accepted, files, {
       killpoint: options.killpoint,
-      withFence: options.withAppendFence,
+      withFence: options.withFollowerFence,
     });
     certified = { commit, revision: accepted.revision };
     follower = {
       git: { status: "verified", cut: accepted, commitSha: commit },
       worktree: pendingFollower("worktree settlement has not verified the Git cut").worktree,
     };
-    localGitWorktreeSettlement.index(currentLedger.rootDir, files, false, options.withAppendFence);
+    localGitWorktreeSettlement.index(currentLedger.rootDir, files, false, options.withFollowerFence);
     const layout = latestAppendLayout() ?? resolveHarnessLayout(input),
       settled = settleFollowerWorktree(
         layout,
@@ -292,12 +292,12 @@ export function attachSqliteGitFollower(context: SqliteGitFollowerMountContext):
   function recordPublishedOutbox(revision: number, commitSha: string | null, clearBaselines: boolean): void {
     if (options.mutable === false) return;
     const write = () => sqlite.markGitOutboxPublished({ revision, commitSha, clearBaselines });
-    if (options.withAppendFence) options.withAppendFence(write);
+    if (options.withFollowerFence) options.withFollowerFence(write);
     else write();
   }
 
   const publisher = createDurableFollowerPublisher({
-    withFence: options.withAppendFence,
+    withFence: options.withFollowerFence,
     publish: (request) =>
       request?.paths && !request.preview
         ? restoreRequestedDocuments(materializeContext(), request.paths)
@@ -350,7 +350,7 @@ export function makeSqliteTaskEventStoreWithGitFollower(
 
 /**
  * Drain committed SQLite `git_outbox` revisions on the Host outside the writer-cell Isolate and write lock.
- * Safe across restarts (replays durable `git_outbox_baseline`) and guarded by `withAppendFence`.
+ * Safe across restarts (replays durable `git_outbox_baseline`) and guarded by `withFollowerFence`.
  */
 export async function publishPendingSqliteGitOutbox(options: {
   readonly repoId: string;
@@ -358,7 +358,7 @@ export async function publishPendingSqliteGitOutbox(options: {
   readonly rootDir?: string;
   readonly authoredBranch?: string;
   readonly storage?: SqliteTaskEventStoreOptions["storage"];
-  readonly withAppendFence?: <T>(operation: () => T) => T;
+  readonly withFollowerFence?: <T>(operation: () => T) => T;
   readonly onMaterializationHealthChange?: SqliteTaskEventStoreOptions["onMaterializationHealthChange"];
   readonly readMaterializationDocuments?: SqliteTaskEventStoreOptions["readMaterializationDocuments"];
   readonly killpoint?: SqliteTaskEventStoreOptions["killpoint"];
@@ -377,7 +377,7 @@ export async function publishPendingSqliteGitOutbox(options: {
       generation,
       authoredBranch: options.authoredBranch,
       storage: options.storage,
-      withAppendFence: options.withAppendFence,
+      withFollowerFence: options.withFollowerFence,
       onMaterializationHealthChange: options.onMaterializationHealthChange,
       readMaterializationDocuments: options.readMaterializationDocuments,
       killpoint: options.killpoint,

@@ -19,6 +19,7 @@ export interface PersistentWriterEpoch {
   readonly retireCurrent: (repoId: string) => void;
   readonly assert: (repoId: string, epoch: number, holderId?: string) => void;
   readonly withAppendFence: <T>(repoId: string, epoch: number, holderId: string, operation: () => T) => T;
+  readonly withFollowerFence: PersistentWriterEpoch["withAppendFence"];
   readonly close: () => void;
 }
 export class WriterEpochError extends Error {

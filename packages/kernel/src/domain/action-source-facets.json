@@ -6081,13 +6081,13 @@
         "port": "packages/storage/src/postgres/pg-task-event-store.ts#makePostgresTaskEventStore.append"
       },
       {
-        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-writer-epoch.ts#openPgWriterEpoch.fenced:58aacc9b949f56d44dc981c57f1e8752",
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-writer-epoch.ts#openPgWriterEpoch.fenceFor:209c507c4c0a2016528bdde74c1de99d",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/storage/src/postgres/pg-writer-epoch.ts#openPgWriterEpoch.execute"
       },
       {
-        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-writer-epoch.ts#openPgWriterEpoch.fenced:5d9b6f45357eb1fbf0a2b05163d50651",
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-writer-epoch.ts#openPgWriterEpoch.fenceFor:61bbc79bada2def1bc99a2cf7b42def1",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/storage/src/postgres/pg-writer-epoch.ts#openPgWriterEpoch.execute"

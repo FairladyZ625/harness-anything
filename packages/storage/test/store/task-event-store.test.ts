@@ -208,6 +208,7 @@ for (const named of [false, true])
         rootDir,
         writerFence: () => lease,
         withAppendFence: (operation) => first.withAppendFence(repoId, lease.epoch, lease.holderId, operation),
+        withFollowerFence: (operation) => first.withFollowerFence(repoId, lease.epoch, lease.holderId, operation),
       });
     try {
       store.append(docBundle(store, "canonical", 1, "stale-restore", "context/stale.md"));
@@ -241,6 +242,7 @@ test("takeover between worktree renames keeps the successor's content, index and
     rootDir,
     writerFence: () => lease,
     withAppendFence: (operation) => first.withAppendFence(repoId, lease.epoch, lease.holderId, operation),
+    withFollowerFence: (operation) => first.withFollowerFence(repoId, lease.epoch, lease.holderId, operation),
     killpoint: (point) => {
       if (point !== "after_worktree_rename" || !armed) return;
       armed = false;
@@ -250,6 +252,7 @@ test("takeover between worktree renames keeps the successor's content, index and
         rootDir,
         writerFence: () => next,
         withAppendFence: (operation) => second.withAppendFence(repoId, next.epoch, next.holderId, operation),
+        withFollowerFence: (operation) => second.withFollowerFence(repoId, next.epoch, next.holderId, operation),
       });
       successor.append(docBundle(successor, "new cut", 2, "new-cut", "context/epoch.md"));
       successor.materialize();
@@ -291,6 +294,7 @@ test("takeover during Git preparation leaves the stale publisher unable to advan
     rootDir,
     writerFence: () => lease,
     withAppendFence: (operation) => first.withAppendFence(repoId, lease.epoch, lease.holderId, operation),
+    withFollowerFence: (operation) => first.withFollowerFence(repoId, lease.epoch, lease.holderId, operation),
     killpoint: (point) => {
       if (point === "after_git_commit" && !takenOver) {
         second.acquire(repoId);
@@ -318,6 +322,8 @@ test("takeover during Git preparation leaves the stale publisher unable to advan
         writerFence: () => successorLease,
         withAppendFence: (operation) =>
           second.withAppendFence(repoId, successorLease.epoch, successorLease.holderId, operation),
+        withFollowerFence: (operation) =>
+          second.withFollowerFence(repoId, successorLease.epoch, successorLease.holderId, operation),
       });
     try {
       await successor.settlePendingMaterialization?.("recover the accepted cut under its new owner");

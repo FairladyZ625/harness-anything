@@ -52,7 +52,7 @@ import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
 import type { TaskQueryJudgments } from "./task-query-read.ts";
 import type { AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
-import { type WriterEpochFenceDescriptor } from "@harness-anything/storage";
+import { withFollowerEpochFenceDescriptor, type WriterEpochFenceDescriptor } from "@harness-anything/storage";
 
 export { causeClassOf, latchReprobeThrottleMs } from "./repo-cell-lock.ts";
 export type {
@@ -186,6 +186,10 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
       const fence = context.activeWriterEpochFenceDescriptor;
       if (!fence) throw new Error("writer epoch fence is unavailable for SQLite acceptance");
       return fence;
+    },
+    withFollowerFence: (operation) => {
+      const fence = context.activeWriterEpochFenceDescriptor;
+      return fence ? withFollowerEpochFenceDescriptor(fence, operation) : operation();
     },
     withAppendFence: (operation) =>
       context.activeWriterEpochFence ? context.activeWriterEpochFence(operation) : operation(),

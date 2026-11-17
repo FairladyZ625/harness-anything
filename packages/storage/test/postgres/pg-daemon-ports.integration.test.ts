@@ -494,6 +494,7 @@ test("daemon PG storage factories expose canonical lifecycle ports without local
             storage: configuration,
             writerFence: () => lease,
             withAppendFence: (operation) => first.withAppendFence(id, lease.epoch, lease.holderId, operation),
+            withFollowerFence: (operation) => first.withFollowerFence(id, lease.epoch, lease.holderId, operation),
           }),
           logical = "context/epoch.md",
           target = join(resolveHarnessLayout(root).authoredRoot, logical);
@@ -534,7 +535,7 @@ test("daemon PG storage factories expose canonical lifecycle ports without local
           repoId: id,
           storage: configuration,
           writerFence: () => lease,
-          withAppendFence: (operation) => {
+          withFollowerFence: (operation) => {
             // The old body's durable temporary proves preparation finished, before its final rename.
             if (
               armed &&
@@ -549,12 +550,12 @@ test("daemon PG storage factories expose canonical lifecycle ports without local
                 repoId: id,
                 storage: configuration,
                 writerFence: () => next,
-                withAppendFence: (publish) => second.withAppendFence(id, next.epoch, next.holderId, publish),
+                withFollowerFence: (publish) => second.withFollowerFence(id, next.epoch, next.holderId, publish),
               });
               successor.append(docBundle(successor, "new cut", 2, "new-cut", logical));
               successor.materialize();
             }
-            return first.withAppendFence(id, lease.epoch, lease.holderId, operation);
+            return first.withFollowerFence(id, lease.epoch, lease.holderId, operation);
           },
         }),
         layout = resolveHarnessLayout(root),
@@ -578,6 +579,26 @@ test("daemon PG storage factories expose canonical lifecycle ports without local
         await successor?.drain();
         first.close();
         second.close();
+      }
+    });
+    await t.test("PG follower and append fences use independent query owners", () => {
+      const configuration = { ...storage, authorityConnectionString: fixture.managementConnectionString },
+        epochs = openPersistentWriterEpoch({
+          stateRoot: join(fixture.root, "parallel-epochs"),
+          storage: configuration,
+        }),
+        lease = epochs.acquire(repoId);
+      try {
+        epochs.withFollowerFence(repoId, lease.epoch, lease.holderId, () => {
+          epochs.withAppendFence(repoId, lease.epoch, lease.holderId, () => {
+            epochs.assert(repoId, lease.epoch, lease.holderId);
+          });
+          // Snapshot dispatch would fail with "A PG append fence is already held" if
+          // follower and append shared a PgTaskQueryReader's retained transaction.
+          assert.equal(epochs.current(repoId)?.epoch, lease.epoch);
+        });
+      } finally {
+        epochs.close();
       }
     });
     await t.test("restart allocates a newer PG epoch and fences the former center", () => {

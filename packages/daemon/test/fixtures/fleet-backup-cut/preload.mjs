@@ -12,6 +12,8 @@ import { DatabaseSync } from "node:sqlite";
 
 export const probeKey = "fleet-backup-cut/v1";
 const NativeWorker = threads.Worker;
+const NativeMessageChannel = threads.MessageChannel;
+const nativePortPost = threads.MessagePort.prototype.postMessage;
 let restore;
 
 export function installAdapter(config) {
@@ -30,15 +32,41 @@ export function installAdapter(config) {
     if (message.schema === "harness-repo-writer-request/v1" && message.payload?.action?.taskId === config.taskId)
       queueMicrotask(() => emit({ event: "write-received", requestId: message.requestId }));
   };
-  // Only the resident writer consumes cancellation. Do not change read/backup worker port refs.
-  if (workerData?.schema === "harness-repo-writer-bootstrap/v1" && workerData.role !== "reader")
-    parentPort.on("message", received);
+  // The orchestration thread owns the cell and receives requests/cancellation on
+  // the transferred port, rather than the canonical writer's parentPort.
+  const receiveBootstrap = ({ port, bootstrap }) => {
+    if (bootstrap?.schema === "harness-repo-writer-bootstrap/v1") port.on("message", received);
+  };
+  if (/\/repo-orchestration-worker\.(?:ts|js)$/u.test(process.argv[1] ?? ""))
+    parentPort.on("message", receiveBootstrap);
+  const peers = new WeakMap(),
+    targets = new WeakMap(),
+    snapshots = new Set();
+  class ObservedMessageChannel extends NativeMessageChannel {
+    constructor() {
+      super();
+      peers.set(this.port2, this.port1);
+    }
+  }
+  threads.MessageChannel = ObservedMessageChannel;
+  threads.MessagePort.prototype.postMessage = function (message, ...args) {
+    const targetThreadId = targets.get(this);
+    if (targetThreadId !== undefined && message.schema === "harness-repo-writer-request/v1") {
+      if (message.payload?.action?.taskId === config.taskId)
+        emit({ event: "write-dispatched", requestId: message.requestId, targetThreadId });
+      if (message.method === "fleetBackup") {
+        snapshots.add(message.requestId);
+        emit({ event: "snapshot-dispatched", requestId: message.requestId, targetThreadId });
+      }
+    }
+    return nativePortPost.call(this, message, ...args);
+  };
   let backups = 0;
   class ObservedWorker extends NativeWorker {
     constructor(url, options = {}) {
       const filename = String(url);
       const backup = /\/fleet-basebackup-worker\.(?:ts|js)$/u.test(filename);
-      const writer = /\/repo-writer-worker\.(?:ts|js)$/u.test(filename);
+      const orchestration = /\/repo-orchestration-worker\.(?:ts|js)$/u.test(filename);
       const ports = backup ? new MessageChannel() : null;
       const extra = backup
         ? { [probeKey]: { ...config, fault: backups++ === 0 ? config.fault : undefined, port: ports.port2 } }
@@ -71,37 +99,35 @@ export function installAdapter(config) {
           ports.port1.close();
         });
       }
-      if (writer) {
+      if (orchestration) {
         const send = this.postMessage;
-        const snapshots = new Set();
         this.postMessage = function (message, ...args) {
-          // Observe only the selected real task write; never serialize its binding or credentials.
-          if (message.schema === "harness-repo-writer-request/v1" && message.payload?.action?.taskId === config.taskId)
-            emit({ event: "write-dispatched", requestId: message.requestId, targetThreadId });
-          if (message.schema === "harness-repo-writer-request/v1" && message.method === "fleetBackup") {
-            snapshots.add(message.requestId);
-            emit({ event: "snapshot-dispatched", requestId: message.requestId, targetThreadId });
+          const port = peers.get(message.port);
+          if (port && message.bootstrap?.schema === "harness-repo-writer-bootstrap/v1") {
+            targets.set(port, targetThreadId);
+            port.on("message", (receipt) => {
+              if (receipt.schema !== "harness-repo-writer-receipt/v1") return;
+              // fleetBackup receipts carry no task id; request ids link them to the dispatch.
+              if (snapshots.has(receipt.requestId))
+                emit({
+                  event: "snapshot-receipt",
+                  requestId: receipt.requestId,
+                  outcome: receipt.outcome,
+                  error: receipt.error,
+                  queueHead: receipt.queueHead ?? null,
+                  targetThreadId,
+                });
+              if (receipt.value?.taskId === config.taskId)
+                emit({
+                  event: "writer-receipt",
+                  requestId: receipt.requestId,
+                  queueHead: receipt.queueHead ?? null,
+                  targetThreadId,
+                });
+            });
           }
           return send.call(this, message, ...args);
         };
-        this.on("message", (message) => {
-          if (message.schema === "harness-repo-writer-receipt/v1" && snapshots.has(message.requestId))
-            emit({
-              event: "snapshot-receipt",
-              requestId: message.requestId,
-              outcome: message.outcome,
-              error: message.error,
-              queueHead: message.queueHead ?? null,
-              targetThreadId,
-            });
-          if (message.schema === "harness-repo-writer-receipt/v1" && message.value?.taskId === config.taskId)
-            emit({
-              event: "writer-receipt",
-              requestId: message.requestId,
-              queueHead: message.queueHead ?? null,
-              targetThreadId,
-            });
-        });
       }
     }
   }
@@ -109,9 +135,11 @@ export function installAdapter(config) {
   syncBuiltinESMExports();
   restore = () => {
     threads.Worker = NativeWorker;
+    threads.MessageChannel = NativeMessageChannel;
+    threads.MessagePort.prototype.postMessage = nativePortPost;
     syncBuiltinESMExports();
     channel.close();
-    parentPort?.off("message", received);
+    parentPort?.off("message", receiveBootstrap);
     restore = undefined;
   };
   return () => restore();

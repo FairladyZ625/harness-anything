@@ -118,6 +118,7 @@ export {
   openPersistentWriterEpoch,
   readLedgerWriterEpoch,
   withWriterEpochFenceDescriptor,
+  withFollowerEpochFenceDescriptor,
   WriterEpochError,
 } from "../writer-epoch.ts";
 export type { PersistentWriterEpoch, WriterEpochFenceDescriptor, WriterEpochLease } from "../writer-epoch.ts";

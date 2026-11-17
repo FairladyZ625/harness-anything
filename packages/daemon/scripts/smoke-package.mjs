@@ -81,10 +81,10 @@ try {
   const manifest = JSON.parse(readFileSync(path.join(installed, "package.json"), "utf8"));
   const entry = path.join(installed, manifest.bin["harness-anything-daemon"]);
   const load = (file) => import(pathToFileURL(path.join(installed, "dist/daemon/src", file)).href);
-  const { localUserDaemonEndpoint } = await load("client/local-daemon-target.js");
-  const { openDaemonJsonRpcClientAt } = await load("client/local-json-rpc-client.js");
-  const { currentDaemonProtocolVersion } = await load("protocol/version.js");
-  const { dispatchStreamPath } = await load("dispatch-stream.js");
+  const { localUserDaemonEndpoint } = await load("daemon-host/client/local-daemon-target.js");
+  const { openDaemonJsonRpcClientAt } = await load("daemon-host/client/local-json-rpc-client.js");
+  const { currentDaemonProtocolVersion } = await load("daemon-host/protocol/version.js");
+  const { dispatchStreamPath } = await load("daemon-host/dispatch-stream.js");
   for (const mode of ["serve", "--service"]) {
     const userRoot = path.join(parent, mode.replaceAll("-", ""));
     const args = [entry, mode, "--user-root", userRoot, "--daemon-id", "smoke"];

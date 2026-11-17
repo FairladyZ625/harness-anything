@@ -95,6 +95,8 @@ export interface SqliteTaskEventStoreOptions {
   readonly writerFence?: () => DaemonWriterFence;
   readonly activationPreflight?: (input: { readonly rootInput: HarnessLayoutInput; readonly repoId: string }) => void;
   readonly withAppendFence?: <T>(operation: () => T) => T;
+  /** Host publication excludes epoch takeover independently of canonical append. */
+  readonly withFollowerFence?: <T>(operation: () => T) => T;
   readonly onMaterializationHealthChange?: (health: MaterializationHealth) => void;
   readonly mutable?: boolean;
   readonly generation?: 1 | 2 | 3;

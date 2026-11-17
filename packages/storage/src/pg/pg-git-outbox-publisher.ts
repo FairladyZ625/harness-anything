@@ -85,7 +85,7 @@ export function attachPgGitFollower(context: PgGitFollowerMountContext): PgGitFo
                   ]),
               ),
               killpoint: options.killpoint,
-              withFence: options.withAppendFence,
+              withFence: options.withFollowerFence,
             })
           : null,
       result = materializeTree
@@ -102,7 +102,7 @@ export function attachPgGitFollower(context: PgGitFollowerMountContext): PgGitFo
             readHistoricalDocument: (logical) =>
               reader.withSession((q) => q.readDocumentHistory?.(logical)?.document ?? null),
             readContent: (logical) => readContentBlob(entries.get(logical)!.sha256),
-            withFence: options.withAppendFence,
+            withFence: options.withFollowerFence,
           })
         : { settlements: [], dirtyPaths: [] };
     if (materializeTree && !request?.preview) {
@@ -160,13 +160,13 @@ export function attachPgGitFollower(context: PgGitFollowerMountContext): PgGitFo
         }),
         commit = publishFollowerCut(ledger.rootDir, authoredRef, parent, checkpoint, cut, files, {
           killpoint: options.killpoint,
-          withFence: options.withAppendFence,
+          withFence: options.withFollowerFence,
         });
       git = { status: "verified", cut, commitSha: commit };
       if (materializeTree) {
-        localGitWorktreeSettlement.index(ledger.rootDir, files, false, options.withAppendFence);
+        localGitWorktreeSettlement.index(ledger.rootDir, files, false, options.withFollowerFence);
         localGitWorktreeSettlement.visible(ledger.rootDir, [files.at(-1)! as PublicationWrite], {
-          withFence: options.withAppendFence,
+          withFence: options.withFollowerFence,
         });
       }
     }
@@ -192,7 +192,7 @@ export function attachPgGitFollower(context: PgGitFollowerMountContext): PgGitFo
 
   const publisher = createDurableFollowerPublisher({
     publish: publishFollower,
-    withFence: options.withAppendFence,
+    withFence: options.withFollowerFence,
     revision: () => head()?.revision ?? 0,
     checkpoint: () =>
       Math.min(

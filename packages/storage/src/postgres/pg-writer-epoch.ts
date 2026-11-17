@@ -18,8 +18,9 @@ export function openPgWriterEpoch(options: {
   const holderId = options.holderId ?? `center-${process.pid}-${randomUUID()}`,
     now = options.now ?? (() => new Date().toISOString()),
     readers = new Map<string, PgTaskQueryReader>(),
-    readerFor = (repoId: string) => {
-      let reader = readers.get(repoId);
+    readerFor = (repoId: string, lane = "append") => {
+      const key = `${repoId}\0${lane}`;
+      let reader = readers.get(key);
       if (!reader) {
         reader =
           options.storage.backend === "postgres"
@@ -36,7 +37,7 @@ export function openPgWriterEpoch(options: {
                 requireRuntimeRole: true,
                 repoId,
               });
-        readers.set(repoId, reader);
+        readers.set(key, reader);
       }
       return reader;
     },
@@ -46,23 +47,27 @@ export function openPgWriterEpoch(options: {
       epoch?: number,
       expectedHolder = holderId,
       floor?: number,
-    ) => readerFor(repoId).writerEpoch({ operation, repoId, holderId: expectedHolder, now: now(), epoch, floor });
-  let held: { repoId: string; epoch: number; holder: string } | null = null;
-  const fenced: PersistentWriterEpoch["withAppendFence"] = (repoId, epoch, holder, operation) => {
-    if (held) {
-      if (held.repoId !== repoId || held.epoch !== epoch || held.holder !== holder)
-        throw new WriterEpochError("writer_epoch_invalid", "Nested PG fence names another owner");
-      return operation();
-    }
-    execute("begin", repoId, epoch, holder);
-    held = { repoId, epoch, holder };
-    try {
-      return operation();
-    } finally {
-      held = null;
-      execute("end", repoId);
-    }
+      lane = "append",
+    ) => readerFor(repoId, lane).writerEpoch({ operation, repoId, holderId: expectedHolder, now: now(), epoch, floor });
+  const fenceFor = (lane: string): PersistentWriterEpoch["withAppendFence"] => {
+    let held: { repoId: string; epoch: number; holder: string } | null = null;
+    return (repoId, epoch, holder, operation) => {
+      if (held) {
+        if (held.repoId !== repoId || held.epoch !== epoch || held.holder !== holder)
+          throw new WriterEpochError("writer_epoch_invalid", "Nested PG fence names another owner");
+        return operation();
+      }
+      execute("begin", repoId, epoch, holder, undefined, lane);
+      held = { repoId, epoch, holder };
+      try {
+        return operation();
+      } finally {
+        held = null;
+        execute("end", repoId, undefined, holderId, undefined, lane);
+      }
+    };
   };
+  const appendFence = fenceFor("append");
   return {
     acquire: (repoId, floor = 0) => {
       configureWriterEpochStorage({ stateRoot: options.stateRoot, repoId }, options.storage);
@@ -73,8 +78,9 @@ export function openPgWriterEpoch(options: {
     retireCurrent: (repoId) => {
       execute("retire", repoId);
     },
-    assert: (repoId, epoch, holder = holderId) => fenced(repoId, epoch, holder, () => undefined),
-    withAppendFence: fenced,
+    assert: (repoId, epoch, holder = holderId) => appendFence(repoId, epoch, holder, () => undefined),
+    withAppendFence: appendFence,
+    withFollowerFence: fenceFor("follower"),
     close: () => {
       for (const reader of readers.values()) reader.close();
       readers.clear();

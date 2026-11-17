@@ -1,13 +1,17 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { taskLifecycleWritePlan } from "@harness-anything/kernel/internal/domain/task-lifecycle-publication.ts";
-import { activateEmptyCanonicalGeneration, makeSqliteTaskEventStore } from "../../src/sqlite/index.ts";
+import {
+  activateEmptyCanonicalGeneration,
+  makeSqliteTaskEventStore,
+  openSqliteEventStore,
+} from "../../src/sqlite/index.ts";
 import { publishPendingSqliteGitOutbox } from "../../src/store/sqlite-git-outbox-publisher.ts";
 import { localGitProcessCount } from "../../src/store/local-version-control-system.ts";
 import { openPersistentWriterEpoch } from "../../src/writer-epoch.ts";
@@ -67,7 +71,13 @@ test("an old writer epoch cannot publish or acknowledge a pending Git outbox", a
   await store.drain();
   const head = git(rootDir, "rev-parse", "HEAD");
   epoch.acquire(repoId);
-  await assert.rejects(publishPendingSqliteGitOutbox({ repoId, rootDir, withAppendFence }));
+  await assert.rejects(
+    publishPendingSqliteGitOutbox({
+      repoId,
+      rootDir,
+      withFollowerFence: (work) => epoch.withFollowerFence(repoId, first.epoch, first.holderId, work),
+    }),
+  );
   assert.equal(git(rootDir, "rev-parse", "HEAD"), head, "stale publisher cannot advance the Git ref");
   const reopened = makeSqliteTaskEventStore({ repoId, rootDir });
   try {
@@ -160,5 +170,34 @@ test("delegated acceptance validates corrupted content at the authoritative stor
   } finally {
     await host.drain();
     await writer.drain();
+  }
+});
+
+// F2: accepting a newer cut while the host publishes must not erase its recovery baseline.
+test("acknowledging an older Git cut retains newer canonical outbox baselines", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "outbox-baseline-race-")),
+    repoId = "outbox-baseline-race";
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  activateEmptyCanonicalGeneration({ rootInput: rootDir, repoId });
+  mkdirSync(path.join(rootDir, "harness/context"), { recursive: true });
+  writeFileSync(path.join(rootDir, "harness/context/second.md"), "second");
+  const store = makeSqliteTaskEventStore({ repoId, rootDir }),
+    sqlite = openSqliteEventStore({ repoId, rootInput: rootDir, generation: 3 });
+  try {
+    store.append(docBundle(store, "first", 1, "first", "context/first.md"));
+    store.append(docBundle(store, "second", 2, "second", "context/second.md"));
+    assert.equal(sqlite.gitOutboxState().baselines.has("context/second.md"), true);
+    sqlite.markGitOutboxPublished({ revision: 1, commitSha: null, clearBaselines: true });
+    assert.equal(
+      sqlite.gitOutboxState().baselines.has("context/second.md"),
+      true,
+      "newer durable baseline survives earlier acknowledgement",
+    );
+    assert.equal(sqlite.gitOutboxState().pendingRevision, 2);
+    sqlite.markGitOutboxPublished({ revision: 2, commitSha: null, clearBaselines: true });
+    assert.equal(sqlite.gitOutboxState().baselines.size, 0);
+  } finally {
+    sqlite.close();
+    await store.drain();
   }
 });

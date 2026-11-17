@@ -681,7 +681,13 @@ function openSqliteEventStoreInternal(
             "updated_at=excluded.updated_at",
           [revision, revision, commitSha, now],
         );
-        if (clearBaselines) query("DELETE FROM git_outbox_baseline");
+        if (clearBaselines)
+          // A canonical append may advance the outbox while Git is publishing this cut.
+          // Keep its durable baselines until the follower has reached that newer revision.
+          query(
+            "DELETE FROM git_outbox_baseline WHERE (SELECT pending_revision FROM git_outbox WHERE singleton=1)<=?",
+            [revision],
+          );
         else if (settledPaths?.length)
           for (const target of settledPaths) query("DELETE FROM git_outbox_baseline WHERE logical_path=?", [target]);
       }),

@@ -93,6 +93,7 @@ function openRepoEpochAuthority(options: {
           "version=excluded.version, issued_at=excluded.issued_at",
       );
   let closed = false;
+  let followerDatabase: DatabaseSync | undefined;
   const ensureOpen = (): void => {
     if (closed) throw new WriterEpochError("writer_epoch_invalid", "writer epoch authority is closed");
   };
@@ -100,20 +101,18 @@ function openRepoEpochAuthority(options: {
     const row = selectCurrent.get(repoId) as EpochRow | undefined;
     return row ? leaseFromRow(row) : null;
   };
-  const withImmediateTransaction = <T>(operation: () => T): T => {
+  const withImmediateTransaction = <T>(operation: () => T, target = database): T => {
     ensureOpen();
-    /* @gate-identity state-store/execution.source.storage.src.writer-epoch.sqlite-database */ database.exec(
+    /* @gate-identity state-store/execution.source.storage.src.writer-epoch.sqlite-database */ target.exec(
       "BEGIN IMMEDIATE",
     );
     try {
       const result = operation();
-      /* @gate-identity state-store/execution.source.storage.src.writer-epoch.sqlite-database */ database.exec(
-        "COMMIT",
-      );
+      /* @gate-identity state-store/execution.source.storage.src.writer-epoch.sqlite-database */ target.exec("COMMIT");
       return result;
     } catch (error) {
       try {
-        /* @gate-identity state-store/execution.source.storage.src.writer-epoch.sqlite-database */ database.exec(
+        /* @gate-identity state-store/execution.source.storage.src.writer-epoch.sqlite-database */ target.exec(
           "ROLLBACK",
         );
       } catch (rollbackError) {
@@ -121,6 +120,15 @@ function openRepoEpochAuthority(options: {
       }
       throw error;
     }
+  };
+  // The follower lock contains no epoch state. Both lanes read the single writer_epochs
+  // authority; takeover/retirement acquire follower -> append before changing that row.
+  // A crash therefore cannot leave two epoch copies disagreeing. WAL readers do not
+  // reserve the canonical database's write lock while Git runs under the follower lock.
+  const withFollowerTransaction = <T>(operation: () => T): T => {
+    ensureOpen();
+    followerDatabase ??= openEpochDatabase(options.databasePath.replace(/\.sqlite$/u, ".follower.sqlite"));
+    return withImmediateTransaction(operation, followerDatabase);
   };
   const initialEpochFloor = options.initialEpochFloor;
   if (initialEpochFloor !== undefined) {
@@ -146,26 +154,28 @@ function openRepoEpochAuthority(options: {
       ensureOpen();
       if (!Number.isSafeInteger(observedLedgerEpoch) || observedLedgerEpoch < 0)
         throw new WriterEpochError("writer_epoch_invalid", "Observed ledger epoch must be a nonnegative safe integer");
-      return withImmediateTransaction(() => {
-        const previous = readCurrent(repoId),
-          floor = Number((selectFloor.get(repoId) as { readonly floor: number | null }).floor ?? 0),
-          epoch = Math.max(previous?.epoch ?? 0, floor, observedLedgerEpoch) + 1,
-          lease: WriterEpochLease = {
-            repoId,
-            holderId: options.holderId,
-            epoch,
-            version: Math.max(previous?.version ?? 0, floor) + 1,
-            issuedAt: options.now(),
-          } satisfies WriterEpochLease;
-        if (!Number.isSafeInteger(epoch))
-          throw new WriterEpochError(
-            "writer_epoch_invalid",
-            `writer epoch for ${repoId} exceeds the safe integer range`,
-          );
-        insertHistory.run(repoId, lease.epoch);
-        upsertCurrent.run(repoId, lease.holderId, lease.epoch, lease.version, lease.issuedAt);
-        return lease;
-      });
+      return withFollowerTransaction(() =>
+        withImmediateTransaction(() => {
+          const previous = readCurrent(repoId),
+            floor = Number((selectFloor.get(repoId) as { readonly floor: number | null }).floor ?? 0),
+            epoch = Math.max(previous?.epoch ?? 0, floor, observedLedgerEpoch) + 1,
+            lease: WriterEpochLease = {
+              repoId,
+              holderId: options.holderId,
+              epoch,
+              version: Math.max(previous?.version ?? 0, floor) + 1,
+              issuedAt: options.now(),
+            } satisfies WriterEpochLease;
+          if (!Number.isSafeInteger(epoch))
+            throw new WriterEpochError(
+              "writer_epoch_invalid",
+              `writer epoch for ${repoId} exceeds the safe integer range`,
+            );
+          insertHistory.run(repoId, lease.epoch);
+          upsertCurrent.run(repoId, lease.holderId, lease.epoch, lease.version, lease.issuedAt);
+          return lease;
+        }),
+      );
     },
     current: (repoId: string): WriterEpochLease | null => {
       ensureOpen();
@@ -178,9 +188,11 @@ function openRepoEpochAuthority(options: {
       return Math.max(current, history);
     },
     retireCurrent: (repoId: string): void => {
-      withImmediateTransaction(() => {
-        deleteCurrent.run(repoId);
-      });
+      withFollowerTransaction(() =>
+        withImmediateTransaction(() => {
+          deleteCurrent.run(repoId);
+        }),
+      );
     },
     assert: (repoId: string, epoch: number, expectedHolderId: string): void => {
       ensureOpen();
@@ -191,9 +203,15 @@ function openRepoEpochAuthority(options: {
         assertState(repoId, epoch, expectedHolderId);
         return operation();
       }),
+    withFollowerFence: <T>(repoId: string, epoch: number, expectedHolderId: string, operation: () => T): T =>
+      withFollowerTransaction(() => {
+        assertState(repoId, epoch, expectedHolderId);
+        return operation();
+      }),
     close: () => {
       if (closed) return;
       closed = true;
+      followerDatabase?.close();
       database.close();
     },
   };
@@ -515,6 +533,8 @@ export function openPersistentWriterEpoch(options: {
       authorityFor(repoId).assert(repoId, epoch, expectedHolderId),
     withAppendFence: (repoId, epoch, expectedHolderId, operation) =>
       authorityFor(repoId).withAppendFence(repoId, epoch, expectedHolderId, operation),
+    withFollowerFence: (repoId, epoch, expectedHolderId, operation) =>
+      authorityFor(repoId).withFollowerFence(repoId, epoch, expectedHolderId, operation),
     close: () => {
       if (closed) return;
       closed = true;
@@ -546,6 +566,16 @@ function descriptorAuthority(descriptor: WriterEpochFenceDescriptor): Persistent
 
 export function withWriterEpochFenceDescriptor<T>(descriptor: WriterEpochFenceDescriptor, operation: () => T): T {
   return descriptorAuthority(descriptor).withAppendFence(
+    descriptor.repoId,
+    descriptor.epoch,
+    descriptor.holderId,
+    operation,
+  );
+}
+
+/** Host follower mutations exclude takeover, without excluding canonical appends. */
+export function withFollowerEpochFenceDescriptor<T>(descriptor: WriterEpochFenceDescriptor, operation: () => T): T {
+  return descriptorAuthority(descriptor).withFollowerFence(
     descriptor.repoId,
     descriptor.epoch,
     descriptor.holderId,
