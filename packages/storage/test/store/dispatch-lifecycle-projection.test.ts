@@ -129,7 +129,7 @@ test("a v6 lifecycle cache refolds owner abandonment without claiming a physical
       admitted = requested("abandoned-dispatch", "abandoned-session"),
       running = started("abandoned-session"),
       terminal = outcome("abandoned-session", "unknown");
-    assert.equal(terminal.type, "runtime_session_outcome_observed");
+    assert.ok(terminal.type === "runtime_session_outcome_observed");
     const events = [
       admitted,
       running,

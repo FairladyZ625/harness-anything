@@ -323,6 +323,7 @@ test("runtime cancel settles a missing-process stream only after its canonical g
         readonly type: string;
         readonly payload: Record<string, unknown>;
         readonly resultBody?: string;
+        readonly binding: unknown;
       }> = [],
       context = {
         input: { rootDir, repoId: "cancel-missing-process", now: () => "2026-11-11T00:00:00.000Z" },
@@ -354,10 +355,10 @@ test("runtime cancel settles a missing-process stream only after its canonical g
           type: string,
           payload: Record<string, unknown>,
           _opId: string,
-          _binding: unknown,
+          eventBinding: unknown,
           resultBody?: string,
         ) => {
-          published.push({ type, payload, resultBody });
+          published.push({ type, payload, resultBody, binding: eventBinding });
           return {};
         },
         controlReceipt: (_opId: string, _runtimeSessionId: string, detail: string) => ({ detail }),
@@ -372,6 +373,11 @@ test("runtime cancel settles a missing-process stream only after its canonical g
       "Runtime session cancelled after its worker process was no longer available.",
     );
     assert.equal(receipt.detail, "cancelled");
+    assert.deepEqual(
+      published.find(({ type }) => type === "runtime_session_cancelled")?.binding,
+      { actor: binding.actor, source: "local" },
+      "owner cancellation must keep the admitted source even when the fresh owner arrived through another node",
+    );
     assert.deepEqual(
       published.map(({ type, payload }) => [type, payload]),
       [

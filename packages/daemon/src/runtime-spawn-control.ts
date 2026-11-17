@@ -214,24 +214,26 @@ export async function cancelRuntime(
           `[runtime-temp] ${instanceId}/${runtimeSessionId} could not be reclaimed after owner loss: ${failure.message}`,
         );
     }
-    const terminalBinding = {
-      ...binding,
-      source: ownerBinding.source,
-      actor: {
-        principal: binding.actor.principal,
-        executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
-      },
-    };
+    const ownerControlBinding = { ...binding, source: ownerBinding.source },
+      terminalBinding = {
+        ...ownerControlBinding,
+        actor: {
+          principal: binding.actor.principal,
+          executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
+        },
+      };
     await context.publishRuntimeEvent(
       "runtime_session_exited",
       { runtimeSessionId },
       `${opId}-exited`,
       terminalBinding,
     );
-    await context.publishRuntimeEvent("runtime_session_cancelled", { runtimeSessionId }, `${opId}-cancelled`, {
-      ...binding,
-      source: ownerBinding.source,
-    });
+    await context.publishRuntimeEvent(
+      "runtime_session_cancelled",
+      { runtimeSessionId },
+      `${opId}-cancelled`,
+      ownerControlBinding,
+    );
     const resultBody = "Runtime session cancelled after its worker process was no longer available.",
       resultSha256 = createHash("sha256").update(resultBody).digest("hex");
     await context.publishRuntimeEvent(
