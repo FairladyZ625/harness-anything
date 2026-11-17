@@ -6819,6 +6819,42 @@
         "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.FileHandle.writeFile"
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/walreceiver.ts#receivePackStream.finalizeCurrentObject:3607cda122a905f55c6c73ef62aab4c9",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.rm"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/walreceiver.ts#receivePackStream:99aca0206893b200eb3907cf288eb70f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/walreceiver.ts#receivePackStream:56a1bf0d3df9d53a7d6b303b3538c419",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.FileHandle.writeFile"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/walreceiver.ts#receivePackStream:15420ba0a63ea85e55b9259ea5efafa6",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.rm"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/walreceiver.ts#runWalReceiver:077fd1bbc8f6927c60a2e2735efdd1e8",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.rm"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/walsender.ts#streamObjectPack:6639f47c442b784d7ea1327592eef06e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/buffer.d.ts#Buffer.write"
+      },
+      {
         "candidateId": "action:packages/storage:packages/storage/src/durable-file.ts#openTemporaryFile.close:fe2dd164e2953bc3a73ed350f9390bac",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -8810,7 +8846,7 @@
         "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.retireBackup:94b609ff788c72cd3a26cb7798bb9320",
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.retireBackup:18996ec0ece1e5952065371d90f9ac88",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
@@ -9260,7 +9296,7 @@
         "port": "node_modules/@types/node/net.d.ts#net.Socket.write"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/peer.ts#runFleetReplicaStream.replicationPeer.send.flushed:21cf7da59a61bcbf636937eefdc7b21a",
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/peer.ts#runFleetReplicaStream.replicationPeer.send.flushed:07bddd91eb9120c6137bdb8c3fab038e",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/net.d.ts#net.Socket.write"

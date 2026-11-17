@@ -13,7 +13,14 @@ export class ReplicationError extends Error {
 
 export const REPLICATION_FRAME_BYTES = daemonProtocolFleetPolicy.defaultValue.fleet.frameBytes;
 export const REPLICATION_CHUNK_BYTES = daemonProtocolFleetPolicy.defaultValue.fleet.chunkBytes;
+export const REPLICATION_BINARY_CHUNK_BYTES = REPLICATION_CHUNK_BYTES * 4;
+export const REPLICATION_OBJECT_MANIFEST_BATCH = 500;
+export const REPLICATION_OBJECT_PACK_MAX_BYTES = 8 * 1024 * 1024;
 export const SNAPSHOT_RESUME_CAPABILITY = "snapshot-resume/v1";
+export const SNAPSHOT_BINARY_WIRE_CAPABILITY = "snapshot-binary-wire/v1";
+export const SNAPSHOT_OBJECT_PACK_CAPABILITY = "snapshot-object-pack/v1";
+export const BINARY_DATA_FRAME_TAG = 0x00;
+export const BINARY_DATA_HEADER_BYTES = 13;
 
 export type ReplicationFrame =
   | {
@@ -46,9 +53,20 @@ export type ReplicationFrame =
       readonly sha256: string;
       readonly snapshotId?: string;
       readonly resumeOffset?: number;
+      readonly objectsMode?: "inline" | "pack";
+      readonly objectCount?: number;
     }
   | { readonly type: "replica.data"; readonly offset: number; readonly data: string }
+  | { readonly type: "replica.data.bin"; readonly offset: number; readonly data: Uint8Array }
   | { readonly type: "replica.backup.end" }
+  | {
+      readonly type: "replica.objects.manifest";
+      readonly entries: readonly { readonly sha256: string; readonly size: number }[];
+      readonly done: boolean;
+    }
+  | { readonly type: "replica.objects.want"; readonly sha256s: readonly string[] }
+  | { readonly type: "replica.objects.pack"; readonly totalBytes: number; readonly count: number }
+  | { readonly type: "replica.objects.pack.end" }
   | { readonly type: "replica.commit"; readonly size: number }
   | { readonly type: "replica.object"; readonly sha256: string; readonly size: number }
   | { readonly type: "replica.object.end" }
@@ -116,23 +134,25 @@ const isReplicaAccept = (value: unknown): boolean =>
     },
   );
 const isReplicaBackup = (value: unknown): boolean =>
-  object(value) &&
-  (shape(value, {
-    type: (v: unknown) => v === "replica.backup",
-    metadata: isBaseBackupMetadata,
-    size: uint,
-    sha256: hash,
-  }) ||
-    (shape(value, {
+  optionalShape(
+    value,
+    {
       type: (v: unknown) => v === "replica.backup",
       metadata: isBaseBackupMetadata,
       size: uint,
       sha256: hash,
+    },
+    {
       snapshotId: text,
       resumeOffset: uint,
-    }) &&
-      (value as { readonly resumeOffset: number; readonly size: number }).resumeOffset <=
-        (value as { readonly size: number }).size));
+      objectsMode: (v: unknown) => v === "inline" || v === "pack",
+      objectCount: uint,
+    },
+  ) &&
+  Object.hasOwn(value as object, "snapshotId") === Object.hasOwn(value as object, "resumeOffset") &&
+  ((value as { readonly resumeOffset?: number }).resumeOffset === undefined ||
+    (value as { readonly resumeOffset: number; readonly size: number }).resumeOffset <=
+      (value as { readonly size: number }).size);
 export const isReplicationPosition = (value: unknown): value is ReplicationPosition =>
   shape(value, { history: text, sequence: uint, revision: uint });
 export const isBaseBackupMetadata = (value: unknown): value is BaseBackupMetadata =>
@@ -192,6 +212,16 @@ function parseReplicationFrameValue(value: unknown): ReplicationFrame {
         Buffer.byteLength(v, "base64") <= REPLICATION_CHUNK_BYTES,
     },
     "replica.backup.end": {},
+    "replica.objects.manifest": {
+      entries: (v) =>
+        Array.isArray(v) && v.length <= 1024 && v.every((entry) => shape(entry, { sha256: hash, size: uint })),
+      done: (v) => typeof v === "boolean",
+    },
+    "replica.objects.want": {
+      sha256s: (v) => Array.isArray(v) && v.length <= 1024 && v.every(hash),
+    },
+    "replica.objects.pack": { totalBytes: uint, count: uint },
+    "replica.objects.pack.end": {},
     "replica.commit": { size: uint },
     "replica.object": { sha256: hash, size: uint },
     "replica.object.end": {},
@@ -214,35 +244,86 @@ function parseReplicationFrameValue(value: unknown): ReplicationFrame {
 }
 
 export function serializeReplicationFrame(frame: ReplicationFrame): string {
+  if (frame.type === "replica.data.bin") {
+    throw new Error("replica.data.bin requires binary wire serialization");
+  }
   const line = JSON.stringify(frame);
   if (Buffer.byteLength(line) > REPLICATION_FRAME_BYTES) throw new Error("replication frame exceeds capacity");
   return `${line}\n`;
 }
 
+export function serializeReplicationWireFrame(frame: ReplicationFrame): string | Buffer {
+  if (frame.type === "replica.data.bin") {
+    if (!Number.isSafeInteger(frame.offset) || frame.offset < 0)
+      throw new Error("invalid binary replication frame offset");
+    if (frame.data.byteLength === 0 || frame.data.byteLength > REPLICATION_BINARY_CHUNK_BYTES)
+      throw new Error("binary replication frame exceeds capacity");
+    const wire = Buffer.allocUnsafe(BINARY_DATA_HEADER_BYTES + frame.data.byteLength);
+    wire[0] = BINARY_DATA_FRAME_TAG;
+    wire.writeBigUInt64BE(BigInt(frame.offset), 1);
+    wire.writeUInt32BE(frame.data.byteLength, 9);
+    Buffer.from(frame.data.buffer, frame.data.byteOffset, frame.data.byteLength).copy(wire, BINARY_DATA_HEADER_BYTES);
+    return wire;
+  }
+  return serializeReplicationFrame(frame);
+}
+
 export class ReplicationDecoder {
-  readonly #decoder = new TextDecoder("utf-8", { fatal: true });
-  #pending = "";
+  #pending: Buffer = Buffer.alloc(0);
   push(chunk: Uint8Array): readonly ReplicationFrame[] {
-    try {
-      this.#pending += this.#decoder.decode(chunk, { stream: true });
-    } catch (error) {
-      const failure = error instanceof Error ? error : new Error(String(error));
-      failure.message += `; frame=${JSON.stringify({ pendingBytes: Buffer.byteLength(this.#pending), chunkBytes: chunk.byteLength })}`;
-      throw failure;
+    if (chunk.byteLength > 0) {
+      const incoming = Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+      this.#pending = this.#pending.length === 0 ? Buffer.from(incoming) : Buffer.concat([this.#pending, incoming]);
     }
     const frames: ReplicationFrame[] = [];
-    for (;;) {
-      const newline = this.#pending.indexOf("\n");
-      if (newline < 0) break;
-      frames.push(parseReplicationFrame(this.#pending.slice(0, newline)));
-      this.#pending = this.#pending.slice(newline + 1);
+    while (this.#pending.length > 0) {
+      if (this.#pending[0] === BINARY_DATA_FRAME_TAG) {
+        if (this.#pending.length < BINARY_DATA_HEADER_BYTES) break;
+        const offsetBig = this.#pending.readBigUInt64BE(1);
+        const length = this.#pending.readUInt32BE(9);
+        if (offsetBig > BigInt(Number.MAX_SAFE_INTEGER) || length === 0 || length > REPLICATION_BINARY_CHUNK_BYTES) {
+          throw new Error(
+            `invalid binary replication frame; frame=${JSON.stringify({ offset: offsetBig.toString(), length })}`,
+          );
+        }
+        const total = BINARY_DATA_HEADER_BYTES + length;
+        if (this.#pending.length < total) break;
+        const data = Buffer.from(this.#pending.subarray(BINARY_DATA_HEADER_BYTES, total));
+        this.#pending = this.#pending.subarray(total);
+        frames.push({ type: "replica.data.bin", offset: Number(offsetBig), data });
+        continue;
+      }
+      const newline = this.#pending.indexOf(0x0a);
+      if (newline < 0) {
+        try {
+          new TextDecoder("utf-8", { fatal: true }).decode(this.#pending, { stream: true });
+        } catch (error) {
+          const failure = error instanceof Error ? error : new Error(String(error));
+          failure.message += `; frame=${JSON.stringify({ pendingBytes: this.#pending.length, chunkBytes: chunk.byteLength })}`;
+          throw failure;
+        }
+        break;
+      }
+      let line: string;
+      try {
+        line = new TextDecoder("utf-8", { fatal: true }).decode(this.#pending.subarray(0, newline));
+      } catch (error) {
+        const failure = error instanceof Error ? error : new Error(String(error));
+        failure.message += `; frame=${JSON.stringify({ pendingBytes: newline, chunkBytes: chunk.byteLength })}`;
+        throw failure;
+      }
+      this.#pending = this.#pending.subarray(newline + 1);
+      frames.push(parseReplicationFrame(line));
     }
-    if (Buffer.byteLength(this.#pending) > REPLICATION_FRAME_BYTES)
-      throw new Error(`replication pending frame exceeds capacity; frameBytes=${Buffer.byteLength(this.#pending)}`);
+    if (
+      this.#pending.length > 0 &&
+      this.#pending[0] !== BINARY_DATA_FRAME_TAG &&
+      this.#pending.length > REPLICATION_FRAME_BYTES
+    )
+      throw new Error(`replication pending frame exceeds capacity; frameBytes=${this.#pending.length}`);
     return frames;
   }
   finish(): void {
-    this.#pending += this.#decoder.decode();
     if (this.#pending.length) throw new Error("replication stream ended mid-frame");
   }
 }

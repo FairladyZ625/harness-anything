@@ -69,7 +69,13 @@ import { FleetFault } from "./center-types.ts";
 import { type FleetFrameV1 } from "./command-protocol.ts";
 import type { FleetOverviewResult } from "./fleet-overview-read.ts";
 import { openFleetStorage, hasDaemonGitFollower } from "@harness-anything/storage";
-import { isBaseBackupMetadata, isReplicationPosition, SNAPSHOT_RESUME_CAPABILITY } from "./protocol.ts";
+import {
+  isBaseBackupMetadata,
+  isReplicationPosition,
+  SNAPSHOT_BINARY_WIRE_CAPABILITY,
+  SNAPSHOT_OBJECT_PACK_CAPABILITY,
+  SNAPSHOT_RESUME_CAPABILITY,
+} from "./protocol.ts";
 import { runWalSender } from "./walsender.ts";
 import { createReplicationRetention, openReplicationSlots, replicationSlotKey } from "@harness-anything/storage";
 import { createNodeRetirementAdmission } from "./node-retirement.ts";
@@ -370,17 +376,21 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     readonly schema: "fleet-snapshot-pin/v1";
     readonly snapshotId: string;
     readonly repoId: string;
+    readonly mode?: "monolithic" | "split";
     readonly metadata: BaseBackupMetadata;
     readonly position: import("@harness-anything/storage").ReplicationPosition;
     readonly size: number;
     readonly sha256: string;
     readonly archiveFile: string;
+    readonly objectsFile?: string;
+    readonly objectCount?: number;
     readonly createdAt: string;
     readonly expiresAt: string;
   }
   type CachedBackup = {
     readonly snapshotId: string;
     readonly repoId: string;
+    readonly mode: "monolithic" | "split";
     readonly archive: Promise<BaseBackupArchive>;
     readonly directory: string;
     readonly controller: AbortController;
@@ -415,7 +425,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   const retireBackup = (cached: CachedBackup): void => {
     if (cached.retired) return;
     cached.retired = true;
-    if (backupCache.get(cached.repoId) === cached) backupCache.delete(cached.repoId);
+    const cacheKey = `${cached.repoId}:${cached.mode}`;
+    if (backupCache.get(cacheKey) === cached) backupCache.delete(cacheKey);
     pinnedSnapshots.delete(cached.snapshotId);
     if (cached.building) cached.controller.abort();
     const cleanup = () => {
@@ -491,7 +502,13 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
               expiresAtMs > now
             ) {
               const archivePath = path.join(snapshotDir, pin.archiveFile);
-              if (existsSync(archivePath) && statSync(archivePath).size === pin.size) {
+              const pinMode: "monolithic" | "split" = pin.mode === "split" ? "split" : "monolithic";
+              const objectsPath =
+                pinMode === "split" && typeof pin.objectsFile === "string" && !path.isAbsolute(pin.objectsFile)
+                  ? path.join(snapshotDir, pin.objectsFile)
+                  : undefined;
+              const objectsValid = pinMode !== "split" || (objectsPath !== undefined && existsSync(objectsPath));
+              if (existsSync(archivePath) && statSync(archivePath).size === pin.size && objectsValid) {
                 const unpin = retentionFor(repoId).pin(pin.position);
                 let retained = true;
                 const archiveValue: BaseBackupArchive = {
@@ -499,10 +516,14 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
                   file: archivePath,
                   size: pin.size,
                   sha256: pin.sha256,
+                  mode: pinMode,
+                  ...(objectsPath ? { objectsFile: objectsPath } : {}),
+                  ...(typeof pin.objectCount === "number" ? { objectCount: pin.objectCount } : {}),
                 };
                 const cached: CachedBackup = {
                   snapshotId: pin.snapshotId,
                   repoId,
+                  mode: pinMode,
                   archive: Promise.resolve(archiveValue),
                   directory: snapshotDir,
                   controller: new AbortController(),
@@ -602,12 +623,16 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
       throw new FleetFault(failure.code, failure.message);
     }
-    const supportsSnapshotResume = frame.capabilities?.includes(SNAPSHOT_RESUME_CAPABILITY) ?? false;
+    const acceptedCapabilities = [
+      ...(frame.capabilities?.includes(SNAPSHOT_RESUME_CAPABILITY) ? [SNAPSHOT_RESUME_CAPABILITY] : []),
+      ...(frame.capabilities?.includes(SNAPSHOT_BINARY_WIRE_CAPABILITY) ? [SNAPSHOT_BINARY_WIRE_CAPABILITY] : []),
+      ...(frame.capabilities?.includes(SNAPSHOT_OBJECT_PACK_CAPABILITY) ? [SNAPSHOT_OBJECT_PACK_CAPABILITY] : []),
+    ];
     await peer.send({
       type: "replica.accept",
       centerBuildCommit,
       taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
-      ...(supportsSnapshotResume ? { capabilities: [SNAPSHOT_RESUME_CAPABILITY] } : {}),
+      ...(acceptedCapabilities.length > 0 ? { capabilities: acceptedCapabilities } : {}),
     });
     const rootDir = repoRoot(frame.repoId);
     const store = openFleetStorage({ rootDir, repoId: frame.repoId, storage: options.storage?.[frame.repoId] });
@@ -676,11 +701,20 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       backup: async (
         backupSignal: AbortSignal,
         resumeSnapshot?: { readonly snapshotId: string; readonly offset: number },
+        backupOptions?: { readonly mode?: "monolithic" | "split" },
       ) => {
+        const mode: "monolithic" | "split" = backupOptions?.mode === "split" ? "split" : "monolithic";
+        const cacheKey = `${frame.repoId}:${mode}`;
         evictSnapshotsIfNeeded();
         if (resumeSnapshot && resumeSnapshot.offset > 0) {
           const pinned = pinnedSnapshots.get(resumeSnapshot.snapshotId);
-          if (pinned && pinned.repoId === frame.repoId && !pinned.retired && Date.now() < pinned.expiresAtMs) {
+          if (
+            pinned &&
+            pinned.repoId === frame.repoId &&
+            pinned.mode === mode &&
+            !pinned.retired &&
+            Date.now() < pinned.expiresAtMs
+          ) {
             replicaStatus.recordActivity(replicaKeyForNode, "waiting_shared_backup");
             pinned.users += 1;
             listenForBackupQueue(pinned, nodeId, frame.repoId);
@@ -696,7 +730,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             }
           }
         }
-        const cached = backupCache.get(frame.repoId);
+        const cached = backupCache.get(cacheKey);
         if (cached && !cached.retired && Date.now() < cached.expiresAtMs) {
           replicaStatus.recordActivity(replicaKeyForNode, "waiting_shared_backup");
           cached.users += 1;
@@ -719,6 +753,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           cachedArchive: CachedBackup = {
             snapshotId,
             repoId: frame.repoId,
+            mode,
             archive,
             directory,
             controller: new AbortController(),
@@ -737,7 +772,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         listenForBackupQueue(cachedArchive, nodeId, frame.repoId);
         // Publish the in-flight archive before queue admission or any other await, so same-repo
         // first-time edges become users of this entry instead of scheduling a second build.
-        backupCache.set(frame.repoId, cachedArchive);
+        backupCache.set(cacheKey, cachedArchive);
         let releaseSlot: ((completed?: boolean) => void) | undefined,
           completed = false;
         void (async () => {
@@ -758,6 +793,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           return options.host.replica(frame.repoId).backup(
             {
               directory,
+              mode,
               writerEpochFence: {
                 schema: "harness-writer-epoch-fence/v1",
                 stateRoot: options.writerEpochStateRoot ?? options.stateRoot,
@@ -782,11 +818,14 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
                 schema: "fleet-snapshot-pin/v1",
                 snapshotId,
                 repoId: frame.repoId,
+                mode,
                 metadata: { ...built.metadata, readerProfile: null },
                 position: built.metadata.position,
                 size: built.size,
                 sha256: built.sha256,
                 archiveFile: path.basename(built.file),
+                ...(built.objectsFile ? { objectsFile: path.basename(built.objectsFile) } : {}),
+                ...(built.objectCount !== undefined ? { objectCount: built.objectCount } : {}),
                 createdAt: new Date(createdAtMs).toISOString(),
                 expiresAt: new Date(expiresAtMs).toISOString(),
               };

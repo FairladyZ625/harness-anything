@@ -13,6 +13,7 @@ import path from "node:path";
 import {
   ReplicationDecoder,
   serializeReplicationFrame,
+  serializeReplicationWireFrame,
   type ReplicationFrame,
   type ReplicationPeer,
 } from "./protocol.ts";
@@ -296,7 +297,13 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
     opened = current ? openWalReceiverGeneration(current) : null;
     const target = {
       position: () => opened?.position() ?? null,
-      install: async (archive: string, metadata: BaseBackupMetadata, size: number, sha256: string) => {
+      install: async (
+        archive: string,
+        metadata: BaseBackupMetadata,
+        size: number,
+        sha256: string,
+        installOptions?: { readonly stagedObjectsDir?: string },
+      ) => {
         const installed = await installReplicaGeneration({
           root: viewRoot,
           archive,
@@ -304,6 +311,7 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
           size,
           sha256,
           quotaBytes: options.diskQuotaBytes,
+          ...(installOptions?.stagedObjectsDir ? { stagedObjectsDir: installOptions.stagedObjectsDir } : {}),
         });
         pendingChangedPaths = null;
         const prior = opened;
@@ -348,7 +356,7 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
     const replicationPeer: ReplicationPeer = {
       send: async (frame) => {
         if (closed) throw closed;
-        const flushed = socket.write(serializeReplicationFrame(frame));
+        const flushed = socket.write(serializeReplicationWireFrame(frame));
         if (frame.type === "replica.ack") {
           const changedPaths = pendingChangedPaths;
           pendingChangedPaths = new Set();

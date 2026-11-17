@@ -31,6 +31,7 @@ import { encodeFleetFrames, FleetTransferAssembler, FleetTransferError } from ".
 import {
   parseReplicationFrame,
   serializeReplicationFrame,
+  serializeReplicationWireFrame,
   type ReplicationFrame,
   type ReplicationPeer,
 } from "./protocol.ts";
@@ -242,7 +243,7 @@ export async function serve(
     };
   const replicationPeer: ReplicationPeer = {
     send: async (frame) => {
-      const line = serializeReplicationFrame(frame);
+      const line = serializeReplicationWireFrame(frame);
       if (!socket.write(line)) {
         if (nodeId !== null && replicationRepoId !== null)
           replicaStatus.recordActivity({ nodeId, repoId: replicationRepoId }, "waiting_socket_drain");

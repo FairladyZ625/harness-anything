@@ -12,17 +12,26 @@ export interface BaseBackupMetadata {
   readonly ledgerGeneration: number;
   readonly projectionSchema: number;
 }
+export type BaseBackupMode = "monolithic" | "split";
+export interface BaseBackupObjectEntry {
+  readonly sha256: string;
+  readonly size: number;
+}
 export interface BaseBackupArchive {
   readonly metadata: BaseBackupMetadata;
   readonly file: string;
   readonly size: number;
   readonly sha256: string;
+  readonly mode?: BaseBackupMode;
+  readonly objectsFile?: string;
+  readonly objectCount?: number;
 }
 export interface SqliteBaseBackupInput {
   readonly readerProfile?: BaseBackupMetadata["readerProfile"];
   readonly ledgerPath: string;
   readonly projectionPath: string;
   readonly directory: string;
+  readonly mode?: BaseBackupMode;
 }
 export interface PostgresBaseBackupInput {
   readonly readerProfile?: BaseBackupMetadata["readerProfile"];
@@ -31,6 +40,7 @@ export interface PostgresBaseBackupInput {
     | import("./storage-backend.ts").PGliteStorageBackendConfig;
   readonly repoId: string;
   readonly directory: string;
+  readonly mode?: BaseBackupMode;
 }
 export type BaseBackupInput = SqliteBaseBackupInput | PostgresBaseBackupInput;
 /** Observational span lasts through archive completion, beyond the earlier writer-barrier release. */

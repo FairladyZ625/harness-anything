@@ -17,7 +17,7 @@ import { readFileSync } from "node:fs";
 import { connect } from "node:tls";
 import { replicationSocketLines } from "./fleet-replication-lines.mjs";
 import { parseFleetFrame, serializeFleetFrame } from "../../src/fleet/command-protocol.ts";
-import { parseReplicationFrame, serializeReplicationFrame } from "../../src/fleet/protocol.ts";
+import { ReplicationDecoder, serializeReplicationWireFrame } from "../../src/fleet/protocol.ts";
 import { runWalReceiver, openWalReceiverGeneration } from "../../src/fleet/walreceiver.ts";
 import {
   installReplicaGeneration,
@@ -117,6 +117,34 @@ async function runOneSession() {
   if (ready.schema !== "fleet.session.ready/v1") throw new Error(`session rejected: ${ready.schema}`);
   emit({ event: "connected", sessionId: ready.sessionId });
 
+  const decoder = new ReplicationDecoder();
+  const decodedQueue = [];
+  const decodedWaiters = [];
+  let streamError = null;
+  const pushBytes = (chunk) => {
+    try {
+      for (const frame of decoder.push(chunk)) {
+        const waiter = decodedWaiters.shift();
+        if (waiter) waiter.resolve(frame);
+        else decodedQueue.push(frame);
+      }
+    } catch (error) {
+      streamError = error;
+      for (const waiter of decodedWaiters.splice(0)) waiter.reject(error);
+    }
+  };
+  socket.removeAllListeners("data");
+  socket.on("data", pushBytes);
+  socket.once("close", () => {
+    streamError ??= new Error("replication socket closed");
+    for (const waiter of decodedWaiters.splice(0)) waiter.reject(streamError);
+  });
+  const nextReplicationFrame = () => {
+    if (decodedQueue.length) return Promise.resolve(decodedQueue.shift());
+    if (streamError) return Promise.reject(streamError);
+    return new Promise((resolve, reject) => decodedWaiters.push({ resolve, reject }));
+  };
+
   const observed = [];
   const peer = {
     send: async (frame) => {
@@ -124,10 +152,10 @@ async function runOneSession() {
         await ackGate();
         emit({ event: "ack", durable: frame.durable, applied: frame.applied });
       }
-      socket.write(serializeReplicationFrame(frame));
+      socket.write(serializeReplicationWireFrame(frame));
     },
     receive: async () => {
-      const frame = parseReplicationFrame(await nextLine());
+      const frame = await nextReplicationFrame();
       if (frame.type === "replica.backup") {
         emit({
           event: "backup-header",
@@ -159,7 +187,7 @@ async function runOneSession() {
   }
   const target = {
     position: () => (opened ? opened.position() : null),
-    install: async (archive, metadata, size, sha256) => {
+    install: async (archive, metadata, size, sha256, installOptions) => {
       maybeKill("after-package-verified-before-install");
       const installed = await installReplicaGeneration({
         root: mirrorRoot,
@@ -168,6 +196,7 @@ async function runOneSession() {
         sha256,
         size,
         quotaBytes,
+        ...(installOptions?.stagedObjectsDir ? { stagedObjectsDir: installOptions.stagedObjectsDir } : {}),
       });
       const generation = readReplicaGeneration(mirrorRoot);
       emit({

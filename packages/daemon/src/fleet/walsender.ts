@@ -1,16 +1,29 @@
 import type { ReplicaSyncPhase } from "./replica-status.ts";
-import { createReadStream } from "node:fs";
+import { createReadStream, readFileSync } from "node:fs";
 import {
   replicationCommitBytes,
   replicationCommitChunks,
   replicationContentClaims,
+  type BaseBackupArchive,
+  type BaseBackupMode,
+  type BaseBackupObjectEntry,
   type ReplicationCommit,
   type ReplicationPosition,
+  type ReplicationSlotLease,
+  type ReplicationSlots,
 } from "@harness-anything/storage";
 import { type PersistedCanonicalEventV1 } from "@harness-anything/kernel";
-import type { BaseBackupArchive } from "@harness-anything/storage";
-import { REPLICATION_CHUNK_BYTES, SNAPSHOT_RESUME_CAPABILITY, type ReplicationPeer } from "./protocol.ts";
-import type { ReplicationSlotLease, ReplicationSlots } from "@harness-anything/storage";
+import {
+  REPLICATION_BINARY_CHUNK_BYTES,
+  REPLICATION_CHUNK_BYTES,
+  REPLICATION_OBJECT_MANIFEST_BATCH,
+  REPLICATION_OBJECT_PACK_MAX_BYTES,
+  SNAPSHOT_BINARY_WIRE_CAPABILITY,
+  SNAPSHOT_OBJECT_PACK_CAPABILITY,
+  SNAPSHOT_RESUME_CAPABILITY,
+  type ReplicationFrame,
+  type ReplicationPeer,
+} from "./protocol.ts";
 
 export interface ReplicationSource {
   readonly authorize?: () => Promise<void>;
@@ -26,6 +39,7 @@ export interface ReplicationSource {
   readonly backup: (
     signal: AbortSignal,
     resumeSnapshot?: { readonly snapshotId: string; readonly offset: number },
+    options?: { readonly mode?: BaseBackupMode },
   ) => Promise<
     BaseBackupArchive & {
       readonly snapshotId?: string;
@@ -42,15 +56,46 @@ async function sendBytes(
   signal: AbortSignal,
   onProgress?: (bytes: number) => void,
   initialOffset = 0,
+  binaryWire = false,
 ): Promise<void> {
+  const chunkBytes = binaryWire ? REPLICATION_BINARY_CHUNK_BYTES : REPLICATION_CHUNK_BYTES;
   let offset = initialOffset;
   for await (const chunk of chunks) {
-    for (let start = 0; start < chunk.byteLength; start += REPLICATION_CHUNK_BYTES) {
+    for (let start = 0; start < chunk.byteLength; start += chunkBytes) {
       signal.throwIfAborted();
-      const bytes = Buffer.from(chunk.subarray(start, start + REPLICATION_CHUNK_BYTES));
-      await peer.send({ type: "replica.data", offset, data: bytes.toString("base64") });
+      const bytes = Buffer.from(chunk.subarray(start, start + chunkBytes));
+      if (binaryWire) {
+        await peer.send({ type: "replica.data.bin", offset, data: bytes });
+      } else {
+        await peer.send({ type: "replica.data", offset, data: bytes.toString("base64") });
+      }
       offset += bytes.length;
       onProgress?.(offset);
+    }
+  }
+}
+
+async function* streamObjectPack(
+  entries: readonly BaseBackupObjectEntry[],
+  readObject: (sha256: string) => AsyncIterable<Uint8Array>,
+  signal: AbortSignal,
+): AsyncGenerator<Uint8Array> {
+  for (const entry of entries) {
+    signal.throwIfAborted();
+    const header = Buffer.allocUnsafe(72);
+    header.write(entry.sha256, 0, 64, "ascii");
+    header.writeBigUInt64BE(BigInt(entry.size), 64);
+    yield header;
+    let written = 0;
+    for await (const chunk of readObject(entry.sha256)) {
+      signal.throwIfAborted();
+      written += chunk.byteLength;
+      yield chunk;
+    }
+    if (written !== entry.size) {
+      throw new Error(
+        `replication pack object size mismatch for ${entry.sha256}: expected ${entry.size}, got ${written}`,
+      );
     }
   }
 }
@@ -74,8 +119,7 @@ export async function runWalSender(input: {
     signal.throwIfAborted();
     if (!slots.current(lease)) throw new Error("replication session fenced");
   };
-  const acknowledge = async (sent: ReplicationPosition) => {
-    input.onActivity?.("awaiting_ack");
+  const receiveExpecting = async (): Promise<ReplicationFrame> => {
     const frame = await peer.receive(signal);
     if (frame.type === "replica.failure") {
       input.onFailure?.({ code: frame.code, message: frame.message });
@@ -83,6 +127,11 @@ export async function runWalSender(input: {
       failure.code = frame.code;
       throw failure;
     }
+    return frame;
+  };
+  const acknowledge = async (sent: ReplicationPosition) => {
+    input.onActivity?.("awaiting_ack");
+    const frame = await receiveExpecting();
     if (
       frame.type !== "replica.ack" ||
       frame.durable.sequence !== sent.sequence ||
@@ -98,6 +147,9 @@ export async function runWalSender(input: {
   const start = await peer.receive(signal);
   if (start.type !== "replica.start") throw new Error("replication start required");
   const supportsSnapshotResume = start.capabilities?.includes(SNAPSHOT_RESUME_CAPABILITY) ?? false;
+  const supportsBinaryWire = start.capabilities?.includes(SNAPSHOT_BINARY_WIRE_CAPABILITY) ?? false;
+  const supportsObjectPack = start.capabilities?.includes(SNAPSHOT_OBJECT_PACK_CAPABILITY) ?? false;
+  const wireChunkBytes = supportsBinaryWire ? REPLICATION_BINARY_CHUNK_BYTES : REPLICATION_CHUNK_BYTES;
   let position = start.position;
   let pendingResumeSnapshot = supportsSnapshotResume ? start.resumeSnapshot : undefined;
   for (;;) {
@@ -112,11 +164,12 @@ export async function runWalSender(input: {
       input.onActivity?.("waiting_backup");
       const resumeRequest = position === null ? pendingResumeSnapshot : undefined;
       pendingResumeSnapshot = undefined;
-      const archive = await source.backup(signal, resumeRequest);
+      const archive = await source.backup(signal, resumeRequest, supportsObjectPack ? { mode: "split" } : undefined);
       try {
         assertOwner();
         if (archive.metadata.position.history !== lease.history)
           throw new Error("replication history changed during backup");
+        const isSplitPack = supportsObjectPack && archive.mode === "split";
         const resumeOffset =
           supportsSnapshotResume &&
           archive.resumeOffset !== undefined &&
@@ -130,6 +183,7 @@ export async function runWalSender(input: {
           size: archive.size,
           sha256: archive.sha256,
           ...(supportsSnapshotResume && archive.snapshotId ? { snapshotId: archive.snapshotId, resumeOffset } : {}),
+          ...(isSplitPack ? { objectsMode: "pack" as const, objectCount: archive.objectCount ?? 0 } : {}),
         });
         const progress = (bytesSent: number) =>
           input.onActivity?.("sending_backup", { bytesSent, totalBytes: archive.size });
@@ -137,13 +191,67 @@ export async function runWalSender(input: {
         if (resumeOffset < archive.size) {
           await sendBytes(
             peer,
-            createReadStream(archive.file, { start: resumeOffset, highWaterMark: REPLICATION_CHUNK_BYTES }),
+            createReadStream(archive.file, { start: resumeOffset, highWaterMark: wireChunkBytes }),
             signal,
             progress,
             resumeOffset,
+            supportsBinaryWire,
           );
         }
         await peer.send({ type: "replica.backup.end" });
+        if (isSplitPack) {
+          const allObjects: readonly BaseBackupObjectEntry[] = archive.objectsFile
+            ? (JSON.parse(readFileSync(archive.objectsFile, "utf8")) as readonly BaseBackupObjectEntry[])
+            : [];
+          if (allObjects.length === 0) {
+            await peer.send({ type: "replica.objects.manifest", entries: [], done: true });
+            const want = await receiveExpecting();
+            if (want.type !== "replica.objects.want") throw new Error("expected replica.objects.want");
+          } else {
+            for (let offset = 0; offset < allObjects.length; offset += REPLICATION_OBJECT_MANIFEST_BATCH) {
+              assertOwner();
+              const batch = allObjects.slice(offset, offset + REPLICATION_OBJECT_MANIFEST_BATCH);
+              const done = offset + REPLICATION_OBJECT_MANIFEST_BATCH >= allObjects.length;
+              await peer.send({ type: "replica.objects.manifest", entries: batch, done });
+              const want = await receiveExpecting();
+              if (want.type !== "replica.objects.want") throw new Error("expected replica.objects.want");
+              if (want.sha256s.length === 0) continue;
+              const byHash = new Map(batch.map((entry) => [entry.sha256, entry]));
+              const wantedEntries: BaseBackupObjectEntry[] = [];
+              for (const sha of want.sha256s) {
+                const entry = byHash.get(sha);
+                if (!entry) throw new Error(`replica.objects.want requested unexpected object ${sha}`);
+                wantedEntries.push(entry);
+              }
+              let group: BaseBackupObjectEntry[] = [];
+              let groupPayloadBytes = 0;
+              const flushPack = async () => {
+                if (group.length === 0) return;
+                const totalBytes = group.reduce((sum, entry) => sum + 72 + entry.size, 0);
+                await peer.send({ type: "replica.objects.pack", totalBytes, count: group.length });
+                await sendBytes(
+                  peer,
+                  streamObjectPack(group, source.object, signal),
+                  signal,
+                  undefined,
+                  0,
+                  supportsBinaryWire,
+                );
+                await peer.send({ type: "replica.objects.pack.end" });
+                group = [];
+                groupPayloadBytes = 0;
+              };
+              for (const entry of wantedEntries) {
+                if (group.length > 0 && groupPayloadBytes + 72 + entry.size > REPLICATION_OBJECT_PACK_MAX_BYTES) {
+                  await flushPack();
+                }
+                group.push(entry);
+                groupPayloadBytes += 72 + entry.size;
+              }
+              await flushPack();
+            }
+          }
+        }
         await acknowledge(archive.metadata.position);
         position = archive.metadata.position;
       } finally {
@@ -163,6 +271,8 @@ export async function runWalSender(input: {
         })(),
         signal,
         commitProgress,
+        0,
+        supportsBinaryWire,
       );
       const objects = new Map<string, number>();
       for (const row of commit.events)
@@ -170,7 +280,7 @@ export async function runWalSender(input: {
           objects.set(claim.sha256, claim.size);
       for (const [sha256, size] of objects) {
         await peer.send({ type: "replica.object", sha256, size });
-        await sendBytes(peer, source.object(sha256), signal, commitProgress);
+        await sendBytes(peer, source.object(sha256), signal, commitProgress, 0, supportsBinaryWire);
         await peer.send({ type: "replica.object.end" });
       }
       await peer.send({ type: "replica.commit.end" });
