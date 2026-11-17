@@ -7,8 +7,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
-import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
-import { relayDaemonTerminal } from "../src/client/terminal-relay.ts";
+import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
+import { relayDaemonTerminal } from "../src/daemon-host/client/terminal-relay.ts";
 
 test("terminal relay shares one control connection for resize, input, and exit lookup", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-terminal-relay-")),

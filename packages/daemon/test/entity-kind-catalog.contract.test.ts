@@ -10,12 +10,12 @@ import {
   relationDirectionRegistry,
   resolveArtifactImportAction,
   resolveEntityReadKind,
-} from "../src/artifact-entity-action.ts";
-import type { VerticalDeclarationReader } from "../src/vertical-declaration-action.ts";
-import { readDeclaredEntityRows, validateEntityRowList } from "../src/entity-rows-read.ts";
-import { readEntityLocator, validateEntityLocatorRead } from "../src/entity-locator-read.ts";
-import { daemonGuiReadMethods, validateDaemonRpcCall } from "../src/protocol/daemon-protocol.contract.ts";
-import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
+} from "../src/daemon-host/artifact-entity-action.ts";
+import type { VerticalDeclarationReader } from "../src/daemon-host/vertical-declaration-action.ts";
+import { readDeclaredEntityRows, validateEntityRowList } from "../src/daemon-host/entity-rows-read.ts";
+import { readEntityLocator, validateEntityLocatorRead } from "../src/daemon-host/entity-locator-read.ts";
+import { daemonGuiReadMethods, validateDaemonRpcCall } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
 import { defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
 
 const ADR_KIND = "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94",

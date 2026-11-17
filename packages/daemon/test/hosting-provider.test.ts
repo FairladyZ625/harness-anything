@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { hostingProviderFromRemote, detectHostingProvider } from "../src/hosting-provider.ts";
+import { hostingProviderFromRemote, detectHostingProvider } from "../src/daemon-host/hosting-provider.ts";
 
 test("detects GitHub HTTPS and SSH remotes", async () => {
   assert.deepEqual(hostingProviderFromRemote("https://github.com/acme/project.git"), {
@@ -24,7 +24,7 @@ test("detects a known provider when the repository has no authored settings file
   try {
     execFileSync("git", ["-C", root, "init", "--quiet"]);
     execFileSync("git", ["-C", root, "remote", "add", "origin", "https://github.com/acme/project.git"]);
-    const { detectHostingProvider } = await import("../src/hosting-provider.ts");
+    const { detectHostingProvider } = await import("../src/daemon-host/hosting-provider.ts");
     assert.deepEqual(await detectHostingProvider(root), {
       kind: "github",
       host: "github.com",

@@ -5,7 +5,7 @@ import {
   createDaemonTraceCompletions,
   readDaemonTraceCompletions,
   type DaemonTraceCompletion,
-} from "../src/daemon-trace-completions.ts";
+} from "../src/daemon-host/daemon-trace-completions.ts";
 
 const sample = (method: string, nodeId: string | null = null): DaemonTraceCompletion => ({
   method,

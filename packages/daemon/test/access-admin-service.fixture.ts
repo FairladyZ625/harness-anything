@@ -4,14 +4,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { TestContext } from "node:test";
-import { AccessAdminService, type AccessAdminRequest } from "../src/access-admin-service.ts";
+import { AccessAdminService, type AccessAdminRequest } from "../src/daemon-host/access-admin-service.ts";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
-import { managedRbacReceiptJournal } from "../src/access-admin-state.ts";
-import { createIdentitySession } from "../src/authorization-provider.ts";
-import { saveFleetCenterConfig } from "../src/fleet-center-config.ts";
+import { managedRbacReceiptJournal } from "../src/daemon-host/access-admin-state.ts";
+import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
+import { saveFleetCenterConfig } from "../src/daemon-host/fleet-center-config.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
-import { evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
-import type { RepoTaskAction } from "../src/repo-cell-types.ts";
+import { evaluateRepoCellAction } from "../src/daemon-host/repo-cell-authorization.ts";
+import type { RepoTaskAction } from "../src/daemon-host/repo-cell-types.ts";
 import { fakeKeycloak, keycloakRealm, keycloakUrl, keycloakUserRoot } from "./keycloak.fixtures.ts";
 
 export async function accessAdminFixture(

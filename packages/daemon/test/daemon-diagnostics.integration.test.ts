@@ -6,8 +6,8 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:f
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { openDaemonJsonRpcClientAt, requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
-import { daemonDiagnosticsEndpoint, localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
+import { openDaemonJsonRpcClientAt, requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { daemonDiagnosticsEndpoint, localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
 import { waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
 
 // The fixture announces actual transport readiness. Only connect has a watchdog; response waits

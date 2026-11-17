@@ -5,11 +5,11 @@ import { randomUUID } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { makeTaskEventReader } from "../../../packages/storage/src/index.ts";
-import { localUserDaemonEndpoint } from "../../../packages/daemon/src/client/local-daemon-target.ts";
-import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
-import { daemonProcessAlive } from "../../../packages/daemon/src/daemon-singleton.ts";
-import { readDispatchStream } from "../../../packages/daemon/src/dispatch-stream.ts";
-import { readDaemonPid, startDaemon } from "../../../packages/daemon/src/runtime.ts";
+import { localUserDaemonEndpoint } from "../../../packages/daemon/src/daemon-host/client/local-daemon-target.ts";
+import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/daemon-host/client/local-json-rpc-client.ts";
+import { daemonProcessAlive } from "../../../packages/daemon/src/daemon-host/daemon-singleton.ts";
+import { readDispatchStream } from "../../../packages/daemon/src/daemon-host/dispatch-stream.ts";
+import { readDaemonPid, startDaemon } from "../../../packages/daemon/src/daemon-host/runtime.ts";
 import {
   openBootstrappedRepoCell,
   registerBootstrappedDaemonRepo,

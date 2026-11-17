@@ -8,18 +8,18 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes, submissionDigest } from "@harness-anything/kernel";
-import { openRepoCell } from "../src/repo-cell-open.ts";
-import { startDaemon } from "../src/runtime.ts";
-import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
-import { dispatchStreamPath, readDispatchStreamSummary } from "../src/dispatch-stream.ts";
+import { openRepoCell } from "../src/daemon-host/repo-cell-open.ts";
+import { startDaemon } from "../src/daemon-host/runtime.ts";
+import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { dispatchStreamPath, readDispatchStreamSummary } from "../src/daemon-host/dispatch-stream.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 import { createRealizedTaskPlanFixture, realizedDecisionBody } from "../../../tools/fixtures/task-plan.mjs";
 import { initIngressRepo, spawnCli } from "./fixtures/runtime-ingress.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
-import { commandDescriptorForAction } from "../src/protocol/daemon-protocol.contract.ts";
-import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
-import type { CredentialPort } from "../src/agent-runtime-credential-port.ts";
+import { commandDescriptorForAction } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
+import type { CredentialPort } from "../src/daemon-host/agent-runtime-credential-port.ts";
 
 // The real daemon, writer process, socket, CLI, and provider executable run in a dedicated user root.
 // Keycloak wire behavior is a realm fixture; the fixed real-server mechanism is recorded in F-02C8A42D.

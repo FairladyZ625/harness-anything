@@ -10,8 +10,8 @@ import { TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel";
 import { eventAt, initRepo } from "../../storage/test/store/task-event-store.fixtures.ts";
 import { backup, DatabaseSync } from "node:sqlite";
 import { ReadableStream, type ReadableStreamDefaultController } from "node:stream/web";
-import { runWalSender } from "../src/fleet/walsender.ts";
-import { runWalReceiver, openWalReceiverGeneration } from "../src/fleet/walreceiver.ts";
+import { runWalSender } from "../src/daemon-host/fleet/walsender.ts";
+import { runWalReceiver, openWalReceiverGeneration } from "../src/daemon-host/fleet/walreceiver.ts";
 import {
   activateEmptyCanonicalGeneration,
   makeTaskProjection,
@@ -20,7 +20,7 @@ import {
   openSqliteEventStore,
   startBaseBackup,
 } from "@harness-anything/storage";
-import { installReplicaGeneration, readReplicaGeneration } from "../src/fleet/replica-generation.ts";
+import { installReplicaGeneration, readReplicaGeneration } from "../src/fleet-sync/fleet/replica-generation.ts";
 import { createReplicationRetention, openReplicationSlots } from "@harness-anything/storage";
 import {
   parseReplicationFrame,
@@ -28,7 +28,7 @@ import {
   REPLICATION_FRAME_BYTES,
   type ReplicationFrame,
   type ReplicationPeer,
-} from "../src/fleet/protocol.ts";
+} from "../src/fleet-sync/fleet/protocol.ts";
 
 test("real backup worker installs a generation readable by the common projection reader", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-basebackup-core-"));

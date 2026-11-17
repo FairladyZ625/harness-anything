@@ -15,7 +15,7 @@ description: 产出与增量维护任务包中的活解释页 artifacts/explaine
 
 ## `<task-context>` 注入规约
 
-任务派工的 mission 携带一段框架注入的因果上下文 XML（2048 字节预算，`packages/daemon/src/dispatch-causal-context.ts` 是唯一权威源）。语法：
+任务派工的 mission 携带一段框架注入的因果上下文 XML（2048 字节预算，`packages/daemon/src/daemon-host/dispatch-causal-context.ts` 是唯一权威源）。语法：
 
 ```xml
 <task-context>

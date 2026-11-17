@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { attentionScore, attentionRegionWeights, compareAttention } from "../src/agenda-attention.ts";
+import { attentionScore, attentionRegionWeights, compareAttention } from "../src/daemon-host/agenda-attention.ts";
 
 test("attention score reports every contribution and applies caps", () => {
   const scored = attentionScore({

@@ -1,8 +1,8 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { releaseDaemonPidFile } from "../../src/daemon-singleton.ts";
-import { launchNative } from "../../src/runtime-spawn-process.ts";
-import { startDaemon } from "../../src/runtime.ts";
+import { releaseDaemonPidFile } from "../../src/daemon-host/daemon-singleton.ts";
+import { launchNative } from "../../src/daemon-host/runtime-spawn-process.ts";
+import { startDaemon } from "../../src/daemon-host/runtime.ts";
 
 const [userRoot, rootDir, runtimeFile, providerReady] = process.argv.slice(2) as [string, string, string, string];
 const daemonId = "superseded-pid-holder",

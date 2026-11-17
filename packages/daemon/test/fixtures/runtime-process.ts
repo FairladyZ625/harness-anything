@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import type { TestContext } from "node:test";
-import type { RuntimeProcess } from "../../src/runtime-spawn-types.ts";
+import type { RuntimeProcess } from "../../src/daemon-host/runtime-spawn-types.ts";
 
 /** Synthetic provider output with a real, test-owned process group and an OS exit witness. */
 export function runtimeProcessFixture(t: TestContext): Pick<RuntimeProcess, "pid" | "onExit" | "terminate"> & {

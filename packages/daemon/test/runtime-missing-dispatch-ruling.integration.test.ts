@@ -5,11 +5,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { DispatchLifecycleQuery, DispatchLifecycleRead } from "@harness-anything/kernel";
-import { makeRuntimeSpawner } from "../src/runtime-spawn.ts";
-import { cancelRuntime } from "../src/runtime-spawn-control.ts";
-import { openDispatchStream } from "../src/dispatch-stream.ts";
-import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
-import type { RuntimeBinding } from "../src/runtime-spawn-types.ts";
+import { makeRuntimeSpawner } from "../src/daemon-host/runtime-spawn.ts";
+import { cancelRuntime } from "../src/daemon-host/runtime-spawn-control.ts";
+import { openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
+import type { RuntimeBinding } from "../src/daemon-host/runtime-spawn-types.ts";
 import { definition, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
 
 const binding: RuntimeBinding = {

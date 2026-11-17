@@ -6,9 +6,9 @@ import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node
 import path from "node:path";
 import test from "node:test";
 import { Worker } from "node:worker_threads";
-import { writeFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
-import { readReplicaGeneration, replicaGenerationReaders } from "../src/fleet/replica-generation.ts";
-import { openRepoReadClient } from "../src/repo-read-pool.ts";
+import { writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
+import { readReplicaGeneration, replicaGenerationReaders } from "../src/fleet-sync/fleet/replica-generation.ts";
+import { openRepoReadClient } from "../src/daemon-host/repo-read-pool.ts";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 

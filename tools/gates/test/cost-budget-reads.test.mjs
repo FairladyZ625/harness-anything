@@ -402,14 +402,14 @@ test("G38 CI retains the legacy budget and joins every Node26 backend/collection
 test("G38 entrypoint rejects a protocol registration without a measurement before opening a backend", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-g38-unregistered-"));
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
-  for (const relative of ["tools/gates", "packages/daemon/src/protocol", "packages/daemon/test/fixtures"])
+  for (const relative of ["tools/gates", "packages/daemon/src/daemon-host/protocol", "packages/daemon/test/fixtures"])
     mkdirSync(path.join(rootDir, relative), { recursive: true });
   writeFileSync(
-    path.join(rootDir, "packages/daemon/src/protocol/daemon-protocol-commands.ts"),
+    path.join(rootDir, "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts"),
     'export const daemonProtocolCommands=[]; export const allDaemonProtocolMethods=[{method:"repo.new.read",commandClass:"repo-read"}];\n',
   );
   writeFileSync(
-    path.join(rootDir, "packages/daemon/src/rpc-command-routing.ts"),
+    path.join(rootDir, "packages/daemon/src/daemon-host/rpc-command-routing.ts"),
     "export const daemonRpcRoutingDeclarations=()=>[];\n",
   );
   writeFileSync(

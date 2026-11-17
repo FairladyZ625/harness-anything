@@ -1,8 +1,11 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseDaemonGuiReadResponse, parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
-import { serializeAgentEntityCatalog } from "../src/protocol/agent-entity-gui-contract.ts";
+import {
+  parseDaemonGuiReadResponse,
+  parseDaemonGuiReadResult,
+} from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { serializeAgentEntityCatalog } from "../src/daemon-host/protocol/agent-entity-gui-contract.ts";
 
 // The daemon added `hostAccess` / `hostAccessSource` in 9737f8f784. An already-running GUI
 // bundle carries the previous field list: the client-inbound read must ignore the additive

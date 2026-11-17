@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createScheduleV1, type DaemonRepoMode, type ScheduleV1 } from "@harness-anything/kernel";
-import { makeScheduleScheduler } from "../src/schedule-scheduler.ts";
-import type { RepoCell } from "../src/repo-cell.ts";
+import { makeScheduleScheduler } from "../src/daemon-host/schedule-scheduler.ts";
+import type { RepoCell } from "../src/daemon-host/repo-cell.ts";
 
 const actor = { principal: { personId: "schedule-scheduler-test" }, executor: null } as const;
 const localBinding = () => ({ actor, source: "local" as const });

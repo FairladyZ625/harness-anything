@@ -9,27 +9,27 @@ import {
   attachActiveRuntime,
   createActiveRuntime,
   disposeActiveRuntimeObservations,
-} from "../src/runtime-spawn-active.ts";
-import { observeResumeProcess } from "../src/runtime-spawn-process.ts";
+} from "../src/daemon-host/runtime-spawn-active.ts";
+import { observeResumeProcess } from "../src/daemon-host/runtime-spawn-process.ts";
 import {
   consumeDurableOutput,
   consumeProviderChunk,
   consumeProviderLine,
   captureErrorOutput,
   restoreDurableOutputRecords,
-} from "../src/runtime-spawn-provider-stream.ts";
+} from "../src/daemon-host/runtime-spawn-provider-stream.ts";
 import {
   appendRuntimeWorkerRecord,
   openDispatchStream,
   readDispatchStream,
   reopenDispatchStream,
-} from "../src/dispatch-stream.ts";
+} from "../src/daemon-host/dispatch-stream.ts";
 import {
   parseAcpFrame,
   parseAgyFrame,
   parseProviderFrame,
   parseZcodeFrame,
-} from "../src/runtime-spawn-provider-frames.ts";
+} from "../src/daemon-host/runtime-spawn-provider-frames.ts";
 import { publishExit } from "./runtime-spawn-settlement.fixtures.ts";
 
 // A real dispatch cwd is its own worktree. The liveness watcher recurses the whole cwd, so a

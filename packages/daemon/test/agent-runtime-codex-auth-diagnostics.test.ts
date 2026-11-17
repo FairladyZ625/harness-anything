@@ -4,8 +4,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
-import type { RuntimeInstallationWitness } from "../src/agent-runtime-instance-types.ts";
+import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-instances.ts";
+import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instance-types.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
 // `codex login status` only proves a refresh token is on disk; the provider can still

@@ -1,9 +1,9 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { daemonProtocolMethods } from "../src/protocol/daemon-protocol.contract.ts";
-import { agentProtocolCommands } from "../src/protocol/daemon-protocol-commands-agent.ts";
-import { validateShape } from "../src/protocol/daemon-protocol-gui-types.ts";
+import { daemonProtocolMethods } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { agentProtocolCommands } from "../src/daemon-host/protocol/daemon-protocol-commands-agent.ts";
+import { validateShape } from "../src/daemon-host/protocol/daemon-protocol-gui-types.ts";
 
 test("every ha bootstrap --operation the CLI offers is accepted by daemon.rbac.manage", () => {
   const command = agentProtocolCommands.find((entry) => entry.id === "rbac-bootstrap");

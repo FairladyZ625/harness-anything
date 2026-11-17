@@ -2,16 +2,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ArtifactTimelineQuery, ArtifactTimelineRead, ArtifactTimelineRow } from "@harness-anything/kernel";
-import { daemonGuiReadMethods, validateDaemonRpcCall } from "../src/protocol/daemon-protocol.contract.ts";
-import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
-import { daemonGuiReadSchemas } from "../src/protocol/daemon-protocol-schema-registry.ts";
-import { DAEMON_ARTIFACTS_LIST_SCHEMA } from "../src/protocol/daemon-protocol-schema-ids.ts";
-import { readArtifactsGui, type ArtifactsProjectionReads } from "../src/artifacts-gui-read.ts";
+import { daemonGuiReadMethods, validateDaemonRpcCall } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { daemonGuiReadSchemas } from "../src/daemon-host/protocol/daemon-protocol-schema-registry.ts";
+import { DAEMON_ARTIFACTS_LIST_SCHEMA } from "../src/daemon-host/protocol/daemon-protocol-schema-ids.ts";
+import { readArtifactsGui, type ArtifactsProjectionReads } from "../src/daemon-host/artifacts-gui-read.ts";
 import {
   serializeArtifactsList,
   validateArtifactsList,
   type ArtifactsListResult,
-} from "../src/protocol/artifacts-gui-contract.ts";
+} from "../src/daemon-host/protocol/artifacts-gui-contract.ts";
 
 const row = (overrides: Partial<ArtifactTimelineRow> = {}): ArtifactTimelineRow => ({
   packageDir: "task_reported-slug",

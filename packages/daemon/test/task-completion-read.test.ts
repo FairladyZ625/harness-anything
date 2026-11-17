@@ -8,8 +8,8 @@ import {
   taskCompletionNext,
 } from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
-import { readTaskCompletion } from "../src/task-completion-read.ts";
-import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
+import { readTaskCompletion } from "../src/daemon-host/task-completion-read.ts";
+import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
 import { readyCut } from "./task-query-read.fixtures.ts";
 
 test("single-task completion read carries the canonical next and validates its read cut", () => {

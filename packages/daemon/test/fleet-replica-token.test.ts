@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { requestFleetReplicaToken } from "../src/fleet/replica-token.ts";
+import { requestFleetReplicaToken } from "../src/daemon-host/fleet/replica-token.ts";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
 
 test("a node secret obtains a short-lived client-credentials token through the pinned CA", async () => {

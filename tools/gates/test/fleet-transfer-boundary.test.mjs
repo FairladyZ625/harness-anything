@@ -50,7 +50,7 @@ test("the gate catches a JSON reply assigned before the socket write", () => {
 test("the gate scans newly added Fleet source files", () => {
   const violations = findFleetTransferBypasses(
     'socket.write(JSON.stringify({ schema: "fleet.operational.read.result/v1", result: payload }));',
-    "packages/daemon/src/fleet/new-rpc.ts",
+    "packages/daemon/src/daemon-host/fleet/new-rpc.ts",
   );
   assert.equal(violations[0]?.reason, "direct JSON socket write");
 });
@@ -62,14 +62,14 @@ test("the full checker scans a real nested Fleet source path", () => {
       path.join(path.dirname(new URL(import.meta.url).pathname), "fixtures/fleet-transfer-bypasses/nested/new-rpc.ts"),
       "utf8",
     );
-    const nested = path.join(root, "packages/daemon/src/fleet/new/transport");
+    const nested = path.join(root, "packages/daemon/src/daemon-host/fleet/new/transport");
     mkdirSync(nested, { recursive: true });
-    writeFileSync(path.join(root, "packages/daemon/src/daemon-host-repository-api.ts"), "export {};\n");
+    writeFileSync(path.join(root, "packages/daemon/src/daemon-host/daemon-host-repository-api.ts"), "export {};\n");
     writeFileSync(path.join(nested, "new-rpc.ts"), fixture);
     const errors = checkFleetTransferBoundary(root);
     assert.deepEqual(errors, [
-      "packages/daemon/src/fleet/new/transport/new-rpc.ts:4: direct JSON socket write",
-      "packages/daemon/src/fleet/new/transport/new-rpc.ts:5: JSON payload reaches socket.write through a variable",
+      "packages/daemon/src/daemon-host/fleet/new/transport/new-rpc.ts:4: direct JSON socket write",
+      "packages/daemon/src/daemon-host/fleet/new/transport/new-rpc.ts:5: JSON payload reaches socket.write through a variable",
     ]);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -82,8 +82,8 @@ test("the full checker rejects forwarding construction in an unregistered CLI fi
     const newCallsite = path.join(root, "packages/cli/src/daemon/new-forwarding-callsite.ts");
     mkdirSync(path.dirname(newCallsite), { recursive: true });
     writeFileSync(newCallsite, 'const request = { schema: "fleet.task.action/v1", repoId, action };\n');
-    mkdirSync(path.join(root, "packages/daemon/src"), { recursive: true });
-    writeFileSync(path.join(root, "packages/daemon/src/daemon-host-repository-api.ts"), "export {};\n");
+    mkdirSync(path.join(root, "packages/daemon/src/daemon-host"), { recursive: true });
+    writeFileSync(path.join(root, "packages/daemon/src/daemon-host/daemon-host-repository-api.ts"), "export {};\n");
     const errors = checkFleetTransferBoundary(root);
     assert.deepEqual(errors, [
       "packages/cli/src/daemon/new-forwarding-callsite.ts:1: forwarding construction fleetRequestEnvelope is outside ForwardingPort",
@@ -135,8 +135,8 @@ test("the full checker applies zero allowance to new CLI and daemon forwarding s
       mkdirSync(path.dirname(absolute), { recursive: true });
       writeFileSync(absolute, `${source}\n`);
     }
-    mkdirSync(path.join(root, "packages/daemon/src"), { recursive: true });
-    writeFileSync(path.join(root, "packages/daemon/src/daemon-host-repository-api.ts"), "export {};\n");
+    mkdirSync(path.join(root, "packages/daemon/src/daemon-host"), { recursive: true });
+    writeFileSync(path.join(root, "packages/daemon/src/daemon-host/daemon-host-repository-api.ts"), "export {};\n");
     const errors = checkFleetTransferBoundary(root);
     assert.deepEqual(
       errors
@@ -220,16 +220,16 @@ export function bypass(root: string, action: Parameters<typeof runFleetEdgeTask>
       new Set(findFleetForwardingBypasses(source, file).map((row) => row.fingerprint)),
       new Set(["forwardingTransportDependency", "readFleetEdgeConfig", "forwardingTransportCall"]),
     );
-  assert.deepEqual(findFleetForwardingBypasses(source, "packages/daemon/src/fleet/forwarding-port.ts"), []);
+  assert.deepEqual(findFleetForwardingBypasses(source, "packages/daemon/src/daemon-host/fleet/forwarding-port.ts"), []);
   const root = mkdtempSync(path.join(tmpdir(), "fleet-forwarding-real-sender-"));
   try {
-    mkdirSync(path.join(root, "packages/daemon/src"), { recursive: true });
-    writeFileSync(path.join(root, "packages/daemon/src/daemon-host-repository-api.ts"), "export {};\n");
+    mkdirSync(path.join(root, "packages/daemon/src/daemon-host"), { recursive: true });
+    writeFileSync(path.join(root, "packages/daemon/src/daemon-host/daemon-host-repository-api.ts"), "export {};\n");
     for (const file of [
       "packages/daemon/src/reintroduced-forwarder.ts",
       "packages/cli/src/daemon/reintroduced-forwarder.ts",
       "packages/cli/src/daemon/fleet-payload-serializer.ts",
-      "packages/daemon/src/fleet/forwarding-port.ts",
+      "packages/daemon/src/daemon-host/fleet/forwarding-port.ts",
     ]) {
       const absolute = path.join(root, file);
       mkdirSync(path.dirname(absolute), { recursive: true });
@@ -269,8 +269,8 @@ test("sender aliases and re-exports cannot evade the forwarding dependency bound
   ];
   const root = mkdtempSync(path.join(tmpdir(), "fleet-forwarding-sender-aliases-"));
   try {
-    mkdirSync(path.join(root, "packages/daemon/src"), { recursive: true });
-    writeFileSync(path.join(root, "packages/daemon/src/daemon-host-repository-api.ts"), "export {};\n");
+    mkdirSync(path.join(root, "packages/daemon/src/daemon-host"), { recursive: true });
+    writeFileSync(path.join(root, "packages/daemon/src/daemon-host/daemon-host-repository-api.ts"), "export {};\n");
     for (const file of ["packages/daemon/src/forwarder.ts", "packages/cli/src/daemon/fleet-payload-serializer.ts"]) {
       const absolute = path.join(root, file);
       mkdirSync(path.dirname(absolute), { recursive: true });
@@ -356,7 +356,7 @@ test("an unregistered CLI or daemon production source has zero allowance", () =>
 
 test("wire requests can only be encoded by the Fleet peer transport", () => {
   const source = 'session.request({ schema: "fleet.task.command/v1", action });';
-  assert.deepEqual(findFleetForwardingBypasses(source, "packages/daemon/src/fleet/peer.ts"), []);
+  assert.deepEqual(findFleetForwardingBypasses(source, "packages/daemon/src/daemon-host/fleet/peer.ts"), []);
   assert.equal(
     findFleetForwardingBypasses(source, "packages/cli/src/daemon/route.ts")[0]?.fingerprint,
     "fleetRequestEnvelope",
@@ -374,7 +374,7 @@ test("the forwarding boundary permits the serializer and forwarding port", () =>
   assert.deepEqual(
     findFleetForwardingBypasses(
       'const request = { schema: "fleet.task.action/v1", repoId, action };',
-      "packages/daemon/src/fleet/forwarding-port.ts",
+      "packages/daemon/src/daemon-host/fleet/forwarding-port.ts",
     ),
     [],
   );
@@ -394,7 +394,7 @@ test("the full checker preserves encoding, types, local reads, ingress and wire 
   const root = mkdtempSync(path.join(tmpdir(), "fleet-forwarding-owned-responsibilities-"));
   try {
     const sources = [
-      ["packages/daemon/src/daemon-host-repository-api.ts", "export {};"],
+      ["packages/daemon/src/daemon-host/daemon-host-repository-api.ts", "export {};"],
       [
         "packages/cli/src/daemon/fleet-payload-serializer.ts",
         `
@@ -413,14 +413,14 @@ test("the full checker preserves encoding, types, local reads, ingress and wire 
       `,
       ],
       [
-        "packages/daemon/src/fleet/peer.ts",
+        "packages/daemon/src/daemon-host/fleet/peer.ts",
         `
         import { encodeFleetFrames } from './transfer.ts';
         function wire(action) { return session.request({ schema: "fleet.task.command/v1", action }); }
       `,
       ],
       [
-        "packages/daemon/src/fleet/forwarding-port.ts",
+        "packages/daemon/src/daemon-host/fleet/forwarding-port.ts",
         `
         import { runFleetEdgeTask } from '../fleet-edge-task.ts';
         function forward(payload) { return runFleetEdgeTask({ payload }, token, 'domain'); }

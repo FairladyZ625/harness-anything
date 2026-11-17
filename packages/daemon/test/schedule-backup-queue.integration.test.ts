@@ -18,9 +18,9 @@ import workerThreads, { Worker } from "node:worker_threads";
 import { DEFAULT_BACKUP_EXECUTION_LIMIT_MS as backupExecutionLimitMs } from "@harness-anything/kernel";
 import { syncBuiltinESMExports } from "node:module";
 import { type ScheduleV1 } from "@harness-anything/kernel";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoWriterCell } from "../src/repo-cell-open.ts";
-import { acquireWorkspaceLock } from "../src/repo-cell-lock.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { openRepoWriterCell } from "../src/daemon-host/repo-cell-open.ts";
+import { acquireWorkspaceLock } from "../src/daemon-host/repo-cell-lock.ts";
 import {
   openPersistentWriterEpoch,
   readLedgerWriterEpoch,
@@ -34,7 +34,7 @@ import {
   builtinLedgerBackupScheduleId,
   scheduledLedgerBackupRoot,
   seedBuiltinSchedules,
-} from "../src/schedule-builtin-executor.ts";
+} from "../src/daemon-host/schedule-builtin-executor.ts";
 
 const binding = withPolicyGroup(
   { actor: { principal: { personId: "backup-test" }, executor: null }, source: "local" as const },

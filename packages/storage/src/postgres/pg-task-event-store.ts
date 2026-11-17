@@ -32,7 +32,7 @@ import {
 } from "./pg-event-store.ts";
 import { withPostgresTransaction } from "./transaction.ts";
 import { migrationWritable } from "../migration/types.ts";
-import { TaskEventStoreError } from "@harness-anything/kernel";
+import { TaskEventStoreError } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 
 export interface PostgresWriterFence {
   readonly repoId: string;

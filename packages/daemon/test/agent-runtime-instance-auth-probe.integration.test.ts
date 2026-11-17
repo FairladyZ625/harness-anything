@@ -5,9 +5,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { RuntimeInstanceConfig } from "../src/agent-runtime-instance-types.ts";
-import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
-import { runProcessExitAsync } from "../src/process-port.ts";
+import type { RuntimeInstanceConfig } from "../src/daemon-host/agent-runtime-instance-types.ts";
+import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-instances.ts";
+import { runProcessExitAsync } from "../src/daemon-host/process-port.ts";
 import { observed } from "./agent-runtime-instance-environment.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 

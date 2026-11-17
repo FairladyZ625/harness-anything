@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { taskCreateAction } from "../src/repo-cell-action-parse.ts";
+import { taskCreateAction } from "../src/daemon-host/repo-cell-action-parse.ts";
 
 test("task creation rejects retired legacy inputs through direct and structured sources", () => {
   for (const fields of [{ fromLegacyId: "legacy-1" }, { title: "New task", fromLegacyId: "legacy-1" }]) {

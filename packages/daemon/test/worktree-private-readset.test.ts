@@ -12,14 +12,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { AgentDefinitionSnapshot, RuntimeInstallationWitness } from "@harness-anything/kernel";
-import type { RuntimeInstanceSummary } from "../src/agent-runtime-instances.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import type { RepoCellBinding } from "../src/repo-cell-types.ts";
+import type { RuntimeInstanceSummary } from "../src/daemon-host/agent-runtime-instances.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import type { RepoCellBinding } from "../src/daemon-host/repo-cell-types.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { actor } from "./task-surface.fixtures.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { workerLedgerPath } from "../src/worktree-setup.ts";
+import { workerLedgerPath } from "../src/daemon-host/worktree-setup.ts";
 
 const binding: RepoCellBinding = withPolicyGroup({ actor, source: "local" as const }, "contributor"),
   definition: AgentDefinitionSnapshot = {

@@ -15,7 +15,7 @@ import {
   parseReplicationFrame,
   serializeReplicationFrame,
   type ReplicationFrame,
-} from "../src/fleet/protocol.ts";
+} from "../src/fleet-sync/fleet/protocol.ts";
 
 const position = { history: "history-a", sequence: 9, revision: 7 } as const,
   digest = `sha256:${"a".repeat(64)}`,

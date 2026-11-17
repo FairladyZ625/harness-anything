@@ -3,9 +3,9 @@ import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { StorageBackendConfig } from "@harness-anything/storage";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import type { RepoCell } from "../src/repo-cell-types.ts";
+import type { RepoCell } from "../src/daemon-host/repo-cell-types.ts";
 
 /** Same daemon behavior, irrespective of physical storage. */
 export async function assertRepoCellStorage(rootDir: string, storage: StorageBackendConfig): Promise<void> {

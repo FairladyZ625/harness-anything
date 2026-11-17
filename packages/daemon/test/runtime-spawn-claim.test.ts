@@ -4,8 +4,8 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
-import type { RemoteRuntimePersistence } from "../src/runtime-spawn-types.ts";
+import { makeRuntimeSpawner } from "../src/daemon-host/runtime-spawner.ts";
+import type { RemoteRuntimePersistence } from "../src/daemon-host/runtime-spawn-types.ts";
 import { definition, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
 import { emptyDispatchLifecycleRead } from "./dispatch-lifecycle-read.fixtures.ts";
 

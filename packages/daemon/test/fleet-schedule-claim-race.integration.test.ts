@@ -23,10 +23,10 @@ import { type ScheduleEventV1 } from "@harness-anything/kernel";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { definition, initHarnessRepo } from "./schedule-actions.fixtures.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
-import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
-import { readFleetReceiptClient, runFleetScheduleCommandClient } from "../src/fleet/peer.ts";
+import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-instances.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { listenFleetTls, type FleetTlsCenter } from "../src/daemon-host/fleet/center.ts";
+import { readFleetReceiptClient, runFleetScheduleCommandClient } from "../src/daemon-host/fleet/peer.ts";
 
 const repoId = "schedule-claim-race",
   scheduleId = "claim-race",

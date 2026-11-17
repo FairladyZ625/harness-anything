@@ -37,7 +37,7 @@ test("built-in GUI first account, login and first repository with an empty HOME"
   try {
     assert.equal(existsSync(userRoot), false);
     execFileSync("git", ["init", "--quiet", rootDir], { env });
-    const { startDaemon } = await import("../../daemon/src/runtime.ts"),
+    const { startDaemon } = await import("../../daemon/src/daemon-host/runtime.ts"),
       { readDaemonRegistry } = await import("@harness-anything/kernel");
     daemon = await startDaemon({ userRoot, daemonId: "first-run", runtimeDiscover: () => [] });
     assert.equal(readDaemonRegistry({ userRoot }).repos.length, 0);

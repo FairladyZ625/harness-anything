@@ -8,13 +8,13 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
+import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instances.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 
-import { CAUSAL_CONTEXT_MAX_BYTES } from "../src/dispatch-causal-context.ts";
-import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
-import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
-import { writeFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
+import { CAUSAL_CONTEXT_MAX_BYTES } from "../src/daemon-host/dispatch-causal-context.ts";
+import { applyFleetMirrorCut } from "../src/daemon-host/fleet-edge-mirror.ts";
+import { openFleetEdgeRuntime } from "../src/daemon-host/fleet-edge-runtime.ts";
+import { writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
 
 import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
@@ -148,7 +148,7 @@ test(
         kind: "fact-record",
         factId: "F-C1EDFACE",
         statement: "CENTERFRESH-ZQ evidence recorded post-pull.",
-        evidenceSource: "packages/daemon/src/fleet-edge-runtime.ts",
+        evidenceSource: "packages/daemon/src/daemon-host/fleet-edge-runtime.ts",
         confidence: "high",
         memoryClass: "semantic",
       },

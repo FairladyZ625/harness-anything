@@ -3,7 +3,7 @@ import {
   RAW_ARTIFACT_POLICY_ID,
   taskArtifactSubtreePath,
 } from "@harness-anything/kernel/internal/domain/artifact-text-classification.ts";
-import { ARTIFACT_TIMELINE_COUNT_CAP } from "@harness-anything/kernel";
+import { ARTIFACT_TIMELINE_COUNT_CAP } from "@harness-anything/kernel/internal/ports/projection-reads.ts";
 import type { ArtifactTimelineKind, ArtifactTimelineQuery, ArtifactTimelineRead } from "@harness-anything/kernel";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 import { checkedPageLimit } from "./pg-query-page.ts";

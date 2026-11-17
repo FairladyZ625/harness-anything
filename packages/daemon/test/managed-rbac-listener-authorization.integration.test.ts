@@ -4,9 +4,9 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { openDaemonHost } from "../src/daemon-host.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { managedRbacVersions } from "@harness-anything/authorization-keycloak/managed-rbac-service";
-import { createIdentitySession } from "../src/authorization-provider.ts";
+import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
 

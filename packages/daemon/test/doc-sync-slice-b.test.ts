@@ -10,10 +10,10 @@ import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 import { classifyTextualArtifactPath, documentPath } from "@harness-anything/kernel";
 import { OPAQUE_TEXTUAL_POLICY_ID } from "../../storage/test/store/canonical-generation.fixtures.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { DOC_COMMAND_FRAME_MAX_BYTES } from "../src/doc-sync-actions.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { type RepoCellBinding } from "../src/repo-cell.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { DOC_COMMAND_FRAME_MAX_BYTES } from "../src/daemon-host/doc-sync-actions.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { type RepoCellBinding } from "../src/daemon-host/repo-cell.ts";
 import { makeTaskEventReader, openPersistentWriterEpoch } from "@harness-anything/storage";
 import {
   openBootstrappedRepoCell as openRepoCell,

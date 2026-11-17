@@ -3,14 +3,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
+import { compileVerticalContract, type VerticalDefinition } from "@harness-anything/kernel";
 import {
-  compileVerticalContract,
   decodeVerticalDefinition,
   TemplateCatalogSchema,
   type TemplateCatalog,
-  type VerticalDefinition,
-} from "@harness-anything/kernel";
+} from "@harness-anything/kernel/schemas";
 
 /** Mirrors the preset boundary: decode at the edge, then compile the pure value. */
 const compileVerticalSource = (source: unknown) => compileVerticalContract(decodeVerticalDefinition(source));

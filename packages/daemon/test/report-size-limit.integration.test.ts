@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
 import { DOC_SYNC_INLINE_MAX_BYTES, RAW_ARTIFACT_MAX_BYTES } from "@harness-anything/kernel";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { executionId, fixture, owner, taskId } from "./task-completion-review.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { actor, initRepo, rows, write } from "./doc-sync-slice-a.fixtures.ts";

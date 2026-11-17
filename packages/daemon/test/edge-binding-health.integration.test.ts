@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { daemonBuildStamp } from "../src/build-identity.ts";
+import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -9,12 +9,12 @@ import type { AddressInfo } from "node:net";
 import path from "node:path";
 import test from "node:test";
 import { writeDaemonRegistryRepo } from "@harness-anything/kernel/daemon-registry";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { listenFleetTls } from "../src/fleet/center.ts";
-import { createIdentitySession } from "../src/authorization-provider.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
-import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { listenFleetTls } from "../src/daemon-host/fleet/center.ts";
+import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
+import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
 
 test("edge binding health reads the selected login authority through fleet discovery", async (t) => {

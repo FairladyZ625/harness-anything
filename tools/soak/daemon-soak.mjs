@@ -32,12 +32,15 @@ import {
   JsonRpcLineClient,
   connectSocket,
   requestDaemonJsonRpcAt,
-} from "../../packages/daemon/src/client/local-json-rpc-client.ts";
-import { localUserDaemonEndpoint } from "../../packages/daemon/src/client/local-daemon-target.ts";
-import { streamAgentRuntimeAt } from "../../packages/daemon/src/client/local-json-rpc-stream.ts";
-import { openDaemonConnLog } from "../../packages/daemon/src/conn-log.ts";
-import { currentDaemonProtocolVersion } from "../../packages/daemon/src/protocol/version.ts";
-import { appendRuntimeWorkerRecord, openDispatchStream } from "../../packages/daemon/src/dispatch-stream.ts";
+} from "../../packages/daemon/src/daemon-host/client/local-json-rpc-client.ts";
+import { localUserDaemonEndpoint } from "../../packages/daemon/src/daemon-host/client/local-daemon-target.ts";
+import { streamAgentRuntimeAt } from "../../packages/daemon/src/daemon-host/client/local-json-rpc-stream.ts";
+import { openDaemonConnLog } from "../../packages/daemon/src/daemon-host/conn-log.ts";
+import { currentDaemonProtocolVersion } from "../../packages/daemon/src/daemon-host/protocol/version.ts";
+import {
+  appendRuntimeWorkerRecord,
+  openDispatchStream,
+} from "../../packages/daemon/src/daemon-host/dispatch-stream.ts";
 import { assessHermeticConfig } from "../test-hermetic-preflight.mjs";
 import {
   closeServer,

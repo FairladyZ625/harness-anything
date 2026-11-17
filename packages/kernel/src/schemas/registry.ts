@@ -4,7 +4,7 @@ import {
   type CommandInterception,
 } from "../domain/command-interceptions.ts";
 import { validateEntityJsonSchema } from "../domain/entity-json-schema.ts";
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 import { SETTINGS_FIELD_DECLARATIONS, type SettingsFieldDeclaration } from "../domain/settings-field-declarations.ts";
 import { domainStatuses } from "../domain/lifecycle-status.ts";
 import { packageDispositions } from "../domain/package-disposition.ts";

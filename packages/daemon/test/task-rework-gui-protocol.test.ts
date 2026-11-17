@@ -5,7 +5,7 @@ import {
   actionForDaemonMethod,
   daemonGuiInvokeFacets,
   parseDaemonRpcParams,
-} from "../src/protocol/daemon-protocol.contract.ts";
+} from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { generatedTaskActionProtocolDeclarations } from "@harness-anything/preset/internal/preset-command-contract";
 
 test("GUI show/rework facets consume the CLI's generated payload and canonical action", () => {
@@ -46,7 +46,9 @@ test("GUI show/rework facets consume the CLI's generated payload and canonical a
 });
 
 test("GUI admits task-show metadata and rework outcomes only on their own receipt, preserving transport closure", async () => {
-  const { validateDaemonGuiCommandReceipt } = await import("../src/protocol/daemon-protocol-validate-results.ts");
+  const { validateDaemonGuiCommandReceipt } = await import(
+    "../src/daemon-host/protocol/daemon-protocol-validate-results.ts"
+  );
   const receipt = {
     schema: "command-receipt/v2",
     ok: true,

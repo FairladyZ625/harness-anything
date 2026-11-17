@@ -3,6 +3,7 @@ import { createPostgresPool } from "../postgres/transaction.ts";
 import type { PostgresAppendHooks } from "../postgres/pg-event-store.ts";
 import type { PGliteStorageBackendConfig, PostgresStorageBackendConfig } from "../storage-backend.ts";
 import { createPGliteStorageBackend } from "./storage-backend.ts";
+import "../pg/sql-task-query-reader.ts";
 
 export interface PgDialectStorageBackend extends PgStorageBackend {
   readonly close: () => Promise<void>;

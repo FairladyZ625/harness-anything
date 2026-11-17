@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 import type { Worker } from "node:worker_threads";
-import { openDaemonMemoryLedger, labelWorkerMemory } from "../src/daemon-diagnostics-memory.ts";
+import { openDaemonMemoryLedger, labelWorkerMemory } from "../src/writer-cell/daemon-diagnostics-memory.ts";
 
 test("memory ledger sums isolate heaps and external without adding its arrayBuffers subset", async () => {
   const ledger = openDaemonMemoryLedger(),

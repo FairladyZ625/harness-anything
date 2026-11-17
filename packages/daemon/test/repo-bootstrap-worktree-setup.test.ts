@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { bindWriterGenerationToken, readSettingsFacet } from "@harness-anything/kernel";
-import { bootstrapRepo, resolveRepoBootstrap } from "../src/repo-bootstrap.ts";
-import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
+import { bootstrapRepo, resolveRepoBootstrap } from "../src/daemon-host/repo-bootstrap.ts";
+import type { DaemonAuthenticationContext } from "../src/daemon-host/transport/auth-context.ts";
 
 const repoId = "worktree-setup-init";
 const auth = {

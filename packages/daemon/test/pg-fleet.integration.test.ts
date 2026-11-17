@@ -7,10 +7,14 @@ import { pgRuntimeFixture } from "../../storage/test/postgres/pg-runtime.fixture
 import { makeTaskEventReader, openFleetStorage } from "@harness-anything/storage";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { fleetReplicationFixture, replicationRepoId, waitForState } from "./fleet-replication.fixture.ts";
-import { runFleetReplicaSync } from "../src/fleet/replica-sync.ts";
-import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
-import { applyFleetMirrorCut, locateFleetMirrorView, revokeFleetMirrorTree } from "../src/fleet-edge-mirror.ts";
-import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
+import { runFleetReplicaSync } from "../src/daemon-host/fleet/replica-sync.ts";
+import { readReplicaGeneration } from "../src/fleet-sync/fleet/replica-generation.ts";
+import {
+  applyFleetMirrorCut,
+  locateFleetMirrorView,
+  revokeFleetMirrorTree,
+} from "../src/daemon-host/fleet-edge-mirror.ts";
+import { runFleetEdgeTask } from "../src/daemon-host/fleet-edge-task.ts";
 
 for (const { gitFollower, materialize } of [
   { gitFollower: undefined, materialize: true },

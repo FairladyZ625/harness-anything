@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { accessAdminFixture, edgeJoinCenter } from "./access-admin-service.fixture.ts";
 import { keycloakUrl } from "./keycloak.fixtures.ts";
-import type { EdgeJoinLink } from "../src/fleet/edge-join.ts";
+import type { EdgeJoinLink } from "../src/daemon-host/fleet/edge-join.ts";
 
 const request = { operation: "edge-join-create", joinMode: "member-device", repoIds: ["repo-a"] } as const;
 const linkFrom = (reply: Record<string, unknown>): EdgeJoinLink =>

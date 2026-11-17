@@ -1,8 +1,8 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { deriveScheduleItems } from "../src/reckoning-agenda-read.ts";
-import type { ScheduleRunsResult } from "../src/protocol/schedule-runs-contract.ts";
+import { deriveScheduleItems } from "../src/daemon-host/reckoning-agenda-read.ts";
+import type { ScheduleRunsResult } from "../src/daemon-host/protocol/schedule-runs-contract.ts";
 import type { TaskProjection } from "@harness-anything/kernel";
 
 const projection = (openTask = false) =>

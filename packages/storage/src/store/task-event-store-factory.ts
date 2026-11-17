@@ -8,6 +8,9 @@ import { resolveStorageBackend, unsupportedStorageBackendError } from "../storag
 import type { LedgerEventStorePort as KernelLedgerEventStorePort } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 import type { PostgresStorageBackendConfig, PGliteStorageBackendConfig } from "../storage-backend.ts";
 import { makePgCanonicalEventStore } from "../postgres/pg-canonical-event-store.ts";
+import { attachSqliteGitFollower } from "./sqlite-git-outbox-publisher.ts";
+import { attachPgGitFollower } from "../pg/pg-git-outbox-publisher.ts";
+import { createSqlTaskQueryReader } from "../pg/sql-task-query-reader.ts";
 
 // Ordinary attachment cannot bypass activation with an explicit old generation.
 // Offline conversion opens its source through the read-only SQLite storage port.
@@ -19,14 +22,15 @@ const selectGeneration = (options: SqliteTaskEventStoreOptions): SqliteTaskEvent
   return { ...options, generation: resolveActiveGeneration({ rootInput, repoId: options.repoId }) };
 };
 
-export type PostgresTaskEventStoreOptions = Omit<SqliteTaskEventStoreOptions, "storage"> & {
+export type PostgresTaskEventStoreOptions = Omit<SqliteTaskEventStoreOptions, "storage" | "attachGitFollower"> & {
   readonly storage: PostgresStorageBackendConfig;
 };
-export type PGliteTaskEventStoreOptions = Omit<SqliteTaskEventStoreOptions, "storage"> & {
+export type PGliteTaskEventStoreOptions = Omit<SqliteTaskEventStoreOptions, "storage" | "attachGitFollower"> & {
   readonly storage: PGliteStorageBackendConfig;
 };
-type TaskEventStoreFactoryOptions = Omit<SqliteTaskEventStoreOptions, "storage"> & {
+type TaskEventStoreFactoryOptions = Omit<SqliteTaskEventStoreOptions, "storage" | "attachGitFollower"> & {
   readonly storage?: SqliteTaskEventStoreOptions["storage"] | PostgresStorageBackendConfig | PGliteStorageBackendConfig;
+  readonly attachGitFollower?: SqliteTaskEventStoreOptions["attachGitFollower"];
 };
 type RuntimeCanonicalEventStore = KernelLedgerEventStorePort & {
   readonly pruneReplicationLog?: (beforeSequence: number) => void;
@@ -45,11 +49,16 @@ export function makeTaskEventStore(
   options: TaskEventStoreFactoryOptions,
 ): SqliteCanonicalEventStore | KernelLedgerEventStorePort {
   if (options.storage?.backend === "postgres" || options.storage?.backend === "pglite")
-    return makePgCanonicalEventStore(options as PostgresTaskEventStoreOptions | PGliteTaskEventStoreOptions);
+    return makePgCanonicalEventStore({
+      ...(options as PostgresTaskEventStoreOptions | PGliteTaskEventStoreOptions),
+      createReader: createSqlTaskQueryReader,
+      attachGitFollower: attachPgGitFollower,
+    } as Parameters<typeof makePgCanonicalEventStore>[0]);
   selectBackend(options);
   const selected = selectGeneration(options);
   return makeSqliteTaskEventStore({
     ...selected,
+    attachGitFollower: selected.attachGitFollower ?? attachSqliteGitFollower,
     ...(options.activationPreflight === undefined && selected.generation === 3
       ? { activationPreflight: activateEmptyCanonicalGeneration }
       : {}),
@@ -63,9 +72,11 @@ export function makeTaskEventReader(
   options: TaskEventStoreFactoryOptions,
 ): SqliteCanonicalEventStore | KernelLedgerEventStorePort {
   if (options.storage?.backend === "postgres" || options.storage?.backend === "pglite")
-    return makePgCanonicalEventStore({ ...options, mutable: false } as
-      | PostgresTaskEventStoreOptions
-      | PGliteTaskEventStoreOptions);
+    return makePgCanonicalEventStore({
+      ...(options as PostgresTaskEventStoreOptions | PGliteTaskEventStoreOptions),
+      mutable: false,
+      createReader: createSqlTaskQueryReader,
+    } as Parameters<typeof makePgCanonicalEventStore>[0]);
   selectBackend(options);
   return makeSqliteTaskEventStore({ ...selectGeneration(options), mutable: false });
 }

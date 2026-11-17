@@ -1,17 +1,17 @@
 // harness-test-tier: integration
-import { daemonBuildStamp } from "../src/build-identity.ts";
+import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
-import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
-import { localUserDaemonEndpoint, mkdirSecurely } from "../src/client/local-daemon-target.ts";
-import { serveJsonRpcStream } from "../src/transport/json-rpc-stream.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
+import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { localUserDaemonEndpoint, mkdirSecurely } from "../src/daemon-host/client/local-daemon-target.ts";
+import { serveJsonRpcStream } from "../src/daemon-host/transport/json-rpc-stream.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { registerSettledBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { signInPolicyTestUser, revokeTestPolicyActions } from "./keycloak-policy.fixtures.ts";

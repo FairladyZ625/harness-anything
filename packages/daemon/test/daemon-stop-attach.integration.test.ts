@@ -7,10 +7,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
-import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
-import { readDaemonPid, readDaemonSingletonLockPid } from "../src/daemon-singleton.ts";
-import { readDaemonLifecycleRecords } from "../src/lifecycle-log.ts";
+import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
+import { readDaemonPid, readDaemonSingletonLockPid } from "../src/daemon-host/daemon-singleton.ts";
+import { readDaemonLifecycleRecords } from "../src/daemon-host/lifecycle-log.ts";
 import { rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 

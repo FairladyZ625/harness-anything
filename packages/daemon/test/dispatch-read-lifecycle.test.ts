@@ -9,8 +9,8 @@ import type {
   TaskProjection,
   TaskProjectionQueries,
 } from "@harness-anything/kernel";
-import { makeAgentRuntimeReadModel } from "../src/agent-runtime-read.ts";
-import { readTaskDispatchRow, taskDispatchRowsSettled } from "../src/dispatch-read.ts";
+import { makeAgentRuntimeReadModel } from "../src/daemon-host/agent-runtime-read.ts";
+import { readTaskDispatchRow, taskDispatchRowsSettled } from "../src/daemon-host/dispatch-read.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 
 function fixture(fallback?: "scheduled" | "exhausted") {
@@ -125,7 +125,7 @@ test("consent waits for the provider process even after accepted review delivery
         nextCursor: null,
       }),
     } as unknown as TaskProjectionQueries;
-  const { unsettledCutReviewDispatches } = await import("../src/dispatch-read.ts");
+  const { unsettledCutReviewDispatches } = await import("../src/daemon-host/dispatch-read.ts");
   assert.equal(view.policy.groupSettled, false);
   assert.equal(view.policy.capacityDisposition, "busy");
   assert.equal(
@@ -140,7 +140,7 @@ test("consent waits for the provider process even after accepted review delivery
 });
 
 test("both attach entry points share the central interactive policy and fail closed for pending/fence", async () => {
-  const { readRuntimeCanAttach } = await import("../src/agent-runtime-read.ts"),
+  const { readRuntimeCanAttach } = await import("../src/daemon-host/agent-runtime-read.ts"),
     { reduceDispatchLifecycle, dispatchLifecycleView } = await import("@harness-anything/kernel");
   const options = { instanceId: "worker", source: "local" as const, dispatchId: "dispatch-attach" },
     admitted = reduceDispatchLifecycle(null, lifecycleEvent("R", "runtime-attach", options));

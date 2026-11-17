@@ -10,11 +10,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { makeTaskEventReader } from "@harness-anything/storage";
-import { openDaemonHost } from "../src/daemon-host.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { openPersistentWriterEpoch } from "@harness-anything/storage";
-import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
-import { applyFleetMirrorCut, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
-import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
+import { runFleetEdgeTask } from "../src/daemon-host/fleet-edge-task.ts";
+import { applyFleetMirrorCut, locateFleetMirrorView } from "../src/daemon-host/fleet-edge-mirror.ts";
+import { listenFleetTls, type FleetTlsCenter } from "../src/daemon-host/fleet/center.ts";
 import {
   registerBootstrappedDaemonRepo as registerDaemonRepo,
   registerFixtureRuntimeInstance,

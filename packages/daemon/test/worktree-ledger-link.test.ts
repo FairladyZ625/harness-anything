@@ -19,16 +19,16 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { sha256Bytes } from "@harness-anything/kernel";
-import { scanEdgeTaskWorktrees, type FleetMirrorView } from "../src/fleet-edge-mirror.ts";
-import { addManagedWorktree, reclaimManagedWorktree } from "../src/schedule-occurrence-workspace.ts";
+import { scanEdgeTaskWorktrees, type FleetMirrorView } from "../src/daemon-host/fleet-edge-mirror.ts";
+import { addManagedWorktree, reclaimManagedWorktree } from "../src/daemon-host/schedule-occurrence-workspace.ts";
 import {
   removeEmptyWorktreeDirectory,
   runWorktreeSetup,
   taskWorktreeDocumentBase,
   workerLedgerPath,
   worktreeAuthoredRelative,
-} from "../src/worktree-setup.ts";
-import { taskWorktreeCandidateInventory } from "../src/task-worktree-candidates.ts";
+} from "../src/daemon-host/worktree-setup.ts";
+import { taskWorktreeCandidateInventory } from "../src/daemon-host/task-worktree-candidates.ts";
 
 const taskId = "task-x",
   packageName = `${taskId}-fixture`,

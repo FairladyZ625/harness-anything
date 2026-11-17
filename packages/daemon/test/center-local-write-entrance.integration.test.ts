@@ -8,8 +8,8 @@ import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { readSettingsFacet, writeRepositorySettingsFacet } from "@harness-anything/kernel";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import {

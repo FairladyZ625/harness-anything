@@ -38,12 +38,12 @@ test("a temporary named after its writer exists only where it was judged", () =>
     )
     .sort();
   assert.deepEqual(offenders, [
-    "daemon/src/agent-runtime-instance-storage.ts: `${target}.${process.pid}.tmp`",
-    "daemon/src/agent-runtime-instance-storage.ts: `${target}.${process.pid}.tmp`",
-    "daemon/src/agent-runtime-instance-store.ts: `${target}.${process.pid}.tmp`",
-    "daemon/src/fleet-edge-content.ts: `${target}.${process.pid}.tmp`",
-    "daemon/src/runtime-provider-health.ts: `${target}.${process.pid}.tmp`",
-    "daemon/src/skill-eval-production.ts: `${target}.${process.pid}.tmp`",
+    "daemon/src/daemon-host/agent-runtime-instance-storage.ts: `${target}.${process.pid}.tmp`",
+    "daemon/src/daemon-host/agent-runtime-instance-storage.ts: `${target}.${process.pid}.tmp`",
+    "daemon/src/daemon-host/agent-runtime-instance-store.ts: `${target}.${process.pid}.tmp`",
+    "daemon/src/daemon-host/fleet-edge-content.ts: `${target}.${process.pid}.tmp`",
+    "daemon/src/daemon-host/skill-eval-production.ts: `${target}.${process.pid}.tmp`",
+    "daemon/src/runtime-engine/runtime-provider-health.ts: `${target}.${process.pid}.tmp`",
     "kernel/src/daemon/registry.ts: `${registryPath}.${process.pid}.${Date.now()}.tmp`",
     "kernel/src/local/local-layout-file-system.ts: `${entry.path}.${process.pid}.tmp`",
     "storage/src/durable-file.ts: `${file}.${process.pid}.${randomUUID()}.tmp`",
@@ -74,7 +74,7 @@ test("a write path that reaches a repository worktree mounts no pid-liveness rec
   // The mirror's cross-process lock (and its pid probe) retired with the old pull machinery
   // (dec_9284BD61): the replica generation is installed atomically and needs no stale-round
   // reclaim, so nothing in the mirror may probe a pid at all.
-  const mirror = readFileSync(path.join(packagesRoot, "daemon/src/fleet-edge-mirror.ts"), "utf8");
+  const mirror = readFileSync(path.join(packagesRoot, "daemon/src/daemon-host/fleet-edge-mirror.ts"), "utf8");
   const probing = mirror
     .split(/\nfunction |\nasync function /u)
     .filter((body) => body.includes("process.kill("))

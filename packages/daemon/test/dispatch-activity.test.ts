@@ -6,7 +6,7 @@ import {
   DISPATCH_SILENT_AFTER_MS,
   dispatchProviderActivity,
   providerConnectionFailure,
-} from "../src/dispatch-activity.ts";
+} from "../src/daemon-host/dispatch-activity.ts";
 
 const now = Date.parse("2026-10-21T08:00:00.000Z");
 

@@ -4,8 +4,11 @@ import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFile
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { readObserveTail } from "../src/observe-tail.ts";
-import { validateObserveTailPayload, validateObserveTailResult } from "../src/protocol/daemon-protocol-gui-types.ts";
+import { readObserveTail } from "../src/daemon-host/observe-tail.ts";
+import {
+  validateObserveTailPayload,
+  validateObserveTailResult,
+} from "../src/daemon-host/protocol/daemon-protocol-gui-types.ts";
 
 const fixture = new URL("../fixtures/runtime/dispatch-replay-ended.jsonl", import.meta.url);
 const dispatchId = "dispatch_96e06fd9ca6917fc922e6d58";

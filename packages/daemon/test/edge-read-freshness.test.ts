@@ -6,9 +6,9 @@ import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { FleetMirrorView } from "../src/fleet-edge-mirror.ts";
-import { edgeFreshness } from "../src/fleet-edge-task-read.ts";
-import { validateRepositoryReadFrame } from "../src/protocol/repository-read-frame.ts";
+import type { FleetMirrorView } from "../src/daemon-host/fleet-edge-mirror.ts";
+import { edgeFreshness } from "../src/daemon-host/fleet-edge-task-read.ts";
+import { validateRepositoryReadFrame } from "../src/daemon-host/protocol/repository-read-frame.ts";
 
 test("edge read freshness is a valid repository read frame for a sub-millisecond pointer mtime", (t) => {
   const viewDir = mkdtempSync(path.join(tmpdir(), "ha-edge-freshness-"));

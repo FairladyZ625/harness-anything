@@ -663,15 +663,9 @@ function checkManifestDependencies(workspace, importedBySource) {
   return violations;
 }
 
-/**
- * Checks closed-world C4 package boundaries and (when scope !== "packages") daemon 4-plane boundaries.
- * Temporary W1A flag `--scope packages` (dec_04A9211B073F29F0FC1E1CA573 / dec_7C93DEBCFB2D1A94C6FA07AAAD)
- * is scheduled for retirement in W1B (task_557b9975f04b275d492f25c1cb) once daemon planes are extracted.
- */
+/** dec_04A9211B073F29F0FC1E1CA573 CH3: package and plane checks are inseparable. */
 export async function checkArchitecture(root = process.cwd(), options = {}) {
-  const scope = options.scope ?? "all";
-  if (scope !== "all" && scope !== "packages")
-    throw new Error(`Unsupported --scope "${scope}"; expected packages or all`);
+  if ("scope" in options) throw new Error("--scope was retired; all package and daemon plane boundaries are mandatory");
   const absoluteRoot = path.resolve(root);
   const workspace = await loadWorkspace(absoluteRoot);
   const violations = [];
@@ -707,13 +701,8 @@ export async function checkArchitecture(root = process.cwd(), options = {}) {
     }
     const sourcePackage = packageForPath(file, workspace.packageEntries);
     const sourceManifest = sourcePackage ? workspace.packagesByName.get(sourcePackage.packageName) : null;
-    const sourcePlane = scope === "packages" ? null : planeForPath(file);
-    if (
-      scope !== "packages" &&
-      sourcePackage?.id === "daemon" &&
-      file.startsWith("packages/daemon/src/") &&
-      !sourcePlane
-    )
+    const sourcePlane = planeForPath(file);
+    if (sourcePackage?.id === "daemon" && file.startsWith("packages/daemon/src/") && !sourcePlane)
       violations.push(`${file}: daemon source file must be assigned to one of ${planeOrder.join(", ")}`);
     for (const imported of imports) {
       const internalName = internalPackageName(imported.specifier);
@@ -732,8 +721,7 @@ export async function checkArchitecture(root = process.cwd(), options = {}) {
         imported.resolutionMode,
       );
       const targetPackage = resolveWorkspaceTargetPackage(file, imported.specifier, absoluteRoot, workspace);
-      const targetPlane =
-        scope !== "packages" && targetPackage?.id === "daemon" && target ? planeForPath(target) : null;
+      const targetPlane = targetPackage?.id === "daemon" && target ? planeForPath(target) : null;
       if (sourcePackage && targetPackage && sourcePackage.id !== targetPackage.id) {
         checkedImports += 1;
         let targets = importedBySource.get(sourcePackage.id);
@@ -784,7 +772,7 @@ export async function checkArchitecture(root = process.cwd(), options = {}) {
   violations.sort((left, right) => left.localeCompare(right));
   return {
     ok: violations.length === 0,
-    scope,
+    scope: "all",
     violations,
     sourceFiles: workspace.sourceFiles.length,
     checkedImports,
@@ -793,13 +781,11 @@ export async function checkArchitecture(root = process.cwd(), options = {}) {
 }
 
 function printHelp() {
-  console.log(
-    "Usage: node tools/check-c4-architecture.mjs [--scope packages|all] [--model <path>] [--explain <file>] [--json]",
-  );
+  console.log("Usage: node tools/check-c4-architecture.mjs [--model <path>] [--explain <file>] [--json]");
 }
 
 function parseCliOptions(args) {
-  const options = { json: false, help: false, scope: "all", modelPath: null, explainFile: null };
+  const options = { json: false, help: false, modelPath: null, explainFile: null };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--help" || arg === "-h") options.help = true;
@@ -808,10 +794,6 @@ function parseCliOptions(args) {
       const value = args[++index];
       if (!value || value.startsWith("--")) throw new Error("--explain requires a file path");
       options.explainFile = value;
-    } else if (arg === "--scope") {
-      const value = args[++index];
-      if (value !== "packages" && value !== "all") throw new Error("--scope must be 'packages' or 'all'");
-      options.scope = value;
     } else if (arg === "--model") {
       const value = args[++index];
       if (!value || value.startsWith("--")) throw new Error("--model requires a path");
@@ -852,7 +834,7 @@ async function main(args) {
     return 0;
   }
 
-  const result = await checkArchitecture(process.cwd(), { scope: cli.scope, modelPath: cli.modelPath });
+  const result = await checkArchitecture(process.cwd(), { modelPath: cli.modelPath });
   if (cli.json) console.log(JSON.stringify(result, null, 2));
   else if (result.ok) {
     console.log(

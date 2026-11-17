@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { runtimeVersionGate } from "../src/runtime-version.ts";
+import { runtimeVersionGate } from "../src/daemon-host/runtime-version.ts";
 
 /** The one version-floor comparison every admission boundary shares:
  *  a Claude Code below the kind's declared minimum is refused with the reason,

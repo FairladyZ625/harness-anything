@@ -458,7 +458,7 @@ test("G4 catch-and-substitute rejects another producer unless baselined", () => 
 test("G4 command witness registration authorizes only its named consumer and detects removal", (t) => {
   const root = fixture(t);
   try {
-    const source = "packages/daemon/src/task-witness-runner.ts";
+    const source = "packages/daemon/src/daemon-host/task-witness-runner.ts";
     const key = `${source}#runCompletionSources`;
     const production = JSON.parse(
       readFileSync(path.join(repoRoot, "tools/gate-allowlists/check-fallback-boundaries.json"), "utf8"),

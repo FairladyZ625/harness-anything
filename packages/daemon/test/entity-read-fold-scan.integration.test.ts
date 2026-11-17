@@ -6,9 +6,13 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { type CanonicalEventStore } from "@harness-anything/kernel";
-import { compiledArtifactKinds, readCurrentArtifact, resolveSourceBinding } from "../src/artifact-entity-action.ts";
-import type { VerticalDeclarationReader } from "../src/vertical-declaration-action.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import {
+  compiledArtifactKinds,
+  readCurrentArtifact,
+  resolveSourceBinding,
+} from "../src/daemon-host/artifact-entity-action.ts";
+import type { VerticalDeclarationReader } from "../src/daemon-host/vertical-declaration-action.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";

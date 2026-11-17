@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { canonicalRoot, workspaceId } from "../../packages/daemon/src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../../packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell } from "../../packages/daemon/test/repo-settings.fixture.ts";
 import { withPolicyGroup } from "../../packages/daemon/test/keycloak-policy.fixtures.ts";
 import { actor } from "../../packages/daemon/test/task-surface.fixtures.ts";
@@ -496,7 +496,7 @@ async function storageDenominators() {
         "packages/storage/src/store/sqlite-event-store.ts",
         "packages/storage/src/store/sqlite-task-event-store.ts",
         "packages/kernel/src/local/local-layout-file-system.ts",
-        "packages/daemon/src/repo-cell.ts",
+        "packages/daemon/src/daemon-host/repo-cell.ts",
       ].some((file) => source.includes(file)) && ["claim-point", "durable-boundary"].includes(kind),
   );
   const mapped = storage

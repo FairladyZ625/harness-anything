@@ -4,10 +4,10 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { openSqliteEventStore } from "@harness-anything/storage";
-import { consent as validSnapshotConsent } from "../src/protocol/daemon-protocol-validate-entities.ts";
+import { consent as validSnapshotConsent } from "../src/daemon-host/protocol/daemon-protocol-validate-entities.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 import { fleetFixture, git, localAuthFixture, rawPeer } from "./fleet-tls-session.fixture.ts";
-import type { FleetFrameV1 } from "../src/fleet/command-protocol.ts";
+import type { FleetFrameV1 } from "../src/daemon-host/fleet/command-protocol.ts";
 
 // dec_E610E1D99A39003886D1B5EE7C CH1: user consent through an authorized OAuth client.
 test(

@@ -6,10 +6,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
-import { EdgeJoinSshTunnelManager, validateSshTarget } from "../src/fleet/edge-join-ssh-tunnel.ts";
-import { EdgeJoinAdminService } from "../src/access-admin-edge-join.ts";
-import { createEdgeJoinStore } from "../src/fleet/edge-join.ts";
-import { saveFleetCenterConfig } from "../src/fleet-center-config.ts";
+import { EdgeJoinSshTunnelManager, validateSshTarget } from "../src/fleet-sync/fleet/edge-join-ssh-tunnel.ts";
+import { EdgeJoinAdminService } from "../src/daemon-host/access-admin-edge-join.ts";
+import { createEdgeJoinStore } from "../src/daemon-host/fleet/edge-join.ts";
+import { saveFleetCenterConfig } from "../src/daemon-host/fleet-center-config.ts";
 import type { IdentitySessionPort } from "@harness-anything/kernel";
 import type { ChildProcess } from "node:child_process";
 

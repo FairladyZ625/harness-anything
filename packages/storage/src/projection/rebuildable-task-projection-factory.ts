@@ -2,8 +2,7 @@ import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/stor
 import { projectionCatchUpLimit } from "./catch-up-limit.ts";
 import { initializeTerminalMaterialization } from "./rebuildable-task-projection-write-model.ts";
 import { transaction } from "./rebuildable-task-projection-sql.ts";
-import { createSqlTaskQueryReader } from "../pg/sql-task-query-reader.ts";
-import { makePgTaskProjection } from "../pg/pg-task-projection.ts";
+import { requireExternalTaskProjectionFactory, requireSqlTaskQueryReader } from "../sql-backend-adapters.ts";
 import { resolveHarnessLayout } from "@harness-anything/kernel/internal/layout/index.ts";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import {
@@ -159,7 +158,9 @@ export function makeTaskProjection(
   options: TaskProjectionFactoryOptions | PostgresTaskProjectionFactoryOptions | PGliteTaskProjectionFactoryOptions,
 ): TaskProjection | TaskProjectionPort {
   if (options.storage?.backend === "postgres" || options.storage?.backend === "pglite")
-    return makePgTaskProjection(options as PostgresTaskProjectionFactoryOptions | PGliteTaskProjectionFactoryOptions);
+    return requireExternalTaskProjectionFactory(options.storage.backend)(
+      options as PostgresTaskProjectionFactoryOptions | PGliteTaskProjectionFactoryOptions,
+    );
   requireSqliteBackend(options);
   const projectionPath = options.projectionPath ?? defaultLifecycleTaskProjectionPath(options.rootDir);
   const limit = projectionCatchUpLimit(options.catchUpLimit),
@@ -331,7 +332,7 @@ export function makeTaskProjectionReader(
   if (options.storage?.backend === "postgres" || options.storage?.backend === "pglite") {
     const repoId = "repoId" in options ? options.repoId : undefined;
     if (!repoId) throw new TypeError("PostgreSQL projection reader requires a repository id");
-    return createSqlTaskQueryReader({
+    return requireSqlTaskQueryReader(options.storage.backend)({
       storage: options.storage,
       repoId,
       requireRuntimeRole: true,

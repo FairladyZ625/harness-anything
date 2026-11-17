@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
-import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
+import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
 import { startGuiResidentDaemonFixture } from "../../gui/test-support/resident-daemon.mjs";
 import { seedBuiltinSidebar } from "../../../tools/gui-e2e/scenarios/builtin-sidebar-seed.mjs";
 

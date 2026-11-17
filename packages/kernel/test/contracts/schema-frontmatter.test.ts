@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 import { EntityRelationsSchema } from "../../src/schemas/entity-relations.ts";
 import { TaskFrontmatterSchema } from "../../src/schemas/registry.ts";
 import { DecisionEventSchema } from "../../src/schemas/decision-event.ts";

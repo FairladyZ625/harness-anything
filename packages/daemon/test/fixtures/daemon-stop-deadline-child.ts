@@ -1,4 +1,4 @@
-import { startDaemon } from "../../src/runtime.ts";
+import { startDaemon } from "../../src/daemon-host/runtime.ts";
 import { openBootstrappedRepoCell } from "../repo-settings.fixture.ts";
 
 const [userRoot, daemonId, deadline] = process.argv.slice(2) as [string, string, string?];

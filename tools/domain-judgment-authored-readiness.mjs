@@ -311,7 +311,7 @@ function scanFile(rel, body) {
 
   function canonicalPortRead(file, symbol, node, parsedSource) {
     return (
-      file === "packages/daemon/src/authored-document-read-port.ts" &&
+      file === "packages/daemon/src/daemon-host/authored-document-read-port.ts" &&
       symbol === "readAuthoredDocumentBytes" &&
       calleeName(node.expression) === "readFileSync" &&
       node.arguments[0]?.getText(parsedSource) === "candidate"

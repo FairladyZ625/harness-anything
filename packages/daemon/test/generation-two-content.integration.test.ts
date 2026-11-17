@@ -14,7 +14,7 @@ import {
 } from "../../storage/test/store/canonical-generation.fixtures.ts";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { serializePersistedCanonicalEvent, sha256Text } from "@harness-anything/kernel";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";

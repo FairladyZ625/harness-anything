@@ -2,7 +2,7 @@
 import {
   makeDaemonCommandReceipt,
   validateDaemonGuiCommandReceipt,
-} from "../src/protocol/daemon-protocol-validate-results.ts";
+} from "../src/daemon-host/protocol/daemon-protocol-validate-results.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -12,11 +12,11 @@ import test from "node:test";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
 import { DOC_SYNC_INLINE_MAX_BYTES, DOC_POLICY_ID, parseDocWriteIntent, sha256Text } from "@harness-anything/kernel";
 import { OPAQUE_TEXTUAL_POLICY_ID } from "../../storage/test/store/canonical-generation.fixtures.ts";
-import { readDocReceipt } from "../src/doc-sync-actions.ts";
-import { adjudicateDocIntent } from "../src/doc-sync-adjudication.ts";
-import { detail, touch } from "../src/doc-sync-details.ts";
-import { scanDocCandidates } from "../src/doc-sync-candidate-scanner.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { readDocReceipt } from "../src/daemon-host/doc-sync-actions.ts";
+import { adjudicateDocIntent } from "../src/daemon-host/doc-sync-adjudication.ts";
+import { detail, touch } from "../src/daemon-host/doc-sync-details.ts";
+import { scanDocCandidates } from "../src/daemon-host/doc-sync-candidate-scanner.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 import {

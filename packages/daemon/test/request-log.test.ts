@@ -1,29 +1,29 @@
 // harness-test-tier: fast
-import { createAuthorizationProvider } from "../src/authorization-provider.ts";
-import { daemonBuildStamp } from "../src/build-identity.ts";
+import { createAuthorizationProvider } from "../src/daemon-host/authorization-provider.ts";
+import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { open as openFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import type { DaemonHost } from "../src/daemon-host.ts";
-import { recordDaemonOperationQueueHead } from "../src/daemon-operation.ts";
+import type { DaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { recordDaemonOperationQueueHead } from "../src/daemon-host/daemon-operation.ts";
 import {
   daemonLifecycleLogPath,
   daemonStdioLogPath,
   openDaemonLifecycleLog,
   readDaemonLifecycleRecords,
-} from "../src/lifecycle-log.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
-import { observeTailKinds } from "../src/protocol/daemon-protocol-gui-types.ts";
+} from "../src/daemon-host/lifecycle-log.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
+import { observeTailKinds } from "../src/daemon-host/protocol/daemon-protocol-gui-types.ts";
 import {
   daemonRequestLogPath,
   openDaemonRequestLog,
   type DaemonRequestLogEntry,
   type DaemonRequestLogRecord,
-} from "../src/request-log.ts";
+} from "../src/daemon-host/request-log.ts";
 
 function tempRoot(t: TestContext): string {
   const root = mkdtempSync(path.join(os.tmpdir(), "harness-request-log-"));

@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
+import { evaluateRepoCellAction } from "../src/daemon-host/repo-cell-authorization.ts";
 
 test("repository writes require online Keycloak authority even with an owner roster binding", async () => {
   const actor = { principal: { personId: "person_owner" }, executor: null },

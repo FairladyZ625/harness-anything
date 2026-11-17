@@ -5,13 +5,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { AgentRuntimeSessionResult } from "../src/agent-runtime-contract.ts";
-import { makeAgentRuntimeStreamHub } from "../src/agent-runtime-stream.ts";
-import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
-import { openDispatchStream, appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
+import type { AgentRuntimeSessionResult } from "../src/daemon-host/agent-runtime-contract.ts";
+import { makeAgentRuntimeStreamHub } from "../src/daemon-host/agent-runtime-stream.ts";
+import { makeRuntimeSpawner } from "../src/daemon-host/runtime-spawner.ts";
+import { openDispatchStream, appendRuntimeWorkerRecord } from "../src/daemon-host/dispatch-stream.ts";
 import type { AgentDefinitionSnapshot, RuntimeSession } from "@harness-anything/kernel";
-import type { RepoCellStatus } from "../src/repo-cell-types.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import type { RepoCellStatus } from "../src/daemon-host/repo-cell-types.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import {
   openBootstrappedRepoCell as openRepoCell,

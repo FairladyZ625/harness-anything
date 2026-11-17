@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel";
-import { daemonBuildStamp } from "../src/build-identity.ts";
+import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import {
   fakeReplicationCenter,
   fleetReplicationFixture,

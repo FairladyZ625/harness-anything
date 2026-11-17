@@ -8,7 +8,11 @@ import test, { after, before } from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
-import { canonicalRoot, workspaceId, type DaemonAgendaResult } from "../src/protocol/daemon-protocol.contract.ts";
+import {
+  canonicalRoot,
+  workspaceId,
+  type DaemonAgendaResult,
+} from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";

@@ -23,22 +23,22 @@ import {
   readAgentEntityGuiProjection,
   resolveSquadDispatch,
   validateAgentEntityAction,
-} from "../src/agent-entities.ts";
+} from "../src/daemon-host/agent-entities.ts";
 import {
   serializeAgentEntityCatalog,
   serializeSquadEntityCatalog,
   validateAgentEntityCatalog,
   validateAgentEntityDetail,
   validateSquadEntityCatalog,
-} from "../src/protocol/agent-entity-gui-contract.ts";
-import { discoverAgentSkills, resolveAgentSkills } from "../src/agent-skills.ts";
+} from "../src/daemon-host/protocol/agent-entity-gui-contract.ts";
+import { discoverAgentSkills, resolveAgentSkills } from "../src/daemon-host/agent-skills.ts";
 import {
   agentRuntimeKindMatches,
   agentRuntimeTargetForKind,
   agentRuntimeTargetSummary,
-} from "../src/agent-runtime-contract.ts";
-import { resolveRuntimeInstanceCandidates } from "../src/runtime-spawn-mission.ts";
-import type { RuntimeAgent } from "../src/runtime-spawn-types.ts";
+} from "../src/daemon-host/agent-runtime-contract.ts";
+import { resolveRuntimeInstanceCandidates } from "../src/daemon-host/runtime-spawn-mission.ts";
+import type { RuntimeAgent } from "../src/daemon-host/runtime-spawn-types.ts";
 import { validateAgentDeclarationV1, validateSquadDeclarationV1 } from "@harness-anything/kernel";
 import { agent, appendLegacyAgentDeclaration, install, run, squad, writeEntity } from "./agent-entities.fixtures.ts";
 

@@ -14,7 +14,7 @@ const taskId = "task-dispatch-recovery-cost",
  */
 export async function measureTaskDispatchAdmission(rootDir, size) {
   const { admitTaskDispatch } = await import(
-      pathToFileURL(path.join(rootDir, "packages/daemon/src/task-dispatch-recovery.ts")).href
+      pathToFileURL(path.join(rootDir, "packages/daemon/src/daemon-host/task-dispatch-recovery.ts")).href
     ),
     counts = { dispatchRowsExamined: 0, keyedReads: 0 },
     events = Array.from({ length: size }, (_, index) => ({

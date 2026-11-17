@@ -4,17 +4,17 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { adoptRuntimes, type RuntimeRecoveryResult } from "../src/runtime-spawn-adoption.ts";
-import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
+import { adoptRuntimes, type RuntimeRecoveryResult } from "../src/daemon-host/runtime-spawn-adoption.ts";
+import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
 import { emptyDispatchLifecycleRead } from "./dispatch-lifecycle-read.fixtures.ts";
-import { openNodeAutoDispatchLoop, type NodeAutoDispatchCandidate } from "../src/node-auto-dispatch.ts";
+import { openNodeAutoDispatchLoop, type NodeAutoDispatchCandidate } from "../src/daemon-host/node-auto-dispatch.ts";
 import {
   openRuntimeRecoveryWatch,
   renderStuckRuntimeRecoveries,
   runReplicaConfirmedRound,
   runtimeRecoveryError,
   type RuntimeRecoveryFailure,
-} from "../src/runtime-recovery-watch.ts";
+} from "../src/daemon-host/runtime-recovery-watch.ts";
 
 const reworkCandidate: NodeAutoDispatchCandidate = {
   repoId: "repo-edge",

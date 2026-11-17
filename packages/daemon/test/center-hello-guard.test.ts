@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createHelloRateLimiter } from "../src/fleet/center-hello-guard.ts";
+import { createHelloRateLimiter } from "../src/daemon-host/fleet/center-hello-guard.ts";
 
 const sourceA = "203.0.113.9",
   sourceB = "198.51.100.7";

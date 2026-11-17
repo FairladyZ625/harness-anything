@@ -7,7 +7,7 @@
 //   - writes and receipt-show execute inside the writer worker thread (instrumented via the
 //     `--import` preload g1-writer-probe-import.mjs, mirroring writer-request-cost.integration.test.ts);
 //   - task-list/task-show/agenda/workspace-summary are intercepted host-side by the RepoCell
-//     proxy (packages/daemon/src/repo-cell-proxy.ts) and are instrumented in this process directly.
+//     proxy (packages/daemon/src/daemon-host/repo-cell-proxy.ts) and are instrumented in this process directly.
 // No production hook is added anywhere; every patch lives in g1-cost-probe.mjs.
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -33,15 +33,15 @@ import { DOC_CODEC_ID } from "@harness-anything/kernel/internal/domain/doc-sync.
 import type { DecisionEventDraftV1 } from "@harness-anything/kernel/internal/domain/decision-event";
 import type { FactEventDraftV1 } from "@harness-anything/kernel/internal/domain/fact-event";
 import type { TaskCreatedEvent } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract";
-import { canonicalRoot, workspaceId } from "../../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import {
   makeTaskEventStore,
   makeTaskProjection,
   openPersistentWriterEpoch,
   type WriterEpochFenceDescriptor,
 } from "@harness-anything/storage";
-import { openWriterSupervisor } from "../../src/writer-supervisor.ts";
-import { openRepoCell } from "../../src/repo-cell-open.ts";
+import { openWriterSupervisor } from "../../src/daemon-host/writer-supervisor.ts";
+import { openRepoCell } from "../../src/daemon-host/repo-cell-open.ts";
 import { openBootstrappedRepoCell } from "../repo-settings.fixture.ts";
 import { serveKeycloak } from "../keycloak.fixtures.ts";
 import { git, initRepo } from "../task-surface.fixtures.ts";

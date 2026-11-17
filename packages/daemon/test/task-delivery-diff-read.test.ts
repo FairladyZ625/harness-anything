@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { parseGitDiffPatch, readTaskDeliveryDiff } from "../src/task-delivery-diff-read.ts";
+import { parseGitDiffPatch, readTaskDeliveryDiff } from "../src/daemon-host/task-delivery-diff-read.ts";
 
 function git(root: string, ...args: string[]): string {
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();

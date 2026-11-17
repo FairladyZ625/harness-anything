@@ -4,7 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { daemonProtocolError } from "../../daemon/src/protocol/daemon-protocol-validate-results.ts";
+import { daemonProtocolError } from "../../daemon/src/daemon-host/protocol/daemon-protocol-validate-results.ts";
 import type { CenterListenerSettings } from "../src/api/center-settings-contract.ts";
 import type { SystemRepoRow } from "../src/renderer/api-client.ts";
 import { connectionQueryKeys } from "../src/renderer/connection-data.ts";

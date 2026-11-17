@@ -5,9 +5,12 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { parseDaemonRpcParams } from "../src/protocol/daemon-protocol.contract.ts";
+import { parseDaemonRpcParams } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
-import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
+import {
+  openRuntimeInstanceStore,
+  type RuntimeInstallationWitness,
+} from "../src/daemon-host/agent-runtime-instances.ts";
 
 const installation: RuntimeInstallationWitness = {
   installationId: "codex-github-worker-installation",

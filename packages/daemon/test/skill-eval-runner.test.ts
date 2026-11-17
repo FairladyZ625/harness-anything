@@ -1,5 +1,5 @@
 // harness-test-tier: fast
-import { daemonBuildStamp } from "../src/build-identity.ts";
+import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -14,10 +14,10 @@ import {
   type SkillEvalRuntimePort,
   type SkillEvalSkill,
   type SkillEvalStore,
-} from "../src/index.ts";
-import { judgeSkillEvaluation } from "@harness-anything/kernel";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
+} from "../src/daemon-host/index.ts";
+import { judgeSkillEvaluation } from "@harness-anything/kernel/schemas";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
 
 function fixture() {
   const skill: SkillEvalSkill = {

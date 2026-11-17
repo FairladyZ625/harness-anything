@@ -4,11 +4,11 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { TASK_EVENT_SHAPE_COMPAT_VERSION, deriveBasePolicyGroups } from "@harness-anything/kernel";
-import { daemonBuildStamp } from "../src/build-identity.ts";
-import { buildFleetOverview } from "../src/fleet/fleet-overview-read.ts";
-import type { FleetTlsCenter } from "../src/fleet/center.ts";
-import { serializeReplicationFrame, type ReplicationFrame } from "../src/fleet/protocol.ts";
-import { createNodeSessionStatus } from "../src/fleet/node-session-status.ts";
+import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
+import { buildFleetOverview } from "../src/daemon-host/fleet/fleet-overview-read.ts";
+import type { FleetTlsCenter } from "../src/daemon-host/fleet/center.ts";
+import { serializeReplicationFrame, type ReplicationFrame } from "../src/fleet-sync/fleet/protocol.ts";
+import { createNodeSessionStatus } from "../src/daemon-host/fleet/node-session-status.ts";
 import {
   fleetReplicationFixture,
   replicationPeer,

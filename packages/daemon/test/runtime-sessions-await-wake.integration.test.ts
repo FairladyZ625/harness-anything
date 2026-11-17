@@ -7,8 +7,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { readDispatchStream } from "../src/dispatch-stream.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import { initIngressRepo, rpc, writeProviderStub } from "./fixtures/runtime-ingress.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 

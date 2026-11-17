@@ -8,7 +8,7 @@ import {
   retainedNodeSeconds,
   TRACE_BUCKET_WINDOW_SECONDS,
   type SecondBuckets,
-} from "../src/daemon-trace-buckets.ts";
+} from "../src/daemon-host/daemon-trace-buckets.ts";
 
 test("a day of one-per-second node buckets is pruned to the retention window", () => {
   const nodes = new Map<string, SecondBuckets>([

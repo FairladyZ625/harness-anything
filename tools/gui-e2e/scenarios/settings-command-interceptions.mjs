@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
-import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
+import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/daemon-host/client/local-json-rpc-client.ts";
 
 export default {
   id: "settings-command-interceptions",
@@ -143,7 +143,7 @@ export default {
       {
         bridge: fileURLToPath(new URL("../../../packages/gui/src/main/local-composition-root.ts", import.meta.url)),
         parser: fileURLToPath(
-          new URL("../../../packages/daemon/src/protocol/gui-result-validation.ts", import.meta.url),
+          new URL("../../../packages/daemon/src/daemon-host/protocol/gui-result-validation.ts", import.meta.url),
         ),
       },
     );

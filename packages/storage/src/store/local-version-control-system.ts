@@ -9,7 +9,6 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  readlinkSync,
   realpathSync,
   renameSync,
   rmdirSync,
@@ -18,6 +17,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
+import { readAuthoredNode as readNode } from "../authored-node-read.ts";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
@@ -892,32 +892,6 @@ function settleDocSyncConflict(rootDir: string, conflictId: string): void {
   removeNode(path.join(directory, "local"));
   removeNode(path.join(directory, "manifest.json"));
   removeEmptyDirectory(directory);
-}
-function readNode(target: string): {
-  readonly mode: "100644" | "120000";
-  readonly body: string;
-  readonly bytes: Buffer;
-  readonly sha256: string;
-  readonly size: number;
-} | null {
-  try {
-    const info = lstatSync(target),
-      mode = info.isSymbolicLink() ? ("120000" as const) : info.isFile() ? ("100644" as const) : null;
-    if (mode === null) return null;
-    const bytes = mode === "120000" ? readlinkSync(target, { encoding: "buffer" }) : readFileSync(target);
-    return {
-      mode,
-      get body() {
-        return bytes.toString("utf8");
-      },
-      bytes,
-      sha256: hashVcsBytes("sha256", bytes),
-      size: bytes.byteLength,
-    };
-  } catch (error) {
-    consumeKnownError(error);
-    return null;
-  }
 }
 function removeNode(target: string): void {
   try {

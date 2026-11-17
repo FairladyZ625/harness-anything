@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseDaemonRpcParams, validateDaemonAgenda } from "../src/protocol/daemon-protocol.contract.ts";
+import { parseDaemonRpcParams, validateDaemonAgenda } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 
 test("agenda RPC accepts only its bounded page payload", () => {
   const parse = (payload: Record<string, unknown>) =>

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { installHandoffRollout, validateHandoffRollout } from "../src/runtime-handoff-native.ts";
+import { installHandoffRollout, validateHandoffRollout } from "../src/daemon-host/runtime-handoff-native.ts";
 const sessionId = "019abcdef-1234-5678-9999-abcdef123456";
 // Real 0.163.0 bytes: one `codex exec` session with a `custom_tool_call` for `exec`, its output,
 // reasoning, token usage and a resumed turn, reduced to synthetic content. Record types, field

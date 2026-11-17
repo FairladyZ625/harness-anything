@@ -4,10 +4,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { publishExit } from "../../../daemon/test/runtime-spawn-settlement.fixtures.ts";
-import { openDispatchStream, readDispatchStream } from "../../../daemon/src/dispatch-stream.ts";
-import { readAgentRuntimeTokenUsage } from "../../../daemon/src/agent-runtime-token-usage.ts";
-import type { ActiveRuntime } from "../../../daemon/src/runtime-spawn-types.ts";
-import type { RuntimeSpawnerContext } from "../../../daemon/src/runtime-spawn-context.ts";
+import { openDispatchStream, readDispatchStream } from "../../../daemon/src/daemon-host/dispatch-stream.ts";
+import { readAgentRuntimeTokenUsage } from "../../../daemon/src/daemon-host/agent-runtime-token-usage.ts";
+import type { ActiveRuntime } from "../../../daemon/src/daemon-host/runtime-spawn-types.ts";
+import type { RuntimeSpawnerContext } from "../../../daemon/src/daemon-host/runtime-spawn-context.ts";
 
 import type { TaskProjection } from "@harness-anything/kernel";
 

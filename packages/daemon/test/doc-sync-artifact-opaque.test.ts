@@ -19,7 +19,7 @@ import {
 import { decideDocWrite, docSyncWritePlan, parseDocWriteIntent, sha256Bytes } from "@harness-anything/kernel";
 import { preflightConvertedGenerationActivation } from "../../storage/test/store/canonical-generation.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { truncateSync } from "node:fs";

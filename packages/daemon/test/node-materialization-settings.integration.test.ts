@@ -2,7 +2,7 @@
 import {
   makeDaemonCommandReceipt,
   validateDaemonGuiCommandReceipt,
-} from "../src/protocol/daemon-protocol-validate-results.ts";
+} from "../src/daemon-host/protocol/daemon-protocol-validate-results.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdtempSync, mkdirSync, readFileSync, existsSync, rmSync, writeFileSync } from "node:fs";
@@ -21,10 +21,10 @@ import {
 } from "@harness-anything/kernel";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
 import { taskCreated, relation } from "../../storage/test/store/relation-graph-projection.fixtures.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell, seedSettingsEvent } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { nodeMaterializationStorage } from "../src/node-materialization-settings.ts";
+import { nodeMaterializationStorage } from "../src/daemon-host/node-materialization-settings.ts";
 
 const actor = { principal: { personId: "materialization-owner" }, executor: null } as const;
 

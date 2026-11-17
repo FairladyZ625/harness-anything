@@ -12,10 +12,10 @@ import {
   readFleetRepositoryMetadataClient,
   runFleetUploadClient,
   runFleetTaskCommandClient,
-} from "../src/fleet/peer.ts";
+} from "../src/daemon-host/fleet/peer.ts";
 import { openPersistentWriterEpoch } from "@harness-anything/storage";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
-import { parseFleetFrame } from "../src/fleet/command-protocol.ts";
+import { parseFleetFrame } from "../src/daemon-host/fleet/command-protocol.ts";
 
 // The retired broker suite is replaced by canonical lease tests through actual TLS clients.
 test(

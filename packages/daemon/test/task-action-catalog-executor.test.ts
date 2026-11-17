@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { getExecutableEntityAction, INITIAL_SETTINGS_V1, repositorySettings } from "@harness-anything/kernel";
 import { makeEntityActionCatalogExecutor, deriveActionResult } from "@harness-anything/application/commands";
-import { rejectExecutionSelection } from "../src/repo-cell-execution-selection.ts";
-import { cellCriterionError } from "../src/repo-cell-errors.ts";
-import { failed } from "../src/repo-cell-settlement.ts";
-import { validateCanonicalIdentityInputs } from "../src/repo-cell-action-dispatch.ts";
-import { prepareAgentEntityDelete, agentReferenceCounts } from "../src/agent-entities.ts";
+import { rejectExecutionSelection } from "../src/daemon-host/repo-cell-execution-selection.ts";
+import { cellCriterionError } from "../src/daemon-host/repo-cell-errors.ts";
+import { failed } from "../src/daemon-host/repo-cell-settlement.ts";
+import { validateCanonicalIdentityInputs } from "../src/daemon-host/repo-cell-action-dispatch.ts";
+import { prepareAgentEntityDelete, agentReferenceCounts } from "../src/daemon-host/agent-entities.ts";
 
 test("shared action admission rejects replay-invalid lifecycle identities", () => {
   const cell = {

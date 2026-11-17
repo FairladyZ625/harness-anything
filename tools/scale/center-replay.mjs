@@ -1,8 +1,8 @@
 import net from "node:net";
 import { once } from "node:events";
-import { JsonRpcLineClient } from "../../packages/daemon/src/client/local-json-rpc-client.ts";
-import { daemonHelloParams } from "../../packages/daemon/src/client/daemon-hello.ts";
-import { allDaemonProtocolMethods } from "../../packages/daemon/src/protocol/daemon-protocol-commands.ts";
+import { JsonRpcLineClient } from "../../packages/daemon/src/daemon-host/client/local-json-rpc-client.ts";
+import { daemonHelloParams } from "../../packages/daemon/src/daemon-host/client/daemon-hello.ts";
+import { allDaemonProtocolMethods } from "../../packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts";
 import { requestAccumulator, replaySchedule } from "./center-model.mjs";
 let nextReplayId = 0;
 

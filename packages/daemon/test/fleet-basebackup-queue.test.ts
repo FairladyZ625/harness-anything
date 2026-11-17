@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createBaseBackupQueue } from "../src/fleet/basebackup-queue.ts";
+import { createBaseBackupQueue } from "../src/fleet-sync/fleet/basebackup-queue.ts";
 
 test("base backup construction is FIFO bounded and reports measured queue estimates", async () => {
   const queue = createBaseBackupQueue(1),

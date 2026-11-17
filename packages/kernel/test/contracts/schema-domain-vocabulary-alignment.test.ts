@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 import { runtimeSessionEntityV1Schema } from "../../src/domain/agent-runtime.ts";
 import { domainStatuses } from "../../src/domain/lifecycle-status.ts";
 import { decisionStates } from "../../src/domain/decision-event.ts";

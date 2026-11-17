@@ -8,8 +8,12 @@ import path from "node:path";
 import test from "node:test";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
-import { canonicalRoot, validateDaemonRpcCall, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
+import {
+  canonicalRoot,
+  validateDaemonRpcCall,
+  workspaceId,
+} from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./task-surface.fixtures.ts";
 import { serveKeycloak } from "./keycloak.fixtures.ts";

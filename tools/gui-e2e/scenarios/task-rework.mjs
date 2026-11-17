@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { prepareGuiReworkCut } from "../../../packages/gui/test-support/rework-task.mjs";
-import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
+import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/daemon-host/client/local-json-rpc-client.ts";
 
 export default {
   id: "task-rework",

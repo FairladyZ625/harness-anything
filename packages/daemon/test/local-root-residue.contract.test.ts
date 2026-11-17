@@ -9,8 +9,8 @@ import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { doctorLocalRootResidue, oldLocalRootResidue } from "../src/repo-local-root-residue.ts";
-import { cachePurgeDerivedDirectories } from "../src/repo-cache-purge.ts";
+import { doctorLocalRootResidue, oldLocalRootResidue } from "../src/daemon-host/repo-local-root-residue.ts";
+import { cachePurgeDerivedDirectories } from "../src/daemon-host/repo-cache-purge.ts";
 import { removeTemporaryDirectory } from "../../../tools/temporary-directory-cleanup.mjs";
 
 function repository(parent: string, localRoot: string): string {

@@ -5,9 +5,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { runDocAction } from "../src/doc-sync-actions.ts";
-import { isFleetTaskAction, type FleetFrameV1 } from "../src/fleet/command-protocol.ts";
-import { encodeFleetFrames, FleetTransferAssembler } from "../src/fleet/command-transfer.ts";
+import { runDocAction } from "../src/daemon-host/doc-sync-actions.ts";
+import { isFleetTaskAction, type FleetFrameV1 } from "../src/daemon-host/fleet/command-protocol.ts";
+import { encodeFleetFrames, FleetTransferAssembler } from "../src/daemon-host/fleet/command-transfer.ts";
 
 test("large doc-show evidence uses the generic transfer envelope", async () => {
   const frame: Extract<FleetFrameV1, { schema: "fleet.task.result/v1" }> = {

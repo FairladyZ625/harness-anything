@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import test from "node:test";
-import { daemonProtocolCommands } from "../packages/daemon/src/protocol/daemon-protocol.contract.ts";
+import { daemonProtocolCommands } from "../packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { parseRunnerArgs } from "./node-test-runner-lib.mjs";
 import {
   parseToolOptions,

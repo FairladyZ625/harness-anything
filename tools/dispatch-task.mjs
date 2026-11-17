@@ -5,7 +5,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dispatchTaskCommand, parseToolOptions, renderToolHelp, toolValue } from "./tool-command-contract.mjs";
-import { dispatchStreamPath } from "../packages/daemon/src/dispatch-stream.ts";
+import { dispatchStreamPath } from "../packages/daemon/src/daemon-host/dispatch-stream.ts";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 

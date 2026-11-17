@@ -8,19 +8,19 @@ import path from "node:path";
 import test from "node:test";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { makeTaskEventReader } from "@harness-anything/storage";
-import { startDaemon, readDaemonPid } from "../src/runtime.ts";
-import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
-import { createRuntimeCallbackRelay } from "../src/runtime-callback-relay.ts";
-import { authenticateRuntimeExecutionCredential } from "../src/runtime-execution-credential.ts";
-import { dispatchStreamPath } from "../src/dispatch-stream.ts";
+import { startDaemon, readDaemonPid } from "../src/daemon-host/runtime.ts";
+import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { createRuntimeCallbackRelay } from "../src/daemon-host/runtime-callback-relay.ts";
+import { authenticateRuntimeExecutionCredential } from "../src/daemon-host/runtime-execution-credential.ts";
+import { dispatchStreamPath } from "../src/daemon-host/dispatch-stream.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 import { initIngressRepo, spawnCli } from "./fixtures/runtime-ingress.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
-import type { PreparedRuntimeLaunch } from "../src/agent-runtime-instances.ts";
-import type { RuntimeCallbackRelay } from "../src/runtime-spawn-types.ts";
-import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
+import type { PreparedRuntimeLaunch } from "../src/daemon-host/agent-runtime-instances.ts";
+import type { RuntimeCallbackRelay } from "../src/daemon-host/runtime-spawn-types.ts";
+import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
 
 test(
   "unbound runtime CLI uses the spawning daemon and person without a task lease",

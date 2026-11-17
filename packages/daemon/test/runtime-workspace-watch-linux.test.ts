@@ -6,7 +6,7 @@ import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { watchLinuxWorkspace } from "../src/runtime-workspace-watch-linux.ts";
+import { watchLinuxWorkspace } from "../src/runtime-engine/runtime-workspace-watch-linux.ts";
 
 test(
   "Linux workspace watch follows a symlinked root, directory changes, and file links",

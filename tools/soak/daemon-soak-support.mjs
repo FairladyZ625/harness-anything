@@ -2,13 +2,13 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { daemonRuntimeScopedEnvironmentKeys } from "../../packages/cli/src/daemon/client.ts";
-import { requestDaemonJsonRpcAt } from "../../packages/daemon/src/client/local-json-rpc-client.ts";
+import { requestDaemonJsonRpcAt } from "../../packages/daemon/src/daemon-host/client/local-json-rpc-client.ts";
 import { buildTimeline, discoverConnLogFiles, loadConnLogRecords } from "../logs/log-timeline.mjs";
 
-const daemonHostEntry = path.resolve(import.meta.dirname, "../../packages/daemon/src/bin.ts");
+const daemonHostEntry = path.resolve(import.meta.dirname, "../../packages/daemon/src/daemon-host/bin.ts");
 
 // The published `harness-anything-daemon` bin is the only daemon host entry; from a source
-// checkout that entry is packages/daemon/src/bin.ts. The launch mirrors the product autostart
+// checkout that entry is packages/daemon/src/daemon-host/bin.ts. The launch mirrors the product autostart
 // (cliDaemonServeLaunch): explicit --user-root/--daemon-id argv plus the same runtime-scoped
 // environment keys stripped, so the fixture daemon never inherits the invoking worker's routing.
 export function daemonServeLaunch({ userRoot, daemonId, home, env = process.env }) {

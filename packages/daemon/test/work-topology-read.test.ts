@@ -3,9 +3,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { TaskIndexProjectionRow, TaskRelationProjectionRow, TaskProjection } from "@harness-anything/kernel";
 import { workTopologyFromProjection } from "@harness-anything/application/queries";
-import { parseDaemonGuiReadResult, validateDaemonWorkTopology } from "../src/protocol/gui-result-validation.ts";
-import { daemonGuiReadSchemas } from "../src/protocol/daemon-protocol-schema-registry.ts";
-import { validateDaemonRpcCall } from "../src/protocol/daemon-protocol.contract.ts";
+import {
+  parseDaemonGuiReadResult,
+  validateDaemonWorkTopology,
+} from "../src/daemon-host/protocol/gui-result-validation.ts";
+import { daemonGuiReadSchemas } from "../src/daemon-host/protocol/daemon-protocol-schema-registry.ts";
+import { validateDaemonRpcCall } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 
 type Status = "planned" | "active" | "blocked" | "done" | "cancelled";
 

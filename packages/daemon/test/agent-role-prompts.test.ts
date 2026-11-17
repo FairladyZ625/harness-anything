@@ -2,9 +2,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readBundledAgentDeclaration } from "@harness-anything/preset";
-import { assembleAgentPrompt, assembleUnboundPrompt } from "../src/runtime-spawn-mission.ts";
-import { requireExecutionRequestScope } from "../src/runtime-execution-scope.ts";
-import { commandDescriptorForAction } from "../src/protocol/daemon-protocol.contract.ts";
+import { assembleAgentPrompt, assembleUnboundPrompt } from "../src/daemon-host/runtime-spawn-mission.ts";
+import { requireExecutionRequestScope } from "../src/daemon-host/runtime-execution-scope.ts";
+import { commandDescriptorForAction } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 
 for (const role of ["worker", "reviewer"] as const)
   test(`${role} reports human requests to the owner without granting relation writes`, () => {

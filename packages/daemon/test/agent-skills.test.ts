@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { AgentDeclarationV1 } from "@harness-anything/kernel";
-import { mergeRepositorySkills } from "../src/agent-skills.ts";
-import { resolveDispatchAgent } from "../src/runtime-spawn-agent.ts";
+import { mergeRepositorySkills } from "../src/daemon-host/agent-skills.ts";
+import { resolveDispatchAgent } from "../src/daemon-host/runtime-spawn-agent.ts";
 
 const agent = {
   schema: "agent-declaration/v1",

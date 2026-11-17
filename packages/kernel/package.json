@@ -23,6 +23,10 @@
         "types": "./dist/browser.d.ts",
         "default": "./dist/browser.js"
       },
+      "./schemas": {
+        "types": "./dist/schemas/index.d.ts",
+        "default": "./dist/schemas/index.js"
+      },
       "./runtime-effort": {
         "types": "./dist/domain/runtime-effort.d.ts",
         "default": "./dist/domain/runtime-effort.js"
@@ -107,6 +111,10 @@
     "./browser": {
       "types": "./src/browser.ts",
       "default": "./src/browser.ts"
+    },
+    "./schemas": {
+      "types": "./src/schemas/index.ts",
+      "default": "./src/schemas/index.ts"
     },
     "./runtime-effort": {
       "types": "./src/domain/runtime-effort.ts",

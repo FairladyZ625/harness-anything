@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import electronPath from "electron";
-import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
+import { requestDaemonJsonRpcAt } from "../../daemon/src/daemon-host/client/local-json-rpc-client.ts";
 import { canonicalEventWritePlan } from "../../kernel/src/index.ts";
 import { makeTaskEventStore, openPersistentWriterEpoch, readLedgerWriterEpoch } from "../../storage/src/index.ts";
 import { startGuiDriver } from "../../../tools/gui-e2e/driver.mjs";

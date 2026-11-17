@@ -915,7 +915,7 @@ ha_serving doc sync --submit --path <one-dirty-path>       # per prose file
 that actually bit someone — is filtered out and never appears. The operator reads
 an empty report, concludes there is nothing to carry over, and hands over a dirty
 tree. The filter is one expression in
-`packages/daemon/src/doc-sync-candidate-scanner.ts:13`.
+`packages/daemon/src/daemon-host/doc-sync-candidate-scanner.ts:13`.
 
 Then sort the list by what each file can actually do:
 

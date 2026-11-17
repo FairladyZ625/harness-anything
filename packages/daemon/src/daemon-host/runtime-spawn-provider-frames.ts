@@ -1,0 +1,395 @@
+import { consumeKnownError } from "@harness-anything/kernel";
+import { validateAgentDeclarationV1 } from "@harness-anything/kernel";
+import type { RuntimeInstanceKind } from "./agent-runtime-instances.ts";
+import type { AgentRuntimeNativeSignal } from "./agent-runtime-stream.ts";
+import { runtimeKindForId, runtimeKindIds, runtimeKinds } from "../runtime-engine/runtime-inventory.ts";
+import { sessionIdentityResolverFor } from "./session-identity/index.ts";
+import type { ProviderFrame } from "./runtime-spawn-types.ts";
+import { providerFaultFromFrame, providerReconnectFromFrame } from "./runtime-provider-fault.ts";
+
+export function parseProviderFrame(kindId: RuntimeInstanceKind, value: unknown): ProviderFrame {
+  if (!isPlainRecord(value) || (typeof value.event !== "string" && typeof value.type !== "string"))
+    throw new Error("provider frame is not a structured event");
+  const identity = sessionIdentityResolverFor(runtimeKindForId(kindId).protocolFamily).resolve({
+      runtime: kindId,
+      dispatchEvents: [value],
+    }),
+    parser = providerFrameParsers[kindId],
+    semantic = parser(value, identity.sessionId);
+  const providerFault = providerFaultFromFrame(kindId, value),
+    providerReconnect = providerReconnectFromFrame(kindId, value),
+    observed = {
+      ...semantic,
+      ...(providerFault ? { providerFault } : {}),
+      ...(providerReconnect ? { providerReconnect } : {}),
+    };
+  return identity.sessionId === null ? observed : { ...observed, sessionIdentity: identity };
+}
+
+export const providerFrameParsers: Record<
+  string,
+  (value: Record<string, unknown>, sessionId: string | null) => ProviderFrame
+> = {
+  claude: parseClaudeFrame,
+  codex: parseCodexFrame,
+  agy: parseAgyFrame,
+  zcode: parseZcodeFrame,
+  // Every acp-family kind emits the same canonical frame vocabulary.
+  ...Object.fromEntries(
+    runtimeKinds.filter((kind) => kind.protocolFamily === "acp").map((kind) => [kind.kindId, parseAcpFrame]),
+  ),
+};
+if (!runtimeKindIds.every((kindId) => Object.hasOwn(providerFrameParsers, kindId)))
+  throw new Error("provider frame parser registry is incomplete");
+
+export function isStructuredSuccessResult(value: string): boolean {
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    return (
+      (parsed.schema === "runtime-batch/v1" && Array.isArray(parsed.dispatches) && parsed.dispatches.length > 0) ||
+      validateAgentDeclarationV1(parsed).length === 0
+    );
+  } catch (error) {
+    consumeKnownError(error);
+    return false;
+  }
+}
+
+export function parseClaudeFrame(value: Record<string, unknown>, providerSessionId: string | null): ProviderFrame {
+  if (
+    (value.type === "system" && value.subtype === "init" && !providerSessionId) ||
+    (value.type === "result" && (typeof value.result !== "string" || !providerSessionId))
+  )
+    throw new Error("Claude frame is incomplete");
+  if (value.type === "assistant") {
+    const message = isPlainRecord(value.message) ? value.message : null,
+      content = message && Array.isArray(message.content) ? message.content : null;
+    if (!content) throw new Error("Claude assistant frame is incomplete");
+    const plan = content.filter(isPlainRecord).find((item) => item.type === "tool_use" && item.name === "TodoWrite");
+    return {
+      signals: content.flatMap(claudeContent),
+      toolCallObserved: content.some(
+        (item) => isPlainRecord(item) && ["tool_use", "server_tool_use"].includes(String(item.type)),
+      ),
+      planObserved: plan !== undefined,
+      ...(plan ? { planIncomplete: planHasIncompleteItems(plan) } : {}),
+    };
+  }
+  if (value.type === "user") {
+    return {
+      writeItemObserved:
+        isPlainRecord(value.tool_use_result) && ["create", "update"].includes(String(value.tool_use_result.type)),
+    };
+  }
+  if (value.type === "result")
+    return {
+      finalText: value.result as string,
+      outcome:
+        value.is_error === false && value.subtype === "success"
+          ? Array.isArray(value.permission_denials) && value.permission_denials.length
+            ? "unknown"
+            : "succeeded"
+          : "failed",
+    };
+  return {};
+}
+
+export function claudeContent(value: unknown): readonly AgentRuntimeNativeSignal[] {
+  if (!isPlainRecord(value) || typeof value.type !== "string") return [];
+  if (value.type === "text" && typeof value.text === "string")
+    return [{ type: "activity", activity: "message", content: value.text }];
+  if (value.type === "thinking" && typeof value.thinking === "string")
+    return [{ type: "activity", activity: "thinking", content: value.thinking }];
+  if (["tool_use", "tool_result", "server_tool_use", "web_search_tool_result"].includes(value.type))
+    return [{ type: "activity", activity: "tool", content: JSON.stringify(value) }];
+  return [];
+}
+
+export function parseCodexFrame(value: Record<string, unknown>, providerSessionId: string | null): ProviderFrame {
+  if (value.type === "thread.started") {
+    if (!providerSessionId) throw new Error("Codex thread frame is incomplete");
+    return {};
+  }
+  if (value.type === "item.started") {
+    const item = value.item;
+    return isPlainRecord(item) && typeof item.type === "string" && codexToolItemTypes.has(item.type)
+      ? { toolCallObserved: true, ...(item.type === "command_execution" ? { localCommandSucceeded: false } : {}) }
+      : {};
+  }
+  if (value.type === "item.completed" || value.type === "item.updated") {
+    const item = value.item;
+    if (!isPlainRecord(item) || typeof item.type !== "string") throw new Error("Codex item frame is incomplete");
+    const itemType = item.type;
+    if (itemType === "agent_message") {
+      const text = item.text;
+      if (typeof text !== "string") throw new Error("Codex message frame is incomplete");
+      return {
+        signals: [{ type: "activity", activity: "message", content: text }],
+        finalText: text,
+      };
+    }
+    if (itemType === "reasoning") {
+      const text = item.text;
+      if (typeof text === "string")
+        return {
+          signals: [{ type: "activity", activity: "thinking", content: text }],
+        };
+    }
+    if (itemType === "error") {
+      const message = item.message;
+      if (typeof message === "string")
+        return {
+          signals: [{ type: "activity", activity: "message", content: message }],
+          failureText: message,
+        };
+    }
+    if (codexToolItemTypes.has(itemType)) {
+      const writePaths = itemType === "file_change" && item.status === "completed" ? fileWritePaths(item) : [];
+      return {
+        signals: [{ type: "activity", activity: "tool", content: JSON.stringify(item) }],
+        toolCallObserved: true,
+        toolCallSucceeded: codexToolItemSucceeded(itemType, item),
+        ...(itemType === "command_execution" ? { localCommandSucceeded: codexToolItemSucceeded(itemType, item) } : {}),
+        writeItemObserved: itemType === "file_change" && item.status === "completed",
+        ...(writePaths.length ? { writePaths } : {}),
+      };
+    }
+    if (["plan", "todo", "todo_list"].includes(itemType))
+      return {
+        planObserved: true,
+        planIncomplete: planHasIncompleteItems(item),
+      };
+    return {};
+  }
+  if (value.type === "turn.completed")
+    return {
+      outcome: "succeeded",
+      providerUsageEmpty: !isPlainRecord(value.usage) || Object.keys(value.usage).length === 0,
+    };
+  if (value.type === "turn.failed") {
+    const failureText = isPlainRecord(value.error) ? JSON.stringify(value.error) : undefined;
+    return {
+      outcome: "failed",
+      ...(failureText
+        ? {
+            failureText,
+            signals: [
+              {
+                type: "activity" as const,
+                activity: "message" as const,
+                content: failureText,
+              },
+            ],
+          }
+        : {}),
+    };
+  }
+  return {};
+}
+
+export function parseAgyFrame(value: Record<string, unknown>, providerSessionId: string | null): ProviderFrame {
+  if (value.event === "init") {
+    if (!providerSessionId) throw new Error("agy init frame is incomplete");
+    return {};
+  }
+  if (value.event === "step_update") {
+    const update = value.step_update;
+    if (!isPlainRecord(update)) throw new Error("agy step_update frame is incomplete");
+    const text = update.text_delta;
+    if (typeof text === "string" && update.step_type !== "tool")
+      return { signals: [{ type: "activity", activity: "message", content: text }] };
+    // Tool steps carry no text; without them a read-only recon run looks idle until its final answer.
+    if (update.step_type === "tool") {
+      const tool = { ...update };
+      delete tool.conversation_id;
+      delete tool.step_index;
+      return {
+        toolCallObserved: true,
+        signals: [{ type: "activity", activity: "tool", content: JSON.stringify(tool) }],
+      };
+    }
+    return {};
+  }
+  if (value.event === "result") {
+    const result = value.result;
+    if (!isPlainRecord(result) || typeof result.status !== "string" || typeof result.response !== "string")
+      throw new Error("agy result frame is incomplete");
+    // result.usage is the run total; step_update.usage is per step and older builds re-emit settled steps.
+    // agy's input_tokens exclude cache reads, as Claude's do, so its cache_read_tokens take Claude's name.
+    const usage = isPlainRecord(result.usage)
+      ? (({ cache_read_tokens: cacheRead, ...rest }) =>
+          cacheRead === undefined ? rest : { ...rest, cache_read_input_tokens: cacheRead })(result.usage)
+      : undefined;
+    return {
+      finalText: result.response,
+      ...(usage ? { usage } : {}),
+      outcome: result.status === "SUCCESS" ? "succeeded" : "failed",
+      ...(result.status === "SUCCESS"
+        ? {}
+        : {
+            failureText: typeof result.error === "string" ? result.error : `agy reported ${result.status}`,
+          }),
+    };
+  }
+  throw new Error(`agy event ${String(value.event)} is unsupported`);
+}
+
+export function parseZcodeFrame(value: Record<string, unknown>, providerSessionId: string | null): ProviderFrame {
+  if (!providerSessionId) throw new Error("ZCode frame is incomplete");
+  const payload = isPlainRecord(value.payload) ? value.payload : null;
+  if (value.type === "model.streaming" && payload) {
+    if (payload.kind === "text_delta" && typeof payload.delta === "string" && payload.delta)
+      return { signals: [{ type: "activity", activity: "message", content: payload.delta }] };
+    if (payload.kind === "reasoning_delta" && typeof payload.delta === "string" && payload.delta)
+      return { signals: [{ type: "activity", activity: "thinking", content: payload.delta }] };
+    if (payload.kind === "tool_call") {
+      const writes = zcodeWriteTools.has(String(payload.toolName)),
+        writePath = writes && isPlainRecord(payload.input) ? payload.input.file_path : undefined;
+      return {
+        signals: [{ type: "activity", activity: "tool", content: JSON.stringify(payload) }],
+        toolCallObserved: true,
+        writeItemObserved: writes,
+        ...(typeof writePath === "string" && writePath !== "" ? { writePaths: [writePath] } : {}),
+      };
+    }
+    return {};
+  }
+  if (value.type === "turn.failed") {
+    const error = payload && isPlainRecord(payload.error) ? payload.error : null,
+      message = error && typeof error.message === "string" ? error.message : null;
+    return { outcome: "failed", failureText: message ?? "ZCode turn failed" };
+  }
+  if (value.type !== "result") return {};
+  // Live sample (zcode 0.16.5): a successful run ends with {type:"result", response, usage, eventCount};
+  // a failed run ends with turn.failed and never emits a result frame.
+  if (typeof value.response !== "string" || !isPlainRecord(value.usage))
+    throw new Error("ZCode result frame is incomplete");
+  return { finalText: value.response, outcome: "succeeded" };
+}
+
+const zcodeWriteTools: ReadonlySet<string> = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
+
+// ACP canonical frames are emitted by runtime-worker-acp.ts; every frame carries
+// `sessionId`, which the acp sessionIdentity declaration resolves per frame.
+export function parseAcpFrame(value: Record<string, unknown>, _providerSessionId: string | null): ProviderFrame {
+  if (value.type === "acp.session") {
+    const models = Array.isArray(value.models)
+        ? value.models.filter((model): model is string => typeof model === "string" && model !== "")
+        : [],
+      current = typeof value.currentModelId === "string" ? value.currentModelId : undefined;
+    return {
+      ...(models.length ? { observedModels: models } : {}),
+      ...(current ? { observedCurrentModel: current } : {}),
+    };
+  }
+  if (value.type === "acp.update") {
+    const update = isPlainRecord(value.update) ? value.update : null;
+    if (!update) throw new Error("ACP update frame is incomplete");
+    const kind = String(update.sessionUpdate ?? ""),
+      content = isPlainRecord(update.content) ? update.content : null;
+    if (kind === "agent_message_chunk" && typeof content?.text === "string" && content.text)
+      return { signals: [{ type: "activity", activity: "message", content: content.text }] };
+    if (kind === "agent_thought_chunk" && typeof content?.text === "string" && content.text)
+      return { signals: [{ type: "activity", activity: "thinking", content: content.text }] };
+    if (kind === "tool_call") {
+      return {
+        signals: [
+          {
+            type: "activity",
+            activity: "tool",
+            content: typeof update.title === "string" ? update.title : JSON.stringify(update),
+          },
+        ],
+        toolCallObserved: true,
+        writeItemObserved: acpWriteToolKinds.has(String(update.kind)),
+      };
+    }
+    if (kind === "tool_call_update") {
+      const status = String(update.status ?? "");
+      return {
+        ...(status === "failed"
+          ? {
+              signals: [
+                { type: "activity", activity: "tool", content: `tool call failed: ${String(update.toolCallId ?? "")}` },
+              ],
+            }
+          : {}),
+      };
+    }
+    if (kind === "plan") {
+      const entries = Array.isArray(update.entries) ? update.entries : [];
+      return {
+        planObserved: true,
+        planIncomplete: entries.some((entry) => isPlainRecord(entry) && String(entry.status) !== "completed"),
+      };
+    }
+    return {};
+  }
+  if (value.type === "acp.result") {
+    const stopReason = String(value.stopReason ?? "end_turn");
+    return {
+      ...(isPlainRecord(value.usage) ? { usage: value.usage } : {}),
+      providerUsageEmpty: !isPlainRecord(value.usage) || Object.keys(value.usage).length === 0,
+      ...(typeof value.finalText === "string" ? { finalText: value.finalText } : {}),
+      ...(stopReason === "end_turn"
+        ? { outcome: "succeeded" as const }
+        : stopReason === "cancelled"
+          ? {}
+          : { outcome: "failed" as const, failureText: `ACP prompt stopped: ${stopReason}` }),
+    };
+  }
+  if (value.type === "acp.error")
+    return {
+      outcome: "failed",
+      failureText: typeof value.message === "string" ? value.message : "ACP session failed",
+    };
+  return {};
+}
+
+const acpWriteToolKinds: ReadonlySet<string> = new Set(["edit", "delete", "move"]);
+
+/** Codex's tool item types. `collab_tool_call` is the sub-agent tool (`wait`): the provider reports
+ * it settled exactly like any other tool, so it belongs here rather than in the unobserved types. */
+const codexToolItemTypes: ReadonlySet<string> = new Set([
+  "command_execution",
+  "file_change",
+  "mcp_tool_call",
+  "web_search",
+  "collab_tool_call",
+]);
+
+/** Whether a settled Codex tool item proves the provider actually served the call. The shapes differ
+ * per type, so each is stated explicitly instead of one expression pretending to cover all five:
+ * commands settle by exit code, file/agent/MCP tools by status, and `web_search` carries neither a
+ * status nor an exit code — its `results` array is the only proof the search ran and returned. */
+function codexToolItemSucceeded(itemType: string, item: Record<string, unknown>): boolean {
+  if (itemType === "web_search") return Array.isArray(item.results);
+  if (itemType === "command_execution") return item.status === "completed" && (item.exit_code ?? 0) === 0;
+  return item.status === "completed";
+}
+
+/** The paths a Codex file_change reported. The provider may send a mix of relative and absolute
+ * paths in one item; a relative path is resolved against the dispatch cwd but can still climb out
+ * with `..`, so keep the raw list and let the write-boundary check decide. */
+function fileWritePaths(item: Record<string, unknown>): readonly string[] {
+  const changes = Array.isArray(item.changes) ? item.changes : [];
+  return changes.flatMap((change) =>
+    isPlainRecord(change) && typeof change.path === "string" && change.path !== "" ? [change.path] : [],
+  );
+}
+
+export function planHasIncompleteItems(item: Record<string, unknown>): boolean {
+  const value = isPlainRecord(item.input) ? item.input : item,
+    entries = [value.plan, value.items, value.todos].find(Array.isArray);
+  return (
+    !Array.isArray(entries) ||
+    entries.some(
+      (entry) =>
+        isPlainRecord(entry) && !["completed", "done", "complete"].includes(String(entry.status).toLowerCase()),
+    )
+  );
+}
+
+export function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}

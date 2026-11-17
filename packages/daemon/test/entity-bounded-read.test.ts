@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { INITIAL_SETTINGS_V1, openTodoValueEquals, type TaskProjectionQueries } from "@harness-anything/kernel";
 import { runEntityPinAction } from "@harness-anything/application/commands";
-import { todoSoftLimitWarnings } from "../src/todo-soft-limit.ts";
+import { todoSoftLimitWarnings } from "../src/daemon-host/todo-soft-limit.ts";
 
 test("pinning a schedule decides existence with a point read, not the schedule list", () => {
   const readKinds: string[] = [],

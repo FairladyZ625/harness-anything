@@ -1,8 +1,8 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { launchArgs } from "../src/agent-runtime-launch-config.ts";
-import type { RuntimeInstanceConfig } from "../src/agent-runtime-instance-types.ts";
+import { launchArgs } from "../src/daemon-host/agent-runtime-launch-config.ts";
+import type { RuntimeInstanceConfig } from "../src/daemon-host/agent-runtime-instance-types.ts";
 import { readSettingsFacet } from "@harness-anything/kernel";
 
 const claude = {

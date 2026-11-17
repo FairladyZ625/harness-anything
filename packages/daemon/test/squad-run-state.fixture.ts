@@ -1,6 +1,6 @@
 import { normalizeHistoricalSquadRunIdentity } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events";
-import { readAllDispatchStreamSummaries } from "../src/dispatch-stream.ts";
-import type { SquadState } from "../src/squad-run-state.ts";
+import { readAllDispatchStreamSummaries } from "../src/daemon-host/dispatch-stream.ts";
+import type { SquadState } from "../src/daemon-host/squad-run-state.ts";
 
 export function latestSquadStates(rootDir: string): ReadonlyMap<string, SquadState> {
   const states = new Map<string, SquadState>();

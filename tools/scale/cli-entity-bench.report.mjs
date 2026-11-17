@@ -8,7 +8,9 @@ import { commandTable, registryId } from "./cli-entity-bench.commands.mjs";
 import { brief } from "./cli-entity-bench.workload.mjs";
 
 export async function coverage() {
-  const { thinCliCommands } = await import("../../packages/daemon/src/protocol/daemon-protocol.contract.ts");
+  const { thinCliCommands } = await import(
+    "../../packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts"
+  );
   const { clientLocalCommands } = await import("../../packages/cli/src/cli/thin-command-help.ts");
   const registry = [
     ...thinCliCommands.map(({ id, path: words, method, commandClass }) => ({

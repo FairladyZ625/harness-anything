@@ -19,4 +19,4 @@ DatabaseSync.prototype.close = function () {
   if (active.delete(this)) Atomics.add(counts, 1, 1);
   return result;
 };
-await import("../../src/repo-reader-worker.ts");
+await import("../../src/daemon-host/repo-reader-worker.ts");

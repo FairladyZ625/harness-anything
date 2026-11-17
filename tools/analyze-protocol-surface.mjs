@@ -223,7 +223,7 @@ function extractCliCommands(rootDir, commandFiles, todoDefinitions, generatedTas
     });
   }
 
-  const todoCommandFile = "packages/daemon/src/protocol/daemon-protocol-commands-todo.ts";
+  const todoCommandFile = "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-todo.ts";
   if (existsSync(path.join(rootDir, todoCommandFile))) {
     for (const todo of todoDefinitions) {
       byKey.set(`${todoCommandFile}:${todo.actionKind}`, {
@@ -236,7 +236,7 @@ function extractCliCommands(rootDir, commandFiles, todoDefinitions, generatedTas
     }
   }
 
-  const taskCommandFile = "packages/daemon/src/protocol/daemon-protocol-commands-task.ts";
+  const taskCommandFile = "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-task.ts";
   if (existsSync(path.join(rootDir, taskCommandFile))) {
     for (const action of generatedTaskActions) {
       byKey.set(`${taskCommandFile}:${action.ingress}`, {
@@ -578,7 +578,7 @@ function buildStreamingGaps(guiFacets, layers) {
 }
 
 export function analyzeProtocolSurface(rootDir = process.cwd()) {
-  const protocolFiles = listTsFiles(rootDir, "packages/daemon/src/protocol");
+  const protocolFiles = listTsFiles(rootDir, "packages/daemon/src/daemon-host/protocol");
   const guiShadowFiles = protocolFiles.filter((f) => path.basename(f).includes("gui"));
   const cliCommandFiles = protocolFiles.filter((f) => path.basename(f).startsWith("daemon-protocol-commands"));
   const presetFiles = existsSync(path.join(rootDir, "packages/preset/src/preset-command-contract.ts"))

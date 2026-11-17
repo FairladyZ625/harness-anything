@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import process from "node:process";
-import { agentProtocolCommands } from "../packages/daemon/src/protocol/daemon-protocol-commands-agent.ts";
+import { agentProtocolCommands } from "../packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-agent.ts";
 import { clientLocalCommands } from "../packages/cli/src/cli/thin-command-help.ts";
 import { changedFiles, pullRequestBase, repoRoot } from "./gates/git.mjs";
 

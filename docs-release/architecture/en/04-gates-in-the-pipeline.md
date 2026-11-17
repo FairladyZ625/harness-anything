@@ -17,7 +17,7 @@ in the kernel domain layer
 `task-lifecycle-review-transitions.ts`); completion is judged by
 `packages/kernel/src/domain/completion-readiness.ts` and
 `closeout-readiness.ts`. Daemon-side RepoCell modules orchestrate submission,
-review, and completion (`packages/daemon/src/repo-cell-submit.ts`,
+review, and completion (`packages/daemon/src/daemon-host/repo-cell-submit.ts`,
 `repo-cell-completion.ts`, `task-completion-review.ts`,
 `repo-cell-review-lint.ts`), and the application service lives at
 `packages/application/src/task-lifecycle-service.ts`. The CLI merely forwards
@@ -70,7 +70,7 @@ into Facts to satisfy a count.
 
 `ha task submit` takes no submission arguments — it doc-syncs the task package,
 then derives the Submission from `closeout.md`
-(`packages/daemon/src/repo-cell-submit.ts`). The mechanical checks:
+(`packages/daemon/src/daemon-host/repo-cell-submit.ts`). The mechanical checks:
 
 - The Summary must name **one** delivery commit, or at least one
   `artifact:path@revision` anchor; more than one commit, zero anchors, or a
@@ -114,7 +114,7 @@ For a legacy task without Executions, the review surface is the package's
 with a severity (`P0`–`P3`), an `open` flag, and a `blocksRelease` flag; any
 finding that is both open and release-blocking rejects as
 `release_blocking_finding`
-(`packages/daemon/src/repo-cell-review-lint.ts`, emitting a
+(`packages/daemon/src/daemon-host/repo-cell-review-lint.ts`, emitting a
 `verifier-backed-review/v1` contract). A malformed table is itself a rejection,
 not a silent skip. A `review.md` still carrying its initial template, or a
 `closeout.md` still matching a known template fingerprint, counts as not done.

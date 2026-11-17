@@ -6,7 +6,7 @@ import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { openDaemonHost } from "../src/daemon-host.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { managedShutdownFixture } from "./managed-rbac-shutdown.fixture.ts";
 
 async function availablePort() {

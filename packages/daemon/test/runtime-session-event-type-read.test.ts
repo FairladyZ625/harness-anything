@@ -2,8 +2,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentRuntimeEventV1, RuntimeSession } from "@harness-anything/kernel";
-import { reviewAttemptEnded } from "../src/review-dispatch-state.ts";
-import { readRuntimeDispatchOwnerEvidence } from "../src/runtime-spawn-control.ts";
+import { reviewAttemptEnded } from "../src/daemon-host/review-dispatch-state.ts";
+import { readRuntimeDispatchOwnerEvidence } from "../src/daemon-host/runtime-spawn-control.ts";
 
 const runtimeSessionId = "runtime-session-owner";
 

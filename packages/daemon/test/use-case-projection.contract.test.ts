@@ -2,15 +2,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { deriveUseCaseProjectionInputs, type UseCaseProjectionName } from "@harness-anything/kernel";
-import { admitUseCaseProjectionSelector, useCaseProjectionFacets } from "../src/protocol/daemon-protocol-gui-types.ts";
+import {
+  admitUseCaseProjectionSelector,
+  useCaseProjectionFacets,
+} from "../src/daemon-host/protocol/daemon-protocol-gui-types.ts";
 import {
   rowDeliveredUseCaseProjections,
   useCaseProjectionFacetWords,
   useCaseProjectionNameWords,
-} from "../src/protocol/daemon-protocol-vocabulary.ts";
-import { daemonUseCaseProjectionPayloadShape } from "../src/protocol/daemon-protocol-schema-ids.ts";
-import { daemonGuiReadMethods } from "../src/protocol/daemon-protocol.contract.ts";
-import { validateDaemonUseCaseProjection } from "../src/protocol/daemon-protocol-use-case-projection.ts";
+} from "../src/daemon-host/protocol/daemon-protocol-vocabulary.ts";
+import { daemonUseCaseProjectionPayloadShape } from "../src/daemon-host/protocol/daemon-protocol-schema-ids.ts";
+import { daemonGuiReadMethods } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { validateDaemonUseCaseProjection } from "../src/daemon-host/protocol/daemon-protocol-use-case-projection.ts";
 
 test("the transport name mirror equals the kernel catalog", () => {
   // The daemon transport path may not import the kernel barrel at runtime (check-cli-structure),

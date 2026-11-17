@@ -13,14 +13,14 @@ import {
   runtimeDefinitionSnapshotArtifact,
   type AgentDefinitionSnapshot,
 } from "@harness-anything/kernel";
-import { resolveAgentRuntimeDeclaration } from "../src/agent-declaration-resolution.ts";
-import { type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
-import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/dispatch-stream.ts";
-import { canonicalRoot, daemonMethodPayloadFields, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { resolveAgentRuntimeDeclaration } from "../src/daemon-host/agent-declaration-resolution.ts";
+import { type RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instances.ts";
+import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { canonicalRoot, daemonMethodPayloadFields, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { TASK_WIP_LIMIT_ENV } from "../src/task-wip-settings.ts";
+import { TASK_WIP_LIMIT_ENV } from "../src/daemon-host/task-wip-settings.ts";
 
 import { grantTestPolicyGroups, revokeTestPolicyActions } from "./keycloak-policy.fixtures.ts";
 

@@ -12,13 +12,13 @@ import path from "node:path";
 import test from "node:test";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
-import { startDaemon } from "../src/runtime.ts";
-import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
+import { startDaemon } from "../src/daemon-host/runtime.ts";
+import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
 import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 import { initIngressRepo, spawnCli } from "./fixtures/runtime-ingress.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
-import { commandDescriptorForAction } from "../src/protocol/daemon-protocol.contract.ts";
-import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
+import { commandDescriptorForAction } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
 
 // Read-only execution credentials are enforced by the daemon regardless of provider mode or Agent declaration.
 for (const scenario of [

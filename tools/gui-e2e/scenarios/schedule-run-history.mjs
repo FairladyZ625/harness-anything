@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { compileEntityUpsert } from "../../../packages/kernel/src/index.ts";
 import { makeTaskEventStore } from "../../../packages/storage/src/index.ts";
-import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
+import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/daemon-host/client/local-json-rpc-client.ts";
 import { waitForEntrySettled } from "./helpers.mjs";
 
 // Schedule 运行历史详情页(task: schedule-gui-report-md-occurrence-fact-decision-rollup)。

@@ -4,8 +4,8 @@ import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync }
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { openTerminalHost } from "../src/terminal-host.ts";
-import type { TmuxController } from "../src/terminal-tmux.ts";
+import { openTerminalHost } from "../src/daemon-host/terminal-host.ts";
+import type { TmuxController } from "../src/daemon-host/terminal-tmux.ts";
 
 test(
   "daemon terminal host spawns, echoes, attaches, resizes, detaches, and terminates",

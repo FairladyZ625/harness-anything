@@ -6,16 +6,16 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { bindWriterGenerationToken, resolveHarnessLayout } from "@harness-anything/kernel";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import {
   bootstrapRepo,
   removeHarnessIgnoreRules,
   resolveRepoBootstrap,
   type RepoBootstrapReceipt,
   type RepoBootstrapRequest,
-} from "../src/repo-bootstrap.ts";
-import { openRepoCell } from "../src/repo-cell-open.ts";
-import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
+} from "../src/daemon-host/repo-bootstrap.ts";
+import { openRepoCell } from "../src/daemon-host/repo-cell-open.ts";
+import type { DaemonAuthenticationContext } from "../src/daemon-host/transport/auth-context.ts";
 
 const repoId = "configure-only";
 const auth = {

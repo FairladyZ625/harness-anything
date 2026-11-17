@@ -6,11 +6,14 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import { buildEntityKindCatalog } from "@harness-anything/kernel";
-import { canonicalVertical, compiledArtifactKinds } from "../src/artifact-entity-action.ts";
-import { readCanonicalVerticalDeclaration, runVerticalDeclarationAction } from "../src/vertical-declaration-action.ts";
+import { canonicalVertical, compiledArtifactKinds } from "../src/daemon-host/artifact-entity-action.ts";
+import {
+  readCanonicalVerticalDeclaration,
+  runVerticalDeclarationAction,
+} from "../src/daemon-host/vertical-declaration-action.ts";
 import { resolveVerticalKindCommandAction } from "@harness-anything/application/commands";
 import { actor, initRepo } from "./doc-sync-slice-a.fixtures.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 

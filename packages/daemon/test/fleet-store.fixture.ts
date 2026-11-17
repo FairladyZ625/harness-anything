@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import path from "node:path";
-import { binding as deriveBinding } from "../src/daemon-host-binding.ts";
+import { binding as deriveBinding } from "../src/daemon-host/daemon-host-binding.ts";
 import { openSqliteEventStore, readDaemonStorageConfig } from "@harness-anything/storage";
-import type { DaemonHost } from "../src/daemon-host.ts";
+import type { DaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { openPersistentWriterEpoch } from "@harness-anything/storage";
 import { serveKeycloak, signInAt, IdentitySessionPort } from "./keycloak.fixtures.ts";
 import { actionDeclarations, deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
-import { authenticateRuntimeExecutionPrincipal } from "../src/runtime-execution-credential.ts";
+import { authenticateRuntimeExecutionPrincipal } from "../src/daemon-host/runtime-execution-credential.ts";
 
 export function fleetHostWriterOptions(userRoot: string, repoIds: readonly string[]) {
   const writerEpochStateRoot = path.join(userRoot, "fleet"),
@@ -121,7 +121,7 @@ export async function fleetNodeOwners(input: {
           humanAccessToken: `device-token-${nodeId}`,
         }),
       ),
-    verifyHuman: (auth: import("../src/transport/auth-context.ts").DaemonAuthenticationContext) =>
+    verifyHuman: (auth: import("../src/daemon-host/transport/auth-context.ts").DaemonAuthenticationContext) =>
       IdentitySessionPort(input.userRoot).bind(auth),
     authenticateExecutionPrincipal: (credential: string) =>
       authenticateRuntimeExecutionPrincipal(() => IdentitySessionPort(input.userRoot).center(), credential),

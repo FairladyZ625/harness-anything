@@ -1,14 +1,14 @@
 // harness-test-tier: integration
-import { daemonBuildStamp } from "../src/build-identity.ts";
+import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
 import net from "node:net";
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { daemonConnLogFileStem } from "../src/conn-log.ts";
-import { startDaemon } from "../src/runtime.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
+import { daemonConnLogFileStem } from "../src/daemon-host/conn-log.ts";
+import { startDaemon } from "../src/daemon-host/runtime.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
 
 interface ConnRecord {
   readonly event: string;

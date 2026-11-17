@@ -9,7 +9,7 @@ import {
   acquireDaemonSingleton,
   daemonSingletonLockPath,
   releaseDaemonSingletonLock,
-} from "../src/daemon-singleton.ts";
+} from "../src/daemon-host/daemon-singleton.ts";
 
 const endpoint = "/tmp/ha-singleton-probe.sock";
 

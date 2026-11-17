@@ -9,7 +9,7 @@ import {
 import path from "node:path";
 import { mkdirSync } from "node:fs";
 import { initRepo } from "../../../storage/test/store/task-event-store.fixtures.ts";
-import { runLedgerReconcileAction } from "../../src/repo-cell-migration-actions.ts";
+import { runLedgerReconcileAction } from "../../src/daemon-host/repo-cell-migration-actions.ts";
 import { eventAt } from "../../../storage/test/store/task-event-store.fixtures.ts";
 
 export function prepareLegacyAudit(context, dimension, size) {

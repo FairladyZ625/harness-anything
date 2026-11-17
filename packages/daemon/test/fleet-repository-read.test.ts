@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseFleetFrame, serializeFleetFrame } from "../src/fleet/command-protocol.ts";
+import { parseFleetFrame, serializeFleetFrame } from "../src/daemon-host/fleet/command-protocol.ts";
 
 test("retired repository forward request and response schemas are rejected", () => {
   for (const schema of ["fleet.repository.read/v1", "fleet.repository.read.result/v1"])

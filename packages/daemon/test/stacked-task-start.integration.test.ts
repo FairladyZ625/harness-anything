@@ -9,8 +9,8 @@ import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/stora
 import { blockingOf, submissionDigest } from "@harness-anything/kernel";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { assertTaskDispatchPrerequisites } from "../src/task-dispatch-admission.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { assertTaskDispatchPrerequisites } from "../src/daemon-host/task-dispatch-admission.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 import { fixture as reviewFixture, taskId as upstreamTaskId } from "./task-completion-review.fixture.ts";

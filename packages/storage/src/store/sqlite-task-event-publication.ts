@@ -1,3 +1,4 @@
+import { authoredNodeFingerprint, type AuthoredNode } from "../authored-node-read.ts";
 import { decisionDirectoryRetirements } from "./decision-directory-settlement.ts";
 import type { WriteFence } from "../durable-file.ts";
 import {
@@ -680,6 +681,6 @@ export function publicationDigest(body: string | Uint8Array): string {
   return sha256Bytes(publicationBytes(body));
 }
 
-export function worktreeFingerprint(node: ReturnType<typeof localGitWorktreeSettlement.readNode>): string {
-  return node === null ? "missing" : `${node.mode}:${node.sha256}:${node.size}`;
+export function worktreeFingerprint(node: AuthoredNode | null): string {
+  return authoredNodeFingerprint(node);
 }

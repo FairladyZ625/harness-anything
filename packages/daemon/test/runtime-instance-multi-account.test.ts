@@ -4,10 +4,10 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { openRuntimeInstanceStore } from "../src/agent-runtime-instance-store.ts";
-import { runtimeInstanceConfig } from "../src/agent-runtime-instance-config.ts";
-import type { RuntimeInstallationWitness } from "../src/agent-runtime-instance-types.ts";
-import { openDaemonRuntimePorts } from "../src/daemon-runtime-ports.ts";
+import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-instance-store.ts";
+import { runtimeInstanceConfig } from "../src/daemon-host/agent-runtime-instance-config.ts";
+import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instance-types.ts";
+import { openDaemonRuntimePorts } from "../src/daemon-host/daemon-runtime-ports.ts";
 import { codedAs } from "./agent-runtime-instance-environment.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 

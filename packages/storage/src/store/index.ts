@@ -40,6 +40,11 @@ export type { StoppedLegacySourceEvidenceV1 } from "./legacy-generation-conversi
 export { assertNoPendingHistoricalRewrites, planLegacyGenerationConversion } from "./event-shape-migration.ts";
 export { applyAttachMigrations } from "./attach-migrations.ts";
 export * from "./task-event-store.ts";
+export {
+  attachSqliteGitFollower,
+  makeSqliteTaskEventStoreWithGitFollower,
+  publishPendingSqliteGitOutbox,
+} from "./sqlite-git-outbox-publisher.ts";
 export { runCompletionGenerationConversion } from "./completion-generation-conversion.ts";
 
 export { replicationCommitChunks, replicationCommitBytes, REPLICATION_PAGE_BYTES } from "./replication-log.ts";

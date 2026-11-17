@@ -5,12 +5,12 @@ import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
-import type { DaemonHost } from "../src/daemon-host.ts";
-import { openDaemonConnLog, daemonConnLogFileStem } from "../src/conn-log.ts";
-import { daemonRequestLogPath, openDaemonRequestLog } from "../src/request-log.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
-import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
+import type { DaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { openDaemonConnLog, daemonConnLogFileStem } from "../src/daemon-host/conn-log.ts";
+import { daemonRequestLogPath, openDaemonRequestLog } from "../src/daemon-host/request-log.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { createUnixSocketTransportServer } from "../src/daemon-host/transport/unix-socket.ts";
+import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
 
 function tempRoot(t: TestContext): string {
   const root = mkdtempSync(path.join(os.tmpdir(), "harness-command-attribution-"));

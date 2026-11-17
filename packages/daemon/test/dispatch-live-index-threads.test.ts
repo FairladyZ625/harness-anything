@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Worker } from "node:worker_threads";
-import { openDispatchStream } from "../src/dispatch-stream.ts";
+import { openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 
 // The repository writer runs in a worker thread and the read path runs on the main thread; both
 // rewrite a task's live index, and threads of one process share process.pid.
@@ -46,7 +46,12 @@ test("two threads writing one task's live index do not collide on the temporary 
        });`,
       {
         eval: true,
-        workerData: { module: new URL("../src/dispatch-stream.ts", import.meta.url).href, rootDir, count: 2000, gate },
+        workerData: {
+          module: new URL("../src/daemon-host/dispatch-stream.ts", import.meta.url).href,
+          rootDir,
+          count: 2000,
+          gate,
+        },
       },
     );
     await new Promise((resolve, reject) => {

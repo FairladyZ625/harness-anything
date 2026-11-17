@@ -5,9 +5,9 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { submissionDigest, type AgentRuntimeEventV1 } from "@harness-anything/kernel";
-import { readDispatchStream } from "../src/dispatch-stream.ts";
-import { workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { readRuntimeExecutionPrincipal } from "../src/runtime-execution-credential.ts";
+import { readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { readRuntimeExecutionPrincipal } from "../src/daemon-host/runtime-execution-credential.ts";
 import { executionId, fixture, owner, reviewerExecutionBinding, taskId } from "./task-completion-review.fixture.ts";
 
 for (const registeredByWorker of [true, false]) {

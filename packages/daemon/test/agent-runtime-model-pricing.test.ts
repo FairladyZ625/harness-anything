@@ -5,14 +5,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
+import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import {
   readAgentRuntimeTokenUsage,
   readAgentRuntimeTokenUsageDetail,
   validateAgentRuntimeTokenUsage,
   validateAgentRuntimeTokenUsageDetail,
-} from "../src/agent-runtime-token-usage.ts";
-import { modelPriceOf, modelPricingVersion, usageCostUsd } from "../src/agent-runtime-model-pricing.ts";
+} from "../src/daemon-host/agent-runtime-token-usage.ts";
+import { modelPriceOf, modelPricingVersion, usageCostUsd } from "../src/runtime-engine/agent-runtime-model-pricing.ts";
 
 /** 价格模块与读面金额累加的定向测试:四段计价(新输入/缓存读/缓存写/输出)、无价格模型不按
  * 0 计、缓存写缺字段的历史记录按 0 计、金额出现在每个聚合维度、校验器接受新形状。 */

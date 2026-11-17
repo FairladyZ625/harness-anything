@@ -18,12 +18,12 @@ import { makeTaskEventReader } from "@harness-anything/storage";
 import { isTaskEvent } from "@harness-anything/kernel";
 import { readSubmissionArtifact } from "@harness-anything/application/commands";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { seedBuiltinSchedules } from "../src/schedule-builtin-executor.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { seedBuiltinSchedules } from "../src/daemon-host/schedule-builtin-executor.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture, realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
-import { runWorktreeSetup, taskWorktreeDocumentBase } from "../src/worktree-setup.ts";
+import { runWorktreeSetup, taskWorktreeDocumentBase } from "../src/daemon-host/worktree-setup.ts";
 
 test("task submit refreshes worker artifacts and carries new worktree artifacts", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-submit-worktree-docs-")),

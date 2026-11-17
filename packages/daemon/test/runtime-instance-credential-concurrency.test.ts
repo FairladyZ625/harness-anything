@@ -5,9 +5,9 @@ import { createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { openRuntimeInstanceStore } from "../src/agent-runtime-instance-store.ts";
-import type { CredentialPort } from "../src/agent-runtime-credential-port.ts";
-import { runtimeInstanceCredentialService } from "../src/runtime-instance-credentials.ts";
+import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-instance-store.ts";
+import type { CredentialPort } from "../src/daemon-host/agent-runtime-credential-port.ts";
+import { runtimeInstanceCredentialService } from "../src/daemon-host/runtime-instance-credentials.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
 function deferred<T>() {

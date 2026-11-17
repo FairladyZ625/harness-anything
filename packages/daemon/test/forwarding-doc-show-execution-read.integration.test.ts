@@ -11,7 +11,7 @@ import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
-import type { DaemonHost } from "../src/daemon-host.ts";
+import type { DaemonHost } from "../src/daemon-host/daemon-host.ts";
 
 // A doc-show that carries an execution credential opts into the forwarding port, but only a
 // remote-edge repository has a forwarding target. Local and remote-center cells must serve the

@@ -5,8 +5,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { TaskV2 } from "@harness-anything/kernel";
-import { appendRuntimeWorkerRecord, archiveDispatchStream, openDispatchStream } from "../src/dispatch-stream.ts";
-import { cancelRejectedSquadChildren } from "../src/squad-run-state.ts";
+import {
+  appendRuntimeWorkerRecord,
+  archiveDispatchStream,
+  openDispatchStream,
+} from "../src/daemon-host/dispatch-stream.ts";
+import { cancelRejectedSquadChildren } from "../src/daemon-host/squad-run-state.ts";
 import { latestSquadStates } from "./squad-run-state.fixture.ts";
 
 test("owner orphan cancellation recovers the latest local control state from archived streams", async (t) => {

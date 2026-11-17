@@ -14,5 +14,5 @@ const repository = fileURLToPath(new URL("../../", import.meta.url)),
   buildCommit = process.env.HARNESS_BUILD_COMMIT?.trim() || commit.stdout.trim() || "source-archive";
 writeFileSync(new URL("build-id.txt", dist), `${buildCommit}\n`);
 const entry = new URL("index.js", dist);
-writeFileSync(entry, '#!/usr/bin/env node\nimport "./daemon/src/bin.js";\n');
+writeFileSync(entry, '#!/usr/bin/env node\nimport "./daemon/src/daemon-host/bin.js";\n');
 chmodSync(fileURLToPath(entry), 0o755);

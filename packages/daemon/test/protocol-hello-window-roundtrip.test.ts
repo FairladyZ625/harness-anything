@@ -1,10 +1,10 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assertDaemonHello, daemonHelloParams } from "../src/client/daemon-hello.ts";
-import { shape, validateShape } from "../src/protocol/daemon-protocol-gui-types.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
-import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
+import { assertDaemonHello, daemonHelloParams } from "../src/daemon-host/client/daemon-hello.ts";
+import { shape, validateShape } from "../src/daemon-host/protocol/daemon-protocol-gui-types.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
+import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
 
 // The hello schema of the previous release (98b51e9), frozen verbatim. The previous daemon is
 // already running when a new CLI starts, so this is the object its closed validator sees: any new
@@ -65,9 +65,9 @@ test("a daemon rejection keeps its own code instead of becoming a version mismat
 });
 
 test("lifecycle reads require an advertised connection opt-in; previous peers keep their closed DTO", async () => {
-  const { makeAgentRuntimeReadModel } = await import("../src/agent-runtime-read.ts"),
-    { createJsonRpcProtocolServer } = await import("../src/protocol/json-rpc-server.ts"),
-    { parseDaemonGuiReadResponse } = await import("../src/protocol/gui-result-validation.ts");
+  const { makeAgentRuntimeReadModel } = await import("../src/daemon-host/agent-runtime-read.ts"),
+    { createJsonRpcProtocolServer } = await import("../src/daemon-host/protocol/json-rpc-server.ts"),
+    { parseDaemonGuiReadResponse } = await import("../src/daemon-host/protocol/gui-result-validation.ts");
   const session = {
     runtimeSessionId: "runtime-test",
     providerSessionId: null,
@@ -138,7 +138,7 @@ test("lifecycle reads require an advertised connection opt-in; previous peers ke
   assert.deepEqual((next.session as JsonObject).lifecycle, current.session.lifecycle);
   assert.doesNotThrow(() => parseDaemonGuiReadResponse("repo.agentRuntime.sessions.read", next));
   const { PassThrough, Writable } = await import("node:stream"),
-    { JsonRpcLineClient } = await import("../src/client/local-json-rpc-client.ts"),
+    { JsonRpcLineClient } = await import("../src/daemon-host/client/local-json-rpc-client.ts"),
     input = new PassThrough();
   const sent: string[] = [];
   const output = new Writable({
@@ -165,7 +165,7 @@ test("lifecycle reads require an advertised connection opt-in; previous peers ke
 });
 
 test("lifecycle negotiation retains hello admission until the business frame or disconnect", async () => {
-  const { createJsonRpcProtocolServer } = await import("../src/protocol/json-rpc-server.ts");
+  const { createJsonRpcProtocolServer } = await import("../src/daemon-host/protocol/json-rpc-server.ts");
   let draining = false,
     held = 0;
   const server = createJsonRpcProtocolServer({

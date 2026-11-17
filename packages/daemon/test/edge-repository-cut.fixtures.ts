@@ -2,7 +2,7 @@ import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { sqliteLedgerPath, startBaseBackup } from "@harness-anything/storage";
-import { installReplicaGeneration, readReplicaGeneration } from "../src/fleet/replica-generation.ts";
+import { installReplicaGeneration, readReplicaGeneration } from "../src/fleet-sync/fleet/replica-generation.ts";
 
 /**
  * Materialize this repo's current ledger+projection into an offline edge replica view, the way a

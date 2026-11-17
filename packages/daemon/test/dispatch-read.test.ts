@@ -1,5 +1,5 @@
 // harness-test-tier: fast
-import { readRuntimeAttemptChain } from "../src/runtime-attempt-read.ts";
+import { readRuntimeAttemptChain } from "../src/daemon-host/runtime-attempt-read.ts";
 import { lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -21,18 +21,18 @@ import {
   taskDispatchesOutcome,
   taskDispatchRowsSettled,
   unsettledCutReviewDispatches,
-} from "../src/dispatch-read.ts";
-import { openDecisionAnnotationStore } from "../src/decision-annotations.ts";
-import { appendIncidentActionReceipt } from "../src/decision-incident-receipt.ts";
-import type { RepoCellApiContext } from "../src/repo-cell-types.ts";
-import type { TaskProjectionQueries } from "../src/protocol/daemon-protocol.contract.ts";
+} from "../src/daemon-host/dispatch-read.ts";
+import { openDecisionAnnotationStore } from "../src/daemon-host/decision-annotations.ts";
+import { appendIncidentActionReceipt } from "../src/daemon-host/decision-incident-receipt.ts";
+import type { RepoCellApiContext } from "../src/daemon-host/repo-cell-types.ts";
+import type { TaskProjectionQueries } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { taskDispatchesPayloadFromCell } from "@harness-anything/application/queries";
-import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
+import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import {
   validTaskDispatchRow,
   validateDaemonRpcCall,
   validateDaemonTaskDispatches,
-} from "../src/protocol/daemon-protocol.contract.ts";
+} from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 
 const dispatchId = "dispatch_a1b2c3d4e5f60718293a4b5c",
   runtimeSessionId = "runtime-1",

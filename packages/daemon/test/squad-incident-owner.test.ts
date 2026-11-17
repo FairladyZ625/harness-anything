@@ -12,15 +12,15 @@ import {
   type DecisionQuestionDeclaration,
   type VerticalDefinition,
 } from "@harness-anything/kernel";
-import { readDecisionAnnotationsByDispatch } from "../src/decision-annotations.ts";
-import { incidentDispositionQuestionVersion } from "../src/decision-incident-action.ts";
-import { readIncidentActionReceipt } from "../src/decision-incident-receipt.ts";
-import { openDecisionPointExecutor } from "../src/decision-point-executor.ts";
-import { openDispatchStream } from "../src/dispatch-stream.ts";
-import { validTaskDispatchRow } from "../src/protocol/daemon-protocol-validate-relation-query.ts";
-import type { TaskDispatchRow } from "../src/protocol/task-dispatch-contract.ts";
+import { readDecisionAnnotationsByDispatch } from "../src/daemon-host/decision-annotations.ts";
+import { incidentDispositionQuestionVersion } from "../src/daemon-host/decision-incident-action.ts";
+import { readIncidentActionReceipt } from "../src/daemon-host/decision-incident-receipt.ts";
+import { openDecisionPointExecutor } from "../src/daemon-host/decision-point-executor.ts";
+import { openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { validTaskDispatchRow } from "../src/daemon-host/protocol/daemon-protocol-validate-relation-query.ts";
+import type { TaskDispatchRow } from "../src/daemon-host/protocol/task-dispatch-contract.ts";
 import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
-import type { RepoCell } from "../src/repo-cell-types.ts";
+import type { RepoCell } from "../src/daemon-host/repo-cell-types.ts";
 
 const dispatchId = "dispatch_0123456789abcdef01234567",
   squadRunId = "squad_0123456789abcdef01234567",

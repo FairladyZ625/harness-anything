@@ -80,7 +80,7 @@ test("changed-path narrowing matches the manifest glob language used by the CI r
 
   assert.ok(ids("packages/kernel/src/deep/nested/thing.ts").includes("check-alpha"));
   assert.ok(ids("packages/kernel/README.md").includes("check-alpha"));
-  assert.equal(ids("packages/daemon/src/index.ts").includes("check-alpha"), false);
+  assert.equal(ids("packages/daemon/src/daemon-host/index.ts").includes("check-alpha"), false);
 });
 
 test("an empty selection is an error only when no narrowing was requested", () => {

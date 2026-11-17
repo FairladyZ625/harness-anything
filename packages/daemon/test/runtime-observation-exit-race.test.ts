@@ -7,8 +7,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import workerThreads from "node:worker_threads";
-import { attachActiveRuntime, disposeActiveRuntimeObservations } from "../src/runtime-spawn-active.ts";
-import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
+import { attachActiveRuntime, disposeActiveRuntimeObservations } from "../src/daemon-host/runtime-spawn-active.ts";
+import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
 import { active, tasklessSettlementRuntime } from "./runtime-spawn-settlement.fixtures.ts";
 
 for (const ordering of ["fault-before-exit", "exit-before-fault"] as const) {

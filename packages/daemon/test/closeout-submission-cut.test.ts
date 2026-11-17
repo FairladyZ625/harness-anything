@@ -5,7 +5,11 @@ import { mkdtempSync, renameSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { sameFrozenSubmissionCut, submissionAnchorDriftWarnings, submissionStopped } from "../src/repo-cell-submit.ts";
+import {
+  sameFrozenSubmissionCut,
+  submissionAnchorDriftWarnings,
+  submissionStopped,
+} from "../src/daemon-host/repo-cell-submit.ts";
 import { deriveCloseoutSubmission, readCloseoutSubmission } from "./closeout-submission.fixture.ts";
 
 import {
@@ -536,7 +540,7 @@ test("a reworked cut recomputes production delta from its new commit, not the pr
   git(root, "update-ref", "refs/remotes/origin/main", mainBase);
   git(root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
   git(root, "checkout", "-q", "-b", "feature");
-  put(root, "packages/daemon/src/runtime.ts", "export const runtime = 1;\n");
+  put(root, "packages/daemon/src/daemon-host/runtime.ts", "export const runtime = 1;\n");
   git(root, "rm", "-q", "packages/daemon/src/retired.ts");
   const firstSha = commit(root),
     first = await derive(

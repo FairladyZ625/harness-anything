@@ -3,15 +3,15 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 import type { Worker } from "node:worker_threads";
-import type { RepoCellOpenInput } from "../src/repo-cell-types.ts";
-import type { RepoCellStatus } from "../src/repo-cell-types.ts";
-import { beginDaemonOperation, withDaemonObservation } from "../src/daemon-operation.ts";
+import type { RepoCellOpenInput } from "../src/daemon-host/repo-cell-types.ts";
+import type { RepoCellStatus } from "../src/daemon-host/repo-cell-types.ts";
+import { beginDaemonOperation, withDaemonObservation } from "../src/daemon-host/daemon-operation.ts";
 import {
   REPO_WRITER_PROTOCOL_VERSION,
   type RepoWriterControlV1,
   type RepoWriterStatusV1,
-} from "../src/repo-writer-protocol.ts";
-import { openWriterSupervisor, WRITER_READY_WATCHDOG_MS } from "../src/writer-supervisor.ts";
+} from "../src/daemon-host/repo-writer-protocol.ts";
+import { openWriterSupervisor, WRITER_READY_WATCHDOG_MS } from "../src/daemon-host/writer-supervisor.ts";
 
 const supervisorInput = {
   repoId: "writer-liveness",

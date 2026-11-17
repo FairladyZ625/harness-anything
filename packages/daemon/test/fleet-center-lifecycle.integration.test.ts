@@ -7,18 +7,18 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { connect } from "node:tls";
 import test, { type TestContext } from "node:test";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import type { DaemonHostOpenInput } from "../src/daemon-host-types.ts";
-import { openRepoCell } from "../src/repo-cell-open.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import type { DaemonHostOpenInput } from "../src/daemon-host/daemon-host-types.ts";
+import { openRepoCell } from "../src/daemon-host/repo-cell-open.ts";
 import {
   fleetCenterConfigPath,
   parseFleetCenterExternalUrl,
   readFleetCenterConfig,
-} from "../src/fleet-center-config.ts";
+} from "../src/daemon-host/fleet-center-config.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
-import type { DaemonLifecycleEntry } from "../src/lifecycle-log.ts";
+import type { DaemonLifecycleEntry } from "../src/daemon-host/lifecycle-log.ts";
 
 async function fixture(t: TestContext) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-center-lifecycle-")),

@@ -5,11 +5,11 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { openRuntimeInstanceStore } from "../src/agent-runtime-instance-store.ts";
-import { resolveRuntimeInstanceCandidates } from "../src/runtime-spawn-mission.ts";
-import { compatibleRuntimeInstances, runtimeInstanceModel } from "../src/runtime-instance-selection.ts";
+import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-instance-store.ts";
+import { resolveRuntimeInstanceCandidates } from "../src/daemon-host/runtime-spawn-mission.ts";
+import { compatibleRuntimeInstances, runtimeInstanceModel } from "../src/daemon-host/runtime-instance-selection.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
-import type { RuntimeInstanceSummary } from "../src/agent-runtime-instance-types.ts";
+import type { RuntimeInstanceSummary } from "../src/daemon-host/agent-runtime-instance-types.ts";
 import { runtimeInstanceDispatchModels } from "@harness-anything/kernel/internal/domain/runtime-instance-contract.ts";
 
 const hydrogen = "gemini-4-hydrogen-low",

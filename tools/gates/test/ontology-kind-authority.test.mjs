@@ -10,7 +10,7 @@ import { captureGate, writeRepoFile } from "./helpers.mjs";
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 const registryPath = "packages/kernel/src/domain/entity-kind-registry.ts";
 const declarationPath = "packages/kernel/src/domain/action-declaration.ts";
-const commandsPath = "packages/daemon/src/protocol/daemon-protocol-commands.ts";
+const commandsPath = "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts";
 
 const executable = (id, ingress, implementation = "catalog-runtime", policy = ingress) =>
   `{ id: "${id}", policy: { action: "${policy}" }, execution: { ingress: "${ingress}", read: false, implementation: "${implementation}" } }`;
@@ -49,7 +49,7 @@ function writeSurfaces(rootDir, { declarations, commands, artifactIngress = [] }
   writeRepoFile(rootDir, commandsPath, `export const daemonProtocolCommands = [${commands.join(", ")}];\n`);
   writeRepoFile(
     rootDir,
-    "packages/daemon/src/protocol/daemon-protocol-gui-actions.ts",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-actions.ts",
     "export const daemonGuiActionMethods = [];\n",
   );
   writeRepoFile(rootDir, "packages/kernel/src/domain/entity-ref.ts", "export {};\n");

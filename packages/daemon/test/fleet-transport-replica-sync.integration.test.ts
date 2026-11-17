@@ -7,9 +7,9 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
-import { readFleetRepositoryMetadataClient } from "../src/fleet/peer.ts";
-import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
-import { runFleetReplicaSync } from "../src/fleet/replica-sync.ts";
+import { readFleetRepositoryMetadataClient } from "../src/daemon-host/fleet/peer.ts";
+import { readReplicaGeneration } from "../src/fleet-sync/fleet/replica-generation.ts";
+import { runFleetReplicaSync } from "../src/daemon-host/fleet/replica-sync.ts";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { waitForState } from "./fleet-replication.fixture.ts";
 

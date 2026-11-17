@@ -10,15 +10,15 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { openDaemonHost } from "../src/daemon-host.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import {
   applyFleetMirrorCut,
   fleetMirrorCutFile,
   locateFleetMirrorView,
   scanFleetMirrorWorktree,
-} from "../src/fleet-edge-mirror.ts";
-import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
-import { listenFleetTls } from "../src/fleet/center.ts";
+} from "../src/daemon-host/fleet-edge-mirror.ts";
+import { readReplicaGeneration } from "../src/fleet-sync/fleet/replica-generation.ts";
+import { listenFleetTls } from "../src/daemon-host/fleet/center.ts";
 import { openPersistentWriterEpoch } from "@harness-anything/storage";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";

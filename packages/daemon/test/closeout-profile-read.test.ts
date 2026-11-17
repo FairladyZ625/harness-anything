@@ -16,9 +16,9 @@ import {
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
-import { repoCellTaskQueryJudgmentsFor } from "../src/repo-cell.ts";
-import { readCompletionContext, readCompletionDeliveryStatus } from "../src/task-completion-read.ts";
-import { EMPTY_TREE_SHA } from "../src/task-delivery-containment.ts";
+import { repoCellTaskQueryJudgmentsFor } from "../src/daemon-host/repo-cell.ts";
+import { readCompletionContext, readCompletionDeliveryStatus } from "../src/daemon-host/task-completion-read.ts";
+import { EMPTY_TREE_SHA } from "../src/daemon-host/task-delivery-containment.ts";
 
 function git(root: string, ...args: string[]): string {
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();

@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { selectReviewSeat } from "../src/review-panel.ts";
+import { selectReviewSeat } from "../src/daemon-host/review-panel.ts";
 
 // dec_6A77D43B8523823ABA1F5E4D3C CH1: one seat per cut, and the reasons it is that seat. These
 // cases read the production selector directly — the retired `selectReviewAgent` adapter silently

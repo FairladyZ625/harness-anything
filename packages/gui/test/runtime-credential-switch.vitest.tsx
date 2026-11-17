@@ -6,7 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { openRuntimeInstanceStore } from "../../daemon/src/agent-runtime-instance-store.ts";
+import { openRuntimeInstanceStore } from "../../daemon/src/daemon-host/agent-runtime-instance-store.ts";
 import { RuntimeCard } from "../src/renderer/components/runtime/RuntimeCard.tsx";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import type { RuntimeInstanceUpdateInput } from "../src/renderer/runtime-instance-client.ts";

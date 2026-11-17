@@ -9,9 +9,9 @@ import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
-import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
-import { readDaemonPid } from "../src/daemon-singleton.ts";
-import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
+import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
+import { readDaemonPid } from "../src/daemon-host/daemon-singleton.ts";
+import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
 
 async function eventually(predicate: () => boolean | Promise<boolean>, _message: string): Promise<void> {
   while (!(await predicate())) await new Promise<void>((resolve) => setTimeout(resolve, 25));
@@ -46,7 +46,7 @@ for (const supervised of [true, false])
         daemonId = "supervised-test",
         workerFile = path.join(parent, "worker.pid"),
         providerReady = path.join(parent, "provider-ready"),
-        entry = path.join(dist, "daemon/src/bin.js"),
+        entry = path.join(dist, "daemon/src/daemon-host/bin.js"),
         endpoint = localUserDaemonEndpoint(userRoot, daemonId),
         preload = path.join(parent, "preload.mjs");
       mkdirSync(rootDir, { recursive: true });
@@ -56,7 +56,7 @@ for (const supervised of [true, false])
       });
       assert.ok(existsSync(entry), `daemon build is missing at ${entry}`);
       writeFileSync(marker, "build-a\n");
-      const moduleUrl = pathToFileURL(path.resolve("packages/daemon/src/runtime-spawn-process.ts")).href;
+      const moduleUrl = pathToFileURL(path.resolve("packages/daemon/src/daemon-host/runtime-spawn-process.ts")).href;
       writeFileSync(
         preload,
         `import fs from "node:fs"; import path from "node:path"; import { launchNative } from ${JSON.stringify(moduleUrl)};\nif (process.argv.includes("--service") && fs.readFileSync(${JSON.stringify(marker)}, "utf8").trim() === "build-a") { const rootDir = ${JSON.stringify(rootDir)}, dispatchId = "dispatch_111111111111111111111111", streamRoot = path.join(rootDir, ".harness", "runtime", "dispatches"); fs.mkdirSync(streamRoot, { recursive: true }); fs.writeFileSync(path.join(streamRoot, dispatchId + ".jsonl"), "{}\\n"); const worker = launchNative({ executablePath: process.execPath, args: ["-e", 'process.stdin.resume(); process.stdin.once("end", () => require("fs").writeFileSync(process.argv[1], "ready")); setInterval(() => {}, 1000)', ${JSON.stringify(providerReady)}], env: process.env, cwd: rootDir, prompt: "hold" }, { rootDir, dispatchId }); fs.writeFileSync(${JSON.stringify(workerFile)}, String(worker.pid)); setInterval(() => {}, 1000); }\n`,

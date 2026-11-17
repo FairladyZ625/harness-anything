@@ -264,3 +264,26 @@ test("rejects a line fingerprint whose waived source line no longer exists", () 
   // The same text in another file is a different line: the waiver belongs to its own path.
   assert.equal(findStaleFingerprints([live], [{ file: "packages/gui/src/x.ts", text: line }]).length, 1);
 });
+
+// dec_04A9211B073F29F0FC1E1CA573 CH2/CH3: relocation preserves legacy rows, never creates provider debt.
+test("provider relocation preserves exact same-package rows one-for-one", () => {
+  const moved =
+    '--- a/packages/daemon/src/old.ts\n+++ b/packages/daemon/src/daemon-host/new.ts\n-const provider = "keycloak";\n+  const provider = "keycloak";\n';
+  assert.deepEqual(findProviderBoundaryViolations(moved), []);
+  assert.equal(findProviderBoundaryViolations(moved + '+const provider = "keycloak";\n').length, 1);
+  assert.equal(
+    findProviderBoundaryViolations(moved.replace("+++ b/packages/daemon/", "+++ b/packages/cli/")).length,
+    1,
+  );
+  assert.equal(
+    findProviderBoundaryViolations(
+      moved.replace('+  const provider = "keycloak";', '+const provider = "keycloak-new";'),
+    ).length,
+    1,
+  );
+  assert.equal(
+    findProviderBoundaryViolations(moved.replace("--- a/packages/daemon/", "--- a/packages/authorization-keycloak/"))
+      .length,
+    1,
+  );
+});

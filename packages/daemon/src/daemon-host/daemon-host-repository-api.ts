@@ -1,0 +1,1210 @@
+import { readActiveDispatchLifecycle } from "./runtime-dispatch-admission.ts";
+import { forward } from "./fleet/forwarding-port.ts";
+import { forwardingIntentForAction } from "./fleet/forwarding-intent.ts";
+import { materializeFleetEdgeDocuments, reconcileFleetNodeMaterialization } from "./fleet-edge-materialization.ts";
+import { runFleetEdgeRepositoryRead } from "./fleet-edge-task.ts";
+import { initialRuntimeInstanceSettings } from "./runtime-spawn-allowlist.ts";
+import { edgeReplicaDoctor } from "./edge-replica-doctor.ts";
+import { openGuiCatalog } from "./gui-catalog.ts";
+import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
+/** @daemon-transport-authority Daemon ingress filtering and repository dispatch. */
+import { repositoryReadDescriptor } from "./repository-read-contract.ts";
+import { readFleetOverviewFromHost } from "./fleet/fleet-overview-read.ts";
+import { readClaimableTasks } from "./task-claimable-read.ts";
+import { nodeAutoClaimLeaseKey } from "./node-auto-claim.ts";
+import { readEntityAssignmentDirectory } from "./entity-assignment-directory.ts";
+import { parseAssignmentExpiry } from "@harness-anything/kernel";
+import { doctorBuildDrift, fleetVersionDoctorCheck, type DoctorCheck } from "./repo-cell-doctor.ts";
+import { decisionProviderDoctorCheck } from "./decision-provider-doctor.ts";
+import { hostedCredentialDoctorCheck } from "./hosting-credential-readiness.ts";
+import { existsSync, realpathSync } from "node:fs";
+import path from "node:path";
+import { registerDaemonRepo } from "@harness-anything/storage";
+import {
+  readDaemonRegistry,
+  getExecutableEntityAction,
+  registerDaemonConnection,
+  removeDaemonConnection,
+  resolveHarnessLayout,
+  unbindDaemonRepo,
+  updateDaemonConnection,
+  updateDaemonRepo,
+  type WriteReceiptDraft,
+} from "@harness-anything/kernel";
+import {
+  compileRepoRepositoryScaffold,
+  compileRepoTaskPackage,
+  presetUserRoot,
+  recoverPresetRunStatus,
+} from "@harness-anything/preset";
+import { repoReadCommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
+import type { DaemonHost } from "./daemon-host-types.ts";
+import {
+  canonicalRoot,
+  commandDescriptorForAction,
+  type DaemonGuiReadResultMap,
+  type DaemonGuiRpcReadMethod,
+} from "./protocol/daemon-protocol.contract.ts";
+import { parseDaemonGuiReadResult } from "./protocol/gui-result-validation.ts";
+import { withLocalDispatchStreamEvidence } from "./dispatch-activity-read.ts";
+import { isJsonObject } from "./protocol/json-rpc-types.ts";
+import { seedBuiltinSchedules } from "./schedule-builtin-executor.ts";
+import { resolveRepoBootstrap, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
+import { type RepoCell, type RepoCellReadMethod, type RepoTaskAction } from "./repo-cell-types.ts";
+import type { SquadControlResult } from "./squad-control-result.ts";
+import type { DaemonHostApiContext } from "./daemon-host-context.ts";
+import { localDefaultBinding, localSystemActionBinding } from "./daemon-host-binding.ts";
+import { requireAuthorizedFleetAction, requireAuthorizedHostAction } from "./host-action-authorization.ts";
+import { entityActionCommandTopology } from "./repo-mode.ts";
+import { resolveVerticalKindCommandAction } from "@harness-anything/application/commands";
+import { cachePurgePreservedPaths, purgeRepoCache } from "./repo-cache-purge.ts";
+import { backupReceipt } from "./offline-storage.ts";
+import {
+  backupRepo,
+  drillRepoBackup,
+  removeRepoHarnessData,
+  validateBackupDestination,
+  validateRepoAllPurge,
+} from "./repo-all-purge.ts";
+import { removeFileDurably } from "../../../storage/src/durable-file.ts";
+import { readPolicyMetadata } from "@harness-anything/application/queries";
+import { renderStuckRuntimeRecoveries } from "./runtime-recovery-watch.ts";
+
+function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCellReadMethod {
+  return (
+    method !== "repo.tasks.claimable" &&
+    method !== "repo.tasks.assignmentDirectory" &&
+    method !== "daemon.gui.system.read" &&
+    method !== "daemon.gui.home.read" &&
+    method !== "daemon.gui.control.receipt" &&
+    method !== "observe.tail" &&
+    method !== "repo.fleet.overview.read" &&
+    method !== "repo.policy.metadata.read" &&
+    method !== "repo.gui.catalog.snapshot" &&
+    method !== "repo.gui.catalog.preset.read" &&
+    method !== "repo.terminal.sessions.list"
+  );
+}
+
+async function bindAgendaTeams(binding: import("./repo-cell-types.ts").RepoCellBinding) {
+  if (binding.taskClaimant?.teamIds !== undefined) return binding;
+  const credential = binding.keycloakAuthorization;
+  if (!credential?.center) return binding;
+  const center = await credential.center(),
+    adapter = center.provider,
+    teamIds = await adapter.readPersonTeams(center.accessToken, binding.actor.principal.personId),
+    nodeId = typeof binding.source === "object" && binding.source.kind === "node" ? binding.source.nodeId : null;
+  return { ...binding, taskClaimant: { personId: binding.actor.principal.personId, nodeId, teamIds } };
+}
+
+export function createDaemonHostRepositoryApi(
+  context: DaemonHostApiContext,
+): Pick<
+  DaemonHost,
+  | "bootstrap"
+  | "admin"
+  | "run"
+  | "replica"
+  | "pruneReplicationLog"
+  | "settleMaterialization"
+  | "presetRun"
+  | "read"
+  | "readDispatchLifecycle"
+  | "readNodeAutoClaimCandidates"
+  | "readNodeAutoDispatchCandidates"
+> {
+  return {
+    readDispatchLifecycle: async (repoId, query, auth) => {
+      const cell = context.cells.get(repoId);
+      if (!cell || cell.status().mode === "remote-edge")
+        throw context.hostCodedError("repo_unavailable", `Center repository ${repoId} is unavailable.`);
+      const binding = await context.binding(cell.status().rootDir, auth);
+      await cell.read("repo.settings.read", {}, binding);
+      return cell.readDispatchLifecycle(query);
+    },
+    readNodeAutoDispatchCandidates: async (repoId, auth) => {
+      if (auth.transportKind !== "fleet-tls" || !auth.nodePrincipal)
+        throw context.hostCodedError(
+          "authentication_required",
+          "Auto-dispatch candidates require a Fleet node session.",
+        );
+      const cell = context.cells.get(repoId);
+      if (!cell || cell.status().mode === "remote-edge")
+        throw context.hostCodedError("repo_unavailable", `Center repository ${repoId} is unavailable.`);
+      const binding = await context.binding(cell.status().rootDir, auth),
+        nodeId = typeof binding.source === "object" && binding.source.kind === "node" ? binding.source.nodeId : null;
+      if (nodeId !== auth.nodePrincipal.nodeId || binding.actor.principal.personId !== auth.nodePrincipal.personId)
+        throw context.hostCodedError(
+          "authentication_required",
+          "Fleet node binding does not match its authenticated owner.",
+        );
+      if (!cell.readNodeAutoDispatchCandidates)
+        throw context.hostCodedError("repo_unavailable", `Repository ${repoId} cannot read node dispatch candidates.`);
+      const candidates = await cell.readNodeAutoDispatchCandidates(nodeId!);
+      return { schema: "node-auto-dispatch-candidates/v1", candidates };
+    },
+    readNodeAutoClaimCandidates: async (repoId, auth) => {
+      if (auth.transportKind !== "fleet-tls" || !auth.nodePrincipal)
+        throw context.hostCodedError("authentication_required", "Auto-claim candidates require a Fleet node session.");
+      const cell = context.cells.get(repoId);
+      if (!cell || cell.status().mode === "remote-edge")
+        throw context.hostCodedError("repo_unavailable", `Center repository ${repoId} is unavailable.`);
+      const binding = await context.binding(cell.status().rootDir, auth),
+        nodeId = typeof binding.source === "object" && binding.source.kind === "node" ? binding.source.nodeId : null;
+      if (nodeId !== auth.nodePrincipal.nodeId || binding.actor.principal.personId !== auth.nodePrincipal.personId)
+        throw context.hostCodedError(
+          "authentication_required",
+          "Fleet node binding does not match its authenticated owner.",
+        );
+      const settings = await cell.read("repo.settings.read", {}, binding),
+        assignments = await cell.readNodeAutoClaimAssignments(binding),
+        claimable = await readClaimableTasks({
+          repoId,
+          binding,
+          settings: settings.settings,
+          now: context.now(),
+          page: (query) => cell.read("repo.tasks.list", query, binding),
+          readTask: async (taskId) =>
+            (await cell.read("repo.tasks.runtimeContext.read", { taskId }, binding)).snapshot.task,
+          readAssignments: async () => assignments.map(({ relation }) => relation),
+        });
+      const relations = new Map(assignments.map((row) => [row.relation.sourceRef, row] as const)),
+        center = await context.keycloakCenter();
+      const candidates = await Promise.all(
+        claimable.tasks
+          .filter((task) => relations.has(`task/${task.taskId}`))
+          .map(async (task) => {
+            const row = relations.get(`task/${task.taskId}`),
+              relation = row?.relation,
+              assignedByPersonId = row?.assignedByPersonId ?? null,
+              assignedByTeamIds = assignedByPersonId
+                ? await center.provider.readPersonTeams(center.accessToken, assignedByPersonId)
+                : [];
+            return {
+              taskId: task.taskId,
+              autoAssignment: relation
+                ? {
+                    taskId: task.taskId,
+                    workspaceRevision: relation.workspaceRevision,
+                    expiresAt: parseAssignmentExpiry(relation.rationale) ?? "",
+                    assignedByPersonId,
+                    assignedByTeamIds,
+                  }
+                : null,
+            };
+          }),
+      );
+      const activeTaskIds = new Set<string>();
+      const active = await readActiveDispatchLifecycle(
+        (query) => cell.readDispatchLifecycle(query),
+        context.hostCodedError,
+      );
+      for (const { attempt, policy } of active) {
+        if (policy.capacity === "released" || !attempt.task) continue;
+        const taskId = attempt.task.taskId,
+          task = await cell.read("repo.tasks.runtimeContext.read", { taskId }, binding),
+          key = nodeAutoClaimLeaseKey({ repoId, taskId, nodeId, lease: task.snapshot.lease });
+        if (key) activeTaskIds.add(taskId);
+      }
+      return { schema: "node-auto-claim-candidates/v2", candidates, activeTaskIds: [...activeTaskIds] };
+    },
+    bootstrap: async (request, auth) => {
+      // Init claims repository ownership for the signed-in person on this machine; a device
+      // session or another transport never reaches it (the descriptor declares local-transport).
+      context.localOnly(auth);
+      const requestedRoot = canonicalRoot(request.rootDir, true),
+        registeredRoot = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
+          (repo) => repo.state === "enabled" && repo.mode === "local" && repo.canonicalRoot === requestedRoot,
+        ),
+        reusedRegistration = request.repoId === undefined && registeredRoot !== undefined;
+      if (request.repoId !== undefined && registeredRoot && registeredRoot.repoId !== request.repoId)
+        throw context.hostCodedError(
+          "repository_already_registered",
+          `This repository is already registered as ${registeredRoot.repoId}; ` +
+            `rerun without --repo-id or with --repo-id ${registeredRoot.repoId}.`,
+        );
+      // dec_D60FAA451F24160E970323B6F3: even a single-user machine authorizes through the Keycloak that
+      // ha bootstrap installs. Without that authority init cannot publish its first ledger event, so it
+      // stops here rather than scaffolding the workspace and failing the ledger authorization afterwards.
+      if (!request.configureOnly && !context.oidc.configured())
+        throw context.hostCodedError(
+          "rbac_not_configured",
+          "This daemon has no Keycloak authority. Run ha bootstrap once on this machine to install it, create the " +
+            "first administrator with ha bootstrap --operation bootstrap-admin, sign in with ha bootstrap " +
+            "--operation login, then rerun ha init.",
+        );
+      const registeredPersonId =
+        reusedRegistration && request.personId === undefined
+          ? (await context.binding(requestedRoot, auth)).actor.principal.personId
+          : undefined;
+      const prepared = resolveRepoBootstrap(
+        reusedRegistration
+          ? {
+              ...request,
+              repoId: registeredRoot.repoId,
+              ...(registeredPersonId ? { personId: registeredPersonId } : {}),
+            }
+          : request,
+        await context.oidc.bind(auth, requestedRoot),
+      );
+      const [bootstrapSettings, bootstrapDocumentBody] = prepared.settingsBootstrap,
+        bootstrap = {
+          ...prepared,
+          settingsBootstrap: [
+            initialRuntimeInstanceSettings(bootstrapSettings, context.runtimePorts.runtimeInstances()),
+            bootstrapDocumentBody,
+          ] as const,
+        };
+      const claimedRegistration = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
+        (repo) => repo.repoId === bootstrap.repoId,
+      );
+      if (claimedRegistration && claimedRegistration.canonicalRoot !== bootstrap.rootDir)
+        throw context.hostCodedError(
+          "repository_already_registered",
+          `Repository id ${bootstrap.repoId} is already registered; init cannot claim another workspace with it.`,
+        );
+      if (!request.configureOnly) {
+        if (context.oidc.centerConfigured()) {
+          const center = await context.keycloakCenter();
+          await center.provider.claimRepositoryOwner(
+            center.accessToken,
+            bootstrap.repoId,
+            bootstrap.actor.principal.personId,
+          );
+        }
+      }
+      await context.waitForWarming(bootstrap.repoId);
+      if (context.warming.has(bootstrap.repoId))
+        throw context.hostCodedError("repo_warming", context.warmingMessage(bootstrap.repoId));
+      context.markWarming(
+        bootstrap.repoId,
+        context.warmingStatus({
+          repoId: bootstrap.repoId,
+          canonicalRoot: bootstrap.rootDir,
+          mode: "local",
+        }),
+      );
+      try {
+        await context.cells.get(bootstrap.repoId)?.close();
+        context.cells.delete(bootstrap.repoId);
+        context.unavailable.delete(bootstrap.repoId);
+        let published: RepoBootstrapReceipt | undefined, cell: RepoCell;
+        try {
+          cell = await context.openCell({
+            repoId: bootstrap.repoId,
+            rootDir: bootstrap.rootDir,
+            mode: "local",
+            ownerId: context.input.daemonId,
+            defaultWriterEpochFence: context.writerEpochFence(prepared.repoId, prepared.rootDir),
+            runtimeDaemonRoute: context.runtimeDaemonRoute,
+            keycloakCenter: context.keycloakCenter,
+            keycloakSession: context.keycloakSession,
+            bootstrap,
+            onBootstrap: (receipt) => {
+              published = receipt;
+            },
+            ...context.runtimePorts,
+            ...(context.input.runtimeLaunch ? { runtimeLaunch: context.input.runtimeLaunch } : {}),
+          });
+        } catch (error) {
+          if (!published?.publication.ok) throw error;
+          context.latchUnavailable(
+            prepared.repoId,
+            context.unavailableStatus(prepared.repoId, prepared.rootDir, "local", error),
+          );
+          return context.failedConfigureVerify(
+            published,
+            prepared.repoId,
+            prepared.rootDir,
+            false,
+            error,
+            [],
+            "daemon-l2-readiness",
+          );
+        }
+        let registered;
+        try {
+          registered = registerDaemonRepo({
+            canonicalRoot: prepared.rootDir,
+            repoId: prepared.repoId,
+            mode: "local",
+            userRoot: context.input.userRoot,
+            createConvenienceLinks: false,
+          });
+          context.cells.set(prepared.repoId, cell);
+          context.unavailable.delete(prepared.repoId);
+          await context.scheduleScheduler.refresh();
+        } catch (error) {
+          await cell.close();
+          throw error;
+        }
+        const receipt = cell.bootstrapReceipt!,
+          reportedReceipt = reusedRegistration
+            ? {
+                ...receipt,
+                summary: `This repository is already registered as ${prepared.repoId} and is initialized.`,
+              }
+            : receipt;
+        if (!receipt.publication.ok)
+          return {
+            schema: "command-receipt/v2",
+            ok: false,
+            command: "init",
+            repoId: registered.repo.repoId,
+            rootDir: prepared.rootDir,
+            registryChanged: registered.changed,
+            ...reportedReceipt,
+          };
+        await seedBuiltinSchedules({
+          cell,
+          binding: await context.binding(prepared.rootDir, auth, null, prepared.repoId),
+        });
+        const steps = ["publication-readback"];
+        try {
+          const layout = resolveHarnessLayout(prepared.rootDir),
+            settings = (await cell.read("repo.settings.read")).settings,
+            reparsed = compileRepoRepositoryScaffold(prepared.rootDir, settings),
+            expected = new Map(prepared.repositoryPlan.documents.map((document) => [document.slot, document.path]));
+          if (
+            reparsed.documents.length !== expected.size ||
+            reparsed.documents.some(
+              (document) => expected.get(document.slot) !== document.path || document.disposition === "created",
+            )
+          )
+            throw context.hostCodedError(
+              "configure_verify_layout",
+              "Canonical repository slots did not resolve to the published paths.",
+            );
+          steps.push("canonical-layout");
+          const readiness = await cell.verifyReadiness();
+          steps.push("daemon-l2-readiness");
+          const smoke = compileRepoTaskPackage({
+            rootDir: prepared.rootDir,
+            settings,
+            taskId: "configure-verify-smoke",
+            action: { kind: "task-create", title: "Configure Verify" },
+          });
+          steps.push("task-bootstrap-dry-run");
+          return {
+            schema: "command-receipt/v2",
+            ok: true,
+            command: "init",
+            repoId: registered.repo.repoId,
+            rootDir: prepared.rootDir,
+            registryChanged: registered.changed,
+            ...reportedReceipt,
+            configureVerify: {
+              ok: true,
+              steps,
+              roots: {
+                contextRoot: layout.contextRoot,
+                governanceRoot: layout.governanceRoot,
+                standardsRoot: layout.standardsRoot,
+              },
+              requiredSlots: reparsed.documents.map(({ slot, path: target }) => ({
+                slot,
+                path: target,
+              })),
+              l2: readiness,
+              compiledDocuments: smoke.documents.length,
+            },
+          };
+        } catch (error) {
+          return context.failedConfigureVerify(
+            receipt,
+            registered.repo.repoId,
+            prepared.rootDir,
+            registered.changed,
+            error,
+            steps,
+          );
+        }
+      } catch (error) {
+        context.latchUnavailable(
+          prepared.repoId,
+          context.unavailableStatus(prepared.repoId, prepared.rootDir, "local", error),
+        );
+        throw error;
+      } finally {
+        context.settleWarming(prepared.repoId);
+      }
+    },
+    admin: async (request, auth) => {
+      context.localOnly(auth);
+      if (request.kind === "backup" || request.kind === "restore-drill") {
+        const rootDir = realpathSync(request.rootDir),
+          repo = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
+            (candidate) => candidate.state === "enabled" && candidate.canonicalRoot === rootDir,
+          ),
+          actionKind = request.kind === "backup" ? "ledger-backup" : "ledger-restore-drill",
+          authorizationDecision = await requireAuthorizedHostAction({
+            kind: actionKind,
+            ...(repo ? { repoId: repo.repoId } : {}),
+            binding: await localSystemActionBinding(context.input.userRoot, actionKind, auth, () =>
+              repo && repo.mode !== "remote-proxy"
+                ? context.binding(rootDir, auth)
+                : Promise.resolve(localDefaultBinding(auth)),
+            ),
+            actionId: `${actionKind}:${rootDir}:${request.backupDir}`,
+            evaluatedAtCut: repo ? `daemon-registry:${repo.repoId}` : "daemon-registry:unregistered",
+          }),
+          backupDir = path.resolve(request.backupDir);
+        if (repo?.mode === "remote-proxy")
+          throw context.hostCodedError("repo_mode_remote_proxy", `Repository ${repo.repoId} is remote-proxy.`);
+        if (request.kind === "backup") validateBackupDestination(rootDir, request.backupDir);
+        else if (!existsSync(backupDir)) throw new Error("restore --drill backup directory does not exist");
+        const shadowParent =
+          request.kind === "restore-drill" && request.shadowParent ? { shadowParent: request.shadowParent } : {};
+        let result: ReturnType<typeof backupRepo> | Awaited<ReturnType<typeof drillRepoBackup>>;
+        if (repo) {
+          await context.waitForWarming(repo.repoId);
+          result = await context.requiredCell(context.cells, context.warming, context.unavailable, repo.repoId).backup!(
+            {
+              kind: request.kind === "backup" ? "backup" : "drill",
+              backupDir,
+              ...shadowParent,
+              registration: repo,
+              writerEpoch: context.writerEpochHighWatermark(repo.repoId),
+            },
+          );
+        } else {
+          // An unregistered root has no daemon-held writer, so there is no write queue to serialize against.
+          result =
+            request.kind === "backup"
+              ? backupRepo({ rootDir, backupDir })
+              : await drillRepoBackup({ rootDir, backupDir, ...shadowParent });
+        }
+        if (request.kind === "backup")
+          return {
+            ok: true,
+            schema: "ledger-backup-receipt/v1",
+            exitCode: 0,
+            ...backupReceipt(backupDir, result as Parameters<typeof backupReceipt>[1]),
+            authorizationDecision,
+          };
+        const drill = result as Awaited<ReturnType<typeof drillRepoBackup>>;
+        return {
+          ok: true,
+          schema: "ledger-restore-drill-receipt/v1",
+          exitCode: 0,
+          ...backupReceipt(backupDir, drill.manifest),
+          shadowRoot: drill.shadowRoot,
+          ...(drill.projection ? { projection: drill.projection } : {}),
+          removedShadowRoots: drill.removedShadowRoots,
+          warnings: drill.warnings,
+          authorizationDecision,
+        };
+      }
+      if (request.kind === "register") {
+        const remoteProxy = request.mode === "remote-proxy";
+        const adminBinding = await localSystemActionBinding(context.input.userRoot, "daemon-repo-register", auth, () =>
+            remoteProxy
+              ? Promise.resolve(localDefaultBinding(auth))
+              : context.binding(context.requiredText(request.rootDir, "rootDir"), auth),
+          ),
+          authorizationDecision = await requireAuthorizedHostAction({
+            kind: "daemon-repo-register",
+            repoId: request.repoId,
+            binding: adminBinding,
+            actionId: `daemon-repo-register:${request.repoId}`,
+            evaluatedAtCut: "daemon-registry:current",
+          });
+        const result = remoteProxy
+          ? registerDaemonRepo({
+              repoId: request.repoId,
+              displayName: request.displayName,
+              mode: "remote-proxy",
+              connectionId: request.connectionId,
+              endpoint: request.endpoint,
+              userRoot: context.input.userRoot,
+              createConvenienceLinks: false,
+            })
+          : await context.attach(request.rootDir!, request.repoId, request.mode);
+        if (remoteProxy) await context.refreshRegistry();
+        return {
+          schema: "command-receipt/v2",
+          ok: true,
+          command: "daemon-repo-register",
+          outcome: "applied",
+          repo: result.repo,
+          changed: result.changed,
+          authorizationDecision,
+          summary: [
+            "repo register: repoId=",
+            `${result.repo.repoId}`,
+            " canonicalRoot=",
+            `${result.repo.canonicalRoot ?? "none"}`,
+            " mode=",
+            `${result.repo.mode}`,
+            " changed=",
+            `${result.changed}`,
+            "",
+          ].join(""),
+        };
+      }
+      if (request.kind === "update") {
+        const existing = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
+            (repo) => repo.repoId === request.repoId,
+          ),
+          adminBinding = await localSystemActionBinding(context.input.userRoot, "daemon-repo-update", auth, () =>
+            existing?.canonicalRoot === null || existing === undefined
+              ? Promise.resolve(localDefaultBinding(auth))
+              : context.binding(existing.canonicalRoot, auth),
+          ),
+          authorizationDecision = await requireAuthorizedHostAction({
+            kind: "daemon-repo-update",
+            repoId: request.repoId,
+            binding: adminBinding,
+            actionId: `daemon-repo-update:${request.repoId}`,
+            evaluatedAtCut: "daemon-registry:current",
+          }),
+          requestedRoot = request.rootDir === undefined ? undefined : realpathSync(request.rootDir),
+          oldRoot = existing?.canonicalRoot;
+        if (
+          requestedRoot !== undefined &&
+          oldRoot !== undefined &&
+          oldRoot !== null &&
+          existing?.mode === "remote-edge" &&
+          requestedRoot !== oldRoot
+        )
+          await context.migrateEdgeWorkspace(request.repoId, oldRoot, requestedRoot);
+        const result = updateDaemonRepo({
+          ...request,
+          ...(request.rootDir === undefined ? {} : { canonicalRoot: request.rootDir }),
+          userRoot: context.input.userRoot,
+          createConvenienceLinks: false,
+        });
+        await context.refreshRegistry();
+        return {
+          schema: "command-receipt/v2",
+          ok: true,
+          command: "daemon-repo-update",
+          outcome: "applied",
+          repo: result.repo,
+          changed: result.changed,
+          authorizationDecision,
+          summary: `repo update: repoId=${result.repo.repoId} changed=${result.changed}`,
+        };
+      }
+      if (
+        request.kind === "connection-register" ||
+        request.kind === "connection-update" ||
+        request.kind === "connection-unregister" ||
+        request.kind === "connection-probe"
+      ) {
+        const connectionSubject = "connectionId" in request ? request.connectionId : request.endpoint,
+          command =
+            request.kind === "connection-register"
+              ? "daemon-connection-add"
+              : request.kind === "connection-update"
+                ? "daemon-connection-update"
+                : request.kind === "connection-unregister"
+                  ? "daemon-connection-remove"
+                  : "daemon-connection-probe",
+          authorizationDecision = await requireAuthorizedFleetAction({
+            kind: command,
+            userRoot: context.input.userRoot,
+            auth,
+            actionId: `${command}:${connectionSubject}`,
+            evaluatedAtCut: "daemon-registry:current",
+            now: context.now(),
+          });
+        if (request.kind === "connection-probe")
+          return { ...(await context.remoteProxy.probe(request.endpoint)), command, authorizationDecision };
+        const result =
+          request.kind === "connection-register"
+            ? registerDaemonConnection({
+                id: request.connectionId,
+                displayName: request.displayName,
+                endpoint: request.endpoint,
+                userRoot: context.input.userRoot,
+              })
+            : request.kind === "connection-update"
+              ? updateDaemonConnection({
+                  id: request.connectionId,
+                  displayName: request.displayName,
+                  endpoint: request.endpoint,
+                  state: request.state,
+                  userRoot: context.input.userRoot,
+                })
+              : removeDaemonConnection(request.connectionId, { userRoot: context.input.userRoot });
+        return {
+          schema: "command-receipt/v2",
+          ok: true,
+          command,
+          outcome: "applied",
+          connection: result.connection,
+          changed: result.changed,
+          authorizationDecision,
+          summary: `connection ${request.kind}: connectionId=${result.connection.id} changed=${result.changed}`,
+        };
+      }
+      const registry = readDaemonRegistry({ userRoot: context.input.userRoot }),
+        known =
+          registry.repos.some((repo) => repo.repoId === request.repoId) ||
+          registry.invalidRepos.some((repo) => repo.repoId === request.repoId);
+      if (!known) throw context.hostCodedError("repo_namespace_unknown", `Unknown repo namespace: ${request.repoId}.`);
+      const registeredRepo = registry.repos.find((repo) => repo.repoId === request.repoId),
+        invalidRepo = registry.invalidRepos.find((repo) => repo.repoId === request.repoId),
+        purging = request.kind === "purge",
+        purgingAll = purging && request.scope === "all";
+      if (
+        purging &&
+        (!registeredRepo || registeredRepo.mode === "remote-proxy" || registeredRepo.canonicalRoot === null)
+      )
+        throw context.hostCodedError("repo_has_no_local_state", `Repository ${request.repoId} has no local state.`);
+      if (
+        purging &&
+        (!existsSync(registeredRepo!.canonicalRoot!) ||
+          realpathSync(registeredRepo!.canonicalRoot!) !== registeredRepo!.canonicalRoot)
+      )
+        throw context.hostCodedError(
+          "repo_root_unavailable",
+          `Repository ${request.repoId} canonical root is unavailable; no files were removed.`,
+        );
+      const rootDir = registeredRepo?.canonicalRoot ?? invalidRepo?.canonicalRoot ?? null,
+        backupDir = purgingAll
+          ? validateRepoAllPurge({
+              rootDir: registeredRepo!.canonicalRoot!,
+              repoId: request.repoId,
+              backup: request.backup,
+              confirm: request.confirm,
+            })
+          : null,
+        actionKind = purging ? "repo-purge" : "repo-unbind",
+        adminBinding = purging
+          ? await context.binding(registeredRepo!.canonicalRoot!, auth)
+          : await localSystemActionBinding(context.input.userRoot, actionKind, auth, () =>
+              registeredRepo?.canonicalRoot
+                ? context.binding(registeredRepo.canonicalRoot, auth)
+                : Promise.resolve(localDefaultBinding(auth)),
+            ),
+        authorizationDecision = await requireAuthorizedHostAction({
+          kind: actionKind,
+          repoId: request.repoId,
+          binding: adminBinding,
+          actionId: `${actionKind}:${request.repoId}`,
+          evaluatedAtCut: "daemon-registry:current",
+        }),
+        cell = context.cells.get(request.repoId),
+        blockingWork = [...((await cell?.inFlightWork()) ?? [])].sort(
+          (left, right) => left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id),
+        );
+      const inFlightSummary = `Repository ${request.repoId} still has ${blockingWork.length} in-flight item${blockingWork.length === 1 ? "" : "s"}; settle them before retrying.`;
+      if (blockingWork.length > 0)
+        return {
+          schema: "command-receipt/v2",
+          ok: false,
+          command: purging ? "repo-purge" : "repo-unbind",
+          outcome: "rejected",
+          code: "repo_in_flight",
+          repoId: request.repoId,
+          blockingWork,
+          next: blockingWork.map((item) => ({ command: item.nextAction, reason: `${item.kind} ${item.id}` })),
+          rejectionExplanation: inFlightSummary,
+          summary: inFlightSummary,
+        };
+      let backupManifest;
+      if (purgingAll) {
+        backupManifest = backupRepo({
+          rootDir: rootDir!,
+          backupDir: backupDir!,
+          registration: registeredRepo!,
+          writerEpoch: context.writerEpochHighWatermark(request.repoId),
+        });
+        await drillRepoBackup({ rootDir: rootDir!, backupDir: backupDir!, manifest: backupManifest });
+      }
+      context.settleWarming(request.repoId);
+      await context.closeCell(request.repoId);
+      context.unavailable.delete(request.repoId);
+      const result = unbindDaemonRepo(request.repoId, {
+        userRoot: context.input.userRoot,
+        createConvenienceLinks: false,
+      });
+      if (rootDir) {
+        const fleetEdgeFile = path.join(rootDir, "fleet-edge.json");
+        if (existsSync(fleetEdgeFile)) removeFileDurably(fleetEdgeFile);
+      }
+      const repo = context.publicRegistryRepo(result.repo);
+      if (purging) {
+        const removed = purgingAll ? removeRepoHarnessData(rootDir!) : purgeRepoCache(rootDir!);
+        if (purgingAll) context.retireWriterEpoch(request.repoId);
+        return {
+          schema: "command-receipt/v2",
+          ok: true,
+          command: "repo-purge",
+          outcome: "applied",
+          repoId: request.repoId,
+          rootDir,
+          scope: request.scope,
+          registryChanged: result.changed,
+          dataPreserved: !purgingAll,
+          removed,
+          preserved: purgingAll ? ["project files", ".git", ".worktrees"] : cachePurgePreservedPaths(rootDir!),
+          ...(purgingAll
+            ? {
+                backup: backupReceipt(backupDir!, backupManifest!),
+                restoreCommand: `ha restore ${JSON.stringify(backupDir)} --to <absolute-directory>`,
+                rebindCommand: `ha init --repo-id ${request.repoId}`,
+              }
+            : { rebindCommand: "ha init" }),
+          authorizationDecision,
+          summary: purgingAll
+            ? `Repository ${request.repoId} is backed up, restore-drilled, unbound, and its local Harness data was removed.`
+            : `Repository ${request.repoId} is unbound and its derived cache state was removed; authoritative data was preserved.`,
+        };
+      }
+      return {
+        schema: "command-receipt/v2",
+        ok: true,
+        command: "repo-unbind",
+        outcome: "applied",
+        repoId: request.repoId,
+        rootDir,
+        registryChanged: result.changed,
+        dataPreserved: true,
+        rebindCommand: "ha init",
+        authorizationDecision,
+        summary: `Repository ${repo.repoId} is unbound. Data remains at ${String(rootDir)}; run ha init there to bind it again.`,
+      };
+    },
+    run: async (repoId, action, auth) => {
+      const command = entityActionCommandTopology(commandDescriptorForAction(action.kind), action),
+        descriptor = commandDescriptorForAction(action.kind),
+        modeAdmission = context.admitHostMode(repoId, command, auth),
+        forwardThroughPort =
+          (!modeAdmission.ok && descriptor.admission["remote-edge"] === "via-center-forward") ||
+          (action.kind === "doc-show" && auth.executionCredential !== undefined);
+      if (!modeAdmission.ok && !forwardThroughPort)
+        return context.rejectHostAction(action, modeAdmission.code, modeAdmission.nextAction);
+      if (forwardThroughPort) {
+        try {
+          const forwarded = await forward({
+            userRoot: context.input.userRoot,
+            repoId,
+            intent: forwardingIntentForAction(descriptor.method, action),
+            auth,
+            oidc: context.oidc,
+            signal: context.closeSignal,
+            runRuntime: (request, requestAuth) => context.host.fleet.edgeRuntime(request, requestAuth),
+          });
+          if (forwarded) return forwarded as WriteReceiptDraft | SquadControlResult;
+        } catch (error) {
+          if (context.code(error) === "local_transport_required" && !modeAdmission.ok)
+            return context.rejectHostAction(action, modeAdmission.code, modeAdmission.nextAction);
+          return context.rejectHostAction(action, context.code(error), context.daemonErrorMessage(error));
+        }
+        if (!modeAdmission.ok) return context.rejectHostAction(action, modeAdmission.code, modeAdmission.nextAction);
+      }
+      if (action.kind === "doctor-health") {
+        const edge = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
+          (repo) => repo.repoId === repoId && repo.mode === "remote-edge",
+        );
+        if (edge?.canonicalRoot) {
+          const receipt = edgeReplicaDoctor(edge.canonicalRoot, repoId);
+          return {
+            ...receipt,
+            checks: [
+              ...receipt.checks,
+              fleetVersionDoctorCheck(
+                context.fleetVersionWarnings.has(repoId) ? [context.fleetVersionWarnings.get(repoId)!.message] : [],
+              ),
+            ],
+          };
+        }
+      }
+      await context.attemptHostRecovery(repoId);
+      const cell = context.cells.get(repoId);
+      if (!cell)
+        return context.rejectHostAction(
+          action,
+          context.warming.has(repoId)
+            ? "repo_warming"
+            : context.unavailable.has(repoId)
+              ? "repo_unavailable"
+              : "repo_namespace_unknown",
+          context.warming.has(repoId)
+            ? context.warmingMessage(repoId)
+            : (context.unavailable.get(repoId)?.lastError ?? `Unknown repo namespace: ${repoId}.`),
+        );
+      const spoof = [
+        "actor",
+        "root",
+        "canonicalRoot",
+        "workspaceId",
+        "expectedRevision",
+        "eventId",
+        "occurredAt",
+        "gitCredential",
+        "credential",
+      ].find((field) => Object.hasOwn(action, field));
+      if (spoof)
+        return context.rejectHostAction(
+          action,
+          "ingress_binding_forbidden",
+          `Payload cannot report ${spoof}; daemon binds principal authority, root, revision, and time.`,
+        );
+      try {
+        // Only server-selected replica queries can use an offline session identity.
+        const edgeRead =
+          command.admission["remote-edge"] === "edge-replica" &&
+          command.repoCellExecution === "query-only" &&
+          cell.status().mode === "remote-edge";
+        const serverBinding = await context.binding(
+          cell.status().rootDir,
+          auth,
+          undefined,
+          command.commandClass === "repo-read" ? undefined : repoId,
+          edgeRead,
+        );
+        if (
+          !edgeRead &&
+          (("repositoryRead" in command && command.repositoryRead === true) ||
+            action.kind === "doc-status" ||
+            action.kind === "doc-dry-run")
+        )
+          await requireAuthorizedHostAction({
+            kind: "repository-read",
+            repoId,
+            binding: serverBinding,
+            actionId: `repository-read:${repoId}`,
+            evaluatedAtCut: `repository:${repoId}:current`,
+          });
+        const resolvedAction = await resolveVerticalKindCommandAction(cell, action as RepoTaskAction);
+        if (cell.status().mode === "remote-edge" && resolvedAction.kind === "doc-materialize")
+          return await materializeFleetEdgeDocuments({
+            rootDir: cell.status().rootDir,
+            repoId,
+            binding: serverBinding,
+            action: resolvedAction,
+            now: context.now(),
+          });
+        let receipt = edgeRead
+          ? ((await runFleetEdgeRepositoryRead(
+              { rootDir: cell.status().rootDir, repoId, action: resolvedAction as never },
+              async () =>
+                (await cell.run(resolvedAction, serverBinding, auth.connectionSignal)) as Record<string, unknown>,
+            )) as Awaited<ReturnType<typeof cell.run>>)
+          : await cell.run(resolvedAction, serverBinding, auth.connectionSignal);
+        if (
+          cell.status().mode === "remote-edge" &&
+          resolvedAction.kind === "settings-update" &&
+          resolvedAction.taskMaterializationPolicy !== undefined &&
+          (receipt.outcome === "applied" || receipt.outcome === "no_changes")
+        )
+          receipt = reconcileFleetNodeMaterialization({
+            rootDir: cell.status().rootDir,
+            repoId,
+            binding: serverBinding,
+            action: resolvedAction,
+            receipt,
+          });
+        if (
+          (command.commandClass !== "repo-read" &&
+            getExecutableEntityAction(action.kind)?.target.kind === "schedule") ||
+          action.kind === "task-submit"
+        )
+          void context.scheduleScheduler.refresh();
+        if (action.kind === "doctor-health" && receipt.outcome === "applied") {
+          const health = receipt as typeof receipt & { checks: readonly DoctorCheck[] };
+          const settings = (await cell.read("repo.settings.read")).settings;
+          const checks = [
+            ...health.checks.map((check) =>
+              check.id === "build-drift" ? doctorBuildDrift(context.buildObserver.status()) : check,
+            ),
+            // Provider records and the runtime instance store live only in the host process.
+            decisionProviderDoctorCheck({
+              userRoot: context.input.userRoot,
+              configuredProviderId: settings.decisions?.provider ?? null,
+              listProviders: () => context.decisionProviders.list(),
+            }),
+            await hostedCredentialDoctorCheck(cell.status().rootDir, { repoId, instances: context.instances.list() }),
+            fleetVersionDoctorCheck([
+              ...(context.fleetCenter?.versionWarnings() ?? []),
+              ...[...context.fleetVersionWarnings.values()].map((warning) => warning.message),
+            ]),
+          ];
+          return { ...health, checks, evidence: JSON.stringify({ ...JSON.parse(health.evidence!), checks }) };
+        }
+        return receipt;
+      } catch (error) {
+        return context.rejectHostAction(
+          action,
+          context.code(error),
+          context.daemonErrorMessage(error),
+          context.diagnosticForError(error),
+        );
+      }
+    },
+    replica: (repoId) => {
+      const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
+      return { ...cell.replica, backup: cell.fleetBackup! };
+    },
+    pruneReplicationLog: (repoId, beforeSequence) =>
+      context.requiredCell(context.cells, context.warming, context.unavailable, repoId).pruneReplicationLog!(
+        beforeSequence,
+      ),
+    settleMaterialization: (repoId, settlementContext) =>
+      context
+        .requiredCell(context.cells, context.warming, context.unavailable, repoId)
+        .settlePendingMaterialization(settlementContext),
+    presetRun: async (repoId, action, auth) => {
+      const command = commandDescriptorForAction(action.kind),
+        hostAdmission = context.admitHostMode(repoId, command, auth);
+      if (!hostAdmission.ok)
+        return context.rejectPresetRun(
+          typeof action.runId === "string" ? action.runId : "run_invalid",
+          hostAdmission.code,
+          hostAdmission.nextAction,
+        );
+      await context.attemptHostRecovery(repoId);
+      const cell = context.cells.get(repoId),
+        warmingUp = context.warming.get(repoId),
+        missing = context.unavailable.get(repoId),
+        recoveryRunId = context.recoverableRunId(action);
+      try {
+        const routed = action as RepoTaskAction;
+        if (!cell) {
+          if (missing && recoveryRunId) {
+            await context.binding(missing.rootDir, auth);
+            return recoverPresetRunStatus(
+              {
+                rootDir: missing.rootDir,
+                userRoot: presetUserRoot(missing.rootDir),
+              },
+              recoveryRunId,
+            );
+          }
+          return context.rejectPresetRun(
+            "run_invalid",
+            warmingUp ? "repo_warming" : missing ? "repo_unavailable" : "repo_namespace_unknown",
+            warmingUp ? context.warmingMessage(repoId) : (missing?.lastError ?? `Unknown repo namespace: ${repoId}.`),
+          );
+        }
+        const command = commandDescriptorForAction(routed.kind);
+        return await cell.presetRun(
+          routed,
+          await context.binding(
+            cell.status().rootDir,
+            auth,
+            undefined,
+            command.commandClass === "repo-read" ? undefined : repoId,
+          ),
+        );
+      } catch (error) {
+        return context.rejectPresetRun(
+          typeof action.runId === "string" ? action.runId : "run_invalid",
+          context.code(error),
+          context.daemonErrorMessage(error),
+        );
+      }
+    },
+    read: async (repoId, method, payload, auth) => {
+      const repositoryRead = repositoryReadDescriptor(method, payload);
+      const edge =
+        (method.startsWith("repo.") || (method === "observe.tail" && payload.kind === "events")) &&
+        method !== "repo.terminal.sessions.list" &&
+        method !== "repo.agent.skills.list" &&
+        // Live Keycloak directory/eligibility operations keep their actual authority source.
+        method !== "repo.tasks.claimable" &&
+        method !== "repo.tasks.assignmentDirectory" &&
+        readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
+          (repo) => repo.repoId === repoId && repo.state === "enabled" && repo.mode === "remote-edge",
+        );
+      if (edge && edge.canonicalRoot) {
+        // Advisory annotations live only at the center. GUI and CLI share this read route.
+        if (
+          method === "repo.task.dispatches" ||
+          method === "repo.fleet.overview.read" ||
+          method === "repo.policy.metadata.read"
+        ) {
+          try {
+            const result = parseDaemonGuiReadResult(
+              method,
+              await forward({
+                userRoot: context.input.userRoot,
+                repoId,
+                intent: { kind: "operational-read", method, inputs: payload },
+                auth,
+                oidc: context.oidc,
+                signal: context.closeSignal,
+                runRuntime: (request, requestAuth) => context.host.fleet.edgeRuntime(request, requestAuth),
+              }),
+            );
+            if (method !== "repo.task.dispatches") return result;
+            const dispatches = result as DaemonGuiReadResultMap["repo.task.dispatches"];
+            return {
+              ...dispatches,
+              dispatches: withLocalDispatchStreamEvidence(dispatches.dispatches, { rootDir: edge.canonicalRoot }),
+            } as DaemonGuiReadResultMap[typeof method];
+          } catch (error) {
+            if (
+              method === "repo.fleet.overview.read" &&
+              ["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "EHOSTUNREACH"].includes(context.code(error))
+            )
+              throw context.hostCodedError(
+                "replica_unavailable",
+                `Fleet center unavailable: ${context.daemonErrorMessage(error)}`,
+              );
+            throw error;
+          }
+        }
+        const binding = await context.binding(edge.canonicalRoot, auth, undefined, undefined, true),
+          readBinding =
+            method === "repo.agenda.read" || method === "repo.works.briefs.read"
+              ? await bindAgendaTeams(binding)
+              : binding;
+        const cell = context.cells.get(repoId);
+        if (cell && (method === "repo.gui.catalog.snapshot" || method === "repo.gui.catalog.preset.read")) {
+          // Installed presets/adapters/files are node-local; defaults come from one authorized replica cut.
+          const settings = await cell.read("repo.settings.read", {}, binding),
+            frame = settings as typeof settings & RepositoryReadFrame,
+            catalog = openGuiCatalog({ repoId, rootDir: edge.canonicalRoot, readSettings: () => settings.settings }),
+            result =
+              method === "repo.gui.catalog.snapshot"
+                ? await catalog.snapshot()
+                : await catalog.preset(payload as never);
+          return parseDaemonGuiReadResult(method, {
+            ...result,
+            cut: frame.cut,
+            freshness: frame.freshness,
+            warning: frame.warning,
+          });
+        }
+        if (method === "repo.fleet.overview.read")
+          throw context.hostCodedError(
+            "replica_unavailable",
+            "Live Fleet topology is an operation of the center transport host; this edge has no local center session or delivery ledger.",
+          );
+        if (cell && method === "observe.tail")
+          return parseDaemonGuiReadResult(
+            method,
+            await cell.observeTail(
+              payload,
+              { userRoot: context.input.userRoot, daemonId: context.input.daemonId },
+              binding,
+            ),
+          );
+        if (!cell || !isRepoCellReadMethod(method))
+          throw context.hostCodedError("replica_unavailable", `${method} has no edge replica query.`);
+        const read = await cell.read(method, payload, readBinding),
+          at = context.now(),
+          stuck = method === "repo.agenda.read" ? context.runtimeRecoveryWatch.stuck(repoId, at) : [];
+        // Runtime recovery is this node's own work, so its stuck runtimes join the agenda here.
+        return parseDaemonGuiReadResult(
+          method,
+          stuck.length && "summary" in read
+            ? { ...read, summary: `${renderStuckRuntimeRecoveries(stuck, at)}\n\n${String(read.summary)}` }
+            : read,
+        );
+      }
+      context.requireHostMode(repoId, repoReadCommandTopology, auth);
+      await context.attemptHostRecovery(repoId);
+      const cell = context.cells.get(repoId);
+      if (!cell)
+        throw context.hostCodedError(
+          context.warming.has(repoId)
+            ? "repo_warming"
+            : context.unavailable.has(repoId)
+              ? "repo_unavailable"
+              : "repo_namespace_unknown",
+          context.warming.has(repoId)
+            ? context.warmingMessage(repoId)
+            : (context.unavailable.get(repoId)?.lastError ?? `Unknown repo namespace: ${repoId}.`),
+        );
+      const binding = await context.binding(cell.status().rootDir, auth),
+        readBinding =
+          method === "repo.agenda.read" || method === "repo.works.briefs.read"
+            ? await bindAgendaTeams(binding)
+            : binding;
+      if (repositoryRead)
+        await requireAuthorizedHostAction({
+          kind: method === "repo.fleet.overview.read" ? "fleet-overview-read" : "repository-read",
+          repoId,
+          binding,
+          actionId: `${method === "repo.fleet.overview.read" ? "fleet-overview-read" : "repository-read"}:${repoId}`,
+          evaluatedAtCut: `repository:${repoId}:current`,
+        });
+      let result: unknown;
+      if (method === "repo.policy.metadata.read") result = await readPolicyMetadata(await context.keycloakCenter());
+      else if (method === "repo.tasks.claimable")
+        result = await readClaimableTasks({
+          repoId,
+          binding,
+          now: new Date().toISOString(),
+          settings: (await cell.read("repo.settings.read", {}, binding)).settings,
+          page: (query) => cell.read("repo.tasks.list", query, binding),
+          readTask: async (taskId) =>
+            (await cell.read("repo.tasks.runtimeContext.read", { taskId }, binding)).snapshot.task,
+          readAssignments: async () =>
+            (
+              await cell.read(
+                "repo.triadic.relationGraph",
+                { facet: "edges", relationType: "assigned-to", state: "active", limit: 500 },
+                binding,
+              )
+            ).edges,
+        });
+      else if (method === "repo.tasks.assignmentDirectory")
+        result = await readEntityAssignmentDirectory(
+          repoId,
+          `task/${String(payload.taskId)}`,
+          binding,
+          async (taskId) => (await cell.read("repo.tasks.runtimeContext.read", { taskId }, binding)).snapshot.task,
+        );
+      else if (method === "observe.tail")
+        result = await cell.observeTail(
+          payload,
+          {
+            userRoot: context.input.userRoot,
+            daemonId: context.input.daemonId,
+          },
+          binding,
+        );
+      else if (method === "repo.gui.catalog.snapshot") result = await cell.catalog.snapshot();
+      else if (method === "repo.gui.catalog.preset.read") {
+        if (!isJsonObject(payload))
+          throw context.hostCodedError("invalid_request", "Catalog preset payload must be JSON.");
+        result = await cell.catalog.preset(payload);
+      } else if (method === "repo.terminal.sessions.list") result = cell.terminal.list();
+      else if (method === "repo.fleet.overview.read") {
+        const warning = context.fleetVersionWarnings.get(repoId),
+          fleetStatus = context.fleetCenter?.status();
+        result = await readFleetOverviewFromHost({
+          repoId,
+          mode:
+            readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find((repo) => repo.repoId === repoId)
+              ?.mode ?? "local",
+          cell,
+          binding,
+          fleetReplicas: (fleetStatus?.replicas ?? []).filter((replica) => replica.repoId === repoId),
+          nodeSessions: fleetStatus?.nodeSessions ?? [],
+          keycloakCenter: context.keycloakCenter,
+          now: context.now(),
+          userRoot: context.input.userRoot,
+          daemon: context.point(),
+          ...(warning
+            ? {
+                versionWarning: {
+                  centerBuildCommit: warning.centerBuildCommit,
+                  localBuildCommit: warning.localBuildCommit,
+                  upgradeCommand: warning.upgradeCommand,
+                },
+              }
+            : {}),
+        });
+      } else {
+        if (!isRepoCellReadMethod(method))
+          throw context.hostCodedError("invalid_request", `${method} is not a repository read method.`);
+        result = await cell.read(
+          method,
+          method === "repo.task.dispatches" && Array.isArray(payload.taskIds)
+            ? { ...payload, limit: payload.limit ?? 500 }
+            : payload,
+          readBinding,
+        );
+      }
+      return parseDaemonGuiReadResult(method, result);
+    },
+  };
+}

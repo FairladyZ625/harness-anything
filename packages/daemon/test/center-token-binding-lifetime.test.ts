@@ -1,15 +1,15 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { binding as bindDaemonPrincipal, localSystemBinding } from "../src/daemon-host-binding.ts";
-import { evaluateFleetAction } from "../src/host-action-authorization.ts";
-import { evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
+import { binding as bindDaemonPrincipal, localSystemBinding } from "../src/daemon-host/daemon-host-binding.ts";
+import { evaluateFleetAction } from "../src/daemon-host/host-action-authorization.ts";
+import { evaluateRepoCellAction } from "../src/daemon-host/repo-cell-authorization.ts";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
-import { fatalCellError } from "../src/repo-cell-errors.ts";
-import { causeClassOf } from "../src/repo-cell-lock.ts";
-import type { RepoCellBinding } from "../src/repo-cell-types.ts";
-import { serializableRepoCellBinding } from "../src/repo-writer-protocol.ts";
-import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
+import { fatalCellError } from "../src/daemon-host/repo-cell-errors.ts";
+import { causeClassOf } from "../src/daemon-host/repo-cell-lock.ts";
+import type { RepoCellBinding } from "../src/daemon-host/repo-cell-types.ts";
+import { serializableRepoCellBinding } from "../src/daemon-host/repo-writer-protocol.ts";
+import type { DaemonAuthenticationContext } from "../src/daemon-host/transport/auth-context.ts";
 
 test("a retained user-device binding uses its current session after token rotation", async (t) => {
   let currentToken = "token-A",

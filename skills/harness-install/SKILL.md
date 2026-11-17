@@ -203,7 +203,7 @@ ha --root "<目标仓库绝对路径>" task submit <任务标识>
    ```
 
    凭据不写入报告或共享 shell 历史；已有受保护的 `fleet-edge.json` 配置时可省略 `--credential`，由 CLI 读取。同步要求匹配的已启用 `remote-edge` 注册，不是把 ledger 当成另一个 Git remote 来拉取。
-4. 回读 `daemon status` 与 `task list`，确认中心任务在本地可见。后续任务命令使用项目根下的受保护 `fleet-edge.json` 选择通道；该文件按 `packages/daemon/src/client/fleet-edge-config.ts` 的 `fleet-edge-config/v1` 契约准备，不把含机器凭据的文件纳入项目 Git。首次同步成功后仍须确认该配置可用，再按正常任务认领与派工入口工作。注册或同步失败时保留原始错误，不切换为本地初始化。
+4. 回读 `daemon status` 与 `task list`，确认中心任务在本地可见。后续任务命令使用项目根下的受保护 `fleet-edge.json` 选择通道；该文件按 `packages/daemon/src/daemon-host/client/fleet-edge-config.ts` 的 `fleet-edge-config/v1` 契约准备，不把含机器凭据的文件纳入项目 Git。首次同步成功后仍须确认该配置可用，再按正常任务认领与派工入口工作。注册或同步失败时保留原始错误，不切换为本地初始化。
 
 此入口的命令形状已按 CLI 帮助和路由核对；真实中心、TLS、节点授权与首任务仍须在用户的已授权部署中验收，不能把帮助通过当成 Fleet 已接通。
 

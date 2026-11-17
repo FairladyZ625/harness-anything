@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { withObservedCommit } from "../src/fact-observed-commit.ts";
+import { withObservedCommit } from "../src/daemon-host/fact-observed-commit.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
 
 test("a fact record anchors to the task worktree HEAD while the worktree is checked out", () => {

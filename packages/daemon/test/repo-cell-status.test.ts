@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ProjectionIdentityMismatchError } from "@harness-anything/storage";
-import { repoCellStatus, repoCellStatusCuts } from "../src/repo-cell-status.ts";
+import { repoCellStatus, repoCellStatusCuts } from "../src/daemon-host/repo-cell-status.ts";
 
 test("status reports projection identity failure without blocking backup or publishing a completed cut", () => {
   const error = new ProjectionIdentityMismatchError(),

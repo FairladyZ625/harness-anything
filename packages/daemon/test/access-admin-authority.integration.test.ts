@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
-import { createIdentitySession } from "../src/authorization-provider.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
+import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { keycloakUserRoot, serveKeycloak } from "./keycloak.fixtures.ts";
 
 async function keycloakFixture(t: TestContext, fleetGrant = true) {

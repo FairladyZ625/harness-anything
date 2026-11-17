@@ -4,7 +4,11 @@ import test from "node:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { appendRuntimeWorkerRecord, openDispatchStream, readDispatchStreamSummary } from "../src/dispatch-stream.ts";
+import {
+  appendRuntimeWorkerRecord,
+  openDispatchStream,
+  readDispatchStreamSummary,
+} from "../src/daemon-host/dispatch-stream.ts";
 import {
   probeProcessGroup,
   reconcileProcessGroup,
@@ -12,7 +16,7 @@ import {
   sweepOrphanedProcessGroup,
   sweepUntilProvenStopped,
   type ProcessGroupReconcilerDeps,
-} from "../src/runtime/process-group-reconciler.ts";
+} from "../src/daemon-host/runtime/process-group-reconciler.ts";
 
 function scripted(
   signals: Array<{ signal: NodeJS.Signals | 0; error?: string }>,

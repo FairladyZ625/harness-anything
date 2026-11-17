@@ -4,8 +4,8 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { CredentialPort } from "../src/agent-runtime-credential-port.ts";
-import { openDecisionProviderService } from "../src/decision-provider.ts";
+import type { CredentialPort } from "../src/daemon-host/agent-runtime-credential-port.ts";
+import { openDecisionProviderService } from "../src/daemon-host/decision-provider.ts";
 
 test("Decisions provider CRUD, probe, and port keep credentials private and return advisory distributions", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-decision-provider-")),

@@ -5,9 +5,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openDaemonHost } from "@harness-anything/daemon/client";
-import { discoverRuntimeInstallations } from "../src/agent-runtime-installation-discovery.ts";
-import { openRuntimeInstanceStore } from "../src/agent-runtime-instance-store.ts";
-import type { RuntimeInstallationWitness } from "../src/agent-runtime-instance-types.ts";
+import { discoverRuntimeInstallations } from "../src/daemon-host/agent-runtime-installation-discovery.ts";
+import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-instance-store.ts";
+import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instance-types.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 

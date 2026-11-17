@@ -8,7 +8,7 @@ import {
   archiveDispatchStream,
   openDispatchStream,
   readDispatchStream,
-} from "../../daemon/src/dispatch-stream.ts";
+} from "../../daemon/src/daemon-host/dispatch-stream.ts";
 import { sessionTranscriptTurns, toolCallGroups } from "../src/renderer/session-transcript-model.ts";
 
 type Fixture = {

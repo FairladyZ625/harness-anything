@@ -1,14 +1,21 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { allDaemonProtocolMethods } from "../src/protocol/daemon-protocol-commands.ts";
-import { assertDaemonRpcRouting, daemonRpcRoutingDeclarations } from "../src/rpc-command-routing.ts";
+import { allDaemonProtocolMethods } from "../src/daemon-host/protocol/daemon-protocol-commands.ts";
+import { assertDaemonRpcRouting, daemonRpcRoutingDeclarations } from "../src/daemon-host/rpc-command-routing.ts";
 import { getExecutableEntityAction } from "@harness-anything/kernel";
-import { isFleetTaskAction, parseFleetFrame } from "../src/fleet/command-protocol.ts";
-import { daemonProtocolCommands, repoCellExecutionForAction } from "../src/protocol/daemon-protocol-commands.ts";
-import { observeTailReadMethod } from "../src/protocol/daemon-protocol-observe-tail-read.ts";
-import { daemonRepoModeWords } from "../src/protocol/daemon-protocol-vocabulary.ts";
-import { admitRepoMode, builtinOccurrenceCommandTopology, entityActionCommandTopology } from "../src/repo-mode.ts";
+import { isFleetTaskAction, parseFleetFrame } from "../src/daemon-host/fleet/command-protocol.ts";
+import {
+  daemonProtocolCommands,
+  repoCellExecutionForAction,
+} from "../src/daemon-host/protocol/daemon-protocol-commands.ts";
+import { observeTailReadMethod } from "../src/daemon-host/protocol/daemon-protocol-observe-tail-read.ts";
+import { daemonRepoModeWords } from "../src/daemon-host/protocol/daemon-protocol-vocabulary.ts";
+import {
+  admitRepoMode,
+  builtinOccurrenceCommandTopology,
+  entityActionCommandTopology,
+} from "../src/daemon-host/repo-mode.ts";
 
 const localSource = "local" as const;
 const nodeSource = { kind: "node", nodeId: "edge-one" } as const;

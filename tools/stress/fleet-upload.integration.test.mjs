@@ -57,7 +57,7 @@ async function uploadDenominators() {
   const all = await generateCoverageDenominators({ repoRoot }),
     required = all.required.filter(
       ({ source, boundary }) =>
-        (source.includes("packages/daemon/src/fleet/center-listener.ts") && boundary === "rename") ||
+        (source.includes("packages/daemon/src/daemon-host/fleet/center-listener.ts") && boundary === "rename") ||
         (source.includes("packages/storage/src/writer-epoch.ts") && boundary === "commit"),
     );
   return {

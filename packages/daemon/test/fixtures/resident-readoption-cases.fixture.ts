@@ -18,11 +18,15 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
-import { localUserDaemonEndpoint } from "../../src/client/local-daemon-target.ts";
-import { daemonServiceUnit } from "../../src/client/daemon-service.ts";
-import { requestDaemonJsonRpcAt } from "../../src/client/local-json-rpc-client.ts";
-import { readDaemonLifecycleRecords } from "../../src/lifecycle-log.ts";
-import { acquireDaemonSingleton, readDaemonPid, readDaemonSingletonLockPid } from "../../src/daemon-singleton.ts";
+import { localUserDaemonEndpoint } from "../../src/daemon-host/client/local-daemon-target.ts";
+import { daemonServiceUnit } from "../../src/daemon-host/client/daemon-service.ts";
+import { requestDaemonJsonRpcAt } from "../../src/daemon-host/client/local-json-rpc-client.ts";
+import { readDaemonLifecycleRecords } from "../../src/daemon-host/lifecycle-log.ts";
+import {
+  acquireDaemonSingleton,
+  readDaemonPid,
+  readDaemonSingletonLockPid,
+} from "../../src/daemon-host/daemon-singleton.ts";
 import { registerBootstrappedDaemonRepo } from "../repo-settings.fixture.ts";
 import { writeProviderExecutable } from "./runtime-stub.ts";
 
@@ -65,8 +69,8 @@ export function residentReadoptionCase(scenario: ResidentReadoptionScenario) {
         rootDir = path.join(parent, "repo"),
         userRoot = path.join(parent, "user"),
         marker = path.join(dist, "build-id.txt"),
-        entry = path.join(dist, "daemon/src/bin.js"),
-        runtime = path.join(dist, "daemon/src/runtime.js"),
+        entry = path.join(dist, "daemon/src/daemon-host/bin.js"),
+        runtime = path.join(dist, "daemon/src/daemon-host/runtime.js"),
         repoId = "resident-readopt",
         sessionFile = path.join(parent, "session.json"),
         failureEntered = path.join(parent, "failure-entered"),

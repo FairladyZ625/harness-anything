@@ -18,15 +18,15 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { createScheduleV1, type ScheduleV1 } from "@harness-anything/kernel";
-import { dispatchClaimedSchedule } from "../src/schedule-action-runtime.ts";
-import { launchArgs } from "../src/agent-runtime-launch-config.ts";
+import { dispatchClaimedSchedule } from "../src/daemon-host/schedule-action-runtime.ts";
+import { launchArgs } from "../src/daemon-host/agent-runtime-launch-config.ts";
 import {
   prepareScheduleOccurrenceWorkspace,
   reclaimManagedWorktree,
   settleScheduleOccurrenceWorkspace,
-} from "../src/schedule-occurrence-workspace.ts";
-import { nodeModulesSetupAdapter } from "../src/worktree-setup-node-modules.ts";
-import { noWorktreeSetup } from "../src/worktree-setup.ts";
+} from "../src/daemon-host/schedule-occurrence-workspace.ts";
+import { nodeModulesSetupAdapter } from "../src/daemon-host/worktree-setup-node-modules.ts";
+import { noWorktreeSetup } from "../src/daemon-host/worktree-setup.ts";
 
 for (const contents of ["empty", "managed links", "user file"] as const) {
   for (const dirty of [false, true]) {

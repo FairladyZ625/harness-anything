@@ -2,9 +2,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { TaskProjection, TaskProjectionListQuery } from "@harness-anything/kernel";
-import { canonicalRoot } from "../src/protocol/daemon-protocol.contract.ts";
-import { makeTaskQueryReadModel } from "../src/task-query-read.ts";
-import { encodeAgendaCursor } from "../src/agenda-summary.ts";
+import { canonicalRoot } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { makeTaskQueryReadModel } from "../src/daemon-host/task-query-read.ts";
+import { encodeAgendaCursor } from "../src/daemon-host/agenda-summary.ts";
 
 /**
  * The --work scope contract: membership reaches the projection query, so a small limit

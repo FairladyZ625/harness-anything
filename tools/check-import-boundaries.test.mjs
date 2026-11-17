@@ -13,7 +13,7 @@ const checkerPath = path.join(repoRoot, "tools/check-import-boundaries.mjs");
 test("Fleet center write frames must use the one center write entry", () => {
   const root = makeFixtureRoot();
   try {
-    const centerPath = path.join(root, "packages/daemon/src/fleet/center-listener.ts");
+    const centerPath = path.join(root, "packages/daemon/src/daemon-host/fleet/center-listener.ts");
     mkdirSync(path.dirname(centerPath), { recursive: true });
     writeFileSync(
       centerPath,
@@ -236,7 +236,7 @@ test("import boundary check rejects storage imports from delivery packages", () 
       "utf8",
     );
     writeFileSync(
-      path.join(root, "packages/daemon/src/index.ts"),
+      path.join(root, "packages/daemon/src/daemon-host/index.ts"),
       "export function startDaemon() { return {}; }\n",
       "utf8",
     );
@@ -297,7 +297,7 @@ test("import boundary check permits storage implementations to depend on kernel 
       "utf8",
     );
     writeFileSync(
-      path.join(root, "packages/daemon/src/index.ts"),
+      path.join(root, "packages/daemon/src/daemon-host/index.ts"),
       ["import { makeStore } from '@harness-anything/storage';", "export const daemonStore = makeStore;"].join("\n"),
       "utf8",
     );
@@ -870,7 +870,11 @@ test("import boundary rejects workspace package dependency cycles and reverse de
       'import { daemonValue } from "@harness-anything/daemon";\nexport const appValue = daemonValue;\n',
       "utf8",
     );
-    writeFileSync(path.join(root, "packages/daemon/src/index.ts"), 'export const daemonValue = "daemon";\n', "utf8");
+    writeFileSync(
+      path.join(root, "packages/daemon/src/daemon-host/index.ts"),
+      'export const daemonValue = "daemon";\n',
+      "utf8",
+    );
     const reverse = runChecker(root);
     assert.notEqual(reverse.status, 0);
     assert.match(reverse.stderr, /must not depend on the daemon composition root/u);
@@ -1101,7 +1105,7 @@ test("import boundary rejects application runtime/storage/keycloak and commands-
       'export * from "./commands/c.ts";\nexport * from "./queries/q.ts";\n',
     );
     writeFileSync(
-      path.join(root, "packages/daemon/src/index.ts"),
+      path.join(root, "packages/daemon/src/daemon-host/index.ts"),
       'import { c, q } from "@harness-anything/application";\nexport const used = [c, q];\n',
     );
     const clean = runChecker(root);

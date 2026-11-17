@@ -7,10 +7,13 @@ import net from "node:net";
 import path from "node:path";
 import test from "node:test";
 import { consumeKnownError } from "@harness-anything/kernel";
-import { connectSocket } from "../src/client/local-json-rpc-client.ts";
-import { assertDaemonSocketDirectory, perUserSocketRoot } from "../src/client/local-daemon-target.ts";
-import type { JsonRpcRequest } from "../src/protocol/json-rpc-types.ts";
-import { createUnixSocketTransportServer, type UnixSocketTransportServer } from "../src/transport/unix-socket.ts";
+import { connectSocket } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { assertDaemonSocketDirectory, perUserSocketRoot } from "../src/daemon-host/client/local-daemon-target.ts";
+import type { JsonRpcRequest } from "../src/daemon-host/protocol/json-rpc-types.ts";
+import {
+  createUnixSocketTransportServer,
+  type UnixSocketTransportServer,
+} from "../src/daemon-host/transport/unix-socket.ts";
 
 // The per-user socket root lives under sticky /tmp, so any local user can pre-create the
 // directory name before the daemon does. A real foreign owner needs root to arrange for, so

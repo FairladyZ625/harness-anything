@@ -10,16 +10,16 @@ import {
   validateAgentRuntimeSessionGroups,
   validateAgentRuntimeOverview,
   type AgentRuntimeSessionGroupMembersResult,
-} from "../src/agent-runtime-contract.ts";
-import { makeAgentRuntimeReadModel } from "../src/agent-runtime-read.ts";
+} from "../src/daemon-host/agent-runtime-contract.ts";
+import { makeAgentRuntimeReadModel } from "../src/daemon-host/agent-runtime-read.ts";
 import {
   daemonGuiReadMethods,
   validateDaemonRpcCall,
   type TaskDispatchRow,
-} from "../src/protocol/daemon-protocol.contract.ts";
-import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
+} from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
 import { deriveUseCaseProjectionInputs } from "@harness-anything/kernel";
-import type { AgentRuntimeSessionGroupsResult } from "../src/agent-runtime-contract.ts";
+import type { AgentRuntimeSessionGroupsResult } from "../src/daemon-host/agent-runtime-contract.ts";
 
 /** Parse a session-groups read the way the GUI now receives it: inside the projection envelope. */
 function parseSessionGroupsProjection(projection: AgentRuntimeSessionGroupsResult): AgentRuntimeSessionGroupsResult {

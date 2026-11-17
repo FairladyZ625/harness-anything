@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { completionSnapshot } from "../../kernel/test/domain/completion.fixtures.ts";
-import { submitTask } from "../src/repo-cell-submit.ts";
-import { readCloseoutSubmission } from "../src/repo-cell-submit.ts";
+import { submitTask } from "../src/daemon-host/repo-cell-submit.ts";
+import { readCloseoutSubmission } from "../src/daemon-host/repo-cell-submit.ts";
 
 const closeoutBody =
   "## Summary\nReport delivered.\n## Verification\nChecked.\n" +

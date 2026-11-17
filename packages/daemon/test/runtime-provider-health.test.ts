@@ -5,7 +5,7 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
-import { openRuntimeProviderHealthStore } from "../src/runtime-provider-health.ts";
+import { openRuntimeProviderHealthStore } from "../src/runtime-engine/runtime-provider-health.ts";
 
 test("provider health persists bounded cooldowns and freezes after the configured streak", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-provider-health-"));

@@ -2,9 +2,9 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import test from "node:test";
-import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
+import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
-import { readFleetReceiptClient, runFleetRuntimeEventClient } from "../src/fleet/peer.ts";
+import { readFleetReceiptClient, runFleetRuntimeEventClient } from "../src/daemon-host/fleet/peer.ts";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 

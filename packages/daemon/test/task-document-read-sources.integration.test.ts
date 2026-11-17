@@ -15,10 +15,13 @@ import threads, { type WorkerOptions } from "node:worker_threads";
 import { sha256Text, type TaskProjection } from "@harness-anything/kernel";
 import { makeTaskLifecycleService } from "@harness-anything/application/internal/task-lifecycle-service";
 import { makeDaemonProjectionReader, makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
-import { readProjectedDocument } from "../src/doc-sync-reads.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { type RepoCellBinding } from "../src/repo-cell.ts";
-import { readTaskWorktreeExecutionBinding, taskWorktreeExecutionBindingPath } from "../src/task-worktree.ts";
+import { readProjectedDocument } from "../src/daemon-host/doc-sync-reads.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { type RepoCellBinding } from "../src/daemon-host/repo-cell.ts";
+import {
+  readTaskWorktreeExecutionBinding,
+  taskWorktreeExecutionBindingPath,
+} from "../src/daemon-host/task-worktree.ts";
 import {
   fixtureFence,
   openBootstrappedRepoCell as openRepoCell,

@@ -15,8 +15,11 @@ import {
 import { tmpdir, userInfo } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
-import { ensureSharedAuthFile } from "../src/agent-runtime-instance-storage.ts";
+import {
+  openRuntimeInstanceStore,
+  type RuntimeInstallationWitness,
+} from "../src/daemon-host/agent-runtime-instances.ts";
+import { ensureSharedAuthFile } from "../src/daemon-host/agent-runtime-instance-storage.ts";
 import { codedAs, observed } from "./agent-runtime-instance-environment.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 

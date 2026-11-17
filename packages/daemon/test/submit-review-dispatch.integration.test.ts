@@ -14,8 +14,8 @@ import {
   reviewerExecutionBinding,
   taskId,
 } from "./task-completion-review.fixture.ts";
-import { reviewDispatchKey } from "../src/task-review-dispatch.ts";
-import { dispatchStreamPath } from "../src/dispatch-stream.ts";
+import { reviewDispatchKey } from "../src/daemon-host/task-review-dispatch.ts";
+import { dispatchStreamPath } from "../src/daemon-host/dispatch-stream.ts";
 
 type ChildFixture = Awaited<ReturnType<typeof fixture>>;
 

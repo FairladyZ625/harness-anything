@@ -1,0 +1,529 @@
+import type { TaskAssignment, TaskClaimScope } from "@harness-anything/kernel";
+import { optionalEnum, shape, type RpcShape } from "./daemon-protocol-gui-types.ts";
+import { decisionStateWords, useCaseProjectionNameWords } from "./daemon-protocol-vocabulary.ts";
+
+export const DAEMON_TASK_SNAPSHOT_LIST_SCHEMA = Object.freeze({
+  id: "daemon.task-snapshot-list/v1",
+  required: Object.freeze(["ok", "status", "rows", "invalidRows", "watermark", "sourceRevision", "warnings"]),
+});
+
+export const DAEMON_TASK_COMPLETION_SCHEMA = Object.freeze({
+  id: "daemon.task-completion/v1",
+  required: Object.freeze(["ok", "taskId", "completionNext", "completionBlocker"]),
+});
+
+export const DAEMON_TASK_WIP_SCHEMA = Object.freeze({
+  id: "daemon.task-wip/v1",
+  required: Object.freeze(["ok", "limit", "limitLabel", "counted", "roots", "threshold"]),
+});
+
+export const DAEMON_WORK_INDEX_SCHEMA = Object.freeze({
+  id: "daemon.work-index/v1",
+  required: Object.freeze(["schema", "ok", "status", "works", "watermark", "sourceRevision", "warnings"]),
+});
+
+export const DAEMON_WORK_TOPOLOGY_SCHEMA = Object.freeze({
+  id: "daemon.work-topology/v1",
+  required: Object.freeze([
+    "schema",
+    "ok",
+    "status",
+    "workRootTaskId",
+    "members",
+    "boundaryTasks",
+    "edges",
+    "frontier",
+    "criticalPath",
+    "completeness",
+    "warnings",
+    "watermark",
+    "sourceRevision",
+  ]),
+});
+
+export const DAEMON_WORK_BRIEFS_SCHEMA = Object.freeze({
+  id: "daemon.work-briefs/v1",
+  required: Object.freeze(["schema", "ok", "status", "briefs", "watermark", "sourceRevision", "warnings"]),
+});
+
+export const DAEMON_SETTINGS_READ_SCHEMA = Object.freeze({
+  id: "daemon.settings-read/v1",
+  required: Object.freeze(["schema", "ok", "settings"]),
+});
+
+export const ENTITY_ACTION_EXPLAIN_REQUEST_SCHEMA = Object.freeze({
+  id: "entity-action-explain-request/v1",
+  required: Object.freeze(["schema", "entityKind", "refs", "mode"]),
+});
+
+export const DAEMON_ENTITY_ACTION_EXPLANATION_SCHEMA = Object.freeze({
+  id: "entity-action-explanation/v1",
+});
+
+export const DAEMON_ENTITY_KIND_CATALOG_SCHEMA = Object.freeze({
+  id: "entity-kind-catalog/v1",
+  required: Object.freeze(["schema", "kinds"]),
+});
+
+export const DAEMON_VERTICAL_DECLARATION_READ_SCHEMA = Object.freeze({
+  id: "repository-vertical-declaration-read/v1",
+  required: Object.freeze(["schema", "declarationRevision", "declaration"]),
+});
+
+export const DAEMON_ENTITY_ROW_LIST_SCHEMA = Object.freeze({
+  id: "entity-row-list/v1",
+  required: Object.freeze(["schema", "ok", "rows"]),
+});
+
+export const DAEMON_ENTITY_LOCATOR_READ_SCHEMA = Object.freeze({
+  id: "entity-locator-read/v1",
+  required: Object.freeze(["schema", "ok", "outcome", "path", "content", "entries"]),
+});
+
+export const DAEMON_ENTITY_CONTENT_READ_SCHEMA = Object.freeze({
+  id: "entity-content-read/v1",
+  required: Object.freeze(["schema", "ok", "outcome", "entityRef", "path", "repositoryPath", "content", "entries"]),
+});
+
+export const DAEMON_OBSERVE_TAIL_SCHEMA = Object.freeze({
+  id: "daemon.observe-tail/v3",
+});
+
+export const DAEMON_WORKSPACE_SUMMARY_SCHEMA = Object.freeze({
+  id: "daemon.workspace-summary/v1",
+  required: Object.freeze(["schema", "ok", "status", "tasks", "decisions", "watermark", "sourceRevision", "warnings"]),
+});
+
+export const DAEMON_WORKSPACE_SCOPE_SCHEMA = Object.freeze({
+  id: "daemon.workspace-scope/v1",
+  required: Object.freeze([
+    "schema",
+    "ok",
+    "status",
+    "root",
+    "ancestors",
+    "counts",
+    "scope",
+    "groups",
+    "tasks",
+    "page",
+    "incompleteParentRefs",
+    "watermark",
+    "sourceRevision",
+    "warnings",
+  ]),
+});
+
+export const DAEMON_AGENDA_SCHEMA = Object.freeze({
+  id: "daemon.agenda/v1",
+  required: Object.freeze([
+    "schema",
+    "ok",
+    "command",
+    "status",
+    "pinnedEntities",
+    "pinnedEntityOverflow",
+    "awaitingYou",
+    "answeredForYou",
+    "attentionItems",
+    "todos",
+    "regionWeights",
+    "inFlight",
+    "stalled",
+    "awaitingRestart",
+    "awaitingRework",
+    "awaitingAdjudication",
+    "underReview",
+    "decisionReviewInProgress",
+    "awaitingDecisionReview",
+    "awaitingDecision",
+    "waitingOnOthers",
+    "dispatchable",
+    "page",
+    "watermark",
+    "sourceRevision",
+    "warnings",
+    "summary",
+  ]),
+  // Optional so older agenda readers (and their fixtures) stay valid: a reader that does not know
+  // the awaiting-ruling group simply ignores it, and the group never becomes load-bearing for them.
+  optional: Object.freeze(["awaitingRuling"]),
+});
+
+export const DAEMON_RELATION_GRAPH_SCHEMA = Object.freeze({
+    id: "daemon.relation-graph/v1",
+    required: Object.freeze(["ok", "edges", "coverageRows", "factAnchors", "facts", "warnings"]),
+    // The fact facet carries the fact-type vocabulary; the other facets echo it empty.
+    optional: Object.freeze(["domainTypes"]),
+    canonicalCut: Object.freeze(["status", "watermark", "sourceRevision"]),
+  }),
+  DAEMON_DECISION_LIST_SCHEMA = Object.freeze({
+    id: "daemon.decision-list/v1",
+    required: Object.freeze(["ok", "decisions", "warnings"]),
+  }),
+  // v2 adds the content truth a reader needs before it renders `body`: whether this document is text
+  // at all, its media type and byte length, the canonical bytes of a raw artifact, and the repository
+  // path they materialize at. v1 could only answer a PDF with an empty string.
+  // v3 names the cut those bytes came from (`source`) and replaces the ambiguous `uncommitted`
+  // boolean with `syncState` + `canonicalVersion`, so a missing authored copy or an unreadable
+  // execution workspace is unobservable instead of "clean". `uncommitted` stays one window for
+  // previous consumers.
+  DAEMON_DOCUMENT_READ_SCHEMA = Object.freeze({
+    id: "daemon.document-read/v3",
+    required: Object.freeze([
+      "ok",
+      "status",
+      "taskId",
+      "path",
+      "source",
+      "syncState",
+      "body",
+      "blobSha256",
+      "contentKind",
+      "mediaType",
+      "size",
+      "bytes",
+      "repositoryPath",
+      "worktreeBody",
+      "uncommitted",
+      "canonicalVersion",
+      "execution",
+      "unobservableReason",
+      "watermark",
+      "sourceRevision",
+    ]),
+  }),
+  DAEMON_TASK_DOCUMENT_LIST_SCHEMA = Object.freeze({
+    id: "daemon.task-document-list/v1",
+    required: Object.freeze(["ok", "status", "taskId", "documents", "watermark", "sourceRevision"]),
+  }),
+  DAEMON_TASK_DELIVERY_DIFF_SCHEMA = Object.freeze({
+    id: "daemon.task-delivery-diff/v1",
+    required: Object.freeze([
+      "ok",
+      "status",
+      "taskId",
+      "baseline",
+      "commitSha",
+      "files",
+      "truncated",
+      "watermark",
+      "sourceRevision",
+    ]),
+  }),
+  DAEMON_PROTOCOL_ERROR_SCHEMA = Object.freeze({
+    id: "daemon.protocol-error/v1",
+    required: Object.freeze([
+      "schema",
+      "ok",
+      "command",
+      "outcome",
+      "opId",
+      "origin",
+      "code",
+      "evidence",
+      "rejectionExplanation",
+      "error",
+    ]),
+  }),
+  DAEMON_GUI_COMMAND_RECEIPT_SCHEMA = Object.freeze({
+    id: "command-receipt/v2",
+  });
+
+export const DAEMON_AGENT_RUNTIME_OVERVIEW_SCHEMA = Object.freeze({
+    id: "daemon.agent-runtime-overview/v1",
+  }),
+  DAEMON_FLEET_OVERVIEW_SCHEMA = Object.freeze({
+    id: "daemon.fleet-overview/v1",
+  }),
+  DAEMON_AGENT_RUNTIME_SESSION_GROUPS_SCHEMA = Object.freeze({
+    id: "daemon.agent-runtime-session-groups/v1",
+  }),
+  DAEMON_AGENT_RUNTIME_SESSION_SCHEMA = Object.freeze({
+    id: "daemon.agent-runtime-session/v1",
+  }),
+  DAEMON_AGENT_RUNTIME_TOKEN_USAGE_SCHEMA = Object.freeze({
+    id: "daemon.agent-runtime-token-usage/v1",
+  }),
+  DAEMON_AGENT_RUNTIME_TOKEN_USAGE_DETAIL_SCHEMA = Object.freeze({
+    id: "daemon.agent-runtime-token-usage-detail/v1",
+  }),
+  DAEMON_AGENT_RUNTIME_EVENTS_SCHEMA = Object.freeze({
+    id: "daemon.agent-runtime-events/v1",
+  }),
+  DAEMON_AGENT_RUNTIME_ATTACH_SCHEMA = Object.freeze({
+    id: "daemon.agent-runtime-attach/v1",
+  }),
+  DAEMON_AGENT_RUNTIME_ATTACH_EVENT_SCHEMA = Object.freeze({
+    id: "daemon.agent-runtime-attach-event/v1",
+  }),
+  DAEMON_TASK_DISPATCHES_SCHEMA = Object.freeze({
+    id: "daemon.task-dispatches/v1",
+  });
+
+export const DAEMON_AGENT_ENTITY_CATALOG_SCHEMA = Object.freeze({
+    id: "daemon.agent-entity-catalog/v1",
+  }),
+  DAEMON_AGENT_ENTITY_DETAIL_SCHEMA = Object.freeze({
+    id: "daemon.agent-entity-detail/v1",
+  }),
+  DAEMON_AGENT_SKILL_CATALOG_SCHEMA = Object.freeze({
+    id: "daemon.agent-skill-catalog/v1",
+  }),
+  DAEMON_AGENT_HISTORY_SCHEMA = Object.freeze({
+    id: "daemon.agent-history/v1",
+  }),
+  DAEMON_AGENT_VERSION_SCHEMA = Object.freeze({
+    id: "daemon.agent-version/v1",
+  }),
+  DAEMON_SQUAD_ENTITY_CATALOG_SCHEMA = Object.freeze({
+    id: "daemon.squad-entity-catalog/v1",
+  }),
+  DAEMON_SQUAD_ENTITY_DETAIL_SCHEMA = Object.freeze({
+    id: "daemon.squad-entity-detail/v1",
+  }),
+  DAEMON_SQUAD_RUN_LIST_SCHEMA = Object.freeze({
+    id: "daemon.squad-run-list/v1",
+  }),
+  DAEMON_SQUAD_RUN_READ_SCHEMA = Object.freeze({
+    id: "daemon.squad-run-read/v1",
+  }),
+  DAEMON_SCHEDULES_LIST_SCHEMA = Object.freeze({
+    id: "daemon.schedules-list/v1",
+    required: Object.freeze([
+      "ok",
+      "status",
+      "repoId",
+      "repoMode",
+      "viewerNodeId",
+      "schedules",
+      "watermark",
+      "sourceRevision",
+    ]),
+  }),
+  DAEMON_SCHEDULE_RUNS_SCHEMA = Object.freeze({
+    id: "daemon.schedule-runs/v1",
+    required: Object.freeze([
+      "ok",
+      "status",
+      "scheduleId",
+      "runs",
+      "totals",
+      "truncated",
+      "watermark",
+      "sourceRevision",
+    ]),
+  }),
+  DAEMON_ARTIFACTS_LIST_SCHEMA = Object.freeze({
+    // The payload shape is unchanged from v3: capped counts are encoded in `counts` itself.
+    id: "daemon.artifacts-list/v4",
+    required: Object.freeze([
+      "ok",
+      "status",
+      "repoId",
+      "kind",
+      "artifacts",
+      "page",
+      "counts",
+      "watermark",
+      "sourceRevision",
+    ]),
+  });
+
+export const DAEMON_USE_CASE_PROJECTION_SCHEMA = Object.freeze({
+  id: "daemon.use-case-projection/v1",
+  required: Object.freeze(["schema", "ok", "name", "facet", "version", "inputs", "projection"]),
+});
+
+export const GUI_SYSTEM_STATUS_SCHEMA = Object.freeze({
+    id: "gui-system-status/v1",
+  }),
+  DAEMON_CONTROL_RECEIPT_SCHEMA = Object.freeze({
+    id: "daemon-control-receipt/v1",
+  }),
+  GUI_CATALOG_SNAPSHOT_SCHEMA = Object.freeze({
+    id: "gui-catalog-snapshot/v2",
+  }),
+  GUI_CATALOG_PRESET_SCHEMA = Object.freeze({ id: "gui-catalog-preset/v1" }),
+  CATALOG_REREAD_RECEIPT_SCHEMA = Object.freeze({
+    id: "catalog-reread-receipt/v1",
+  }),
+  TERMINAL_SESSION_LIST_SCHEMA = Object.freeze({
+    id: "terminal-session-list/v1",
+  }),
+  TERMINAL_CONTROL_RECEIPT_SCHEMA = Object.freeze({
+    id: "terminal-control-receipt/v1",
+  }),
+  TERMINAL_INPUT_ACK_SCHEMA = Object.freeze({ id: "terminal-input-ack/v1" }),
+  TERMINAL_DETACH_ACK_SCHEMA = Object.freeze({ id: "terminal-detach-ack/v1" }),
+  TERMINAL_ATTACH_SCHEMA = Object.freeze({ id: "terminal-attach/v1" }),
+  TERMINAL_ATTACH_EVENT_SCHEMA = Object.freeze({
+    id: "terminal-attach-event/v1",
+  });
+
+/**
+ * The unified use-case projection read (dec_5B135F46 CH4 layer two). One closed shape lists every
+ * selector any projection may carry; which subset a given (name, facet) admits is decided in the
+ * single boundary `admitUseCaseProjectionSelector`, not restated here. The precedent's lesson —
+ * an opaque `json?` payload let an injected field through the declared boundary — is why this is
+ * enumerated rather than opaque.
+ */
+export const daemonUseCaseProjectionPayloadShape = shape({
+  name: { values: useCaseProjectionNameWords, optional: false },
+  facet: optionalEnum(["plane", "runs", "groups", "members"]),
+  scheduleId: "string?",
+  groupKey: "string?",
+  groupBy: optionalEnum(["task", "squad", "agent", "day"]),
+  agentId: "string?",
+  squadId: "string?",
+  since: "string?",
+  query: "string?",
+  status: "array?",
+  sessionIds: "array?",
+  unsettledOnly: "boolean?",
+  limit: "number?",
+});
+
+export const daemonTaskQueryPayloadShape = shape({
+  status: "string?",
+  changedAfterRevision: "number?",
+  updatedAfter: "string?",
+  updatedBefore: "string?",
+  limit: "number?",
+  cursor: "string?",
+  statusSource: optionalEnum(["raw"]),
+  leaseOnly: "boolean?",
+  activePackagesOnly: "boolean?",
+});
+
+/** The token consumption reads' window range vocabulary. The words live here (wire truth,
+ * renderer-safe: no daemon read-module value import); `agent-runtime-token-usage.ts` derives
+ * its type and runtime list from this tuple so the two cannot drift. The member detail read
+ * adds the exactly-one-of identity pair, closed in its cell handler. */
+import { agentRuntimeTokenUsageRangeWords } from "../../runtime-engine/runtime-constants.ts";
+export { agentRuntimeTokenUsageRangeWords };
+export const daemonTokenUsagePayloadShape = shape({
+  range: optionalEnum(agentRuntimeTokenUsageRangeWords),
+});
+export const daemonTokenUsageDetailPayloadShape = shape({
+  range: optionalEnum(agentRuntimeTokenUsageRangeWords),
+  agentId: "string?",
+  squadId: "string?",
+});
+
+export const daemonRelationQueryPayloadShape = shape({
+  entity: "string?",
+  hops: "json?",
+  facet: optionalEnum(["edges", "facts", "coverageRows", "runtimeEdges"]),
+  relationType: "string?",
+  state: "string?",
+  direction: optionalEnum(["directed", "undirected"]),
+  status: "string?",
+  updatedAfter: "string?",
+  updatedBefore: "string?",
+  limit: "number?",
+  cursor: "string?",
+});
+
+export const daemonDecisionListPayloadShape = shape({
+  projection: optionalEnum(["summary", "full"]),
+  state: optionalEnum(decisionStateWords),
+});
+
+/** 时间线默认面是 html;md(体量 ~77×)与 raw(二进制产物)是显式 opt-in,absent 字段即 html。 */
+export const daemonArtifactsListPayloadShape = shape({
+  limit: "number?",
+  cursor: "string?",
+  kind: optionalEnum(["html", "md", "raw"]),
+});
+
+export const daemonAgendaPayloadShape = shape({
+  limit: "number?",
+  cursor: "string?",
+  work: "string?",
+});
+
+export const guiAction = <
+  const I extends string,
+  const M extends string,
+  const A extends string,
+  const B extends string,
+>(
+  id: I,
+  method: M,
+  actionKind: A,
+  params: RpcShape,
+  guiBridgeMethod: B,
+  pathName: string,
+  commandClass: "repo-read" | "repo-write" | "arbiter",
+  actionDefaults?: Readonly<Record<string, unknown>>,
+) => ({
+  id,
+  phase: "W5-GUI-S2",
+  method,
+  actionKind,
+  requiresRepo: true,
+  params: shape({ repo: shape({ repoId: "string" }), payload: params }),
+  guiBridgeMethod,
+  httpMethod: "POST" as const,
+  path: pathName,
+  inputSchemaId: `gui.${id}/v1`,
+  outputSchemaId: DAEMON_GUI_COMMAND_RECEIPT_SCHEMA.id,
+  errorSchemaId: DAEMON_PROTOCOL_ERROR_SCHEMA.id,
+  serviceMethod: id,
+  auth: "local-session-token" as const,
+  commandClass,
+  ...(actionDefaults === undefined ? {} : { actionDefaults }),
+});
+
+export const guiS3Action = <
+  const I extends string,
+  const M extends string,
+  const A extends string,
+  const B extends string,
+>(
+  id: I,
+  method: M,
+  actionKind: A,
+  params: RpcShape,
+  guiBridgeMethod: B,
+  pathName: string,
+  commandClass: "repo-read" | "repo-write",
+  outputSchemaId: string,
+) => ({
+  id,
+  phase: "W5-GUI-S3",
+  method,
+  actionKind,
+  requiresRepo: true,
+  params: shape({ repo: shape({ repoId: "string" }), payload: params }),
+  guiBridgeMethod,
+  httpMethod: "POST" as const,
+  path: pathName,
+  inputSchemaId: `gui.${id}/v1`,
+  outputSchemaId,
+  errorSchemaId: DAEMON_PROTOCOL_ERROR_SCHEMA.id,
+  serviceMethod: id,
+  auth: "local-session-token" as const,
+  commandClass,
+});
+
+export const TASK_ASSIGNMENT_DIRECTORY_SCHEMA = Object.freeze({ id: "task-assignment-directory/v1" });
+export const TASK_CLAIMABLE_SCHEMA = Object.freeze({ id: "task-claimable/v1" });
+
+export interface TaskAssignmentDirectory {
+  readonly schema: "task-assignment-directory/v1";
+  readonly people: readonly { readonly personId: string; readonly username: string }[];
+  readonly nodes: readonly { readonly nodeId: string; readonly personId: string }[];
+  readonly teams: readonly { readonly id: string; readonly name: string }[];
+}
+
+export interface TaskClaimableResult {
+  readonly schema: "task-claimable/v1";
+  readonly scope: TaskClaimScope;
+  readonly tasks: readonly {
+    readonly taskId: string;
+    readonly title: string;
+    readonly assignment: TaskAssignment | null;
+  }[];
+}

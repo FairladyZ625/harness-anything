@@ -4,12 +4,12 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
+import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-instances.ts";
 import test from "node:test";
-import { launchArgs } from "../src/agent-runtime-launch-config.ts";
-import { commandInterceptionHook } from "../src/runtime-command-interceptions.ts";
-import { publicConfig } from "../src/agent-runtime-instance-storage.ts";
-import { runtimeKinds } from "../src/runtime-inventory.ts";
+import { launchArgs } from "../src/daemon-host/agent-runtime-launch-config.ts";
+import { commandInterceptionHook } from "../src/daemon-host/runtime-command-interceptions.ts";
+import { publicConfig } from "../src/daemon-host/agent-runtime-instance-storage.ts";
+import { runtimeKinds } from "../src/runtime-engine/runtime-inventory.ts";
 
 const rules = [
   { id: "no-publish", pattern: "\\bnpm\\s+publish\\b" },

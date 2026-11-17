@@ -6,15 +6,15 @@ import path from "node:path";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import test from "node:test";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { localDefaultBinding } from "../src/daemon-host-binding.ts";
-import { resolveRepoBootstrap } from "../src/repo-bootstrap.ts";
-import { openWriterSupervisor } from "../src/writer-supervisor.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { localDefaultBinding } from "../src/daemon-host/daemon-host-binding.ts";
+import { resolveRepoBootstrap } from "../src/daemon-host/repo-bootstrap.ts";
+import { openWriterSupervisor } from "../src/daemon-host/writer-supervisor.ts";
 import { openPersistentWriterEpoch } from "@harness-anything/storage";
 import { initRepo } from "./task-surface.fixtures.ts";
-import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
-import { readDispatchStreamHeader } from "../src/dispatch-stream.ts";
-import type { RuntimeProcess } from "../src/runtime-spawn-types.ts";
+import type { DaemonAuthenticationContext } from "../src/daemon-host/transport/auth-context.ts";
+import { readDispatchStreamHeader } from "../src/daemon-host/dispatch-stream.ts";
+import type { RuntimeProcess } from "../src/daemon-host/runtime-spawn-types.ts";
 import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 
 for (const scenario of ["init", "delayed-write", "ended-session"] as const) {

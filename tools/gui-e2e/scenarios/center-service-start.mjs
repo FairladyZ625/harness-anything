@@ -4,8 +4,8 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { connect } from "node:tls";
 import path from "node:path";
-import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
-import { fleetCenterConfigPath } from "../../../packages/daemon/src/fleet-center-config.ts";
+import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/daemon-host/client/local-json-rpc-client.ts";
+import { fleetCenterConfigPath } from "../../../packages/daemon/src/daemon-host/fleet-center-config.ts";
 
 /**
  * 中心服务的 GUI 启动入口(task_5f97879a):邀请入口在中心服务未开时阻断并一键开启,

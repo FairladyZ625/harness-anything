@@ -1,5 +1,5 @@
 // harness-test-tier: fast
-import { daemonBuildStamp } from "../src/build-identity.ts";
+import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -9,15 +9,15 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
-import { createIdentitySession } from "../src/authorization-provider.ts";
+import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { type OidcSessionPorts, type OidcLoginAuthority } from "@harness-anything/kernel";
-import { evaluateKeycloakPerson } from "../src/repo-cell-authorization.ts";
+import { evaluateKeycloakPerson } from "../src/daemon-host/repo-cell-authorization.ts";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
-import { localDefaultBinding } from "../src/daemon-host-binding.ts";
-import type { DaemonHost } from "../src/daemon-host.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
-import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
+import { localDefaultBinding } from "../src/daemon-host/daemon-host-binding.ts";
+import type { DaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
+import type { DaemonAuthenticationContext } from "../src/daemon-host/transport/auth-context.ts";
 
 const sessionLifetimeSeconds = 21_600,
   accessTokenSeconds = 60,

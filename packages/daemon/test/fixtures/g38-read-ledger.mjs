@@ -5,7 +5,6 @@ import { readFileSync } from "node:fs";
 import {
   compileVerticalDeclarationEvent,
   compileTaskProgress,
-  decodeVerticalDefinition,
   taskLifecycleWritePlan,
   compileRelationCreatedEvent,
   relationEventWritePlan,
@@ -19,6 +18,7 @@ import {
   canonicalLedgerCut,
   compileScheduleDefinitionEvent,
 } from "@harness-anything/kernel";
+import { decodeVerticalDefinition } from "@harness-anything/kernel/schemas";
 import { canonicalEventWritePlan } from "../../../storage/src/store/task-event-store.ts";
 import { defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
 import { eventAt, docBundle } from "../../../storage/test/store/task-event-store.fixtures.ts";

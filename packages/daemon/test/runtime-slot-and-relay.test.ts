@@ -10,14 +10,14 @@ import {
   relayPriceOf,
   usageOf,
   type UpstreamRequest,
-} from "../src/runtime/cloud-dispatch-relay.ts";
+} from "../src/daemon-host/runtime/cloud-dispatch-relay.ts";
 import {
   assertContextBudget,
   estimateInputTokens,
   ModelSlotQueue,
   RuntimeBoundaryError,
   type SlotQueueOptions,
-} from "../src/runtime/model-slot-queue.ts";
+} from "../src/daemon-host/runtime/model-slot-queue.ts";
 
 interface FakeTimer {
   readonly callback: () => void;

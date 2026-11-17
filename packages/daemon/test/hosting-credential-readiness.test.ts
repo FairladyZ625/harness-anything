@@ -10,9 +10,9 @@ import {
   annotateHostingCredentialNotice,
   hostedCredentialDoctorCheck,
   hostingCredentialDispatchNotice,
-} from "../src/hosting-credential-readiness.ts";
-import { hostingCredentialConfigurationAdvice } from "../src/hosting-provider.ts";
-import { validateRuntimeSpawnReceipt } from "../src/gui-s3-control.ts";
+} from "../src/daemon-host/hosting-credential-readiness.ts";
+import { hostingCredentialConfigurationAdvice } from "../src/daemon-host/hosting-provider.ts";
+import { validateRuntimeSpawnReceipt } from "../src/daemon-host/gui-s3-control.ts";
 
 const githubInstance = {
   instanceId: "instance-github",

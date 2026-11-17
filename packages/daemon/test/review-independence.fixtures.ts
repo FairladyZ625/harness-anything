@@ -4,8 +4,8 @@ import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { makeTaskEventReader } from "@harness-anything/storage";
 
-import type { RuntimeInstanceSummary } from "../src/agent-runtime-instances.ts";
-import type { RepoCell } from "../src/repo-cell.ts";
+import type { RuntimeInstanceSummary } from "../src/daemon-host/agent-runtime-instances.ts";
+import type { RepoCell } from "../src/daemon-host/repo-cell.ts";
 
 export const reviewRuntimeInstance: RuntimeInstanceSummary = {
   schemaVersion: 2,

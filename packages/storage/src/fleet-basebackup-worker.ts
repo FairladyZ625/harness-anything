@@ -114,3 +114,4 @@ async function prepareSqliteBackup(input: SqliteBaseBackupInput): Promise<BaseBa
     ledger.close();
   }
 }
+import "./pg/sql-task-query-reader.ts";

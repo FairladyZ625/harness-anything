@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { INITIAL_SETTINGS_V1 } from "@harness-anything/kernel";
-import { decisionProposalAction } from "../src/repo-cell-action-parse.ts";
+import { decisionProposalAction } from "../src/daemon-host/repo-cell-action-parse.ts";
 
 const settings = () => ({ ...INITIAL_SETTINGS_V1, defaultVertical: "software/coding" });
 

@@ -6,12 +6,12 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { type AgentDefinitionSnapshot, type RuntimeInstallationWitness } from "@harness-anything/kernel";
-import type { RuntimeInstanceSummary } from "../src/agent-runtime-instances.ts";
-import { requireExecutionRequestScope } from "../src/runtime-execution-scope.ts";
-import { CAUSAL_CONTEXT_MAX_BYTES } from "../src/dispatch-causal-context.ts";
-import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import type { RepoCellBinding } from "../src/repo-cell-types.ts";
+import type { RuntimeInstanceSummary } from "../src/daemon-host/agent-runtime-instances.ts";
+import { requireExecutionRequestScope } from "../src/daemon-host/runtime-execution-scope.ts";
+import { CAUSAL_CONTEXT_MAX_BYTES } from "../src/daemon-host/dispatch-causal-context.ts";
+import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import type { RepoCellBinding } from "../src/daemon-host/repo-cell-types.ts";
 import {
   acceptedWorkDecision,
   openBootstrappedRepoCell as openRepoCell,
@@ -255,7 +255,7 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
           kind: "fact-record",
           factId: "F-00CA05A1",
           statement: "Dispatch prompts previously carried no causal topology.",
-          evidenceSource: "packages/daemon/src/runtime-spawner.ts",
+          evidenceSource: "packages/daemon/src/daemon-host/runtime-spawner.ts",
           confidence: "high",
           memoryClass: "semantic",
         },
@@ -314,7 +314,7 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
     // recorded against (fixture-resolved, so matched loosely after the evidence source).
     assert.match(
       block,
-      /<fact ref="fact\/F-00CA05A1">Dispatch prompts previously carried no causal topology\. \(src:packages\/daemon\/src\/runtime-spawner\.ts; recorded [0-9TZ:.-]+ @ [0-9a-f]{8}\)<\/fact>/u,
+      /<fact ref="fact\/F-00CA05A1">Dispatch prompts previously carried no causal topology\. \(src:packages\/daemon\/src\/daemon-host\/runtime-spawner\.ts; recorded [0-9TZ:.-]+ @ [0-9a-f]{8}\)<\/fact>/u,
     );
     assert.match(block, /^<task-context>\n<note>fact 是历史观察，涉及代码时以现场为准。<\/note>\n/u);
     assert.ok(Buffer.byteLength(block, "utf8") <= CAUSAL_CONTEXT_MAX_BYTES, "causal block exceeds the byte budget");

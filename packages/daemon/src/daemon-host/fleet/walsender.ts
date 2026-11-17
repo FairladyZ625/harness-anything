@@ -1,0 +1,204 @@
+import type { ReplicaSyncPhase } from "./replica-status.ts";
+import { createReadStream } from "node:fs";
+import {
+  replicationCommitBytes,
+  replicationCommitChunks,
+  replicationContentClaims,
+  type ReplicationCommit,
+  type ReplicationPosition,
+} from "@harness-anything/storage";
+import { type PersistedCanonicalEventV1 } from "@harness-anything/kernel";
+import type { BaseBackupArchive } from "@harness-anything/storage";
+import { REPLICATION_CHUNK_BYTES, SNAPSHOT_RESUME_CAPABILITY, type ReplicationPeer } from "../../fleet-sync/fleet/protocol.ts";
+import type { ReplicationSlotLease, ReplicationSlots } from "@harness-anything/storage";
+
+export interface ReplicationSource {
+  readonly authorize?: () => Promise<void>;
+  readonly read: (after: ReplicationPosition) => {
+    readonly commits: readonly ReplicationCommit[];
+    readonly done: boolean;
+    readonly head: ReplicationPosition;
+  } | null;
+  /** Register the waiter and recheck sequence under the same owner; never lose a commit between read and wait. */
+  readonly wait: (after: ReplicationPosition, signal: AbortSignal) => Promise<void>;
+  /** The slot advanced; retention may release the log below the slowest slot. */
+  readonly acknowledged: (sequence?: number) => Promise<void>;
+  readonly backup: (
+    signal: AbortSignal,
+    resumeSnapshot?: { readonly snapshotId: string; readonly offset: number },
+  ) => Promise<
+    BaseBackupArchive & {
+      readonly snapshotId?: string;
+      readonly resumeOffset?: number;
+      readonly release: () => Promise<void>;
+    }
+  >;
+  readonly object: (sha256: string) => AsyncIterable<Uint8Array>;
+}
+
+async function sendBytes(
+  peer: ReplicationPeer,
+  chunks: AsyncIterable<Uint8Array> | Iterable<Uint8Array>,
+  signal: AbortSignal,
+  onProgress?: (bytes: number) => void,
+  initialOffset = 0,
+): Promise<void> {
+  let offset = initialOffset;
+  for await (const chunk of chunks) {
+    for (let start = 0; start < chunk.byteLength; start += REPLICATION_CHUNK_BYTES) {
+      signal.throwIfAborted();
+      const bytes = Buffer.from(chunk.subarray(start, start + REPLICATION_CHUNK_BYTES));
+      await peer.send({ type: "replica.data", offset, data: bytes.toString("base64") });
+      offset += bytes.length;
+      onProgress?.(offset);
+    }
+  }
+}
+
+/** One bounded page in flight; transport backpressure and its ACK bound sender memory and cursor retention. */
+export async function runWalSender(input: {
+  readonly peer: ReplicationPeer;
+  readonly source: ReplicationSource;
+  readonly slots: ReplicationSlots;
+  readonly lease: ReplicationSlotLease;
+  readonly signal: AbortSignal;
+  readonly onFailure?: (failure: { readonly code: string; readonly message: string }) => void;
+  readonly onAcknowledged?: () => void;
+  readonly onActivity?: (
+    phase: ReplicaSyncPhase,
+    transfer?: { readonly bytesSent: number; readonly totalBytes: number },
+  ) => void;
+}): Promise<void> {
+  const { peer, source, slots, lease, signal } = input;
+  const assertOwner = () => {
+    signal.throwIfAborted();
+    if (!slots.current(lease)) throw new Error("replication session fenced");
+  };
+  const acknowledge = async (sent: ReplicationPosition) => {
+    input.onActivity?.("awaiting_ack");
+    const frame = await peer.receive(signal);
+    if (frame.type === "replica.failure") {
+      input.onFailure?.({ code: frame.code, message: frame.message });
+      const failure = new Error(frame.message) as Error & { code: string };
+      failure.code = frame.code;
+      throw failure;
+    }
+    if (
+      frame.type !== "replica.ack" ||
+      frame.durable.sequence !== sent.sequence ||
+      frame.durable.revision !== sent.revision ||
+      frame.applied.sequence !== sent.sequence ||
+      frame.applied.revision !== sent.revision
+    )
+      throw new Error("replication ACK does not match completed page");
+    slots.acknowledge(lease, frame, sent);
+    await source.acknowledged(sent.sequence);
+    input.onAcknowledged?.();
+  };
+  const start = await peer.receive(signal);
+  if (start.type !== "replica.start") throw new Error("replication start required");
+  const supportsSnapshotResume = start.capabilities?.includes(SNAPSHOT_RESUME_CAPABILITY) ?? false;
+  let position = start.position;
+  let pendingResumeSnapshot = supportsSnapshotResume ? start.resumeSnapshot : undefined;
+  for (;;) {
+    assertOwner();
+    input.onActivity?.("authorizing");
+    await source.authorize?.();
+    const read = readReplicationPage(source, position),
+      page = read.page,
+      reason = read.reason;
+    if (page === null) {
+      if (position !== null) await peer.send({ type: "replica.resync", reason });
+      input.onActivity?.("waiting_backup");
+      const resumeRequest = position === null ? pendingResumeSnapshot : undefined;
+      pendingResumeSnapshot = undefined;
+      const archive = await source.backup(signal, resumeRequest);
+      try {
+        assertOwner();
+        if (archive.metadata.position.history !== lease.history)
+          throw new Error("replication history changed during backup");
+        const resumeOffset =
+          supportsSnapshotResume &&
+          archive.resumeOffset !== undefined &&
+          archive.resumeOffset > 0 &&
+          archive.resumeOffset <= archive.size
+            ? archive.resumeOffset
+            : 0;
+        await peer.send({
+          type: "replica.backup",
+          metadata: archive.metadata,
+          size: archive.size,
+          sha256: archive.sha256,
+          ...(supportsSnapshotResume && archive.snapshotId ? { snapshotId: archive.snapshotId, resumeOffset } : {}),
+        });
+        const progress = (bytesSent: number) =>
+          input.onActivity?.("sending_backup", { bytesSent, totalBytes: archive.size });
+        progress(resumeOffset);
+        if (resumeOffset < archive.size) {
+          await sendBytes(
+            peer,
+            createReadStream(archive.file, { start: resumeOffset, highWaterMark: REPLICATION_CHUNK_BYTES }),
+            signal,
+            progress,
+            resumeOffset,
+          );
+        }
+        await peer.send({ type: "replica.backup.end" });
+        await acknowledge(archive.metadata.position);
+        position = archive.metadata.position;
+      } finally {
+        await archive.release();
+      }
+      continue;
+    }
+    const commitProgress = () => input.onActivity?.("sending_commits");
+    commitProgress();
+    for (const commit of page.commits) {
+      assertOwner();
+      await peer.send({ type: "replica.commit", size: replicationCommitBytes(commit) });
+      await sendBytes(
+        peer,
+        (function* () {
+          for (const chunk of replicationCommitChunks(commit)) yield Buffer.from(chunk);
+        })(),
+        signal,
+        commitProgress,
+      );
+      const objects = new Map<string, number>();
+      for (const row of commit.events)
+        for (const claim of replicationContentClaims(JSON.parse(row.eventJson) as PersistedCanonicalEventV1))
+          objects.set(claim.sha256, claim.size);
+      for (const [sha256, size] of objects) {
+        await peer.send({ type: "replica.object", sha256, size });
+        await sendBytes(peer, source.object(sha256), signal, commitProgress);
+        await peer.send({ type: "replica.object.end" });
+      }
+      await peer.send({ type: "replica.commit.end" });
+      position = commit.position;
+    }
+    commitProgress();
+    await peer.send({ type: "replica.progress", head: position! });
+    await acknowledge(position!);
+    // S advances on every commit, including eventless outcomes. Only the reader's done terminates a page walk.
+    if (page.done) {
+      input.onActivity?.("waiting_for_commit");
+      await source.wait(position!, signal);
+    }
+  }
+}
+
+function readReplicationPage(
+  source: ReplicationSource,
+  position: ReplicationPosition | null,
+): {
+  readonly page: ReturnType<ReplicationSource["read"]>;
+  readonly reason: string;
+} {
+  try {
+    return { page: position === null ? null : source.read(position), reason: "replication window unavailable" };
+  } catch (error) {
+    // A different history requires a new snapshot; every other read failure propagates.
+    if ((error as { readonly code?: unknown }).code !== "revision_conflict") throw error;
+    return { page: null, reason: "replication history mismatch" };
+  }
+}

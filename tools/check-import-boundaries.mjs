@@ -38,7 +38,7 @@ const fleetWriteClientNames = new Set([
   "runFleetTaskCommandClient",
   "runFleetScheduleCommandClient",
 ]);
-const fleetWritePort = "packages/daemon/src/fleet-edge-write.ts";
+const fleetWritePort = "packages/daemon/src/daemon-host/fleet-edge-write.ts";
 const workspacePackages = await loadWorkspacePackages("packages");
 const workspacePackagesByName = new Map(
   workspacePackages.map((workspacePackage) => [workspacePackage.name, workspacePackage]),
@@ -540,7 +540,7 @@ for (const file of packageSourceFiles) {
   if (!isTestOrFixture && rel !== fleetWritePort) {
     for (const specifier of imports) {
       const target = resolveImport(file, specifier);
-      if (target !== "packages/daemon/src/fleet/peer.ts") continue;
+      if (target !== "packages/daemon/src/daemon-host/fleet/peer.ts") continue;
       const edge = importEdges.find((candidate) => candidate.importer === rel && candidate.specifier === specifier);
       if (
         edge?.importedNames === "namespace" ||
@@ -549,7 +549,7 @@ for (const file of packageSourceFiles) {
         record(file, `Fleet write client imports must go through ${fleetWritePort}`);
     }
   }
-  if (!isTestOrFixture && rel === "packages/daemon/src/fleet/center-listener.ts") {
+  if (!isTestOrFixture && rel === "packages/daemon/src/daemon-host/fleet/center-listener.ts") {
     const centerWriteBranchRequirements = new Map([
       ["fleet.doc.submit/v1", "return runFleetCenterWrite(frame, async () => {"],
       ["fleet.task.command/v1", "return runFleetCenterWrite(frame, async () => {"],

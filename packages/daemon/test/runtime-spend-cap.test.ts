@@ -4,16 +4,16 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { runtimeExecutionBudgetRefusal } from "../src/runtime-spend-cap.ts";
-import { settleFallbackAttempt } from "../src/runtime-spawn-fallback.ts";
+import { runtimeExecutionBudgetRefusal } from "../src/daemon-host/runtime-spend-cap.ts";
+import { settleFallbackAttempt } from "../src/daemon-host/runtime-spawn-fallback.ts";
 import {
   attachActiveRuntime,
   createActiveRuntime,
   disposeActiveRuntimeObservations,
-} from "../src/runtime-spawn-active.ts";
-import { consumeProviderLine } from "../src/runtime-spawn-provider-stream.ts";
-import { parseProviderFrame } from "../src/runtime-spawn-provider-frames.ts";
-import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
+} from "../src/daemon-host/runtime-spawn-active.ts";
+import { consumeProviderLine } from "../src/daemon-host/runtime-spawn-provider-stream.ts";
+import { parseProviderFrame } from "../src/daemon-host/runtime-spawn-provider-frames.ts";
+import type { ActiveRuntime } from "../src/daemon-host/runtime-spawn-types.ts";
 
 // A real dispatch cwd is its own worktree; a recursive watcher over a shared tmp tree holds one
 // fs_event handle per entry and keeps the test process alive after its tests finish.

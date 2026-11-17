@@ -6,10 +6,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
-import { createIdentitySession } from "../src/authorization-provider.ts";
+import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { type OidcLoginAuthority } from "@harness-anything/kernel";
-import { oidcCenterSelections } from "../src/oidc-center-selection.ts";
-import { writeFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
+import { oidcCenterSelections } from "../src/daemon-host/oidc-center-selection.ts";
+import { writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
 
 interface FixtureOptions {
   readonly tokenIssuer?: string;

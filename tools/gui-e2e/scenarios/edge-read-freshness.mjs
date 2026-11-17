@@ -52,7 +52,7 @@ export default {
         rootDir: fixture.rootDir,
         // Module-relative: the gate entry runs with cwd=packages/gui.
         bridge: path.resolve(import.meta.dirname, "../../../packages/gui/src/main/local-composition-root.ts"),
-        protocol: path.resolve(import.meta.dirname, "../../../packages/daemon/src/protocol/index.ts"),
+        protocol: path.resolve(import.meta.dirname, "../../../packages/daemon/src/daemon-host/protocol/index.ts"),
       },
     );
     try {

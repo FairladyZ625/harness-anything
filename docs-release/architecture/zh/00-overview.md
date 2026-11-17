@@ -23,14 +23,14 @@ SQLite 使用 `journal_mode=WAL` 与 `synchronous=FULL`；
 ## 命令与回执
 
 CLI／GUI 经 daemon JSON-RPC 提交 typed command。daemon 为每仓持有串行化 `RepoCell`：实际写者运行在
-专用 `repo-writer-worker` 线程内，由 `packages/daemon/src/writer-supervisor.ts` 监管；
+专用 `repo-writer-worker` 线程内，由 `packages/daemon/src/daemon-host/writer-supervisor.ts` 监管；
 `writer-epoch` 持久 fence 在 daemon 重启后阻止旧写者，并在 fleet 场景防止脑裂双写
-（`packages/daemon/src/writer-epoch.ts`、`packages/daemon/src/repo-writer-worker.ts`）。
+（`packages/daemon/src/writer-epoch.ts`、`packages/daemon/src/writer-cell/repo-writer-worker.ts`）。
 application 与 domain handler 在接受前校验权限、实体转换和冻结写计划；
 读取投影从 canonical SQLite 事件流追赶或重建。
 
 仓库有四种模式：`local`、`remote-proxy`、`remote-center`、`remote-edge`
-（`packages/daemon/src/repo-mode.ts`）。边缘节点把命令转发给中心，不获得第二个写者。
+（`packages/daemon/src/daemon-host/repo-mode.ts`）。边缘节点把命令转发给中心，不获得第二个写者。
 
 只有按 opId 回读到已提交 outcome，回执才声明 `status: accepted_durable`。
 接受区间与 projection、Git、worktree、replica facets 分开表达。

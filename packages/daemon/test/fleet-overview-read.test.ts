@@ -12,9 +12,9 @@ import {
   type FleetDispatchFact,
   type FleetLeaseFact,
   type FleetOverviewInput,
-} from "../src/fleet/fleet-overview-read.ts";
-import type { FleetReplicaStatus } from "../src/fleet/center-types.ts";
-import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
+} from "../src/daemon-host/fleet/fleet-overview-read.ts";
+import type { FleetReplicaStatus } from "../src/daemon-host/fleet/center-types.ts";
+import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
 
 const CENTER = { daemonId: "default", startedAt: "2026-10-01T00:00:00.000Z", version: "0.0.0", commitSha: "bd2251a" };
 

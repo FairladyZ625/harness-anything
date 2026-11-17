@@ -7,8 +7,8 @@ import test from "node:test";
 import { withTempStoreAsync } from "../../storage/test/store/helpers.ts";
 import { event as taskCreatedTemplate } from "../../storage/test/store/task-event-store.fixtures.ts";
 import { taskLifecycleWritePlan } from "@harness-anything/kernel";
-import { openRepoWriterCell } from "../src/repo-cell-open.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { openRepoWriterCell } from "../src/daemon-host/repo-cell-open.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { seedSettingsEvent } from "./repo-settings.fixture.ts";
 
 test("cold writer open publishes committed cuts before a large projection batch and hot open stays current", async () => {

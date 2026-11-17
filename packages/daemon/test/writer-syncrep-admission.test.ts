@@ -3,16 +3,16 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 import type { Worker } from "node:worker_threads";
-import { openWriterSupervisor } from "../src/writer-supervisor.ts";
-import { REPO_WRITER_QUEUE_LIMIT } from "../src/writer-request-queue.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { openWriterSupervisor } from "../src/daemon-host/writer-supervisor.ts";
+import { REPO_WRITER_QUEUE_LIMIT } from "../src/daemon-host/writer-request-queue.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import type {
   RepoWriterRequestV1,
   RepoWriterControlV1,
   RepoWriterCancelV1,
   RepoWriterCapabilityCallV1,
   RepoWriterCapabilityResultV1,
-} from "../src/repo-writer-protocol.ts";
+} from "../src/daemon-host/repo-writer-protocol.ts";
 
 const input = {
   repoId: workspaceId("syncrep-admission"),

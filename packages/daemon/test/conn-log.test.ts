@@ -4,8 +4,8 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { daemonConnLogFileStem, DAEMON_CONN_LOG_SCHEMA, openDaemonConnLog } from "../src/conn-log.ts";
-import { resultErrorDetail } from "../src/protocol/json-rpc-dispatch-support.ts";
+import { daemonConnLogFileStem, DAEMON_CONN_LOG_SCHEMA, openDaemonConnLog } from "../src/daemon-host/conn-log.ts";
+import { resultErrorDetail } from "../src/daemon-host/protocol/json-rpc-dispatch-support.ts";
 
 function tempRoot(t: TestContext): string {
   const root = mkdtempSync(path.join(os.tmpdir(), "harness-conn-log-"));

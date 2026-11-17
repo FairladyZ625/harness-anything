@@ -15,12 +15,12 @@ import { devNull, tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import type { TaskWorktreeBindingV1 } from "@harness-anything/kernel";
-import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
-import { pushWorkerBranch } from "../src/runtime-worker-push.ts";
-import type { RuntimeSpawnerInput } from "../src/runtime-spawn-types.ts";
-import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
-import { checkoutTaskWorktree } from "../src/task-worktree.ts";
-import { noWorktreeSetup } from "../src/worktree-setup.ts";
+import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
+import { pushWorkerBranch } from "../src/daemon-host/runtime-worker-push.ts";
+import type { RuntimeSpawnerInput } from "../src/daemon-host/runtime-spawn-types.ts";
+import { makeRuntimeSpawner } from "../src/daemon-host/runtime-spawner.ts";
+import { checkoutTaskWorktree } from "../src/daemon-host/task-worktree.ts";
+import { noWorktreeSetup } from "../src/daemon-host/worktree-setup.ts";
 import {
   dispatchLifecycleReadOf,
   emptyDispatchLifecycleRead,

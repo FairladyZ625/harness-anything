@@ -1,8 +1,8 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canonicalRoot } from "../src/protocol/daemon-protocol.contract.ts";
-import { makeTaskQueryReadModel } from "../src/task-query-read.ts";
+import { canonicalRoot } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { makeTaskQueryReadModel } from "../src/daemon-host/task-query-read.ts";
 import { eventEdge, projectionStub, protocolTaskRow } from "./task-query-read.fixtures.ts";
 
 test("task cards request decision metadata without the source document body", (t) => {

@@ -6,10 +6,10 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
-import { launchNative, RuntimeProcessStartRejected } from "../src/runtime-spawn-process.ts";
-import { readDispatchStreamSummary } from "../src/dispatch-stream.ts";
+import { launchNative, RuntimeProcessStartRejected } from "../src/daemon-host/runtime-spawn-process.ts";
+import { readDispatchStreamSummary } from "../src/daemon-host/dispatch-stream.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";

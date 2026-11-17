@@ -6,10 +6,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { INITIAL_SETTINGS_V1, writeRepositorySettingsFacet } from "@harness-anything/kernel";
-import { observeDeliveryBaseline } from "../src/repo-cell-proof.ts";
-import { remoteDefaultBranch, repositoryBaseRef } from "../src/schedule-occurrence-workspace.ts";
-import { checkoutTaskWorktree } from "../src/task-worktree.ts";
-import { noWorktreeSetup } from "../src/worktree-setup.ts";
+import { observeDeliveryBaseline } from "../src/daemon-host/repo-cell-proof.ts";
+import { remoteDefaultBranch, repositoryBaseRef } from "../src/daemon-host/schedule-occurrence-workspace.ts";
+import { checkoutTaskWorktree } from "../src/daemon-host/task-worktree.ts";
+import { noWorktreeSetup } from "../src/daemon-host/worktree-setup.ts";
 
 test("a declared local delivery ref cuts the task from main when origin/main has unrelated history", async (t) => {
   const root = repository(t),

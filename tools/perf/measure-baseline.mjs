@@ -5,7 +5,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { performance } from "node:perf_hooks";
 import { pathToFileURL } from "node:url";
-import { readObserveTail } from "../../packages/daemon/src/observe-tail.ts";
+import { readObserveTail } from "../../packages/daemon/src/daemon-host/observe-tail.ts";
 
 const DEFAULT_ROOT = process.env.HARNESS_CANONICAL_ROOT ?? process.cwd();
 const DEFAULT_LOG = path.join(
@@ -162,7 +162,7 @@ async function replayRuntimeEvents(root, count) {
       events: replayed,
       pages,
       elapsedMs: Number((performance.now() - started).toFixed(3)),
-      path: "packages/daemon/src/observe-tail.ts:readObserveTail",
+      path: "packages/daemon/src/daemon-host/observe-tail.ts:readObserveTail",
       fixture: "packages/daemon/fixtures/runtime/dispatch-replay-ended.jsonl",
       setupIncluded: false,
     };

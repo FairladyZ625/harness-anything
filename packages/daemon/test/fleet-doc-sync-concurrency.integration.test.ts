@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { sha256Text } from "@harness-anything/kernel";
 import { fleetFixture } from "./fleet-tls-session.fixture.ts";
-import { readFleetRepositoryMetadataClient, runFleetWriteClient } from "../src/fleet/peer.ts";
+import { readFleetRepositoryMetadataClient, runFleetWriteClient } from "../src/daemon-host/fleet/peer.ts";
 
 test("edge doc writes tolerate unrelated center writes and reject changed documents atomically", async (t) => {
   const fixture = await fleetFixture(t),

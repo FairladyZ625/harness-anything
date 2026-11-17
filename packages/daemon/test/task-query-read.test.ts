@@ -14,14 +14,18 @@ import {
   canonicalRoot,
   validateDaemonAgenda,
   validateDaemonRelationGraph,
-} from "../src/protocol/daemon-protocol.contract.ts";
-import { readTaskWipSnapshot, wipSnapshotEntries, type TaskQueryCell } from "../src/repo-cell-task-query.ts";
-import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
+} from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import {
+  readTaskWipSnapshot,
+  wipSnapshotEntries,
+  type TaskQueryCell,
+} from "../src/daemon-host/repo-cell-task-query.ts";
+import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
 import { blockingOf, submissionDigest } from "@harness-anything/kernel";
-import { makeTaskQueryReadModel } from "../src/task-query-read.ts";
+import { makeTaskQueryReadModel } from "../src/daemon-host/task-query-read.ts";
 import { taskListQueryFromPayload } from "@harness-anything/application/queries";
-import { appendIncidentActionReceipt } from "../src/decision-incident-receipt.ts";
-import { openDispatchStream } from "../src/dispatch-stream.ts";
+import { appendIncidentActionReceipt } from "../src/daemon-host/decision-incident-receipt.ts";
+import { openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import {
   eventEdge,
   executionRow,

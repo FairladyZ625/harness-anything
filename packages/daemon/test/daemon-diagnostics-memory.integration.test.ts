@@ -6,10 +6,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Worker } from "node:worker_threads";
-import type { openDaemonMemoryLedger } from "../src/daemon-diagnostics-memory.ts";
-import { openDaemonDiagnostics } from "../src/daemon-diagnostics.ts";
-import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
-import { daemonDiagnosticsEndpoint, localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
+import type { openDaemonMemoryLedger } from "../src/writer-cell/daemon-diagnostics-memory.ts";
+import { openDaemonDiagnostics } from "../src/daemon-host/daemon-diagnostics.ts";
+import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { daemonDiagnosticsEndpoint, localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
 import { waitForDurableCondition } from "../../../tools/fixtures/event-arrival.ts";
 
 test(

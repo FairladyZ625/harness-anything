@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { openFleetDocContentSink, readFleetDocContentMetadata } from "../src/fleet-edge-content.ts";
-import { runFleetDocShowRange } from "../src/fleet-edge-task.ts";
+import { openFleetDocContentSink, readFleetDocContentMetadata } from "../src/daemon-host/fleet-edge-content.ts";
+import { runFleetDocShowRange } from "../src/daemon-host/fleet-edge-task.ts";
 
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 

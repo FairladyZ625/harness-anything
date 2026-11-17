@@ -1,9 +1,9 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { RuntimeInstanceSummary } from "../src/agent-runtime-instances.ts";
-import type { RuntimeAgent, RuntimeSessionSelection } from "../src/runtime-spawn-types.ts";
-import { initialFallbackAttempt } from "../src/runtime-spawn-fallback.ts";
+import type { RuntimeInstanceSummary } from "../src/daemon-host/agent-runtime-instances.ts";
+import type { RuntimeAgent, RuntimeSessionSelection } from "../src/daemon-host/runtime-spawn-types.ts";
+import { initialFallbackAttempt } from "../src/daemon-host/runtime-spawn-fallback.ts";
 
 // A resumed dispatch settles a provider-side failure exactly like a fresh one: it must have a
 // fallback chain, or the same `provider_fault` that switches providers on a fresh dispatch ends the

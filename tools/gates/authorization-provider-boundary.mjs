@@ -25,6 +25,26 @@ export function providerLineFingerprint(file, sourceLine) {
 
 export function findProviderBoundaryViolations(diffText, waivedFingerprints = [], sourceReferences = new Set()) {
   const errors = [];
+  // dec_04A9211B073F29F0FC1E1CA573 CH2/CH3: a physical move may change indentation,
+  // but cannot grow or change provider implementation. Match removed occurrences
+  // one-for-one within the same consumer package; provider packages cannot lend rows.
+  const removed = new Map();
+  const consumer = (name) =>
+    name.startsWith(PROVIDER_PACKAGE_PREFIX) || EXEMPTED_TEST_PATH.test(name)
+      ? null
+      : /^packages\/([^/]+)\//u.exec(name)?.[1];
+  let previous = "";
+  for (const line of String(diffText).split(/\r?\n/u)) {
+    if (line.startsWith("--- a/")) previous = line.slice(6);
+    else if (line.startsWith("-") && !line.startsWith("---")) {
+      const owner = consumer(previous),
+        text = line.slice(1).trim();
+      if (owner && providerMarkerReason(text)) {
+        const key = `${owner}\0${text}`;
+        removed.set(key, (removed.get(key) ?? 0) + 1);
+      }
+    }
+  }
   let file = "";
   for (const line of String(diffText).split(/\r?\n/u)) {
     if (line.startsWith("+++ b/")) {
@@ -56,6 +76,12 @@ export function findProviderBoundaryViolations(diffText, waivedFingerprints = []
       continue;
     if (waivedFingerprints.includes(providerLineFingerprint(file, sourceLine))) continue;
     const reason = providerMarkerReason(sourceLine);
+    const key = `${consumer(file)}\0${sourceLine.trim()}`,
+      remaining = removed.get(key) ?? 0;
+    if (reason && remaining > 0) {
+      removed.set(key, remaining - 1);
+      continue;
+    }
     if (reason) errors.push(`${file}: ${reason}: ${line.slice(1).trim()}`);
   }
   return errors;

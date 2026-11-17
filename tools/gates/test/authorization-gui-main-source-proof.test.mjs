@@ -329,8 +329,8 @@ test("dec_88CAA23DE4907261D7ECB107ED/CH1: shardedAudit worker count stays within
 test("dec_88CAA23DE4907261D7ECB107ED/CH1: changedAuthorizationScope resolves named and typed dynamic imports through pure re-export barrels", () => {
   const texts = {
     "packages/daemon/src/server-leaf.ts": "export const openHost = () => {};",
-    "packages/daemon/src/client/rpc.ts": "export const sendRpc = () => {};",
-    "packages/daemon/src/client/index.ts": [
+    "packages/daemon/src/daemon-host/client/rpc.ts": "export const sendRpc = () => {};",
+    "packages/daemon/src/daemon-host/client/index.ts": [
       'export { openHost } from "../server-leaf.ts";',
       'export { sendRpc } from "./rpc.ts";',
     ].join("\n"),
@@ -351,7 +351,8 @@ test("dec_88CAA23DE4907261D7ECB107ED/CH1: changedAuthorizationScope resolves nam
   const graph = {
     modules,
     importTarget({ file, from }) {
-      if (from === "@harness-anything/daemon/client") return { file: "packages/daemon/src/client/index.ts" };
+      if (from === "@harness-anything/daemon/client")
+        return { file: "packages/daemon/src/daemon-host/client/index.ts" };
       if (from.startsWith(".")) {
         const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(file), from));
         return { file: modules.has(resolved) ? resolved : null };
@@ -390,6 +391,6 @@ test("dec_88CAA23DE4907261D7ECB107ED/CH1: changedAuthorizationScope resolves nam
   };
   const serverScope = changedAuthorizationScope(graph, inputs, ["packages/daemon/src/server-leaf.ts"]);
   assert.deepEqual([...serverScope.descriptorIds], ["server.write"]);
-  const clientScope = changedAuthorizationScope(graph, inputs, ["packages/daemon/src/client/rpc.ts"]);
+  const clientScope = changedAuthorizationScope(graph, inputs, ["packages/daemon/src/daemon-host/client/rpc.ts"]);
   assert.deepEqual([...clientScope.descriptorIds], ["gui.write"]);
 });

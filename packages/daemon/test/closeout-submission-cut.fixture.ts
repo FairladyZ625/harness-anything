@@ -6,7 +6,7 @@ import path from "node:path";
 import type { TestContext } from "node:test";
 import { sha256Bytes } from "@harness-anything/kernel";
 import { deriveCloseoutSubmission } from "./closeout-submission.fixture.ts";
-import { openDispatchStream } from "../src/dispatch-stream.ts";
+import { openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 
 export const packagePath = "tasks/task-1";
 export const documentPath = `${packagePath}/closeout.md`;

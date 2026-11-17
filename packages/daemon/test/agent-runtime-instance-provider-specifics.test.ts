@@ -15,8 +15,11 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
-import { runAcpProviderSession } from "../src/runtime-worker-acp.ts";
+import {
+  openRuntimeInstanceStore,
+  type RuntimeInstallationWitness,
+} from "../src/daemon-host/agent-runtime-instances.ts";
+import { runAcpProviderSession } from "../src/daemon-host/runtime-worker-acp.ts";
 import { codedAs, observed } from "./agent-runtime-instance-environment.fixture.ts";
 import { writeAcpProviderStub } from "./fixtures/acp-stub.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";

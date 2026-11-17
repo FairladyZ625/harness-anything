@@ -30,7 +30,7 @@ import {
   replicaGenerationReaders,
   type ReplicaInstallProgress,
   type ReplicaStagingCheckpoint,
-} from "../src/fleet/replica-generation.ts";
+} from "../src/fleet-sync/fleet/replica-generation.ts";
 
 async function buildSampleBackup(root: string) {
   initRepo(root);

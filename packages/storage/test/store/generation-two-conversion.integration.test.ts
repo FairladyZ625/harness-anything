@@ -8,7 +8,7 @@ import { createLedgerBackup } from "../../src/store/ledger-backup.ts";
 import { runGenerationTwoConversion } from "../../src/store/generation-two-conversion.ts";
 import { openSqliteEventStore, sqliteLedgerPath } from "../../src/store/sqlite-event-store.ts";
 import { readCertifiedGitFollower } from "../../src/store/task-event-store-factory.ts";
-import { makeSqliteTaskEventStore } from "../../src/store/sqlite-task-event-store.ts";
+import { makeSqliteTaskEventStoreWithGitFollower as makeSqliteTaskEventStore } from "../../src/store/sqlite-git-outbox-publisher.ts";
 import { event, initRepo } from "./task-event-store.fixtures.ts";
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { canonicalLedgerCut } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";

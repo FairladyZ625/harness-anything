@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import { TaskEventStoreError } from "@harness-anything/kernel";
+import { TaskEventStoreError } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 import { migrationWritable, type StorageMigrationRecord } from "./types.ts";
 
 export function ensureSqliteMigrationControl(db: DatabaseSync): void {

@@ -7,11 +7,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import workerThreads, { type WorkerOptions } from "node:worker_threads";
-import { observeRuntimeWorkspace, type WorkspaceMonitorObservation } from "../src/runtime-workspace-monitor.ts";
-import { createWorkspaceActivityQueue } from "../src/runtime-workspace-activity-queue.ts";
-import { openRuntimeWorkspaceMonitor } from "../src/runtime-workspace-monitor-thread.ts";
-import { attachActiveRuntime, disposeActiveRuntimeObservations } from "../src/runtime-spawn-active.ts";
-import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
+import {
+  observeRuntimeWorkspace,
+  type WorkspaceMonitorObservation,
+} from "../src/runtime-engine/runtime-workspace-monitor.ts";
+import { createWorkspaceActivityQueue } from "../src/runtime-engine/runtime-workspace-activity-queue.ts";
+import { openRuntimeWorkspaceMonitor } from "../src/runtime-engine/runtime-workspace-monitor-thread.ts";
+import { attachActiveRuntime, disposeActiveRuntimeObservations } from "../src/daemon-host/runtime-spawn-active.ts";
+import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
 import { active, tasklessSettlementRuntime } from "./runtime-spawn-settlement.fixtures.ts";
 
 for (const localWorkspace of [false, true]) {

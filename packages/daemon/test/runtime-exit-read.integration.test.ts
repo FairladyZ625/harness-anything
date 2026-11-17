@@ -6,12 +6,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { RuntimeSession, TaskProjection } from "@harness-anything/kernel";
-import { binding } from "../src/daemon-host-binding.ts";
-import { createIdentitySession } from "../src/authorization-provider.ts";
+import { binding } from "../src/daemon-host/daemon-host-binding.ts";
+import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
-import { makeAgentRuntimeReadModel } from "../src/agent-runtime-read.ts";
-import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
+import { makeAgentRuntimeReadModel } from "../src/daemon-host/agent-runtime-read.ts";
+import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 
 const dispatchId = "dispatch_000000000000000000000007";

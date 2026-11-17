@@ -23,8 +23,8 @@ import { startGuiDriver } from "./driver.mjs";
 import { openProject, navLocator } from "./capture-nav.mjs";
 import { resolveScrollTarget, scrollTargetToTop } from "./capture-scroll.mjs";
 import { startGuiResidentDaemonFixture } from "../../packages/gui/test-support/resident-daemon.mjs";
-import { readDaemonPid } from "../../packages/daemon/src/daemon-singleton.ts";
-import { requestDaemonJsonRpcAt } from "../../packages/daemon/src/client/local-json-rpc-client.ts";
+import { readDaemonPid } from "../../packages/daemon/src/daemon-host/daemon-singleton.ts";
+import { requestDaemonJsonRpcAt } from "../../packages/daemon/src/daemon-host/client/local-json-rpc-client.ts";
 
 const workspaceRoot = path.resolve(import.meta.dirname, "..", "..");
 // 单页 6s 与项目切换等待同源;可用 --settle-ms 覆盖单页等待。

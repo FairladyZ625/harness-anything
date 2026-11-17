@@ -7,7 +7,11 @@ import path from "node:path";
 import test from "node:test";
 import type { TaskProjection } from "@harness-anything/kernel";
 import { runtimeSessionOutcomeFromEvidence } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
-import { appendRuntimeWorkerRecord, archiveDispatchStream, openDispatchStream } from "../src/dispatch-stream.ts";
+import {
+  appendRuntimeWorkerRecord,
+  archiveDispatchStream,
+  openDispatchStream,
+} from "../src/daemon-host/dispatch-stream.ts";
 import {
   agentRuntimeTokenUsageRanges,
   readAgentRuntimeTokenUsage,
@@ -18,9 +22,9 @@ import {
   tokenUsageSessionBinCeilings,
   validateAgentRuntimeTokenUsage,
   validateAgentRuntimeTokenUsageDetail,
-} from "../src/agent-runtime-token-usage.ts";
-import { daemonGuiReadMethods, validateDaemonRpcCall } from "../src/protocol/daemon-protocol.contract.ts";
-import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
+} from "../src/daemon-host/agent-runtime-token-usage.ts";
+import { daemonGuiReadMethods, validateDaemonRpcCall } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { parseDaemonGuiReadResult } from "../src/daemon-host/protocol/gui-result-validation.ts";
 
 const NOW = "2026-09-14T12:00:00.000Z",
   CUT = { status: "ready" as const, watermark: 7, sourceRevision: 7 };

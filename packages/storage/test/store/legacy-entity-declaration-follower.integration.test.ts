@@ -9,7 +9,7 @@ import { ownedContentForDeclarationEvent } from "@harness-anything/kernel/intern
 import type { CanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import { openSqliteEventStore, sqliteLedgerPath } from "../../src/store/sqlite-event-store.ts";
 import { readCertifiedGitFollower } from "../../src/store/task-event-store-factory.ts";
-import { makeSqliteTaskEventStore } from "../../src/store/sqlite-task-event-store.ts";
+import { makeSqliteTaskEventStoreWithGitFollower as makeSqliteTaskEventStore } from "../../src/store/sqlite-git-outbox-publisher.ts";
 import { git, initRepo } from "./task-event-store.fixtures.ts";
 
 const repoId = "legacy-entity-declaration",

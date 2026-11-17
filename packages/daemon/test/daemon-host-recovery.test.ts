@@ -24,11 +24,11 @@ import { readDaemonRegistry, taskLifecycleWritePlan } from "@harness-anything/ke
 import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel/internal/domain/receipt-domain-registry";
 import { validateWriteReceipt } from "../../kernel/test/contracts/receipt-acceptance.fixtures.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { openDispatchStream } from "../src/dispatch-stream.ts";
-import { backupRepo, drillRepoBackup } from "../src/repo-all-purge.ts";
-import { localUserDaemonEndpoint, perUserSocketRoot } from "../src/client/local-daemon-target.ts";
-import { runtimeCallbackRelaySpec } from "../src/runtime-callback-relay.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { backupRepo, drillRepoBackup } from "../src/daemon-host/repo-all-purge.ts";
+import { localUserDaemonEndpoint, perUserSocketRoot } from "../src/daemon-host/client/local-daemon-target.ts";
+import { runtimeCallbackRelaySpec } from "../src/daemon-host/runtime-callback-relay.ts";
 import {
   makeTaskEventReader,
   makeTaskEventStore,
@@ -37,11 +37,15 @@ import {
   restoreLedgerBackup,
   sqliteLedgerPath,
 } from "@harness-anything/storage";
-import { localSystemBinding } from "../src/daemon-host-binding.ts";
-import { rejectHostAction, rejectPresetRun } from "../src/daemon-host-errors.ts";
-import type { DaemonHostOpenInput } from "../src/daemon-host-types.ts";
-import { canonicalRoot, workspaceId, type DaemonStatusResult } from "../src/protocol/daemon-protocol.contract.ts";
-import type { RepoCellStatus, RepoTaskAction } from "../src/repo-cell-types.ts";
+import { localSystemBinding } from "../src/daemon-host/daemon-host-binding.ts";
+import { rejectHostAction, rejectPresetRun } from "../src/daemon-host/daemon-host-errors.ts";
+import type { DaemonHostOpenInput } from "../src/daemon-host/daemon-host-types.ts";
+import {
+  canonicalRoot,
+  workspaceId,
+  type DaemonStatusResult,
+} from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import type { RepoCellStatus, RepoTaskAction } from "../src/daemon-host/repo-cell-types.ts";
 import {
   openBootstrappedRepoCell as openRepoCell,
   registerBootstrappedDaemonRepo as registerDaemonRepo,

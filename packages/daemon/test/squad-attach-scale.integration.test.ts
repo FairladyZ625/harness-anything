@@ -15,10 +15,10 @@ import {
   archiveDispatchStream,
   dispatchStreamPath,
   openDispatchStream,
-} from "../src/dispatch-stream.ts";
-import { pruneDispatchStreamArchive } from "../src/dispatch-stream-archive.ts";
-import { readSquadRecoveryState } from "../src/squad-run-state.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+} from "../src/daemon-host/dispatch-stream.ts";
+import { pruneDispatchStreamArchive } from "../src/daemon-host/dispatch-stream-archive.ts";
+import { readSquadRecoveryState } from "../src/daemon-host/squad-run-state.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openFencedRepoCell } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 

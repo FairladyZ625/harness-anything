@@ -1,7 +1,7 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { performance } from "node:perf_hooks";
-import { requestDaemonJsonRpcAt } from "../../src/client/local-json-rpc-client.ts";
-import { currentDaemonProtocolVersion } from "../../src/protocol/version.ts";
+import { requestDaemonJsonRpcAt } from "../../src/daemon-host/client/local-json-rpc-client.ts";
+import { currentDaemonProtocolVersion } from "../../src/daemon-host/protocol/version.ts";
 const { endpoint, repoId, samples } = workerData as { endpoint: string; repoId: string; samples: number };
 const barrier = new Int32Array(workerData.barrier as SharedArrayBuffer);
 const measurements: Record<string, number[]> = { status: [], hello: [], write: [] };

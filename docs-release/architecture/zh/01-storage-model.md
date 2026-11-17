@@ -57,7 +57,7 @@ canonical 内容对象位于 active local `store/generations/<generation>/object
 Execution 是 task 下的一轮交付:`executions/exe_<id>.md`,schema `execution/v1`,持有
 actor、`sessionBindings` 与 `submission`。它不是由 CLI 参数拼出来的——`ha task submit`
 不接受提交 packet 参数,而是由 daemon 从任务包里已写实的 `closeout.md` **派生**
-Submission(`packages/daemon/src/repo-cell-submit.ts`)。closeout 的 Summary 必须点名
+Submission(`packages/daemon/src/daemon-host/repo-cell-submit.ts`)。closeout 的 Summary 必须点名
 一个交付 commit,或至少一个 `artifact:path@revision` 锚;`deliverables` 由该 commit 的
 `git diff` 求出,`outputs` 记录删除路径与 artifact 锚,`artifacts`/`commitSha` 一并落定。
 最终 packet 是六个字段:`completionClaim`、`deliverables`、`outputs`、

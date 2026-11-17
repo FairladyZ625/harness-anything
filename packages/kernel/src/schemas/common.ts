@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 import { UtcTimestampSchema } from "./utc-timestamp.ts";
 
 export const ActorKindSchema = Schema.Literal("agent", "human", "system");

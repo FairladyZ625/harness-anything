@@ -5,11 +5,11 @@ import path from "node:path";
 import {
   compileSettingsChangedEvent,
   compileVerticalDeclarationEvent,
-  decodeVerticalDefinition,
   readSettingsFacet,
   resolveHarnessLayout,
   writeRepositorySettingsFacet,
 } from "@harness-anything/kernel";
+import { decodeVerticalDefinition } from "@harness-anything/kernel/schemas";
 import {
   activateEmptyCanonicalGeneration,
   makeTaskEventStore,
@@ -18,16 +18,16 @@ import {
 } from "@harness-anything/storage";
 import { daemonRegistryPaths } from "../../storage/test/store/canonical-generation.fixtures.ts";
 import { defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { type RepoCell, type RepoCellBinding } from "../src/repo-cell.ts";
-import { openRepoCell as openProductRepoCell } from "../src/repo-cell-open.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { type RepoCell, type RepoCellBinding } from "../src/daemon-host/repo-cell.ts";
+import { openRepoCell as openProductRepoCell } from "../src/daemon-host/repo-cell-open.ts";
 import {
   openPersistentWriterEpoch,
   readLedgerWriterEpoch,
   type WriterEpochFenceDescriptor,
 } from "@harness-anything/storage";
-import { initialRuntimeInstanceSettings } from "../src/runtime-spawn-allowlist.ts";
-import type { DaemonHost } from "../src/daemon-host.ts";
+import { initialRuntimeInstanceSettings } from "../src/daemon-host/runtime-spawn-allowlist.ts";
+import type { DaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { policyTestCenter, provisionPolicyTestRepository, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 
 const seededSettings = new Set<string>();

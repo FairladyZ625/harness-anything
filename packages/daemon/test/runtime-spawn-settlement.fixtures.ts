@@ -2,9 +2,9 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { devNull, tmpdir } from "node:os";
 import path from "node:path";
-import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
-import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
-import { publishExit as publishRuntimeExit } from "../src/runtime-spawn-settlement.ts";
+import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
+import type { ActiveRuntime } from "../src/daemon-host/runtime-spawn-types.ts";
+import { publishExit as publishRuntimeExit } from "../src/daemon-host/runtime-spawn-settlement.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 import type { AgentRuntimeEventV1 } from "@harness-anything/kernel";
 

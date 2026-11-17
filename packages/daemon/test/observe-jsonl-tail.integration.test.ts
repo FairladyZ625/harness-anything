@@ -5,10 +5,10 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { readJsonlTail, singleJsonlFile } from "../src/observe-jsonl-tail.ts";
-import { dispatchStreamPath, openDispatchStream } from "../src/dispatch-stream.ts";
-import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
-import { startDaemon, type RunningDaemon } from "../src/runtime.ts";
+import { readJsonlTail, singleJsonlFile } from "../src/daemon-host/observe-jsonl-tail.ts";
+import { dispatchStreamPath, openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { startDaemon, type RunningDaemon } from "../src/daemon-host/runtime.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell, registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 

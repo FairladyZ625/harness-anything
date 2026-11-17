@@ -92,12 +92,12 @@ partitionedTest(
     for (const file of [
       "packages/kernel/src/ports/authorization-port.ts",
       "packages/kernel/src/domain/action-source-facets.json",
-      "packages/daemon/src/protocol/daemon-protocol.contract.ts",
+      "packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts",
       ...["open", "api", "command", "action-context", "action-dispatch", "command-run"].map(
-        (name) => `packages/daemon/src/repo-cell-${name}.ts`,
+        (name) => `packages/daemon/src/daemon-host/repo-cell-${name}.ts`,
       ),
-      "packages/daemon/src/daemon-host-open.ts",
-      "packages/daemon/src/rpc-command-routing.ts",
+      "packages/daemon/src/daemon-host/daemon-host-open.ts",
+      "packages/daemon/src/daemon-host/rpc-command-routing.ts",
       "tools/gates/authorization-flow-graph.mjs",
       "tools/gate-manifest.json",
       "package-lock.json",
@@ -176,7 +176,7 @@ function sourceCopy(t, { copyPackages = ["daemon"] } = {}) {
 partitionedTest("incremental permission route keeps the full proof's positive and negative verdicts", async (t) => {
   const inputs = await loadAuthorizationInputs(repoRoot);
   const dir = sourceCopy(t);
-  const file = "packages/daemon/src/access-admin-service.ts";
+  const file = "packages/daemon/src/daemon-host/access-admin-service.ts";
   const only = ["permission-request-decide"];
   const audit = (changedFiles) =>
     auditDurableActionAuthorization(repoRoot, inputs, { sourceRoot: dir, only, changedFiles });
@@ -320,7 +320,7 @@ partitionedTest("daemon leaf action changes stay below 60 descriptors and detect
     ...inputs,
     descriptors: inputs.descriptors.filter((descriptor) => descriptor.commandClass !== "repo-read"),
   };
-  const file = "packages/daemon/src/todo-action.ts";
+  const file = "packages/daemon/src/daemon-host/todo-action.ts";
   const count = () => changedAuthorizationScope(graph, durableInputs, [file]).descriptorIds?.size;
   const selected = changedAuthorizationScope(graph, durableInputs, [file]).descriptorIds;
   assert.ok(selected?.has("todo-add") && selected.has("todo.add"), "both todo write ingresses remain selected");
@@ -331,7 +331,7 @@ partitionedTest("daemon leaf action changes stay below 60 descriptors and detect
   assert.ok(descriptors > 0 && descriptors < 60, `todo-action selected ${descriptors} descriptors; expected 1..59`);
   // Moving declarations alone is insufficient if their signatures still type-import the
   // composition root: every leaf importing the shared contracts joins the dispatcher again.
-  const contracts = "packages/daemon/src/repo-cell-types.ts";
+  const contracts = "packages/daemon/src/daemon-host/repo-cell-types.ts";
   const original = graph.modules.get(contracts);
   try {
     graph.modules.set(contracts, {

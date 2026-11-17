@@ -1,0 +1,780 @@
+import { spawn } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
+import { setTimeout as delay } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
+import type { CanonicalEventStore, TaskProjection } from "@harness-anything/kernel";
+import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
+import type { DispatchAttemptOutcome } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
+import { cmdShellInvocation } from "@harness-anything/storage";
+import { consumeKnownError } from "@harness-anything/kernel";
+import type { PreparedRuntimeLaunch, RuntimeInstanceKind } from "./agent-runtime-instances.ts";
+import { runtimeKindForId } from "../runtime-engine/runtime-inventory.ts";
+import {
+  appendRuntimeWorkerRecord,
+  dispatchStreamPath,
+  readDispatchStreamHeader,
+  readDispatchStreamSummary,
+  readRuntimeWorkerChunk,
+  scrubProviderValue,
+  type DispatchStreamWriter,
+} from "./dispatch-stream.ts";
+import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
+import { runtimePidIsAlive } from "../runtime-engine/runtime-process-liveness.ts";
+import {
+  childProcessErrorCode,
+  terminateRuntimePid,
+  terminateRuntimeProcess,
+} from "../runtime-engine/runtime-process-signals.ts";
+import { runtimeErrorCode, runtimeErrorMessage, runtimeSpawnError } from "../runtime-engine/runtime-spawn-errors.ts";
+import { parseProviderFrame } from "./runtime-spawn-provider-frames.ts";
+import type {
+  LiveDescendantProbeResult,
+  ResumeProcessEvent,
+  ResumeProcessObservation,
+  RuntimeLauncher,
+  RuntimeProcess,
+  RuntimeProcessObservation,
+} from "./runtime-spawn-types.ts";
+import { runProcessTextAsync } from "./process-port.ts";
+import { requestProcessGroupStop } from "./runtime/process-group-reconciler.ts";
+
+const { providerErrorLimit, resumeAdmissionTimeoutMs, exitNotificationTimeoutMs } =
+  daemonRuntimePolicy.defaultValue.process;
+
+export function requiredRuntimeStore(input: { readonly store?: () => CanonicalEventStore }): CanonicalEventStore {
+  if (!input.store)
+    throw runtimeSpawnError("runtime_preconditions_unavailable", "Local runtime persistence is unavailable.");
+  return input.store();
+}
+
+export function requiredRuntimeProjection(input: { readonly projection?: () => TaskProjection }): TaskProjection {
+  if (!input.projection)
+    throw runtimeSpawnError("runtime_preconditions_unavailable", "Local runtime projection is unavailable.");
+  return input.projection();
+}
+
+/** A launcher may use this only when it can establish that it created no OS process. */
+export class RuntimeProcessStartRejected extends Error {
+  readonly code?: string;
+  readonly data = { runtimeProcessStartRejected: true } as const;
+
+  constructor(error: unknown) {
+    super(runtimeErrorMessage(error), { cause: error });
+    this.name = "RuntimeProcessStartRejected";
+    const code = runtimeErrorCode(error);
+    if (code !== null) this.code = code;
+  }
+}
+
+/** Launch once, and for a resume retain the buffered witness until the session is registered. */
+export async function launchRuntimeProcess(
+  launch: RuntimeLauncher,
+  prepared: PreparedRuntimeLaunch,
+  persistence: Parameters<RuntimeLauncher>[1],
+  providerSessionId?: string | null,
+): Promise<{ process: RuntimeProcess; resumeObservation?: ResumeProcessObservation }> {
+  let process: RuntimeProcess | undefined;
+  try {
+    try {
+      process = launch(prepared, persistence);
+    } catch (error) {
+      if (isRuntimeProcessStartRejected(error))
+        appendRuntimeWorkerRecord(persistence.rootDir, persistence.dispatchId, {
+          kind: "process_start_rejected",
+          occurredAt: new Date().toISOString(),
+          ...(error.code ? { errorCode: error.code } : {}),
+        });
+      throw error;
+    }
+    const processIsChild =
+      Number.isSafeInteger(process.pid) && process.pid > 1 && process.pid !== globalThis.process.pid;
+    if (readDispatchStreamSummary(persistence.rootDir, persistence.dispatchId)?.process === null && processIsChild) {
+      appendRuntimeWorkerRecord(persistence.rootDir, persistence.dispatchId, {
+        kind: "process_started",
+        occurredAt: new Date().toISOString(),
+        pid: process.pid,
+      });
+    }
+    if (!providerSessionId) return { process };
+    const resumeObservation = observeResumeProcess(
+      process,
+      runtimeKindForId(prepared.definition.kindId).kindId,
+      providerSessionId,
+    );
+    await resumeObservation.ready;
+    return { process, resumeObservation };
+  } catch (error) {
+    try {
+      if (process?.terminateTree) await process.terminateTree();
+      else process?.terminate();
+    } finally {
+      process?.release?.();
+    }
+    if (!providerSessionId || runtimeErrorCode(error) === "runtime_resume_failed") throw error;
+    throw runtimeSpawnError(
+      "runtime_resume_failed",
+      `${prepared.definition.kindId} session ${providerSessionId} could not be resumed: ${runtimeErrorMessage(error)}`,
+    );
+  }
+}
+
+export function isRuntimeProcessStartRejected(error: unknown): error is RuntimeProcessStartRejected {
+  const data = error instanceof Error && "data" in error ? error.data : null;
+  return (
+    error instanceof RuntimeProcessStartRejected ||
+    (typeof data === "object" &&
+      data !== null &&
+      "runtimeProcessStartRejected" in data &&
+      data.runtimeProcessStartRejected === true)
+  );
+}
+
+// A resume receipt is an admission claim: the provider has accepted the old
+// session, not merely that its executable started. Buffer the provider process
+// until its structured stream binds the requested session, then replay every
+// observed frame through the normal durable-session path.
+export function observeResumeProcess(
+  process: RuntimeProcess,
+  kindId: RuntimeInstanceKind,
+  expectedProviderSessionId: string,
+): ResumeProcessObservation {
+  let events: ResumeProcessEvent[] = [],
+    sink: ((event: ResumeProcessEvent) => void) | null = null,
+    buffer = "",
+    stderr = "",
+    failureText: string | null = null,
+    settled = false,
+    resolveReady!: () => void,
+    rejectReady!: (error: Error) => void;
+  const ready = new Promise<void>((resolve, reject) => {
+      resolveReady = resolve;
+      rejectReady = reject;
+    }),
+    timer = setTimeout(
+      () => rejectResume(`provider did not confirm the session within ${resumeAdmissionTimeoutMs}ms`),
+      resumeAdmissionTimeoutMs,
+    );
+  timer.unref();
+  const emit = (event: ResumeProcessEvent): void => {
+    if (sink) sink(event);
+    else events.push(event);
+  };
+  const rejectResume = (reason: string): void => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    rejectReady(
+      runtimeSpawnError(
+        "runtime_resume_failed",
+        `${kindId} session ${expectedProviderSessionId} could not be resumed: ${reason}.`,
+      ),
+    );
+  };
+  process.onOutput((chunk, persisted = false) => {
+    emit({ kind: "output", chunk, persisted });
+    if (settled) return;
+    buffer += chunk;
+    if (Buffer.byteLength(buffer) > providerErrorLimit) {
+      rejectResume("provider emitted too much output before confirming the session");
+      return;
+    }
+    const lines = buffer.split(/\r?\n/u);
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const frame = parseProviderFrame(kindId, JSON.parse(line));
+        if (frame.failureText) failureText = frame.failureText;
+        if (!frame.sessionIdentity?.sessionId) continue;
+        if (frame.sessionIdentity.sessionId !== expectedProviderSessionId) {
+          rejectResume(`provider bound unexpected session ${frame.sessionIdentity.sessionId}`);
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        resolveReady();
+        return;
+      } catch (error) {
+        consumeKnownError(error);
+      }
+    }
+  });
+  process.onErrorOutput((chunk) => {
+    emit({ kind: "error", chunk });
+    if (settled || Buffer.byteLength(stderr) > providerErrorLimit) return;
+    stderr += chunk;
+    if (Buffer.byteLength(stderr) > providerErrorLimit) stderr = "";
+  });
+  process.onExit((code, lossReason) => {
+    emit({ kind: "exit", code, ...(lossReason ? { lossReason } : {}) });
+    if (!settled) {
+      const diagnostic = failureText ?? stderr.trim(),
+        detail = diagnostic
+          ? (scrubProviderValue(diagnostic) as string)
+          : "provider exited before confirming the session";
+      rejectResume(`${detail} (exit ${code === null ? "unknown" : String(code)})`);
+    }
+  });
+  return {
+    ready,
+    activate: (handlers) => {
+      sink = (event) => {
+        if (event.kind === "output") handlers.output(event.chunk, event.persisted);
+        else if (event.kind === "error") handlers.error(event.chunk);
+        else handlers.exit(event.code, event.lossReason);
+      };
+      const pending = events;
+      events = [];
+      for (const event of pending) sink(event);
+    },
+  };
+}
+
+type PosixProcessRow = {
+  readonly pid: number;
+  readonly parentPid: number;
+  readonly processGroupId: number;
+};
+
+async function readPosixProcessRows(): Promise<readonly PosixProcessRow[]> {
+  // Bounded: this table is also consulted on the stall watchdog's path, where a hung `ps` would
+  // otherwise prevent the very settlement that decides the attempt.
+  const output = await runProcessTextAsync(
+    "ps",
+    ["-axo", "pid=,ppid=,pgid="],
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { timeoutMs: daemonRuntimePolicy.defaultValue.process.processTableTimeoutMs },
+  );
+  return output.split(/\r?\n/u).flatMap((line) => {
+    const match = /^\s*(\d+)\s+(\d+)\s+(\d+)/u.exec(line);
+    if (!match) return [];
+    return [{ pid: Number(match[1]), parentPid: Number(match[2]), processGroupId: Number(match[3]) }];
+  });
+}
+
+/** Probe live descendants; unavailable keeps the historical deadline. */
+async function liveDescendantPidsOf(rootPid: number): Promise<LiveDescendantProbeResult> {
+  if (!Number.isInteger(rootPid) || rootPid < 1 || process.platform === "win32") return { available: false };
+  try {
+    const rows = await readPosixProcessRows();
+    return {
+      available: true,
+      pids: descendantProcessRows(rows, rootPid)
+        .map(({ pid }) => pid)
+        .filter((pid) => pid !== rootPid),
+    };
+  } catch {
+    return { available: false };
+  }
+}
+
+function descendantProcessRows(rows: readonly PosixProcessRow[], rootPid: number): readonly PosixProcessRow[] {
+  const selected = new Set([rootPid]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const row of rows)
+      if (!selected.has(row.pid) && selected.has(row.parentPid)) {
+        selected.add(row.pid);
+        changed = true;
+      }
+  }
+  return rows.filter((row) => selected.has(row.pid) || row.processGroupId === rootPid);
+}
+
+function signalRuntimeTargets(
+  rows: readonly PosixProcessRow[],
+  rootPid: number,
+  ownProcessGroupId: number | null,
+  signal: NodeJS.Signals,
+): void {
+  const groups = [...new Set(rows.map(({ processGroupId }) => processGroupId).filter((group) => group > 0))].sort(
+    (left, right) => Number(left === rootPid) - Number(right === rootPid),
+  );
+  for (const processGroupId of groups) {
+    if (processGroupId === ownProcessGroupId) continue;
+    try {
+      process.kill(-processGroupId, signal);
+    } catch (error) {
+      if (childProcessErrorCode(error) !== "ESRCH") throw error;
+      consumeKnownError(error);
+    }
+  }
+  if (groups.includes(ownProcessGroupId ?? -1))
+    for (const { pid } of rows) {
+      if (pid === process.pid) continue;
+      try {
+        process.kill(pid, signal);
+      } catch (error) {
+        if (childProcessErrorCode(error) !== "ESRCH") throw error;
+        consumeKnownError(error);
+      }
+    }
+}
+
+async function awaitRuntimeProcessExit(pids: readonly number[], timeoutMs: number): Promise<readonly number[]> {
+  // A fixed number of attempts, not a clock deadline: survivors are the durable read, and the
+  // attempt count is the product budget.
+  let survivors = pids.filter(runtimePidIsAlive);
+  for (
+    let attempt = 0;
+    survivors.length > 0 &&
+    attempt < Math.max(1, Math.ceil(timeoutMs / daemonRuntimePolicy.defaultValue.process.exitPollMs));
+    attempt += 1
+  ) {
+    await delay(daemonRuntimePolicy.defaultValue.process.exitPollMs);
+    survivors = survivors.filter(runtimePidIsAlive);
+  }
+  return survivors;
+}
+
+export async function terminateRuntimeTree(rootDir: string, dispatchId: string, rootPid: number): Promise<void> {
+  if (!Number.isInteger(rootPid) || rootPid < 1) return;
+  if (process.platform === "win32") {
+    requestProcessGroupStop({ pid: rootPid, dispatch: { rootDir, dispatchId } });
+    return;
+  }
+  let allRows: readonly PosixProcessRow[];
+  try {
+    allRows = await readPosixProcessRows();
+  } catch (error) {
+    consumeKnownError(error);
+    terminateRuntimePid(rootPid);
+    return;
+  }
+  const rows = descendantProcessRows(allRows, rootPid),
+    pids = rows.map(({ pid }) => pid),
+    processGroupIds = [...new Set(rows.map(({ processGroupId }) => processGroupId))].sort(
+      (left, right) => left - right,
+    ),
+    ownProcessGroupId = allRows.find(({ pid }) => pid === process.pid)?.processGroupId ?? null;
+  appendRuntimeWorkerRecord(rootDir, dispatchId, {
+    kind: "process_descendants",
+    occurredAt: new Date().toISOString(),
+    rootPid,
+    pids,
+    processGroupIds,
+  });
+  signalRuntimeTargets(rows, rootPid, ownProcessGroupId, "SIGTERM");
+  let survivors = await awaitRuntimeProcessExit(pids, daemonRuntimePolicy.defaultValue.process.terminationGraceMs);
+  if (survivors.length > 0) {
+    signalRuntimeTargets(
+      rows.filter(({ pid }) => survivors.includes(pid)),
+      rootPid,
+      ownProcessGroupId,
+      "SIGKILL",
+    );
+    survivors = await awaitRuntimeProcessExit(pids, daemonRuntimePolicy.defaultValue.process.terminationGraceMs);
+  }
+  appendRuntimeWorkerRecord(rootDir, dispatchId, {
+    kind: "process_descendants_terminated",
+    occurredAt: new Date().toISOString(),
+    rootPid,
+    survivorPids: survivors,
+  });
+  if (survivors.length > 0)
+    throw runtimeSpawnError(
+      "runtime_cancel_failed",
+      `Runtime cancel left descendant processes alive: ${survivors.join(", ")}.`,
+    );
+}
+
+export function launchExitNotification(input: {
+  readonly command: string;
+  readonly cwd: string;
+  readonly stream: Pick<DispatchStreamWriter, "appendExitNotification">;
+  readonly payload: {
+    readonly schema: "runtime-session-exited/v1";
+    readonly runtimeSessionId: string;
+    readonly outcome: DispatchAttemptOutcome;
+    readonly exitCode: number | null;
+  };
+  readonly now: () => string;
+  readonly timeoutMs?: number;
+}): void {
+  const record = (value: Parameters<DispatchStreamWriter["appendExitNotification"]>[0]): void => {
+    try {
+      input.stream.appendExitNotification(value, input.now());
+    } catch (error) {
+      consumeKnownError(error);
+    }
+  };
+  let child: ReturnType<typeof spawn>;
+  try {
+    const environment = exitNotificationEnvironment(),
+      command = exitNotificationCommand(input.command, environment);
+    child = spawn(command.executablePath, command.args, {
+      cwd: input.cwd,
+      env: environment,
+      stdio: ["pipe", "ignore", "ignore"],
+      windowsHide: true,
+      ...(command.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+    });
+  } catch (error) {
+    consumeKnownError(error);
+    record({
+      phase: "finished",
+      started: false,
+      exitCode: null,
+      timedOut: false,
+      errorCode: childProcessErrorCode(error),
+    });
+    return;
+  }
+  let started = false,
+    settled = false,
+    timedOut = false,
+    timer: NodeJS.Timeout | undefined;
+  const finish = (exitCode: number | null, errorCode?: string): void => {
+    if (settled) return;
+    settled = true;
+    if (timer) clearTimeout(timer);
+    record({
+      phase: "finished",
+      started,
+      exitCode,
+      timedOut,
+      ...(errorCode ? { errorCode } : {}),
+    });
+  };
+  child.once("spawn", () => {
+    if (settled) return;
+    started = true;
+    record({
+      phase: "started",
+      started: true,
+      exitCode: null,
+      timedOut: false,
+    });
+    timer = setTimeout(() => {
+      if (settled) return;
+      timedOut = true;
+      terminateRuntimeProcess(child);
+      finish(null);
+    }, input.timeoutMs ?? exitNotificationTimeoutMs);
+    timer.unref();
+  });
+  child.once("error", (error) => finish(null, childProcessErrorCode(error)));
+  child.once("close", (code) => finish(code));
+  child.stdin?.on("error", (error) => consumeKnownError(error));
+  child.stdin?.end(`${JSON.stringify(input.payload)}\n`);
+  child.unref();
+}
+
+export function exitNotificationEnvironment(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const names =
+      process.platform === "win32"
+        ? ["PATH", "Path", "PATHEXT", "SystemRoot", "SYSTEMROOT", "COMSPEC", "ComSpec", "TEMP", "TMP", "USERPROFILE"]
+        : ["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE", "SHELL"],
+    environment: NodeJS.ProcessEnv = {};
+  for (const name of names) if (source[name] !== undefined) environment[name] = source[name];
+  return environment;
+}
+
+export function exitNotificationCommand(
+  command: string,
+  environment: NodeJS.ProcessEnv,
+): {
+  readonly executablePath: string;
+  readonly args: readonly string[];
+  readonly windowsVerbatimArguments: boolean;
+} {
+  if (process.platform !== "win32" || !/\.(?:cmd|bat)$/iu.test(command))
+    return {
+      executablePath: command,
+      args: [],
+      windowsVerbatimArguments: false,
+    };
+  return {
+    executablePath: environment.ComSpec ?? environment.COMSPEC ?? "cmd.exe",
+    args: ["/d", "/s", "/c", `""${command}""`],
+    windowsVerbatimArguments: true,
+  };
+}
+
+export function launchNative(
+  input: PreparedRuntimeLaunch,
+  persistence: {
+    readonly rootDir: string;
+    readonly dispatchId: string;
+    readonly callbackRelay?: { readonly endpoint: string; readonly path: string };
+    readonly authMode?: PreparedRuntimeLaunch["authMode"];
+    readonly effort?: PreparedRuntimeLaunch["effort"];
+  },
+): RuntimeProcess {
+  let command: ReturnType<typeof nativeCommand>, child: ReturnType<typeof spawn>;
+  try {
+    command = nativeCommand(input);
+    const workerHost = import.meta.url.endsWith(".js") ? "./bin.js" : "./bin.ts",
+      entry = fileURLToPath(new URL(workerHost, import.meta.url));
+    child = spawn(process.execPath, [entry, "--runtime-worker-host"], {
+      detached: true,
+      stdio: ["pipe", "ignore", "ignore"],
+      windowsHide: true,
+      env: process.env,
+    });
+  } catch (error) {
+    throw new RuntimeProcessStartRejected(error);
+  }
+  const pid = child.pid ?? 0;
+  const observed = observeDispatchProcess(persistence.rootDir, persistence.dispatchId, pid);
+  appendRuntimeWorkerRecord(persistence.rootDir, persistence.dispatchId, {
+    kind: "process_started",
+    occurredAt: new Date().toISOString(),
+    pid,
+  });
+  child.stdin?.on("error", consumeKnownError);
+  persistence = {
+    ...persistence,
+    ...(input.authMode !== undefined ? { authMode: input.authMode } : {}),
+    ...(input.effort !== undefined ? { effort: input.effort } : {}),
+  };
+  child.stdin?.write(
+    `${JSON.stringify({
+      ...persistence,
+      executablePath: command.executablePath,
+      args: command.args,
+      cwd: input.cwd,
+      env: input.env,
+      prompt: input.prompt,
+      kindId: input.installation?.kindId,
+      protocolFamily: input.protocolFamily,
+      ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
+      ...(input.providerSessionId ? { providerSessionId: input.providerSessionId } : {}),
+      ...(input.acpApiKey ? { acpApiKey: input.acpApiKey } : {}),
+      ...(input.handshakeTimeoutMs !== undefined ? { handshakeTimeoutMs: input.handshakeTimeoutMs } : {}),
+      ...(input.model ? { model: input.model } : {}),
+      ...(persistence.callbackRelay
+        ? {
+            callbackRelay: {
+              endpoint: persistence.callbackRelay.endpoint,
+              path: persistence.callbackRelay.path,
+            },
+          }
+        : {}),
+      windowsVerbatimArguments: command.windowsVerbatimArguments,
+    })}\n`,
+  );
+  child.unref();
+  return { ...observed };
+}
+
+export function adoptNativeProcess(
+  rootDir: string,
+  dispatchId: string,
+  pid: number,
+  skipPersistedOutputRecords = 0,
+): RuntimeProcess {
+  return observeDispatchProcess(rootDir, dispatchId, pid, skipPersistedOutputRecords);
+}
+
+function observeDispatchProcess(
+  rootDir: string,
+  dispatchId: string,
+  pid: number,
+  skipPersistedOutputRecords = 0,
+): RuntimeProcess {
+  const stream = dispatchStreamPath(rootDir, dispatchId),
+    runtimeSessionId = readDispatchStreamHeader(rootDir, dispatchId)?.runtimeSessionId;
+  const outputs: Array<{ readonly chunk: string; readonly persisted: boolean }> = [];
+  const errors: string[] = [];
+  const decoder = new StringDecoder("utf8");
+  let offset = 0;
+  let skippedOutputRecords = 0;
+  let buffer = "";
+  let outputListener: ((chunk: string, persisted?: boolean) => void) | null = null;
+  let errorListener: ((chunk: string) => void) | null = null;
+  let exitListener:
+    | ((code: number | null, lossReason?: string, observation?: RuntimeProcessObservation) => void)
+    | null = null;
+  let exitCode: number | null = null;
+  let lossReason: string | undefined, processObservation: RuntimeProcessObservation | undefined;
+  let exited = false;
+  let released = false;
+  const emitOutput = (chunk: string): void => {
+    if (outputListener) outputListener(chunk, true);
+    else outputs.push({ chunk, persisted: true });
+  };
+  const emitError = (chunk: string): void => {
+    if (errorListener) errorListener(chunk);
+    else errors.push(chunk);
+  };
+  const emitExit = (code: number | null, reason?: string, observation?: RuntimeProcessObservation): void => {
+    if (exited) return;
+    exited = true;
+    exitCode = code;
+    lossReason = reason;
+    processObservation = observation;
+    clearInterval(timer);
+    if (exitListener) exitListener(code, lossReason, processObservation);
+  };
+  const drain = (): void => {
+    if (released || exited) return;
+    try {
+      const livenessEvent = {
+        type: "runtime_session_liveness_changed",
+        payload: {
+          runtimeSessionId: runtimeSessionId ?? "",
+          liveness: runtimePidIsAlive(pid) ? "live" : "unknown",
+          processGroupPid: pid,
+        },
+      } as const;
+      let bytes = readRuntimeWorkerChunk(stream, offset);
+      if (bytes.length === 0) {
+        switch (runtimeSessionId ? livenessEvent.payload.liveness : undefined) {
+          case "unknown": {
+            bytes = readRuntimeWorkerChunk(stream, offset);
+            if (bytes.length === 0) {
+              const reason = `runtime process ${String(pid)} is no longer alive without process_exit`;
+              appendRuntimeWorkerRecord(rootDir, dispatchId, {
+                kind: "process_lost",
+                occurredAt: new Date().toISOString(),
+                reason,
+              });
+              emitExit(null, reason, livenessEvent.payload);
+              return;
+            }
+            break;
+          }
+          case "live":
+          case undefined:
+            return;
+        }
+      }
+      offset += bytes.length;
+      buffer += decoder.write(bytes);
+      const lines = buffer.split(/\r?\n/u);
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const record = parseDispatchProcessRecord(line);
+        if (record?.kind === "provider_event") {
+          if (skippedOutputRecords < skipPersistedOutputRecords) skippedOutputRecords += 1;
+          else emitOutput(`${JSON.stringify(record.event)}\n`);
+        } else if (record?.kind === "provider_output_invalid") {
+          if (skippedOutputRecords < skipPersistedOutputRecords) skippedOutputRecords += 1;
+          else emitOutput(`${String(record.output)}\n`);
+        } else if (record?.kind === "provider_stderr") emitError(String(record.chunk));
+        else if (record?.kind === "process_lost") {
+          emitExit(null, String(record.reason), runtimeSessionId ? livenessEvent.payload : undefined);
+          return;
+        } else if (record?.kind === "process_exit") {
+          const signal = typeof record.signal === "string" ? record.signal : null;
+          emitExit(
+            Number.isInteger(record.exitCode) ? Number(record.exitCode) : null,
+            signal ? `provider process terminated by ${signal}` : undefined,
+          );
+          return;
+        }
+      }
+    } catch (error) {
+      consumeKnownError(error);
+    }
+  };
+  const timer = setInterval(drain, daemonRuntimePolicy.defaultValue.process.streamPollMs);
+  timer.unref();
+  queueMicrotask(drain);
+  return {
+    pid,
+    onOutput: (listener) => {
+      outputListener = listener;
+      for (const value of outputs.splice(0)) listener(value.chunk, value.persisted);
+    },
+    onErrorOutput: (listener) => {
+      errorListener = listener;
+      for (const value of errors.splice(0)) listener(value);
+    },
+    onExit: (listener) => {
+      exitListener = listener;
+      if (exited) queueMicrotask(() => listener(exitCode, lossReason, processObservation));
+    },
+    terminate: () => {
+      requestProcessGroupStop({ pid, dispatch: { rootDir, dispatchId } });
+      removeRuntimeCallbackRelay(dispatchId);
+    },
+    terminateTree: async () => {
+      try {
+        await terminateRuntimeTree(rootDir, dispatchId, pid);
+      } finally {
+        removeRuntimeCallbackRelay(dispatchId);
+      }
+    },
+    liveDescendantPids: () => liveDescendantPidsOf(pid),
+    release: () => {
+      released = true;
+      clearInterval(timer);
+    },
+  };
+}
+
+function parseDispatchProcessRecord(line: string): Record<string, unknown> | null {
+  try {
+    const value: unknown = JSON.parse(line);
+    return value !== null && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  } catch (error) {
+    consumeKnownError(error);
+    return null;
+  }
+}
+
+export function nativeCommand(input: PreparedRuntimeLaunch): {
+  readonly executablePath: string;
+  readonly args: readonly string[];
+  readonly windowsVerbatimArguments: boolean;
+} {
+  if (process.platform !== "win32" || !/\.(?:cmd|bat)$/iu.test(input.executablePath))
+    return { executablePath: input.executablePath, args: input.args, windowsVerbatimArguments: false };
+  try {
+    const invocation = cmdShellInvocation(input.executablePath, input.args, input.env);
+    return {
+      executablePath: invocation.command,
+      args: invocation.args,
+      windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+    };
+  } catch (error) {
+    // cmd.exe cannot carry NUL/CR/LF in a /c payload at all; the launch that would have
+    // concatenated them was an injection surface, so it fails closed with the constraint named.
+    throw runtimeSpawnError(
+      "runtime_windows_cmd_argument_rejected",
+      `${input.executablePath} launches through a Windows .cmd shim, which cannot carry NUL, CR or LF in an argument: ${runtimeErrorMessage(error)}`,
+    );
+  }
+}
+
+/** Admission of an externally prepared launch belongs to the process boundary. */
+export function assertPreparedRuntimeLaunch(
+  prepared: PreparedRuntimeLaunch,
+  expected: {
+    readonly instanceId: string;
+    readonly kindId?: string;
+    readonly cwd: string;
+    readonly prompt: string;
+    readonly permissionMode?: string;
+    readonly agentId?: string;
+  },
+): void {
+  const { definition, installation } = prepared;
+  if (definition.kindId === "zcode" && expected.permissionMode !== "bypass")
+    throw runtimeSpawnError(
+      "zcode_unattended_permission_mode_unsupported",
+      "ZCode edit and plan modes require an interactive permission client and cannot run unattended. " +
+        "Choose a runtime that supports unattended workspace-write or read-only permissions.",
+    );
+  if (
+    definition.instanceId !== expected.instanceId ||
+    (expected.kindId !== undefined && expected.kindId !== definition.kindId) ||
+    definition.installationId !== installation.installationId ||
+    definition.kindId !== installation.kindId ||
+    prepared.executablePath !== installation.executablePath ||
+    prepared.cwd !== expected.cwd ||
+    prepared.prompt !== expected.prompt
+  )
+    throw runtimeSpawnError(
+      "invalid_runtime_launch",
+      "Prepared runtime launch does not match the closed spawn request.",
+    );
+}

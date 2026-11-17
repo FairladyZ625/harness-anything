@@ -8,8 +8,8 @@ import path from "node:path";
 import test from "node:test";
 import { sha256Bytes } from "../../packages/kernel/src/index.ts";
 import { makeTaskEventReader } from "../../packages/storage/src/index.ts";
-import { prepareScheduleOccurrenceWorkspace } from "../../packages/daemon/src/schedule-occurrence-workspace.ts";
-import { noWorktreeSetup } from "../../packages/daemon/src/worktree-setup.ts";
+import { prepareScheduleOccurrenceWorkspace } from "../../packages/daemon/src/daemon-host/schedule-occurrence-workspace.ts";
+import { noWorktreeSetup } from "../../packages/daemon/src/daemon-host/worktree-setup.ts";
 import { generateCoverageDenominators } from "./core/denominators.mjs";
 import { oracleO6 } from "./core/oracles.mjs";
 import { buildStressReport, emitStressReport } from "./core/report.mjs";
@@ -583,8 +583,8 @@ function mappedCoverage(required) {
       ({ source, boundary }) =>
         (source.endsWith("packages/kernel/src/domain/schedule.ts") &&
           ["occurrenceId", "claimFence"].includes(boundary)) ||
-        (source.endsWith("packages/daemon/src/fleet/replica-cut-store.ts") && boundary === "commit") ||
-        (source.endsWith("packages/daemon/src/fleet/center-listener.ts") && boundary === "rename"),
+        (source.endsWith("packages/daemon/src/daemon-host/fleet/replica-cut-store.ts") && boundary === "commit") ||
+        (source.endsWith("packages/daemon/src/daemon-host/fleet/center-listener.ts") && boundary === "rename"),
     )
     .map(({ id }) => id);
 }

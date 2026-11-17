@@ -4,10 +4,10 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createRuntimeInstanceAccountProbe } from "../src/runtime-instance-account-probe.ts";
-import { openRuntimeInstanceStore } from "../src/agent-runtime-instance-store.ts";
-import { runtimeKindForId } from "../src/runtime-inventory.ts";
-import type { RuntimeInstallationWitness } from "../src/agent-runtime-instance-types.ts";
+import { createRuntimeInstanceAccountProbe } from "../src/daemon-host/runtime-instance-account-probe.ts";
+import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-instance-store.ts";
+import { runtimeKindForId } from "../src/runtime-engine/runtime-inventory.ts";
+import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instance-types.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
 const providers = ["claude", "codex", "claude-acp", "codex-acp", "devin", "opencode", "minimax-code"] as const;

@@ -5,9 +5,9 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { openDispatchStream } from "../src/dispatch-stream.ts";
+import { openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import { publishExit } from "./runtime-spawn-settlement.fixtures.ts";
-import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
+import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
 import {
   deliveryProjection,
   fixtureArtifacts,

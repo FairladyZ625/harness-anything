@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { IpcMainInvokeEvent } from "electron";
-import { createIdentitySession } from "../../daemon/src/authorization-provider.ts";
+import { createIdentitySession } from "../../daemon/src/daemon-host/authorization-provider.ts";
 import { type OidcSessionPorts } from "@harness-anything/kernel";
 import { registerOidcAuthIpc } from "../src/main/oidc-auth-ipc.ts";
 import { OIDC_LOGIN_CHANNEL, OIDC_CANCEL_LOGIN_CHANNEL } from "@harness-anything/authorization-gui/oidc-auth-contract";

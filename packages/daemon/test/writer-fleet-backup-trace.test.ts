@@ -5,13 +5,13 @@ import { EventEmitter, once } from "node:events";
 import test from "node:test";
 import type { Worker } from "node:worker_threads";
 import { fleetBaseBackupTrace } from "@harness-anything/storage";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import type {
   RepoWriterControlV1,
   RepoWriterFleetBaseBackupTraceV1,
   RepoWriterRequestV1,
-} from "../src/repo-writer-protocol.ts";
-import { openWriterSupervisor } from "../src/writer-supervisor.ts";
+} from "../src/daemon-host/repo-writer-protocol.ts";
+import { openWriterSupervisor } from "../src/daemon-host/writer-supervisor.ts";
 
 const context = new AsyncLocalStorage<string>();
 

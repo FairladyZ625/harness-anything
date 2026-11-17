@@ -1,10 +1,10 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { DispatchStreamHeader } from "../src/dispatch-stream.ts";
-import { runtimeDispatchEdges } from "../src/task-query-read.ts";
-import { parseDaemonRpcParams } from "../src/protocol/daemon-protocol.contract.ts";
-import { validateDaemonRelationGraph } from "../src/protocol/daemon-protocol-validate-projections.ts";
+import type { DispatchStreamHeader } from "../src/daemon-host/dispatch-stream.ts";
+import { runtimeDispatchEdges } from "../src/daemon-host/task-query-read.ts";
+import { parseDaemonRpcParams } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { validateDaemonRelationGraph } from "../src/daemon-host/protocol/daemon-protocol-validate-projections.ts";
 
 /**
  * `repo.triadic.relationGraph {facet:"runtimeEdges"}`(task_5ba031c2)。

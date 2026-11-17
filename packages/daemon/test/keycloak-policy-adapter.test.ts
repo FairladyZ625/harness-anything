@@ -8,9 +8,9 @@ import {
   baseEntityPolicyActions,
   deriveBasePolicyGroups,
   effectivePolicyGroupScopes,
-  decodeVerticalDefinition,
   registeredArtifactActionPolicyActions,
 } from "@harness-anything/kernel";
+import { decodeVerticalDefinition } from "@harness-anything/kernel/schemas";
 import { artifactActionPolicyActionsForDefinition } from "@harness-anything/kernel/internal/domain/artifact-action-declarations.ts";
 import { artifactEntityActionCatalog } from "@harness-anything/kernel/internal/domain/artifact-entity-actions.ts";
 import { registerArtifactActionDeclarations } from "@harness-anything/kernel/internal/domain/artifact-action-declarations.ts";
@@ -19,7 +19,7 @@ import {
   authorizeRepoCellAction,
   evaluateRepoCellAction,
   evaluateKeycloakPerson,
-} from "../src/repo-cell-authorization.ts";
+} from "../src/daemon-host/repo-cell-authorization.ts";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
 
 const config = { url: "http://127.0.0.1:8080", realm: "harness", resourceServerClientId: "harness-center" };

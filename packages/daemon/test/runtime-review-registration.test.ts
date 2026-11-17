@@ -5,8 +5,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { submissionDigest, type RuntimeExecutionPrincipal } from "@harness-anything/kernel";
-import { requireCurrentExecutionScope, requireExecutionActionScope } from "../src/runtime-execution-scope.ts";
-import { reviewerArtifactFiles, reviewerArtifactsForReview } from "../src/reviewer-artifact-publication.ts";
+import {
+  requireCurrentExecutionScope,
+  requireExecutionActionScope,
+} from "../src/daemon-host/runtime-execution-scope.ts";
+import { reviewerArtifactFiles, reviewerArtifactsForReview } from "../src/daemon-host/reviewer-artifact-publication.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 
 for (const source of ["local", { kind: "node", nodeId: "edge-one" }] as const)

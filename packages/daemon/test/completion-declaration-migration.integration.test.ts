@@ -19,8 +19,8 @@ import {
 import { migrateCompletion } from "@harness-anything/preset/internal/preset-resolver";
 import { initRepo, ownerBinding, standardMigration } from "./doc-sync-slice-a.fixtures.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { readCanonicalVerticalDeclaration } from "../src/vertical-declaration-action.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { readCanonicalVerticalDeclaration } from "../src/daemon-host/vertical-declaration-action.ts";
 
 test("converted historical declaration is accepted, replayed on reopen and permits a relation write", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-declaration-migration-")),

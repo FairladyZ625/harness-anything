@@ -1,8 +1,8 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { archiveTasks } from "../src/repo-cell-task-maintenance.ts";
-import type { RepoTaskAction } from "../src/repo-cell-types.ts";
+import { archiveTasks } from "../src/daemon-host/repo-cell-task-maintenance.ts";
+import type { RepoTaskAction } from "../src/daemon-host/repo-cell-types.ts";
 
 const binding = { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" } as const,
   cellCodedError = (code: string, message: string) => Object.assign(new Error(message), { code }),

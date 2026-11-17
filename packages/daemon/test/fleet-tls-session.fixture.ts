@@ -11,15 +11,15 @@ import {
   fleetNodeOwners,
   waitForFleetPublication,
 } from "./fleet-store.fixture.ts";
-import { createNodeRetirement } from "../src/fleet/node-retirement.ts";
-import { AccessAdminService } from "../src/access-admin-service.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
-import { createIdentitySession } from "../src/authorization-provider.ts";
+import { createNodeRetirement } from "../src/daemon-host/fleet/node-retirement.ts";
+import { AccessAdminService } from "../src/daemon-host/access-admin-service.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { listenFleetTls, type FleetTlsCenter } from "../src/daemon-host/fleet/center.ts";
+import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
-import { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "../src/fleet/command-protocol.ts";
-import { FleetTransferAssembler } from "../src/fleet/command-transfer.ts";
+import { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "../src/daemon-host/fleet/command-protocol.ts";
+import { FleetTransferAssembler } from "../src/daemon-host/fleet/command-transfer.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 type FleetTestSubject = {

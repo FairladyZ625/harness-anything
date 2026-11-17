@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { INITIAL_SETTINGS_V1, localSettings, type LocalSettingsV1 } from "@harness-anything/kernel";
-import { nodeMaterializationStorage } from "../src/node-materialization-settings.ts";
-import { makeRepoCellSettingsState } from "../src/repo-cell-settings-state.ts";
+import { nodeMaterializationStorage } from "../src/daemon-host/node-materialization-settings.ts";
+import { makeRepoCellSettingsState } from "../src/daemon-host/repo-cell-settings-state.ts";
 
 function settingsStateFor(rootDir: string, appended: { count: number } = { count: 0 }) {
   const repository = {

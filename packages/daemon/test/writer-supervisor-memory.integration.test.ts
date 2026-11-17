@@ -1,18 +1,33 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Worker } from "node:worker_threads";
 import { once } from "node:events";
-import { openWriterSupervisor, WRITER_IDLE_TIMEOUT_MS } from "../src/writer-supervisor.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { openWriterSupervisor, WRITER_IDLE_TIMEOUT_MS } from "../src/daemon-host/writer-supervisor.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { fixtureFence, seedSettingsEvent } from "./repo-settings.fixture.ts";
 import { initRepo, actor } from "./task-surface.fixtures.ts";
 import { policyTestCenter, provisionPolicyTestRepository, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 
+// dec_04A9211B073F29F0FC1E1CA573 CH2: min(950, ceil(391 * 1.10)) = 431.
+// The same ratchet applies before and after writes; no lazy import can escape it.
+const WRITER_MODULE_BUDGET = 431;
+
 test("five attached writers report comparable mount and post-write working sets", { timeout: 120_000 }, async (t) => {
+  console.log(
+    "WRITER_MEMORY_ENV",
+    JSON.stringify({
+      node: process.version,
+      lockfileSha256: createHash("sha256")
+        .update(readFileSync(new URL("../../../package-lock.json", import.meta.url)))
+        .digest("hex"),
+      moduleBudget: WRITER_MODULE_BUDGET,
+    }),
+  );
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const retirements: Promise<unknown>[] = [];
   const parent = mkdtempSync(path.join(tmpdir(), "ha-writer-memory-")),
@@ -37,6 +52,13 @@ test("five attached writers report comparable mount and post-write working sets"
         ),
     );
     console.log("WRITER_MEMORY", JSON.stringify({ phase, memory: process.memoryUsage(), isolates }));
+    for (const isolate of isolates) {
+      assert.ok(
+        Number(isolate.modules) <= WRITER_MODULE_BUDGET,
+        `${phase} writer import budget: ${String(isolate.modules)} > ${WRITER_MODULE_BUDGET}`,
+      );
+      assert.deepEqual(isolate.forbiddenModules, [], `${phase}: a writer cannot load host, query or driver modules`);
+    }
     return isolates;
   };
   const idle = async (phase: string) => {
@@ -81,8 +103,7 @@ test("five attached writers report comparable mount and post-write working sets"
                   new URL("./fixtures/writer-memory-probe.mjs", import.meta.url).href,
                 ],
               });
-              const post = worker.postMessage.bind(worker);
-              worker.postMessage = (message: unknown, transferList) => {
+              worker.on("orchestration-post", (message: unknown) => {
                 const control = message as { command?: string; requestId?: string };
                 if (control.command === "hibernate")
                   retirements.push(
@@ -96,8 +117,7 @@ test("five attached writers report comparable mount and post-write working sets"
                       worker.on("message", listener);
                     }),
                   );
-                post(message, transferList);
-              };
+              });
               workers.push(worker);
               return worker;
             },
@@ -109,12 +129,6 @@ test("five attached writers report comparable mount and post-write working sets"
     const generations = supervisors.map((supervisor) => supervisor.status().generation!);
     const idleMounted = await idle("idle-mounted-five");
     assert.equal(mounted.length, 5);
-    // Source-bearing modules only: Node built-ins are excluded by the preload hook.
-    for (const isolate of mounted) {
-      assert.ok(Number(isolate.modules) <= 1_800, `writer import budget: ${String(isolate.modules)}`);
-      assert.deepEqual(isolate.deliveryModules, [], "a writer cannot load a delivery application");
-    }
-
     for (const [index, supervisor] of supervisors.entries()) {
       const receipt = await supervisor.request<{ outcome: string }>(
         "run",

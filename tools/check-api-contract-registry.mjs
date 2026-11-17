@@ -47,22 +47,22 @@ const retiredAuthorities = [
   "packages/application/src/task-write-route-policy.ts",
   "packages/cli/src/cli/parsers/capabilities.ts",
   "packages/daemon/src/identity/authorization.ts",
-  "packages/daemon/src/protocol/forced-command-root.ts",
-  "packages/daemon/src/protocol/receipt-envelope.ts",
-  "packages/daemon/src/transport/named-pipe.ts",
-  "packages/daemon/src/transport/ssh-exec.ts",
-  "packages/daemon/src/transport/ssh-forced-command.ts",
-  "packages/daemon/src/transport/ssh-tunnel-token.ts",
+  "packages/daemon/src/daemon-host/protocol/forced-command-root.ts",
+  "packages/daemon/src/daemon-host/protocol/receipt-envelope.ts",
+  "packages/daemon/src/daemon-host/transport/named-pipe.ts",
+  "packages/daemon/src/daemon-host/transport/ssh-exec.ts",
+  "packages/daemon/src/daemon-host/transport/ssh-forced-command.ts",
+  "packages/daemon/src/daemon-host/transport/ssh-tunnel-token.ts",
 ];
 const transportAuthorityMarker = "@daemon-transport-authority";
 
 export function evaluateApiContractRegistry(root = process.cwd()) {
   const violations = [];
-  const registryPath = "packages/daemon/src/protocol/daemon-protocol-commands.ts";
-  const runtimeActionsPath = "packages/daemon/src/protocol/daemon-protocol-gui-actions.ts";
-  const serverPath = "packages/daemon/src/protocol/json-rpc-server.ts";
-  const hostPath = "packages/daemon/src/daemon-host.ts";
-  const authPath = "packages/daemon/src/transport/auth-context.ts";
+  const registryPath = "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts";
+  const runtimeActionsPath = "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-actions.ts";
+  const serverPath = "packages/daemon/src/daemon-host/protocol/json-rpc-server.ts";
+  const hostPath = "packages/daemon/src/daemon-host/daemon-host.ts";
+  const authPath = "packages/daemon/src/daemon-host/transport/auth-context.ts";
   const registry = read(root, registryPath, violations),
     runtimeActions = read(root, runtimeActionsPath, violations),
     server = read(root, serverPath, violations);
@@ -300,7 +300,7 @@ function checkPrincipalBindings(graph, violations) {
 }
 
 function collectRuntimeAuthorityGraph(root, entryPath, violations) {
-  const authorityRoot = path.dirname(path.join(root, entryPath)),
+  const authorityRoot = path.join(root, "packages/daemon/src"),
     pending = [entryPath],
     visited = new Set(),
     modules = [];

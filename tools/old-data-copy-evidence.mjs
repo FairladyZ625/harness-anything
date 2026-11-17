@@ -793,7 +793,7 @@ let projection = null;
 try {
   const kernel = await import(toUrl(path.join(BUILD_ROOT, "packages/kernel/src/index.ts")));
   const storage = await import(toUrl(path.join(BUILD_ROOT, "packages/storage/src/index.ts")));
-  const { readTaskDispatches } = await import(toUrl(path.join(BUILD_ROOT, "packages/daemon/src/dispatch-read.ts")));
+  const { readTaskDispatches } = await import(toUrl(path.join(BUILD_ROOT, "packages/daemon/src/daemon-host/dispatch-read.ts")));
   // Record the root the build itself resolves, so the receipt shows the data it read is the data
   // the copy actually holds — not an empty default directory next to it.
   const layout = kernel.resolveHarnessLayout(WORKSPACE);

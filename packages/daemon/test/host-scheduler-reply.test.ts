@@ -1,8 +1,8 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createDaemonHostRepositoryApi } from "../src/daemon-host-repository-api.ts";
-import type { DaemonHostApiContext } from "../src/daemon-host-context.ts";
+import { createDaemonHostRepositoryApi } from "../src/daemon-host/daemon-host-repository-api.ts";
+import type { DaemonHostApiContext } from "../src/daemon-host/daemon-host-context.ts";
 
 for (const kind of ["task-submit", "schedule-disable"]) {
   test(`${kind} returns its durable receipt while scheduler refresh is pending`, async () => {

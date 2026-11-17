@@ -8,7 +8,7 @@ import { pathToFileURL } from "node:url";
 import ts from "typescript";
 import test from "node:test";
 
-const moduleUrl = new URL("../src/build-identity.ts", import.meta.url).href;
+const moduleUrl = new URL("../src/daemon-host/build-identity.ts", import.meta.url).href;
 
 // The stamp is the daemon's answer to "which build are you": a packaged build stamps
 // HARNESS_BUILD_COMMIT, and a source-tree run resolves the commit from git so a resident daemon
@@ -30,15 +30,18 @@ test("a source-tree run reports the serving tree's HEAD commit", async () => {
     root = mkdtempSync(path.join(tmpdir(), "ha-source-identity-"));
   delete process.env.HARNESS_BUILD_COMMIT;
   try {
-    for (const file of ["build-identity.ts", "process-text.ts"])
+    for (const file of ["daemon-host/build-identity.ts", "runtime-engine/process-text.ts"]) {
+      mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
       cpSync(new URL(`../src/${file}`, import.meta.url), path.join(root, file));
+    }
     execFileSync("git", ["init", "--quiet", root]);
     execFileSync("git", ["-C", root, "config", "user.name", "Build Identity Fixture"]);
     execFileSync("git", ["-C", root, "config", "user.email", "build-identity@example.invalid"]);
     execFileSync("git", ["-C", root, "commit", "--allow-empty", "--quiet", "-m", "fixture"]);
     const head = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-    const fresh = await import(pathToFileURL(path.join(root, "build-identity.ts")).href);
+    const fresh = await import(pathToFileURL(path.join(root, "daemon-host/build-identity.ts")).href);
     assert.equal(fresh.daemonBuildStamp().commit, head);
+    assert.equal(fresh.observeDaemonBuild(path.join(root, "daemon-host/build-identity.ts")).status().entry, "source");
   } finally {
     restore(previous);
     rmSync(root, { recursive: true, force: true });
@@ -49,12 +52,14 @@ test("a loaded dist marker overrides both inherited environment and later disk r
   const previous = process.env.HARNESS_BUILD_COMMIT,
     root = mkdtempSync(path.join(tmpdir(), "ha-dist-identity-")),
     dist = path.join(root, "dist"),
-    source = path.join(dist, "daemon/src");
+    source = path.join(dist, "daemon/src/daemon-host");
   mkdirSync(source, { recursive: true });
   writeFileSync(path.join(root, "package.json"), '{"type":"module"}');
-  for (const file of ["build-identity", "process-text"])
+  for (const file of ["daemon-host/build-identity", "runtime-engine/process-text"]) {
+    const target = path.join(dist, "daemon/src", `${file}.js`);
+    mkdirSync(path.dirname(target), { recursive: true });
     writeFileSync(
-      path.join(source, `${file}.js`),
+      target,
       ts.transpileModule(readFileSync(new URL(`../src/${file}.ts`, import.meta.url), "utf8"), {
         compilerOptions: {
           target: ts.ScriptTarget.ES2024,
@@ -63,12 +68,17 @@ test("a loaded dist marker overrides both inherited environment and later disk r
         },
       }).outputText,
     );
+  }
   writeFileSync(path.join(dist, "build-id.txt"), "fixed-a\n");
   process.env.HARNESS_BUILD_COMMIT = "foreign-environment";
   try {
     const loaded = await import(pathToFileURL(path.join(source, "build-identity.js")).href),
       observer = loaded.observeDaemonBuild();
     assert.equal(loaded.daemonBuildStamp().commit, "fixed-a");
+    assert.equal(
+      loaded.observeDaemonBuild(path.join(dist, "main/build-identity.js")).status().loadedBuildId,
+      "fixed-a",
+    );
     writeFileSync(path.join(dist, "build-id.txt"), "rebuilt-b\n");
     assert.deepEqual(observer.status(), {
       commit: "fixed-a",

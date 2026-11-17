@@ -2,7 +2,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { parseDaemonGuiReadResponse, parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
+import {
+  parseDaemonGuiReadResponse,
+  parseDaemonGuiReadResult,
+} from "../src/daemon-host/protocol/gui-result-validation.ts";
 import {
   validateAgentDispatchPreview,
   validateCatalogPreset,
@@ -17,7 +20,7 @@ import {
   validateTerminalDetachAck,
   validateTerminalInputAck,
   validateTerminalSessionList,
-} from "../src/gui-s3-control.ts";
+} from "../src/daemon-host/gui-s3-control.ts";
 
 test("daemon Settings reads use the exact canonical Settings shape", () => {
   const settings = {

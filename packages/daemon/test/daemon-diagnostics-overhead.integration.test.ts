@@ -5,10 +5,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Worker, type TransferListItem } from "node:worker_threads";
-import { openDaemonDiagnostics } from "../src/daemon-diagnostics.ts";
-import { withDaemonObservation, observeDaemonOperation, markDaemonOperationPhase } from "../src/daemon-operation.ts";
-import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
-import { daemonDiagnosticsEndpoint, localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
+import { openDaemonDiagnostics } from "../src/daemon-host/daemon-diagnostics.ts";
+import {
+  withDaemonObservation,
+  observeDaemonOperation,
+  markDaemonOperationPhase,
+} from "../src/daemon-host/daemon-operation.ts";
+import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { daemonDiagnosticsEndpoint, localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
 import { measureCpuWindow } from "./fixtures/diagnostics-cpu-window.ts";
 
 const REGISTRATIONS_PER_SECOND = 100,

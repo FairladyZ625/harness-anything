@@ -721,7 +721,7 @@ test("the real catalog executor reaches its bound todo runtime directly", async 
     if (ts.isCallExpression(node) && node.arguments[3]?.getText().includes("runTodoAction(cell"))
       runtimes = node.arguments[3];
     ts.forEachChild(node, visit);
-  })(graph.modules.get("packages/daemon/src/repo-cell-action-dispatch.ts").sourceFile);
+  })(graph.modules.get("packages/daemon/src/daemon-host/repo-cell-action-dispatch.ts").sourceFile);
   assert.ok(runtimes);
   const literals = ts.createSourceFile(
     "catalog-input.ts",
@@ -754,7 +754,7 @@ test("the real catalog executor reaches its bound todo runtime directly", async 
   const sites = processSourceSites(graph, run, { evaluator, env, targets: [site] });
   assert.equal(sites.has(site), true);
   const caller = graph.modules
-    .get("packages/daemon/src/repo-cell-action-dispatch.ts")
+    .get("packages/daemon/src/daemon-host/repo-cell-action-dispatch.ts")
     .sourceFile.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "executeRepoAction");
   const callerEnv = bindArguments({ node: caller, env: new Map() }, [args[1], args[0], args[1]], new Map());
   assert.equal(

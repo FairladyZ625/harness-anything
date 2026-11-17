@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { daemonBuildStamp } from "../src/build-identity.ts";
+import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
 import net from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -13,15 +13,15 @@ import {
   costMicros,
   inputTokenEstimate,
   quoteAgentRuntimeBudget,
-} from "../src/runtime/cloud-dispatch-relay.ts";
-import { modelPriceOf, modelPricingVersion } from "../src/agent-runtime-model-pricing.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
-import { daemonProtocolMethods, parseDaemonRpcParams } from "../src/protocol/daemon-protocol.contract.ts";
-import type { JsonObject, JsonRpcResponse } from "../src/protocol/json-rpc-types.ts";
-import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
-import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
-import { serveJsonRpcStream } from "../src/transport/json-rpc-stream.ts";
+} from "../src/daemon-host/runtime/cloud-dispatch-relay.ts";
+import { modelPriceOf, modelPricingVersion } from "../src/runtime-engine/agent-runtime-model-pricing.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
+import { daemonProtocolMethods, parseDaemonRpcParams } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import type { JsonObject, JsonRpcResponse } from "../src/daemon-host/protocol/json-rpc-types.ts";
+import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
+import { serveJsonRpcStream } from "../src/daemon-host/transport/json-rpc-stream.ts";
 
 function responseResult(response: JsonRpcResponse): JsonObject {
   assert.ok("result" in response, "daemon response must be a protocol result");

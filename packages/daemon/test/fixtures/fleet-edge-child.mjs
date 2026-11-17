@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
-import { runFleetWriteClient } from "../../src/fleet/peer.ts";
+import { runFleetWriteClient } from "../../src/daemon-host/fleet/peer.ts";
 import { catchUpReplica } from "../replica-catch-up.fixture.ts";
 
 const config = JSON.parse(readFileSync(process.argv[2], "utf8"));

@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { assessTaskRiskTier } from "../src/task-risk-tier.ts";
+import { assessTaskRiskTier } from "../src/daemon-host/task-risk-tier.ts";
 
 const task = {
     taskId: "task-risk-tier",

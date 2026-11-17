@@ -5,22 +5,22 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { classifyRuntimeExit } from "../src/runtime-provider-fault.ts";
-import { isProviderFailureClassification } from "../src/runtime-fallback-contract.ts";
-import { settleFallbackAttempt } from "../src/runtime-spawn-fallback.ts";
-import { failed } from "../src/repo-cell-settlement.ts";
-import { runtimeMissionName } from "../src/runtime-spawn-mission.ts";
-import { createRuntimeInstanceDispatchState } from "../src/runtime-instance-selection.ts";
-import { openDispatchStream } from "../src/dispatch-stream.ts";
-import { runtimeResultText } from "../src/runtime-spawn-settlement.ts";
+import { classifyRuntimeExit } from "../src/daemon-host/runtime-provider-fault.ts";
+import { isProviderFailureClassification } from "../src/daemon-host/runtime-fallback-contract.ts";
+import { settleFallbackAttempt } from "../src/daemon-host/runtime-spawn-fallback.ts";
+import { failed } from "../src/daemon-host/repo-cell-settlement.ts";
+import { runtimeMissionName } from "../src/daemon-host/runtime-spawn-mission.ts";
+import { createRuntimeInstanceDispatchState } from "../src/daemon-host/runtime-instance-selection.ts";
+import { openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { runtimeResultText } from "../src/daemon-host/runtime-spawn-settlement.ts";
 import { publishExit } from "./runtime-spawn-settlement.fixtures.ts";
 import {
   attachActiveRuntime,
   disposeActiveRuntimeObservations,
   settleStalledRuntime,
-} from "../src/runtime-spawn-active.ts";
-import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
-import type { ActiveRuntime, RuntimeAttemptTerminal } from "../src/runtime-spawn-types.ts";
+} from "../src/daemon-host/runtime-spawn-active.ts";
+import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
+import type { ActiveRuntime, RuntimeAttemptTerminal } from "../src/daemon-host/runtime-spawn-types.ts";
 import { active, tasklessSettlementRuntime } from "./runtime-spawn-settlement.fixtures.ts";
 import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
 

@@ -15,7 +15,7 @@ import { factLivenessStates } from "../packages/kernel/src/domain/fact-liveness.
 import { domainStatuses } from "../packages/kernel/src/domain/lifecycle-status.ts";
 
 const root = path.resolve(import.meta.dirname, "..");
-const target = path.join(root, "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts");
+const target = path.join(root, "packages/daemon/src/daemon-host/protocol/daemon-protocol-vocabulary.ts");
 const markers = {
   start: "// daemon-status-vocabulary:generated:start",
   end: "// daemon-status-vocabulary:generated:end",

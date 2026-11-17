@@ -7,11 +7,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { completionSnapshot } from "../../kernel/test/domain/completion.fixtures.ts";
-import { submitTask } from "../src/repo-cell-submit.ts";
+import { submitTask } from "../src/daemon-host/repo-cell-submit.ts";
 import { readCloseoutSubmission } from "./closeout-submission.fixture.ts";
-import { prepareSubmissionDelivery } from "../src/submission-delivery.ts";
-import { preparedSubmission } from "../src/submission-preparation.ts";
-import { judgeOldDataCopyReceipt, oldDataCopyReceiptPath } from "../src/submit-old-data-copy.ts";
+import { prepareSubmissionDelivery } from "../src/daemon-host/submission-delivery.ts";
+import { preparedSubmission } from "../src/daemon-host/submission-preparation.ts";
+import { judgeOldDataCopyReceipt, oldDataCopyReceiptPath } from "../src/daemon-host/submit-old-data-copy.ts";
 
 const packagePath = "tasks/task-1",
   receiptPath = oldDataCopyReceiptPath(packagePath),

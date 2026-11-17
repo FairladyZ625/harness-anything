@@ -1,8 +1,8 @@
 // Benchmark-owned child: product runtime, product transports, and IPC-only fault/measurement controls.
 import { readFileSync } from "node:fs";
 import { monitorEventLoopDelay } from "node:perf_hooks";
-import { startDaemon } from "../../packages/daemon/src/runtime.ts";
-import { openRepoCell } from "../../packages/daemon/src/repo-cell-open.ts";
+import { startDaemon } from "../../packages/daemon/src/daemon-host/runtime.ts";
+import { openRepoCell } from "../../packages/daemon/src/daemon-host/repo-cell-open.ts";
 import { openSqliteEventStore } from "../../packages/storage/src/store/sqlite-event-store.ts";
 
 const config = JSON.parse(readFileSync(process.argv[2], "utf8"));

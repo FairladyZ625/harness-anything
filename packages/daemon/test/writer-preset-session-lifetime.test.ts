@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 import type { Worker } from "node:worker_threads";
-import { localDefaultBinding } from "../src/daemon-host-binding.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import type { RepoWriterCapabilityResultV1, RepoWriterRequestV1 } from "../src/repo-writer-protocol.ts";
-import { openWriterSupervisor } from "../src/writer-supervisor.ts";
+import { localDefaultBinding } from "../src/daemon-host/daemon-host-binding.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import type { RepoWriterCapabilityResultV1, RepoWriterRequestV1 } from "../src/daemon-host/repo-writer-protocol.ts";
+import { openWriterSupervisor } from "../src/daemon-host/writer-supervisor.ts";
 
 for (const ended of [false, true]) {
   test(`preset admission retains its original session after receipt (ended=${ended})`, async () => {

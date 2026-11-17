@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { daemonBuildStamp } from "../src/build-identity.ts";
+import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
 import net from "node:net";
 import { once } from "node:events";
@@ -9,13 +9,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { openSqliteEventStore, sqliteLedgerPath } from "@harness-anything/storage";
 import { readDaemonRegistry } from "@harness-anything/kernel";
-import { openRepoCell } from "../src/repo-cell-open.ts";
-import { readReplicaHealth } from "../src/fleet/replica-health.ts";
-import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
-import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
-import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
+import { openRepoCell } from "../src/daemon-host/repo-cell-open.ts";
+import { readReplicaHealth } from "../src/fleet-sync/fleet/replica-health.ts";
+import { locateFleetMirrorView } from "../src/daemon-host/fleet-edge-mirror.ts";
+import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
+import { createUnixSocketTransportServer } from "../src/daemon-host/transport/unix-socket.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { materializeCellReplica } from "./edge-repository-cut.fixtures.ts";

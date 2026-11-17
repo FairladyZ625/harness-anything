@@ -8,13 +8,16 @@ import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
-import { ensureLocalDaemonRunning, type DaemonLaunchSpec } from "../src/client/daemon-autostart.ts";
-import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
-import { daemonPidPath, daemonSingletonLockPath } from "../src/daemon-singleton.ts";
-import { readDaemonLifecycleGeneration } from "../src/lifecycle-log.ts";
+import { ensureLocalDaemonRunning, type DaemonLaunchSpec } from "../src/daemon-host/client/daemon-autostart.ts";
+import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
+import { daemonPidPath, daemonSingletonLockPath } from "../src/daemon-host/daemon-singleton.ts";
+import { readDaemonLifecycleGeneration } from "../src/daemon-host/lifecycle-log.ts";
 
 // The public runner builds the daemon used by cli/src/index.ts before this file starts.
-for (const entry of [path.resolve("packages/daemon/src/bin.ts"), path.resolve("packages/daemon/dist/index.js")]) {
+for (const entry of [
+  path.resolve("packages/daemon/src/daemon-host/bin.ts"),
+  path.resolve("packages/daemon/dist/index.js"),
+]) {
   test(`startup reports its generation before loading the server graph (${entry.endsWith(".ts") ? "source" : "dist"})`, async (context) => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-startup-progress-")),
       daemonId = "startup-progress",

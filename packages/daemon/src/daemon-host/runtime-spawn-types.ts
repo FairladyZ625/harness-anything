@@ -1,0 +1,561 @@
+import type { SquadDispatchSelection } from "./agent-entities.ts";
+import type { DispatchLifecycleQuery, DispatchLifecycleRead } from "@harness-anything/kernel";
+import type { DispatchAttemptOutcome } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
+import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
+import type { FleetRuntimeDispatchContext } from "./fleet/command-protocol.ts";
+import type {
+  CanonicalEventStore,
+  SettingsV1,
+  TaskProjection,
+  TaskMetadataV1,
+  TaskWorktreeBindingV1,
+  ActorIdentity,
+  AgentRuntimeEventV1,
+  AuthorizationDecision,
+  RuntimeProviderUnreachable,
+  RuntimeSession,
+  RuntimeSessionReadQuery,
+  SessionIdentity,
+  WriteSource,
+} from "@harness-anything/kernel";
+import type {
+  AgentHostAccess,
+  AgentMcpPolicy,
+  AgentPermissionMode,
+  AgentRole,
+  AgentRuntimeTargetV1,
+  AgentSkillDeclarationV1,
+  ScheduleRunOutcome,
+} from "@harness-anything/kernel";
+import type {
+  PreparedRuntimeLaunch,
+  RuntimeInstallationWitness,
+  RuntimeInstanceKind,
+  RuntimeInstanceSummary,
+  RuntimeLaunchRequest,
+} from "./agent-runtime-instances.ts";
+import type { AgentRuntimeStreamHub, AgentRuntimeNativeSignal } from "./agent-runtime-stream.ts";
+import { type DispatchStreamWriter } from "./dispatch-stream.ts";
+import { type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
+import { type JsonObject } from "./protocol/json-rpc-types.ts";
+import { type RuntimeMcpPolicy, type RuntimePermissionMode } from "../runtime-engine/runtime-permissions.ts";
+import type { RuntimeFallbackAttempt, RuntimeProviderFault } from "./runtime-fallback-contract.ts";
+import type { RuntimeProviderHealthStore } from "../runtime-engine/runtime-provider-health.ts";
+import type { RuntimeContinuationSeed } from "./runtime-continuation-context.ts";
+import type { ModelSlotQueue } from "./runtime/model-slot-queue.ts";
+import type { RepoCellBinding } from "./repo-cell-types.ts";
+
+export interface RuntimeProcess {
+  readonly pid: number;
+  readonly onOutput: (listener: (chunk: string, persisted?: boolean) => void) => void;
+  readonly onErrorOutput: (listener: (chunk: string) => void) => void;
+  /** Fires only after onOutput delivered every provider line; exit settlement does not re-read the stream. */
+  readonly onExit: (
+    listener: (code: number | null, lossReason?: string, processObservation?: RuntimeProcessObservation) => void,
+  ) => void;
+  readonly terminate: () => void;
+  readonly terminateTree?: () => Promise<void>;
+  /** Live descendants of this runtime's root process, excluding the root itself. The probe
+   *  reports unavailability as a failure result rather than an empty list: the watchdog must
+   *  keep its historical deadline when the process table cannot be read. */
+  readonly liveDescendantPids?: () => Promise<LiveDescendantProbeResult>;
+  readonly release?: () => void;
+}
+
+export type RuntimeProcessObservation = Extract<
+  AgentRuntimeEventV1,
+  { readonly type: "runtime_session_liveness_changed" }
+>["payload"];
+
+export type LiveDescendantProbeResult =
+  | { readonly available: true; readonly pids: readonly number[] }
+  | { readonly available: false };
+
+export type RuntimeLauncher = (
+  input: PreparedRuntimeLaunch,
+  persistence: {
+    readonly rootDir: string;
+    readonly dispatchId: string;
+    readonly callbackRelay?: RuntimeCallbackRelay;
+  },
+) => RuntimeProcess;
+
+export interface RuntimeDaemonRoute {
+  readonly userRoot: string;
+  readonly daemonId: string;
+  readonly endpoint: string;
+}
+
+export interface RuntimeCallbackRelay {
+  readonly endpoint: string;
+  readonly path: string;
+}
+
+export type RuntimeBinding = {
+  readonly actor: ActorIdentity;
+  readonly source: WriteSource;
+  readonly authorizationDecision?: AuthorizationDecision;
+  /** Retain the initiating session across asynchronous work; never persisted in a dispatch. */
+  readonly retainAuthorization?: () => () => void;
+};
+
+export interface ReviewerReviewRecoveryInput {
+  readonly taskId: string;
+  readonly executionId: string;
+  readonly dispatchId: string;
+  readonly runtimeSessionId: string;
+  readonly binding: RuntimeBinding;
+  readonly packet: { readonly path: string; readonly body: string };
+  readonly report: { readonly path: string; readonly body: string };
+}
+
+export interface ReviewerReviewArtifacts {
+  readonly packet: { readonly path: string; readonly body: string };
+  readonly report: { readonly path: string; readonly body: string };
+}
+
+/** Persist only the runtime binding contract; RepoCell transport fences never cross a daemon restart. */
+export function runtimeBindingForDispatch(binding: RuntimeBinding): RuntimeBinding {
+  return {
+    actor: binding.actor,
+    source: binding.source,
+  };
+}
+
+export interface TrustedScheduleRuntime {
+  readonly scheduleId: string;
+  readonly occurrenceId: string;
+  readonly claimFence: string;
+  readonly mode: "detect" | "remediate";
+  readonly worktree?: {
+    readonly cwd: string;
+    readonly branch: string;
+    readonly baseRef: string;
+  };
+}
+
+export interface TrustedScheduleSpawn extends TrustedScheduleRuntime {
+  readonly mission: string;
+  readonly agentId: string;
+  readonly effort?: string;
+  readonly fast?: boolean;
+  readonly cwd: string;
+}
+
+/** The execution lease generation a task-bound dispatch was authorized against; terminal
+ * settlement releases that generation only, never whichever lease the task holds later. */
+export interface RuntimeLeaseScope {
+  readonly taskId: string;
+  readonly executionId: string;
+  readonly leaseVersion: number | null;
+}
+
+export interface RuntimeAttemptTerminal {
+  readonly runtimeSessionId: string;
+  readonly dispatchId: string;
+  readonly task: RuntimeLeaseScope | null;
+  readonly schedule: TrustedScheduleRuntime | null;
+  readonly outcome: ScheduleRunOutcome | "superseded";
+  readonly reason: string | null;
+  readonly endedAt: string;
+  /** A worker ruling is an intentional owner wait; terminal settlement parks its task. */
+  readonly waitingOnOwner?: boolean;
+  readonly binding: RuntimeBinding;
+  /** Runtime root whose process group must be proven stopped before releasing the lease. */
+  readonly processGroupPid?: number;
+}
+
+export interface StalledReviewerContinuation {
+  readonly dispatchId: string;
+  readonly task: RuntimeLeaseScope;
+  readonly binding: RuntimeBinding;
+}
+
+export type RuntimeAgent = {
+  readonly id: string;
+  readonly name: string;
+  readonly instructions: string;
+  readonly runtimes: readonly AgentRuntimeTargetV1[];
+  readonly instance?: string;
+  /** Ordered soft preference among the instances one runtimes row admits; unlike `instance` it
+   *  never fails a dispatch when a preferred instance is unavailable on this node. */
+  readonly preferredInstances?: readonly string[];
+  readonly selectionStrategy?: import("@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts").RuntimeSelectionStrategy;
+  readonly permissionMode?: AgentPermissionMode;
+  readonly mcpPolicy?: AgentMcpPolicy;
+  readonly hostAccess?: AgentHostAccess;
+  readonly role?: AgentRole;
+  readonly skills?: readonly AgentSkillDeclarationV1[];
+  readonly prompts?: readonly string[];
+  readonly preset?: string;
+};
+
+export type ActiveRuntime = {
+  readonly process: RuntimeProcess;
+  readonly dispatchId: string;
+  readonly runtimeSessionId: string;
+  readonly dispatchOpId: string;
+  readonly instanceId: string;
+  readonly kindId: RuntimeInstanceKind;
+  /** Frozen launch witness from the dispatch stream header; null before the field existed or
+   * when the launch environment resolved no provider home. */
+  readonly resolvedProviderDirectory: string | null;
+  readonly permissionMode: RuntimePermissionMode | null;
+  readonly mcpPolicy?: RuntimeMcpPolicy | null;
+  readonly agent: Pick<RuntimeAgent, "id" | "name"> | null;
+  readonly role: string | null;
+  readonly delegatedBy: Pick<RuntimeAgent, "id" | "name"> | null;
+  readonly squadId: string | null;
+  readonly publicationOwner: "runtime" | "commander";
+  readonly parentRuntimeSessionId: string | null;
+  readonly binding: RuntimeBinding;
+  readonly releaseAuthorization?: () => void;
+  readonly task: RuntimeLeaseScope | null;
+  readonly decisionReviewTarget: { readonly decisionId: string; readonly digest: string } | null;
+  readonly schedule: TrustedScheduleRuntime | null;
+  /** The witnessed installation backing this launch; absent on adopted sessions
+   * rebuilt from persisted streams, where the witness is no longer in scope. */
+  readonly installation?: Pick<RuntimeInstallationWitness, "executablePath" | "version">;
+  readonly cwd: string;
+  readonly prompt: string;
+  readonly promptSource?: string;
+  readonly onExitCommand: string | null;
+  readonly model: string;
+  readonly reasoningEffort: string | null;
+  readonly fast: boolean;
+  /** Total-token cap frozen from repository settings at launch; null disables the cap. */
+  readonly tokenLimit: number | null;
+  /** Idle deadline frozen from repository settings at dispatch creation. */
+  readonly stallTimeoutMs: number;
+  /** Last provider event or workspace change observed by the owner daemon. */
+  lastProgressAtMs: number;
+  /** Last provider or workspace event that was real progress; reconnect attempts stay out so the
+   * provider-unreachable judgment and the reconnect stamp share one clock. */
+  lastRealProgressAtMs: number;
+  /** The condition last reported to the center; null until the stall threshold is crossed. */
+  providerUnreachable: RuntimeProviderUnreachable | null;
+  workspaceActivityCount: number;
+  stalledAt: string | null;
+  recordProviderProgress: (() => void) | null;
+  recordWorkspaceProgress: ((observedAtMs?: number) => void | Promise<void>) | null;
+  readonly startedAt: string;
+  readonly stream: DispatchStreamWriter;
+  readonly fallbackAttempt: RuntimeFallbackAttempt | null;
+  buffer: string;
+  durableOutputCount: number;
+  stdoutObserved: boolean;
+  errorBuffer: string;
+  errorOverflowed: boolean;
+  providerSessionId: string | null;
+  resumeProviderSessionId: string | null;
+  finalText: string | null;
+  failureText: string | null;
+  providerOutcome: "succeeded" | "failed" | "unknown" | null;
+  writeItemObserved: boolean;
+  /** Absolute write paths a provider reported under the canonical checkout but outside this
+   * dispatch's cwd; surfaced live and in the settlement conclusion instead of failing silently. */
+  strayWritePaths: string[];
+  planObserved: boolean;
+  planIncomplete: boolean;
+  protocolError: boolean;
+  cancelRequested: boolean;
+  cancelBinding: RuntimeBinding | null;
+  cancelOpId: string | null;
+  /** Shared by provider-exit and control paths so one runtime cannot settle twice. */
+  exitSettlement?: Promise<void>;
+  /** Set once provider-reported consumption passes `tokenLimit`; one-way for the attempt. */
+  spendCapExceeded: boolean;
+  /** A local observation fault retires this attempt; it is not a provider failure. */
+  observationError?: Error;
+  lossReason: string | null;
+  lossSignal: string | null;
+  lossExitCode: number | null;
+  toolCallObserved: boolean;
+  /** True once any local command succeeds. */
+  localCommandSucceeded: boolean;
+  nonEmptyAgentOutputObserved: boolean;
+  providerUsageEmpty: boolean;
+  providerFault: RuntimeProviderFault | null;
+  /** How many provider stream reconnects this attempt saw, and the provider's own last one.
+   * Codex reports a reconnect as a plain `error` frame and then keeps answering, so this count
+   * plus the tool/message flags below decide whether the attempt's tail is provider-caused.
+   * Scalar state on purpose: an attempt can reconnect many times and nothing needs the history. */
+  providerReconnectCount: number;
+  lastProviderReconnect: ProviderReconnect | null;
+  /** Reset on every reconnect; a completed, non-failed tool call sets it. A failed command is an
+   * answered-but-red result and does not prove the provider resumed serving the attempt. */
+  successfulToolCallAfterReconnect: boolean;
+  /** Whether an agent message arrived after the latest reconnect. */
+  finalAgentMessageAfterReconnect: boolean;
+  inputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  outputTokens: number;
+  toolCallCount: number;
+  usageReported: boolean;
+  providerToolSteps: Set<string>;
+  compacted: boolean;
+  rawUsage: Record<string, unknown>;
+};
+
+export type ProviderFrame = {
+  readonly sessionIdentity?: SessionIdentity;
+  readonly signals?: readonly AgentRuntimeNativeSignal[];
+  readonly finalText?: string;
+  readonly failureText?: string;
+  readonly outcome?: Extract<DispatchAttemptOutcome, "succeeded" | "failed" | "unknown">;
+  readonly writeItemObserved?: boolean;
+  /** Absolute paths carried by a completed file-write item, before any boundary judgement. */
+  readonly writePaths?: readonly string[];
+  readonly planObserved?: boolean;
+  readonly planIncomplete?: boolean;
+  readonly toolCallObserved?: boolean;
+  /** Set only when the settled tool call succeeded; a failed command is an answered-but-red tool
+   * result and does not prove the provider resumed serving the attempt. */
+  readonly toolCallSucceeded?: boolean;
+  readonly localCommandSucceeded?: boolean;
+  readonly providerUsageEmpty?: boolean;
+  /** Token usage a provider nests below the frame top level, handed to the shared usage counters. */
+  readonly usage?: Record<string, unknown>;
+  readonly providerFault?: RuntimeProviderFault;
+  /** A provider-declared stream reconnect (`Reconnecting... n/m (...)`), not a failure frame. */
+  readonly providerReconnect?: ProviderReconnect;
+  /** Model ids the provider advertised on session establishment (ACP kinds). */
+  readonly observedModels?: readonly string[];
+  readonly observedCurrentModel?: string;
+};
+
+/** One provider stream reconnect. Codex spends a bounded `attempt/limit` budget on most of them, but
+ * not all: `Reconnecting... waiting for network (...)` carries no budget, so both fields are null
+ * there. `diagnostic` is the provider's own detail text, never the local reasoning about it. */
+export type ProviderReconnect = {
+  readonly attempt: number | null;
+  readonly limit: number | null;
+  readonly diagnostic: string;
+};
+
+export type ResumeProcessEvent =
+  | { readonly kind: "output"; readonly chunk: string; readonly persisted: boolean }
+  | { readonly kind: "error"; readonly chunk: string }
+  | { readonly kind: "exit"; readonly code: number | null; readonly lossReason?: string };
+
+export type ResumeProcessObservation = {
+  readonly ready: Promise<void>;
+  readonly activate: (handlers: {
+    readonly output: (chunk: string, persisted?: boolean) => void;
+    readonly error: (chunk: string) => void;
+    readonly exit: (code: number | null, lossReason?: string) => void;
+  }) => void;
+};
+
+export type RuntimeSessionSelection = Pick<
+  RuntimeSession,
+  "runtimeSessionId" | "providerSessionId" | "instanceId" | "liveness" | "outcome" | "providerUnreachable"
+>;
+
+export interface RemoteRuntimePersistence {
+  /** Snapshot context only: read the task's actual lifecycle node from the edge replica. */
+  readonly readTaskLifecycleNode?: (taskId: string) => Promise<string | null>;
+  readonly executionCredential: (runtimeSessionId: string) => {
+    readonly credential: string;
+    readonly expiresAt: string;
+  };
+  /** Read only the task review artifacts named by this dispatch from its edge worktree. */
+  readonly readReviewerArtifacts?: (input: {
+    readonly taskId: string;
+    readonly dispatchId: string;
+    readonly cwd: string;
+  }) => Promise<ReviewerReviewArtifacts | null>;
+  /** Replays a carried packet through the center's existing, credential-checked Review Action. */
+  readonly recoverReviewerReview?: (input: ReviewerReviewRecoveryInput) => Promise<void>;
+  /** Drop the short-lived center-issued credential when this runtime finishes settlement. */
+  readonly releaseExecutionCredential?: (runtimeSessionId: string) => void;
+  /** Read the center-published Review through the edge replica after a Review Action settles. */
+  readonly reviewerReviewRegistered?: (input: {
+    readonly taskId: string;
+    readonly reviewId: string;
+    readonly runtimeSessionId: string;
+  }) => Promise<boolean>;
+  /** The center receipt for the cancellation event most recently published by this edge. */
+  readonly runtimeControlReceipt?: (runtimeSessionId: string) => JsonObject | null;
+  readonly taskContext: (
+    taskId: string,
+    missionName?: string,
+    review?: { readonly executionId: string | undefined },
+    onClaimed?: (release: () => Promise<void>) => void,
+    /** Settlement reads the existing replica; only a new mission requires the center's serving cut. */
+    purpose?: "settlement",
+  ) => Promise<{
+    readonly executionId: string;
+    readonly reviewerSubmission?: Parameters<typeof import("@harness-anything/kernel").submissionDigest>[0];
+    /** The mirrored task package on this node, and the mission that names it as the worker reaches it. */
+    readonly packageRoot: string;
+    readonly mission: (packageRoot: string) => string;
+    /** The mirrored task plan body the mission inlines; explicit-prompt assembly reuses it. */
+    readonly planBody: string | null;
+    /** The task's frozen risk tier selects its worker mission flow. */
+    readonly riskTier: TaskMetadataV1["riskTier"];
+    /** Null for historical tasks using their creation-time profile mission rule. */
+    readonly riskTierFlowVersion: TaskMetadataV1["riskTierFlowVersion"] | null;
+    /** The task's frozen profile id from the center's serving cut; it identifies preset materialization. */
+    readonly profileId: string | null;
+    readonly taskClass: string;
+    /** The causal-context block the center assembled for this task at the serving
+     * cut; null when the task has no causal neighborhood. The block is also
+     * embedded in the mission so task-bound remote spawns carry it verbatim. */
+    readonly causalContext: string | null;
+    /** The mirrored managed rework record (`returns/iteration-N.md`) of the iteration a
+     * re-dispatched worker answers; null on a first dispatch. Re-dispatched missions carry
+     * it verbatim; the mirrored document stays the single storage of the instruction. */
+    readonly ownerReturnBody: string | null;
+    /** Previous runtime conclusion and exit HEAD; current HEAD is measured after edge checkout. */
+    readonly continuationContext: RuntimeContinuationSeed | null;
+    /** The reviewer note the worker mission names; null for reviewer bindings (dec_E369B861 CH3). */
+    readonly reviewerNote: string | null;
+    /** The worktree binding the center derived for this task; null when it is closed or changes no repository files. */
+    readonly worktree: TaskWorktreeBindingV1 | null;
+  }>;
+  readonly readRuntimeSession: (runtimeSessionId: string) => Promise<RuntimeSessionSelection | null>;
+  readonly readRuntimeSessions: (query?: RuntimeSessionReadQuery) => Promise<readonly RuntimeSessionSelection[]>;
+  /** The center's dispatch lifecycle read port, served from this node's replica. */
+  readonly readDispatchLifecycle: (query: DispatchLifecycleQuery) => Promise<DispatchLifecycleRead>;
+  /** Read the canonical dispatch owner when a daemon-local stream is unavailable. */
+  readonly readRuntimeDispatch: (runtimeSessionId: string) => Promise<RuntimeDispatchOwnerEvidence | null>;
+  readonly publish: (draft: {
+    readonly type: AgentRuntimeEventV1["type"];
+    readonly payload: Readonly<Record<string, unknown>>;
+    readonly opId: string;
+    readonly resultBody?: string;
+    readonly dispatchContext?: FleetRuntimeDispatchContext;
+  }) => Promise<{
+    readonly event: AgentRuntimeEventV1 | null;
+    readonly receipt: JsonObject;
+  }>;
+  readonly archive: (archive: RuntimeDispatchArchive) => Promise<{ readonly outcome: string }>;
+}
+
+export interface RuntimeDispatchOwnerEvidence {
+  readonly actor: ActorIdentity;
+  readonly source: WriteSource;
+  readonly payload: { readonly dispatchId: string };
+  readonly instanceId: string;
+  readonly processGroupPid: number | null;
+}
+
+export interface RuntimeSpawnerInput {
+  readonly repoId: string;
+  readonly rootDir: string;
+  readonly daemonGeneration: number;
+  readonly runtimeNode?: { readonly nodeId: string };
+  readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
+  readonly store?: () => CanonicalEventStore;
+  readonly projection?: () => TaskProjection;
+  readonly readSettings?: () => SettingsV1;
+  readonly remote?: RemoteRuntimePersistence;
+  /** Local runtime event commit; the caller already owns the RepoCell writer queue. */
+  readonly commitRuntimeEvent?: (
+    draft: {
+      readonly type: AgentRuntimeEventV1["type"];
+      readonly payload: Readonly<Record<string, unknown>>;
+      readonly opId: string;
+      readonly resultBody?: string;
+      readonly dispatchContext?: FleetRuntimeDispatchContext;
+    },
+    binding: RuntimeBinding,
+  ) => Promise<{ readonly event?: AgentRuntimeEventV1; readonly receipt: JsonObject }>;
+  /** Serialize prepared recovery mutations; external observation and authorization run before this port. */
+  readonly writeRuntime?: <T>(work: () => T | Promise<T>, binding: RuntimeBinding) => Promise<T>;
+  /** Cell-default local binding (writer fence + current operator session) for writes the cell owns
+   *  but no request carries, such as first-discovery settlement of a migration-imported session. */
+  readonly localRecoveryBinding?: () => Promise<RepoCellBinding>;
+  readonly stream: Pick<AgentRuntimeStreamHub, "publish">;
+  readonly now: () => string;
+  readonly runtimeInstanceDispatchState?: import("@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts").RuntimeInstanceDispatchState;
+  readonly selectRuntimeInstance?: (
+    input: import("./runtime-spawn-mission.ts").RuntimeInstanceSelectionRequest,
+  ) => readonly string[];
+  readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
+  readonly runtimeInstanceCapacities?: Readonly<Record<string, number>>;
+  readonly runtimeProviderHealth?: RuntimeProviderHealthStore;
+  /** Shared admission queue for model-backed runtime attempts. */
+  readonly modelSlotQueue?: ModelSlotQueue;
+  /** Creates an attempt-scoped cloud relay when the selected instance supports it. */
+  readonly prepareCloudRelay?: (input: {
+    readonly instanceId: string;
+    readonly attemptId: string;
+    readonly model: string;
+    readonly budgetMicros: number;
+    readonly maxGenerations?: number;
+  }) => Promise<{
+    readonly baseUrl: string;
+    readonly token: string;
+    readonly close: () => Promise<void>;
+  } | null>;
+  readonly prepareLaunch: (instanceId: string, request: RuntimeLaunchRequest) => Promise<PreparedRuntimeLaunch>;
+  /** Reclaims one runtime session's per-run temp directory under its instance state root;
+   *  a no-op for instances without enforced isolation. Returns the filesystem failure (if
+   *  any) so terminal settlement can record it honestly instead of swallowing it. */
+  readonly reclaimRuntimeTempDirectory?: (instanceId: string, runtimeSessionId: string) => Error | null;
+  /** Names the local per-run temp directories the startup sweep may reclaim. The sweep
+   *  point-reads only these, so its cost follows local directories, not session history. */
+  readonly listRuntimeTempSessionIds?: () => readonly string[];
+  /** Startup-only sweep: reclaims every per-run temp directory named in the caller's
+   *  repository-scoped terminal session set. This is the retry path for a reclaim that failed at
+   *  settlement; dispatch adoption also examines archived streams when a terminal projection is
+   *  missing. */
+  readonly reclaimSettledRuntimeTempDirectories?: (
+    settledRuntimeSessionIds: readonly string[],
+  ) => { readonly instanceId: string; readonly runtimeSessionId: string; readonly error: Error }[];
+  readonly keycloakCenter?: import("./transport/auth-context.ts").KeycloakCenterAuthority;
+  readonly prepareDaemonGitEnvironment?: (
+    instanceId: string,
+    provider: "github" | "gitlab",
+    repoId: string,
+  ) => Promise<NodeJS.ProcessEnv | null>;
+  readonly resolveAgent?: (agentId: string) => RuntimeAgent;
+  readonly resolveSquadDispatch?: (
+    squadId: string | undefined,
+    leaderId: string,
+    workerId: string | undefined,
+    binding: RuntimeBinding,
+  ) => SquadDispatchSelection;
+  readonly launch?: RuntimeLauncher;
+  readonly schedule: (work: () => void | Promise<void>, binding?: RuntimeBinding) => void;
+  readonly onRuntimeOutcome?: (
+    event: Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }>,
+    schedule: TrustedScheduleRuntime | null,
+  ) => void;
+  /** Re-enters the existing task-review dispatch lane once after a primary reviewer cannot deliver. */
+  readonly onStalledReviewer?: (continuation: StalledReviewerContinuation) => void;
+  readonly onAttemptTerminal?: (terminal: RuntimeAttemptTerminal) => void | Promise<void>;
+  readonly handoffTaskLease?: (input: {
+    readonly arrangementId?: string;
+    readonly taskId: string;
+    readonly runtimeSessionId: string;
+    readonly fromRuntimeSessionId: string | null;
+    readonly binding: RuntimeBinding;
+  }) => Promise<{ readonly binding: RuntimeBinding; readonly releaseUnadmittedLease: () => Promise<void> }>;
+  /** Re-authorizes a persisted provider continuation before admitting its next attempt. */
+  readonly authorizeRuntimeContinuation?: (
+    payload: JsonObject,
+    binding: RuntimeBinding,
+    actionId: string,
+  ) => RuntimeBinding | Promise<RuntimeBinding>;
+  /** Re-authorizes each local RuntimeSession catalog Action at its commit cut. */
+  readonly authorizeRuntimeEvent?: (input: {
+    readonly type: AgentRuntimeEventV1["type"];
+    readonly payload: AgentRuntimeEventV1["payload"];
+    readonly opId: string;
+    readonly binding: RuntimeBinding;
+  }) => RuntimeBinding | Promise<RuntimeBinding>;
+  /** Re-authorizes a local terminal archive at the settlement cut. */
+  readonly authorizeRuntimeArchive?: (
+    archive: RuntimeDispatchArchive,
+    binding: RuntimeBinding,
+  ) => RuntimeBinding | Promise<RuntimeBinding>;
+  /** Replays a reviewer-authored packet/report through the canonical Review Action before exit
+   * settlement. The callback owns authorization and the single-writer queue; settlement only
+   * supplies bytes read from the dispatch's worktree and rechecks the resulting projection. */
+  readonly recoverReviewerReview?: (input: ReviewerReviewRecoveryInput) => Promise<void>;
+  readonly recordLifecycle?: DaemonLifecycleRecorder;
+}

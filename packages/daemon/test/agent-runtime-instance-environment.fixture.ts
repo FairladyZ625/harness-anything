@@ -1,4 +1,4 @@
-import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
+import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instances.ts";
 
 export const observed: RuntimeInstallationWitness = {
   installationId: "codex-installation-test",

@@ -13,19 +13,19 @@ import {
   type ReviewV1,
   type DispatchLifecycleQuery,
 } from "@harness-anything/kernel";
-import { reviewPacket } from "../src/repo-cell-packets.ts";
-import { reviewFindingScopePrompt } from "../src/review-prompt-guidance.ts";
+import { reviewPacket } from "../src/daemon-host/repo-cell-packets.ts";
+import { reviewFindingScopePrompt } from "../src/daemon-host/review-prompt-guidance.ts";
 import {
   decisionReviewDispatchPrompt,
   dispatchTaskReview,
   nodeReviewDispatchCandidate,
   reviewDispatchPrompt,
-} from "../src/task-review-dispatch.ts";
-import { taskExecutionPlacement } from "../src/task-execution-placement.ts";
-import { openNodeAutoDispatchLoop, parseNodeAutoDispatchSnapshot } from "../src/node-auto-dispatch.ts";
-import { nodeReworkDispatchCandidate } from "../src/task-return-dispatch.ts";
-import { readLastExecutionWorkerDispatch } from "../src/dispatch-read.ts";
-import { runtimeVendorForKind } from "../src/runtime-inventory.ts";
+} from "../src/daemon-host/task-review-dispatch.ts";
+import { taskExecutionPlacement } from "../src/daemon-host/task-execution-placement.ts";
+import { openNodeAutoDispatchLoop, parseNodeAutoDispatchSnapshot } from "../src/daemon-host/node-auto-dispatch.ts";
+import { nodeReworkDispatchCandidate } from "../src/daemon-host/task-return-dispatch.ts";
+import { readLastExecutionWorkerDispatch } from "../src/daemon-host/dispatch-read.ts";
+import { runtimeVendorForKind } from "../src/runtime-engine/runtime-inventory.ts";
 
 const sha256 = (body: string | Uint8Array) => createHash("sha256").update(body).digest("hex");
 

@@ -4,19 +4,19 @@ import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { createUnixSocketTransportServer } from "../src/daemon-host/transport/unix-socket.ts";
 import { fleetFixture, git, initRepo, rawPeer, localAuthFixture } from "./fleet-tls-session.fixture.ts";
 import { fleetLedgerRevision } from "./fleet-store.fixture.ts";
-import { runFleetUploadClient } from "../src/fleet/peer.ts";
-import { applyFleetMirrorCut, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
+import { runFleetUploadClient } from "../src/daemon-host/fleet/peer.ts";
+import { applyFleetMirrorCut, locateFleetMirrorView } from "../src/daemon-host/fleet-edge-mirror.ts";
 import { openSqliteEventStore } from "@harness-anything/storage";
 import { classifyTextualArtifactPath, isTaskEvent, sha256Text } from "@harness-anything/kernel";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { signInAt, signOutAt } from "./keycloak.fixtures.ts";
-import { createIdentitySession } from "../src/authorization-provider.ts";
+import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 test(

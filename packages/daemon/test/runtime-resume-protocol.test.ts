@@ -5,23 +5,23 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { RuntimeDispatchProjectionRow } from "@harness-anything/kernel";
-import { archiveDispatchStream, openDispatchStream } from "../src/dispatch-stream.ts";
+import { archiveDispatchStream, openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import {
   daemonGuiActionMethods,
   daemonMethodPayloadFields,
   parseDaemonRpcParams,
-} from "../src/protocol/daemon-protocol.contract.ts";
-import { daemonProtocolMethods } from "../src/protocol/daemon-protocol-commands.ts";
-import { cancelRuntime, steerRuntime } from "../src/runtime-spawn-control.ts";
-import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
-import { taskDispatchLeaseQualifies } from "../src/task-dispatch-admission.ts";
-import { validAgentRuntimeAttemptChain } from "../src/runtime-attempt-contract.ts";
+} from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { daemonProtocolMethods } from "../src/daemon-host/protocol/daemon-protocol-commands.ts";
+import { cancelRuntime, steerRuntime } from "../src/daemon-host/runtime-spawn-control.ts";
+import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
+import { taskDispatchLeaseQualifies } from "../src/daemon-host/task-dispatch-admission.ts";
+import { validAgentRuntimeAttemptChain } from "../src/daemon-host/runtime-attempt-contract.ts";
 import {
   admitRuntimeResume,
   assertRuntimeHandoffLaunch,
   resolveRuntimeResume,
   runtimeResumeAdmission,
-} from "../src/runtime-resume-admission.ts";
+} from "../src/daemon-host/runtime-resume-admission.ts";
 
 test("GUI resume spawn uses the dispatchId route", () => {
   const params = {

@@ -29,7 +29,7 @@ test("detects duplicate CLI/GUI protocol glue and browser streaming gaps on fixt
           canonical("task-archive", "task/archive", "repo-write"),
         ];
       `,
-      "packages/daemon/src/protocol/daemon-protocol-commands-task.ts": `
+      "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-task.ts": `
         export const cmds = [
           defineLedgerWriteCommand({
             id: "task-start",
@@ -39,7 +39,7 @@ test("detects duplicate CLI/GUI protocol glue and browser streaming gaps on fixt
           }),
         ];
       `,
-      "packages/daemon/src/protocol/daemon-protocol-gui-actions.ts": `
+      "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-actions.ts": `
         export const daemonGuiActionMethods = [
           guiAction("task.start", "repo.task.start", "task-start", shape({}), "startTask", "/api/tasks/:taskId/start", "repo-write"),
         ];
@@ -48,7 +48,7 @@ test("detects duplicate CLI/GUI protocol glue and browser streaming gaps on fixt
           { id: "terminal.attach", method: "repo.terminal.attach", guiBridgeMethod: "attachTerminal" },
         ];
       `,
-      "packages/daemon/src/protocol/daemon-protocol-gui-reads.ts": `
+      "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-reads.ts": `
         export const daemonGuiReadMethods = [
           { id: "gui.system.read", method: "daemon.gui.system.read", guiBridgeMethod: "getSystemStatus", path: "/api/system" },
         ];
@@ -121,10 +121,10 @@ test("negative control: converged surface reports zero duplicate glue and zero b
       "packages/kernel/src/domain/action-declaration.ts": `
         export const actionDeclarations = [canonical("task-start", "task/start", "repo-write")];
       `,
-      "packages/daemon/src/protocol/daemon-protocol-commands-task.ts": `
+      "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-task.ts": `
         export const cmds = [defineLedgerWriteCommand({ id: "task-start", actionKind: "task-start", method: "repo.task.run", path: ["task", "start"] })];
       `,
-      "packages/daemon/src/protocol/daemon-protocol-gui-actions.ts": `
+      "packages/daemon/src/daemon-host/protocol/daemon-protocol-gui-actions.ts": `
         export const daemonGuiActionMethods = [];
         export const daemonStreamFacets = [
           { id: "terminal.attach", method: "repo.terminal.attach", guiBridgeMethod: "attachTerminal" },

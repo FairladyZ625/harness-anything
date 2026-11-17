@@ -4,10 +4,10 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { openDispatchStream, readDispatchStreamSummary } from "../src/dispatch-stream.ts";
-import { launchNative } from "../src/runtime-spawn-process.ts";
-import { runtimePidIsAlive } from "../src/runtime-process-liveness.ts";
-import { probeProcessGroup, reconcileProcessGroup } from "../src/runtime/process-group-reconciler.ts";
+import { openDispatchStream, readDispatchStreamSummary } from "../src/daemon-host/dispatch-stream.ts";
+import { launchNative } from "../src/daemon-host/runtime-spawn-process.ts";
+import { runtimePidIsAlive } from "../src/runtime-engine/runtime-process-liveness.ts";
+import { probeProcessGroup, reconcileProcessGroup } from "../src/daemon-host/runtime/process-group-reconciler.ts";
 
 for (const stop of ["sweep", "host-exit"] as const)
   test(

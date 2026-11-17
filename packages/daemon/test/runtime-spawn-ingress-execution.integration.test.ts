@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
-import { seedBuiltinSchedules } from "../src/schedule-builtin-executor.ts";
+import { seedBuiltinSchedules } from "../src/daemon-host/schedule-builtin-executor.ts";
 import { signInPolicyTestUser, withPolicyGroup, policyTestDeviceToken } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -10,10 +10,10 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
 import { sha256Bytes } from "@harness-anything/kernel";
-import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
+import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { createUnixSocketTransportServer } from "../src/daemon-host/transport/unix-socket.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { createRealizedTaskPlanFixture, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";

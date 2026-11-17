@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
+import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/daemon-host/client/local-json-rpc-client.ts";
 import { assertUnfilteredOverlayState, waitForEntrySettled } from "./helpers.mjs";
 
 // 浮层玻璃透底(task_2e9dedde,业主 2026-10-18 三轮截图):浮在内容之上的面——快速切换

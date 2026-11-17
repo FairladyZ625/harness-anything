@@ -17,7 +17,7 @@ test("desktop runtime paths point at packaged node, CLI, and daemon", () => {
   assert.deepEqual(desktopRuntimePaths("/resources", "/app", "darwin", "arm64"), {
     node: "/resources/node/darwin-arm64/node",
     cli: "/resources/app/packages/cli/dist/cli/src/index.js",
-    daemon: "/resources/app/node_modules/@harness-anything/daemon/dist/daemon/src/bin.js",
+    daemon: "/resources/app/node_modules/@harness-anything/daemon/dist/daemon/src/daemon-host/bin.js",
   });
 });
 

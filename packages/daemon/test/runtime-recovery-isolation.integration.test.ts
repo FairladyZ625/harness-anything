@@ -7,13 +7,17 @@ import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { adoptRuntimes, assertRuntimeRecoveryReady } from "../src/runtime-spawn-adoption.ts";
-import { openDispatchStream, appendRuntimeWorkerRecord, archiveDispatchStream } from "../src/dispatch-stream.ts";
-import { currentWorktreeHead } from "../src/runtime-continuation-context.ts";
-import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
-import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
-import { makeRuntimeRecoveryWork } from "../src/runtime-recovery-work.ts";
-import { makeRuntimeSpawner } from "../src/runtime-spawn.ts";
+import { adoptRuntimes, assertRuntimeRecoveryReady } from "../src/daemon-host/runtime-spawn-adoption.ts";
+import {
+  openDispatchStream,
+  appendRuntimeWorkerRecord,
+  archiveDispatchStream,
+} from "../src/daemon-host/dispatch-stream.ts";
+import { currentWorktreeHead } from "../src/daemon-host/runtime-continuation-context.ts";
+import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
+import type { ActiveRuntime } from "../src/daemon-host/runtime-spawn-types.ts";
+import { makeRuntimeRecoveryWork } from "../src/daemon-host/runtime-recovery-work.ts";
+import { makeRuntimeSpawner } from "../src/daemon-host/runtime-spawn.ts";
 import { definition, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
 import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
 
@@ -559,7 +563,7 @@ test("one unresolved recovery does not hold another runtime or the repository wr
       _type: string,
       _payload: unknown,
       _opId: string,
-      binding: import("../src/runtime-spawn-types.ts").RuntimeBinding,
+      binding: import("../src/daemon-host/runtime-spawn-types.ts").RuntimeBinding,
     ) => await work.write(() => undefined, binding),
   });
   const recovery = work.run(() => adoptRuntimes(context));

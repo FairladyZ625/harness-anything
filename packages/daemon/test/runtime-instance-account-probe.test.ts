@@ -4,7 +4,10 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createRuntimeInstanceAccountProbe, quotaResetTime } from "../src/runtime-instance-account-probe.ts";
+import {
+  createRuntimeInstanceAccountProbe,
+  quotaResetTime,
+} from "../src/daemon-host/runtime-instance-account-probe.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
 test("AGY account model probes are bounded and abort while waiting for a slot", async () => {

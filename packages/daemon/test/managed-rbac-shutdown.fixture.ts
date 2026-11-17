@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createIdentityManagement } from "../src/authorization-provider.ts";
+import { createIdentityManagement } from "../src/daemon-host/authorization-provider.ts";
 import type { ManagedRbacLifecycleEvent } from "@harness-anything/authorization-keycloak/managed-rbac-service";
 
 const childEntrypoint = fileURLToPath(new URL("./managed-rbac-shutdown-child.fixture.mjs", import.meta.url));

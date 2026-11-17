@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { parseVerticalDeclarationDocument } from "@harness-anything/kernel";
+import { parseVerticalDeclarationDocument } from "@harness-anything/kernel/schemas";
 import { validatePresetManifestV3 } from "../src/preset.contract.ts";
 import { convertCompletionDeclaration, convertCompletionManifest } from "../src/completion-migration.ts";
 

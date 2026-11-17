@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { actor, initRepo, write } from "./doc-sync-slice-a.fixtures.ts";

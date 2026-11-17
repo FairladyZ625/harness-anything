@@ -17,7 +17,7 @@ export const taskSubmissionPolicies = [
     sources: [
       {
         candidateId:
-          "policy:packages/daemon:packages/daemon/src/submission-delivery.ts#deliveryGitTimeoutMs:10e837f4984b76c17de7d7b40249e15b",
+          "policy:packages/daemon:packages/daemon/src/daemon-host/submission-delivery.ts#deliveryGitTimeoutMs:10e837f4984b76c17de7d7b40249e15b",
         route: "readBeforeWriteQueue → prepareTaskSubmission → prepareSubmissionDelivery",
       },
     ],
@@ -40,12 +40,12 @@ export const taskSubmissionPolicies = [
     sources: [
       {
         candidateId:
-          "policy:packages/daemon:packages/daemon/src/repo-cell-command-run.ts#makeRepoCellCommandRunner.run:dd1e7be352a8c7c2d5bb3db3f558bf69",
+          "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-command-run.ts#makeRepoCellCommandRunner.run:dd1e7be352a8c7c2d5bb3db3f558bf69",
         route: "makeRepoCellCommandRunner → bindVerifiedExecutorClaim → readBeforeWriteQueue",
       },
       {
         candidateId:
-          "policy:packages/daemon:packages/daemon/src/submission-preparation.ts#prepareTaskSubmission:a06bab269fcde70f48a94f6dfa8c74f5",
+          "policy:packages/daemon:packages/daemon/src/daemon-host/submission-preparation.ts#prepareTaskSubmission:a06bab269fcde70f48a94f6dfa8c74f5",
         route: "readBeforeWriteQueue → optional task-start publication → prepareTaskSubmission",
       },
     ],
@@ -65,23 +65,23 @@ export const taskSubmissionPolicies = [
       "packages/daemon/test/task-respond-review-rework.integration.test.ts",
     ],
     sources: [
-      "policy:packages/daemon:packages/daemon/src/doc-sync-candidate-scanner.ts#canonicalProseBytes:b2d84d2b4a75d2fc7382602739140955",
-      "policy:packages/daemon:packages/daemon/src/repo-cell-action-parse.ts#decisionProposalAction:088fa772b5013ced4a1aeca07bd199d2",
-      "policy:packages/daemon:packages/daemon/src/repo-cell-doctor.ts#orphanLeaseCheck.items:aa16b1884f267de8d0a26d9ac87289ff",
-      "policy:packages/daemon:packages/daemon/src/repo-cell-doctor.ts#wipPressureCheck.ratio:9b6b5b5b0576f68d90d59a1ded00f034",
-      "policy:packages/daemon:packages/daemon/src/repo-cell-packets.ts#reviewPacket:0a25a881aeb9a19d6795b5b3bbf10e3f",
-      "policy:packages/daemon:packages/daemon/src/repo-cell-packets.ts#reviewResponsePacket:0c42a732aaaaf0102ef1e0796fc2c0d1",
-      "policy:packages/daemon:packages/daemon/src/repo-cell-packets.ts#reviewWaiverLine:2e7ae01cc1c087ae8565a706aade5b43",
-      "policy:packages/daemon:packages/daemon/src/repo-cell-review-lint.ts#legacyReviewLint:8e6baab2b4eb85717878a94e39926346",
-      "policy:packages/daemon:packages/daemon/src/repo-cell-runtime-ingress.ts#appendAuxiliaryRuntimeIngress.blobs:1ec753ce74a9f77e25994bf96c47611c",
-      "policy:packages/daemon:packages/daemon/src/repo-cell-runtime-settlement.ts#commitRuntimeSettlement:dcc7932611b6c3eed8d717c028fbdfb4",
-      "policy:packages/daemon:packages/daemon/src/repo-cell-submit.ts#riskTierCloseoutGates.consent:9aaa76c67c4beb1ba16d08a5cb0fda83",
-      "policy:packages/daemon:packages/daemon/src/repo-cell-submit.ts#riskTierCloseoutGates.consent:0a8f90b7b22409ed000115b2fb101145",
-      "policy:packages/daemon:packages/daemon/src/repo-cell-task-command-docs.ts#runTaskCommandWithDocs.intent.executionId:aa0cc6f684939e370d5ac3d320a8ec40",
-      "policy:packages/daemon:packages/daemon/src/repo-cell-task-command-docs.ts#runTaskCommandWithDocs.adjudication:99a191fc7935690958517f8e16fdcea2",
-      "policy:packages/daemon:packages/daemon/src/repo-cell-task-create.ts#prepareTaskCreateAt:ccc677f351a521b1422a8d39f3e21176",
-      "policy:packages/daemon:packages/daemon/src/repo-cell-task-create.ts#prepareTaskCreateAt:be478a9d7bb8fe037b15d730854afaee",
-      "policy:packages/daemon:packages/daemon/src/repo-cell-task-query.ts#assertTaskWipCapacity:a36502dfe96f03ebd1a4dce6b96b8bb6",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/doc-sync-candidate-scanner.ts#canonicalProseBytes:b2d84d2b4a75d2fc7382602739140955",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-action-parse.ts#decisionProposalAction:088fa772b5013ced4a1aeca07bd199d2",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-doctor.ts#orphanLeaseCheck.items:aa16b1884f267de8d0a26d9ac87289ff",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-doctor.ts#wipPressureCheck.ratio:9b6b5b5b0576f68d90d59a1ded00f034",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-packets.ts#reviewPacket:0a25a881aeb9a19d6795b5b3bbf10e3f",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-packets.ts#reviewResponsePacket:0c42a732aaaaf0102ef1e0796fc2c0d1",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-packets.ts#reviewWaiverLine:2e7ae01cc1c087ae8565a706aade5b43",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-review-lint.ts#legacyReviewLint:8e6baab2b4eb85717878a94e39926346",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-runtime-ingress.ts#appendAuxiliaryRuntimeIngress.blobs:1ec753ce74a9f77e25994bf96c47611c",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-runtime-settlement.ts#commitRuntimeSettlement:dcc7932611b6c3eed8d717c028fbdfb4",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-submit.ts#riskTierCloseoutGates.consent:9aaa76c67c4beb1ba16d08a5cb0fda83",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-submit.ts#riskTierCloseoutGates.consent:0a8f90b7b22409ed000115b2fb101145",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-task-command-docs.ts#runTaskCommandWithDocs.intent.executionId:aa0cc6f684939e370d5ac3d320a8ec40",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-task-command-docs.ts#runTaskCommandWithDocs.adjudication:99a191fc7935690958517f8e16fdcea2",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-task-create.ts#prepareTaskCreateAt:ccc677f351a521b1422a8d39f3e21176",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-task-create.ts#prepareTaskCreateAt:be478a9d7bb8fe037b15d730854afaee",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-task-query.ts#assertTaskWipCapacity:a36502dfe96f03ebd1a4dce6b96b8bb6",
     ].map((candidateId) => ({ candidateId, route: "taskSubmissionPolicies" })),
   },
 ] as const satisfies readonly OntologyPolicyDeclaration[];
@@ -264,17 +264,17 @@ export const executionRuntimeBudgetPolicy = {
     },
     {
       candidateId:
-        "policy:packages/daemon:packages/daemon/src/repo-cell-runtime-ingress.ts#appendAuxiliaryRuntimeIngress.refusal:43630d82630fd3e6e72d010d737c72e4",
+        "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-runtime-ingress.ts#appendAuxiliaryRuntimeIngress.refusal:43630d82630fd3e6e72d010d737c72e4",
       route: "Repository executionUsageLimit selects the center admission token ceiling",
     },
     {
       candidateId:
-        "policy:packages/daemon:packages/daemon/src/runtime-spawn-fallback.ts#settleFallbackAttempt.refusal:43630d82630fd3e6e72d010d737c72e4",
+        "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-fallback.ts#settleFallbackAttempt.refusal:43630d82630fd3e6e72d010d737c72e4",
       route: "Repository executionUsageLimit selects the local fallback token ceiling",
     },
     {
       candidateId:
-        "policy:packages/daemon:packages/daemon/src/runtime-continuation-context.ts#collectRuntimeWorkspaceProgress.read.timeoutSignal:a0ffb54437f00b213319ed2bd17e59c2",
+        "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-continuation-context.ts#collectRuntimeWorkspaceProgress.read.timeoutSignal:a0ffb54437f00b213319ed2bd17e59c2",
       route: "Bounded host snapshot before the writer turn",
     },
   ],
@@ -309,6 +309,6 @@ export const executionRuntimeBudgetJudgment = {
   failureCodes: ["execution_budget_exceeded"],
   explain:
     "Count each runtime session once across recovery and fallback, and refuse admission at the Execution ceiling.",
-  consumers: ["packages/daemon/src/runtime-spend-cap.ts"],
+  consumers: ["packages/daemon/src/daemon-host/runtime-spend-cap.ts"],
   sources: [],
 } as const satisfies OntologyJudgmentDeclaration;

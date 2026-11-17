@@ -7,7 +7,7 @@ import path from "node:path";
 import { extractTrafficModel, replaySchedule, summarizeRequests } from "./center-model.mjs";
 import { runCenterBenchmark, markdownReport, defaultTrafficModel } from "./center-bench.mjs";
 import { replayTraffic, syntheticParams } from "./center-replay.mjs";
-import { validateDaemonRpcCall } from "../../packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts";
+import { validateDaemonRpcCall } from "../../packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts";
 import { measureCenter } from "./center-campaign.mjs";
 
 const log = (at, method, command = method, conn = "1") => ({

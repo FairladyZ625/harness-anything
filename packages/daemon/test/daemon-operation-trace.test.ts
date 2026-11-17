@@ -12,8 +12,8 @@ import {
   withDaemonObservation,
   type DaemonOperationObserver,
   type DaemonOperationTrace,
-} from "../src/daemon-operation.ts";
-import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
+} from "../src/daemon-host/daemon-operation.ts";
+import type { DaemonAuthenticationContext } from "../src/daemon-host/transport/auth-context.ts";
 
 function collector() {
   const begins: Record<string, unknown>[] = [];

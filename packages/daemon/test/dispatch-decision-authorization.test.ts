@@ -2,8 +2,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { TaskProjection } from "@harness-anything/kernel";
-import { assembleTaskCausalContext, CAUSAL_CONTEXT_MAX_BYTES } from "../src/dispatch-causal-context.ts";
-import { explicitPromptMission } from "../src/runtime-spawn-mission.ts";
+import { assembleTaskCausalContext, CAUSAL_CONTEXT_MAX_BYTES } from "../src/daemon-host/dispatch-causal-context.ts";
+import { explicitPromptMission } from "../src/daemon-host/runtime-spawn-mission.ts";
 
 const cut = { status: "ready", watermark: 7, sourceRevision: 7 } as const;
 const heading = "# 本任务授权范围 / Decision-Derived Execution Surface";

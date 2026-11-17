@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 import type { Worker } from "node:worker_threads";
-import { openRepoReadClient } from "../src/repo-read-pool.ts";
-import { REPO_WRITER_PROTOCOL_VERSION, type RepoWriterRequestV1 } from "../src/repo-writer-protocol.ts";
+import { openRepoReadClient } from "../src/daemon-host/repo-read-pool.ts";
+import { REPO_WRITER_PROTOCOL_VERSION, type RepoWriterRequestV1 } from "../src/daemon-host/repo-writer-protocol.ts";
 
 class Reader extends EventEmitter {
   readonly received: RepoWriterRequestV1[] = [];

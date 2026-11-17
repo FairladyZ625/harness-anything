@@ -11,7 +11,7 @@ import {
   managedRbacVersions,
   type ManagedPostgresBinaries,
 } from "@harness-anything/authorization-keycloak/managed-rbac-service";
-import { createIdentityManagement } from "../src/authorization-provider.ts";
+import { createIdentityManagement } from "../src/daemon-host/authorization-provider.ts";
 
 async function freeLoopbackPort(): Promise<number> {
   const server = createServer();

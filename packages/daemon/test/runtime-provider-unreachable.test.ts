@@ -12,19 +12,23 @@ import type {
   RuntimeSession,
   TaskProjection,
 } from "@harness-anything/kernel";
-import { makeAgentRuntimeReadModel } from "../src/agent-runtime-read.ts";
-import { readEdgeRuntimeSessions } from "../src/fleet-edge-runtime.ts";
-import { validateAgentRuntimeOverview } from "../src/agent-runtime-contract.ts";
-import { readTaskDispatches } from "../src/dispatch-read.ts";
-import { withLocalDispatchStreamEvidence } from "../src/dispatch-activity-read.ts";
-import { appendRuntimeWorkerRecord, openDispatchStream, readDispatchStreamSummary } from "../src/dispatch-stream.ts";
-import { noteProviderProgress, noteProviderReconnect } from "../src/runtime-provider-connectivity.ts";
-import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
-import { isStructuredSuccessResult, parseProviderFrame } from "../src/runtime-spawn-provider-frames.ts";
-import { consumeProviderLine } from "../src/runtime-spawn-provider-stream.ts";
+import { makeAgentRuntimeReadModel } from "../src/daemon-host/agent-runtime-read.ts";
+import { readEdgeRuntimeSessions } from "../src/daemon-host/fleet-edge-runtime.ts";
+import { validateAgentRuntimeOverview } from "../src/daemon-host/agent-runtime-contract.ts";
+import { readTaskDispatches } from "../src/daemon-host/dispatch-read.ts";
+import { withLocalDispatchStreamEvidence } from "../src/daemon-host/dispatch-activity-read.ts";
+import {
+  appendRuntimeWorkerRecord,
+  openDispatchStream,
+  readDispatchStreamSummary,
+} from "../src/daemon-host/dispatch-stream.ts";
+import { noteProviderProgress, noteProviderReconnect } from "../src/daemon-host/runtime-provider-connectivity.ts";
+import { makeRuntimeSpawner } from "../src/daemon-host/runtime-spawner.ts";
+import { isStructuredSuccessResult, parseProviderFrame } from "../src/daemon-host/runtime-spawn-provider-frames.ts";
+import { consumeProviderLine } from "../src/daemon-host/runtime-spawn-provider-stream.ts";
 import { lifecycleReadFor, lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
-import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
-import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
+import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
+import type { ActiveRuntime } from "../src/daemon-host/runtime-spawn-types.ts";
 
 const dispatchId = "dispatch_0123456789abcdef01234567",
   runtimeSessionId = "runtime-provider-stalled",

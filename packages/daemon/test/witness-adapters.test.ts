@@ -23,14 +23,14 @@ import {
   retiredHostedCiSource,
 } from "../../kernel/test/domain/completion.fixtures.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
-import { gate as validateGateWitnessWire } from "../src/protocol/daemon-protocol-validate-entities.ts";
-import { attestGateWitness } from "../src/repo-cell-witness-adapters.ts";
-import { publishGateWitness } from "../src/repo-cell-completion.ts";
-import { operationId } from "../src/repo-cell-proof.ts";
-import { runProcessExitAsync } from "../src/process-port.ts";
-import type { RepoCellOperationalContext } from "../src/repo-cell-types.ts";
-import type { RepoCellBinding, Snapshot } from "../src/repo-cell-types.ts";
-import { projectionReady } from "../src/repo-cell-settlement.ts";
+import { gate as validateGateWitnessWire } from "../src/daemon-host/protocol/daemon-protocol-validate-entities.ts";
+import { attestGateWitness } from "../src/daemon-host/repo-cell-witness-adapters.ts";
+import { publishGateWitness } from "../src/daemon-host/repo-cell-completion.ts";
+import { operationId } from "../src/daemon-host/repo-cell-proof.ts";
+import { runProcessExitAsync } from "../src/daemon-host/process-port.ts";
+import type { RepoCellOperationalContext } from "../src/daemon-host/repo-cell-types.ts";
+import type { RepoCellBinding, Snapshot } from "../src/daemon-host/repo-cell-types.ts";
+import { projectionReady } from "../src/daemon-host/repo-cell-settlement.ts";
 
 const actor = { principal: { personId: "owner" }, executor: null } as const;
 const binding = { actor, source: "local" } as RepoCellBinding;

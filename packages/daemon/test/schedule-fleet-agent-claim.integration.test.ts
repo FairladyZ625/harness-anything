@@ -8,10 +8,10 @@ import path from "node:path";
 import test from "node:test";
 import { registerDaemonRepo } from "@harness-anything/storage";
 
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
-import { listenFleetTls } from "../src/fleet/center.ts";
-import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { openFleetEdgeRuntime } from "../src/daemon-host/fleet-edge-runtime.ts";
+import { listenFleetTls } from "../src/daemon-host/fleet/center.ts";
+import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-instances.ts";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
 import { definition, initHarnessRepo, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";

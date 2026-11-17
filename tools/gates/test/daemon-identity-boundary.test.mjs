@@ -8,7 +8,7 @@ import {
   canonicalRoot,
   endpointIdentity,
   safePath,
-} from "../../../packages/daemon/src/protocol/daemon-protocol.contract.ts";
+} from "../../../packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { parseThinCommand } from "../../../packages/cli/src/cli/thin-command.ts";
 
 test("G13 constructs SafePath CanonicalRoot and EndpointIdentity only at the transport boundary", () => {

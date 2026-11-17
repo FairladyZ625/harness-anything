@@ -6,10 +6,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { readDaemonStoppedAt, writeDaemonStoppedMarker } from "../src/client/daemon-autostart.ts";
-import { daemonPidPath } from "../src/daemon-singleton.ts";
+import { readDaemonStoppedAt, writeDaemonStoppedMarker } from "../src/daemon-host/client/daemon-autostart.ts";
+import { daemonPidPath } from "../src/daemon-host/daemon-singleton.ts";
 
-const entry = fileURLToPath(new URL("../src/bin.ts", import.meta.url));
+const entry = fileURLToPath(new URL("../src/daemon-host/bin.ts", import.meta.url));
 
 test("a supervised entry leaves an operator stop standing and exits zero so the service manager stands down", () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-daemon-supervised-entry-")),

@@ -11,8 +11,8 @@ import {
   localUserDaemonEndpoint,
   perUserSocketRoot,
   resolveLocalDaemonTarget,
-} from "../src/client/local-daemon-target.ts";
-import { daemonRequestLogPath } from "../src/request-log.ts";
+} from "../src/daemon-host/client/local-daemon-target.ts";
+import { daemonRequestLogPath } from "../src/daemon-host/request-log.ts";
 
 test("local daemon target resolves a v1 workspace after the shared registry reader upgrades it", async () => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-v1-")),

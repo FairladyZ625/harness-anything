@@ -16,15 +16,15 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { connect } from "node:tls";
 import { replicationSocketLines } from "./fleet-replication-lines.mjs";
-import { parseFleetFrame, serializeFleetFrame } from "../../src/fleet/command-protocol.ts";
-import { parseReplicationFrame, serializeReplicationFrame } from "../../src/fleet/protocol.ts";
-import { runWalReceiver, openWalReceiverGeneration } from "../../src/fleet/walreceiver.ts";
+import { parseFleetFrame, serializeFleetFrame } from "../../src/daemon-host/fleet/command-protocol.ts";
+import { parseReplicationFrame, serializeReplicationFrame } from "../../src/fleet-sync/fleet/protocol.ts";
+import { runWalReceiver, openWalReceiverGeneration } from "../../src/daemon-host/fleet/walreceiver.ts";
 import {
   installReplicaGeneration,
   readReplicaGeneration,
   replicaGenerationReaders,
   updateReplicaGenerationPosition,
-} from "../../src/fleet/replica-generation.ts";
+} from "../../src/fleet-sync/fleet/replica-generation.ts";
 
 const config = JSON.parse(readFileSync(process.argv[2], "utf8"));
 if (!spawnSync("git", ["--version"]).error) throw new Error("edge test PATH unexpectedly contains Git");

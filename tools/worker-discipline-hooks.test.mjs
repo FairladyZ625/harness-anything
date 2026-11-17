@@ -17,8 +17,8 @@ import {
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { agentRolePrompt } from "../packages/daemon/src/agent-role-prompts.ts";
-import { explicitPromptMission } from "../packages/daemon/src/runtime-spawn-mission.ts";
+import { agentRolePrompt } from "../packages/daemon/src/daemon-host/agent-role-prompts.ts";
+import { explicitPromptMission } from "../packages/daemon/src/daemon-host/runtime-spawn-mission.ts";
 import { spawnWithDeadline } from "./fixtures/deadline-spawn.mjs";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..");

@@ -6,9 +6,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { deriveTaskWorktreeBinding } from "@harness-anything/kernel";
-import { repositoryBaseRef } from "../src/schedule-occurrence-workspace.ts";
-import { prepareWorkerWorktree, resolveSquadCwd } from "../src/squad-worker-checkout.ts";
-import { noWorktreeSetup } from "../src/worktree-setup.ts";
+import { repositoryBaseRef } from "../src/daemon-host/schedule-occurrence-workspace.ts";
+import { prepareWorkerWorktree, resolveSquadCwd } from "../src/daemon-host/squad-worker-checkout.ts";
+import { noWorktreeSetup } from "../src/daemon-host/worktree-setup.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 
 test("each squad assignment uses its own child task binding and preserves the Commander baseline", async () => {

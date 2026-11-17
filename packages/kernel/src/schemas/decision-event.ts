@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 import { validateDecisionEvent, type DecisionEventV1 } from "../domain/decision-event.ts";
 
 export const DecisionEventSchema = Schema.declare(

@@ -8,9 +8,9 @@ import path from "node:path";
 import test from "node:test";
 import { localGitWorktreeSettlement, makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
 import { resolveHarnessLayout, sha256Text } from "@harness-anything/kernel";
-import { runDocAction } from "../src/doc-sync-command-actions.ts";
-import { scanDocCandidates } from "../src/doc-sync-candidate-scanner.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { runDocAction } from "../src/daemon-host/doc-sync-command-actions.ts";
+import { scanDocCandidates } from "../src/daemon-host/doc-sync-candidate-scanner.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { actor, initRepo, rows, write } from "./doc-sync-slice-a.fixtures.ts";
 

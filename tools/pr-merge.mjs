@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import process from "node:process";
-import { checkWorkspaceLinks, workspaceLinkFailure } from "../packages/daemon/src/workspace-link-integrity.ts";
+import {
+  checkWorkspaceLinks,
+  workspaceLinkFailure,
+} from "../packages/daemon/src/daemon-host/workspace-link-integrity.ts";
 
 const MAIN_BRANCH = "main";
 const REMOTE = "origin";

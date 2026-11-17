@@ -7,11 +7,11 @@ import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { fleetNodeClaimFixture, localAuthFixture } from "./fleet-node-claim.fixtures.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 import { readFileSync } from "node:fs";
-import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
+import { openFleetEdgeRuntime } from "../src/daemon-host/fleet-edge-runtime.ts";
 import { fleetFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 import { definition, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
-import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
+import { applyFleetMirrorCut } from "../src/daemon-host/fleet-edge-mirror.ts";
 import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 
 test("failed-spawn release is fenced against a replacement lease on either node", { timeout: 60_000 }, async (t) => {

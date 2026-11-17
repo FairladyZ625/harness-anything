@@ -4,8 +4,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { readFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
-import { resolveFleetReplicaAuthority } from "../src/fleet/replica-token.ts";
+import { readFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
+import { resolveFleetReplicaAuthority } from "../src/daemon-host/fleet/replica-token.ts";
 
 const valid = {
   schema: "fleet-edge-config/v1",

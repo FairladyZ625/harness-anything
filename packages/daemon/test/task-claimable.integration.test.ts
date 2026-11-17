@@ -11,8 +11,8 @@ import {
   type AssignmentRelationLike,
 } from "@harness-anything/kernel";
 import { emptyTaskLifecycleSnapshot } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract";
-import { readClaimableTasks } from "../src/task-claimable-read.ts";
-import { readEntityAssignmentDirectory } from "../src/entity-assignment-directory.ts";
+import { readClaimableTasks } from "../src/daemon-host/task-claimable-read.ts";
+import { readEntityAssignmentDirectory } from "../src/daemon-host/entity-assignment-directory.ts";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
 import { serveKeycloak } from "./keycloak.fixtures.ts";
 

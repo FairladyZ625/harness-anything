@@ -5,15 +5,15 @@ import {
   currentFleetProtocolVersion,
   parseFleetFrame,
   serializeFleetFrame,
-} from "../../packages/daemon/src/fleet/command-protocol.ts";
+} from "../../packages/daemon/src/daemon-host/fleet/command-protocol.ts";
 import {
   parseReplicationFrame,
   parseReplicationCommit,
   serializeReplicationFrame,
-} from "../../packages/daemon/src/fleet/protocol.ts";
+} from "../../packages/daemon/src/fleet-sync/fleet/protocol.ts";
 import { withWatchdog } from "../stress/core/controller.mjs";
 import { TASK_EVENT_SHAPE_COMPAT_VERSION } from "../../packages/kernel/src/index.ts";
-import { daemonBuildStamp } from "../../packages/daemon/src/build-identity.ts";
+import { daemonBuildStamp } from "../../packages/daemon/src/daemon-host/build-identity.ts";
 
 /** A protocol sink, not a durable edge. One socket and one bounded commit envelope per node.
  * ACKs intentionally omit edge disk/projection cost: these runs measure center capacity only.

@@ -6,8 +6,8 @@ import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
-import { requestLocalDaemonJsonRpcForTarget } from "../src/client/local-json-rpc-client.ts";
+import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
+import { requestLocalDaemonJsonRpcForTarget } from "../src/daemon-host/client/local-json-rpc-client.ts";
 
 test("a request reaches a draining stale daemon and carries its build warning", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-stale-schema-client-")),

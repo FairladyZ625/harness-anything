@@ -1,12 +1,12 @@
 // harness-test-tier: contract
-import type { RepoCellApiContext } from "../src/repo-cell-types.ts";
+import type { RepoCellApiContext } from "../src/daemon-host/repo-cell-types.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { bindWriterGenerationToken, type LeaseV1, type RuntimeSession } from "@harness-anything/kernel";
-import { createRepoCellApi } from "../src/repo-cell-api.ts";
-import { failed } from "../src/repo-cell-settlement.ts";
+import { createRepoCellApi } from "../src/daemon-host/repo-cell-api.ts";
+import { failed } from "../src/daemon-host/repo-cell-settlement.ts";
 import { provisionPolicyTestRepository, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import type { RepoCellBinding } from "../src/repo-cell-types.ts";
+import type { RepoCellBinding } from "../src/daemon-host/repo-cell-types.ts";
 
 provisionPolicyTestRepository("repository");
 

@@ -1,3 +1,4 @@
+import "./pg/sql-task-query-reader.ts";
 export * from "./store/index.ts";
 export * from "./postgres/index.ts";
 export * from "./pg/index.ts";
@@ -46,7 +47,7 @@ export type {
 } from "./projection/cold-rebuild-source.ts";
 export { eventShapeMigrations } from "./store/event-shape-migration.ts";
 export type { DaemonStorageConfig } from "./storage-daemon-composition.ts";
-export { withStorageWriteRequest } from "./pg/pg-task-query-reader.ts";
+export { withStorageWriteRequest, activeStorageWriteRequest } from "./pg/pg-task-query-reader.ts";
 export {
   readDaemonStorageConfig,
   prepareDaemonRepoStorage,
@@ -56,6 +57,7 @@ export {
   openFleetStorage,
   fleetBackupRequiresWriter,
   daemonWriterSupportsCommitPhase,
+  daemonWriterEntryName,
   hasDaemonGitFollower,
   readDaemonHarnessConfig,
 } from "./storage-daemon-composition.ts";
@@ -104,3 +106,12 @@ export {
   requiresStorageWorkerContext,
 } from "./storage-worker-context.ts";
 export type { StorageWorkerContext } from "./storage-worker-context.ts";
+
+export {
+  attachSqliteGitFollower,
+  makeSqliteTaskEventStoreWithGitFollower,
+  publishPendingSqliteGitOutbox,
+} from "./store/sqlite-git-outbox-publisher.ts";
+export { attachPgGitFollower } from "./pg/pg-git-outbox-publisher.ts";
+
+export type { PgGitFollowerHandle, PgGitFollowerMountContext } from "./postgres/pg-canonical-event-store.ts";

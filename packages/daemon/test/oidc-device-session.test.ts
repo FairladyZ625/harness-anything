@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
-import { createIdentitySession } from "../src/authorization-provider.ts";
+import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 
 function selectExternalProvider(root: string, config: Readonly<Record<string, string>> = {}): void {
   mkdirSync(path.join(root, "rbac"), { recursive: true });

@@ -263,7 +263,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.9538dcd0559cba9f",
-    path: "packages/daemon/src/worktree-node-modules-mirror.ts",
+    path: "packages/daemon/src/daemon-host/worktree-node-modules-mirror.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -273,7 +273,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.03922c1e35489b17",
-    path: "packages/daemon/src/worktree-node-modules-mirror.ts",
+    path: "packages/daemon/src/daemon-host/worktree-node-modules-mirror.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -283,7 +283,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.25160125d6541765",
-    path: "packages/daemon/src/worktree-node-modules-mirror.ts",
+    path: "packages/daemon/src/daemon-host/worktree-node-modules-mirror.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -293,7 +293,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.3711cd9bed7ee691",
-    path: "packages/daemon/src/worktree-setup-node-modules.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup-node-modules.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -303,7 +303,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.62027d9c14966472",
-    path: "packages/daemon/src/worktree-setup-node-modules.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup-node-modules.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -313,7 +313,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.47892a4a432ad79a",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -323,7 +323,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.e978a15f3b2fb103",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -333,7 +333,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.584239915a9d403f",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -343,7 +343,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.4a19b77cc94f5648",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -353,7 +353,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.2b5cb73c19477a59",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -363,7 +363,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.b5a72e6a2315c1b2",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -373,7 +373,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.5d1712f8bfbde7e1",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -383,7 +383,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.59efa489be0f2990",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -393,7 +393,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.97ebea1bc7f7c550",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -403,7 +403,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.070db42aa4c12fe4",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -413,7 +413,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.4cb63039a2e685dc",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -423,7 +423,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.90ea695e1d940212",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -433,7 +433,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.32e3e08fe711f7bb",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -443,7 +443,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.94a0cdf651772a78",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -453,7 +453,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.86a0c8743f85091d",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -463,7 +463,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.0b23760b01d9faf7",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -473,7 +473,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.0deb3794b723e626",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -483,7 +483,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.c26b78d6a3c9c571",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -493,7 +493,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.64ae4c5d949e6e57",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -503,7 +503,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.39e7f63feca22f4f",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -513,7 +513,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.cdd8a29626dba774",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -523,7 +523,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.d35718de7079bbb5",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -533,7 +533,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.37e2f4e58b6b045d",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -543,7 +543,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.1d0d7b2ca61bb7d2",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -553,7 +553,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.28f0d0f15b149005",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -563,7 +563,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.59a759d505c4aadf",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -573,7 +573,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.d52ac26bd8aaf8af",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -583,7 +583,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.bf29896710455de4",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -593,7 +593,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.6cf4bce8ce3dccff",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -603,7 +603,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.773a231762e8009f",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -613,7 +613,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.1c6d593aa5ab22e5",
-    path: "packages/daemon/src/worktree-setup.ts",
+    path: "packages/daemon/src/daemon-host/worktree-setup.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -793,7 +793,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.fd11f2cc7ba917bb",
-    path: "packages/daemon/src/agent-declaration-migration.ts",
+    path: "packages/daemon/src/daemon-host/agent-declaration-migration.ts",
     category: "environment-io",
     subtype: "agent-declaration-migration",
     reason:
@@ -803,7 +803,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.c856ef7e6562828b",
-    path: "packages/daemon/src/agent-declaration-migration.ts",
+    path: "packages/daemon/src/daemon-host/agent-declaration-migration.ts",
     category: "environment-io",
     subtype: "agent-declaration-migration",
     reason:
@@ -813,7 +813,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.b8e22ee9dc2cbdbb",
-    path: "packages/daemon/src/agent-declaration-migration.ts",
+    path: "packages/daemon/src/daemon-host/agent-declaration-migration.ts",
     category: "environment-io",
     subtype: "agent-declaration-migration",
     reason:
@@ -823,7 +823,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.11ea73f113a7658b",
-    path: "packages/daemon/src/agent-runtime-instance-store.ts",
+    path: "packages/daemon/src/daemon-host/agent-runtime-instance-store.ts",
     category: "environment-io",
     subtype: "runtime-launch-scratch",
     reason:
@@ -833,7 +833,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.53e36032a7e7b1b3",
-    path: "packages/daemon/src/agent-runtime-instance-store.ts",
+    path: "packages/daemon/src/daemon-host/agent-runtime-instance-store.ts",
     category: "environment-io",
     subtype: "runtime-launch-scratch",
     reason:
@@ -843,7 +843,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.c525f2977a64562a",
-    path: "packages/daemon/src/client/daemon-autostart.ts",
+    path: "packages/daemon/src/daemon-host/client/daemon-autostart.ts",
     category: "environment-io",
     subtype: "daemon-os-service-unit",
     reason:
@@ -853,7 +853,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.ebb0f3dc7d49ecf6",
-    path: "packages/daemon/src/client/daemon-autostart.ts",
+    path: "packages/daemon/src/daemon-host/client/daemon-autostart.ts",
     category: "environment-io",
     subtype: "daemon-os-service-unit",
     reason:
@@ -863,7 +863,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.d1ede72339cbae09",
-    path: "packages/daemon/src/client/daemon-autostart.ts",
+    path: "packages/daemon/src/daemon-host/client/daemon-autostart.ts",
     category: "environment-io",
     subtype: "daemon-os-service-unit",
     reason:
@@ -873,7 +873,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.a9c01bf05c0cfe26",
-    path: "packages/daemon/src/client/daemon-autostart.ts",
+    path: "packages/daemon/src/daemon-host/client/daemon-autostart.ts",
     category: "environment-io",
     subtype: "daemon-os-service-unit",
     reason:
@@ -883,7 +883,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.b44a95013e42368d",
-    path: "packages/daemon/src/client/daemon-autostart.ts",
+    path: "packages/daemon/src/daemon-host/client/daemon-autostart.ts",
     category: "environment-io",
     subtype: "daemon-os-service-unit",
     reason:
@@ -893,7 +893,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.5ac349285e591d4c",
-    path: "packages/daemon/src/client/local-daemon-target.ts",
+    path: "packages/daemon/src/daemon-host/runtime-relay-target.ts",
     category: "environment-io",
     subtype: "daemon-transport-socket",
     reason:
@@ -903,7 +903,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.6d0e830b1d8e8184",
-    path: "packages/daemon/src/conn-log.ts",
+    path: "packages/daemon/src/daemon-host/conn-log.ts",
     category: "environment-io",
     subtype: "daemon-observability-log",
     reason:
@@ -913,7 +913,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.322a27fbba962656",
-    path: "packages/daemon/src/conn-log.ts",
+    path: "packages/daemon/src/daemon-host/conn-log.ts",
     category: "environment-io",
     subtype: "daemon-observability-log",
     reason:
@@ -923,7 +923,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.8c335c7d3f5a6f60",
-    path: "packages/daemon/src/conn-log.ts",
+    path: "packages/daemon/src/daemon-host/conn-log.ts",
     category: "environment-io",
     subtype: "daemon-observability-log",
     reason:
@@ -933,7 +933,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.772a233589a799c0",
-    path: "packages/daemon/src/conn-log.ts",
+    path: "packages/daemon/src/daemon-host/conn-log.ts",
     category: "environment-io",
     subtype: "daemon-observability-log",
     reason:
@@ -943,7 +943,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.119a357bb4245a64",
-    path: "packages/daemon/src/conn-log.ts",
+    path: "packages/daemon/src/daemon-host/conn-log.ts",
     category: "environment-io",
     subtype: "daemon-observability-log",
     reason:
@@ -953,7 +953,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.ec7a202fd7b6fd10",
-    path: "packages/daemon/src/lifecycle-log.ts",
+    path: "packages/daemon/src/daemon-host/lifecycle-log.ts",
     category: "environment-io",
     subtype: "daemon-observability-log",
     reason:
@@ -963,7 +963,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.df81aef7aa74b913",
-    path: "packages/daemon/src/lifecycle-log.ts",
+    path: "packages/daemon/src/daemon-host/lifecycle-log.ts",
     category: "environment-io",
     subtype: "daemon-observability-log",
     reason:
@@ -973,7 +973,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.d0c312cacca07778",
-    path: "packages/daemon/src/lifecycle-log.ts",
+    path: "packages/daemon/src/daemon-host/lifecycle-log.ts",
     category: "environment-io",
     subtype: "daemon-observability-log",
     reason:
@@ -983,7 +983,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.435edbd8df19f65d",
-    path: "packages/daemon/src/lifecycle-log.ts",
+    path: "packages/daemon/src/daemon-host/lifecycle-log.ts",
     category: "environment-io",
     subtype: "daemon-observability-log",
     reason:
@@ -993,7 +993,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.3d928f21650aab9d",
-    path: "packages/daemon/src/lifecycle-log.ts",
+    path: "packages/daemon/src/daemon-host/lifecycle-log.ts",
     category: "environment-io",
     subtype: "daemon-observability-log",
     reason:
@@ -1003,7 +1003,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.2534a7ea79e2c8d2",
-    path: "packages/daemon/src/lifecycle-log.ts",
+    path: "packages/daemon/src/daemon-host/lifecycle-log.ts",
     category: "environment-io",
     subtype: "daemon-observability-log",
     reason:
@@ -1013,7 +1013,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.5a87f3c7e94203a3",
-    path: "packages/daemon/src/lifecycle-log.ts",
+    path: "packages/daemon/src/daemon-host/lifecycle-log.ts",
     category: "environment-io",
     subtype: "daemon-observability-log",
     reason:
@@ -1023,7 +1023,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.704983ddbd864c1d",
-    path: "packages/daemon/src/lifecycle-log.ts",
+    path: "packages/daemon/src/daemon-host/lifecycle-log.ts",
     category: "environment-io",
     subtype: "daemon-observability-log",
     reason:
@@ -1033,7 +1033,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.72b8d8e75f7f721b",
-    path: "packages/daemon/src/lifecycle-log.ts",
+    path: "packages/daemon/src/daemon-host/lifecycle-log.ts",
     category: "environment-io",
     subtype: "daemon-observability-log",
     reason:
@@ -1043,7 +1043,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.801d4a0fe4d0d9b8",
-    path: "packages/daemon/src/lifecycle-log.ts",
+    path: "packages/daemon/src/daemon-host/lifecycle-log.ts",
     category: "environment-io",
     subtype: "daemon-observability-log",
     reason:
@@ -1053,7 +1053,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.c079f11d542d95e6",
-    path: "packages/daemon/src/lifecycle-log.ts",
+    path: "packages/daemon/src/daemon-host/lifecycle-log.ts",
     category: "environment-io",
     subtype: "daemon-observability-log",
     reason:
@@ -1063,7 +1063,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.b62396679580c5a1",
-    path: "packages/daemon/src/observe-jsonl-tail.ts",
+    path: "packages/daemon/src/daemon-host/observe-jsonl-tail.ts",
     category: "environment-io",
     subtype: "daemon-observability-log",
     reason:
@@ -1073,7 +1073,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.9be0f8fbd8c5f109",
-    path: "packages/daemon/src/probe-log-sink.ts",
+    path: "packages/daemon/src/runtime-engine/probe-log-sink.ts",
     category: "environment-io",
     subtype: "daemon-observability-log",
     reason:
@@ -1083,7 +1083,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.f2d57822d6b3d560",
-    path: "packages/daemon/src/probe-log-sink.ts",
+    path: "packages/daemon/src/runtime-engine/probe-log-sink.ts",
     category: "environment-io",
     subtype: "daemon-observability-log",
     reason:
@@ -1093,7 +1093,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.690433e47117a394",
-    path: "packages/daemon/src/probe-log-sink.ts",
+    path: "packages/daemon/src/runtime-engine/probe-log-sink.ts",
     category: "environment-io",
     subtype: "daemon-observability-log",
     reason:
@@ -1103,7 +1103,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.b71e5d2d09de6e06",
-    path: "packages/daemon/src/probe-log-sink.ts",
+    path: "packages/daemon/src/runtime-engine/probe-log-sink.ts",
     category: "environment-io",
     subtype: "daemon-observability-log",
     reason:
@@ -1113,7 +1113,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.3ed3a8e5f168e3da",
-    path: "packages/daemon/src/probe-log-sink.ts",
+    path: "packages/daemon/src/runtime-engine/probe-log-sink.ts",
     category: "environment-io",
     subtype: "daemon-observability-log",
     reason:
@@ -1123,7 +1123,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.a4b2ae42a0d210f8",
-    path: "packages/daemon/src/repo-cache-purge.ts",
+    path: "packages/daemon/src/daemon-host/repo-cache-purge.ts",
     category: "environment-io",
     subtype: "repo-cache-cleanup",
     reason:
@@ -1133,7 +1133,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.9bc5b49b9a770b83",
-    path: "packages/daemon/src/repo-cache-purge.ts",
+    path: "packages/daemon/src/daemon-host/repo-cache-purge.ts",
     category: "environment-io",
     subtype: "repo-cache-cleanup",
     reason:
@@ -1143,7 +1143,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.3dd8b1ca6b76b91c",
-    path: "packages/daemon/src/request-log.ts",
+    path: "packages/daemon/src/daemon-host/request-log.ts",
     category: "environment-io",
     subtype: "daemon-observability-log",
     reason:
@@ -1153,7 +1153,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.69b1169ea4d01ff3",
-    path: "packages/daemon/src/request-log.ts",
+    path: "packages/daemon/src/daemon-host/request-log.ts",
     category: "environment-io",
     subtype: "daemon-observability-log",
     reason:
@@ -1163,7 +1163,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.b99cb7e864440348",
-    path: "packages/daemon/src/request-log.ts",
+    path: "packages/daemon/src/daemon-host/request-log.ts",
     category: "environment-io",
     subtype: "daemon-observability-log",
     reason:
@@ -1173,7 +1173,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.f7701295bb5a8c9f",
-    path: "packages/daemon/src/runtime-callback-relay.ts",
+    path: "packages/daemon/src/daemon-host/runtime-callback-relay.ts",
     category: "environment-io",
     subtype: "daemon-transport-socket",
     reason:
@@ -1183,7 +1183,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.251625d620743e95",
-    path: "packages/daemon/src/runtime-callback-relay.ts",
+    path: "packages/daemon/src/daemon-host/runtime-callback-relay.ts",
     category: "environment-io",
     subtype: "daemon-transport-socket",
     reason:
@@ -1193,7 +1193,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.def6ae045029d530",
-    path: "packages/daemon/src/skill-eval-runner.ts",
+    path: "packages/daemon/src/runtime-engine/skill-eval-runner.ts",
     category: "environment-io",
     subtype: "skill-eval-sandbox",
     reason:
@@ -1203,7 +1203,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.1933a00ec3702ddb",
-    path: "packages/daemon/src/task-worktree.ts",
+    path: "packages/daemon/src/daemon-host/task-worktree.ts",
     category: "environment-io",
     subtype: "worktree-setup",
     reason:
@@ -1213,7 +1213,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.e0963dd729d80e07",
-    path: "packages/daemon/src/transport/unix-socket.ts",
+    path: "packages/daemon/src/daemon-host/transport/unix-socket.ts",
     category: "environment-io",
     subtype: "daemon-transport-socket",
     reason:
@@ -1223,7 +1223,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.961cdcaa9a92cbbe",
-    path: "packages/daemon/src/transport/unix-socket.ts",
+    path: "packages/daemon/src/daemon-host/transport/unix-socket.ts",
     category: "environment-io",
     subtype: "daemon-transport-socket",
     reason:
@@ -1233,7 +1233,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.f4d8382218704581",
-    path: "packages/daemon/src/fleet/center-listener.ts",
+    path: "packages/daemon/src/daemon-host/fleet/center-listener.ts",
     category: "environment-io",
     subtype: "fleet-replication-scratch",
     reason:
@@ -1243,7 +1243,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.22ed4ffe787ceb39",
-    path: "packages/daemon/src/fleet/center-listener.ts",
+    path: "packages/daemon/src/daemon-host/fleet/center-listener.ts",
     category: "environment-io",
     subtype: "fleet-replication-scratch",
     reason:
@@ -1253,7 +1253,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.39e0ae0592525fc2",
-    path: "packages/daemon/src/fleet/center-listener.ts",
+    path: "packages/daemon/src/daemon-host/fleet/center-listener.ts",
     category: "environment-io",
     subtype: "fleet-replication-scratch",
     reason:
@@ -1263,7 +1263,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.1f2e3d4c5b6a7980",
-    path: "packages/daemon/src/fleet/center-listener.ts",
+    path: "packages/daemon/src/daemon-host/fleet/center-listener.ts",
     category: "environment-io",
     subtype: "fleet-replication-scratch",
     reason:
@@ -1273,7 +1273,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.5c6d7e8f90123456",
-    path: "packages/daemon/src/fleet/center-listener.ts",
+    path: "packages/daemon/src/daemon-host/fleet/center-listener.ts",
     category: "environment-io",
     subtype: "fleet-replication-scratch",
     reason:
@@ -1283,7 +1283,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.3a4b5c6d7e8f9012",
-    path: "packages/daemon/src/fleet/center-listener.ts",
+    path: "packages/daemon/src/daemon-host/fleet/center-listener.ts",
     category: "environment-io",
     subtype: "fleet-replication-scratch",
     reason:
@@ -1293,7 +1293,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.4b5c6d7e8f901234",
-    path: "packages/daemon/src/fleet/center-listener.ts",
+    path: "packages/daemon/src/daemon-host/fleet/center-listener.ts",
     category: "environment-io",
     subtype: "fleet-replication-scratch",
     reason:
@@ -1303,7 +1303,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.6cc0d5c726eb11a2",
-    path: "packages/daemon/src/fleet/edge-join-client.ts",
+    path: "packages/daemon/src/daemon-host/fleet/edge-join-client.ts",
     category: "environment-io",
     subtype: "workspace-bootstrap-scaffolding",
     reason:
@@ -1313,7 +1313,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.983af9eb1df07bc2",
-    path: "packages/daemon/src/fleet/edge-join-client.ts",
+    path: "packages/daemon/src/daemon-host/fleet/edge-join-client.ts",
     category: "environment-io",
     subtype: "workspace-bootstrap-scaffolding",
     reason:
@@ -1323,7 +1323,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.4f62e1d5a38603ae",
-    path: "packages/daemon/src/fleet/walreceiver.ts",
+    path: "packages/daemon/src/daemon-host/fleet/walreceiver.ts",
     category: "environment-io",
     subtype: "fleet-replication-scratch",
     reason:
@@ -1333,7 +1333,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.86c097b43a2b67a1",
-    path: "packages/daemon/src/fleet/walreceiver.ts",
+    path: "packages/daemon/src/daemon-host/fleet/walreceiver.ts",
     category: "environment-io",
     subtype: "fleet-replication-scratch",
     reason:
@@ -1343,7 +1343,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.4d1cb7398be78de6",
-    path: "packages/daemon/src/fleet/walreceiver.ts",
+    path: "packages/daemon/src/daemon-host/fleet/walreceiver.ts",
     category: "environment-io",
     subtype: "fleet-replication-scratch",
     reason:
@@ -1353,7 +1353,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.b3f141dd21d8d0b1",
-    path: "packages/daemon/src/fleet/walreceiver.ts",
+    path: "packages/daemon/src/daemon-host/fleet/walreceiver.ts",
     category: "environment-io",
     subtype: "fleet-replication-scratch",
     reason:
@@ -1363,7 +1363,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.cf6e8fcf123657de",
-    path: "packages/daemon/src/fleet/walreceiver.ts",
+    path: "packages/daemon/src/daemon-host/fleet/walreceiver.ts",
     category: "environment-io",
     subtype: "fleet-replication-scratch",
     reason:
@@ -1373,7 +1373,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.5eeaceccac6eef1d",
-    path: "packages/daemon/src/fleet/walreceiver.ts",
+    path: "packages/daemon/src/daemon-host/fleet/walreceiver.ts",
     category: "environment-io",
     subtype: "fleet-replication-scratch",
     reason:
@@ -1383,7 +1383,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.7a1c9e2b4d6f8012",
-    path: "packages/daemon/src/fleet/walreceiver.ts",
+    path: "packages/daemon/src/daemon-host/fleet/walreceiver.ts",
     category: "environment-io",
     subtype: "fleet-replication-scratch",
     reason:
@@ -1393,7 +1393,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.8b2d0f3c5e7a9123",
-    path: "packages/daemon/src/fleet/walreceiver.ts",
+    path: "packages/daemon/src/daemon-host/fleet/walreceiver.ts",
     category: "environment-io",
     subtype: "fleet-replication-scratch",
     reason:
@@ -1403,7 +1403,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.9c3e1a4d6f8b0234",
-    path: "packages/daemon/src/fleet/walreceiver.ts",
+    path: "packages/daemon/src/daemon-host/fleet/walreceiver.ts",
     category: "environment-io",
     subtype: "fleet-replication-scratch",
     reason:
@@ -1413,7 +1413,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.ad4f2b5e7c9d1345",
-    path: "packages/daemon/src/fleet/walreceiver.ts",
+    path: "packages/daemon/src/daemon-host/fleet/walreceiver.ts",
     category: "environment-io",
     subtype: "fleet-replication-scratch",
     reason:
@@ -1423,7 +1423,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.be503c6f8dae2456",
-    path: "packages/daemon/src/fleet/walreceiver.ts",
+    path: "packages/daemon/src/daemon-host/fleet/walreceiver.ts",
     category: "environment-io",
     subtype: "fleet-replication-scratch",
     reason:
@@ -1433,7 +1433,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.cf614d7e9fbf3567",
-    path: "packages/daemon/src/fleet/walreceiver.ts",
+    path: "packages/daemon/src/daemon-host/fleet/walreceiver.ts",
     category: "environment-io",
     subtype: "fleet-replication-scratch",
     reason:
@@ -1443,7 +1443,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.ef127f14027bb02f",
-    path: "packages/daemon/src/migration-import-oracle-rebuild.ts",
+    path: "packages/daemon/src/daemon-host/migration-import-oracle-rebuild.ts",
     category: "environment-io",
     subtype: "migration-oracle-scratch",
     reason:
@@ -1453,7 +1453,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.6873cfbd268957bd",
-    path: "packages/daemon/src/migration-import-oracle-rebuild.ts",
+    path: "packages/daemon/src/daemon-host/migration-import-oracle-rebuild.ts",
     category: "environment-io",
     subtype: "migration-oracle-scratch",
     reason:
@@ -1463,7 +1463,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.86fb0c028d105218",
-    path: "packages/daemon/src/migration-import-oracle-rebuild.ts",
+    path: "packages/daemon/src/daemon-host/migration-import-oracle-rebuild.ts",
     category: "environment-io",
     subtype: "migration-oracle-scratch",
     reason:
@@ -1473,7 +1473,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.32dc7fc6cbd587cd",
-    path: "packages/daemon/src/migration-import-oracle-rebuild.ts",
+    path: "packages/daemon/src/daemon-host/migration-import-oracle-rebuild.ts",
     category: "environment-io",
     subtype: "migration-oracle-scratch",
     reason:
@@ -1483,7 +1483,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.e02399272b58363c",
-    path: "packages/daemon/src/migration-import-oracle-rebuild.ts",
+    path: "packages/daemon/src/daemon-host/migration-import-oracle-rebuild.ts",
     category: "environment-io",
     subtype: "migration-oracle-scratch",
     reason:
@@ -1493,7 +1493,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.c07c59eed7fad03a",
-    path: "packages/daemon/src/migration-import-oracle-rebuild.ts",
+    path: "packages/daemon/src/daemon-host/migration-import-oracle-rebuild.ts",
     category: "environment-io",
     subtype: "migration-oracle-scratch",
     reason:
@@ -1503,7 +1503,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.70e4977de157f4d9",
-    path: "packages/daemon/src/migration-import-oracle-rebuild.ts",
+    path: "packages/daemon/src/daemon-host/migration-import-oracle-rebuild.ts",
     category: "environment-io",
     subtype: "migration-oracle-scratch",
     reason:
@@ -1513,7 +1513,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.d019bd23ffa62061",
-    path: "packages/daemon/src/migration-import-oracle-rebuild.ts",
+    path: "packages/daemon/src/daemon-host/migration-import-oracle-rebuild.ts",
     category: "environment-io",
     subtype: "migration-oracle-scratch",
     reason:
@@ -1523,7 +1523,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.b548a080b558cfef",
-    path: "packages/daemon/src/migration-import-oracle-rebuild.ts",
+    path: "packages/daemon/src/daemon-host/migration-import-oracle-rebuild.ts",
     category: "environment-io",
     subtype: "migration-oracle-scratch",
     reason:
@@ -1533,7 +1533,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.53b511126c97e1e8",
-    path: "packages/daemon/src/migration-import-oracle-rebuild.ts",
+    path: "packages/daemon/src/daemon-host/migration-import-oracle-rebuild.ts",
     category: "environment-io",
     subtype: "migration-oracle-scratch",
     reason:
@@ -1543,7 +1543,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.cd6fcfe8c25c3338",
-    path: "packages/daemon/src/repo-bootstrap.ts",
+    path: "packages/daemon/src/daemon-host/repo-bootstrap.ts",
     category: "environment-io",
     subtype: "workspace-bootstrap-scaffolding",
     reason:
@@ -1553,7 +1553,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.f91d4dbc214c0e3c",
-    path: "packages/daemon/src/repo-bootstrap.ts",
+    path: "packages/daemon/src/daemon-host/repo-bootstrap.ts",
     category: "environment-io",
     subtype: "workspace-bootstrap-scaffolding",
     reason:
@@ -1563,7 +1563,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.81621353db3b2f8a",
-    path: "packages/daemon/src/repo-bootstrap.ts",
+    path: "packages/daemon/src/daemon-host/repo-bootstrap.ts",
     category: "environment-io",
     subtype: "workspace-bootstrap-scaffolding",
     reason:
@@ -1573,7 +1573,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.d3524ad117c02bfc",
-    path: "packages/daemon/src/repo-bootstrap.ts",
+    path: "packages/daemon/src/daemon-host/repo-bootstrap.ts",
     category: "environment-io",
     subtype: "workspace-bootstrap-scaffolding",
     reason:
@@ -1583,7 +1583,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.b172fdbbdccfd324",
-    path: "packages/daemon/src/repo-bootstrap.ts",
+    path: "packages/daemon/src/daemon-host/repo-bootstrap.ts",
     category: "environment-io",
     subtype: "workspace-bootstrap-scaffolding",
     reason:
@@ -1593,7 +1593,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.236932fbb7b48e53",
-    path: "packages/daemon/src/repo-bootstrap.ts",
+    path: "packages/daemon/src/daemon-host/repo-bootstrap.ts",
     category: "environment-io",
     subtype: "workspace-bootstrap-scaffolding",
     reason:
@@ -1603,7 +1603,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.cabcf5aa63dbec33",
-    path: "packages/daemon/src/repo-bootstrap.ts",
+    path: "packages/daemon/src/daemon-host/repo-bootstrap.ts",
     category: "environment-io",
     subtype: "workspace-bootstrap-scaffolding",
     reason:
@@ -1613,7 +1613,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.fce35847c1d968e8",
-    path: "packages/daemon/src/repo-cell-command-witness.ts",
+    path: "packages/daemon/src/daemon-host/repo-cell-command-witness.ts",
     category: "environment-io",
     subtype: "completion-witness-scratch",
     reason:
@@ -1623,7 +1623,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.8c352b21fa3e0324",
-    path: "packages/daemon/src/repo-cell-command-witness.ts",
+    path: "packages/daemon/src/daemon-host/repo-cell-command-witness.ts",
     category: "environment-io",
     subtype: "completion-witness-scratch",
     reason:
@@ -1633,7 +1633,7 @@ export const nonStateIoDeclarations = Object.freeze([
   },
   {
     id: "environment-io.acc11724f9341ee2",
-    path: "packages/daemon/src/schedule-builtin-executor.ts",
+    path: "packages/daemon/src/daemon-host/schedule-builtin-executor.ts",
     category: "environment-io",
     subtype: "ledger-backup-partial-cleanup",
     reason:

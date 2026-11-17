@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { AgentRuntimeEventV1, DispatchLifecycleRead } from "@harness-anything/kernel";
-import { makeRuntimeSpawner } from "../src/runtime-spawn.ts";
+import { makeRuntimeSpawner } from "../src/daemon-host/runtime-spawn.ts";
 import { definition, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 

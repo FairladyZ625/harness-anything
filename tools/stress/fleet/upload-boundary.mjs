@@ -8,7 +8,7 @@ import {
   runFleetTaskCommandClient,
   runFleetUploadClient,
   runFleetWriteClient,
-} from "../../../packages/daemon/src/fleet/peer.ts";
+} from "../../../packages/daemon/src/daemon-host/fleet/peer.ts";
 import { oracleO1, oracleO3, oracleO6 } from "../core/oracles.mjs";
 import { openFleetCampaignFixture } from "./fleet-fixture.mjs";
 import { completedUpload, killPausedUpload, spawnUploadProcess, waitForMarker } from "./upload-process.mjs";
@@ -215,11 +215,11 @@ export async function runFleetUploadBoundaryCampaign() {
         maxConcurrentClients: 2,
       },
       sourceAnchors: [
-        "packages/daemon/src/fleet/center-listener.ts:221",
-        "packages/daemon/src/fleet/center-listener.ts:271",
-        "packages/daemon/src/fleet/center-listener.ts:298",
-        "packages/daemon/src/fleet/center-listener.ts:340",
-        "packages/daemon/src/fleet/center-listener.ts:442",
+        "packages/daemon/src/daemon-host/fleet/center-listener.ts:221",
+        "packages/daemon/src/daemon-host/fleet/center-listener.ts:271",
+        "packages/daemon/src/daemon-host/fleet/center-listener.ts:298",
+        "packages/daemon/src/daemon-host/fleet/center-listener.ts:340",
+        "packages/daemon/src/daemon-host/fleet/center-listener.ts:442",
       ],
     };
   } finally {

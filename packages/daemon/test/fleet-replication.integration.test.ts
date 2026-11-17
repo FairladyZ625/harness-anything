@@ -13,9 +13,9 @@ import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { makeTaskProjectionReader } from "@harness-anything/storage";
 
-import { createNodeRetirement } from "../src/fleet/node-retirement.ts";
-import { AccessAdminService } from "../src/access-admin-service.ts";
-import { createIdentitySession } from "../src/authorization-provider.ts";
+import { createNodeRetirement } from "../src/daemon-host/fleet/node-retirement.ts";
+import { AccessAdminService } from "../src/daemon-host/access-admin-service.ts";
+import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import {
   fleetReplicationFixture,
   replicationNodes,

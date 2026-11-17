@@ -12,9 +12,9 @@ import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { type ActorIdentity } from "@harness-anything/kernel";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
-import { actionForDaemonMethod, commandClassForAction } from "../src/protocol/daemon-protocol-commands.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import type { RepoCell } from "../src/repo-cell.ts";
+import { actionForDaemonMethod, commandClassForAction } from "../src/daemon-host/protocol/daemon-protocol-commands.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import type { RepoCell } from "../src/daemon-host/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { realizedDecisionBody } from "../../../tools/fixtures/task-plan.mjs";
 

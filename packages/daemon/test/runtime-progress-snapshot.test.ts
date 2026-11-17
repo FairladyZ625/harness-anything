@@ -5,8 +5,11 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { collectRuntimeWorkspaceProgress, runtimeProgressSnapshot } from "../src/runtime-continuation-context.ts";
-import { continuationMission } from "../src/runtime-spawn-fallback.ts";
+import {
+  collectRuntimeWorkspaceProgress,
+  runtimeProgressSnapshot,
+} from "../src/daemon-host/runtime-continuation-context.ts";
+import { continuationMission } from "../src/daemon-host/runtime-spawn-fallback.ts";
 
 const outcome = {
   classification: "provider_fault",

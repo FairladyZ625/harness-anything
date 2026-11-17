@@ -4,10 +4,10 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { resolveContainedPath } from "../src/contained-path.ts";
-import { resolveRuntimeCwd } from "../src/runtime-spawn-mission.ts";
-import { openTerminalHost } from "../src/terminal-host.ts";
-import type { TmuxController } from "../src/terminal-tmux.ts";
+import { resolveContainedPath } from "../src/daemon-host/contained-path.ts";
+import { resolveRuntimeCwd } from "../src/daemon-host/runtime-spawn-mission.ts";
+import { openTerminalHost } from "../src/daemon-host/terminal-host.ts";
+import type { TmuxController } from "../src/daemon-host/terminal-tmux.ts";
 
 const symlinkTests = { skip: process.platform === "win32" ? "requires POSIX file-symbolic-link semantics" : false };
 

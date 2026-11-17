@@ -4,8 +4,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";
-import { allDaemonProtocolMethods } from "../../packages/daemon/src/protocol/daemon-protocol-commands.ts";
-import { daemonGuiStreamFacets } from "../../packages/daemon/src/protocol/daemon-protocol.contract.ts";
+import { allDaemonProtocolMethods } from "../../packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts";
+import { daemonGuiStreamFacets } from "../../packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { isFunctionNode, unwrap } from "./authorization-flow-graph.mjs";
 import { resolvedGuiMainForwarding } from "./authorization-gui-main-source-proof.mjs";
 

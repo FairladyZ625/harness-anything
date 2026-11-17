@@ -13,7 +13,7 @@ on every dispatch, that belongs in `instructions`, not a skill.
 ## Where skills come from
 
 Before writing a path, confirm which root the serving node actually scans. The authoritative reader
-is `packages/daemon/src/agent-skills.ts` (`discoverAgentSkills` / `resolveAgentSkills`); it scans,
+is `packages/daemon/src/daemon-host/agent-skills.ts` (`discoverAgentSkills` / `resolveAgentSkills`); it scans,
 in order:
 
 | Root (relative to the project or home) | Source | Notes |

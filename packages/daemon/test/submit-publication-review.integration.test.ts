@@ -6,9 +6,12 @@ import path from "node:path";
 import test from "node:test";
 import { classifyTextualArtifactPath, sha256Text } from "@harness-anything/kernel";
 import { executionId, fixture, owner, principal, taskId } from "./task-completion-review.fixture.ts";
-import { openRepoWriterCell } from "../src/repo-cell-open.ts";
-import { readRuntimeExecutionPrincipal, runtimeExecutionActor } from "../src/runtime-execution-credential.ts";
-import { acquireWorkspaceLock } from "../src/repo-cell-lock.ts";
+import { openRepoWriterCell } from "../src/daemon-host/repo-cell-open.ts";
+import {
+  readRuntimeExecutionPrincipal,
+  runtimeExecutionActor,
+} from "../src/daemon-host/runtime-execution-credential.ts";
+import { acquireWorkspaceLock } from "../src/daemon-host/repo-cell-lock.ts";
 import { fixtureFence, settleSettingsEvent } from "./repo-settings.fixture.ts";
 import {
   policyTestCenter,

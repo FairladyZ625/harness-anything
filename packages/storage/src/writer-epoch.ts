@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { consumeKnownError } from "@harness-anything/kernel";
+import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import { openSqliteEventStore, resolveActiveGeneration, sqliteLedgerPath } from "./store/sqlite-event-store.ts";
 
 export { WriterEpochError } from "./writer-epoch-contract.ts";
@@ -15,7 +15,7 @@ import {
   type PersistentWriterEpoch,
 } from "./writer-epoch-contract.ts";
 import type { StorageBackendConfig } from "./storage-backend.ts";
-import { openPgWriterEpoch } from "./postgres/pg-writer-epoch.ts";
+import { requireExternalWriterEpochOpener } from "./sql-backend-adapters.ts";
 import { writerEpochStorage } from "./writer-epoch-storage.ts";
 
 type EpochRow = {
@@ -466,7 +466,7 @@ export function openPersistentWriterEpoch(options: {
   readonly storageByRepo?: Readonly<Record<string, StorageBackendConfig>>;
 }): PersistentWriterEpoch {
   if (options.storage?.backend === "postgres" || options.storage?.backend === "pglite")
-    return openPgWriterEpoch({ ...options, storage: options.storage });
+    return requireExternalWriterEpochOpener(options.storage.backend)({ ...options, storage: options.storage });
   /* @gate-identity state-store/execution.source.storage.src.writer-epoch.filesystem-store */ mkdirSync(
     options.stateRoot,
     { recursive: true },
@@ -487,7 +487,7 @@ export function openPersistentWriterEpoch(options: {
     if (!authority) {
       const storage = options.storageByRepo?.[repoId];
       if (storage?.backend === "postgres" || storage?.backend === "pglite") {
-        authority = openPgWriterEpoch({ ...options, storage });
+        authority = requireExternalWriterEpochOpener(storage.backend)({ ...options, storage });
         authorities.set(repoId, authority);
         return authority;
       }

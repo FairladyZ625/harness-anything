@@ -6,11 +6,11 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { Worker } from "node:worker_threads";
 import test from "node:test";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { openRepoCellProxy } from "../src/repo-cell-proxy.ts";
-import { openRepoReadClient, REPO_READ_WORKERS, REPO_READ_QUEUE_LIMIT } from "../src/repo-read-pool.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { openRepoCellProxy } from "../src/daemon-host/repo-cell-proxy.ts";
+import { openRepoReadClient, REPO_READ_WORKERS, REPO_READ_QUEUE_LIMIT } from "../src/daemon-host/repo-read-pool.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
 import { initIngressRepo, rpc } from "./fixtures/runtime-ingress.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { registerBootstrappedDaemonRepo, openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
@@ -124,7 +124,7 @@ test(
     }
     async function openRepoCellProxyForQueue() {
       // Reuse the already attached cell through the public openCell seam without a second writer.
-      const { openRepoReadClient } = await import("../src/repo-read-pool.ts");
+      const { openRepoReadClient } = await import("../src/daemon-host/repo-read-pool.ts");
       const client = openRepoReadClient({ repoId: repoId as never, rootDir: root as never, ownerId: "queue-test" });
       return { read: (method: string) => client.request("read", [method, {}]), close: client.close };
     }
@@ -166,7 +166,7 @@ test("closing a real reader releases SQLite handles before reusing its isolate a
     timings: number[] = [];
   initIngressRepo(root, process.getuid?.() ?? 0);
   const input = { repoId: repoId as never, rootDir: root as never, ownerId: "release-test" },
-    factory: import("../src/repo-read-pool.ts").RepoReadWorkerFactory = (_url, options) => {
+    factory: import("../src/daemon-host/repo-read-pool.ts").RepoReadWorkerFactory = (_url, options) => {
       const worker = new Worker(new URL("./fixtures/read-handle-worker.ts", import.meta.url), {
         ...options,
         workerData: { ...options.workerData, handles: handles.buffer },

@@ -4,7 +4,7 @@ import { appendFileSync, mkdtempSync, rmSync, statSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { tailRuntimeSteerCommands } from "../src/runtime-worker-control.ts";
+import { tailRuntimeSteerCommands } from "../src/daemon-host/runtime-worker-control.ts";
 
 const record = (value: Readonly<Record<string, unknown>>): string =>
   `${JSON.stringify({ schema: "runtime-dispatch-stream/v1", ...value })}\n`;

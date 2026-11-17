@@ -185,6 +185,15 @@ export function daemonWriterSupportsCommitPhase(storage?: DaemonStorageConfig): 
   return storage?.backend === "postgres" || storage?.backend === "pglite";
 }
 
+/** Storage owns backend dispatch; the host only resolves its physical Worker module. */
+export function daemonWriterEntryName(storage?: DaemonStorageConfig): string {
+  return storage?.backend === "postgres"
+    ? "repo-writer-worker-pg"
+    : storage?.backend === "pglite"
+      ? "repo-writer-worker-pglite"
+      : "repo-writer-worker";
+}
+
 /** Network PostgreSQL pins its own MVCC backup cut; local engines retain the writer barrier. */
 export function fleetBackupRequiresWriter(storage?: DaemonStorageConfig): boolean {
   return storage?.backend !== "postgres";

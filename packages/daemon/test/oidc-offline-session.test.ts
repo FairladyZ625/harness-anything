@@ -4,9 +4,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { createIdentitySession } from "../src/authorization-provider.ts";
+import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { type OidcSessionPorts } from "@harness-anything/kernel";
-import { localDefaultBinding } from "../src/daemon-host-binding.ts";
+import { localDefaultBinding } from "../src/daemon-host/daemon-host-binding.ts";
 
 // dec_F01770FD0DCF72683B7C4C7A47/CH6: the provider owns offline idle expiration.
 function offlineFixture(refreshExpiresIn: number, t: TestContext) {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import path from "node:path";
-import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
+import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/daemon-host/client/local-json-rpc-client.ts";
 import { bridgeReady, nav } from "./helpers.mjs";
 
 // 一个项目一个窗口(task_ca1ee6b9e8f83c89cb376e5f07):在真实 Electron 壳里走完约束链——

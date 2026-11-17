@@ -14,7 +14,7 @@ mechanism behind it.
 `codex exec` runs one turn. The turn ends when the model emits an assistant message with no tool
 call. An unattended dispatch has no next user message, so that ending is where the session stops:
 with no settlement action in the stream, the runtime settles it as `worker_stop`
-(`packages/daemon/src/runtime-provider-fault.ts`).
+(`packages/daemon/src/daemon-host/runtime-provider-fault.ts`).
 
 ## Procedure
 

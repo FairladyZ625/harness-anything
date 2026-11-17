@@ -2,7 +2,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentDeclarationV1, EntityStore } from "@harness-anything/kernel";
-import { readAgentDeclaration, readAgentDeclarationResolution } from "../src/agent-declaration-resolution.ts";
+import {
+  readAgentDeclaration,
+  readAgentDeclarationResolution,
+} from "../src/daemon-host/agent-declaration-resolution.ts";
 
 const installed: AgentDeclarationV1 = {
   schema: "agent-declaration/v1",

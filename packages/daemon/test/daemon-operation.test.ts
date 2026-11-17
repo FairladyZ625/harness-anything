@@ -6,7 +6,7 @@ import {
   observeDaemonOperation,
   markDaemonOperationPhase,
   type DaemonOperationObserver,
-} from "../src/daemon-operation.ts";
+} from "../src/daemon-host/daemon-operation.ts";
 import { fleetBaseBackupTrace } from "@harness-anything/storage";
 
 function observer() {

@@ -5,8 +5,8 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { keycloakNodeRegistry, prepareFleetCenterAdmission } from "../src/fleet-center-admission.ts";
-import { validateCertificateNames } from "../src/tls-listener-admission.ts";
+import { keycloakNodeRegistry, prepareFleetCenterAdmission } from "../src/daemon-host/fleet-center-admission.ts";
+import { validateCertificateNames } from "../src/daemon-host/tls-listener-admission.ts";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
 import { fakeKeycloak, keycloakRealm, keycloakUrl } from "./keycloak.fixtures.ts";
 

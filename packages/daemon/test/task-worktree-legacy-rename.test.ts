@@ -7,9 +7,9 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import type { TaskV2 } from "@harness-anything/kernel";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
-import { renameLegacyTaskWorktrees } from "../src/task-worktree-legacy-rename.ts";
-import { checkoutTaskWorktree } from "../src/task-worktree.ts";
-import { noWorktreeSetup } from "../src/worktree-setup.ts";
+import { renameLegacyTaskWorktrees } from "../src/daemon-host/task-worktree-legacy-rename.ts";
+import { checkoutTaskWorktree } from "../src/daemon-host/task-worktree.ts";
+import { noWorktreeSetup } from "../src/daemon-host/worktree-setup.ts";
 
 const repositoryDiff = () => ({ profile: { outputShape: "repository-diff" } });
 

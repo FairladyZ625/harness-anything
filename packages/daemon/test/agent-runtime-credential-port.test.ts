@@ -6,7 +6,7 @@ import {
   isCredentialReferenceText,
   runCredentialCommand,
   type CredentialCommand,
-} from "../src/agent-runtime-credential-port.ts";
+} from "../src/daemon-host/agent-runtime-credential-port.ts";
 
 const namespace = "com.harness-anything.runtime-instance";
 type Recorded = { command: CredentialCommand; results: string[] };

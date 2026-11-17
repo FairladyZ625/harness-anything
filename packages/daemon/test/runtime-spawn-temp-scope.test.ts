@@ -9,10 +9,10 @@ import {
   adoptRuntimes,
   reclaimFailedLaunchTempDirectory,
   sweepSettledRuntimeTempDirectories,
-} from "../src/runtime-spawn-adoption.ts";
-import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
-import type { RepoCellBinding } from "../src/repo-cell-types.ts";
-import type { RuntimeSpawnerInput } from "../src/runtime-spawn-types.ts";
+} from "../src/daemon-host/runtime-spawn-adoption.ts";
+import { makeRuntimeSpawner } from "../src/daemon-host/runtime-spawner.ts";
+import type { RepoCellBinding } from "../src/daemon-host/repo-cell-types.ts";
+import type { RuntimeSpawnerInput } from "../src/daemon-host/runtime-spawn-types.ts";
 import { emptyDispatchLifecycleRead, lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
 
 const binding: RepoCellBinding = {

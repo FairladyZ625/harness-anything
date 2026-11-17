@@ -1,4 +1,4 @@
-import { systemTmuxController } from "../../src/terminal-tmux.ts";
+import { systemTmuxController } from "../../src/daemon-host/terminal-tmux.ts";
 
 // Keep the pre-existing registry entries live inside the actual writer isolate, without
 // discovering or changing a host tmux server. No terminal is spawned in this worker.

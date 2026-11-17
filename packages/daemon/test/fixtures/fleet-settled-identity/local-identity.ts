@@ -3,9 +3,9 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { waitForArrival, watchDirectoryArrival } from "../../../../../tools/fixtures/event-arrival.ts";
-import { readDispatchEvidenceState } from "../../../src/dispatch-evidence-state.ts";
-import { readDispatchStreamSummary } from "../../../src/dispatch-stream.ts";
-import { readRuntimeExecutionPrincipal } from "../../../src/runtime-execution-principal-store.ts";
+import { readDispatchEvidenceState } from "../../../src/daemon-host/dispatch-evidence-state.ts";
+import { readDispatchStreamSummary } from "../../../src/daemon-host/dispatch-stream.ts";
+import { readRuntimeExecutionPrincipal } from "../../../src/daemon-host/runtime-execution-principal-store.ts";
 
 interface LocalIdentityInput {
   readonly rootDir: string;

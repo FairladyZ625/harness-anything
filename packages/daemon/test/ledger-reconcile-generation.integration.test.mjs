@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { prepareLegacyAudit } from "./fixtures/g38-read-legacy.mjs";
-import { runLedgerReconcileAction } from "../src/repo-cell-migration-actions.ts";
+import { runLedgerReconcileAction } from "../src/daemon-host/repo-cell-migration-actions.ts";
 
 test("ledger-reconcile audits generation 1 even when the canonical generation has advanced", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-reconcile-gen1-")),

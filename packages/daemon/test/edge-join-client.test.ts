@@ -9,12 +9,16 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createServer as createTlsServer } from "node:tls";
-import { createEdgeJoinProgressTap, joinFleetEdge, type EdgeJoinClientPorts } from "../src/fleet/edge-join-client.ts";
-import { readFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
-import { createEdgeJoinStore, encodeEdgeJoinLink } from "../src/fleet/edge-join.ts";
-import { reportFleetDeviceLogin } from "../src/fleet/peer.ts";
-import { normalizeFleetGitRemote, readFleetCenterGitMetadata } from "../src/fleet-edge-git-preflight.ts";
-import { fetchWithTlsCa } from "../src/tls-ca-certificate.ts";
+import {
+  createEdgeJoinProgressTap,
+  joinFleetEdge,
+  type EdgeJoinClientPorts,
+} from "../src/daemon-host/fleet/edge-join-client.ts";
+import { readFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
+import { createEdgeJoinStore, encodeEdgeJoinLink } from "../src/daemon-host/fleet/edge-join.ts";
+import { reportFleetDeviceLogin } from "../src/daemon-host/fleet/peer.ts";
+import { normalizeFleetGitRemote, readFleetCenterGitMetadata } from "../src/daemon-host/fleet-edge-git-preflight.ts";
+import { fetchWithTlsCa } from "../src/daemon-host/tls-ca-certificate.ts";
 
 test("one invitation creates and syncs an independent workspace for every repository", async (t) => {
   const temp = mkdtempSync(path.join(tmpdir(), "ha-edge-join-client-")),

@@ -18,13 +18,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
-import { credentialPort, runCredentialCommand } from "../src/agent-runtime-credential-port.ts";
+import { credentialPort, runCredentialCommand } from "../src/daemon-host/agent-runtime-credential-port.ts";
 import {
   discoverRuntimeInstallations,
   openRuntimeInstanceStore,
   type RuntimeInstallationWitness,
-} from "../src/agent-runtime-instances.ts";
-import { discoverRuntimeModelCatalog } from "../src/agent-runtime-installation-discovery.ts";
+} from "../src/daemon-host/agent-runtime-instances.ts";
+import { discoverRuntimeModelCatalog } from "../src/daemon-host/agent-runtime-installation-discovery.ts";
 import { codedAs, observed } from "./agent-runtime-instance-environment.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 

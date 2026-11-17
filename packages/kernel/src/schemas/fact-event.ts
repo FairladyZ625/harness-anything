@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 import { validateFactEvent, type FactEventV1 } from "../domain/fact-event.ts";
 
 export const FactEventSchema = Schema.declare((value): value is FactEventV1 => validateFactEvent(value).length === 0, {

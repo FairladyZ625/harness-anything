@@ -7,9 +7,9 @@ import path from "node:path";
 import test from "node:test";
 import { Worker } from "node:worker_threads";
 import { policyTestCenter, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openPersistentWriterEpoch } from "@harness-anything/storage";
-import { openWriterSupervisor, WRITER_IDLE_TIMEOUT_MS } from "../src/writer-supervisor.ts";
+import { openWriterSupervisor, WRITER_IDLE_TIMEOUT_MS } from "../src/daemon-host/writer-supervisor.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./task-surface.fixtures.ts";
@@ -127,14 +127,12 @@ test("writer supervisor observes internal runtime work draining to zero", { time
       {
         onPublishedStatus: (status) => publishedQueueDepths.push(status.queueDepth),
         createWorker: (url, options) => {
-          const worker = new Worker(url, options),
-            post = worker.postMessage.bind(worker);
+          const worker = new Worker(url, options);
           let idleRequest: string | undefined;
-          worker.postMessage = (message: unknown, transferList) => {
+          worker.on("orchestration-post", (message: unknown) => {
             const control = message as { command?: string; requestId?: string };
             if (control.command === "hibernate") idleRequest = control.requestId;
-            post(message, transferList);
-          };
+          });
           worker.on("message", (message: { requestId?: string; value?: unknown }) => {
             if (idleRequest && message.requestId === idleRequest) idleReply.resolve(message.value === true);
           });

@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 test("daemon PID observation does not load the kernel runtime", () => {
-  const entry = new URL("../src/daemon-singleton.ts", import.meta.url).href;
+  const entry = new URL("../src/daemon-host/daemon-singleton.ts", import.meta.url).href;
   const result = spawnSync(
     process.execPath,
     [

@@ -1,7 +1,7 @@
 [
-  { "path": "packages/daemon/src/client/daemon-autostart.ts", "module": "daemon" },
-  { "path": "packages/daemon/src/process-port.ts", "module": "daemon" },
-  { "path": "packages/daemon/src/protocol/daemon-protocol.contract.ts", "module": "daemon" },
+  { "path": "packages/daemon/src/daemon-host/client/daemon-autostart.ts", "module": "daemon" },
+  { "path": "packages/daemon/src/daemon-host/process-port.ts", "module": "daemon" },
+  { "path": "packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts", "module": "daemon" },
   { "path": "packages/cli/src/daemon/client.ts", "module": "cli" },
   { "path": "packages/cli/src/daemon/control.ts", "module": "cli" },
   { "path": "packages/cli/src/index.ts", "module": "cli" },

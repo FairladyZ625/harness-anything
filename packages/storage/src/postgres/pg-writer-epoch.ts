@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { createSqlTaskQueryReader } from "../pg/sql-task-query-reader.ts";
+import { resolvePostgresEventStoreScope } from "../pg/backend.ts";
+import { createPgTaskQueryReader, type PgTaskQueryReader } from "../pg/pg-task-query-reader.ts";
+import { requireSqlTaskQueryReader } from "../sql-backend-adapters.ts";
 import type { PostgresStorageBackendConfig, PGliteStorageBackendConfig } from "../storage-backend.ts";
 import { WriterEpochError, type PersistentWriterEpoch, type WriterEpochLease } from "../writer-epoch-contract.ts";
 import type { PgEpochOperation } from "./pg-epoch-transaction.ts";
@@ -15,16 +17,25 @@ export function openPgWriterEpoch(options: {
     throw new WriterEpochError("writer_epoch_invalid", "PostgreSQL writer epoch requires an authority connection");
   const holderId = options.holderId ?? `center-${process.pid}-${randomUUID()}`,
     now = options.now ?? (() => new Date().toISOString()),
-    readers = new Map<string, ReturnType<typeof createSqlTaskQueryReader>>(),
+    readers = new Map<string, PgTaskQueryReader>(),
     readerFor = (repoId: string) => {
       let reader = readers.get(repoId);
       if (!reader) {
-        reader = createSqlTaskQueryReader({
-          storage: options.storage,
-          epochAuthority: true,
-          requireRuntimeRole: true,
-          repoId,
-        });
+        reader =
+          options.storage.backend === "postgres"
+            ? createPgTaskQueryReader({
+                scope: resolvePostgresEventStoreScope(options.storage.scope),
+                connectionString: options.storage.connectionString,
+                authorityConnectionString: options.storage.authorityConnectionString,
+                requireRuntimeRole: true,
+                repoId,
+              })
+            : requireSqlTaskQueryReader("pglite")({
+                storage: options.storage,
+                epochAuthority: true,
+                requireRuntimeRole: true,
+                repoId,
+              });
         readers.set(repoId, reader);
       }
       return reader;

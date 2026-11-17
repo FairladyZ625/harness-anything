@@ -5,13 +5,16 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
+import {
+  openRuntimeInstanceStore,
+  type RuntimeInstallationWitness,
+} from "../src/daemon-host/agent-runtime-instances.ts";
 import {
   applyGithubLaunchCredential,
   githubCredentialUnavailableNotice,
   resolveOperatorGithubToken,
-} from "../src/runtime-github-credentials.ts";
-import { scrubProviderValue } from "../src/secret-scrub.ts";
+} from "../src/daemon-host/runtime-github-credentials.ts";
+import { scrubProviderValue } from "../src/runtime-engine/secret-scrub.ts";
 
 const installation: RuntimeInstallationWitness = {
   installationId: "codex-github-inheritance",

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { canonicalRoot, workspaceId } from "../../packages/daemon/src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../../packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell } from "../../packages/daemon/test/repo-settings.fixture.ts";
 import { withPolicyGroup } from "../../packages/daemon/test/keycloak-policy.fixtures.ts";
 import { actor, initRepo } from "../../packages/daemon/test/task-surface.fixtures.ts";

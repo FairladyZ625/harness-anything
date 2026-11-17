@@ -2,8 +2,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { decisionPointBindingDigest } from "@harness-anything/kernel";
-import { readDefaultVerticalDefinition } from "../src/vertical-declaration-action.ts";
-import { readDecisionPointSettings } from "../src/decision-point-settings-read.ts";
+import { readDefaultVerticalDefinition } from "../src/daemon-host/vertical-declaration-action.ts";
+import { readDecisionPointSettings } from "../src/daemon-host/decision-point-settings-read.ts";
 
 test("settings serves each declared point with the executor digest and redacted outgoing projection", () => {
   const vertical = readDefaultVerticalDefinition(),

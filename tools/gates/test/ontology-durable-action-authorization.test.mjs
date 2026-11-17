@@ -148,7 +148,7 @@ function threeStage(t, ids, mutate, { dir = sourceCopy(t), reason } = {}) {
   return mutated;
 }
 
-const queuedRoute = "packages/daemon/src/repo-cell-command-run.ts";
+const queuedRoute = "packages/daemon/src/daemon-host/repo-cell-command-run.ts";
 
 partitionedTest("removing the queued RepoCell authorization call turns its durable commands red", (t) => {
   threeStage(t, ["task-create", "todo-add"], (dir) =>
@@ -189,7 +189,7 @@ partitionedTest("a declared local-transport route is red once its transport exit
   const stop = threeStage(t, ["daemon-stop"], (dir) =>
     edit(
       dir,
-      "packages/daemon/src/protocol/json-rpc-dispatch-support.ts",
+      "packages/daemon/src/daemon-host/protocol/json-rpc-dispatch-support.ts",
       'if (authContext.transportKind !== "unix-socket" || authContext.nodePrincipal)',
       "if (authContext.nodePrincipal)",
     ),
@@ -198,7 +198,7 @@ partitionedTest("a declared local-transport route is red once its transport exit
   threeStage(t, ["daemon-fleet-edge-sync"], (dir) =>
     edit(
       dir,
-      "packages/daemon/src/daemon-host-runtime-api.ts",
+      "packages/daemon/src/daemon-host/daemon-host-runtime-api.ts",
       "        context.localOnly(auth);\n        const persistedConfig = readFleetEdgeConfig(request.workspaceRoot),",
       "        const persistedConfig = readFleetEdgeConfig(request.workspaceRoot),",
     ),
@@ -206,7 +206,7 @@ partitionedTest("a declared local-transport route is red once its transport exit
   threeStage(t, ["repo-bootstrap"], (dir) =>
     edit(
       dir,
-      "packages/daemon/src/daemon-host-repository-api.ts",
+      "packages/daemon/src/daemon-host/daemon-host-repository-api.ts",
       "      context.localOnly(auth);\n      const requestedRoot",
       "      const requestedRoot",
     ),
@@ -224,7 +224,7 @@ partitionedTest("a local-process command must send the daemon only a read", () =
   assert.equal(rows(dir, ["daemon-start"], writing)["daemon-start"].ok, false);
 });
 
-const accessAdmin = "packages/daemon/src/access-admin-service.ts";
+const accessAdmin = "packages/daemon/src/daemon-host/access-admin-service.ts";
 
 partitionedTest("an own-session route is red once the account it changes no longer comes from the session", (t) => {
   // The person named by the request, not the signed-in person, would receive the new password.
@@ -272,7 +272,7 @@ partitionedTest("an AuthorizationPort decision for another action does not autho
   threeStage(t, ["permission-request-decide"], (dir) =>
     edit(
       dir,
-      "packages/daemon/src/access-admin-service.ts",
+      "packages/daemon/src/daemon-host/access-admin-service.ts",
       'action: "permission-request-decide",',
       'action: "permission-request-create",',
     ),
@@ -290,7 +290,7 @@ partitionedTest("a kind-rewrite route is traced against the kind it actually aut
   for (const id of rewriteRows) assert.ok(rows(dir, rewriteRows, undefined, today)[id].ok, `${id}: green`);
   const restore = edit(
     mutation,
-    "packages/daemon/src/repo-cell-authorization.ts",
+    "packages/daemon/src/daemon-host/repo-cell-authorization.ts",
     'if (authorizationDecision.outcome === "denied")\n    throw cellCodedError(\n      "authorization_denied",\n      authorizationDecision.nextActions.join(" ") || `${input.action.kind} requires repository write authority.`,',
     'if (authorizationDecision.outcome === "denied")\n    void cellCodedError(\n      "authorization_denied",\n      authorizationDecision.nextActions.join(" ") || `${input.action.kind} requires repository write authority.`,',
   );
@@ -420,7 +420,7 @@ partitionedTest("a same-named prepared handler in an unrelated file does not sta
     (copy) => {
       const restore = edit(
           copy,
-          "packages/daemon/src/write-queue-external-reads.ts",
+          "packages/daemon/src/daemon-host/write-queue-external-reads.ts",
           "export function readBeforeWriteQueue(",
           "export function disconnectedPreparation(",
         ),
@@ -439,7 +439,7 @@ partitionedTest("an equivalent prepared publication written as a function expres
   const dir = sourceCopy(t);
   edit(
     dir,
-    "packages/daemon/src/write-queue-external-reads.ts",
+    "packages/daemon/src/daemon-host/write-queue-external-reads.ts",
     "return async (_action: RepoTaskAction, executionBinding: RepoCellBinding) => {",
     "return async function (_action: RepoTaskAction, executionBinding: RepoCellBinding) {",
   );
@@ -451,7 +451,7 @@ partitionedTest("edge-join is red once its daemon-repo-register denial no longer
   threeStage(t, ["edge-join"], (dir) =>
     edit(
       dir,
-      "packages/daemon/src/host-action-authorization.ts",
+      "packages/daemon/src/daemon-host/host-action-authorization.ts",
       'if (decision.outcome === "denied")\n    throw Object.assign(',
       'if (decision.outcome === "denied")\n    void Object.assign(',
     ),
@@ -467,7 +467,7 @@ partitionedTest("an authorization on only one branch of a test does not authoriz
     (dir) =>
       edit(
         dir,
-        "packages/daemon/src/daemon-host-runtime-api.ts",
+        "packages/daemon/src/daemon-host/daemon-host-runtime-api.ts",
         "const authorizationDecision = await requireAuthorizedFleetAction({\n        kind: actionKind,",
         "let authorizationDecision: AuthorizationDecision | undefined;\n      if (payload.probe !== true)\n        authorizationDecision = await requireAuthorizedFleetAction({\n        kind: actionKind,",
       ),
@@ -543,12 +543,12 @@ test("an undeclared native effect route cannot bypass descriptor ownership", asy
   );
   writeRepoFile(
     root,
-    "packages/daemon/src/protocol/daemon-protocol.contract.ts",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts",
     `export const daemonProtocolCommands = []; export const daemonGuiActionMethods = [];`,
   );
   writeRepoFile(
     root,
-    "packages/daemon/src/protocol/daemon-protocol-commands.ts",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts",
     `export const daemonProtocolMethods = [];`,
   );
   await assert.rejects(loadAuthorizationInputs(root), /does not resolve to its owning authorization descriptor/u);
@@ -565,12 +565,12 @@ test("a source cannot borrow another action's authorization route", async (t) =>
   );
   writeRepoFile(
     root,
-    "packages/daemon/src/protocol/daemon-protocol.contract.ts",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts",
     `export const daemonProtocolCommands = [{id:'task-start',method:'repo.task.run',commandClass:'repo-write'}]; export const daemonGuiActionMethods = [];`,
   );
   writeRepoFile(
     root,
-    "packages/daemon/src/protocol/daemon-protocol-commands.ts",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts",
     `export const daemonProtocolMethods = [];`,
   );
   await assert.rejects(loadAuthorizationInputs(root), /does not resolve to its owning authorization descriptor/u);
@@ -1119,7 +1119,7 @@ partitionedTest("host source validation remains mandatory after generic tracking
   const dir = sourceCopy(t);
   const restore = edit(
     dir,
-    "packages/daemon/src/daemon-host-runtime-api.ts",
+    "packages/daemon/src/daemon-host/daemon-host-runtime-api.ts",
     'runtimeIngress: async (repoId, action, auth) => {\n      context.requireHostMode(repoId, commandDescriptorForAction("runtime-run"), auth);',
     'runtimeIngress: async (repoId, action, auth) => {\n      if (false) context.requireHostMode(repoId, commandDescriptorForAction("runtime-run"), auth);',
   );
@@ -1178,7 +1178,7 @@ function assertHostAdmissionScope(t, file, topology) {
       prefix = `${member} => {\n      `;
     const restore = edit(
       dir,
-      `packages/daemon/src/${file}`,
+      `packages/daemon/src/daemon-host/${file}`,
       prefix + `context.requireHostMode(repoId, ${topology}, auth);`,
       prefix + `context.requireHostMode(${replacement});`,
     );
@@ -1205,7 +1205,7 @@ partitionedTest("migration sources fail when both entry paths replace addFact wi
   };
   assert.equal(inspect(repoRoot).ok, true);
   const dir = sourceCopy(t),
-    file = "packages/daemon/src/migration-import.ts";
+    file = "packages/daemon/src/daemon-host/migration-import.ts";
   const first = edit(dir, file, "}, addFact);", "}, () => undefined);");
   const second = edit(dir, file, "        addFact,\n      );", "        () => undefined,\n      );");
   assert.equal(inspect(dir).ok, false);
@@ -1278,7 +1278,7 @@ partitionedTest(
                     ...(action.ontology?.sources ?? []),
                     {
                       candidateId:
-                        "action:packages/daemon:packages/daemon/src/task-action-catalog-runtime.ts#leakProbe:00000000",
+                        "action:packages/daemon:packages/daemon/src/daemon-host/task-action-catalog-runtime.ts#leakProbe:00000000",
                       route: "task-create",
                       role: "effect",
                     },
@@ -1360,7 +1360,7 @@ partitionedTest("descriptor rows reject a source service whose allowed-decision 
   threeStage(t, ["task-transition"], (dir) =>
     edit(
       dir,
-      "packages/daemon/src/repo-cell-proof.ts",
+      "packages/daemon/src/daemon-host/repo-cell-proof.ts",
       'if (!binding.authorizationDecision || binding.authorizationDecision.outcome !== "allowed")',
       "if (false)",
     ),

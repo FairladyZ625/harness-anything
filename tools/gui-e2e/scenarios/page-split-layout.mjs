@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { assertUnscrolledLayout } from "./helpers.mjs";
-import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
+import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/daemon-host/client/local-json-rpc-client.ts";
 
 /** Real route coverage for page region docking splits (task_033760e2…). Isolated daemon data,
  * hidden Electron, actual 1440/1120 content sizes; no production mutations or host focus.

@@ -1,7 +1,7 @@
 import { fillPgDefaultEventSummaries, pgDefaultEventSummaryEntry } from "./pg-event-read-index-migration.ts";
 import { pgEventShapeReplayInput } from "./pg-event-shape-replay.ts";
 import { decideRawTaskLease } from "@harness-anything/kernel/internal/domain/task-lease-policy.ts";
-import { relationCreatedEventForReplay } from "@harness-anything/kernel";
+import { relationCreatedEventForReplay } from "@harness-anything/kernel/internal/domain/relation-event.ts";
 import { initializePgDecisionReadStatus } from "./pg-decision-read-status.ts";
 import {
   canonicalDocumentClaims,

@@ -14,14 +14,14 @@ import {
   sqliteLedgerPath,
   startBaseBackup,
 } from "@harness-anything/storage";
-import { installReplicaGeneration, readReplicaGeneration } from "../src/fleet/replica-generation.ts";
-import { readEdgeRuntimeRepository } from "../src/fleet-edge-runtime-read.ts";
+import { installReplicaGeneration, readReplicaGeneration } from "../src/fleet-sync/fleet/replica-generation.ts";
+import { readEdgeRuntimeRepository } from "../src/daemon-host/fleet-edge-runtime-read.ts";
 import {
   applyFleetMirrorCut,
   fleetMirrorTaskPaths,
   locateFleetMirrorView,
   scanFleetMirrorWorktree,
-} from "../src/fleet-edge-mirror.ts";
+} from "../src/daemon-host/fleet-edge-mirror.ts";
 
 interface Fixture {
   readonly root: string;

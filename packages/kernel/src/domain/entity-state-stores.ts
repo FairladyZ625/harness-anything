@@ -248,7 +248,7 @@ const physicalSourceStoreRows = Object.freeze([
   {
     owner: "execution",
     id: "execution.dispatch-stream",
-    module: "packages/daemon/src/dispatch-stream.ts",
+    module: "packages/daemon/src/daemon-host/dispatch-stream.ts",
     kind: "filesystem-store",
     role: "authority",
     residency: "runtime-local",
@@ -256,7 +256,7 @@ const physicalSourceStoreRows = Object.freeze([
   {
     owner: "execution",
     id: "execution.dispatch-stream-archive",
-    module: "packages/daemon/src/dispatch-stream-archive.ts",
+    module: "packages/daemon/src/daemon-host/dispatch-stream-archive.ts",
     kind: "filesystem-store",
     role: "authority",
     residency: "runtime-local",
@@ -264,7 +264,7 @@ const physicalSourceStoreRows = Object.freeze([
   {
     owner: "execution",
     id: "execution.dispatch-stream-compaction",
-    module: "packages/daemon/src/dispatch-stream-compaction.ts",
+    module: "packages/daemon/src/daemon-host/dispatch-stream-compaction.ts",
     kind: "filesystem-store",
     role: "authority",
     residency: "runtime-local",
@@ -272,7 +272,7 @@ const physicalSourceStoreRows = Object.freeze([
   {
     owner: "execution",
     id: "execution.worktree-binding",
-    module: "packages/daemon/src/task-worktree.ts",
+    module: "packages/daemon/src/daemon-host/task-worktree.ts",
     kind: "filesystem-store",
     role: "authority",
     residency: "runtime-local",
@@ -280,7 +280,7 @@ const physicalSourceStoreRows = Object.freeze([
   {
     owner: "runtime-instance",
     id: "runtime-instance.access-admin",
-    module: "packages/daemon/src/access-admin-state.ts",
+    module: "packages/daemon/src/daemon-host/access-admin-state.ts",
     kind: "filesystem-store",
     role: "authority",
     residency: "runtime-local",
@@ -288,7 +288,7 @@ const physicalSourceStoreRows = Object.freeze([
   {
     owner: "runtime-instance",
     id: "runtime-instance.provider-home",
-    module: "packages/daemon/src/agent-runtime-instance-storage.ts",
+    module: "packages/daemon/src/daemon-host/agent-runtime-instance-storage.ts",
     kind: "filesystem-store",
     role: "authority",
     residency: "runtime-local",
@@ -296,7 +296,7 @@ const physicalSourceStoreRows = Object.freeze([
   {
     owner: "runtime-instance",
     id: "runtime-instance.store",
-    module: "packages/daemon/src/agent-runtime-instance-store.ts",
+    module: "packages/daemon/src/daemon-host/agent-runtime-instance-store.ts",
     kind: "filesystem-store",
     role: "authority",
     residency: "runtime-local",
@@ -304,7 +304,7 @@ const physicalSourceStoreRows = Object.freeze([
   {
     owner: "runtime-instance",
     id: "runtime-instance.daemon-stopped-marker",
-    module: "packages/daemon/src/client/daemon-autostart.ts",
+    module: "packages/daemon/src/daemon-host/client/daemon-autostart.ts",
     kind: "filesystem-store",
     role: "authority",
     residency: "host-local",
@@ -312,7 +312,7 @@ const physicalSourceStoreRows = Object.freeze([
   {
     owner: "runtime-instance",
     id: "runtime-instance.daemon-singleton",
-    module: "packages/daemon/src/daemon-singleton.ts",
+    module: "packages/daemon/src/daemon-host/daemon-singleton.ts",
     kind: "filesystem-store",
     role: "authority",
     residency: "host-local",
@@ -320,7 +320,7 @@ const physicalSourceStoreRows = Object.freeze([
   {
     owner: "runtime-instance",
     id: "runtime-instance.oidc-center-selection",
-    module: "packages/daemon/src/oidc-center-selection.ts",
+    module: "packages/daemon/src/daemon-host/oidc-center-selection.ts",
     kind: "filesystem-store",
     role: "authority",
     residency: "runtime-local",
@@ -328,7 +328,7 @@ const physicalSourceStoreRows = Object.freeze([
   {
     owner: "runtime-instance",
     id: "runtime-instance.provider-health",
-    module: "packages/daemon/src/runtime-provider-health.ts",
+    module: "packages/daemon/src/runtime-engine/runtime-provider-health.ts",
     kind: "filesystem-store",
     role: "authority",
     residency: "runtime-local",
@@ -336,7 +336,7 @@ const physicalSourceStoreRows = Object.freeze([
   {
     owner: "script-execution",
     id: "script-execution.skill-eval-catalog",
-    module: "packages/daemon/src/skill-eval-production.ts",
+    module: "packages/daemon/src/daemon-host/skill-eval-production.ts",
     kind: "filesystem-store",
     role: "authority",
     residency: "runtime-local",
@@ -344,7 +344,7 @@ const physicalSourceStoreRows = Object.freeze([
   {
     owner: "document",
     id: "document.route-owned-worktree-repair",
-    module: "packages/daemon/src/doc-sync-candidate-scanner.ts",
+    module: "packages/daemon/src/daemon-host/doc-sync-candidate-scanner.ts",
     kind: "filesystem-store",
     role: "projection",
     residency: "runtime-local",
@@ -358,7 +358,7 @@ const physicalSourceStoreRows = Object.freeze([
   {
     owner: "document",
     id: "document.claim-recycle",
-    module: "packages/daemon/src/doc-sync-details.ts",
+    module: "packages/daemon/src/daemon-host/doc-sync-details.ts",
     kind: "filesystem-store",
     role: "authority",
     residency: "runtime-local",
@@ -366,7 +366,7 @@ const physicalSourceStoreRows = Object.freeze([
   {
     owner: "document",
     id: "document.fleet-edge-content",
-    module: "packages/daemon/src/fleet-edge-content.ts",
+    module: "packages/daemon/src/daemon-host/fleet-edge-content.ts",
     kind: "filesystem-store",
     role: "projection",
     residency: "runtime-local",
@@ -380,7 +380,7 @@ const physicalSourceStoreRows = Object.freeze([
   {
     owner: "task",
     id: "task.replica-view-relocation",
-    module: "packages/daemon/src/fleet-edge-workspace-migration.ts",
+    module: "packages/daemon/src/daemon-host/fleet-edge-workspace-migration.ts",
     kind: "filesystem-store",
     role: "projection",
     residency: "runtime-local",
@@ -394,7 +394,7 @@ const physicalSourceStoreRows = Object.freeze([
   {
     owner: "document",
     id: "document.fleet-claim-cleanup",
-    module: "packages/daemon/src/fleet/center-lease-claims.ts",
+    module: "packages/daemon/src/daemon-host/fleet/center-lease-claims.ts",
     kind: "filesystem-store",
     role: "authority",
     residency: "runtime-local",
@@ -402,7 +402,7 @@ const physicalSourceStoreRows = Object.freeze([
   {
     owner: "document",
     id: "document.fleet-upload-staging",
-    module: "packages/daemon/src/fleet/center-listener.ts",
+    module: "packages/daemon/src/daemon-host/fleet/center-listener.ts",
     kind: "filesystem-store",
     role: "authority",
     residency: "runtime-local",
@@ -410,7 +410,7 @@ const physicalSourceStoreRows = Object.freeze([
   {
     owner: "task",
     id: "task.replica-generation",
-    module: "packages/daemon/src/fleet/replica-generation.ts",
+    module: "packages/daemon/src/fleet-sync/fleet/replica-generation.ts",
     kind: "filesystem-store",
     role: "projection",
     residency: "runtime-local",
@@ -425,7 +425,7 @@ const physicalSourceStoreRows = Object.freeze([
   {
     owner: "task",
     id: "task.replica-wal-objects",
-    module: "packages/daemon/src/fleet/walreceiver.ts",
+    module: "packages/daemon/src/daemon-host/fleet/walreceiver.ts",
     kind: "filesystem-store",
     role: "projection",
     residency: "runtime-local",
@@ -439,7 +439,7 @@ const physicalSourceStoreRows = Object.freeze([
   {
     owner: "fact",
     id: "fact.distill-candidates",
-    module: "packages/daemon/src/repo-cell-errors.ts",
+    module: "packages/daemon/src/daemon-host/repo-cell-errors.ts",
     kind: "filesystem-store",
     role: "authority",
     residency: "runtime-local",
@@ -447,7 +447,7 @@ const physicalSourceStoreRows = Object.freeze([
   {
     owner: "execution",
     id: "execution.workspace-writer-lock",
-    module: "packages/daemon/src/repo-cell-lock.ts",
+    module: "packages/daemon/src/daemon-host/repo-cell-lock.ts",
     kind: "filesystem-store",
     role: "authority",
     residency: "runtime-local",
@@ -455,7 +455,7 @@ const physicalSourceStoreRows = Object.freeze([
   {
     owner: "runtime-instance",
     id: "runtime-instance.daemon-pid",
-    module: "packages/daemon/src/runtime.ts",
+    module: "packages/daemon/src/daemon-host/runtime.ts",
     kind: "filesystem-store",
     role: "authority",
     residency: "host-local",
@@ -801,6 +801,8 @@ const physicalSourceStoreRows = Object.freeze([
       "document_head_meta",
       "attach_migration_scan_meta",
       "command_outcome",
+      "git_outbox",
+      "git_outbox_baseline",
       "writer_lease",
       "lease_cas",
       "lease_interval",

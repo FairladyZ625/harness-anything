@@ -8,8 +8,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import test from "node:test";
-import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
-import { createIdentityManagement } from "../src/authorization-provider.ts";
+import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
+import { createIdentityManagement } from "../src/daemon-host/authorization-provider.ts";
 import { managedRbacVersions } from "@harness-anything/authorization-keycloak/managed-rbac-service";
 
 for (const mode of ["managed", "external"] as const) {

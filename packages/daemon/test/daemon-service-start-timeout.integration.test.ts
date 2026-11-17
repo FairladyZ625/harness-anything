@@ -4,8 +4,8 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { ensureLocalDaemonRunning } from "../src/client/daemon-autostart.ts";
-import { daemonServiceUnit } from "../src/client/daemon-service.ts";
+import { ensureLocalDaemonRunning } from "../src/daemon-host/client/daemon-autostart.ts";
+import { daemonServiceUnit } from "../src/daemon-host/client/daemon-service.ts";
 
 function terminateFakeManager(pidPath: string): void {
   if (!existsSync(pidPath)) return;

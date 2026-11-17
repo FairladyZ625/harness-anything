@@ -1,0 +1,569 @@
+import { runtimeEffortValues } from "@harness-anything/kernel/runtime-effort";
+import { isCredentialReferenceText } from "./agent-runtime-credential-port.ts";
+import {
+  identifier,
+  isRuntimeInstanceRecord,
+  requiredRuntimeInstanceText,
+  runtimeInstanceError,
+} from "./agent-runtime-instance-values.ts";
+import type {
+  AgyRuntimeInstanceConfig,
+  ClaudeRuntimeInstanceConfig,
+  CodexRuntimeInstanceConfig,
+  RuntimeInstanceAuth,
+  RuntimeInstanceCommon,
+  RuntimeInstanceConfig,
+  RuntimeInstanceKind,
+} from "./agent-runtime-instance-types.ts";
+import { runtimeProviderConfig } from "./agent-runtime-instance-types.ts";
+import { secureRuntimeBaseUrl } from "./agent-runtime-launch-config.ts";
+import { assertRuntimeWebSearchSupported, runtimeWebSearchMode } from "./agent-runtime-web-search.ts";
+
+export {
+  available,
+  identifier,
+  isRuntimeInstanceRecord,
+  requiredRuntimeInstanceText,
+  runtimeInstanceError,
+  unavailable,
+} from "./agent-runtime-instance-values.ts";
+import {
+  runtimeIsolationState,
+  runtimeMcpPolicy,
+  runtimePermissionMode,
+} from "../runtime-engine/runtime-permissions.ts";
+import { validRuntimeInstanceTier } from "@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts";
+import { agentRuntimeModelSpelling } from "./agent-runtime-contract.ts";
+import {
+  isRuntimeKindId,
+  runtimeKindForId,
+  runtimeKindIds,
+  supportsRuntimeSubscriptionMultiAccountIsolation,
+  type RuntimeProviderDeclaration,
+} from "../runtime-engine/runtime-inventory.ts";
+
+export type LegacyRuntimeInstanceConfig = {
+  readonly schemaVersion: 1;
+  readonly instanceId: string;
+  readonly name: string;
+  readonly kindId: RuntimeInstanceKind;
+  readonly installationId: string;
+  readonly providerId: string;
+  readonly model: string;
+  readonly reasoningEffort?: string;
+  readonly baseUrl?: string;
+  readonly auth: RuntimeInstanceAuth;
+};
+
+export type FlatRuntimeInstanceConfig = Omit<RuntimeInstanceCommon, "schemaVersion"> & {
+  readonly schemaVersion: 2;
+  readonly kindId: RuntimeInstanceKind;
+  readonly reasoningEffort?: string;
+  readonly baseUrl?: string;
+};
+
+export function runtimeInstanceConfig(
+  value: unknown,
+  platform: NodeJS.Platform = process.platform,
+): RuntimeInstanceConfig {
+  if (!isRuntimeInstanceRecord(value))
+    throw runtimeInstanceError("invalid_runtime_instance", "Runtime instance must be an object.");
+  const legacy = value.schemaVersion === 1,
+    kindIdValue = value.kindId,
+    flat = typeof kindIdValue !== "string" || value[kindIdValue] === undefined,
+    allowed = legacy
+      ? [
+          "schemaVersion",
+          "instanceId",
+          "name",
+          "kindId",
+          "installationId",
+          "installationIdentity",
+          "providerId",
+          "model",
+          "reasoningEffort",
+          "baseUrl",
+          "auth",
+        ]
+      : [
+          "schemaVersion",
+          "instanceId",
+          "name",
+          "kindId",
+          "installationId",
+          "installationIdentity",
+          "providerId",
+          "models",
+          "availableModels",
+          "defaultModel",
+          "enabled",
+          "tier",
+          "credentialSource",
+          "permissionMode",
+          "mcpPolicy",
+          "isolationState",
+          "reasoningEffort",
+          "baseUrl",
+          ...runtimeKindIds,
+          "auth",
+          "hostingCredentialRefs",
+          "hostingCredentialRefsByRepo",
+        ];
+  if (
+    Object.keys(value).some((key) => !allowed.includes(key)) ||
+    (value.schemaVersion !== 1 && value.schemaVersion !== 2) ||
+    (value.installationIdentity !== undefined && value.installationIdentity !== "path-entry/v1") ||
+    !isRuntimeKindId(value.kindId) ||
+    !isRuntimeInstanceRecord(value.auth)
+  )
+    throw runtimeInstanceError("invalid_runtime_instance", "Runtime instance metadata is invalid.");
+  const other = runtimeKindIds.find((candidate) => candidate !== value.kindId && value[candidate] !== undefined);
+  if (other) {
+    throw runtimeInstanceError(
+      "invalid_runtime_kind_config",
+      `${value.kindId} runtime instance cannot include ${other} configuration.`,
+    );
+  }
+  const auth = (
+    value.auth.mode === "subscription" && Object.keys(value.auth).length === 1
+      ? { mode: "subscription" as const }
+      : value.auth.mode === "api-key" && Object.keys(value.auth).every((key) => ["mode", "credentialRef"].includes(key))
+        ? {
+            mode: "api-key" as const,
+            credentialRef: credentialReference(value.auth.credentialRef),
+          }
+        : null
+  ) as RuntimeInstanceAuth | null;
+  const declaration = runtimeKindForId(value.kindId);
+  if (!auth || !declaration.auth.modes.some((mode) => mode === auth.mode))
+    throw runtimeInstanceError(
+      "invalid_runtime_auth",
+      `${value.kindId} runtime instances do not support ${String(value.auth.mode)} authentication.`,
+    );
+  if (value.tier !== undefined && !validRuntimeInstanceTier(value.tier))
+    throw runtimeInstanceError("invalid_runtime_tier", "Runtime instance tier must be an integer from 1 to 9.");
+  const models = legacy ? [requiredRuntimeInstanceText(value.model, "model")] : normalizeModels(value.models, true),
+    defaultModel = legacy
+      ? models[0]!
+      : models.length === 0 && value.defaultModel === ""
+        ? ""
+        : requiredRuntimeInstanceText(value.defaultModel, "defaultModel"),
+    enabled = legacy ? true : requireBoolean(value.enabled, "enabled");
+  if (value.kindId === "zcode" && models.length !== 1)
+    throw runtimeInstanceError(
+      "invalid_command",
+      "ZCode runtime instances require exactly one model because ZCode selects model.main from its " +
+        "per-instance config; create a separate instance for each model.",
+    );
+  if (models.length > 0 && !models.includes(defaultModel))
+    throw runtimeInstanceError(
+      "invalid_runtime_model",
+      `Default model ${defaultModel} is not in the instance model set. Supported models: ${models.join(", ")}.`,
+    );
+  const kindId = String(value.kindId) as RuntimeInstanceKind,
+    credentialSource =
+      value.credentialSource === undefined || value.credentialSource === "operator"
+        ? ("operator" as const)
+        : value.credentialSource === "instance"
+          ? ("instance" as const)
+          : null;
+  if (!credentialSource)
+    throw runtimeInstanceError("invalid_runtime_credential_source", "credentialSource must be operator or instance.");
+  if (credentialSource === "instance" && auth.mode !== "subscription")
+    throw runtimeInstanceError(
+      "invalid_runtime_credential_source",
+      "Instance credentials are available only for subscription runtime instances.",
+    );
+  if (credentialSource === "instance" && !supportsRuntimeSubscriptionMultiAccountIsolation(kindId, platform))
+    throw runtimeInstanceError(
+      "runtime_instance_isolation_unsupported",
+      `Independent subscription credentials are not supported for ${kindId} on ${platform}. Use credentialSource=operator for the operator login, or select a verified execution platform.`,
+    );
+  if (credentialSource === "instance" && value.isolationState !== undefined && value.isolationState !== "enforced")
+    throw runtimeInstanceError("invalid_runtime_isolation", "Instance credentials require enforced isolation.");
+  if (models.length === 0 && (enabled || credentialSource !== "instance" || auth.mode !== "subscription"))
+    throw runtimeInstanceError(
+      "invalid_runtime_model",
+      "Only disabled independent subscription accounts may have no selected models.",
+    );
+  const availableModels = value.availableModels === undefined ? undefined : normalizeModels(value.availableModels),
+    instanceIsolation = credentialSource === "instance" ? "enforced" : value.isolationState,
+    permissionMode = runtimePermissionMode(value.permissionMode, kindId),
+    mcpPolicy = runtimeMcpPolicy(value.mcpPolicy, kindId),
+    apiKeyIsolation = "apiKeyIsolation" in declaration.auth ? declaration.auth.apiKeyIsolation : undefined,
+    subscriptionIsolation =
+      "subscriptionIsolation" in declaration.auth ? declaration.auth.subscriptionIsolation : undefined,
+    isolationState = runtimeIsolationState(
+      instanceIsolation ?? (auth.mode === "api-key" ? apiKeyIsolation : subscriptionIsolation),
+      kindId,
+    );
+  if (auth.mode === "api-key" && apiKeyIsolation && isolationState !== apiKeyIsolation)
+    throw runtimeInstanceError(
+      "invalid_runtime_isolation",
+      [
+        `API-key ${kindId} instances require ${apiKeyIsolation} isolation; their credential is `,
+        "injected into per-instance configuration and must not touch the operator's environment.",
+      ].join(""),
+    );
+  if (auth.mode === "subscription" && subscriptionIsolation && isolationState !== subscriptionIsolation)
+    throw runtimeInstanceError(
+      "invalid_runtime_isolation",
+      `Subscription ${kindId} instances require ${subscriptionIsolation} isolation.`,
+    );
+  const common = {
+    schemaVersion: 2 as const,
+    instanceId: runtimeInstanceId(value.instanceId),
+    name: requiredRuntimeInstanceText(value.name, "name"),
+    installationId: identifier(value.installationId, "installationId"),
+    ...(value.installationIdentity === "path-entry/v1" ? { installationIdentity: "path-entry/v1" as const } : {}),
+    providerId: identifier(value.providerId, "providerId"),
+    models,
+    ...(availableModels === undefined ? {} : { availableModels }),
+    defaultModel,
+    enabled,
+    tier: value.tier ?? 1,
+    credentialSource,
+    ...(permissionMode ? { permissionMode } : {}),
+    ...(mcpPolicy ? { mcpPolicy } : {}),
+    isolationState,
+    auth,
+    ...(value.hostingCredentialRefs === undefined
+      ? {}
+      : { hostingCredentialRefs: hostingCredentialRefs(value.hostingCredentialRefs) }),
+    ...(value.hostingCredentialRefsByRepo === undefined
+      ? {}
+      : {
+          hostingCredentialRefsByRepo: repositoryHostingCredentialRefs(value.hostingCredentialRefsByRepo),
+        }),
+  };
+  const effortField = "reasoningEffort" in declaration.configuration.fields ? "reasoningEffort" : "effort",
+    flatConfiguration = {
+      ...(value.reasoningEffort === undefined ? {} : { [effortField]: value.reasoningEffort }),
+      ...(value.baseUrl === undefined ? {} : { baseUrl: value.baseUrl }),
+      ...(value.allowInsecureHttp === undefined ? {} : { allowInsecureHttp: value.allowInsecureHttp }),
+    },
+    configuration = runtimeKindConfig(
+      flat ? flatConfiguration : normalizeRuntimeInputAliases(value[value.kindId], declaration.configuration.fields),
+      declaration.configuration,
+    );
+  const credentialHeader = configuration.credentialHeader;
+  if (
+    kindId === "deepseek-harness" &&
+    auth.mode === "subscription" &&
+    (configuration.baseUrl !== undefined || configuration.wireApi !== undefined)
+  )
+    throw runtimeInstanceError(
+      "invalid_runtime_kind_config",
+      "DeepSeek Harness baseUrl and wireApi are available only for API-key instances.",
+    );
+  if (
+    kindId === "deepseek-harness" &&
+    auth.mode === "api-key" &&
+    configuration.wireApi === undefined &&
+    common.providerId !== declaration.defaultProviderId
+  )
+    throw runtimeInstanceError(
+      "invalid_runtime_kind_config",
+      `DeepSeek Harness's built-in API-key provider must use ${declaration.defaultProviderId}; custom providers require wireApi.`,
+    );
+  if (credentialHeader !== undefined && auth.mode !== "api-key")
+    throw runtimeInstanceError(
+      "invalid_runtime_credential_header",
+      "credentialHeader is available only for API-key runtime instances.",
+    );
+  if (
+    typeof credentialHeader === "string" &&
+    configuration.httpHeaders !== undefined &&
+    Object.keys(configuration.httpHeaders as Readonly<Record<string, string>>).some(
+      (header) => header.toLowerCase() === credentialHeader.toLowerCase(),
+    )
+  )
+    throw runtimeInstanceError(
+      "invalid_runtime_credential_header",
+      "credentialHeader must not overlap a static HTTP header.",
+    );
+  if (
+    common.providerId === "openai" &&
+    (configuration.allowInsecureHttp !== undefined ||
+      configuration.wireApi !== undefined ||
+      configuration.requiresOpenAiAuth !== undefined ||
+      configuration.httpHeaders !== undefined ||
+      configuration.credentialHeader !== undefined)
+  )
+    throw runtimeInstanceError(
+      "invalid_runtime_kind_config",
+      [
+        "The built-in openai provider cannot accept a custom wireApi, ",
+        "requiresOpenAiAuth, or httpHeaders; use a distinct providerId.",
+      ].join(""),
+    );
+  const instance = { ...common, kindId, [kindId]: configuration } as RuntimeInstanceConfig;
+  assertRuntimeWebSearchSupported(instance);
+  return instance;
+}
+
+function hostingCredentialRefs(value: unknown): { readonly github?: string; readonly gitlab?: string } {
+  if (!isRuntimeInstanceRecord(value))
+    throw runtimeInstanceError("invalid_runtime_instance", "Hosting credential refs must be an object.");
+  return Object.fromEntries(
+    Object.entries(value).map(([provider, reference]) => {
+      if (provider !== "github" && provider !== "gitlab")
+        throw runtimeInstanceError("invalid_runtime_instance", `Unknown hosting provider ${provider}.`);
+      return [provider, credentialReference(reference, `hostingCredentialRefs.${provider}`)];
+    }),
+  );
+}
+
+function repositoryHostingCredentialRefs(value: unknown) {
+  if (!isRuntimeInstanceRecord(value))
+    throw runtimeInstanceError("invalid_runtime_instance", "Repository hosting credential refs must be an object.");
+  return Object.fromEntries(
+    Object.entries(value).map(([repoId, refs]) => [
+      requiredRuntimeInstanceText(repoId, "repoId"),
+      hostingCredentialRefs(refs),
+    ]),
+  );
+}
+
+function normalizeRuntimeInputAliases(
+  value: unknown,
+  fields: RuntimeProviderDeclaration["configuration"]["fields"],
+): unknown {
+  if (!isRuntimeInstanceRecord(value) || !("reasoningEffort" in fields) || value.effort === undefined) return value;
+  const { effort, ...rest } = value;
+  return { ...rest, reasoningEffort: effort };
+}
+
+function runtimeKindConfig(
+  value: unknown,
+  declaration: RuntimeProviderDeclaration["configuration"],
+): Readonly<Record<string, unknown>> {
+  const fields = declaration.fields;
+  if (value === undefined) return {};
+  if (!isRuntimeInstanceRecord(value) || Object.keys(value).some((key) => !Object.hasOwn(fields, key)))
+    throw runtimeInstanceError(
+      "invalid_runtime_kind_config",
+      `Runtime configuration accepts only ${Object.keys(fields).join(", ") || "no fields"}.`,
+    );
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, item]) => item !== undefined)
+      .map(([key, item]) => {
+        const shape = fields[key]!;
+        if (shape === "boolean") return [key, requireBoolean(item, key)];
+        if (shape === "headers") return [key, runtimeHttpHeaders(item)];
+        if (shape === "header-name") return [key, runtimeCredentialHeader(item)];
+        if (shape === "agy-effort") return [key, agyEffort(item)];
+        if (shape === "url")
+          return [key, secureRuntimeBaseUrl(item, { allowInsecureHttp: value.allowInsecureHttp === true })];
+        if (shape === "identifier") {
+          const parsed = identifier(item, key),
+            choices = declaration.choices?.[key];
+          if (choices && !choices.includes(parsed))
+            throw runtimeInstanceError("invalid_runtime_kind_config", `${key} must be one of ${choices.join(", ")}.`);
+          return [key, parsed];
+        }
+        return [key, runtimeEffort(item)];
+      }),
+  );
+}
+
+export function claudeRuntimeConfig(value: unknown): ClaudeRuntimeInstanceConfig {
+  if (value === undefined) return {};
+  if (!isRuntimeInstanceRecord(value) || Object.keys(value).some((key) => !["effort", "baseUrl"].includes(key)))
+    throw runtimeInstanceError("invalid_runtime_kind_config", "claude configuration accepts only effort and baseUrl.");
+  const effort = value.effort === undefined ? undefined : runtimeEffort(value.effort),
+    baseUrl = value.baseUrl === undefined ? undefined : secureRuntimeBaseUrl(value.baseUrl);
+  return {
+    ...(effort ? { effort } : {}),
+    ...(baseUrl ? { baseUrl } : {}),
+  };
+}
+
+export function codexRuntimeConfig(value: unknown): CodexRuntimeInstanceConfig {
+  if (value === undefined) return {};
+  if (
+    !isRuntimeInstanceRecord(value) ||
+    Object.keys(value).some(
+      (key) =>
+        !["reasoningEffort", "fast", "webSearch", "baseUrl", "wireApi", "requiresOpenAiAuth", "httpHeaders"].includes(
+          key,
+        ),
+    )
+  )
+    throw runtimeInstanceError(
+      "invalid_runtime_kind_config",
+      "codex configuration accepts only reasoningEffort, fast, webSearch, baseUrl, wireApi, requiresOpenAiAuth, and httpHeaders.",
+    );
+  const effort = value.reasoningEffort === undefined ? undefined : runtimeEffort(value.reasoningEffort),
+    fast = value.fast === undefined ? undefined : requireBoolean(value.fast, "fast"),
+    webSearch = value.webSearch === undefined ? undefined : runtimeWebSearchMode(value.webSearch),
+    baseUrl = value.baseUrl === undefined ? undefined : secureRuntimeBaseUrl(value.baseUrl),
+    wireApi = value.wireApi === undefined ? undefined : identifier(value.wireApi, "wireApi"),
+    requiresOpenAiAuth =
+      value.requiresOpenAiAuth === undefined
+        ? undefined
+        : requireBoolean(value.requiresOpenAiAuth, "requiresOpenAiAuth"),
+    httpHeaders = value.httpHeaders === undefined ? undefined : runtimeHttpHeaders(value.httpHeaders);
+  return {
+    ...(effort ? { reasoningEffort: effort } : {}),
+    ...(fast === undefined ? {} : { fast }),
+    ...(webSearch === undefined ? {} : { webSearch }),
+    ...(baseUrl ? { baseUrl } : {}),
+    ...(wireApi ? { wireApi } : {}),
+    ...(requiresOpenAiAuth === undefined ? {} : { requiresOpenAiAuth }),
+    ...(httpHeaders ? { httpHeaders } : {}),
+  };
+}
+
+export function agyRuntimeConfig(value: unknown): AgyRuntimeInstanceConfig {
+  if (value === undefined) return {};
+  if (!isRuntimeInstanceRecord(value) || Object.keys(value).some((key) => key !== "effort"))
+    throw runtimeInstanceError("invalid_runtime_kind_config", "agy configuration accepts only effort.");
+  return value.effort === undefined ? {} : { effort: agyEffort(value.effort) };
+}
+
+export function runtimeHttpHeaders(value: unknown): Readonly<Record<string, string>> {
+  if (!isRuntimeInstanceRecord(value) || Object.keys(value).length === 0)
+    throw runtimeInstanceError(
+      "invalid_runtime_http_headers",
+      "httpHeaders must be a non-empty object of non-secret HTTP headers.",
+    );
+  const result: Record<string, string> = {},
+    normalizedNames = new Set<string>();
+  for (const [name, item] of Object.entries(value)) {
+    const normalizedName = name.toLowerCase();
+    if (
+      !/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/u.test(name) ||
+      /(?:authorization|api[-_]?key|cookie|credential|password|secret|token)/iu.test(name) ||
+      typeof item !== "string" ||
+      !item ||
+      /[\r\n]/u.test(item) ||
+      normalizedNames.has(normalizedName)
+    )
+      throw runtimeInstanceError(
+        "invalid_runtime_http_headers",
+        "httpHeaders must contain valid non-secret header names and single-line values.",
+      );
+    normalizedNames.add(normalizedName);
+    result[name] = item;
+  }
+  return result;
+}
+
+export function runtimeCredentialHeader(value: unknown): string {
+  const name = typeof value === "string" ? value.trim() : "";
+  if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/u.test(name))
+    throw runtimeInstanceError(
+      "invalid_runtime_credential_header",
+      "credentialHeader must be a valid HTTP header name.",
+    );
+  return name;
+}
+
+export function needsRuntimeInstanceNormalization(value: unknown): boolean {
+  return (
+    isRuntimeInstanceRecord(value) &&
+    (value.schemaVersion === 1 ||
+      (typeof value.kindId === "string" && value[value.kindId] === undefined) ||
+      value.reasoningEffort !== undefined ||
+      value.baseUrl !== undefined ||
+      value.credentialSource === undefined ||
+      value.permissionMode === undefined ||
+      value.isolationState === undefined)
+  );
+}
+
+export function normalizeModels(value: unknown, allowEmpty = false): string[] {
+  if (!Array.isArray(value) || (!allowEmpty && value.length === 0))
+    throw runtimeInstanceError("invalid_runtime_model", "Runtime instance models must be a non-empty array.");
+  const models = value.map((model) => requiredRuntimeInstanceText(model, "model")),
+    unique = [...new Set(models)];
+  if (unique.length !== models.length)
+    throw runtimeInstanceError("invalid_runtime_model", "Runtime instance models must not contain duplicates.");
+  return unique;
+}
+
+export function requireBoolean(value: unknown, field: string): boolean {
+  if (typeof value !== "boolean") throw runtimeInstanceError("invalid_runtime_instance", `${field} must be boolean.`);
+  return value;
+}
+
+export function selectRuntimeModel(config: RuntimeInstanceConfig, requested?: string): string {
+  const model = requested === undefined ? config.defaultModel : requiredRuntimeInstanceText(requested, "model");
+  const catalogModel = agentRuntimeModelSpelling(config.models, model);
+  if (catalogModel === null)
+    throw runtimeInstanceError(
+      "invalid_runtime_model",
+      [
+        "Model ",
+        `${model}`,
+        " is not available on runtime instance ",
+        `${config.instanceId}`,
+        ". Supported models: ",
+        `${config.models.join(", ")}`,
+        ". Use --model <supported-model> or choose another runtime instance with --instance <instance-id>; " +
+          "run ha runtime instance list to see enabled instances.",
+      ].join(""),
+    );
+  return catalogModel;
+}
+
+export function selectRuntimeEffort(config: RuntimeInstanceConfig, requested?: string): string | null {
+  const provider = runtimeProviderConfig(config),
+    declaration = runtimeKindForId(config.kindId),
+    effort = requested ?? provider.reasoningEffort ?? provider.effort;
+  if (effort === undefined) return null;
+  const fields = declaration.configuration.fields;
+  if ("effort" in fields && fields.effort === "agy-effort") return agyEffort(effort);
+  return runtimeEffort(effort);
+}
+
+export function selectRuntimeFast(config: RuntimeInstanceConfig, requested?: boolean): boolean {
+  const fast = requested ?? runtimeProviderConfig(config).fast ?? false;
+  if (!fast) return false;
+  const fields = runtimeKindForId(config.kindId).configuration.fields;
+  if (!("fast" in fields) || fields.fast !== "boolean")
+    throw runtimeInstanceError(
+      "invalid_runtime_fast",
+      `Fast mode is not supported by ${config.kindId} runtime instances.`,
+    );
+  return true;
+}
+
+export function runtimeEffort(value: unknown): string {
+  const effort = typeof value === "string" ? value.trim() : "";
+  if (!(runtimeEffortValues as readonly string[]).includes(effort))
+    throw runtimeInstanceError(
+      "invalid_runtime_effort",
+      `Reasoning effort ${String(value)} is not supported; use ${runtimeEffortValues.join(", ")}.`,
+    );
+  return effort;
+}
+
+export function agyEffort(value: unknown): NonNullable<AgyRuntimeInstanceConfig["effort"]> {
+  const effort = typeof value === "string" ? value.trim() : "";
+  if (!["low", "medium", "high", "xhigh", "max"].includes(effort))
+    throw runtimeInstanceError(
+      "invalid_runtime_effort",
+      `agy reasoning effort ${String(value)} is not supported; use low, medium, high, xhigh, or max.`,
+    );
+  return effort as NonNullable<AgyRuntimeInstanceConfig["effort"]>;
+}
+
+export function runtimeInstanceId(value: unknown): string {
+  const id = requiredRuntimeInstanceText(value, "instanceId");
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/u.test(id))
+    throw runtimeInstanceError("invalid_runtime_instance_id", "instanceId must be lowercase kebab-case.");
+  return id;
+}
+
+export function credentialReference(value: unknown, field = "credentialRef"): string {
+  const text = requiredRuntimeInstanceText(value, field);
+  if (!isCredentialReferenceText(text))
+    throw runtimeInstanceError(
+      "invalid_credential_reference",
+      `${field} must be an opaque credential:v1 reference (legacy keychain: references resolve on macOS only).`,
+    );
+  return text;
+}

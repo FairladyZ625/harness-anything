@@ -4,26 +4,26 @@ import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { type AgentDefinitionSnapshot, type IdentitySessionPort } from "@harness-anything/kernel";
 import { updateDaemonRepo, writeDaemonRegistryRepo } from "@harness-anything/kernel/daemon-registry";
-import { forward, resolveRuntimeLocation } from "../src/fleet/forwarding-port.ts";
-import { runtimeForwardingIntent } from "../src/fleet/forwarding-intent.ts";
+import { forward, resolveRuntimeLocation } from "../src/daemon-host/fleet/forwarding-port.ts";
+import { runtimeForwardingIntent } from "../src/daemon-host/fleet/forwarding-intent.ts";
 import assert from "node:assert/strict";
 
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { dispatchStreamPath, readDispatchStream } from "../src/dispatch-stream.ts";
-import { applyFleetMirrorCut, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
+import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instances.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { dispatchStreamPath, readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { applyFleetMirrorCut, locateFleetMirrorView } from "../src/daemon-host/fleet-edge-mirror.ts";
 import {
   createFleetEdgeRuntimeWorkQueue,
   openFleetEdgeRuntime,
   readFleetRuntimeSessionsPaged,
-} from "../src/fleet-edge-runtime.ts";
-import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
-import { readFleetOperationalClient, readFleetRepositoryMetadataClient } from "../src/fleet/peer.ts";
-import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
-import { waitForFleetReplicaSequence } from "../src/fleet/replica-sync.ts";
+} from "../src/daemon-host/fleet-edge-runtime.ts";
+import { runFleetEdgeTask } from "../src/daemon-host/fleet-edge-task.ts";
+import { readFleetOperationalClient, readFleetRepositoryMetadataClient } from "../src/daemon-host/fleet/peer.ts";
+import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
+import { waitForFleetReplicaSequence } from "../src/daemon-host/fleet/replica-sync.ts";
 import {
   fleetFixture,
   git,
@@ -34,11 +34,11 @@ import {
 } from "./fleet-runtime-recovery.fixtures.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { signOutAt } from "./keycloak.fixtures.ts";
-import { readRuntimeExecutionPrincipal } from "../src/runtime-execution-principal-store.ts";
+import { readRuntimeExecutionPrincipal } from "../src/daemon-host/runtime-execution-principal-store.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { scheduleRuntimePorts, definition } from "./schedule-actions.fixtures.ts";
 import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
-import { FLEET_TRANSFER_CHUNK_BYTES, FLEET_UPLOAD_MAX_BYTES } from "../src/fleet/command-protocol.ts";
+import { FLEET_TRANSFER_CHUNK_BYTES, FLEET_UPLOAD_MAX_BYTES } from "../src/daemon-host/fleet/command-protocol.ts";
 const replicaQuota = 64 * 1024 * 1024;
 test("Fleet operational replies transparently carry 1 MiB and 32 MiB results", { timeout: 120_000 }, async (t) => {
   const fixture = await fleetFixture(t, [], [], "local", undefined, undefined, false),

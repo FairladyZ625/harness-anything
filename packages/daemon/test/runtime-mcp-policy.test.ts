@@ -6,13 +6,20 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import { parseAgentDeclarationV1 } from "@harness-anything/kernel";
-import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
-import { launchArgs } from "../src/agent-runtime-launch-config.ts";
-import { readAgentEntityGuiProjection } from "../src/agent-entities.ts";
-import { diffAgentDeclarations } from "../src/agent-version-read.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { runtimeKinds } from "../src/runtime-inventory.ts";
-import { resolveRuntimeMcpPolicy, runtimeMcpPolicy, runtimeSupportsMcpPolicy } from "../src/runtime-permissions.ts";
+import {
+  openRuntimeInstanceStore,
+  type RuntimeInstallationWitness,
+} from "../src/daemon-host/agent-runtime-instances.ts";
+import { launchArgs } from "../src/daemon-host/agent-runtime-launch-config.ts";
+import { readAgentEntityGuiProjection } from "../src/daemon-host/agent-entities.ts";
+import { diffAgentDeclarations } from "../src/daemon-host/agent-version-read.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { runtimeKinds } from "../src/runtime-engine/runtime-inventory.ts";
+import {
+  resolveRuntimeMcpPolicy,
+  runtimeMcpPolicy,
+  runtimeSupportsMcpPolicy,
+} from "../src/runtime-engine/runtime-permissions.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { initRepo } from "./task-surface.fixtures.ts";

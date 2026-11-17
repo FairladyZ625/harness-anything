@@ -2,8 +2,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { workBriefsFromProjection } from "@harness-anything/application/queries";
-import { validateDaemonWorkBriefs } from "../src/protocol/gui-result-validation.ts";
-import type { AgendaAwaitsRow } from "../src/protocol/daemon-protocol-gui-types.ts";
+import { validateDaemonWorkBriefs } from "../src/daemon-host/protocol/gui-result-validation.ts";
+import type { AgendaAwaitsRow } from "../src/daemon-host/protocol/daemon-protocol-gui-types.ts";
 
 const task = (
   taskId: string,

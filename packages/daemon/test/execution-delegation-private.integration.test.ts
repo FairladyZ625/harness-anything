@@ -7,10 +7,10 @@ import path from "node:path";
 import test from "node:test";
 import { activateEmptyCanonicalGeneration, makeTaskEventReader, makeTaskEventStore } from "@harness-anything/storage";
 import { canonicalEventWritePlan, type AgentRuntimeEventV1 } from "@harness-anything/kernel";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { serveKeycloak } from "./keycloak.fixtures.ts";
-import { executionDelegationPath, readExecutionDelegations } from "../src/execution-delegation-store.ts";
+import { executionDelegationPath, readExecutionDelegations } from "../src/daemon-host/execution-delegation-store.ts";
 const runtimeSessionId = "runtime-ledger-ops",
   issuerPersonId = "person_zeyu";
 

@@ -9,9 +9,9 @@ import {
   forwardingIntentForAction,
   forwardingIntentIssue,
   runtimeForwardingIntent,
-} from "../src/fleet/forwarding-intent.ts";
-import { forward } from "../src/fleet/forwarding-port.ts";
-import { daemonProtocolCommands } from "../src/protocol/daemon-protocol-commands.ts";
+} from "../src/daemon-host/fleet/forwarding-intent.ts";
+import { forward } from "../src/daemon-host/fleet/forwarding-port.ts";
+import { daemonProtocolCommands } from "../src/daemon-host/protocol/daemon-protocol-commands.ts";
 
 test("forwarding intent binds command identity, method and execution context", () => {
   const action = { kind: "fact-record", executionId: "execution-one", statement: "evidence" },

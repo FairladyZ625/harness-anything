@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
-import { daemonBuildStamp } from "../src/build-identity.ts";
+import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import { revokeTestPolicyActions, signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -9,10 +9,10 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
-import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
+import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instances.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
 // The provider stub models an interactive CLI: `login` prompts on the terminal, waits for the

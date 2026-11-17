@@ -5,7 +5,7 @@ import {
   allDaemonProtocolMethods,
   daemonProtocolCommands,
   commandClassForAction,
-} from "../../packages/daemon/src/protocol/daemon-protocol-commands.ts";
+} from "../../packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts";
 
 // Reuse the production declarations: repo.task.run alone cannot distinguish a read from a write.
 function requestClass(method, command) {

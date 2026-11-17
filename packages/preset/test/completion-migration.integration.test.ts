@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { parseVerticalDeclarationDocument } from "@harness-anything/kernel";
+import { parseVerticalDeclarationDocument } from "@harness-anything/kernel/schemas";
 import { decodePresetPackageV3 } from "../src/preset-package.ts";
 
 const samples = new URL("../fixtures/completion-migration/", import.meta.url);

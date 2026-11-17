@@ -6,13 +6,13 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { REPLAY_TASK_GRAPH, canonicalizeContractValue, serializeEventHead, sha256Text } from "@harness-anything/kernel";
-import { readMigrationProjectionOracle } from "../src/migration-import-oracle.ts";
+import { readMigrationProjectionOracle } from "../src/daemon-host/migration-import-oracle.ts";
 import { makeTaskProjection } from "../../storage/src/projection/rebuildable-task-projection.ts";
 import {
   compileRestatedTaskContract,
   restateLegacyTaskEvents,
   restateTaskContractBody,
-} from "../src/migration-import-task-restatement.ts";
+} from "../src/daemon-host/migration-import-task-restatement.ts";
 
 // Fragment from migration-import-oracle.test.ts. Block-scoped so its `actor` fixture stays separate
 // from the task-restatement fragment below.

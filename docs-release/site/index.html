@@ -1122,8 +1122,8 @@
           </button>
           <h3><span lang="en">One writer and a durable acceptance receipt</span><span lang="zh">一个写者与持久接受回执</span></h3>
           <p>
-            <span lang="en">CLI and GUI submit typed commands to the daemon. <code>packages/daemon/src/repo-cell.ts</code> supplies the writer epoch fence; required content objects are synchronized before a SQLite transaction accepts the event interval and command outcome.</span>
-            <span lang="zh">CLI 与 GUI 向 daemon 提交 typed command。<code>packages/daemon/src/repo-cell.ts</code> 提供 writer epoch fence；必需内容对象同步完成后，SQLite 事务接受事件区间与 command outcome。</span>
+            <span lang="en">CLI and GUI submit typed commands to the daemon. <code>packages/daemon/src/daemon-host/repo-cell.ts</code> supplies the writer epoch fence; required content objects are synchronized before a SQLite transaction accepts the event interval and command outcome.</span>
+            <span lang="zh">CLI 与 GUI 向 daemon 提交 typed command。<code>packages/daemon/src/daemon-host/repo-cell.ts</code> 提供 writer epoch fence；必需内容对象同步完成后，SQLite 事务接受事件区间与 command outcome。</span>
           </p>
           <p>
             <span lang="en">SQLite uses its native transaction journal and <code>synchronous=FULL</code>. Acceptance is recorded before Git publication; Git or worktree progress can remain pending. See <code>packages/storage/src/store/sqlite-event-store.ts</code> and <code>packages/storage/src/store/sqlite-task-event-store.ts</code>.</span>
@@ -1143,8 +1143,8 @@
           </button>
           <h3><span lang="en">The daemon: many repos, one write path</span><span lang="zh">daemon：多个仓库，同一条写路径</span></h3>
           <p>
-            <span lang="en">The daemon owns the single write path for each repository. CLI and GUI use the same protocol and RepoCell queue; <code>packages/daemon/src/repo-cell.ts</code> connects that queue to SQLite acceptance.</span>
-            <span lang="zh">daemon 为每仓持有唯一写路。CLI 与 GUI 使用同一协议和 RepoCell 队列；<code>packages/daemon/src/repo-cell.ts</code> 将该队列接入 SQLite 接受事务。</span>
+            <span lang="en">The daemon owns the single write path for each repository. CLI and GUI use the same protocol and RepoCell queue; <code>packages/daemon/src/daemon-host/repo-cell.ts</code> connects that queue to SQLite acceptance.</span>
+            <span lang="zh">daemon 为每仓持有唯一写路。CLI 与 GUI 使用同一协议和 RepoCell 队列；<code>packages/daemon/src/daemon-host/repo-cell.ts</code> 将该队列接入 SQLite 接受事务。</span>
           </p>
           <figure class="code">
             <figcaption><span lang="en">one daemon, many repositories</span><span lang="zh">一个 daemon，多个仓库</span></figcaption>

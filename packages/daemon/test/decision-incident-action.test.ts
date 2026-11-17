@@ -5,9 +5,9 @@ import {
   defaultIncidentDisposition,
   executeIncidentAction,
   planIncidentAction,
-} from "../src/decision-incident-action.ts";
-import type { RepoCellBinding } from "../src/repo-cell-types.ts";
-import type { RuntimeOperatorSession } from "../src/runtime-online-binding.ts";
+} from "../src/daemon-host/decision-incident-action.ts";
+import type { RepoCellBinding } from "../src/daemon-host/repo-cell-types.ts";
+import type { RuntimeOperatorSession } from "../src/daemon-host/runtime-online-binding.ts";
 
 const taskId = "task_incident_action",
   dispatchId = "dispatch_incident_action",

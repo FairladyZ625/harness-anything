@@ -18,6 +18,26 @@
       ".": {
         "types": "./dist/index.d.ts",
         "default": "./dist/index.js"
+      },
+      "./sqlite": {
+        "types": "./dist/sqlite/index.d.ts",
+        "default": "./dist/sqlite/index.js"
+      },
+      "./pg": {
+        "types": "./dist/postgres/index.d.ts",
+        "default": "./dist/postgres/index.js"
+      },
+      "./pglite": {
+        "types": "./dist/pglite/index.d.ts",
+        "default": "./dist/pglite/index.js"
+      },
+      "./projection": {
+        "types": "./dist/projection/index.d.ts",
+        "default": "./dist/projection/index.js"
+      },
+      "./pglite/worker": {
+        "types": "./dist/pglite/commit-worker-client.d.ts",
+        "default": "./dist/pglite/commit-worker-client.js"
       }
     }
   },
@@ -38,6 +58,26 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./sqlite": {
+      "types": "./src/sqlite/index.ts",
+      "default": "./src/sqlite/index.ts"
+    },
+    "./pg": {
+      "types": "./src/postgres/index.ts",
+      "default": "./src/postgres/index.ts"
+    },
+    "./pglite": {
+      "types": "./src/pglite/index.ts",
+      "default": "./src/pglite/index.ts"
+    },
+    "./projection": {
+      "types": "./src/projection/index.ts",
+      "default": "./src/projection/index.ts"
+    },
+    "./pglite/worker": {
+      "types": "./src/pglite/commit-worker-client.ts",
+      "default": "./src/pglite/commit-worker-client.ts"
     }
   },
   "dependencies": {

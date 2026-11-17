@@ -80,6 +80,18 @@ export interface SqliteLedgerReconciliation {
     readonly unexpectedInSqlite: readonly string[];
   };
 }
+export interface SqliteOutboxBaseline {
+  readonly fingerprint: string;
+  readonly preserve: boolean;
+}
+export interface SqliteGitOutboxState {
+  readonly pendingRevision: number;
+  readonly pendingEpoch: number;
+  readonly pendingHolder: string;
+  readonly publishedRevision: number;
+  readonly publishedCommitSha: string | null;
+  readonly baselines: ReadonlyMap<string, SqliteOutboxBaseline>;
+}
 export interface SqliteEventStore {
   readonly readEntityDeclarations: NonNullable<
     import("@harness-anything/kernel/internal/ports/task-event-store.ts").CanonicalEventStore["readEntityDeclarations"]
@@ -112,6 +124,7 @@ export interface SqliteEventStore {
     readonly blobs?: readonly CanonicalContentBlob[];
     readonly rejectionCode?: string;
     readonly beforeOutcome?: () => void;
+    readonly outboxBaselines?: ReadonlyMap<string, SqliteOutboxBaseline>;
     readonly historicalRecord?: {
       readonly recordedAt: string;
       readonly eventRecordedAt: readonly string[];
@@ -124,7 +137,15 @@ export interface SqliteEventStore {
     readonly events: readonly CanonicalEventV1[];
     readonly blobs: readonly CanonicalContentBlob[];
     readonly beforeOutcome?: () => void;
+    readonly outboxBaselines?: ReadonlyMap<string, SqliteOutboxBaseline>;
   }) => SqliteCommandOutcome;
+  readonly gitOutboxState: () => SqliteGitOutboxState;
+  readonly markGitOutboxPublished: (input: {
+    readonly revision: number;
+    readonly commitSha: string | null;
+    readonly settledPaths?: readonly string[];
+    readonly clearBaselines?: boolean;
+  }) => void;
   readonly outcome: (opId: string) => SqliteCommandOutcome | null;
   readonly readCommandOutcome: (opId: string) => SqliteCommandOutcome | null;
   readonly outcomes: () => readonly SqliteCommandOutcome[];

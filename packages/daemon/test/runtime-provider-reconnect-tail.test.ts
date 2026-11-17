@@ -1,10 +1,10 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createActiveRuntime } from "../src/runtime-spawn-active.ts";
-import { classifyRuntimeExit, observeProviderFault } from "../src/runtime-provider-fault.ts";
-import { parseProviderFrame } from "../src/runtime-spawn-provider-frames.ts";
-import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
+import { createActiveRuntime } from "../src/daemon-host/runtime-spawn-active.ts";
+import { classifyRuntimeExit, observeProviderFault } from "../src/daemon-host/runtime-provider-fault.ts";
+import { parseProviderFrame } from "../src/daemon-host/runtime-spawn-provider-frames.ts";
+import type { ActiveRuntime } from "../src/daemon-host/runtime-spawn-types.ts";
 
 // Event skeletons of six real Codex dispatches (2026-10-21/22), reduced to the frames that carry
 // evidence: reconnects, tool outcomes, agent messages, turn boundaries. Text is gone; only the

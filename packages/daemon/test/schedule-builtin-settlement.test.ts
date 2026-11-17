@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createScheduleV1, type ScheduleV1 } from "@harness-anything/kernel";
-import { executeBuiltinScheduleOccurrence } from "../src/schedule-builtin-executor.ts";
+import { executeBuiltinScheduleOccurrence } from "../src/daemon-host/schedule-builtin-executor.ts";
 
 const now = "2026-10-09T00:00:00.000Z";
 const binding = { actor: { principal: { personId: "settlement-test" }, executor: null }, source: "local" as const };

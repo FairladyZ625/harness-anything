@@ -6,8 +6,8 @@ import {
   commandClassForAction,
   daemonGuiActionMethods,
   parseDaemonRpcParams,
-} from "../src/protocol/daemon-protocol.contract.ts";
-import { policyActionForTarget } from "../src/repo-cell-authorization.ts";
+} from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { policyActionForTarget } from "../src/daemon-host/repo-cell-authorization.ts";
 
 /**
  * GUI task pin/unpin 与顶层 Entity Pin 共用 durable write path，payload 仍保持闭集。

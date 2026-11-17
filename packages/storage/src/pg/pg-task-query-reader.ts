@@ -19,13 +19,32 @@ export interface StorageWriteRequest {
 }
 const writeRequests = new AsyncLocalStorage<StorageWriteRequest & { active: boolean }>();
 
+export function activeStorageWriteRequest(): StorageWriteRequest | undefined {
+  const request = writeRequests.getStore();
+  return request?.active ? request : undefined;
+}
+
+/** A commit-isolate turn is synchronous; cancellation state still belongs to its original host request. */
+export function withStorageWriteRequestSync<T>(request: StorageWriteRequest, operation: () => T): T {
+  const bound = bindStorageWriteRequest(request);
+  try {
+    return writeRequests.run(bound, operation);
+  } finally {
+    bound.active = false;
+  }
+}
+
+function bindStorageWriteRequest(request: StorageWriteRequest) {
+  if (request.state.length !== 3 || !(request.state.buffer instanceof SharedArrayBuffer))
+    throw new TypeError("Storage write request state must be a shared Int32Array[3]");
+  return { ...request, active: true };
+}
+
 export async function withStorageWriteRequest<T>(
   request: StorageWriteRequest,
   operation: () => Promise<T>,
 ): Promise<T> {
-  if (request.state.length !== 3 || !(request.state.buffer instanceof SharedArrayBuffer))
-    throw new TypeError("Storage write request state must be a shared Int32Array[3]");
-  const bound = { ...request, active: true };
+  const bound = bindStorageWriteRequest(request);
   try {
     return await writeRequests.run(bound, operation);
   } finally {

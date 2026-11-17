@@ -3,9 +3,9 @@ import { lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentRuntimeEventV1, RuntimeSession, TaskProjectionQueries } from "@harness-anything/kernel";
-import { readAllTaskDispatchPages, readTaskDispatches } from "../src/dispatch-read.ts";
-import { FLEET_FRAME_BYTES } from "../src/fleet/command-protocol.ts";
-import { encodeFleetFrames } from "../src/fleet/command-transfer.ts";
+import { readAllTaskDispatchPages, readTaskDispatches } from "../src/daemon-host/dispatch-read.ts";
+import { FLEET_FRAME_BYTES } from "../src/daemon-host/fleet/command-protocol.ts";
+import { encodeFleetFrames } from "../src/daemon-host/fleet/command-transfer.ts";
 
 function largeDispatchProjection(count = 500, reason = "派工原因 / long/path/".repeat(60)) {
   const events = Array.from({ length: count }, (_, index) => ({
