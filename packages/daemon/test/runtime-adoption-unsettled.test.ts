@@ -171,3 +171,154 @@ test("adoptRuntimes pages terminal stream headers within DISPATCH_LIFECYCLE_PAGE
   );
   assert.deepEqual(pointBatchSizes.slice(0, 2), [DISPATCH_LIFECYCLE_PAGE_LIMIT, 4]);
 });
+
+test("adoptRuntimes overrides stale expired metadata executionPrincipal with fresh authorizationBinding while preserving metadata source", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "adopt-runtimes-expired-cred-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const dispatchId = "dispatch_eeeeeeeeeeeeeeeeeeeeeeee",
+    runtimeSessionId = "runtime_eeeeeeeeeeeeeeeeeeeeeeee",
+    metadataSource = { kind: "node" as const, nodeId: "edge-adopt-1" },
+    expiredPrincipal = {
+      personId: "owner",
+      repoId: "repo-adopt",
+      runtimeSessionId,
+      dispatchId,
+      taskId: "task-adopt",
+      executionId: "exe-adopt",
+      role: "implementation" as const,
+      source: metadataSource,
+      expiresAt: "2020-01-01T00:00:00.000Z",
+    },
+    freshPrincipal = {
+      ...expiredPrincipal,
+      expiresAt: "2099-01-01T00:00:00.000Z",
+    },
+    staleMetadataBinding = {
+      actor: { principal: { personId: "owner" }, executor: null },
+      source: metadataSource,
+      executionPrincipal: expiredPrincipal,
+      authorizationDecision: {
+        outcome: "denied" as const,
+        policyRef: "stale",
+        reasonCodes: ["stale_decision"],
+        nextActions: [],
+      },
+      staleMarker: "old",
+    },
+    freshAuthorizationBinding = {
+      actor: { principal: { personId: "owner" }, executor: null },
+      source: "local" as const,
+      executionPrincipal: freshPrincipal,
+      authorizationDecision: {
+        outcome: "allowed" as const,
+        policyRef: "fresh",
+        reasonCodes: [],
+        nextActions: [],
+      },
+      sessionEnvironment: { FRESH: "1" },
+    };
+  openDispatchStream(rootDir, {
+    dispatchId,
+    runtimeSessionId,
+    taskId: "task-adopt",
+    executionId: "exe-adopt",
+    instanceId: "instance",
+    startedAt: "2026-11-15T00:00:00.000Z",
+    dispatchOpId: dispatchId,
+    kindId: "codex",
+    permissionMode: "read-only",
+    cwd: rootDir,
+    binding: staleMetadataBinding as never,
+    prompt: "recover",
+    model: "test",
+    reasoningEffort: null,
+  });
+  appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 2_147_483_647 });
+  appendRuntimeWorkerRecord(rootDir, dispatchId, {
+    kind: "process_exit",
+    occurredAt: "2026-11-15T00:00:10.000Z",
+    exitCode: 0,
+    signal: null,
+  });
+
+  const publishedBindings: Record<string, unknown>[] = [];
+  const exitedBindings: Record<string, unknown>[] = [];
+  const baseRead = lifecycleReadForSync([
+    {
+      runtimeSessionId,
+      dispatchId,
+      instanceId: "instance",
+      owner: "node:edge-adopt-1",
+      process: "unknown",
+      stopProof: "unproven",
+      attemptSettled: false,
+      groupSettled: false,
+    },
+  ]);
+  const makeContext = () =>
+    ({
+      input: { rootDir, runtimeNode: { nodeId: "edge-adopt-1" }, now: () => "2026-11-15T00:01:00.000Z" },
+      processes: new Map(),
+      exiting: new Set(),
+      dispatchState: createRuntimeInstanceDispatchState(),
+      requiredRuntimeProjection: () => ({
+        readRuntimeSession: () => ({
+          runtimeSessionId,
+          instanceId: "instance",
+          outcome: null,
+          liveness: "live",
+        }),
+        readRuntimeSessions: () => [
+          {
+            runtimeSessionId,
+            instanceId: "instance",
+            outcome: null,
+            liveness: "live",
+          },
+        ],
+        readRuntimeDispatch: () => ({
+          ...staleMetadataBinding,
+          payload: { dispatchId },
+        }),
+        readDispatchLifecycle: (query: DispatchLifecycleQuery) => baseRead(query),
+      }),
+      publishRuntimeEvent: async (
+        _type: string,
+        _payload: unknown,
+        _opId: string,
+        bindingArg: Record<string, unknown>,
+      ) => {
+        publishedBindings.push(bindingArg);
+        return {};
+      },
+      publishExit: async (active: { readonly binding: Record<string, unknown> }) => {
+        exitedBindings.push(active.binding);
+      },
+      runtimeSpawnError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+    }) as unknown as RuntimeSpawnerContext;
+
+  const results = await adoptRuntimes(makeContext(), undefined, {
+    runtimeSessionId,
+    authorizationBinding: freshAuthorizationBinding as never,
+  });
+  assert.equal(results.length, 1);
+  assert.equal(results[0]?.outcome, "settled");
+  assert.equal(publishedBindings.length, 1);
+  assert.equal(exitedBindings.length, 1);
+  for (const seen of [publishedBindings[0]!, exitedBindings[0]!]) {
+    assert.deepEqual(seen.source, metadataSource, "metadata.binding.source must remain authoritative for edge streams");
+    assert.equal("executionPrincipal" in seen && seen.executionPrincipal !== undefined, false);
+    assert.equal(seen.authorizationDecision, undefined);
+    assert.deepEqual(seen.sessionEnvironment, { FRESH: "1" }, "fresh authorizationBinding overrides stale metadata");
+  }
+
+  publishedBindings.length = 0;
+  exitedBindings.length = 0;
+  const fallbackResults = await adoptRuntimes(makeContext());
+  assert.equal(fallbackResults[0]?.outcome, "settled");
+  assert.equal(
+    "executionPrincipal" in exitedBindings[0]! && exitedBindings[0]!.executionPrincipal !== undefined,
+    false,
+    "metadata-only adoption must also strip stale executionPrincipal",
+  );
+});

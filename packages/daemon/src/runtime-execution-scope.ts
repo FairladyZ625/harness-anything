@@ -275,7 +275,8 @@ export function requireCurrentExecutionScope(input: {
   } else requireExecutionActionScope(p, input.action);
   const terminal = ingress?.type === "runtime_session_exited" || ingress?.type === "runtime_session_outcome_observed";
   const livenessObservation = ingress?.type === "runtime_session_liveness_changed";
-  const hostSettling = ingress?.kind === "archive" || terminal;
+  const archiveIngress = ingress?.kind === "archive";
+  const hostSettling = archiveIngress || terminal;
   // A node may retire its own stale reviewer without restoring business access.
   // Archive and successful outcomes still require the current submission cut.
   const negativeTerminal =
@@ -283,6 +284,7 @@ export function requireCurrentExecutionScope(input: {
     (ingress?.type === "runtime_session_outcome_observed" &&
       isJsonObject(ingress.payload) &&
       (ingress.payload.outcome === "failed" || ingress.payload.outcome === "cancelled"));
+  const cancelledSettlingIngress = negativeTerminal || archiveIngress;
   const [lifecycle] = readyDispatchLifecycle(
     input.projection.readDispatchLifecycle({ by: "session", runtimeSessionId: p.runtimeSessionId }),
     runtimeSpawnError,
@@ -350,7 +352,7 @@ export function requireCurrentExecutionScope(input: {
         `${p.role} dispatch ${p.dispatchId} is ${lifecycle.attempt.phase}` +
         `${lifecycle.attempt.outcome ? ` (outcome: ${lifecycle.attempt.outcome})` : ""} and no longer holds write authority.`,
     });
-  if (isDispatchAttemptCancelled(lifecycle) && !negativeTerminal && ingress?.kind !== "archive")
+  if (isDispatchAttemptCancelled(lifecycle) && !cancelledSettlingIngress)
     throw executionCredentialRejected("scope", {
       dispatchId: p.dispatchId,
       role: p.role,
