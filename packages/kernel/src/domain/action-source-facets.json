@@ -6798,19 +6798,19 @@
         "candidateId": "action:packages/daemon:packages/daemon/src/fleet/walreceiver.ts#writeTransferState:99c99a58a7da7a823798323eaa27f47d",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "node_modules/@types/node/fs/promises.d.ts#writeFile"
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.writeFile"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/fleet/walreceiver.ts#clearStagedSnapshots:8140ef33989aeaa09cbc19985d9b6358",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "node_modules/@types/node/fs/promises.d.ts#rm"
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.rm"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/fleet/walreceiver.ts#runWalReceiver:a77eb421fd2da20b8fe7890d7b274403:3",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "node_modules/@types/node/fs/promises.d.ts#FileHandle.writeFile"
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.FileHandle.writeFile"
       },
       {
         "candidateId": "action:packages/storage:packages/storage/src/durable-file.ts#openTemporaryFile.close:fe2dd164e2953bc3a73ed350f9390bac",
@@ -8793,18 +8793,6 @@
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.rememberRequestReceipt:fc99613fa9a1ef871913da7c52b9946a",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls:c3afea6da008ab09aa7769e5ab0dbec0",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/center-listener.ts#listenFleetTls.retireBackup:bc5df1bec773e4d90ab025c284b74783",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete"

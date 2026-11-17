@@ -221,9 +221,6 @@ test("walsender and walreceiver resume interrupted snapshot transfer from persis
   const pair2 = createInMemoryPeerPair({
     onEdgeToCenter: (frame) => {
       if (frame.type === "replica.start") startFrame2 = frame;
-      if (frame.type === "replica.ack") {
-        setTimeout(() => abort2.abort(new Error("done")), 20);
-      }
     },
     onCenterToEdge: (frame) => {
       if (frame.type === "replica.backup") backupFrame2 = frame;
@@ -246,6 +243,7 @@ test("walsender and walreceiver resume interrupted snapshot transfer from persis
       slots,
       lease: lease2,
       signal: abort2.signal,
+      onAcknowledged: () => abort2.abort(new Error("done")),
     }),
     runWalReceiver({
       peer: pair2.edgePeer,
@@ -320,9 +318,6 @@ test("walsender falls back to offset 0 with new snapshotId when requested snapsh
   let backupFrame: ReplicationFrame | null = null;
   const sentOffsets: number[] = [];
   const pair = createInMemoryPeerPair({
-    onEdgeToCenter: (frame) => {
-      if (frame.type === "replica.ack") setTimeout(() => abort.abort(new Error("done")), 20);
-    },
     onCenterToEdge: (frame) => {
       if (frame.type === "replica.backup") backupFrame = frame;
       if (frame.type === "replica.data") sentOffsets.push(frame.offset);
@@ -360,6 +355,7 @@ test("walsender falls back to offset 0 with new snapshotId when requested snapsh
       slots,
       lease,
       signal: abort.signal,
+      onAcknowledged: () => abort.abort(new Error("done")),
     }),
     runWalReceiver({
       peer: pair.edgePeer,
@@ -469,11 +465,15 @@ test(
     const peer2 = await replicationPeer(fixture.track, center2.port, fixture.cert, "edge-one", "secret-edge-one");
     const abort2 = new AbortController();
     let resumedOffset = 0;
+    let resolveAcked!: () => void;
+    const acked = new Promise<void>((resolve) => {
+      resolveAcked = resolve;
+    });
     const wrappedPeer2: ReplicationPeer = {
       send: async (frame) => {
         peer2.socket.write(serializeReplicationFrame(frame));
         if (frame.type === "replica.ack") {
-          setTimeout(() => abort2.abort(new Error("ack sent")), 25);
+          resolveAcked();
         }
       },
       receive: async (receiveSignal) => {
@@ -485,7 +485,7 @@ test(
         return frame;
       },
     };
-    await assert.rejects(() =>
+    const receiverPromise = assert.rejects(() =>
       runWalReceiver({
         peer: wrappedPeer2,
         repoId: replicationRepoId,
@@ -496,12 +496,15 @@ test(
         signal: abort2.signal,
       }),
     );
+    await acked;
+    await waitForState(() => readdirSync(backupsRoot).length === 0, "center to retire pinned snapshot after ACK");
+    abort2.abort(new Error("ack sent"));
     peer2.close();
+    await receiverPromise;
 
     assert.ok(resumedOffset > 0, `expected resumedOffset > 0, got ${resumedOffset}`);
     assert.ok(installedSize > resumedOffset);
     assert.match(installedSha, /^[a-f0-9]{64}$/u);
     assert.equal(existsSync(path.join(edgeStaging, "snapshots")), false, "edge staging cleaned after ACK");
-    await waitForState(() => readdirSync(backupsRoot).length === 0, "center to retire pinned snapshot after ACK");
   },
 );
