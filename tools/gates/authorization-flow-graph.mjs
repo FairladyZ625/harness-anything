@@ -30,11 +30,45 @@ const maxEvaluationDepth = 12;
 const maxProvenanceDepth = 64;
 
 const policyIndexes = new WeakMap();
+const serverSourceIndexes = new WeakMap();
+const nonServerRoots = [
+  "packages/gui/",
+  "packages/cli/",
+  "packages/dsh-plugin/",
+  "packages/authorization-gui/",
+  "packages/authorization-keycloak-gui/",
+  "tools/",
+];
 
 /** Share source indexes while giving each audit its own evaluator/fact-scope identity. */
 export function freshEvaluationGraph(graph) {
   graph.resetFramePool();
   return graph.freshQueries();
+}
+
+/** Exclude client/UI/tooling modules that cannot own or execute daemon server routes. */
+export function serverSourceGraph(graph) {
+  const included = (file) => !nonServerRoots.some((prefix) => file.startsWith(prefix));
+  let indexes = serverSourceIndexes.get(graph.modules);
+  if (!indexes) {
+    indexes = {
+      modules: new Map([...graph.modules].filter(([file]) => included(file))),
+      members: new Map(
+        [...graph.members]
+          .map(([key, entries]) => [key, entries.filter((entry) => included(entry.file))])
+          .filter(([, entries]) => entries.length > 0),
+      ),
+    };
+    serverSourceIndexes.set(graph.modules, indexes);
+  }
+  return {
+    ...graph,
+    ...indexes,
+    importTarget(binding) {
+      const target = graph.importTarget(binding);
+      return target.file && !included(target.file) ? { external: true } : target;
+    },
+  };
 }
 
 /** Keep the policy proof at its typed service boundary; source reachability uses the full graph. */

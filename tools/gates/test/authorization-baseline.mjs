@@ -69,15 +69,25 @@ export function mutatedFlowGraph(overrides) {
 
 function mutationGraph(sourceRoot) {
   const baseline = baselineSourceGraph(),
-    overrides = new Map();
+    overrides = new Map(),
+    packagesDir = path.join(sourceRoot, "packages"),
+    copiedRoots = fs.existsSync(packagesDir)
+      ? fs
+          .readdirSync(packagesDir)
+          .filter((entry) => !fs.lstatSync(path.join(packagesDir, entry)).isSymbolicLink())
+          .map((entry) => `packages/${entry}`)
+      : ["packages"];
   // Compare only copied modules. Symlinked packages remain the same read-only source.
-  const files = new Set([...baseline.modules.keys(), ...walkTypeScriptFiles(sourceRoot, "packages")]);
+  const files = new Set([
+    ...[...baseline.modules.keys()].filter((file) =>
+      copiedRoots.some((root) => file === root || file.startsWith(`${root}/`)),
+    ),
+    ...copiedRoots.flatMap((root) => walkTypeScriptFiles(sourceRoot, root)),
+  ]);
   for (const file of files) {
     const sourceFile = baseline.modules.get(file)?.sourceFile;
     const candidate = path.join(sourceRoot, file);
     if (!fs.existsSync(candidate)) continue;
-    const original = path.join(repoRoot, file);
-    if (fs.existsSync(original) && fs.realpathSync(candidate) === fs.realpathSync(original)) continue;
     const text = fs.readFileSync(candidate, "utf8");
     if (text !== sourceFile?.text) overrides.set(file, text);
   }

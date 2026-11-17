@@ -25,7 +25,6 @@ import {
 } from "./authorization-baseline.mjs";
 import { replaceSourceOnce, runGit } from "./helpers.mjs";
 import { sourceWitness } from "./authorization-source-fixture.mjs";
-import { clientEntryRequiredRoutes, sourceWitnesses } from "../authorization-source-proof.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 const tracedPackages = ["daemon", "authorization-keycloak", "application"];
@@ -36,8 +35,8 @@ let partitionTestOrdinal = 0;
 // Explicit partitions spread the mutation cases across four workers. New cases must
 // update this map; their measured durations are recorded by the test runner.
 const authorizationTestPartitionAssignments = [
-  4, 2, 4, 3, 1, 2, 4, 1, 2, 2, 3, 4, 1, 3, 1, 4, 3, 4, 3, 3, 4, 1, 1, 2, 3, 4, 1, 4, 3, 2, 4, 2, 1, 3, 1, 4, 2, 2, 4,
-  4, 1, 2, 3,
+  4, 2, 4, 3, 1, 2, 4, 1, 2, 2, 3, 4, 1, 3, 1, 4, 3, 4, 3, 3, 4, 1, 1, 2, 3, 4, 1, 4, 3, 2, 4, 2, 1, 3, 1, 4, 1, 3, 4,
+  4, 4, 2, 3,
 ];
 function partitionedTest(name, testFn) {
   const ordinal = partitionTestOrdinal++;
@@ -109,23 +108,19 @@ function rows(dir, only, descriptors = inputs.descriptors, options = {}) {
   const graph = baselineFlowGraph(dir);
   let sourceIds = options.sourceIds;
   if (only !== undefined && sourceIds === undefined) {
-    const selected = new Set(only),
-      actions = inputs.constants.actionDeclarations,
-      witnesses = sourceWitnesses(
-        graph,
-        actions.flatMap((action) => action.ontology?.sources ?? []),
-      );
-    sourceIds = actions.flatMap((action) =>
+    const selected = new Set(only);
+    // `rows()` inspects `result.rows` only; `sourceTargets` in `auditAuthorization` traces only
+    // non-support, non-technical-port, non-client, non-script sources whose route is in `only`.
+    sourceIds = inputs.constants.actionDeclarations.flatMap((action) =>
       (action.ontology?.sources ?? [])
-        .filter((source) => {
-          if (selected.has(source.route)) return true;
-          const node = witnesses.get(source.candidateId);
-          return (
-            source.role === "client" &&
-            node &&
-            clientEntryRequiredRoutes(graph, node, source, action, descriptors).some((route) => selected.has(route))
-          );
-        })
+        .filter(
+          (source) =>
+            source.role !== "support" &&
+            source.role !== "technical-port" &&
+            source.role !== "client" &&
+            source.role !== "script" &&
+            selected.has(source.route),
+        )
         .map((source) => source.candidateId),
     );
   }
@@ -756,10 +751,21 @@ partitionedTest("entity benchmarks bind their declared write and read actions", 
         source.candidateId.includes("tools/scale/cli-entity-bench.mjs#main.invokeReadBenchCommand.runRead:"),
     );
   assert.ok(benchRead);
+  const benchKinds = ["entity-import", "task-create", "ledger-backup", "repository-read"];
+  const benchWitnesses = inputs.constants.actionDeclarations
+    .filter((action) => benchKinds.includes(action.kind))
+    .flatMap((action) =>
+      (action.ontology?.sources ?? [])
+        .filter((source) => source.candidateId.startsWith("action:tools:tools/scale/"))
+        .map((source) => source.candidateId),
+    );
+  const benchAudit = auditDurableActionAuthorization(repoRoot, inputs, {
+    only: benchKinds,
+    sourceIds: benchWitnesses,
+  });
+  assert.ok(benchAudit.sourceRows.length >= 2);
   assert.deepEqual(
-    auditDurableActionAuthorization(repoRoot, inputs, {
-      only: ["entity-import", "task-create", "ledger-backup", "repository-read"],
-    }).sourceRows.filter((row) => !row.ok),
+    benchAudit.sourceRows.filter((row) => !row.ok),
     [],
   );
   assert.deepEqual(
@@ -972,10 +978,11 @@ partitionedTest(
     );
 
     // F1 negative 4: breaking server AuthorizationPort dominance on decision.accept flips the GUI client source red too.
-    const dir = worktreeCopy(t);
+    const dir = sourceCopy(t);
     {
       const restoreServer = edit(dir, queuedRoute, "await execute(queuedDecision)", "await execute()");
-      const brokenAudit = auditDurableActionAuthorization(dir, inputs, {
+      const brokenAudit = auditDurableActionAuthorization(repoRoot, inputs, {
+        sourceRoot: dir,
         only: ["decision-accept", "decision.accept"],
       });
       const brokenServerRow = brokenAudit.rows.find((row) => row.id === "decision.accept");
@@ -1017,7 +1024,8 @@ partitionedTest(
     }
 
     {
-      const restoredAudit = auditDurableActionAuthorization(dir, inputs, {
+      const restoredAudit = auditDurableActionAuthorization(repoRoot, inputs, {
+        sourceRoot: dir,
         only: ["decision-accept", "decision.accept"],
       });
       assert.equal(restoredAudit.rows.find((row) => row.id === "decision.accept")?.ok, true);

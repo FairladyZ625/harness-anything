@@ -248,6 +248,38 @@ function entry() { first(); }`,
   );
 });
 
+test("matchAny source queries stop at the first hit without marking unvisited targets missing", () => {
+  const file = "packages/daemon/src/match-any.ts";
+  const { rootDir } = makeRepo({
+    [file]: `function hit() { store.append("first"); }
+function later() { store.append("second"); }
+function absent() { store.append("never"); }
+function entry() { hit(); later(); }`,
+  });
+  const graph = buildFlowGraph(rootDir),
+    [hit, later, absent, entry] = graph.modules.get(file).sourceFile.statements,
+    evaluator = makeEvaluator(graph, { constants: {}, functions: {}, strictMembers: true }),
+    firstSite = sourceSite(graph, hit.body.statements[0].expression),
+    secondSite = sourceSite(graph, later.body.statements[0].expression),
+    absentSite = sourceSite(graph, absent.body.statements[0].expression);
+  const early = processSourceSites(graph, entry, {
+    evaluator,
+    targets: [firstSite, secondSite],
+    matchAny: true,
+  });
+  assert.equal(early.has(firstSite), true);
+  assert.equal(early.has(secondSite), false, "matchAny returns on the first reachable target");
+  assert.equal(
+    processSourceSites(graph, entry, { evaluator, targets: [secondSite] }).has(secondSite),
+    true,
+    "an early matchAny exit must not cache unvisited targets as missing",
+  );
+  assert.equal(
+    processSourceSites(graph, entry, { evaluator, targets: [absentSite], matchAny: true }).has(absentSite),
+    false,
+  );
+});
+
 test("source summaries reuse unchanged frames and retain separate callback bindings", () => {
   const file = "packages/daemon/src/callback.ts";
   const { rootDir } = makeRepo({

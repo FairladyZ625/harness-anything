@@ -19,6 +19,7 @@ import {
   freshEvaluationGraph,
   isFunctionNode,
   makeEvaluator,
+  serverSourceGraph,
 } from "./authorization-flow-graph.mjs";
 import { makeAuthorizationTracer } from "./authorization-flow-trace.mjs";
 import { withArtifactActionIngressDeclarations } from "./ontology-gate-lib.mjs";
@@ -314,14 +315,20 @@ function wireFields(descriptor, methods) {
   return vocabulary?.includes(descriptor.id) ? { operation: descriptor.id } : {};
 }
 
+const transportEntriesCache = new WeakMap();
+
 function transportEntries(graph) {
-  // A transport hands each decoded request to a function whose first parameter is the request.
-  const entries = [];
-  for (const { sourceFile } of graph.modules.values())
-    (function visit(node) {
-      if (isFunctionNode(node) && node.parameters[0]?.type?.getText() === "JsonRpcRequest") entries.push(node);
-      ts.forEachChild(node, visit);
-    })(sourceFile);
+  let entries = transportEntriesCache.get(graph.modules);
+  if (!entries) {
+    // A transport hands each decoded request to a function whose first parameter is the request.
+    entries = [];
+    for (const { sourceFile } of graph.modules.values())
+      (function visit(node) {
+        if (isFunctionNode(node) && node.parameters[0]?.type?.getText() === "JsonRpcRequest") entries.push(node);
+        ts.forEachChild(node, visit);
+      })(sourceFile);
+    transportEntriesCache.set(graph.modules, entries);
+  }
   return entries;
 }
 
@@ -508,8 +515,17 @@ function auditAuthorization(rootDir, inputs, options) {
           site: sourceSite(graph, witnesses.get(source.candidateId)),
         })),
     sourceResults = new Map(),
+    serverGraph = serverSourceGraph(graph),
+    migrationEvidence = new Map(),
+    migrationFor = (node, source, action) => {
+      if (!node) return null;
+      const key = source.candidateId ?? source.id;
+      if (!migrationEvidence.has(key))
+        migrationEvidence.set(key, migrationServiceEntryEvidence(serverGraph, node, source, action));
+      return migrationEvidence.get(key);
+    },
     anchors = {
-      sourceGraph: graph,
+      sourceGraph: serverGraph,
       ports: portAnchors,
       authorityModule: "@harness-anything/kernel",
       decision: decisionAnchor,
@@ -522,7 +538,7 @@ function auditAuthorization(rootDir, inputs, options) {
       writerFence: { file: "packages/kernel/src/domain/write-chain.contract.ts", name: "assertCurrentWriter" },
       sessions: sessionAnchors,
       services: serviceAnchors,
-      entries: transportEntries(graph),
+      entries: transportEntries(serverGraph),
       constants: inputs.constants,
       functions: inputs.functions,
       serviceCall: (node, kind, canonical) =>
@@ -538,7 +554,7 @@ function auditAuthorization(rootDir, inputs, options) {
     },
     tracer = makeAuthorizationTracer(authorizationPolicyGraph(graph), anchors),
     // Source ownership retains internal service guards as well as its actual callback frames.
-    sourceTracer = makeAuthorizationTracer(graph, anchors),
+    sourceTracer = makeAuthorizationTracer(serverGraph, anchors),
     // ActionDeclaration residency: a host- or runtime-local action is not decided at a canonical cut.
     nonCanonical = new Set(
       (inputs.constants.actionDeclarations ?? [])
@@ -591,9 +607,7 @@ function auditAuthorization(rootDir, inputs, options) {
     const targets = sourceTargets(action, descriptor.id).filter((source) => {
       if (sourceProjection && !sourceProjection.has(source.id)) return false;
       const node = witnesses.get(source.id);
-      return !(
-        hostServiceEntryRequired(graph, node, action) || migrationServiceEntryEvidence(graph, node, source, action)
-      );
+      return !(hostServiceEntryRequired(serverGraph, node, action) || migrationFor(node, source, action));
     });
     const fullTrace =
       targets.length > 0 &&
@@ -603,7 +617,6 @@ function auditAuthorization(rootDir, inputs, options) {
         ? sourceTracer.traceDescriptor({ ...traceInput, sources: targets })
         : null;
     if (fullTrace) {
-      graph.resetFramePool();
       for (const source of fullTrace.sources.values()) sourceResults.set(source.id, source);
     }
     const remainingTargets = fullTrace
@@ -613,11 +626,17 @@ function auditAuthorization(rootDir, inputs, options) {
         })
       : [];
     const policyTrace =
-      remainingTargets.length > 0 ? tracer.traceDescriptor({ ...traceInput, sources: remainingTargets }) : null;
+      remainingTargets.length > 0
+        ? tracer.traceDescriptor({
+            ...traceInput,
+            sources: remainingTargets,
+            sourceEvaluator: fullTrace.sourceEvaluator,
+          })
+        : null;
     if (policyTrace) {
-      graph.resetFramePool();
       for (const source of policyTrace.sources.values()) sourceResults.set(source.id, source);
     }
+    if (fullTrace || policyTrace) graph.resetFramePool();
     const trace = policyTrace ?? owner;
     const evidence =
         authority === "local-transport" ? trace.local : authority === "own-session" ? trace.session : trace.authorized,
@@ -714,10 +733,21 @@ function auditAuthorization(rootDir, inputs, options) {
       const client = rawClient && serverVerified ? rawClient : null;
       const descriptor = inputs.descriptors.find((row) => row.id === source.route),
         route = rows.find((row) => row.id === source.route),
-        repoRead = node && repoReadServiceEvidence(graph, node, source, action, inputs.descriptors),
-        delegated = node && delegatedServiceEntryEvidence(graph, node, source, action, descriptor, route, trace),
-        hostEntry = node && hostServiceEntryEvidence(graph, node, source, action, route),
-        hostRequired = node && hostServiceEntryRequired(graph, node, action),
+        repoRead = node && repoReadServiceEvidence(serverGraph, node, source, action, inputs.descriptors),
+        delegated =
+          node &&
+          delegatedServiceEntryEvidence(
+            serverGraph,
+            node,
+            source,
+            action,
+            descriptor,
+            route,
+            trace,
+            migrationFor(node, source, action),
+          ),
+        hostEntry = node && hostServiceEntryEvidence(serverGraph, node, source, action, route),
+        hostRequired = node && hostServiceEntryRequired(serverGraph, node, action),
         traceProof = !hostRequired && trace?.seen && trace.ok;
       const output =
         node &&

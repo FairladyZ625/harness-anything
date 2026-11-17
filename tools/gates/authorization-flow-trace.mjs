@@ -438,10 +438,12 @@ export function makeAuthorizationTracer(graph, anchors) {
       evaluator = makeEvaluator(graph, facts),
       sourceGraph = anchors.sourceGraph ?? graph,
       sourceEvaluator =
-        sourceGraph === graph && facts.strictMembers
+        descriptor.sourceEvaluator ??
+        (sourceGraph === graph && facts.strictMembers
           ? evaluator
-          : makeEvaluator(sourceGraph, { ...facts, strictMembers: true }),
+          : makeEvaluator(sourceGraph, { ...facts, strictMembers: true })),
       report = {
+        sourceEvaluator,
         authorized: [],
         local: [],
         session: [],
