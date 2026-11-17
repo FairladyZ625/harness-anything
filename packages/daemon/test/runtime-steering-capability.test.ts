@@ -5,6 +5,8 @@ import { renderEvidencePayload } from "@harness-anything/application/queries";
 import { dispatchLifecycleSummary, type AgentRuntimeEventV1 } from "@harness-anything/kernel";
 import { runtimeKinds } from "../src/runtime-inventory.ts";
 import { runtimeSpawnReceipt } from "../src/runtime-spawn-receipt.ts";
+import { validateRuntimeSpawnReceipt } from "../src/gui-s3-control.ts";
+import { validateDaemonGuiCommandReceipt } from "../src/protocol/daemon-protocol-validate-results.ts";
 import { makeAgentActionRuntime } from "../src/squad-action-runtime.ts";
 import { validDispatchLifecycleSummary } from "../src/protocol/daemon-protocol-validate-relation-query.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
@@ -71,6 +73,39 @@ for (const [kindId, supported] of [
         "dispatch",
       );
       assert.equal(receipt.steerSupported, supported);
+      assert.deepEqual(validateDaemonGuiCommandReceipt(receipt), []);
+      assert.notDeepEqual(validateDaemonGuiCommandReceipt({ ...receipt, steerSupported: "false" }), []);
+      assert.notDeepEqual(validateDaemonGuiCommandReceipt({ ...receipt, command: "task-start" }), []);
+      if (receipt.outcome === "applied") {
+        const cut = { repoId: "repo", generation: 1, revision, headDigest: `sha256:${"a".repeat(64)}` },
+          pending = { state: "pending", cut: null },
+          wire = {
+            ...receipt,
+            cut,
+            commitSha: null,
+            authorizationDecision: null,
+            status: "accepted_durable",
+            acceptance: {
+              storage: "sqlite",
+              durability: "local_fsync",
+              recordedAt: "2026-11-18T00:00:00Z",
+              revisionFrom: revision,
+              revisionTo: revision,
+              memberOpIds: [event.opId],
+              cut,
+            },
+            projection: { state: "verified", cut },
+            git: { ...pending, commitSha: null },
+            worktree: pending,
+            replica: pending,
+          };
+        assert.deepEqual(validateRuntimeSpawnReceipt(wire), []);
+        const { steerSupported: _newField, ...previousReceipt } = wire;
+        assert.deepEqual(validateRuntimeSpawnReceipt(previousReceipt), []);
+        assert.deepEqual(validateRuntimeSpawnReceipt({ ...wire, steerSupported: "false" }), [
+          "runtime spawn receipt.steerSupported must be optional-boolean",
+        ]);
+      }
     }
   });
 }
