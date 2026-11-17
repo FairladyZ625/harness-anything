@@ -18,12 +18,15 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
+import { sha256Bytes } from "@harness-anything/kernel";
+import { scanEdgeTaskWorktrees, type FleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { addManagedWorktree, reclaimManagedWorktree } from "../src/schedule-occurrence-workspace.ts";
 import {
   removeEmptyWorktreeDirectory,
   runWorktreeSetup,
   taskWorktreeDocumentBase,
   workerLedgerPath,
+  worktreeAuthoredRelative,
 } from "../src/worktree-setup.ts";
 import { taskWorktreeCandidateInventory } from "../src/task-worktree-candidates.ts";
 
@@ -370,7 +373,7 @@ function repositoryFixture(t: TestContext): string {
   git(root, "config", "user.name", "Worktree Test");
   git(root, "config", "user.email", "worktree@example.invalid");
   writeFileSync(path.join(root, "README.md"), "base\n");
-  writeFileSync(path.join(root, ".gitignore"), "/harness/\n/.harness/\n/.worktrees/\n");
+  writeFileSync(path.join(root, ".gitignore"), "/harness/\n/ledger-data/\n/.harness/\n/.worktrees/\n");
   git(root, "add", "README.md", ".gitignore");
   git(root, "commit", "-qm", "base");
   // origin/main as a worktree base, without a push: the fixture stays hermetic and the worker
@@ -541,3 +544,187 @@ for (const dirty of [false, true]) {
     if (dirty) assert.equal(readFileSync(path.join(worktree.cwd, "README.md"), "utf8"), "unfinished work\n");
   });
 }
+
+test("runWorktreeSetup refreshes unmodified canonical task docs and bases without overwriting local edits", async (t) => {
+  const root = repositoryFixture(t),
+    worktree = { cwd: path.join(root, ".worktrees", taskId), branch: taskId, baseRef: "origin/main" },
+    pkgCanonical = path.join(root, "harness", "tasks", packageName),
+    pkgWorktree = path.join(worktree.cwd, "harness", "tasks", packageName),
+    planLogical = `tasks/${packageName}/task_plan.md`,
+    closeoutLogical = `tasks/${packageName}/closeout.md`,
+    returnLogical = `tasks/${packageName}/returns/round-2.md`;
+  writeFileSync(path.join(pkgCanonical, "closeout.md"), "# Closeout\n\n## Summary\nSkeleton.\n");
+  await addManagedWorktree(root, worktree);
+  await runWorktreeSetup({ rootDir: root, cwd: worktree.cwd, taskId, steps: [], fresh: true });
+
+  // Worker edits closeout.md locally while leaving task_plan.md untouched.
+  writeFileSync(path.join(pkgWorktree, "closeout.md"), "# Closeout\n\n## Summary\nWorker draft.\n");
+  // CEO updates task_plan.md in canonical and adds a return brief before next dispatch.
+  writeFileSync(path.join(pkgCanonical, "task_plan.md"), "# Plan\n\n## Rework\nFix round 2.\n");
+  mkdirSync(path.join(pkgCanonical, "returns"), { recursive: true });
+  writeFileSync(path.join(pkgCanonical, "returns", "round-2.md"), "# Return 2\nCheck closeout.\n");
+
+  await runWorktreeSetup({ rootDir: root, cwd: worktree.cwd, taskId, steps: [], fresh: false });
+  assert.equal(readFileSync(path.join(pkgWorktree, "task_plan.md"), "utf8"), "# Plan\n\n## Rework\nFix round 2.\n");
+  assert.equal(
+    readFileSync(taskWorktreeDocumentBase(worktree.cwd, planLogical), "utf8"),
+    "# Plan\n\n## Rework\nFix round 2.\n",
+    "base anchor must advance with the refreshed canonical task_plan.md",
+  );
+  assert.equal(readFileSync(path.join(pkgWorktree, "returns", "round-2.md"), "utf8"), "# Return 2\nCheck closeout.\n");
+  assert.equal(
+    readFileSync(taskWorktreeDocumentBase(worktree.cwd, returnLogical), "utf8"),
+    "# Return 2\nCheck closeout.\n",
+  );
+  assert.equal(
+    readFileSync(path.join(pkgWorktree, "closeout.md"), "utf8"),
+    "# Closeout\n\n## Summary\nWorker draft.\n",
+    "locally modified files in worktree must not be clobbered",
+  );
+  // Even if CEO also modified closeout.md concurrently, setup preserves worktree edit + old base for CAS.
+  writeFileSync(path.join(pkgCanonical, "closeout.md"), "# Closeout\n\n## Summary\nCEO edit.\n");
+  await runWorktreeSetup({ rootDir: root, cwd: worktree.cwd, taskId, steps: [], fresh: false });
+  assert.equal(
+    readFileSync(path.join(pkgWorktree, "closeout.md"), "utf8"),
+    "# Closeout\n\n## Summary\nWorker draft.\n",
+  );
+  assert.equal(
+    readFileSync(taskWorktreeDocumentBase(worktree.cwd, closeoutLogical), "utf8"),
+    "# Closeout\n\n## Summary\nSkeleton.\n",
+  );
+  // A missing reference must restore the latest accepted source, not resurrect its old base.
+  unlinkSync(path.join(pkgWorktree, "task_plan.md"));
+  const latestPlan = "# Plan\n\n## Rework\nFix round 3.\n";
+  writeFileSync(path.join(pkgCanonical, "task_plan.md"), latestPlan);
+  await runWorktreeSetup({ rootDir: root, cwd: worktree.cwd, taskId, steps: [], fresh: false });
+  assert.equal(readFileSync(path.join(pkgWorktree, "task_plan.md"), "utf8"), latestPlan);
+  assert.equal(readFileSync(taskWorktreeDocumentBase(worktree.cwd, planLogical), "utf8"), latestPlan);
+});
+
+test("review setup materializes fresh packages but preserves existing copies and bases until implementation resumes", async (t) => {
+  const root = repositoryFixture(t),
+    worktree = { cwd: path.join(root, ".worktrees", taskId), branch: taskId, baseRef: "origin/main" },
+    canonicalPlan = path.join(root, plan),
+    workerPlan = path.join(worktree.cwd, plan),
+    base = () => readFileSync(taskWorktreeDocumentBase(worktree.cwd, `tasks/${packageName}/task_plan.md`), "utf8"),
+    setup = { rootDir: root, cwd: worktree.cwd, taskId, steps: [], refreshTaskPackage: false };
+  await addManagedWorktree(root, worktree);
+  await runWorktreeSetup({ ...setup, fresh: true });
+  assert.equal(readFileSync(workerPlan, "utf8"), "# Plan\n");
+  assert.equal(base(), "# Plan\n");
+
+  const updated = "# Owner's updated plan\n",
+    newArtifact = path.join("harness", "tasks", packageName, "artifacts", "owner.md");
+  writeFileSync(canonicalPlan, updated);
+  mkdirSync(path.dirname(path.join(root, newArtifact)), { recursive: true });
+  writeFileSync(path.join(root, newArtifact), "# Owner's new evidence\n");
+  await runWorktreeSetup(setup);
+  assert.equal(readFileSync(workerPlan, "utf8"), "# Plan\n", "review must not refresh the existing package");
+  assert.equal(base(), "# Plan\n", "review must not acknowledge a newer canonical base");
+  assert.equal(existsSync(path.join(worktree.cwd, newArtifact)), false, "review must not inject new owner artifacts");
+
+  await runWorktreeSetup({ ...setup, refreshTaskPackage: true });
+  assert.equal(readFileSync(workerPlan, "utf8"), updated);
+  assert.equal(base(), updated);
+  assert.equal(readFileSync(path.join(worktree.cwd, newArtifact), "utf8"), "# Owner's new evidence\n");
+});
+
+test("declared custom authoredRoot mirrors inside the worktree and returns candidate inventory", async (t) => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-ext-ledger-"));
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const root = path.join(parent, "repo"),
+    extLedger = path.join(root, "ledger-data"),
+    pkg = path.join(extLedger, "tasks", packageName),
+    worktree = { cwd: path.join(root, ".worktrees", taskId), branch: taskId, baseRef: "origin/main" };
+  mkdirSync(root, { recursive: true });
+  git(root, "init", "-q");
+  git(root, "config", "user.name", "Test");
+  git(root, "config", "user.email", "test@example.invalid");
+  writeFileSync(path.join(root, ".gitignore"), "/harness/\n/ledger-data/\n/.harness/\n/.worktrees/\n");
+  mkdirSync(path.join(root, "harness"), { recursive: true });
+  writeFileSync(
+    path.join(root, "harness", "harness.yaml"),
+    "schema: harness-anything/v1\nlayout:\n  authoredRoot: ledger-data\n  localRoot: .harness\n",
+  );
+  writeFileSync(path.join(root, "README.md"), "# Host\n");
+  git(root, "add", ".gitignore", "README.md");
+  git(root, "commit", "-qm", "init");
+  git(root, "update-ref", "refs/remotes/origin/main", "HEAD");
+  mkdirSync(pkg, { recursive: true });
+  writeFileSync(path.join(pkg, "task_plan.md"), "# External Plan\n");
+  writeFileSync(path.join(pkg, "closeout.md"), "## Summary\nSkeleton\n");
+
+  await addManagedWorktree(root, worktree);
+  await runWorktreeSetup({ rootDir: root, cwd: worktree.cwd, taskId, steps: [], fresh: true });
+
+  const worktreePkg = path.join(worktree.cwd, "ledger-data", "tasks", packageName);
+  assert.equal(existsSync(path.join(worktreePkg, "task_plan.md")), true);
+  const readablePlan = workerLedgerPath(root, worktree.cwd, path.join(pkg, "task_plan.md"));
+  assert.equal(readablePlan, realpathSync(path.join(worktreePkg, "task_plan.md")));
+
+  writeFileSync(path.join(worktreePkg, "closeout.md"), "## Summary\nExternal complete\n");
+  writeFileSync(path.join(worktreePkg, "artifacts-note.md"), "note\n");
+  mkdirSync(path.join(worktreePkg, "artifacts"), { recursive: true });
+  writeFileSync(path.join(worktreePkg, "artifacts", "explainer.html"), "<html>ok</html>\n");
+
+  const inventory = taskWorktreeCandidateInventory(root, worktree.cwd, `tasks/${packageName}`, {
+    repoId: "ext",
+    revision: 1,
+    headDigest: `sha256:${"0".repeat(64)}`,
+  });
+  assert.ok(inventory, "custom authoredRoot worktree must produce candidate inventory");
+  const paths = inventory.rows.map((row) => row.path).sort();
+  assert.deepEqual(paths, [
+    `tasks/${packageName}/artifacts-note.md`,
+    `tasks/${packageName}/artifacts/explainer.html`,
+    `tasks/${packageName}/closeout.md`,
+  ]);
+});
+
+test("an authored root outside a checkout uses a worker-owned local mirror path", () => {
+  const rootDir = path.resolve("repo");
+  assert.equal(worktreeAuthoredRelative({ rootDir, authoredRoot: path.resolve("external-ledger") }), "harness");
+  assert.equal(worktreeAuthoredRelative({ rootDir, authoredRoot: rootDir }), "harness");
+});
+
+test("an already accepted edge copy acknowledges the current base before its next edit", async (t) => {
+  const root = repositoryFixture(t),
+    worktree = { cwd: path.join(root, ".worktrees", taskId), branch: taskId, baseRef: "origin/main" },
+    logical = `tasks/${packageName}/closeout.md`,
+    canonical = path.join(root, "harness", logical),
+    local = path.join(worktree.cwd, "harness", logical);
+  await addManagedWorktree(root, worktree);
+  await runWorktreeSetup({ rootDir: root, cwd: worktree.cwd, taskId, steps: [], fresh: true });
+  const accepted = Buffer.from("## Summary\nAccepted on another node.\n");
+  writeFileSync(canonical, accepted);
+  writeFileSync(local, accepted);
+  const view: FleetMirrorView = {
+    repoId: "edge-base",
+    viewId: "node",
+    viewDir: path.join(root, "view"),
+    revision: 2,
+    schemaGeneration: 1,
+    headDigest: `sha256:${"0".repeat(64)}`,
+    manifestDigest: `sha256:${"1".repeat(64)}`,
+    ledgerGeneration: 1,
+    readerProfile: null,
+    authorizationShapeDigest: "",
+    entries: new Map([
+      [
+        logical,
+        { sha256: sha256Bytes(accepted), size: accepted.byteLength, mediaType: "text/markdown", policyId: null },
+      ],
+    ]),
+  };
+  const input = { view, workspaceRoot: root, taskId, packagePath: `tasks/${packageName}`, selection: [logical] };
+  assert.equal(scanEdgeTaskWorktrees(input).changes.length, 0, "accepted bytes must not become a new author input");
+  assert.deepEqual(readFileSync(taskWorktreeDocumentBase(worktree.cwd, logical)), accepted);
+  writeFileSync(local, "## Summary\nThe next worker edit.\n");
+  const [next] = scanEdgeTaskWorktrees(input).changes;
+  assert.equal(next?.path, logical);
+  assert.equal(
+    next?.baseBlobSha256,
+    sha256Bytes(accepted),
+    "a later edit uses the accepted version, not the old snapshot",
+  );
+});

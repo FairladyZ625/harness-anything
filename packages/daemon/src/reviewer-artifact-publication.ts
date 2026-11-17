@@ -179,41 +179,50 @@ export function reviewerArtifactsForReview(
       throw cell.cellCodedError("actor_unauthorized", "Review report must belong to the bound reviewer dispatch.");
     if (runtimeSessionId === null && binding.actor.executor !== null)
       throw cell.cellCodedError("actor_unauthorized", "Review report requires a human or bound reviewer runtime.");
-    if (intent.changes.length !== 1 || intent.changes[0]?.path !== reportPath)
-      throw cell.cellCodedError("review_report_invalid", `Review must carry only its declared report: ${reportPath}.`);
-    const change = intent.changes[0]!,
-      candidate = change.candidate,
-      classification = classifyTextualArtifactPath(change.path);
+    const packetPath = reportPath ? `${reportPath.slice(0, -".md".length)}.json` : null,
+      carriedPaths = intent.changes.map((change) => change.path);
     if (
-      !candidate ||
-      !classification ||
-      change.policyId !== classification.policyId ||
-      candidate.mediaType !== classification.mediaType
+      reportPath === null ||
+      intent.changes.length < 1 ||
+      intent.changes.length > 2 ||
+      new Set(carriedPaths).size !== intent.changes.length ||
+      !carriedPaths.some((candidate) => candidate === reportPath) ||
+      carriedPaths.some((candidate) => candidate !== reportPath && candidate !== packetPath)
     )
-      throw cell.cellCodedError("review_report_invalid", "Review report requires its declared textual policy.");
-    if ((cell.projection.readDocument(change.path).document?.blobSha256 ?? null) !== change.baseBlobSha256)
-      throw cell.cellCodedError("base_blob_changed", "Review report base has changed at the center.");
-    const bytes = claimBytes(cell.rootDir, candidate.ref);
-    if (!bytes || bytes.byteLength !== candidate.size)
-      throw cell.cellCodedError("content_claim_mismatch", "Review report bytes do not match the carried claim.");
-    let body: string;
-    try {
-      body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    } catch {
-      throw cell.cellCodedError("review_report_invalid", "Review report must be UTF-8 text.");
-    }
-    if (sha256Text(body) !== candidate.sha256)
-      throw cell.cellCodedError("content_claim_mismatch", "Review report digest does not match the carried claim.");
-    return {
-      changes: [
-        {
+      throw cell.cellCodedError("review_report_invalid", `Review must carry only its declared report: ${reportPath}.`);
+    const rows = intent.changes.map((change) => {
+      const candidate = change.candidate,
+        classification = classifyTextualArtifactPath(change.path);
+      if (
+        !candidate ||
+        !classification ||
+        change.policyId !== classification.policyId ||
+        candidate.mediaType !== classification.mediaType
+      )
+        throw cell.cellCodedError("review_report_invalid", "Review report requires its declared textual policy.");
+      if ((cell.projection.readDocument(change.path).document?.blobSha256 ?? null) !== change.baseBlobSha256)
+        throw cell.cellCodedError("base_blob_changed", "Review report base has changed at the center.");
+      const bytes = claimBytes(cell.rootDir, candidate.ref);
+      if (!bytes || bytes.byteLength !== candidate.size)
+        throw cell.cellCodedError("content_claim_mismatch", "Review report bytes do not match the carried claim.");
+      let body: string;
+      try {
+        body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      } catch {
+        throw cell.cellCodedError("review_report_invalid", "Review report must be UTF-8 text.");
+      }
+      if (sha256Text(body) !== candidate.sha256)
+        throw cell.cellCodedError("content_claim_mismatch", "Review report digest does not match the carried claim.");
+      return {
+        change: {
           ...change,
           candidate: { sha256: candidate.sha256, size: candidate.size, mediaType: candidate.mediaType },
           regionProofs: [],
         },
-      ],
-      blobs: [{ sha256: candidate.sha256, size: candidate.size, mediaType: candidate.mediaType, body }],
-    };
+        blob: { sha256: candidate.sha256, size: candidate.size, mediaType: candidate.mediaType, body },
+      };
+    });
+    return { changes: rows.map(({ change }) => change), blobs: rows.map(({ blob }) => blob) };
   }
   if (runtimeSessionId === null) return null;
   if (!dispatch) return null;

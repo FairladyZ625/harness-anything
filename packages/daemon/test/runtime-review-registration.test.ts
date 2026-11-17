@@ -74,15 +74,24 @@ for (const source of ["local", { kind: "node", nodeId: "edge-one" }] as const)
         } as never,
       };
     assert.doesNotThrow(() => requireCurrentExecutionScope(input));
-    const report = { path: `${packagePath}/artifacts/reports/${principal.dispatchId}.md` };
+    const report = { path: `${packagePath}/artifacts/reports/${principal.dispatchId}.md` },
+      carriedPacket = { path: packet };
     assert.doesNotThrow(() =>
       requireCurrentExecutionScope({ ...input, action: { ...action, fromFile: undefined, docChanges: [report] } }),
+    );
+    assert.doesNotThrow(() =>
+      requireCurrentExecutionScope({
+        ...input,
+        action: { ...action, fromFile: undefined, docChanges: [carriedPacket, report] },
+      }),
     );
     for (const changed of [
       { taskId: "task-other" },
       { reviewId: "review-other" },
       { fromFile: "harness/tasks/task-other/artifacts/reports/other.json" },
       { docChanges: [{ path: `${packagePath}/artifacts/reports/other.md` }] },
+      { docChanges: [carriedPacket] },
+      { docChanges: [carriedPacket, carriedPacket] },
       { docChanges: [report, report] },
       { docChanges: [] },
     ])

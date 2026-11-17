@@ -47,9 +47,11 @@ import {
 } from "./fleet-edge-content.ts";
 import {
   applyFleetMirrorCut,
-  cacheFleetMirrorDirtyBases,
+  acceptEdgeWorktreeScanBases,
+  fleetMirrorCutFile,
   locateFleetMirrorView,
   readFleetUnresolvedConflicts,
+  scanEdgeTaskWorktrees,
   withFleetMirrorLock,
   type FleetMirrorView,
   type FleetStagedConflict,
@@ -286,9 +288,9 @@ function fleetExactTaskPackagePath(view: FleetMirrorView, workspaceRoot: string,
     const match = /^(tasks\/[^/]+)\/INDEX\.md$/u.exec(logical);
     if (!match) continue;
     try {
-      const body = new TextDecoder("utf-8", { fatal: true }).decode(
-        readAuthoredDocumentBytes(materializedRoot, logical),
-      );
+      const cutBytes = fleetMirrorCutFile(view, logical),
+        raw = cutBytes ?? readAuthoredDocumentBytes(materializedRoot, logical),
+        body = new TextDecoder("utf-8", { fatal: true }).decode(raw);
       if (body.split(/\r?\n/u).some((line) => line === `task_id: ${taskId}` || line === `taskId: ${taskId}`))
         paths.add(match[1]!);
     } catch (error) {
@@ -424,8 +426,7 @@ export async function runFleetEdgeTask(
           "execution_credential_rejected",
           "Task document selection cannot name other paths.",
         );
-      const scan = cacheFleetMirrorDirtyBases(payload.viewRoot, payload.repoId, workspaceRoot, packagePath);
-      if (!scan) throw new FleetEdgeTaskError("mirror_missing", "Task document scan is unavailable.");
+      const scan = scanEdgeTaskWorktrees({ view, workspaceRoot, taskId, packagePath });
       const changes = scan.changes.filter((change) => change.path.startsWith(`${packagePath}/`));
       const admission = await readFleetRepositoryMetadataClient({ ...peer, taskId, actionKind: "doc-submit" });
       if (admission.actionAllowed !== true)
@@ -460,6 +461,7 @@ export async function runFleetEdgeTask(
           ).center,
       });
       if (center.outcome === "applied") {
+        acceptEdgeWorktreeScanBases(changes, workspaceRoot);
         const materialized = applyFleetMirrorCut(payload.viewRoot, payload.repoId, workspaceRoot, "pull", {
           kind: "task-docs",
           taskId,
@@ -666,7 +668,11 @@ export async function runFleetEdgeTask(
       }
     }
     const receipt = result.receipt ?? { outcome: result.outcome, code: result.code };
-    if (applied) rememberAppliedCut(payload.viewRoot, payload.repoId, payload.nodeId, result.appliedCut);
+    if (applied) {
+      if (workspaceRoot !== null && bundle !== null)
+        acceptEdgeWorktreeScanBases(bundle.acceptedWorktreeChanges, workspaceRoot);
+      rememberAppliedCut(payload.viewRoot, payload.repoId, payload.nodeId, result.appliedCut);
+    }
     if (receiptFormat === "domain")
       return {
         ...receipt,
@@ -733,26 +739,67 @@ export async function runFleetEdgeTask(
       readonly candidate: FleetDescriptor;
     }[];
     readonly mirrorBaseCut: { readonly revision: number; readonly headDigest: string };
+    readonly acceptedWorktreeChanges: Parameters<typeof acceptEdgeWorktreeScanBases>[0];
   } | null> {
     if (taskId === null || workspaceRoot === null || action.kind === "task-create") return null;
     const view = locateFleetMirrorView(payload.viewRoot, payload.repoId, payload.nodeId);
     if (view === null) return null;
-    // The pre-pull base-cache scan over this same view and tree is exactly the
-    // dirty-detection the carry set needs; reuse it instead of scanning twice.
     const packagePath = fleetExactTaskPackagePath(view, workspaceRoot, taskId);
     if (packagePath === null) return null;
-    const preScan = cacheFleetMirrorDirtyBases(payload.viewRoot, payload.repoId, workspaceRoot, packagePath);
-    if (preScan === null) return null;
+    const preScan = scanEdgeTaskWorktrees({
+      view,
+      workspaceRoot,
+      taskId,
+      packagePath,
+      includeReviewWorktrees: action.kind === "task-review-execution",
+    });
+    const conflict = preScan.blocked.find(
+      (row) => row.code === "worktree_workspace_conflict" && row.path.startsWith(`${packagePath}/`),
+    );
+    if (conflict)
+      throw new FleetEdgeTaskError(
+        "doc_conflict",
+        `Conflicting local edits exist in both task worktree and workspace for ${conflict.path}.`,
+      );
     const reportPath =
-      action.kind === "task-review-execution" ? reviewReportRelativePath(packagePath, String(action.reviewId)) : null;
-    const candidates = preScan.changes
-      .filter((change) =>
+        action.kind === "task-review-execution" ? reviewReportRelativePath(packagePath, String(action.reviewId)) : null,
+      packetPath = reportPath === null ? null : `${reportPath.slice(0, -".md".length)}.json`,
+      hasReviewReport = reportPath !== null && preScan.changes.some((change) => change.path === reportPath),
+      packageChanges = preScan.changes.filter((change) =>
         action.kind === "task-review-execution"
-          ? change.path === reportPath
+          ? change.path === reportPath || (hasReviewReport && change.path === packetPath)
           : change.path.startsWith(`${packagePath}/`),
-      )
-      // Task lifecycle claims are UTF-8 text; raw-policy artifacts stay for doc-sync even when their bytes decode.
-      .filter((change) => change.policyId !== RAW_ARTIFACT_POLICY_ID && isUtf8(change.bytes));
+      ),
+      rawChanges =
+        action.kind === "task-submit"
+          ? packageChanges.filter((change) => change.policyId === RAW_ARTIFACT_POLICY_ID)
+          : [];
+    if (rawChanges.length > 0) {
+      const { center: rawCenter } = await runFleetWriteClient({
+        ...peer,
+        taskId,
+        executionId: null,
+        channel: "collaborator",
+        baseLedgerSha: { repoId: view.repoId, revision: view.revision, headDigest: view.headDigest },
+        changes: rawChanges.map((change) => ({
+          path: change.path,
+          body: Buffer.from(change.bytes),
+          baseBlobSha256: change.baseBlobSha256,
+          policyId: change.policyId,
+          mediaType: change.mediaType,
+        })),
+      });
+      if (rawCenter.outcome !== "applied" && rawCenter.outcome !== "no_changes")
+        throw new FleetEdgeTaskError(
+          rawCenter.code ?? "doc_sync_failed",
+          `Submission artifact sync failed (${rawCenter.code ?? rawCenter.outcome}).`,
+        );
+      if (rawCenter.outcome === "applied") acceptEdgeWorktreeScanBases(rawChanges, workspaceRoot);
+    }
+    // Task lifecycle claims are UTF-8 text; raw-policy artifacts travel through doc-submit above on submit.
+    const candidates = packageChanges.filter(
+      (change) => change.policyId !== RAW_ARTIFACT_POLICY_ID && isUtf8(change.bytes),
+    );
     if (candidates.length === 0) return null;
     const descriptors = await runFleetEdgeUploadClient({
       ...peer,
@@ -771,6 +818,7 @@ export async function runFleetEdgeTask(
         candidate: descriptors[index]!,
       })),
       mirrorBaseCut: { revision: view.revision, headDigest: view.headDigest },
+      acceptedWorktreeChanges: candidates.filter((change) => change.worktreeRoot !== undefined),
     };
   }
 }

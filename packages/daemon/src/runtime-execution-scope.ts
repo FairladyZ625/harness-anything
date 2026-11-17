@@ -345,30 +345,37 @@ export function requireCurrentExecutionScope(input: {
     if (input.action.kind === "task-review-execution") {
       if (!taskReview) throw executionCredentialRejected();
       const packagePath = input.projection.read(p.taskId).packagePath,
-        reportPacket = `${packagePath}/artifacts/reports/${p.dispatchId}.json`;
+        reportPacket = `${packagePath}/artifacts/reports/${p.dispatchId}.json`,
+        reportMarkdown = `${packagePath}/artifacts/reports/${p.dispatchId}.md`;
       const fromFile = String(input.action.fromFile ?? ""),
         // A reviewer may run in its own worktree and therefore name the canonical packet by
-        // absolute path; the read boundary later proves that path is inside the workspace.
+        // absolute path; the read boundary later proves containment.
         packetNamed =
           fromFile.replace(/^harness\//u, "") === reportPacket ||
           fromFile === reportPacket ||
-          (path.isAbsolute(fromFile) && fromFile.replace(/\\/gu, "/").endsWith(`/${reportPacket}`));
+          (path.isAbsolute(fromFile) && fromFile.replace(/\\/gu, "/").endsWith(`/${reportPacket}`)),
+        carriedPaths = Array.isArray(input.action.docChanges)
+          ? input.action.docChanges.map((change) => (isJsonObject(change) ? change.path : null))
+          : null,
+        carriedValid =
+          carriedPaths !== null &&
+          carriedPaths.length >= 1 &&
+          carriedPaths.length <= 2 &&
+          new Set(carriedPaths).size === carriedPaths.length &&
+          carriedPaths.includes(reportMarkdown) &&
+          carriedPaths.every((candidate) => candidate === reportMarkdown || candidate === reportPacket);
       if (
         input.action.reviewId !== `review-${p.dispatchId}` ||
-        (input.action.docChanges === undefined
-          ? !packetNamed
-          : !Array.isArray(input.action.docChanges) ||
-            input.action.docChanges.length !== 1 ||
-            !isJsonObject(input.action.docChanges[0]) ||
-            input.action.docChanges[0].path !== `${packagePath}/artifacts/reports/${p.dispatchId}.md`)
-      )
-        throw Object.assign(executionCredentialRejected(), {
-          message:
-            `Reviewer dispatch ${p.dispatchId} may register only its assigned review. Use ` +
-            `ha task review-execution ${p.taskId} --execution-id ${p.executionId} ` +
-            `--review-id review-${p.dispatchId} --from-file harness/${reportPacket}. ` +
-            "A carried review must contain only this dispatch's Markdown report.",
-        });
+        (input.action.docChanges === undefined ? !packetNamed : !carriedValid)
+      ) {
+        const error = executionCredentialRejected();
+        error.message =
+          `Reviewer dispatch ${p.dispatchId} may register only its assigned review. Use ` +
+          `ha task review-execution ${p.taskId} --execution-id ${p.executionId} ` +
+          `--review-id review-${p.dispatchId} --from-file harness/${reportPacket}. ` +
+          "A carried review must contain this dispatch's Markdown report and may include its JSON packet.";
+        throw error;
+      }
     } else if (ingress && !taskReview && !decisionReview) {
       throw executionCredentialRejected();
     }

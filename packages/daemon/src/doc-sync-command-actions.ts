@@ -347,7 +347,7 @@ function acceptWorktreeBases(
     const candidate = rows.get(row.path);
     if (!candidate?.bytes || row.candidateBlobSha256 !== input.projection.readDocument(row.path).document?.blobSha256)
       continue;
-    acceptTaskWorktreeDocumentBase(taskRoot, row.path, candidate.bytes);
+    acceptTaskWorktreeDocumentBase(taskRoot, row.path, candidate.bytes, input.rootDir);
   }
   return receipt;
 }

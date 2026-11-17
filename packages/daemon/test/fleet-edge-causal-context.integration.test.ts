@@ -432,14 +432,16 @@ test(
     );
   },
 );
-// Each damaged local mirror retains the preceding admission conditions. These are
-// edge task-context assertions, independent of the center ingress scope checks.
+// Dispatch refreshes missing files from the accepted cut before context admission.
+// Locally edited files and unreadable directories retain their own failures.
 for (const probe of [
   { name: "task absent", code: "task_read_failed", message: /Task context is unavailable/u },
   { name: "package absent", code: "runtime_task_package_unavailable", message: /exactly one/u },
-  { name: "plan unreadable", code: "runtime_task_package_unavailable", message: /readable mirrored task plan/u },
+  { name: "plan missing", code: "runtime_instance_not_found", message: /unavailable-instance/u },
+  { name: "plan unreadable", code: "EISDIR", message: /EISDIR/u },
   { name: "mission absent", code: "runtime_mission_unavailable", message: /no current mirrored mission/u },
-  { name: "mission unreadable", code: "runtime_mission_unavailable", message: /is unreadable/u },
+  { name: "mission missing", code: "runtime_instance_not_found", message: /unavailable-instance/u },
+  { name: "mission unreadable", code: "EISDIR", message: /EISDIR/u },
   { name: "mission empty", code: "runtime_mission_unavailable", message: /is empty/u },
   {
     name: "contract unreadable",
@@ -448,7 +450,8 @@ for (const probe of [
   },
   { name: "contract unresolved", code: "runtime_task_package_unavailable", message: /scaffold is not resolvable/u },
 ]) {
-  test(`edge task context rejects ${probe.name}`, { timeout: 60_000 }, async (t) => {
+  const verb = probe.name.endsWith("missing") ? "refreshes" : "rejects";
+  test(`edge task context ${verb} ${probe.name}`, { timeout: 60_000 }, async (t) => {
     const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"], [], "local", "# English\n# 中文\n");
     t.after(() => fixture.close());
     const missionLogical = "tasks/task-fleet-fleet/artifacts/missions/probe.md";
@@ -498,8 +501,14 @@ for (const probe of [
     assert.match(readFileSync(path.join(packageRoot, "task_plan.md"), "utf8"), /Fleet/u);
     assert.equal(readFileSync(missionPath, "utf8"), "Run the probe.\n");
     if (probe.name === "package absent") writeFileSync(path.join(packageRoot, "INDEX.md"), "task_id: another-task\n");
-    if (probe.name === "plan unreadable") rmSync(path.join(packageRoot, "task_plan.md"));
-    if (probe.name === "mission unreadable") rmSync(missionPath);
+    if (probe.name === "plan missing" || probe.name === "plan unreadable") {
+      rmSync(path.join(packageRoot, "task_plan.md"));
+      if (probe.name === "plan unreadable") mkdirSync(path.join(packageRoot, "task_plan.md"));
+    }
+    if (probe.name === "mission missing" || probe.name === "mission unreadable") {
+      rmSync(missionPath);
+      if (probe.name === "mission unreadable") mkdirSync(missionPath);
+    }
     if (probe.name === "mission empty") writeFileSync(missionPath, " \n");
     if (probe.name === "contract unreadable") writeFileSync(contractPath, "{");
     if (probe.name === "contract unresolved") writeFileSync(contractPath, JSON.stringify({ documents: [] }));
@@ -548,6 +557,9 @@ for (const probe of [
       (error: unknown) => {
         assert.equal((error as { code?: string }).code, probe.code, (error as Error).stack);
         assert.match((error as Error).message, probe.message);
+        if (probe.name === "plan missing")
+          assert.match(readFileSync(path.join(packageRoot, "task_plan.md"), "utf8"), /Fleet/u);
+        if (probe.name === "mission missing") assert.equal(readFileSync(missionPath, "utf8"), "Run the probe.\n");
         return true;
       },
     );

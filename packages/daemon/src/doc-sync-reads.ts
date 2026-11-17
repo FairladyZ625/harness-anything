@@ -46,6 +46,7 @@ import {
   taskWorktreeBinding,
 } from "./task-worktree.ts";
 import { taskWorktreeRoot } from "./task-worktree-candidates.ts";
+import { worktreeAuthoredRelative } from "./worktree-setup.ts";
 import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 import {
   readSubmissionArtifact,
@@ -836,10 +837,7 @@ function executionWorkspaceRoot(
     return { root: null, worktreeRoot: null, reason: "execution_workspace_unavailable" };
   const taskRoot = taskWorktreeRoot(context, task.snapshot);
   if (taskRoot === null) return { root: null, worktreeRoot: null, reason: "execution_workspace_not_materialized" };
-  const layout = resolveHarnessLayout(context.rootDir),
-    relative = path.relative(layout.rootDir, layout.authoredRoot);
-  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
-    return { root: null, worktreeRoot: null, reason: "execution_workspace_outside_checkout" };
+  const relative = worktreeAuthoredRelative(resolveHarnessLayout(context.rootDir));
   return {
     root: path.resolve(taskRoot, relative, ...packagePath.split("/")),
     worktreeRoot: taskRoot,
