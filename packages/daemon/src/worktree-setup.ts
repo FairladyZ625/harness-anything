@@ -66,6 +66,8 @@ export interface WorktreeSetupInput {
   readonly steps: readonly string[];
   /** True only immediately after checkout, before the worker can edit tracked ledger files. */
   readonly fresh?: boolean;
+  /** Reviews preserve an existing checkout's package and bases; fresh checkouts still materialize them. */
+  readonly refreshTaskPackage?: boolean;
   readonly stepTimeoutMs?: number;
 }
 
@@ -84,7 +86,8 @@ export type WorktreeSetupResult =
  * yet; stops at the first that fails.
  */
 export async function runWorktreeSetup(input: WorktreeSetupInput): Promise<WorktreeSetupResult> {
-  linkWorktreeLedger(input.rootDir, input.cwd, input.taskId, input.fresh === true);
+  if (input.fresh === true || input.refreshTaskPackage !== false)
+    linkWorktreeLedger(input.rootDir, input.cwd, input.taskId, input.fresh === true);
   if (input.steps.length === 0) return { ok: true, ran: [] };
   const directory = await setupDirectory(input.cwd),
     succeeded = readSucceeded(directory),

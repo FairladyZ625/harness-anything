@@ -601,6 +601,34 @@ test("runWorktreeSetup refreshes unmodified canonical task docs and bases withou
   assert.equal(readFileSync(taskWorktreeDocumentBase(worktree.cwd, planLogical), "utf8"), latestPlan);
 });
 
+test("review setup materializes fresh packages but preserves existing copies and bases until implementation resumes", async (t) => {
+  const root = repositoryFixture(t),
+    worktree = { cwd: path.join(root, ".worktrees", taskId), branch: taskId, baseRef: "origin/main" },
+    canonicalPlan = path.join(root, plan),
+    workerPlan = path.join(worktree.cwd, plan),
+    base = () => readFileSync(taskWorktreeDocumentBase(worktree.cwd, `tasks/${packageName}/task_plan.md`), "utf8"),
+    setup = { rootDir: root, cwd: worktree.cwd, taskId, steps: [], refreshTaskPackage: false };
+  await addManagedWorktree(root, worktree);
+  await runWorktreeSetup({ ...setup, fresh: true });
+  assert.equal(readFileSync(workerPlan, "utf8"), "# Plan\n");
+  assert.equal(base(), "# Plan\n");
+
+  const updated = "# Owner's updated plan\n",
+    newArtifact = path.join("harness", "tasks", packageName, "artifacts", "owner.md");
+  writeFileSync(canonicalPlan, updated);
+  mkdirSync(path.dirname(path.join(root, newArtifact)), { recursive: true });
+  writeFileSync(path.join(root, newArtifact), "# Owner's new evidence\n");
+  await runWorktreeSetup(setup);
+  assert.equal(readFileSync(workerPlan, "utf8"), "# Plan\n", "review must not refresh the existing package");
+  assert.equal(base(), "# Plan\n", "review must not acknowledge a newer canonical base");
+  assert.equal(existsSync(path.join(worktree.cwd, newArtifact)), false, "review must not inject new owner artifacts");
+
+  await runWorktreeSetup({ ...setup, refreshTaskPackage: true });
+  assert.equal(readFileSync(workerPlan, "utf8"), updated);
+  assert.equal(base(), updated);
+  assert.equal(readFileSync(path.join(worktree.cwd, newArtifact), "utf8"), "# Owner's new evidence\n");
+});
+
 test("declared custom authoredRoot mirrors inside the worktree and returns candidate inventory", async (t) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-ext-ledger-"));
   t.after(() => rmSync(parent, { recursive: true, force: true }));

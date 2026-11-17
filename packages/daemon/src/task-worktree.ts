@@ -213,7 +213,15 @@ export async function checkoutTaskWorktree(
       if (fresh) await addPinnedReviewWorktree(rootDir, reviewCwd, pinnedCommit);
       const verify = () => verifyReviewCheckout(reviewCwd, pinnedCommit);
       await verify();
-      const prepared = await runWorktreeSetup({ rootDir, cwd: reviewCwd, taskId, steps, stepTimeoutMs, fresh });
+      const prepared = await runWorktreeSetup({
+        rootDir,
+        cwd: reviewCwd,
+        taskId,
+        steps,
+        stepTimeoutMs,
+        fresh,
+        refreshTaskPackage: false,
+      });
       await verify();
       return {
         cwd: reviewCwd,
@@ -313,7 +321,16 @@ export async function checkoutTaskWorktree(
       cwd,
       branch,
       baseRef: fresh ? (published ?? defaultRef) : null,
-      setup: await runWorktreeSetup({ rootDir, cwd, taskId, steps, stepTimeoutMs, fresh }),
+      // Artifact-only reviews reuse the implementation checkout but must leave its package and bases intact.
+      setup: await runWorktreeSetup({
+        rootDir,
+        cwd,
+        taskId,
+        steps,
+        stepTimeoutMs,
+        fresh,
+        refreshTaskPackage: followPublished,
+      }),
     };
   });
 }
