@@ -146,8 +146,7 @@ async function proxyRequest(
   const cookies = responseHeaders.getSetCookie?.() ?? [];
   if (cookies.length > 0) {
     responseHeaders.delete("set-cookie");
-    for (const cookie of cookies)
-      responseHeaders.append("set-cookie", cookie.replace(/;\s*(?:Domain=[^;]*|Secure)(?=;|$)/giu, ""));
+    for (const cookie of cookies) responseHeaders.append("set-cookie", rewriteSetCookie(cookie));
   }
   if (suppliedCapability === capability)
     responseHeaders.append("set-cookie", `harness-gateway=${capability}; Path=/; HttpOnly; SameSite=Lax`);
@@ -158,6 +157,12 @@ async function proxyRequest(
   if (outputCookies.length > 0) responseHeadersObject["set-cookie"] = outputCookies;
   response.writeHead(upstreamResponse.status, responseHeadersObject);
   response.end(output);
+}
+
+function rewriteSetCookie(cookie: string): string {
+  return cookie
+    .replace(/;\s*(?:Domain=[^;]*|Secure)(?=;|$)/giu, "")
+    .replace(/(;\s*)SameSite=None(?=\s*(?:;|$))/giu, "$1SameSite=Lax");
 }
 
 function rewriteText(value: string, origins: readonly string[], gatewayOrigin: string): string {
