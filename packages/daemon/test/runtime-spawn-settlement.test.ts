@@ -189,7 +189,10 @@ test("a late provider exit after cancellation does not publish a second terminal
           stream: { publish: () => ({}) },
           remote: {
             archive: async () => ({ outcome: "applied" }),
-            taskContext: async () => ({ packageRoot }),
+            taskContext: async (...args: unknown[]) => {
+              assert.equal(args[4], "settlement", "an exit must not require fresh mission context");
+              return { packageRoot };
+            },
           },
         },
         resultMediaType: "text/markdown",

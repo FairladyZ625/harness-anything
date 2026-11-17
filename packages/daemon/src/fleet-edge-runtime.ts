@@ -504,15 +504,17 @@ export function openFleetEdgeRuntime(input: {
         payload: query,
       })) as unknown as import("@harness-anything/kernel").DispatchLifecycleRead;
     };
-  const readServingTaskContext = async (taskId: string) => {
+  const readTaskContext = async (taskId: string, purpose?: "settlement") => {
     const { runtimeReadPeer, request } = context();
     return taskRuntimeContext(
-      await readFleetOperationalClient({
-        ...runtimeReadPeer,
-        repoId: request.repoId,
-        method: "repo.tasks.runtimeContext.read",
-        payload: { taskId },
-      }),
+      purpose === "settlement"
+        ? await readReplica("repo.tasks.runtimeContext.read", { taskId })
+        : await readFleetOperationalClient({
+            ...runtimeReadPeer,
+            repoId: request.repoId,
+            method: "repo.tasks.runtimeContext.read",
+            payload: { taskId },
+          }),
       taskId,
     );
   };
@@ -566,11 +568,11 @@ export function openFleetEdgeRuntime(input: {
         );
       },
       runtimeControlReceipt: (runtimeSessionId) => runtimeControlReceipts.get(runtimeSessionId) ?? null,
-      taskContext: async (taskId, missionName, review, onClaimed) => {
+      taskContext: async (taskId, missionName, review, onClaimed, purpose) => {
         const { request, centerWriteWaitMs, writePeer } = context();
 
         await pullRuntimeReplica();
-        let runtimeContext = await readServingTaskContext(taskId);
+        let runtimeContext = await readTaskContext(taskId, purpose);
         let current = runtimeContext.snapshot;
         if (!current.task) throw edgeRuntimeError("task_read_failed", "Task context is unavailable.");
         let executionId = review
@@ -585,7 +587,7 @@ export function openFleetEdgeRuntime(input: {
             execution.state === "active",
         );
         const taskStartExecutionId = activeExecution?.executionId ?? "runtime-task-start-" + taskId;
-        if (!executionId && !review && canStartExecution(current, taskStartExecutionId)) {
+        if (!executionId && !review && purpose !== "settlement" && canStartExecution(current, taskStartExecutionId)) {
           const taskStartOpId = randomUUID();
           const started = await runFleetEdgeWrite({
             viewRoot: request.viewRoot,
@@ -646,7 +648,7 @@ export function openFleetEdgeRuntime(input: {
                 );
             });
           await pullRuntimeReplica();
-          runtimeContext = await readServingTaskContext(taskId);
+          runtimeContext = await readTaskContext(taskId, purpose);
           current = runtimeContext.snapshot;
           executionId = current.lease?.phase === "held" ? current.lease.executionId : undefined;
         }
@@ -771,7 +773,7 @@ export function openFleetEdgeRuntime(input: {
             ),
             ...(mission ? [`# Mission: ${missionName}\n\n${mission.trim()}`] : []),
           ];
-        if (review) {
+        if (review && purpose !== "settlement") {
           const execution = current.executions.find((value) => value.executionId === executionId)!,
             submission = execution.submission!,
             executorId = execution.actor.executor?.id,

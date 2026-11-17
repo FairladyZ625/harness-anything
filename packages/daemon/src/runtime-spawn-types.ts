@@ -383,6 +383,8 @@ export interface RemoteRuntimePersistence {
     missionName?: string,
     review?: { readonly executionId: string | undefined },
     onClaimed?: (release: () => Promise<void>) => void,
+    /** Settlement reads the existing replica; only a new mission requires the center's serving cut. */
+    purpose?: "settlement",
   ) => Promise<{
     readonly executionId: string;
     readonly reviewerSubmission?: Parameters<typeof import("@harness-anything/kernel").submissionDigest>[0];
