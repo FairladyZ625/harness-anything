@@ -9314,16 +9314,34 @@
         "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-generation.ts#installReplicaGeneration:c012b41837bc598d5e9fb83a17b1b5ed",
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-generation.ts#installReplicaGeneration.abort:f4f67a0092ae65b768463d9ff4bc7057",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/worker_threads.d.ts#worker_threads.Worker.terminate"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-generation.ts#removeStagingDirectory:254b8b0b318018013890bec03e5f8964",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.rm"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-generation.ts#publishStagingGeneration:89e8a65f13e2c43541ce06fc7618359f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-install-worker.ts#runInstall:c012b41837bc598d5e9fb83a17b1b5ed",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-generation.ts#installReplicaGeneration:4f4a62056e152ae4437b39739592cd32",
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-install-worker.ts#runInstall.stagingKey:a6100030afb5c0106a3286bcd242fe16",
         "route": "daemon-local-state",
         "role": "technical-port",
-        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.rm"
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update"
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-generation.ts#createGenerationReaders.collect:e34e442181e9b15541e03deb141205c6",
@@ -9332,7 +9350,7 @@
         "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-generation.ts#createGenerationReaders.discardStaging:da7f497050ac0dfd1b51cf38d73df542",
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet/replica-generation.ts#createGenerationReaders.discardStaging:dedcd2f8c0d5782c781fef3afee63531",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.rm"

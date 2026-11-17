@@ -1016,6 +1016,15 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     words: ["materialized", "dematerialized_terminal", "skipped_by_node_policy"],
     mirrorOf: "canonical-materialization.state",
   },
+  {
+    id: "task.replica-staging-phase",
+    entity: "Task",
+    field: "staging phase",
+    module: "packages/daemon/src/fleet/replica-generation.ts",
+    anchor: "ReplicaStagingPhase",
+    words: ["unpacking", "hydrating", "flushing", "ready"],
+    ownerStore: "task.replica-generation",
+  },
 ];
 
 export function statusWords(entity: StatusEntity, field?: string): readonly string[] {

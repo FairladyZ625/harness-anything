@@ -12,7 +12,25 @@ import {
 import { parseCanonicalEvent } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events.ts";
 import { canonicalEventContentClaims } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
 import { openReplicaProjection } from "./replica-projection.ts";
-import { removeFileDurably } from "./durable-file.ts";
+import { removeFileDurably, writeFileDurably } from "./durable-file.ts";
+
+interface SeedCheckpoint {
+  readonly processedOutcomes: number;
+}
+
+function readSeedCheckpoint(checkpointPath: string): number {
+  if (!existsSync(checkpointPath)) return 0;
+  try {
+    const parsed = JSON.parse(readFileSync(checkpointPath, "utf8")) as Partial<SeedCheckpoint>;
+    return typeof parsed.processedOutcomes === "number" &&
+      Number.isInteger(parsed.processedOutcomes) &&
+      parsed.processedOutcomes >= 0
+      ? parsed.processedOutcomes
+      : 0;
+  } catch {
+    return 0;
+  }
+}
 
 /** Runs only on the receiving edge, before its ordinary generation readers validate and publish. */
 export async function hydrateReplicaSeed(rootDir: string, metadata: BaseBackupMetadata): Promise<void> {
@@ -24,13 +42,15 @@ export async function hydrateReplicaSeed(rootDir: string, metadata: BaseBackupMe
       String(metadata.ledgerGeneration),
       "ledger.sqlite",
     ),
-    seedPath = path.join(path.dirname(ledgerPath), "canonical-seed.json");
+    seedPath = path.join(path.dirname(ledgerPath), "canonical-seed.json"),
+    checkpointPath = path.join(path.dirname(ledgerPath), "canonical-seed.checkpoint.json");
   if (!existsSync(seedPath)) return;
   const seed = JSON.parse(readFileSync(seedPath, "utf8")) as {
       readonly events: readonly SqliteEventRow[];
       readonly outcomes: readonly SqliteCommandOutcome[];
       readonly writer: SqliteWriterFence;
     },
+    startIndex = Math.min(readSeedCheckpoint(checkpointPath), seed.outcomes.length),
     importer = openSqliteEventStore({
       repoId: metadata.repoId,
       databasePath: ledgerPath,
@@ -38,29 +58,37 @@ export async function hydrateReplicaSeed(rootDir: string, metadata: BaseBackupMe
       conversionSourceGeneration: 2,
     });
   try {
-    for (const outcome of seed.outcomes) {
-      const rows =
-          outcome.firstRevision === null ? [] : seed.events.slice(outcome.firstRevision - 1, outcome.lastRevision!),
-        events = rows.map((row) => parseCanonicalEvent(row.eventJson)),
-        claims = new Map(
-          events.flatMap((event) =>
-            canonicalEventContentClaims(event as never).map((claim) => [claim.sha256, claim] as const),
-          ),
-        );
-      importer.appendCommand({
-        fence: seed.writer,
-        intent: { opId: outcome.opId, intentDigest: outcome.intentDigest, summary: outcome.summary },
-        events: events as never,
-        rejectionCode: outcome.rejectionCode ?? undefined,
-        blobs: [...claims.values()].map((claim) => ({
-          ...claim,
-          mediaType: "application/octet-stream",
-          body: readFileSync(
-            path.join(path.dirname(ledgerPath), "objects", "sha256", claim.sha256.slice(0, 2), claim.sha256.slice(2)),
-          ),
-        })),
-        historicalRecord: { recordedAt: outcome.recordedAt, eventRecordedAt: rows.map((row) => row.recordedAt) },
-      });
+    for (let offset = startIndex; offset < seed.outcomes.length; offset += 100) {
+      const batch = seed.outcomes.slice(offset, offset + 100);
+      for (const outcome of batch) {
+        const rows =
+            outcome.firstRevision === null ? [] : seed.events.slice(outcome.firstRevision - 1, outcome.lastRevision!),
+          events = rows.map((row) => parseCanonicalEvent(row.eventJson)),
+          claims = new Map(
+            events.flatMap((event) =>
+              canonicalEventContentClaims(event as never).map((claim) => [claim.sha256, claim] as const),
+            ),
+          );
+        importer.appendCommand({
+          fence: seed.writer,
+          intent: { opId: outcome.opId, intentDigest: outcome.intentDigest, summary: outcome.summary },
+          events: events as never,
+          rejectionCode: outcome.rejectionCode ?? undefined,
+          blobs: [...claims.values()].map((claim) => ({
+            ...claim,
+            mediaType: "application/octet-stream",
+            body: readFileSync(
+              path.join(path.dirname(ledgerPath), "objects", "sha256", claim.sha256.slice(0, 2), claim.sha256.slice(2)),
+            ),
+          })),
+          historicalRecord: { recordedAt: outcome.recordedAt, eventRecordedAt: rows.map((row) => row.recordedAt) },
+        });
+      }
+      const processedOutcomes = offset + batch.length;
+      writeFileDurably(checkpointPath, JSON.stringify({ processedOutcomes }));
+      if (processedOutcomes < seed.outcomes.length) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
     }
   } finally {
     importer.close();
@@ -91,5 +119,6 @@ export async function hydrateReplicaSeed(rootDir: string, metadata: BaseBackupMe
   } finally {
     model.close();
   }
+  if (existsSync(checkpointPath)) removeFileDurably(checkpointPath);
   removeFileDurably(seedPath);
 }
