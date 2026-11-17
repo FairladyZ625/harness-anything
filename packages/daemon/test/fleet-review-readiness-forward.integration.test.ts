@@ -25,7 +25,8 @@ test(
       version: "1.0.0",
       observedAt: "2026-11-07T00:00:00.000Z",
     };
-    let origin = "";
+    let origin = "",
+      branch = "main";
     const f = await fleetNodeClaimFixture(
         t,
         undefined,
@@ -38,11 +39,11 @@ test(
         },
         async (repo) => {
           origin = path.join(path.dirname(repo), "origin.git");
-          git(repo, "branch", "-M", "main");
-          git(repo, "init", "--bare", "-q", "--initial-branch=main", origin);
+          branch = git(repo, "symbolic-ref", "--short", "HEAD");
+          git(repo, "init", "--bare", "-q", `--initial-branch=${branch}`, origin);
           git(repo, "remote", "add", "origin", origin);
-          git(repo, "push", "-qu", "origin", "main");
-          git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
+          git(repo, "push", "-qu", "origin", branch);
+          git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", `refs/remotes/origin/${branch}`);
         },
       ),
       repoId = "lease-repo",
@@ -106,8 +107,8 @@ test(
       beforeOpen: (root) => {
         git(root, "remote", "add", "origin", origin);
         git(root, "fetch", "-q", "origin");
-        git(root, "checkout", "-B", "main", "origin/main");
-        git(root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
+        git(root, "checkout", "-B", branch, `origin/${branch}`);
+        git(root, "symbolic-ref", "refs/remotes/origin/HEAD", `refs/remotes/origin/${branch}`);
       },
     });
     await catchUpReplica({ ...f.peer("node-one"), viewRoot: edge.viewRoot, diskQuotaBytes: 64 * 1024 * 1024 });
@@ -125,9 +126,12 @@ test(
       mode: "remote-edge",
       createConvenienceLinks: false,
     });
-    git(f.repo, "commit", "--allow-empty", "-qm", "advance center main");
-    git(f.repo, "push", "-q", "origin", "main");
-    const oidc = createIdentitySession(edge.edgeUser, { fetch: f.owners.keycloak.fetch });
+    git(f.repo, "commit", "--allow-empty", "-qm", "advance center default branch");
+    git(f.repo, "push", "-q", "origin", branch);
+    const oidc = createIdentitySession(edge.edgeUser, { fetch: f.owners.keycloak.fetch }),
+      behindPattern = new RegExp(`Node node-one:.*behind the center ${branch} by [1-9][0-9]* commits?`, "u"),
+      ffPattern = new RegExp(`merge --ff-only origin/${branch}`, "u"),
+      warningPattern = new RegExp(`edge_default_branch_behind.*merge --ff-only origin/${branch}`, "u");
     for (const action of [
       { kind: "task-submit", taskId, executionId },
       { kind: "task-dispatch-review", taskIds: [taskId] },
@@ -153,9 +157,9 @@ test(
       assert.equal(failures?.length, 1, JSON.stringify(receipt));
       assert.equal(failures[0]!.executionId, executionId);
       assert.equal(failures[0]!.code, "edge_default_branch_behind");
-      assert.match(failures[0]!.message, /Node node-one:.*behind the center main by [1-9][0-9]* commits?/u);
-      assert.match(failures[0]!.message, /merge --ff-only origin\/main/u);
-      assert.match(String(receipt.warnings), /edge_default_branch_behind.*merge --ff-only origin\/main/u);
+      assert.match(failures[0]!.message, behindPattern);
+      assert.match(failures[0]!.message, ffPattern);
+      assert.match(String(receipt.warnings), warningPattern);
       assert.match(String(receipt.summary), /edge_default_branch_behind/u);
       const shown = await f.host.run(repoId, { kind: "task-show", taskId }, localAuthFixture()),
         snapshot = JSON.parse(String(shown.evidence));
@@ -166,6 +170,6 @@ test(
       );
     }
     const agenda = await f.host.read(repoId, "repo.agenda.read", { limit: 50 }, f.owners.auth({ nodeId: "node-one" }));
-    assert.match(JSON.stringify(agenda), /edge_default_branch_behind.*merge --ff-only origin\/main/u);
+    assert.match(JSON.stringify(agenda), warningPattern);
   },
 );
